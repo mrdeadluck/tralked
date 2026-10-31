@@ -80,6 +80,10 @@ Sem uma chave, a integração correspondente usa fixtures locais (`src/lib/integ
 
 A Steam é a exceção: sem `STEAM_API_KEY` ela usa as páginas públicas da comunidade (`src/lib/integrations/steam/community.ts`): perfil e conquistas de perfis públicos em XML e a raridade global, sem chave. A lista de jogos de um perfil exige login na Steam, então a sincronização sonda os jogos do catálogo, um por um, com no máximo uma requisição a cada 1,2 s por domínio: cada sincronização sonda o que cabe em 45 s (o ponto de partida gira pelo catálogo a cada 2 minutos, então sincronizações seguidas cobrem o catálogo todo), para depois de 5 falhas seguidas, e só volta aos jogos que já estão na biblioteca uma vez por semana ou quando os dados do jogo mudam. A importação por script sonda o catálogo inteiro. Com `STEAM_MODE=fixture` tudo fica offline.
 
+**Biblioteca completa e horas (Plano 4).** Com `STEAM_API_KEY`, a sincronização grava a biblioteca Steam inteira (`GetOwnedGames` com `include_appinfo` e `include_played_free_games`, inclusive jogos nunca jogados) com horas por jogo, horas das últimas 2 semanas e última vez jogado (`UserGame.playtimeMin`, `playtime2WeeksMin`, `lastPlayedAt`); jogos fora do catálogo entram como entradas só com nome (`Game.stub`). Conquistas são lidas só dos jogos jogados desde a última leitura (`UserGame.checkedPlaytimeMin`), dentro do mesmo limite de 45 s; o que sobrar continua na próxima. A lista de desejos vem de `IWishlistService/GetWishlist` (também sem chave, para listas públicas) e é substituída a cada sincronização (`WishlistItem`). PSN (`gamelist/v2`, `playDuration`) e Xbox (estatística `MinutesPlayed` via OpenXBL) gravam as horas de todos os jogos jogados, com ou sem troféus; o RetroAchievements informa segundos (convertidos para minutos). Cada marco de horas acumuladas por jogo e plataforma paga XP uma vez (ledger `source = 'playtime'`, `sourceKey = '<plataforma>:<gameId>:<marco>'`, datado no pagamento; só horas reais informadas pela plataforma). **Nada abaixo de 5 h num jogo** (contra "idle farming"): o primeiro marco pago, 5 h, vale o acumulado até ele, `round(2000 · 5^0,7)`; os seguintes (10, 25, 50, 100, 250, 500, 1000, 2500, 5000 e 10000 h) valem `round(2000 · (m^0,7 − anterior^0,7))`. Limites por usuário (`src/lib/sync/playtime.ts`): no máximo **10 jogos novos** começam a render horas por dia UTC (um jogo "começa" quando seu primeiro marco é pago; os que passarem do limite ficam para os dias seguintes, os mais jogados primeiro) e no máximo **150 jogos** rendem horas na vida toda (o mesmo jogo em outra plataforma não conta de novo; jogos que já rendem continuam rendendo marcos novos; os que passarem desse limite nunca rendem). Desconectar ou perder a conta numa reivindicação anula esse XP como o resto, e marcos anulados nunca pagam de novo. Atributos novos: **Resistência** (`round(10 · horas totais^0,7)`) e **Acervo** (10 por jogo jogado + 5 por jogo possuído e nunca jogado). Leitura para o perfil: `getUserLibrary`, `getUserWishlist` e `getPlaytimeTotals` em `src/lib/library/queries.ts`.
+
+Um app que a Steam lista sem nome (ainda fora da lista de apps importada) entra como `Jogo <appid> da Steam`, com o slug provisório `jogo-<appid>-da-steam`, e continua `stub` (fora das listagens) enquanto o nome for esse. Quando os detalhes (ou o IGDB) trazem o nome real, o slug provisório passa a ser o do nome real: ele nunca foi listado, pré-renderizado nem entrou no sitemap, e as páginas sempre linkam pelo slug atual; jogos com nome real nunca mudam de slug. PSN/Xbox/RA casam títulos com o catálogo listado por nome normalizado e com os stubs só por nome exato (sem diferenciar maiúsculas), um a um, sem carregar os ~150 mil nomes; títulos só com horas (sem troféus) não consultam o IGDB, e o passo de horas respeita o prazo da execução (o resto continua na próxima). No Xbox, os títulos cujos minutos já foram pedidos ficam guardados (`SyncCursor`, por conta e jogador) e só são pedidos de novo quando jogados outra vez. Num build de produção, `STEAM_MODE=fixture` só vale com `PLATFORM_FIXTURES=1` ou `STEAM_FIXTURES=1` (modos de teste, nunca num deploy real; o e2e usa o segundo).
+
 ## E-mail transacional (Resend)
 
 O Tralked envia quatro e-mails, em pt-BR e com a marca (HTML simples sem imagens externas + versão em texto): **redefinir senha**, **boas-vindas** (com "Confirmar e-mail"), **confirmar e-mail** (troca de e-mail e "Reenviar" em `/conta`) e **confirmar a newsletter**. O código fica em `src/lib/mail/` (`mailer.ts` chama `POST https://api.resend.com/emails` com `Authorization: Bearer`, `User-Agent` e `Idempotency-Key`; `templates.ts` tem os textos). Uma falha da Resend é registrada no log (sem link nem chave) e nunca derruba o cadastro nem o formulário.
@@ -155,7 +159,7 @@ Um perfil importado não tem e-mail nem senha: quem reivindicar essa Steam (cód
 
 ## Cron
 
-Sete jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
+Oito jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
 
 | Endpoint | Faz |
 | --- | --- |
@@ -166,6 +170,7 @@ Sete jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame
 | `/api/cron/media` | Busca vídeos, screenshots e artworks (IGDB) e capa/hero/logo (SteamGridDB) de jogos ainda sem mídia oficial. |
 | `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte e data das notícias que citam um jogo do catálogo. |
 | `/api/cron/notifications` | Diário: apaga notificações com mais de 90 dias (o texto delas pode citar outras pessoas, inclusive quem excluiu a conta). |
+| `/api/cron/steam-catalog` | Catálogo completo da Steam, em 50 s por execução: (1) até 40% do tempo importando a lista de jogos da loja (`IStoreService/GetAppList`, 10 mil por página, exige `STEAM_API_KEY`) como entradas só com nome (`Game.stub`, fora das listagens, do sitemap e dos seletores), retomando pelo `last_appid` guardado em `SyncCursor`; terminada uma volta, as seguintes pedem só o que mudou (`if_modified_since`); (2) uma página do SteamSpy (os mil mais possuídos, girando pelas 10 primeiras) define `Game.popularity`; (3) no tempo que sobra, detalhes da loja em pt-BR (resumo, desenvolvedora, data, nota; nunca preço), tags (habilidades), conquistas com raridade e artes do CDN da Steam pelo appid (capa 600×900, hero e logo conferidos com `HEAD` antes de gravar; sem capa, SteamGridDB e depois IGDB), na ordem: jogos que alguém abriu, jogos que alguém tem ou deseja, os mais populares. Offline (`STEAM_MODE=fixture`) só a lista de apps da fixture é importada. |
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://seu-dominio/api/cron/catalog
@@ -189,7 +194,8 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
     { "path": "/api/cron/catalog", "schedule": "0 3 * * *" },
     { "path": "/api/cron/rarity", "schedule": "30 3 * * *" },
     { "path": "/api/cron/media", "schedule": "0 4 * * *" },
-    { "path": "/api/cron/notifications", "schedule": "15 5 * * *" }
+    { "path": "/api/cron/notifications", "schedule": "15 5 * * *" },
+    { "path": "/api/cron/steam-catalog", "schedule": "20 * * * *" }
   ]
 }
 ```
@@ -202,6 +208,7 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
 | `users` | a cada 30 min | contas Steam desatualizadas, poucas por vez |
 | `catalog`, `rarity`, `media` | 1x por dia, de madrugada (horário de Brasília) | dados que mudam devagar |
 | `notifications` | 1x por dia | apaga notificações com mais de 90 dias |
+| `steam-catalog` | de hora em hora | catálogo completo da Steam: lista de apps (incremental), popularidade e detalhes dos jogos mais procurados, um pouco por vez |
 
 A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste falha se as duas divergirem ou se algum job ficar sem horário.
 

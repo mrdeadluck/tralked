@@ -42,6 +42,28 @@ type AchievementRecord = {
   rarity?: { currentPercentage?: number };
 };
 
+type StatsResponse = {
+  statlistscollection?: {
+    stats?: { name?: string; titleid?: string | number; value?: string | number }[];
+  }[];
+};
+
+/** Titles per stats request (one batch request covers many titles). */
+const STATS_BATCH = 25;
+
+/** `MinutesPlayed` per title from a user-stats batch answer (missing or unreadable values left out). */
+export function parseMinutesPlayed(body: StatsResponse): Map<string, number> {
+  const minutes = new Map<string, number>();
+  for (const list of body.statlistscollection ?? []) {
+    for (const stat of list.stats ?? []) {
+      if (stat.name !== "MinutesPlayed" || stat.titleid === undefined) continue;
+      const value = Number(stat.value);
+      if (Number.isFinite(value) && value >= 0) minutes.set(String(stat.titleid), Math.floor(value));
+    }
+  }
+  return minutes;
+}
+
 // Xbox reports locked achievements with this placeholder time.
 const NEVER = "0001-01-01T00:00:00.0000000Z";
 
@@ -55,13 +77,16 @@ export function createXboxClient({
   apiKey,
   fetch: fetchImpl = globalThis.fetch,
 }: XboxClientConfig): XboxApi {
-  async function get<T>(path: string, what: string): Promise<T | "private" | null> {
+  async function get<T>(path: string, what: string, body?: unknown): Promise<T | "private" | null> {
     const res = await fetchImpl(`${BASE}${path}`, {
+      method: body === undefined ? "GET" : "POST",
       headers: {
         "X-Authorization": apiKey,
         Accept: "application/json",
         "Accept-Language": "pt-BR",
+        ...(body !== undefined && { "Content-Type": "application/json" }),
       },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
       signal: timeoutSignal(),
     });
     if (res.status === 403) return "private";
@@ -138,6 +163,25 @@ export function createXboxClient({
           rarityPct: a.rarity?.currentPercentage ?? null,
         };
       });
+    },
+
+    async getMinutesPlayed(xuid, titleIds): Promise<Map<string, number> | "private"> {
+      // OpenXBL forwards this batch to Xbox Live user stats: the "Hero" (featured) stat
+      // MinutesPlayed that every title has, as Exophase reads it.
+      const minutes = new Map<string, number>();
+      for (let i = 0; i < titleIds.length; i += STATS_BATCH) {
+        const batch = titleIds.slice(i, i + STATS_BATCH);
+        const body = await get<StatsResponse>("/player/stats", "stats", {
+          arrangebyfield: "xuid",
+          xuids: [xuid],
+          groups: batch.map((titleId) => ({ name: "Hero", titleId })),
+          stats: batch.map((titleId) => ({ name: "MinutesPlayed", titleId })),
+        });
+        if (body === "private") return "private";
+        if (body === null) continue;
+        for (const [titleId, value] of parseMinutesPlayed(body)) minutes.set(titleId, value);
+      }
+      return minutes;
     },
   };
 }

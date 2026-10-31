@@ -145,8 +145,10 @@ export function createRetroClient({
           };
         },
       );
+      // RA documents UserTotalPlaytime in seconds; 0 means RA has no session for the player.
+      const seconds = body?.UserTotalPlaytime;
       return {
-        playtimeMin: body?.UserTotalPlaytime ?? null,
+        playtimeMin: typeof seconds === "number" && seconds > 0 ? Math.floor(seconds / 60) : null,
         achievements,
       };
     },

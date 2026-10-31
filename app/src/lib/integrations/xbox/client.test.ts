@@ -20,6 +20,40 @@ function setup(handler: (url: URL) => Response) {
 }
 
 describe("xbox client (OpenXBL)", () => {
+  it("reads MinutesPlayed of many titles in batched POSTs to the user stats proxy", async () => {
+    const ids = Array.from({ length: 30 }, (_, i) => String(1000 + i));
+    const { client, fetchMock } = setup((url) => {
+      expect(url.pathname).toBe("/api/v2/player/stats");
+      return json({
+        statlistscollection: [
+          {
+            stats: [
+              { name: "MinutesPlayed", titleid: "1000", value: "754" },
+              { name: "MinutesPlayed", titleid: 1001, value: 12 },
+              { name: "OtherStat", titleid: "1002", value: "9" },
+              { name: "MinutesPlayed", titleid: "1003", value: "n/a" },
+            ],
+          },
+        ],
+      });
+    });
+    const minutes = await client.getMinutesPlayed("2535", ids);
+    expect(minutes).toEqual(new Map([["1000", 754], ["1001", 12]]));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init?.method).toBe("POST");
+    const body = JSON.parse(String(init?.body));
+    expect(body.xuids).toEqual(["2535"]);
+    expect(body.stats).toHaveLength(25);
+    expect(body.stats[0]).toEqual({ name: "MinutesPlayed", titleId: "1000" });
+    expect(new Headers(init?.headers).get("X-Authorization")).toBe(KEY);
+  });
+
+  it("reports private stats", async () => {
+    const { client } = setup(() => json({}, 403));
+    await expect(client.getMinutesPlayed("2535", ["1"])).resolves.toBe("private");
+  });
+
   it("finds a profile by gamertag with its bio", async () => {
     const { client, fetchMock } = setup((url) => {
       if (url.pathname === "/api/v2/search/Lucas%20Exemplo") {
@@ -153,7 +187,11 @@ describe("xbox fixture", () => {
     const profile = await xbox.findProfile("lucas exemplo");
     expect(profile?.xuid).toBe("2535400000000001");
     const titles = await xbox.getTitles("2535400000000001");
-    expect(titles).toHaveLength(2);
+    // Two with achievements and one played without any unlock yet.
+    expect(titles).toHaveLength(3);
+    const minutes = await xbox.getMinutesPlayed("2535400000000001", ["90000001", "90000005", "99999999"]);
+    expect(minutes).toEqual(new Map([["90000001", 720], ["90000005", 140]]));
+    await expect(xbox.getMinutesPlayed("2535400000000003", ["90000001"])).resolves.toBe("private");
     const list = await xbox.getAchievements("2535400000000001", "90000003");
     expect((list as { unlocked: boolean }[]).filter((a) => a.unlocked)).toHaveLength(6);
   });

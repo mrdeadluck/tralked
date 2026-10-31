@@ -28,7 +28,13 @@ export type SitemapData = {
 /** Everything public and indexable: games, published guides and articles, visible forum threads. */
 export async function loadSitemapData(): Promise<SitemapData> {
   const [games, guides, articles, threads] = await Promise.all([
-    prisma.game.findMany({ select: { slug: true, updatedAt: true }, orderBy: { slug: "asc" }, take: MAX_PER_KIND }),
+    prisma.game.findMany({
+      // Name-only stubs of the full Steam catalog are not indexed until they have details.
+      where: { stub: false },
+      select: { slug: true, updatedAt: true },
+      orderBy: { slug: "asc" },
+      take: MAX_PER_KIND,
+    }),
     prisma.guide.findMany({
       where: { status: "published" },
       select: { updatedAt: true, game: { select: { slug: true } } },

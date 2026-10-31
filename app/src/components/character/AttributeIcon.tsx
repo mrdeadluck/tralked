@@ -33,6 +33,17 @@ const PATHS: Record<AttributeId, ReactNode> = {
   sabedoria: (
     <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z" />
   ),
+  // Hourglass: hours endured.
+  resistencia: <path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9" />,
+  // Shelf of game cases.
+  acervo: (
+    <>
+      <path d="M3 21h18" />
+      <rect x="4" y="6" width="4" height="15" />
+      <rect x="10" y="4" width="4" height="17" />
+      <path d="m16 8 3.5-1 3 13.5-3.5 1z" />
+    </>
+  ),
 };
 
 type AttributeIconProps = Omit<SVGProps<SVGSVGElement>, "children"> & { name: AttributeId };

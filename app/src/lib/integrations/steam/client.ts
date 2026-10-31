@@ -20,8 +20,60 @@ type PlayerSummariesResponse = {
 };
 
 type OwnedGamesResponse = {
-  response?: { game_count?: number; games?: { appid: number; playtime_forever?: number }[] };
+  response?: {
+    game_count?: number;
+    games?: {
+      appid: number;
+      name?: string;
+      playtime_forever?: number;
+      playtime_2weeks?: number;
+      rtime_last_played?: number;
+    }[];
+  };
 };
+
+type WishlistResponse = {
+  response?: { items?: { appid?: number; priority?: number; date_added?: number }[] };
+};
+
+type AppListResponse = {
+  response?: {
+    apps?: { appid?: number; name?: string; last_modified?: number }[];
+    have_more_results?: boolean;
+    last_appid?: number;
+  };
+};
+
+/** A Unix time from Steam (seconds; 0 = unknown) as a Date, or null. */
+export const steamTime = (seconds: number | undefined): Date | null =>
+  seconds && seconds > 0 ? new Date(seconds * 1000) : null;
+
+/** Parses IWishlistService/GetWishlist (shared by the keyed and keyless adapters). */
+export function parseWishlist(data: WishlistResponse) {
+  return (data.response?.items ?? []).flatMap((item) =>
+    Number.isInteger(item.appid) && item.appid! > 0
+      ? [
+          {
+            appId: item.appid!,
+            priority: Number.isInteger(item.priority) ? item.priority! : null,
+            addedAt: steamTime(item.date_added),
+          },
+        ]
+      : [],
+  );
+}
+
+/** Parses one IStoreService/GetAppList page (apps without an id or a name are dropped). */
+export function parseAppList(data: AppListResponse) {
+  const raw = data.response?.apps ?? [];
+  const apps = raw.flatMap((a) =>
+    Number.isInteger(a.appid) && a.appid! > 0 && a.name?.trim()
+      ? [{ appId: a.appid!, name: a.name.trim(), lastModified: a.last_modified ?? null }]
+      : [],
+  );
+  const lastAppId = data.response?.last_appid ?? raw.at(-1)?.appid ?? 0;
+  return { apps, haveMore: data.response?.have_more_results === true, lastAppId };
+}
 
 type SchemaResponse = {
   game?: {
@@ -93,9 +145,10 @@ export function createSteamClient({
     },
 
     async getOwnedGames(steamId) {
+      // Every game of the library, never-played and played free-to-play games included.
       const data = await getJson<OwnedGamesResponse>(
         "/IPlayerService/GetOwnedGames/v1/",
-        { steamid: steamId, include_appinfo: 1, format: "json" },
+        { steamid: steamId, include_appinfo: 1, include_played_free_games: 1, format: "json" },
       );
       // A public profile with "Game details" private answers `{"response":{}}`: neither
       // `games` nor `game_count`. A real empty library still carries `game_count: 0`.
@@ -103,7 +156,29 @@ export function createSteamClient({
       return (data.response?.games ?? []).map((g) => ({
         appId: g.appid,
         playtimeMin: g.playtime_forever ?? 0,
+        name: g.name?.trim() || undefined,
+        playtime2WeeksMin: g.playtime_2weeks ?? 0,
+        lastPlayedAt: steamTime(g.rtime_last_played),
       }));
+    },
+
+    async getWishlist(steamId) {
+      const path = "/IWishlistService/GetWishlist/v1/";
+      const res = await request(path, { steamid: steamId });
+      if (res.status === 401 || res.status === 403) return "private";
+      if (!res.ok) throw new Error(`Steam API ${path} failed with HTTP ${res.status}`);
+      // A private wishlist answers `{"response":{}}`, like an empty one: both import as empty.
+      return parseWishlist((await res.json()) as WishlistResponse);
+    },
+
+    async getAppList({ lastAppId, ifModifiedSince, maxResults } = {}) {
+      const data = await getJson<AppListResponse>("/IStoreService/GetAppList/v1/", {
+        include_games: 1,
+        max_results: maxResults ?? 10_000,
+        ...(lastAppId && { last_appid: lastAppId }),
+        ...(ifModifiedSince && { if_modified_since: ifModifiedSince }),
+      });
+      return parseAppList(data);
     },
 
     async getSchemaForGame(appId) {

@@ -108,7 +108,8 @@ export async function syncGameMedia(
  */
 export async function syncStaleMedia(limit = 20): Promise<{ processed: number; failed: number }> {
   const candidates = await prisma.game.findMany({
-    where: { media: { none: { source: "igdb" } } },
+    // Stubs of the full Steam catalog (name only) wait for their store details first.
+    where: { stub: false, media: { none: { source: "igdb" } } },
     select: { id: true },
   });
   const picked = candidates

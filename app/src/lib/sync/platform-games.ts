@@ -9,8 +9,12 @@ const IGDB_COVER_URL = "https://images.igdb.com/igdb/image/upload/t_cover_big";
 /** Normalized name or alias -> game id; names shared by two games are ambiguous (null). */
 export type NameIndex = Map<string, string | null>;
 
+/**
+ * Name index of the listed catalog. Name-only stubs of the full Steam catalog (~150k) stay out:
+ * they are matched one by one by exact name (findStubByName), so a sync never loads them all.
+ */
 export async function loadNameIndex(): Promise<NameIndex> {
-  const games = await prisma.game.findMany({ select: { id: true, name: true, aliases: true } });
+  const games = await prisma.game.findMany({ where: { stub: false }, select: { id: true, name: true, aliases: true } });
   const index: NameIndex = new Map();
   for (const game of games) {
     for (const name of new Set([game.name, ...game.aliases].map(normalizeTitle))) {
@@ -19,6 +23,19 @@ export async function loadNameIndex(): Promise<NameIndex> {
     }
   }
   return index;
+}
+
+/**
+ * The one stub whose name is exactly `name` (ignoring case), or null (none, or ambiguous). Written
+ * as `lower(name) = lower($1)` on stubs so it uses the partial expression index
+ * `Game_stub_name_lower_idx` (migration 20261101130000_full_sync_playtime), not a scan of ~150k rows.
+ */
+export async function findStubByName(name: string): Promise<string | null> {
+  const trimmed = name.replace(/[™®©]/g, "").trim();
+  if (!trimmed) return null;
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "Game" WHERE stub AND lower(name) = lower(${trimmed}) LIMIT 2`;
+  return rows.length === 1 ? rows[0].id : null;
 }
 
 const isUniqueViolation = (error: unknown) =>
@@ -31,17 +48,24 @@ async function linkPlatform(gameId: string, platform: string, externalId: string
   });
 }
 
+export type ResolveOptions = {
+  /** Ask IGDB for unknown titles (default true). Play-time-only titles skip it: no budget for it. */
+  igdb?: boolean;
+};
+
 /**
  * Finds the catalog game of a platform title, in order: the platform link (PSN
- * npCommunicationId, Xbox titleId, RA game id), the normalized name or an alias, then IGDB by
- * exact name (matched to the catalog by igdbId). A title nobody knows yet becomes a new game,
- * with IGDB metadata and skills when IGDB knows it. The link is stored so the next sync is a
- * single lookup. `names` is updated in place with created games.
+ * npCommunicationId or store title id, Xbox titleId, RA game id), the normalized name or an alias
+ * of a listed game, the exact name of a stub of the full Steam catalog, then IGDB by exact name
+ * (matched to the catalog by igdbId). A title nobody knows yet becomes a new game, with IGDB
+ * metadata and skills when IGDB knows it. The link is stored so the next sync is a single lookup.
+ * `names` is updated in place with created games.
  */
 export async function resolvePlatformGame(
   platform: string,
   title: { externalId: string; name: string; platformLabel: string },
   names: NameIndex,
+  { igdb: useIgdb = true }: ResolveOptions = {},
 ): Promise<string> {
   const link = await prisma.gamePlatformLink.findUnique({
     where: { platform_externalId: { platform, externalId: title.externalId } },
@@ -55,13 +79,21 @@ export async function resolvePlatformGame(
     await linkPlatform(byName, platform, title.externalId);
     return byName;
   }
+  const stub = await findStubByName(title.name);
+  if (stub) {
+    await linkPlatform(stub, platform, title.externalId);
+    names.set(normalized, stub);
+    return stub;
+  }
 
   let igdb = null;
-  try {
-    igdb = await getIgdb().findByName(title.name);
-  } catch (error) {
-    // Best effort: without IGDB the game is still created, just without metadata.
-    console.warn(`Platform sync: IGDB lookup failed for a ${platform} title`, error);
+  if (useIgdb) {
+    try {
+      igdb = await getIgdb().findByName(title.name);
+    } catch (error) {
+      // Best effort: without IGDB the game is still created, just without metadata.
+      console.warn(`Platform sync: IGDB lookup failed for a ${platform} title`, error);
+    }
   }
   if (igdb) {
     const known = await prisma.game.findFirst({ where: { igdbId: igdb.igdbId }, select: { id: true } });

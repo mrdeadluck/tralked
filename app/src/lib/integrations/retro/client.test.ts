@@ -81,7 +81,8 @@ describe("retroachievements client", () => {
     const { client } = setup(() =>
       json({
         NumDistinctPlayers: 200,
-        UserTotalPlaytime: 60,
+        // Seconds (RA's unit): 2 h 5 min 30 s.
+        UserTotalPlaytime: 7530,
         Achievements: {
           "9": { ID: 9, Title: "Easy", Description: "Do it", Points: 3, NumAwarded: 150, BadgeName: "250336", DateEarned: "2016-03-12 17:47:29", DateEarnedHardcore: "2016-03-12 17:47:29" },
           "10": { ID: 10, Title: "Soft", Points: 5, NumAwarded: 10, DateEarned: "2016-03-13 10:00:00" },
@@ -90,7 +91,7 @@ describe("retroachievements client", () => {
       }),
     );
     const progress = await client.getGameProgress("MaxMilyin", "1");
-    expect(progress.playtimeMin).toBe(60);
+    expect(progress.playtimeMin).toBe(125);
     expect(progress.achievements).toEqual([
       {
         id: "9",

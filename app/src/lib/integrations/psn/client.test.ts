@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPsnClient, PsnAuthError } from "./client";
+import { createPsnClient, parsePlayDuration, PsnAuthError } from "./client";
 import { createPsnFixture } from "./fixture";
 
 const NPSSO = "npsso-secret-value-0123456789";
@@ -100,6 +100,55 @@ describe("psn client", () => {
     await expect(client.findProfile("Ninguem")).resolves.toBeNull();
     await expect(client.findProfile("Lucas-Exemplo")).resolves.toMatchObject({ isPrivate: true });
     await expect(client.getTitles("123")).resolves.toBe("private");
+  });
+
+  it("reads ISO 8601 play durations as whole minutes", () => {
+    expect(parsePlayDuration("PT228H56M33S")).toBe(228 * 60 + 56);
+    expect(parsePlayDuration("P1DT2H")).toBe(26 * 60);
+    expect(parsePlayDuration("PT59S")).toBe(0);
+    expect(parsePlayDuration("PT45M")).toBe(45);
+    expect(parsePlayDuration("PT1.5S")).toBe(0);
+    expect(parsePlayDuration("")).toBeNull();
+    expect(parsePlayDuration("PT")).toBeNull();
+    expect(parsePlayDuration("1 hour")).toBeNull();
+    expect(parsePlayDuration(undefined)).toBeNull();
+  });
+
+  it("pages through the played games (gamelist v2) with their play time", async () => {
+    const played = (id: string, duration: string) => ({
+      titleId: id,
+      name: `Game ${id}`,
+      localizedName: `Jogo ${id}`,
+      category: "ps5_native_game",
+      playDuration: duration,
+      firstPlayedDateTime: "2025-01-01T10:00:00Z",
+      lastPlayedDateTime: "2026-02-03T04:05:06.12Z",
+    });
+    const { client, fetchMock } = setup((url) => {
+      expect(url.pathname).toBe("/api/gamelist/v2/users/123/titles");
+      return url.searchParams.get("offset") === "0"
+        ? json({ titles: [played("PPSA1", "PT10H5M"), { titleId: "X", playDuration: "PT1H" }], nextOffset: 2, totalItemCount: 3 })
+        : json({ titles: [played("CUSA2", "PT0S")], totalItemCount: 3 });
+    });
+    await expect(client.getPlayedGames("123")).resolves.toEqual([
+      {
+        titleId: "PPSA1",
+        name: "Jogo PPSA1",
+        category: "ps5_native_game",
+        playtimeMin: 605,
+        firstPlayedAt: new Date("2025-01-01T10:00:00Z"),
+        lastPlayedAt: new Date("2026-02-03T04:05:06.12Z"),
+      },
+      expect.objectContaining({ titleId: "CUSA2", playtimeMin: 0 }),
+    ]);
+    const calls = fetchMock.mock.calls.map((c) => new URL(String(c[0]))).filter((u) => u.pathname.includes("gamelist"));
+    expect(calls.map((u) => u.searchParams.get("offset"))).toEqual(["0", "2"]);
+    expect(calls[0].searchParams.get("categories")).toBe("ps4_game,ps5_native_game");
+  });
+
+  it("reports a hidden gaming history as private", async () => {
+    const { client } = setup(() => json({ error: {} }, 403));
+    await expect(client.getPlayedGames("123")).resolves.toBe("private");
   });
 
   it("pages through trophy titles", async () => {

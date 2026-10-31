@@ -40,6 +40,19 @@ export type PsnTrophy = {
   rarityPct: number | null;
 };
 
+/** A PS4/PS5 game the player has played, with PSN's own play time (gamelist v2). */
+export type PsnPlayedGame = {
+  /** Store title id of the version played, e.g. `CUSA01433_00` or `PPSA01325_00`. */
+  titleId: string;
+  name: string;
+  /** `ps4_game` | `ps5_native_game` | `pspc_game` | `unknown`. */
+  category: string;
+  /** `playDuration` in whole minutes (PSN counts it to the second). */
+  playtimeMin: number;
+  firstPlayedAt: Date | null;
+  lastPlayedAt: Date | null;
+};
+
 export interface PsnApi {
   /** Null when no PSN account has this online id. */
   findProfile(onlineId: string): Promise<PsnProfile | null>;
@@ -51,4 +64,6 @@ export interface PsnApi {
     npTitleId: string,
     serviceName: PsnServiceName,
   ): Promise<PsnTrophy[] | "private">;
+  /** PS4/PS5 games played, with play time; `'private'` when the gaming history is hidden. */
+  getPlayedGames(accountId: string): Promise<PsnPlayedGame[] | "private">;
 }

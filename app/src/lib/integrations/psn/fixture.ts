@@ -1,5 +1,5 @@
 import type { TrophyTier } from "@/lib/engine/trophies";
-import type { PsnApi, PsnProfile, PsnTitle, PsnTrophy } from "./types";
+import type { PsnApi, PsnPlayedGame, PsnProfile, PsnTitle, PsnTrophy } from "./types";
 
 /**
  * Offline PSN adapter. Its accounts and titles mirror the development seed
@@ -95,6 +95,54 @@ const TITLES: FixtureTitle[] = [
   },
 ];
 
+/**
+ * Played games with PSN play time (gamelist): the trophy titles' games under their store title ids,
+ * plus one game without any trophy earned (Resident Evil 4) and one made-up game the trophy list
+ * does not have (Jornada Submersa).
+ */
+const PLAYED: PsnPlayedGame[] = [
+  {
+    titleId: "CUSA90001_00",
+    name: "Hollow Knight",
+    category: "ps4_game",
+    playtimeMin: 1500,
+    firstPlayedAt: new Date("2026-05-30T20:00:00Z"),
+    lastPlayedAt: new Date("2026-06-08T22:00:00Z"),
+  },
+  {
+    titleId: "PPSA90002_00",
+    name: "Hades",
+    category: "ps5_native_game",
+    playtimeMin: 905,
+    firstPlayedAt: new Date("2026-06-30T21:00:00Z"),
+    lastPlayedAt: new Date("2026-07-05T23:00:00Z"),
+  },
+  {
+    titleId: "PPSA90003_00",
+    name: "Resident Evil 4",
+    category: "ps5_native_game",
+    playtimeMin: 200,
+    firstPlayedAt: new Date("2026-08-01T21:00:00Z"),
+    lastPlayedAt: new Date("2026-08-02T23:00:00Z"),
+  },
+  {
+    titleId: "PPSA90004_00",
+    name: "Astro Bot",
+    category: "ps5_native_game",
+    playtimeMin: 610,
+    firstPlayedAt: new Date("2026-09-01T18:00:00Z"),
+    lastPlayedAt: new Date("2026-09-03T20:00:00Z"),
+  },
+  {
+    titleId: "PPSA90005_00",
+    name: "Jornada Submersa",
+    category: "ps5_native_game",
+    playtimeMin: 75,
+    firstPlayedAt: new Date("2026-09-10T18:00:00Z"),
+    lastPlayedAt: new Date("2026-09-10T19:15:00Z"),
+  },
+];
+
 const DAY_MS = 86_400_000;
 
 function trophiesOf(title: FixtureTitle, undated = false): PsnTrophy[] {
@@ -156,6 +204,12 @@ export function createPsnFixture(): PsnApi {
       if (found?.isPrivate) return "private";
       const title = TITLES.find((t) => t.npTitleId === npTitleId);
       return title && found ? trophiesOf(title, found.undated) : [];
+    },
+    async getPlayedGames(accountId) {
+      const found = account(accountId);
+      if (!found) return [];
+      if (found.isPrivate) return "private";
+      return PLAYED.map((g) => ({ ...g }));
     },
   };
 }

@@ -8,7 +8,9 @@ export type AttributeId =
   | "colecao"
   | "exploracao"
   | "constancia"
-  | "sabedoria";
+  | "sabedoria"
+  | "resistencia"
+  | "acervo";
 
 export const ATTRIBUTES: { id: AttributeId; name: string; description: string }[] = [
   {
@@ -48,6 +50,18 @@ export const ATTRIBUTES: { id: AttributeId; name: string; description: string }[
     name: "Sabedoria",
     description:
       "Cresce com guias publicados, respostas que resolveram dúvidas e pontos da habilidade Sábio.",
+  },
+  {
+    id: "resistencia",
+    name: "Resistência",
+    description:
+      "Cresce com o total de horas jogadas em todas as plataformas, com retorno decrescente.",
+  },
+  {
+    id: "acervo",
+    name: "Acervo",
+    description:
+      "Cresce com os jogos que você jogou; jogos que você tem e nunca jogou valem metade.",
   },
 ];
 
@@ -99,7 +113,22 @@ export function sabedoriaPoints(
   return sabioPoints + solvedAnswers * 40 + publishedGuides * 100;
 }
 
+/** round(10 · hours^0.7) over the total playtime of every game and platform. */
+export function resistenciaPoints(totalPlaytimeMin: number): number {
+  if (!Number.isFinite(totalPlaytimeMin) || totalPlaytimeMin <= 0) return 0;
+  return Math.round(10 * (totalPlaytimeMin / 60) ** 0.7);
+}
+
+/** 10 per game played (playtime or an unlock) and 5 per game owned but never played. */
+export function acervoPoints(playedGames: number, unplayedGames: number): number {
+  return playedGames * 10 + unplayedGames * 5;
+}
+
 export type AttributeInput = {
+  /**
+   * Every game of the library, merged across platforms. A game with 0 playtime and no unlock is
+   * owned but never played (Steam lists those).
+   */
   games: {
     playtimeMin: number;
     unlocked: { globalPct: number | null; hardcore: boolean; tier: TrophyTier }[];
@@ -121,6 +150,7 @@ export function computeAttributes(input: AttributeInput): Record<AttributeId, At
   const { games } = input;
   const unlocked = games.flatMap((g) => g.unlocked);
   const genres = new Set(games.flatMap((g) => g.skills).filter((s) => s !== "sabio"));
+  const played = games.filter((g) => g.playtimeMin > 0 || g.unlocked.length > 0).length;
 
   const points: Record<AttributeId, number> = {
     vigor: vigorPoints(games.map((g) => g.playtimeMin)),
@@ -137,6 +167,8 @@ export function computeAttributes(input: AttributeInput): Record<AttributeId, At
       input.solvedAnswers,
       input.publishedGuides,
     ),
+    resistencia: resistenciaPoints(games.reduce((sum, g) => sum + Math.max(0, g.playtimeMin), 0)),
+    acervo: acervoPoints(played, games.length - played),
   };
 
   const result = {} as Record<AttributeId, AttributeResult>;

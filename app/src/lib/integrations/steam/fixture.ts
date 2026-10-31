@@ -1,7 +1,11 @@
+import appList from "./__fixtures__/app-list.json";
 import hollowKnight from "./__fixtures__/hollow-knight.json";
 import ownedGames from "./__fixtures__/owned-games.json";
 import player from "./__fixtures__/player.json";
+import wishlist from "./__fixtures__/wishlist.json";
 import type { SteamApi } from "./types";
+
+const fromUnix = (seconds: number | undefined) => (seconds ? new Date(seconds * 1000) : null);
 
 /**
  * Offline public profiles read when a Steam is connected, and by a claim's code check (code in the
@@ -48,7 +52,12 @@ export const STEAM_FIXTURE_PROFILES = [
   },
 ] as const;
 
-/** Offline Steam adapter backed by JSON fixtures (Hollow Knight + the demo library). */
+/**
+ * Offline Steam adapter backed by JSON fixtures (Hollow Knight + the demo library). The library
+ * has played games (playtime, last 2 weeks, last played) and three owned but never played made-up
+ * games; the wishlist has two made-up games and one owned game; the app list is a small store
+ * catalog (with a duplicate name, as the real one has) for the catalog import.
+ */
 export function createSteamFixture(): SteamApi {
   const hasData = (appId: number) => appId === hollowKnight.appId;
 
@@ -58,7 +67,27 @@ export function createSteamFixture(): SteamApi {
     },
 
     async getOwnedGames() {
-      return ownedGames.map(({ appId, playtimeMin }) => ({ appId, playtimeMin }));
+      return ownedGames.map((g) => ({
+        appId: g.appId,
+        name: g.name,
+        playtimeMin: g.playtimeMin,
+        playtime2WeeksMin: "playtime2WeeksMin" in g ? g.playtime2WeeksMin : 0,
+        lastPlayedAt: fromUnix("lastPlayed" in g ? g.lastPlayed : undefined),
+      }));
+    },
+
+    async getWishlist() {
+      return wishlist.map((w) => ({ appId: w.appId, priority: w.priority, addedAt: fromUnix(w.dateAdded) }));
+    },
+
+    async getAppList({ lastAppId = 0, maxResults = 10_000 } = {}) {
+      const rest = appList.filter((a) => a.appId > lastAppId);
+      const page = rest.slice(0, maxResults);
+      return {
+        apps: page.map((a) => ({ appId: a.appId, name: a.name, lastModified: a.lastModified })),
+        haveMore: rest.length > page.length,
+        lastAppId: page.at(-1)?.appId ?? lastAppId,
+      };
     },
 
     async getSchemaForGame(appId) {
