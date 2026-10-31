@@ -18,6 +18,7 @@ const DAY_MS = 86_400_000;
 // Longest period start we may need (the Monday of the current ISO week) is under 7 days back.
 const EVENT_LOOKBACK_DAYS = 8;
 const TOP_SKILL_COUNT = 3;
+const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
 type SkillMap = Record<SkillId, SkillState>;
 
@@ -102,9 +103,9 @@ function topSkillsOf(skills: SkillMap): SkillId[] {
     .map((s) => s.id);
 }
 
-async function loadUnlockEvents(userId: string, now: Date) {
+async function loadUnlockEvents(userId: string, from: Date, to?: Date) {
   const rows = await prisma.userAchievement.findMany({
-    where: { userId, unlockedAt: { gte: new Date(now.getTime() - EVENT_LOOKBACK_DAYS * DAY_MS) } },
+    where: { userId, unlockedAt: { gte: from, ...(to && { lte: to }) } },
     select: {
       unlockedAt: true,
       suspicious: true,
@@ -149,7 +150,7 @@ async function applyMissions(userId: string, now: Date, topSkills: SkillId[]): P
       inPeriod: (day: string) => isoWeekKey(day) === weekKey,
     },
   ];
-  const events = await loadUnlockEvents(userId, now);
+  const events = await loadUnlockEvents(userId, new Date(now.getTime() - EVENT_LOOKBACK_DAYS * DAY_MS));
   let completedAny = false;
 
   for (const { kind, periodKey, inPeriod } of periods) {
@@ -242,8 +243,9 @@ const tierOf = (a: ValidUnlock["achievement"]): TrophyTier =>
 /**
  * Builds the attribute input from the database. Games are merged across platforms (one game
  * owned on Steam and PSN is one game): playtime adds up, unlocks are pooled, and the game is
- * complete when any platform is. A completion on a platform without a native platinum trophy
- * (Steam, Xbox, RetroAchievements) counts as one platinum for Glória. Genres only come from
+ * complete when any platform is. A platform completion with a suspicious unlock (anti-fraud or
+ * voided by an admin) does not count. A valid completion on a platform without native platinum
+ * trophies (Steam, Xbox, RetroAchievements) counts as one platinum for Glória. Genres only come from
  * games actually played (playtime or at least one unlock).
  */
 async function attributeInput(
@@ -252,10 +254,15 @@ async function attributeInput(
   streak: { activeDays: number; bestStreak: number },
   sabioPoints: number,
 ): Promise<AttributeInput> {
-  const [userGames, solvedAnswers, publishedGuides] = await Promise.all([
+  const [userGames, tainted, solvedAnswers, publishedGuides] = await Promise.all([
     prisma.userGame.findMany({
       where: { userId },
       select: { gameId: true, platform: true, playtimeMin: true, completedAt: true },
+    }),
+    // A completion with any suspicious (or fraud-voided) unlock is no completion.
+    prisma.userAchievement.findMany({
+      where: { userId, suspicious: true },
+      select: { achievement: { select: { gameId: true, platform: true } } },
     }),
     prisma.forumThread.count({
       where: {
@@ -288,12 +295,15 @@ async function attributeInput(
       tier,
     });
   }
+  const taintedKeys = new Set(tainted.map((t) => `${t.achievement.gameId}:${t.achievement.platform}`));
   for (const ug of userGames) {
     const acc = accOf(ug.gameId);
     acc.playtimeMin += Math.max(0, ug.playtimeMin);
-    if (ug.completedAt) {
+    const key = `${ug.gameId}:${ug.platform}`;
+    if (ug.completedAt && !taintedKeys.has(key)) {
       acc.completed = true;
-      if (!nativePlatinum.has(`${ug.gameId}:${ug.platform}`)) {
+      // PSN has native platinum trophies: a PSN completion never gets a synthetic one.
+      if (ug.platform !== "psn" && !nativePlatinum.has(key)) {
         acc.unlocked.push({ globalPct: null, hardcore: false, tier: "platinum" });
       }
     }
@@ -378,10 +388,64 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
 }
 
 /**
- * Confirmed fraud: voids the user's ledger entries of these achievements (and the platinum
- * bonus of every game they belong to, since the completion is tainted), marks the unlocks
- * suspicious so no later sync pays them again, then recomputes. Entries are never deleted, so
- * the decision stays auditable. Returns how many entries were voided by this call.
+ * Re-checks the completed missions of the periods (days and ISO weeks) that contain `days`
+ * against the non-suspicious unlocks of those periods. A mission that is no longer complete gets
+ * its reward voided, its completion cleared and its progress lowered. Returns how many mission
+ * rewards were voided. Known limit: if later valid unlocks complete it again in the same period,
+ * the reward is not paid a second time (the voided entry keeps its unique key).
+ */
+async function revalidateMissions(userId: string, days: string[], now: Date): Promise<number> {
+  if (days.length === 0) return 0;
+  const weeks = [...new Set(days.map(isoWeekKey))];
+  const missions = await prisma.mission.findMany({
+    where: {
+      userId,
+      completedAt: { not: null },
+      OR: [
+        { kind: "daily", periodKey: { in: days } },
+        { kind: "weekly", periodKey: { in: weeks } },
+      ],
+    },
+  });
+  if (missions.length === 0) return 0;
+
+  // Every unlock of the affected weeks (a week spans at most 7 days around any of `days`).
+  const sorted = [...days].sort();
+  const from = new Date(new Date(`${sorted[0]}T00:00:00Z`).getTime() - 8 * DAY_MS);
+  const to = new Date(new Date(`${sorted.at(-1)}T00:00:00Z`).getTime() + 9 * DAY_MS);
+  const events = await loadUnlockEvents(userId, from, to);
+
+  let voided = 0;
+  for (const mission of missions) {
+    const inPeriod = (day: string) =>
+      mission.kind === "daily" ? day === mission.periodKey : isoWeekKey(day) === mission.periodKey;
+    const condition = mission.condition as MissionCondition;
+    const { count, done } = missionProgress(
+      condition,
+      events.filter((e) => inPeriod(toLocalDay(e.unlockedAt))),
+    );
+    if (done) continue;
+    await prisma.$transaction([
+      prisma.mission.update({
+        where: { id: mission.id },
+        data: { completedAt: null, progress: Math.min(count, condition.minCount) },
+      }),
+      prisma.xpLedgerEntry.updateMany({
+        where: { userId, source: "mission", sourceKey: mission.id, voidedAt: null },
+        data: { voidedAt: now },
+      }),
+    ]);
+    voided++;
+  }
+  return voided;
+}
+
+/**
+ * Confirmed fraud: voids the user's ledger entries of these achievements and the platinum bonus
+ * of every game they belong to, marks the unlocks suspicious (so no later sync pays them again),
+ * clears those games' completion on that platform (no Coleção/Glória for a tainted 100%), voids
+ * the rewards of missions that are no longer complete without them, then recomputes. Entries are
+ * never deleted, so the decision stays auditable. Returns how many ledger entries were voided.
  */
 export async function voidFraudEntries(
   userId: string,
@@ -394,12 +458,22 @@ export async function voidFraudEntries(
     select: { gameId: true, platform: true },
   });
   const platinumKeys = [...new Set(achievements.map((a) => platinumSourceKey(a.platform, a.gameId)))];
+  const unlocks = await prisma.userAchievement.findMany({
+    where: { userId, achievementId: { in: achievementIds } },
+    select: { unlockedAt: true },
+  });
 
   const voided = await prisma.$transaction(async (tx) => {
     await tx.userAchievement.updateMany({
       where: { userId, achievementId: { in: achievementIds } },
       data: { suspicious: true },
     });
+    for (const a of achievements) {
+      await tx.userGame.updateMany({
+        where: { userId, gameId: a.gameId, platform: a.platform },
+        data: { completedAt: null },
+      });
+    }
     const { count } = await tx.xpLedgerEntry.updateMany({
       where: {
         userId,
@@ -412,8 +486,11 @@ export async function voidFraudEntries(
       data: { voidedAt: now },
     });
     return count;
-  });
+  }, TRANSACTION_OPTIONS);
+
+  const days = [...new Set(unlocks.map((u) => toLocalDay(u.unlockedAt)))];
+  const missionsVoided = await revalidateMissions(userId, days, now);
 
   await recomputeUser(userId, now);
-  return voided;
+  return voided + missionsVoided;
 }

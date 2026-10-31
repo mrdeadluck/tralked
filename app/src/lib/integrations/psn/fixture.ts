@@ -8,7 +8,11 @@ import type { PsnApi, PsnProfile, PsnTitle, PsnTrophy } from "./types";
  * the catalog does not know (`Astro Bot`). Every id and name is made up.
  */
 
-type FixtureAccount = Omit<PsnProfile, "isPrivate"> & { isPrivate?: boolean };
+type FixtureAccount = Omit<PsnProfile, "isPrivate"> & {
+  isPrivate?: boolean;
+  /** PSN reports the trophies as earned but without a date (rare; tests the first-seen rule). */
+  undated?: boolean;
+};
 
 export const PSN_FIXTURE_ACCOUNTS: FixtureAccount[] = [
   {
@@ -29,6 +33,13 @@ export const PSN_FIXTURE_ACCOUNTS: FixtureAccount[] = [
     aboutMe: "",
     avatarUrl: null,
     isPrivate: true,
+  },
+  {
+    accountId: "9000000000000000004",
+    onlineId: "Sem-Data",
+    aboutMe: "",
+    avatarUrl: null,
+    undated: true,
   },
 ];
 
@@ -86,7 +97,7 @@ const TITLES: FixtureTitle[] = [
 
 const DAY_MS = 86_400_000;
 
-function trophiesOf(title: FixtureTitle): PsnTrophy[] {
+function trophiesOf(title: FixtureTitle, undated = false): PsnTrophy[] {
   const start = new Date(title.firstEarnedAt).getTime();
   return TROPHIES.map((t, i) => {
     const order = title.earned.indexOf(i);
@@ -100,7 +111,7 @@ function trophiesOf(title: FixtureTitle): PsnTrophy[] {
       hidden: false,
       tier: t.tier,
       earned,
-      earnedAt: earned ? new Date(start + order * DAY_MS) : null,
+      earnedAt: earned && !undated ? new Date(start + order * DAY_MS) : null,
       rarityPct: t.rarityPct,
     };
   });
@@ -126,7 +137,7 @@ export function createPsnFixture(): PsnApi {
       if (!found) return [];
       if (found.isPrivate) return "private";
       return TITLES.map((title): PsnTitle => {
-        const trophies = trophiesOf(title);
+        const trophies = trophiesOf(title, found.undated);
         const earned = trophies.filter((t) => t.earned);
         return {
           npTitleId: title.npTitleId,
@@ -144,7 +155,7 @@ export function createPsnFixture(): PsnApi {
       const found = account(accountId);
       if (found?.isPrivate) return "private";
       const title = TITLES.find((t) => t.npTitleId === npTitleId);
-      return title && found ? trophiesOf(title) : [];
+      return title && found ? trophiesOf(title, found.undated) : [];
     },
   };
 }

@@ -176,5 +176,17 @@ describe.skipIf(!reachable)("upsertUserFromGoogle", () => {
       ok: false,
       reason: "taken",
     });
+
+    // The account already has a Google link: another Google account never replaces it silently.
+    await expect(upsertUserFromGoogle({ sub: `${SUB_PREFIX}4`, emailVerified: false }, steamUser.id)).resolves.toEqual({
+      ok: false,
+      reason: "different",
+    });
+    const kept = await prisma.user.findUniqueOrThrow({ where: { id: steamUser.id } });
+    expect(kept.googleSub).toBe(`${SUB_PREFIX}3`);
+    // Logging in again with the same Google account is fine.
+    await expect(upsertUserFromGoogle({ sub: `${SUB_PREFIX}3`, emailVerified: false }, steamUser.id)).resolves.toMatchObject({
+      ok: true,
+    });
   });
 });

@@ -17,6 +17,8 @@ export type LibraryAchievement = {
   trophyTier: TrophyTier | null;
   /** Xbox gamerscore or RetroAchievements points. */
   points: number | null;
+  unlocked: boolean;
+  /** Null when unlocked but the platform gives no date (the sync then uses the first-seen time). */
   unlockedAt: Date | null;
   /** RetroAchievements: unlocked in hardcore mode. */
   hardcore: boolean;
@@ -36,42 +38,63 @@ export type LibraryTitle = {
 
 export type LibraryAccount = { externalId: string; handle: string };
 
-/**
- * A title the sync could not read; the rest of the library is still imported.
- * Kept generic so no upstream detail (URLs, keys) ends up in logs.
- */
+export type ReadOptions = {
+  /**
+   * Incremental sync: titles whose last activity is at or before this instant are skipped
+   * (titles without an activity date are always read).
+   */
+  since?: Date | null;
+  /** Epoch ms after which no further title is read (the rest waits for the next run). */
+  deadline?: number;
+  now?: () => number;
+};
+
 export type LibraryResult = {
   titles: LibraryTitle[];
+  /** Titles the sync could not read; the rest of the library is still imported. */
   failures: { externalId: string; error: unknown }[];
+  /** Some titles were left for the next run (time budget). */
+  partial: boolean;
   /** Current handle on the platform, when the sync learned it (RA usernames can change). */
   handle?: string;
 };
 
+type Listed<T> = { item: T; id: string; lastUpdated: Date | null };
+
 async function collect<T>(
-  items: T[],
-  idOf: (item: T) => string,
+  items: Listed<T>[],
+  options: ReadOptions,
   read: (item: T) => Promise<LibraryTitle | "private" | null>,
 ): Promise<LibraryResult | "private"> {
-  const result: LibraryResult = { titles: [], failures: [] };
+  const now = options.now ?? Date.now;
+  const result: LibraryResult = { titles: [], failures: [], partial: false };
+  const since = options.since ?? null;
+  const pending = items.filter((i) => !since || !i.lastUpdated || i.lastUpdated > since);
   // Sequential on purpose: the unofficial APIs rate-limit aggressively.
-  for (const item of items) {
+  for (const { item, id } of pending) {
+    if (options.deadline !== undefined && now() >= options.deadline) {
+      result.partial = true;
+      break;
+    }
     try {
       const title = await read(item);
       if (title === "private") return "private";
       if (title && title.achievements.length > 0) result.titles.push(title);
     } catch (error) {
-      result.failures.push({ externalId: idOf(item), error });
+      result.failures.push({ externalId: id, error });
     }
   }
   return result;
 }
 
-async function readPsn(account: LibraryAccount): Promise<LibraryResult | "private"> {
+async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<LibraryResult | "private"> {
   const psn = getPsn();
   const titles = await psn.getTitles(account.externalId);
   if (titles === "private") return "private";
-  const played = titles.filter((t) => Object.values(t.earnedCounts).some((n) => n > 0));
-  return collect(played, (t) => t.npTitleId, async (t) => {
+  const played = titles
+    .filter((t) => Object.values(t.earnedCounts).some((n) => n > 0))
+    .map((t) => ({ item: t, id: t.npTitleId, lastUpdated: t.lastPlayed }));
+  return collect(played, options, async (t) => {
     const trophies = await psn.getTrophies(account.externalId, t.npTitleId, t.serviceName);
     if (trophies === "private") return "private";
     return {
@@ -88,19 +111,22 @@ async function readPsn(account: LibraryAccount): Promise<LibraryResult | "privat
         globalPct: tr.rarityPct,
         trophyTier: tr.tier,
         points: null,
-        unlockedAt: tr.earned ? (tr.earnedAt ?? new Date()) : null,
+        unlocked: tr.earned,
+        unlockedAt: tr.earned ? tr.earnedAt : null,
         hardcore: false,
       })),
     };
   });
 }
 
-async function readXbox(account: LibraryAccount): Promise<LibraryResult | "private"> {
+async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<LibraryResult | "private"> {
   const xbox = getXbox();
   const titles = await xbox.getTitles(account.externalId);
   if (titles === "private") return "private";
-  const played = titles.filter((t) => t.currentAchievements > 0);
-  return collect(played, (t) => t.titleId, async (t) => {
+  const played = titles
+    .filter((t) => t.currentAchievements > 0)
+    .map((t) => ({ item: t, id: t.titleId, lastUpdated: t.lastPlayed }));
+  return collect(played, options, async (t) => {
     const list = await xbox.getAchievements(account.externalId, t.titleId);
     if (list === "private") return "private";
     return {
@@ -117,21 +143,24 @@ async function readXbox(account: LibraryAccount): Promise<LibraryResult | "priva
         globalPct: a.rarityPct,
         trophyTier: null,
         points: a.gamerscore,
-        unlockedAt: a.unlocked ? (a.unlockedAt ?? new Date()) : null,
+        unlocked: a.unlocked,
+        unlockedAt: a.unlocked ? a.unlockedAt : null,
         hardcore: false,
       })),
     };
   });
 }
 
-async function readRetro(account: LibraryAccount): Promise<LibraryResult | "private"> {
+async function readRetro(account: LibraryAccount, options: ReadOptions): Promise<LibraryResult | "private"> {
   const retro = getRetro();
   // RA usernames can change: the ULID (externalId) finds the current one.
   const profile = await retro.findProfile(account.externalId);
   const user = profile?.user ?? account.handle;
   const games = await retro.getGames(user);
-  const played = games.filter((g) => g.numAwarded > 0);
-  const result = await collect(played, (g) => g.gameId, async (g) => {
+  const played = games
+    .filter((g) => g.numAwarded > 0)
+    .map((g) => ({ item: g, id: g.gameId, lastUpdated: g.lastPlayed }));
+  const result = await collect(played, options, async (g) => {
     const progress = await retro.getGameProgress(user, g.gameId);
     return {
       externalId: g.gameId,
@@ -147,7 +176,8 @@ async function readRetro(account: LibraryAccount): Promise<LibraryResult | "priv
         globalPct: a.rarityPct,
         trophyTier: null,
         points: a.points,
-        unlockedAt: a.earned ? (a.earnedAt ?? new Date()) : null,
+        unlocked: a.earned,
+        unlockedAt: a.earned ? a.earnedAt : null,
         hardcore: a.hardcore,
       })),
     };
@@ -155,17 +185,18 @@ async function readRetro(account: LibraryAccount): Promise<LibraryResult | "priv
   return result === "private" ? result : { ...result, handle: profile?.user };
 }
 
-/** Reads the player's whole library on one platform (titles with at least one unlock). */
+/** Reads the player's library on one platform (titles with at least one unlock). */
 export function readLibrary(
   platform: CodePlatform,
   account: LibraryAccount,
+  options: ReadOptions = {},
 ): Promise<LibraryResult | "private"> {
   switch (platform) {
     case "psn":
-      return readPsn(account);
+      return readPsn(account, options);
     case "xbox":
-      return readXbox(account);
+      return readXbox(account, options);
     case "retro":
-      return readRetro(account);
+      return readRetro(account, options);
   }
 }

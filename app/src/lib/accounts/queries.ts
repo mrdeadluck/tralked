@@ -16,15 +16,17 @@ export async function getLinkedAccounts(userId: string, now: Date = new Date()):
     where: { userId },
     orderBy: { platform: "asc" },
   });
-  return rows.map((r) => {
-    const pending = !r.verifiedAt && r.verifyCode && r.verifyExpiresAt && r.verifyExpiresAt > now;
-    return {
+  return rows.flatMap((r) => {
+    const pending = Boolean(!r.verifiedAt && r.verifyCode && r.verifyExpiresAt && r.verifyExpiresAt > now);
+    // Unlinked rows and expired attempts only exist for rate limiting: not shown.
+    if (!r.verifiedAt && !pending) return [];
+    return [{
       platform: r.platform,
       handle: r.handle,
       verified: r.verifiedAt !== null,
       pendingCode: pending ? r.verifyCode : null,
       codeExpiresAt: pending ? r.verifyExpiresAt : null,
       lastSyncedAt: r.lastSyncedAt,
-    };
+    }];
   });
 }

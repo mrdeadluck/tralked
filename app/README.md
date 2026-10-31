@@ -56,7 +56,7 @@ Seis jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame
 | `/api/cron/catalog` | Sincroniza o catálogo de jogos e metadados. |
 | `/api/cron/rarity` | Atualiza a raridade global das conquistas. |
 | `/api/cron/users` | Ressincroniza usuários com dados desatualizados. |
-| `/api/cron/platforms` | Ressincroniza contas PSN, Xbox e RetroAchievements verificadas (as mais antigas primeiro). |
+| `/api/cron/platforms` | Ressincroniza até 5 contas PSN, Xbox e RetroAchievements verificadas por execução (as mais antigas primeiro), lendo só os jogos com atividade nova e parando perto de 50 s. |
 | `/api/cron/media` | Busca vídeos, screenshots e artworks (IGDB) e capa/hero/logo (SteamGridDB) de jogos ainda sem mídia oficial. |
 | `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte e data das notícias que citam um jogo do catálogo. |
 

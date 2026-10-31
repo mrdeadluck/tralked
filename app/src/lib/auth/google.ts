@@ -160,7 +160,11 @@ export async function exchangeGoogleCode(
   };
 }
 
-export type GoogleUpsertResult = { ok: true; user: User } | { ok: false; reason: "taken" };
+export type GoogleUpsertResult =
+  | { ok: true; user: User }
+  /** taken: this Google account belongs to another user; different: the logged-in account is
+   * already linked to another Google account (never replaced silently). */
+  | { ok: false; reason: "taken" | "different" };
 
 const httpsOrUndefined = (url: string | undefined) => (url?.startsWith("https://") ? url : undefined);
 
@@ -169,8 +173,9 @@ const isUniqueViolation = (error: unknown) =>
 
 /**
  * Logged in (`sessionUserId`): links Google to that account, unless this Google account already
- * belongs to someone else. Logged out: logs in the account linked to this Google account, or
- * creates a reader account (no Steam) for it.
+ * belongs to someone else or the account is already linked to a different Google account.
+ * Logged out: logs in the account linked to this Google account, or creates a reader account
+ * (no Steam) for it.
  */
 export async function upsertUserFromGoogle(
   claims: GoogleClaims,
@@ -182,16 +187,21 @@ export async function upsertUserFromGoogle(
   if (sessionUserId) {
     if (owner && owner.id !== sessionUserId) return { ok: false, reason: "taken" };
     const current = await prisma.user.findUniqueOrThrow({ where: { id: sessionUserId } });
+    if (current.googleSub && current.googleSub !== claims.sub) return { ok: false, reason: "different" };
+    if (current.googleSub === claims.sub) return { ok: true, user: current };
     try {
-      const user = await prisma.user.update({
-        where: { id: sessionUserId },
+      // The `googleSub: null` guard makes a concurrent link of another Google account fail
+      // instead of replacing it.
+      const { count } = await prisma.user.updateMany({
+        where: { id: sessionUserId, googleSub: null },
         data: { googleSub: claims.sub, email: current.email ?? email },
       });
-      return { ok: true, user };
+      if (count === 0) return { ok: false, reason: "different" };
     } catch (error) {
       if (isUniqueViolation(error)) return { ok: false, reason: "taken" };
       throw error;
     }
+    return { ok: true, user: await prisma.user.findUniqueOrThrow({ where: { id: sessionUserId } }) };
   }
 
   if (owner) return { ok: true, user: owner };
