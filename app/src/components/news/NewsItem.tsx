@@ -20,7 +20,7 @@ export function NewsItem({ article }: { article: ArticleView }) {
           <p className="text-[15.5px] text-muted">{article.subtitle}</p>
         ) : null}
         <div className="flex flex-wrap gap-3.5 font-mono text-[11.5px] text-dim">
-          <span className="text-text-2">@{article.authorHandle}</span>
+          <span className="text-text-2">{article.authorLabel}</span>
           <span>{article.timeAgo}</span>
           <span>▲ {article.likes}</span>
           <span>◼ {article.comments}</span>

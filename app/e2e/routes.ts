@@ -40,4 +40,11 @@ export const ROUTES: E2ERoute[] = [
   { path: "/conta/conexoes", name: "conta-conexoes-logado", auth: true },
   { path: "/jogador/lucas", name: "jogador-logado", auth: true },
   { path: "/desenvolvedores", name: "desenvolvedores" },
+  { path: "/notificacoes", name: "notificacoes" },
+  { path: "/notificacoes", name: "notificacoes-logado", auth: true },
+  { path: "/conta/conexoes?erro=steam_em_uso", name: "conta-conexoes-erro-logado", auth: true },
+  { path: "/privacidade", name: "privacidade" },
+  { path: "/termos", name: "termos" },
+  { path: "/licencas", name: "licencas" },
+  { path: "/newsletter/confirmar?email=x%40exemplo.com&token=nope", name: "newsletter-confirmar" },
 ];

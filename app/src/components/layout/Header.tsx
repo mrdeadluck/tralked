@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { AccountMenu, accountLinks, type AccountUser } from "./AccountMenu";
 import { MobileDrawer } from "./MobileDrawer";
+import { NotificationBell, type BellProps } from "./NotificationBell";
 import { SearchBox, type SearchSuggestion } from "./SearchBox";
 
 export const NAV_ITEMS = [
@@ -28,9 +29,11 @@ function isCurrent(pathname: string, href: string) {
 type HeaderProps = {
   user?: AccountUser;
   suggestions?: SearchSuggestion[];
+  /** The logged-in user's bell (unread count + latest notifications). */
+  notifications?: BellProps;
 };
 
-export function Header({ user, suggestions }: HeaderProps) {
+export function Header({ user, suggestions, notifications }: HeaderProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -69,6 +72,7 @@ export function Header({ user, suggestions }: HeaderProps) {
         <SearchBox suggestions={suggestions} />
 
         <div className="ml-auto flex items-center gap-2.5">
+          {user && notifications ? <NotificationBell {...notifications} /> : null}
           {user ? (
             <AccountMenu user={user} />
           ) : (

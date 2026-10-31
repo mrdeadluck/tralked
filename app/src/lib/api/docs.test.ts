@@ -11,7 +11,8 @@ const ROBOS_MD = fileURLToPath(new URL("../../../../docs/robos.md", import.meta.
 
 /** The ```json blocks of docs/robos.md that follow a `<!-- exemplo:NAME -->` marker. */
 function markdownExample(name: string): unknown {
-  const md = readFileSync(ROBOS_MD, "utf8");
+  // Windows checkouts (core.autocrlf) turn the file into CRLF.
+  const md = readFileSync(ROBOS_MD, "utf8").replace(/\r\n/g, "\n");
   const match = new RegExp(`<!-- exemplo:${name} -->\\s*\`\`\`json\\n([\\s\\S]*?)\\n\`\`\``).exec(md);
   if (!match) throw new Error(`docs/robos.md has no example "${name}"`);
   return JSON.parse(match[1]);

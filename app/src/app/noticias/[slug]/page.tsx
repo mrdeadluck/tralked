@@ -3,10 +3,13 @@ import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GameArt } from "@/components/art/GameArt";
+import { Comments } from "@/components/community/Comments";
+import { AdSlot } from "@/components/ui/AdSlot";
 import { ArticleBody } from "@/components/news/ArticleBody";
 import { ArticleTags } from "@/components/news/ArticleTags";
 import { Blocks } from "@/lib/content/render";
 import { isSafeHttpUrl } from "@/lib/content/url";
+import { JsonLd, newsArticleJsonLd } from "@/lib/seo/json-ld";
 import {
   articleTag,
   artHues,
@@ -136,13 +139,12 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
         {article.subtitle ? <p className="text-lg text-text-3">{article.subtitle}</p> : null}
         <div className="flex flex-wrap gap-3.5 font-mono text-xs text-dim">
           {/* Bot authors are "Robô <key name>", not a user handle. */}
-          <span className="text-text-2">
-            {article.source === "bot" ? article.authorHandle : `@${article.authorHandle}`}
-          </span>
+          <span className="text-text-2">{article.authorLabel}</span>
           <time dateTime={article.publishedAt.toISOString()}>{DATE_FORMAT.format(article.publishedAt)}</time>
           <span>▲ {article.likes}</span>
+          {/* The comment section below shows the live count (Article.comments is not kept in sync). */}
           <a href="#comentarios" className="hover:text-text">
-            ◼ {article.comments} comentários
+            ◼ Comentários
           </a>
           {article.source === "bot" ? (
             <span className="text-text-3">
@@ -174,16 +176,15 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
         <ArticleBody markdown={article.body} />
       )}
 
+      <AdSlot format="leaderboard" />
+
       <RelatedGames article={article} />
       <ExternalSources article={article} />
 
-      {/* Slot for the comments island (Task 8 mounts <Comments> here). */}
-      <section id="comentarios" aria-labelledby="h-comentarios" className="flex scroll-mt-24 flex-col gap-3 border-t border-line pt-8">
-        <h2 id="h-comentarios" className={sectionTitle}>
-          Comentários
-        </h2>
-        <p className="text-[15px] text-muted">Os comentários desta notícia chegam em breve.</p>
-      </section>
+      {/* Comments island (#comentarios): streams the comments and the visitor's session. */}
+      <div className="border-t border-line pt-8">
+        <Comments targetType="article" targetId={article.id} />
+      </div>
     </article>
   );
 }
@@ -194,5 +195,10 @@ export default async function NoticiaPage({ params }: PageProps<"/noticias/[slug
   const article = await loadArticle(slug);
   if (!article) notFound();
 
-  return <ArticleLayout article={article} />;
+  return (
+    <>
+      <JsonLd data={newsArticleJsonLd(article)} />
+      <ArticleLayout article={article} />
+    </>
+  );
 }

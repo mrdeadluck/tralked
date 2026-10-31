@@ -27,7 +27,15 @@ const timeFormatter = new Intl.DateTimeFormat("pt-BR", {
   minute: "2-digit",
 });
 
-export default function ConexoesPage() {
+/** `?erro=` codes set by the login callbacks when a link is refused. */
+const LINK_ERRORS: Record<string, string> = {
+  steam_em_uso:
+    "Essa conta Steam já pertence a outro personagem do Tralked. Entre com ela para usá-la, ou conecte outra conta Steam.",
+  steam_diferente: "Esta conta já tem outra conta Steam conectada.",
+  google_diferente: "Esta conta já está conectada a outra conta Google.",
+};
+
+export default function ConexoesPage({ searchParams }: PageProps<"/conta/conexoes">) {
   return (
     <div className="mx-auto flex w-full max-w-[880px] flex-col gap-8">
       <PageHead
@@ -35,16 +43,18 @@ export default function ConexoesPage() {
         lede="Cada plataforma conectada soma conquistas, XP e atributos no mesmo personagem. O Tralked nunca pede sua senha: você prova que a conta é sua colando um código no perfil."
       />
       <Suspense fallback={<p className="font-mono text-xs text-dim">Carregando conexões…</p>}>
-        <ConexoesContent />
+        <ConexoesContent searchParams={searchParams} />
       </Suspense>
     </div>
   );
 }
 
-async function ConexoesContent() {
+async function ConexoesContent({ searchParams }: { searchParams: PageProps<"/conta/conexoes">["searchParams"] }) {
   const user = await getSessionUser();
   const google = googleLoginEnabled();
   if (!user) return <AccountLogin returnTo="/conta/conexoes" google={google} />;
+  const { erro } = await searchParams;
+  const linkError = typeof erro === "string" ? LINK_ERRORS[erro] : undefined;
 
   const now = new Date();
   const accounts = await getLinkedAccounts(user.id, now);
@@ -73,6 +83,11 @@ async function ConexoesContent() {
   return (
     <>
       <AccountNav current="/conta/conexoes" />
+      {linkError ? (
+        <p role="alert" className="rounded-[3px] border border-nin bg-surface px-4 py-3 text-[14.5px] text-text">
+          {linkError}
+        </p>
+      ) : null}
       <div className="flex flex-col gap-5">
         <ConnectionShell
           id="conexao-steam"
@@ -100,10 +115,21 @@ async function ConexoesContent() {
               </p>
             </>
           ) : (
-            <p className="max-w-[62ch] text-[14.5px] text-text-2">
-              A Steam é conectada pelo login com a Steam. Esta conta foi criada com o Google, então
-              ainda não tem Steam: entrar com a Steam agora abriria outra conta.
-            </p>
+            <>
+              <p className="max-w-[62ch] text-[14.5px] text-text-2">
+                Esta conta ainda não tem Steam. Conecte a sua para importar biblioteca, conquistas e XP para
+                este mesmo personagem. A Steam confirma que a conta é sua; o Tralked nunca vê a sua senha.
+              </p>
+              <div>
+                {/* A route handler redirect (OpenID), so a plain anchor. */}
+                <a
+                  href="/api/auth/steam?returnTo=%2Fconta%2Fconexoes"
+                  className="inline-flex h-11 items-center justify-center rounded-[2px] border border-acc bg-acc px-[18px] font-mono text-xs font-bold tracking-[0.1em] text-bg uppercase hover:brightness-[1.08]"
+                >
+                  Conectar Steam
+                </a>
+              </div>
+            </>
           )}
         </ConnectionShell>
 

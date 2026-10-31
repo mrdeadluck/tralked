@@ -4,6 +4,7 @@ import { useState, type CSSProperties, type ReactNode } from "react";
 import { Chip } from "@/components/ui/Chip";
 import type { GuideAchievementView } from "@/lib/queries/games";
 import { CATEGORY_NAME, fmt, pctText, RARITY_UI } from "./format";
+import { RichText } from "./RichText";
 
 /** Blurred until clicked (or Enter/Space), unless `hidden` is false (spoilers shown or not a spoiler). */
 function Spoiler({
@@ -118,7 +119,7 @@ export function AchievementItem({ achievement: a, showSpoilers }: AchievementIte
           hidden={hide}
           className="mt-3 flex flex-col gap-2.5 rounded-[2px] border border-line bg-surface px-[18px] py-4"
         >
-          <p className="text-[15.5px] text-text-2">{a.tip}</p>
+          <RichText blocks={a.tipBlocks} text={a.tip} cards={a.cards} className="text-[15.5px] text-text-2" />
           {a.steps.length > 0 ? (
             <ol className="m-0 flex flex-col gap-1 pl-5 text-[15px] text-text-2">
               {a.steps.map((step) => (

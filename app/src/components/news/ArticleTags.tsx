@@ -40,7 +40,7 @@ export function ArticleByline({
     <div
       className={`flex flex-wrap gap-3.5 font-mono text-dim ${className}`}
     >
-      <span className="text-text-2">@{article.authorHandle}</span>
+      <span className="text-text-2">{article.authorLabel}</span>
       <span>{article.timeAgo}</span>
     </div>
   );

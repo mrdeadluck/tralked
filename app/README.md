@@ -91,6 +91,47 @@ curl -H "Authorization: Bearer $CRON_SECRET" https://seu-dominio/api/cron/catalo
 
 Resposta: `{ "job": "catalog", "processed": N }`. Token inválido retorna 401, job desconhecido retorna 404.
 
+### Agendamento (pronto para o `vercel.json`)
+
+O repositório ainda não tem `vercel.json` (a configuração de deploy fica para o plano de produção). Os horários sugeridos, em UTC, já estão no formato da chave `crons`; basta colar no `vercel.json` ao configurar o deploy. A Vercel chama cada rota com `GET` e, quando a variável `CRON_SECRET` existe no projeto, envia `Authorization: Bearer $CRON_SECRET` sozinha. No plano Hobby a Vercel só aceita jobs diários: lá, use `0 3 * * *` (ou outro horário diário) para `news`, `platforms` e `users`.
+
+<!-- crons:start -->
+```json
+{
+  "crons": [
+    { "path": "/api/cron/news", "schedule": "0 * * * *" },
+    { "path": "/api/cron/platforms", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/users", "schedule": "*/30 * * * *" },
+    { "path": "/api/cron/catalog", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/rarity", "schedule": "30 3 * * *" },
+    { "path": "/api/cron/media", "schedule": "0 4 * * *" },
+    { "path": "/api/cron/notifications", "schedule": "15 5 * * *" }
+  ]
+}
+```
+<!-- crons:end -->
+
+| Job | Quando | Por quê |
+| --- | --- | --- |
+| `news` | de hora em hora | manchetes externas chegam o dia todo |
+| `platforms` | a cada 15 min | cada execução lê só 5 contas PSN/Xbox/RA |
+| `users` | a cada 30 min | contas Steam desatualizadas, poucas por vez |
+| `catalog`, `rarity`, `media` | 1x por dia, de madrugada (horário de Brasília) | dados que mudam devagar |
+| `notifications` | 1x por dia | apaga notificações com mais de 90 dias |
+
+A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste falha se as duas divergirem ou se algum job ficar sem horário.
+
+## SEO, privacidade e páginas de sistema
+
+- `sitemap.xml` (jogos, guias publicados, notícias publicadas, tópicos visíveis do fórum e páginas fixas) e `robots.txt` (bloqueia `/admin`, `/conta`, `/api`, `/notificacoes` e `/newsletter`) usam `APP_URL` como origem pública: defina a URL de produção também no build, porque os dois arquivos são gerados nele.
+- JSON-LD com `src/lib/seo/json-ld.tsx`: `NewsArticle` nas notícias, `HowTo` nos guias e o helper `videoGameJsonLd()` para a página do jogo (`<JsonLd data={videoGameJsonLd(game)} />`). O texto vai escapado (`<`, `>`, `&`), então título de usuário ou robô nunca fecha o `<script>`.
+- Imagem padrão de compartilhamento: `src/app/opengraph-image.tsx`, com a fonte Archivo Expanded em `assets/fonts` (licença OFL em `assets/fonts/OFL.txt`).
+- `/privacidade`, `/termos` e `/licencas`. O e-mail de contato `contato@tralked.example` é **provisório** (`src/lib/legal/contact.ts`); troque antes do lançamento.
+- Banner de cookies: só cookies necessários por padrão; a escolha fica no cookie `tk_consent` (1 ano) e pode ser trocada em `/privacidade#cookies`. Qualquer cookie opcional futuro (medição, anúncios) deve checar `optionalAllowed()` de `src/lib/consent.ts`.
+- `AdSlot` (`src/components/ui/AdSlot.tsx`): reserva o espaço do anúncio, marcado "Publicidade", sem script de terceiros. Fica na página de notícia.
+- Newsletter com confirmação dupla: o formulário grava `NewsletterSubscriber` sem confirmação e, sem provedor de e-mail, **fora de produção o link de confirmação sai no console do servidor** (`[newsletter] Link de confirmação ...`). Abrir o link (`/newsletter/confirmar?email=&token=`) confirma. O token é um HMAC do e-mail com `SESSION_SECRET`.
+- Notificações: sino no topo (não lidas + as 8 últimas, "marcar todas como lidas") e `/notificacoes` com paginação. Cada notificação vive 90 dias (cron `notifications`).
+
 ## Scripts
 
 | Script | Descrição |
@@ -127,7 +168,7 @@ No PowerShell: `$env:DATABASE_URL='postgresql://gamelog:gamelog@localhost:5433/g
 
 Instale o navegador uma vez: `pnpm exec playwright install chromium`.
 
-Os testes sobem o próprio servidor na porta **3200** e usam um banco só deles, nunca o do servidor de desenvolvimento. Crie e popule o banco e, se quiser outro nome, exporte a URL:
+Os testes sobem o próprio servidor na porta **3200** (outra com `E2E_PORT`, para rodar worktrees em paralelo) e usam um banco só deles, nunca o do servidor de desenvolvimento. O contexto do navegador já leva o cookie `tk_consent`, para o banner de cookies não cobrir a página; `e2e/system.spec.ts` testa o banner com um visitante novo e a home sem JavaScript. Crie e popule o banco e, se quiser outro nome, exporte a URL:
 
 ```bash
 docker exec gamelog-db psql -U gamelog -d postgres -c "CREATE DATABASE gamelog_e2e"

@@ -1,5 +1,13 @@
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
+import {
+  achievementKey,
+  parseStoredBlocks,
+  type AchievementCardData,
+  type AchievementPlatform,
+  type ContentBlock,
+} from "@/lib/content/schema";
+import { isSafeHttpUrl } from "@/lib/content/url";
 import { prisma } from "@/lib/db";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
@@ -211,7 +219,12 @@ export type GuideStepView = {
   order: number;
   title: string;
   hours: string;
+  /** Plain text (always set): shown when `blocks` is null. */
   body: string;
+  /** Rich body (bot guides), validated ContentBlock[]; null for plain-text steps. */
+  blocks: ContentBlock[] | null;
+  /** Resolved `achievement` blocks of `blocks`. */
+  cards: Record<string, AchievementCardData>;
   achievements: { id: string; name: string; tier: RarityTier; done: boolean }[];
   done: boolean;
 };
@@ -222,7 +235,12 @@ export type GuideAchievementView = {
   description: string | null;
   category: string;
   spoiler: boolean;
+  /** Plain text (always set): shown when `tipBlocks` is null. */
   tip: string;
+  /** Rich tip (bot guides), validated ContentBlock[]; null for plain-text tips. */
+  tipBlocks: ContentBlock[] | null;
+  /** Resolved `achievement` blocks of `tipBlocks`. */
+  cards: Record<string, AchievementCardData>;
   steps: string[];
   globalPct: number | null;
   tier: RarityTier;
@@ -239,6 +257,40 @@ export type GuideTipView = {
   isOwn: boolean;
   voted: boolean;
 };
+
+export type GuideSource = { title: string; url: string };
+
+/** Guide.sources is untyped JSON: keeps only `{ title, url }` items with an http(s) URL. */
+export function parseGuideSources(value: unknown): GuideSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const { title, url } = item as Record<string, unknown>;
+    if (typeof title !== "string" || typeof url !== "string" || !title.trim() || !isSafeHttpUrl(url)) return [];
+    return [{ title: title.trim(), url }];
+  });
+}
+
+/** Stored step/tip blocks: null when absent, empty or not a valid ContentBlock[] (plain text is shown). */
+function richBlocks(value: unknown): ContentBlock[] | null {
+  const blocks = parseStoredBlocks(value);
+  return blocks && blocks.length > 0 ? blocks : null;
+}
+
+/** Card data for the `achievement` blocks of `blocks`, looked up among the game's achievements. */
+function cardsFor(
+  blocks: ContentBlock[] | null,
+  byKey: Map<string, AchievementCardData>,
+): Record<string, AchievementCardData> {
+  const out: Record<string, AchievementCardData> = {};
+  for (const block of blocks ?? []) {
+    if (block.type !== "achievement") continue;
+    const key = achievementKey(block.platform, block.apiName);
+    const card = byKey.get(key);
+    if (card) out[key] = card;
+  }
+  return out;
+}
 
 export type GuideRevisionView = {
   id: string;
@@ -258,6 +310,8 @@ export type GuideDetail = {
   achievements: GuideAchievementView[];
   tips: GuideTipView[];
   revisions: GuideRevisionView[];
+  /** References the guide was written from (bot guides): only http(s) links. */
+  sources: GuideSource[];
   totals: { xp: number; pendingCount: number; pendingXp: number };
   /** The game's skills with the visitor's level (null when anonymous). */
   skillLevels: { skill: SkillId; level: number | null }[];
@@ -298,9 +352,29 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
     : [];
   const byApiName = new Map(stepAchievements.map((a) => [a.apiName, a]));
 
+  // Rich step bodies / tips (bot guides) and the achievements their `achievement` blocks name.
+  const stepBlocks = new Map(guide.steps.map((s) => [s.id, richBlocks(s.blocks)]));
+  const tipBlocks = new Map(guide.notes.map((n) => [n.id, richBlocks(n.tipBlocks)]));
+  const refs = [...stepBlocks.values(), ...tipBlocks.values()].flatMap((blocks) =>
+    (blocks ?? []).flatMap((b) => (b.type === "achievement" ? [{ platform: b.platform, apiName: b.apiName }] : [])),
+  );
+  const referenced = refs.length
+    ? await prisma.achievement.findMany({
+        where: { gameId: game.id, OR: refs },
+        select: { platform: true, apiName: true, name: true, description: true, globalPct: true },
+      })
+    : [];
+  const cardByKey = new Map(
+    referenced.map((a) => [
+      achievementKey(a.platform as AchievementPlatform, a.apiName),
+      { name: a.name, description: a.description, globalPct: a.globalPct, gameName: game.name },
+    ]),
+  );
+
   const achievements = guide.notes
     .map<GuideAchievementView>((note) => {
       const a = note.achievement;
+      const blocks = tipBlocks.get(note.id) ?? null;
       return {
         id: a.id,
         name: a.name,
@@ -308,6 +382,8 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
         category: note.category,
         spoiler: note.spoiler,
         tip: note.tip,
+        tipBlocks: blocks,
+        cards: cardsFor(blocks, cardByKey),
         steps: note.steps,
         globalPct: a.globalPct,
         tier: rarityTier(a.globalPct ?? 50),
@@ -324,6 +400,8 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
     title: step.title,
     hours: step.hours,
     body: step.body,
+    blocks: stepBlocks.get(step.id) ?? null,
+    cards: cardsFor(stepBlocks.get(step.id) ?? null, cardByKey),
     achievements: step.achievementApiNames.flatMap((apiName) => {
       const a = byApiName.get(apiName);
       return a ? [{ id: a.id, name: a.name, tier: rarityTier(a.globalPct ?? 50), done: false }] : [];
@@ -364,6 +442,7 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
       authorHandle: r.author?.handle ?? null,
       createdAt: r.createdAt,
     })),
+    sources: parseGuideSources(guide.sources),
     totals: { xp: totalXp, pendingCount: achievements.length, pendingXp: totalXp },
     skillLevels: game.skills.map((skill) => ({ skill, level: null })),
   };

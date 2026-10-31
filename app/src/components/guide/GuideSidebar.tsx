@@ -56,6 +56,7 @@ export function GuideSidebar({ guide, loggedIn, returnTo, pending = false }: Gui
     ...(guide.revisions.length > 0
       ? [{ id: "g-rev", label: "Revisões", count: guide.revisions.length }]
       : []),
+    ...(guide.sources.length > 0 ? [{ id: "g-fontes", label: "Fontes", count: guide.sources.length }] : []),
   ];
 
   return (
