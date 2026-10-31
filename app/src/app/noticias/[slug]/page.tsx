@@ -6,6 +6,7 @@ import { GameArt } from "@/components/art/GameArt";
 import { ArticleBody } from "@/components/news/ArticleBody";
 import { ArticleTags } from "@/components/news/ArticleTags";
 import { Blocks } from "@/lib/content/render";
+import { isSafeHttpUrl } from "@/lib/content/url";
 import {
   articleTag,
   artHues,
@@ -85,7 +86,9 @@ function RelatedGames({ article }: { article: ArticleFull }) {
 }
 
 function ExternalSources({ article }: { article: ArticleFull }) {
-  if (article.externalNews.length === 0) return null;
+  // Feed URLs are untrusted: only absolute http(s) links are rendered (the query filters them too).
+  const headlines = article.externalNews.filter((news) => isSafeHttpUrl(news.url));
+  if (headlines.length === 0) return null;
   return (
     <section aria-labelledby="h-imprensa" className="flex flex-col gap-3">
       <h2 id="h-imprensa" className={sectionTitle}>
@@ -96,7 +99,7 @@ function ExternalSources({ article }: { article: ArticleFull }) {
         o título, o link e a data; a matéria completa fica na fonte.
       </p>
       <ul className="m-0 list-none p-0">
-        {article.externalNews.map((news) => (
+        {headlines.map((news) => (
           <li key={news.id} className="border-b border-divider last:border-b-0">
             <a
               href={news.url}

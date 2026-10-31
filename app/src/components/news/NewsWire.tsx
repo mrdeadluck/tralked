@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { isSafeHref } from "@/lib/content/url";
 import type { WireItem } from "@/lib/queries/news";
 import { WireCard } from "./WireCard";
 
@@ -21,7 +22,7 @@ const CSS = `
 .tkw { --wire-bg: #17171a; --paper: var(--text); --paper-hi: #f6f5ef; --ink: var(--bg); --ink-2: #5f626a; --acc-ink: #4f6a00;
   --mono: var(--font-jetbrains-mono), ui-monospace, Consolas, monospace;
   position: relative; width: 100vw; margin-left: calc(50% - 50vw); background: var(--wire-bg);
-  border-block: 1px solid var(--border); padding: 48px 0 30px; overflow: hidden; }
+  border-block: 1px solid var(--border); padding: 48px 0 30px; overflow: clip; }
 body:has(.tkw) { overflow-x: clip; }
 .tkw-head { max-width: 1320px; margin: 0 auto; padding: 0 20px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .tkw-head h2 { font-weight: 900; font-stretch: 125%; font-size: 26px; line-height: 1; letter-spacing: -0.03em; text-transform: uppercase; }
@@ -89,6 +90,12 @@ body:has(.tkw) { overflow-x: clip; }
 .tkw-dark .tkw-img .tkw-meta { position: absolute; left: 14px; right: 36px; bottom: 12px; color: var(--text-2); }
 
 @media (max-width: 600px) { .tkw-lens { display: none; } }
+/* Without JS the strip cannot move: drop the loop copies and let it scroll, so focused cards stay visible. */
+@media (scripting: none) {
+  .tkw-copy { display: none; }
+  .tkw-stage { overflow-x: auto; cursor: auto; padding-inline: 20px; }
+  .tkw-card { transform: none; filter: none; }
+}
 @media (prefers-reduced-motion: reduce) { .tkw-card { transition: none; } }
 `;
 
@@ -103,7 +110,7 @@ const subscribeReduce = (onChange: () => void) => {
 const readReduce = () => window.matchMedia(REDUCE_QUERY).matches;
 
 export function NewsWire({
-  items,
+  items: allItems,
   title = "Em circulação",
   description,
   label = "Notícias em movimento",
@@ -116,6 +123,8 @@ export function NewsWire({
   label?: string;
   className?: string;
 }) {
+  // Defense in depth: the queries already drop unsafe feed URLs.
+  const items = allItems.filter((item) => isSafeHref(item.href, item.external));
   const stageRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -141,6 +150,8 @@ export function NewsWire({
     const track = trackRef.current;
     if (!stage || !track || count === 0) return;
 
+    // Three copies: [hidden][originals][hidden]. Only the originals take focus; the copies on both
+    // sides let any original sit centred while the strip still covers the stage edge to edge.
     const cards = Array.from(track.children) as HTMLElement[];
     let x = 0;
     let hover = false;
@@ -153,17 +164,27 @@ export function NewsWire({
     let frame = 0;
     // Card geometry relative to the track (transforms don't change it); refreshed on resize.
     let geo: { left: number; width: number }[] = [];
-    let half = 0;
+    /** Width of one copy (cards + gaps): the loop period. */
+    let period = 0;
     const measure = () => {
       geo = cards.map((c) => ({ left: c.offsetLeft, width: c.offsetWidth }));
-      half = track.scrollWidth / 2 + GAP / 2;
+      period = (track.scrollWidth + GAP) / 3;
     };
     measure();
+    /** Offset that centres card i under the lens. */
+    const centred = (i: number) => stage.clientWidth / 2 - geo[i].left - geo[i].width / 2;
+    // Start with the originals where the first copy is (same picture as the server render).
+    x = -period;
 
+    /**
+     * Keeps x in (top - period, top], where `top` centres the first original. Every original's
+     * centred offset lies in that window, so a focused card is the one on screen, not a copy.
+     */
     const wrap = () => {
-      if (half <= 0) return;
-      while (x <= -half) x += half;
-      while (x > 0) x -= half;
+      if (period <= 0) return;
+      const top = centred(count);
+      while (x <= top - period) x += period;
+      while (x > top) x -= period;
     };
     const mark = () => {
       const mid = stage.clientWidth / 2;
@@ -203,25 +224,24 @@ export function NewsWire({
       frame = requestAnimationFrame(tick);
     };
 
-    const glideTo = (card: HTMLElement) => {
-      const i = cards.indexOf(card);
-      if (i < 0) return;
-      const to = stage.clientWidth / 2 - geo[i].left - geo[i].width / 2;
+    /** Glides the original of item `index` under the lens, along the shortest way round the loop. */
+    const glideToItem = (index: number) => {
+      const to = centred(count + index);
       if (readReduce()) {
         glide = null;
         x = to;
         render();
-      } else {
-        glide = { from: x, to, t0: performance.now() };
+        return;
       }
+      const near = to + Math.round((x - to) / period) * period;
+      glide = { from: x, to: near, t0: performance.now() };
     };
-    const step = (dir: 1 | -1) => {
-      const i = current ? cards.indexOf(current) : 0;
-      let j = i + dir;
-      if (j < 0) j += count;
-      if (j >= cards.length) j -= count;
-      glideTo(cards[j]);
+    const itemOf = (card: HTMLElement | null) => {
+      const i = card ? cards.indexOf(card) : -1;
+      return i < 0 ? 0 : i % count;
     };
+    const glideTo = (card: HTMLElement) => glideToItem(itemOf(card));
+    const step = (dir: 1 | -1) => glideToItem((itemOf(current) + dir + count) % count);
     api.current = { step };
 
     const onEnter = (e: PointerEvent) => {
@@ -336,12 +356,15 @@ export function NewsWire({
         aria-label={label}
       >
         <div ref={trackRef} className="tkw-track">
+          {/* Copies before and after the originals for the endless loop: hidden from assistive tech and the tab order. */}
+          {items.map((item) => (
+            <WireCard key={`${item.id}<`} item={item} hidden />
+          ))}
           {items.map((item) => (
             <WireCard key={item.id} item={item} />
           ))}
-          {/* Second copy for the endless loop: hidden from assistive tech and the tab order. */}
           {items.map((item) => (
-            <WireCard key={`${item.id}~`} item={item} hidden />
+            <WireCard key={`${item.id}>`} item={item} hidden />
           ))}
         </div>
         <div className="tkw-lens" aria-hidden="true" />

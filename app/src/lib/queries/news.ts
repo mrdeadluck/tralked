@@ -9,6 +9,7 @@ import {
   type AchievementPlatform,
   type ContentBlock,
 } from "@/lib/content/schema";
+import { isSafeHttpUrl } from "@/lib/content/url";
 import { toLocalDay } from "@/lib/engine/streak";
 import { timeAgo } from "@/lib/time-ago";
 
@@ -242,9 +243,16 @@ export async function getMostRead(limit: number): Promise<ArticleCard[]> {
   return rows.map(toCard);
 }
 
+/**
+ * Latest external headlines. Feed URLs are untrusted: only absolute http(s) links are returned
+ * (prefix filter in SQL, then a real URL parse), so a `javascript:` or `data:` link never reaches a page.
+ */
 export async function getExternalHeadlines(limit: number, gameSlugs?: string[]): Promise<ExternalHeadline[]> {
   const rows = await prisma.externalNews.findMany({
-    where: gameSlugs ? { game: { slug: { in: gameSlugs } } } : {},
+    where: {
+      ...(gameSlugs ? { game: { slug: { in: gameSlugs } } } : {}),
+      OR: [{ url: { startsWith: "https://" } }, { url: { startsWith: "http://" } }],
+    },
     orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
     take: limit,
     select: {
@@ -256,7 +264,7 @@ export async function getExternalHeadlines(limit: number, gameSlugs?: string[]):
       game: { select: { slug: true, name: true } },
     },
   });
-  return rows;
+  return rows.filter((row) => isSafeHttpUrl(row.url));
 }
 
 /** Paginated index (`/noticias?categoria=&pagina=`). Out-of-range pages clamp to the last one. */
@@ -506,7 +514,8 @@ export function buildWireItems(
   type Entry = { at: Date; article?: ArticleCard; headline?: ExternalHeadline };
   const entries: Entry[] = [
     ...articles.map((article) => ({ at: article.publishedAt, article })),
-    ...external.map((headline) => ({ at: headline.publishedAt, headline })),
+    // Untrusted feed URLs: drop anything that is not an absolute http(s) link.
+    ...external.filter((h) => isSafeHttpUrl(h.url)).map((headline) => ({ at: headline.publishedAt, headline })),
   ]
     .sort((a, b) => b.at.getTime() - a.at.getTime())
     .slice(0, limit);

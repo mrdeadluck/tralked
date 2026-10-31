@@ -147,6 +147,29 @@ describe.skipIf(!reachable)("news queries (seeded database)", () => {
     }
   });
 
+  it("drops external headlines whose URL is not absolute http(s)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getArticle, getExternalHeadlines } = await import("./news");
+    const game = await prisma.game.findUniqueOrThrow({ where: { slug: "hollow-knight" } });
+    const future = new Date(Date.now() + 86_400_000); // newest, so they would be first if not filtered
+    const bad = ["javascript:alert(document.cookie)", "data:text/html,<script>alert(1)</script>", "//evil.example.com/x", " javascript:alert(1)"];
+    await prisma.externalNews.createMany({
+      data: bad.map((url, i) => ({ gameId: game.id, title: `test-unsafe-${i}`, url, source: "Feed hostil", publishedAt: future })),
+    });
+    try {
+      const all = await getExternalHeadlines(50);
+      expect(all.length).toBeGreaterThan(0);
+      expect(all.some((n) => n.title.startsWith("test-unsafe-"))).toBe(false);
+      expect(all.every((n) => /^https?:\/\//.test(n.url))).toBe(true);
+      const forGame = await getExternalHeadlines(50, ["hollow-knight"]);
+      expect(forGame.some((n) => n.title.startsWith("test-unsafe-"))).toBe(false);
+      const article = await getArticle("hollow-knight-guia-100-por-cento-em-7-etapas");
+      expect(article?.externalNews.some((n) => n.title.startsWith("test-unsafe-"))).toBe(false);
+    } finally {
+      await prisma.externalNews.deleteMany({ where: { title: { startsWith: "test-unsafe-" } } });
+    }
+  });
+
   it("getTopPlayers returns public profiles ordered by total XP", async () => {
     const { getTopPlayers } = await import("./news");
     const players = await getTopPlayers(5);
@@ -233,6 +256,29 @@ describe("wire and tab view models", () => {
     });
     expect(items[0]).toMatchObject({ href: "/noticias/a", source: "Redação Tralked", when: "há 1 hora" });
     expect(items.every((i) => Number.isInteger(i.seed))).toBe(true);
+  });
+
+  it("never puts an unsafe external URL on the wire", async () => {
+    const { buildWireItems } = await import("./news");
+    const headline = (id: string, url: string) => ({
+      id,
+      title: id,
+      url,
+      source: "Feed",
+      publishedAt: new Date(now.getTime() - 3_600_000),
+      game: null,
+    });
+    const items = buildWireItems(
+      [],
+      [
+        headline("js", "javascript:alert(1)"),
+        headline("data", "data:text/html,<b>x</b>"),
+        headline("proto", "//evil.example.com"),
+        headline("ok", "https://example.com/ok"),
+      ],
+      now,
+    );
+    expect(items.map((i) => i.id)).toEqual(["x:ok"]);
   });
 
   it("adds the 'Guias da semana' block card when there are two guides", async () => {

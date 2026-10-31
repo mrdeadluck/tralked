@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isSafeHttpUrl } from "./url";
 
 /**
  * ContentBlock[]: the single block format for news and guides (spec Plan 2, "Formato de conteúdo
@@ -14,23 +15,25 @@ export const INLINE_LINK = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 
 /** Any HTML-looking tag or comment: `<b`, `</p`, `<!--`, `<?xml`. A bare "a < b" stays allowed. */
 const HTML_TAG = /<[a-zA-Z!/?]/;
-const SCRIPT_SCHEME = /(?:javascript|vbscript|data)\s*:/i;
+/**
+ * Script schemes are refused anywhere in text. `data:` is not: "save data: ..." is ordinary text,
+ * and link/image targets are already limited to http(s).
+ */
+const SCRIPT_SCHEME = /(?:javascript|vbscript)\s*:/i;
+/** C0 control characters except tab (\u0009) and line feed (\u000A). */
+const CONTROL_CHAR = /[\u0000-\u0008\u000B-\u001F]/;
 
-export function isSafeHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:";
-  } catch {
-    return false;
-  }
-}
+export { isSafeHttpUrl };
 
 function checkText(value: string, ctx: z.RefinementCtx, inline: boolean) {
+  if (CONTROL_CHAR.test(value)) {
+    ctx.addIssue({ code: "custom", message: "Caractere de controle não permitido" });
+  }
   if (HTML_TAG.test(value)) {
     ctx.addIssue({ code: "custom", message: "HTML não é permitido; use texto puro" });
   }
   if (SCRIPT_SCHEME.test(value)) {
-    ctx.addIssue({ code: "custom", message: "Esquema de URL não permitido (javascript:, data:, vbscript:)" });
+    ctx.addIssue({ code: "custom", message: "Esquema de URL não permitido (javascript:, vbscript:)" });
   }
   if (!inline) return;
   for (const match of value.matchAll(INLINE_LINK)) {
@@ -123,7 +126,8 @@ export const tableBlockSchema = z
 
 export const achievementBlockSchema = z.strictObject({
   type: z.literal("achievement"),
-  apiName: z.string().trim().min(1).max(200).regex(/^[^<>\s]+$/, "apiName inválido"),
+  // No spaces, angle brackets or control characters.
+  apiName: z.string().trim().min(1).max(200).regex(/^[^<>\s\u0000-\u001F]+$/, "apiName inválido"),
   /** Platform of the achievement; apiNames are only unique per game and platform. */
   platform: z.enum(ACHIEVEMENT_PLATFORMS).default("steam"),
 });
