@@ -481,7 +481,7 @@ Gere um `Idempotency-Key` para cada conteúdo, com 1 a 255 caracteres ASCII vis�
 ## Limites
 
 - **60 requisições por minuto por chave.** Toda resposta autenticada traz os cabeçalhos `X-RateLimit-Limit`, `X-RateLimit-Remaining` e `X-RateLimit-Reset` (segundos até a janela zerar). Acima do limite, a resposta é `429` com o cabeçalho `Retry-After`.
-- **Corpo de até 1 MiB.**
+- **Corpo de até 1 MiB**, com no máximo 64 níveis de listas e objetos aninhados (acima disso: `422 validation_failed`, sem `issues`).
 - **Tamanho do conteúdo:** até 300 blocos por notícia, 60 etapas por guia e 10 jogos por notícia.
 - **Imagens:** só por URL https, com texto alternativo e crédito. A API não recebe arquivos.
 

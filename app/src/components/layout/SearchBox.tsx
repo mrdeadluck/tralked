@@ -111,7 +111,7 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
       onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
-      className="relative min-w-0 flex-[1_1_160px] max-nav:order-5 max-nav:basis-full"
+      className="relative min-w-0 flex-[1_1_120px] max-nav:order-5 max-nav:basis-full"
     >
       <label className="flex h-[42px] items-center gap-2.5 rounded-[2px] border border-[#23252c] bg-surface-2 px-3.5 text-dim-2 focus-within:border-acc">
         <span aria-hidden="true" className="font-mono">

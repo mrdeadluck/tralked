@@ -8,6 +8,7 @@ import type { GuideStepView } from "@/lib/queries/games";
 import { CheckLabel } from "./CheckLabel";
 import { RARITY_UI } from "./format";
 import { LoginNudge } from "./LoginNudge";
+import { RichText } from "./RichText";
 
 type RoadmapProps = {
   steps: GuideStepView[];
@@ -86,7 +87,12 @@ export function Roadmap({ steps, loggedIn, returnTo, pending = false }: RoadmapP
                 {nudgeStep === step.id ? (
                   <LoginNudge returnTo={returnTo} className="mt-2.5" />
                 ) : null}
-                <p className="mt-2.5 text-[15.5px] text-muted">{step.body}</p>
+                <RichText
+                  blocks={step.blocks}
+                  text={step.body}
+                  cards={step.cards}
+                  className="mt-2.5 text-[15.5px] text-muted"
+                />
                 {count > 0 ? (
                   <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
                     {step.achievements.map((a) => (

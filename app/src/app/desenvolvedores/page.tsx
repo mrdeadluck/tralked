@@ -433,7 +433,7 @@ export default function DesenvolvedoresPage() {
               <C>X-RateLimit-Limit</C>, <C>X-RateLimit-Remaining</C> e <C>X-RateLimit-Reset</C> (segundos até a
               janela zerar). Acima do limite: <C>429</C> com <C>Retry-After</C>.
             </li>
-            <li>Corpo de até 1 MiB.</li>
+            <li>Corpo de até 1 MiB, com no máximo 64 níveis de listas e objetos aninhados.</li>
             <li>Até 300 blocos por notícia, 60 etapas por guia e 10 jogos por notícia.</li>
             <li>Imagens só por URL https, com texto alternativo e crédito. Não há envio de arquivos.</li>
           </ul>

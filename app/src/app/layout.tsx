@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
 import { Footer } from "@/components/layout/Footer";
 import { SessionHeader } from "@/components/layout/SessionHeader";
+import { CookieConsent } from "@/components/layout/CookieConsent";
+import { env } from "@/lib/env";
 import "./globals.css";
 
 // Archivo tem eixo de largura (wdth 62-125): os títulos usam font-stretch expandido.
@@ -18,9 +20,12 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  // Makes Open Graph / canonical URLs absolute (the public origin).
+  metadataBase: new URL(env.APP_URL),
   title: "Tralked",
   description:
     "Notícias de games e guias de conquistas, feitos por pessoas que amam jogar.",
+  openGraph: { siteName: "Tralked", locale: "pt_BR", type: "website" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -35,6 +40,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           {children}
         </main>
         <Footer />
+        <CookieConsent />
       </body>
     </html>
   );

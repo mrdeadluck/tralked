@@ -36,6 +36,14 @@ export function createConfig(mode: E2EMode) {
     use: {
       baseURL: BASE_URL,
       trace: "retain-on-failure",
+      // The cookie banner already has its choice, so it never covers what a test clicks or
+      // screenshots. e2e/system.spec.ts opens a fresh context to test the banner itself.
+      storageState: {
+        cookies: [
+          { name: "tk_consent", value: "necessary", domain: "localhost", path: "/", expires: -1, httpOnly: false, secure: false, sameSite: "Lax" },
+        ],
+        origins: [],
+      },
     },
     projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
     webServer: {

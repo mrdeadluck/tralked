@@ -30,6 +30,7 @@ import type { MissionCondition } from "../src/lib/engine/missions";
 import { SKILLS, type SkillId, type SkillState } from "../src/lib/engine/types";
 import { vocationFor } from "../src/lib/engine/vocation";
 import { dailyPeriodKey, weeklyPeriodKey } from "../src/lib/progression/periods";
+import { recomputeUser } from "../src/lib/progression/recompute";
 import { skillsFromLedger } from "../src/lib/progression/skills-from-ledger";
 import { markdownToBlocks } from "./seed-data/blocks";
 import {
@@ -117,6 +118,9 @@ function assertSkillsMatch(
   }
 }
 
+/** Preview streak of the other seeded players (by their index in PLAYERS). */
+const playerStreak = (index: number) => ({ streakCurrent: 2 + (index % 6), streakBest: 10, shields: 0 });
+
 function mustFind<T>(value: T | undefined | null, what: string): T {
   if (value === undefined || value === null) throw new Error(`Seed: missing ${what}`);
   return value;
@@ -145,10 +149,12 @@ export async function runSeed() {
         })),
       ];
       for (const u of allUsers) {
+        // Seeded characters already have a history: their "Despertar" (first-sync sequence) was shown.
+        const data = { ...u, lastSyncedAt: hoursAgo(2), despertarShownAt: daysAgo(400) };
         const row = await tx.user.upsert({
           where: { handle: u.handle },
-          create: { ...u, lastSyncedAt: hoursAgo(2) },
-          update: { ...u, lastSyncedAt: hoursAgo(2) },
+          create: data,
+          update: data,
         });
         userIds.set(u.handle, row.id);
       }
@@ -435,9 +441,7 @@ export async function runSeed() {
           totalXp,
           level: levelFromXp(totalXp).level,
           vocation: vocationFor(states),
-          streakCurrent: 2 + (PLAYERS.indexOf(p) % 6),
-          streakBest: 10,
-          shields: 0,
+          ...playerStreak(PLAYERS.indexOf(p)),
         };
         await tx.userStats.upsert({
           where: { userId: id },
@@ -815,6 +819,23 @@ export async function runSeed() {
     },
     { timeout: 60_000, maxWait: 10_000 },
   );
+
+  // Rows the app derives (AttributeProgress, today's missions) come from the real recompute, so the
+  // seeded characters look like synced ones. XP, level and skills come out unchanged (the ledger
+  // reproduces them). The streaks are the preview's: the baseline entries stand in for unlocks that
+  // are not seeded, so the recomputed streak would be ~0; they are put back afterwards.
+  const streaks = new Map([
+    [LUCAS.handle, { streakCurrent: LUCAS.streakCurrent, streakBest: LUCAS.streakBest, shields: LUCAS.shields }],
+    ...PLAYERS.map((p, i) => [p.handle, playerStreak(i)] as const),
+  ]);
+  const seeded = await prisma.user.findMany({
+    where: { handle: { in: [...streaks.keys()] } },
+    select: { id: true, handle: true },
+  });
+  for (const { id, handle } of seeded) {
+    await recomputeUser(id, now);
+    await prisma.userStats.update({ where: { userId: id }, data: mustFind(streaks.get(handle), `streak ${handle}`) });
+  }
 
   const [games, articles, users] = await Promise.all([
     prisma.game.count(),

@@ -224,6 +224,8 @@ describe("wire and tab view models", () => {
     imageLabel: slug,
     imageUrl: null,
     authorHandle: "Rivia",
+    authorLabel: "@Rivia",
+    bot: false,
     featured: 0,
     likes: 0,
     comments: 0,
@@ -300,5 +302,19 @@ describe("wire and tab view models", () => {
       ["guias", 1, "/noticias?categoria=guias#arquivo"],
       ["comunidade", 1, "/noticias?categoria=comunidade#arquivo"],
     ]);
+  });
+
+  it("credits robots without the '@' of a user handle, on tabs and on the wire", async () => {
+    const { articleStory, authorLabel, buildWireItems } = await import("./news");
+    expect(authorLabel("bot", "Robô Patch Notes")).toBe("Robô Patch Notes");
+    expect(authorLabel("editorial", "Rivia")).toBe("@Rivia");
+    expect(authorLabel(null, "Rivia")).toBe("@Rivia");
+
+    const bot = { ...card("r", "GAMES", 1), authorHandle: "Robô Patch Notes", authorLabel: "Robô Patch Notes", bot: true };
+    expect(articleStory(bot, now).source).toBe("Robô Patch Notes");
+    expect(articleStory(card("h", "GAMES", 1), now).source).toBe("@Rivia");
+    const [wireBot, wireHuman] = buildWireItems([bot, card("h", "GAMES", 2)], [], now);
+    expect(wireBot.source).toBe("Robô Patch Notes");
+    expect(wireHuman.source).toBe("Redação Tralked");
   });
 });

@@ -11,6 +11,7 @@ import { GuideSidebar } from "@/components/guide/GuideSidebar";
 import { Overview } from "@/components/guide/Overview";
 import { Revisions } from "@/components/guide/Revisions";
 import { Roadmap } from "@/components/guide/Roadmap";
+import { Sources } from "@/components/guide/Sources";
 import {
   AchievementsIsland,
   GameHeadIsland,
@@ -21,6 +22,7 @@ import {
 import { guideIdCached } from "@/lib/community/cached";
 import { listGameSlugs } from "@/lib/queries/games";
 import { getGameCached, getGuideCached } from "@/lib/queries/games-cached";
+import { howToJsonLd, JsonLd } from "@/lib/seo/json-ld";
 import { gameMetadata } from "../metadata";
 
 export async function generateStaticParams() {
@@ -51,6 +53,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
 
   return (
     <>
+      <JsonLd data={howToJsonLd(guide)} />
       <Suspense fallback={<GameHead game={guide.game} />}>
         <GameHeadIsland game={guide.game} />
       </Suspense>
@@ -82,6 +85,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
             <TipsIsland guide={guide} returnTo={returnTo} />
           </Suspense>
           <Revisions revisions={guide.revisions} now={now} />
+          <Sources sources={guide.sources} />
           {guideId ? <Comments targetType="guide" targetId={guideId} /> : null}
         </div>
         <Suspense

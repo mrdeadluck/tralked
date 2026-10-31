@@ -56,4 +56,11 @@ export const ROUTES: E2ERoute[] = [
   { path: "/admin/robos", name: "admin-robos", auth: true },
   { path: "/admin/feeds", name: "admin-feeds", auth: true },
   { path: "/admin/usuarios", name: "admin-usuarios", auth: true },
+  { path: "/notificacoes", name: "notificacoes" },
+  { path: "/notificacoes", name: "notificacoes-logado", auth: true },
+  { path: "/conta/conexoes?erro=steam_em_uso", name: "conta-conexoes-erro-logado", auth: true },
+  { path: "/privacidade", name: "privacidade" },
+  { path: "/termos", name: "termos" },
+  { path: "/licencas", name: "licencas" },
+  { path: "/newsletter/confirmar?email=x%40exemplo.com&token=nope", name: "newsletter-confirmar" },
 ];
