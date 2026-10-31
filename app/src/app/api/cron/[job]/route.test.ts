@@ -8,7 +8,9 @@ const jobs = vi.hoisted(() => ({
   syncStalePlatformAccounts: vi.fn(async () => ({ processed: 4, failed: 0 })),
   syncStaleMedia: vi.fn(async () => ({ processed: 5, failed: 0 })),
   syncExternalNews: vi.fn(async () => ({ processed: 2, failed: 0, created: 7 })),
+  deleteOldNotifications: vi.fn(async () => ({ processed: 9 })),
 }));
+vi.mock("@/lib/notifications/retention", () => ({ deleteOldNotifications: jobs.deleteOldNotifications }));
 vi.mock("@/lib/sync/catalog", () => ({
   syncCatalog: jobs.syncCatalog,
   refreshRarity: jobs.refreshRarity,
@@ -53,6 +55,7 @@ describe("GET /api/cron/[job]", () => {
     ["platforms", "syncStalePlatformAccounts"],
     ["media", "syncStaleMedia"],
     ["news", "syncExternalNews"],
+    ["notifications", "deleteOldNotifications"],
   ] as const)("runs the %s job with a valid token", async (job, fn) => {
     const res = await call(job, `Bearer ${env.CRON_SECRET}`);
     expect(res.status).toBe(200);

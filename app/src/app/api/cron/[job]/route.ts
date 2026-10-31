@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
+import { deleteOldNotifications } from "@/lib/notifications/retention";
 import { refreshRarity, syncCatalog } from "@/lib/sync/catalog";
 import { syncExternalNews } from "@/lib/sync/external-news";
 import { syncStaleMedia } from "@/lib/sync/media";
@@ -15,6 +16,8 @@ const JOBS: Record<string, () => Promise<{ processed: number; failed?: number }>
   platforms: () => syncStalePlatformAccounts(),
   media: () => syncStaleMedia(),
   news: () => syncExternalNews(),
+  // Daily: notifications older than 90 days (they may quote people who left).
+  notifications: () => deleteOldNotifications(),
 };
 
 function isAuthorized(request: NextRequest): boolean {

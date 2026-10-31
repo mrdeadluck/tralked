@@ -25,6 +25,9 @@ export type ConnectionCardState =
 
 type Notice = { tone: "ok" | "error"; text: string };
 
+/** How often a card with an import in progress asks the server for the new state. */
+const IMPORT_POLL_MS = 5000;
+
 const PLATFORM_COLOR: Record<CodePlatform, string> = {
   psn: "var(--ps)",
   xbox: "var(--xbox)",
@@ -125,11 +128,9 @@ export function ConnectionCard({ platform, state }: { platform: CodePlatform; st
             run(async () => {
               const result = await syncLinkedAccountAction({ platform });
               if (!result.ok) return { tone: "error", text: result.error };
-              const n = result.newUnlocks;
-              return {
-                tone: "ok",
-                text: n === 0 ? "Tudo em dia: nenhuma conquista nova." : `${n} ${n === 1 ? "conquista nova importada" : "conquistas novas importadas"}.`,
-              };
+              // The import runs in the background: after the refresh the card shows "Importando…"
+              // and keeps refreshing until it ends.
+              return { tone: "ok", text: `${result.message}. As conquistas novas aparecem aqui em instantes.` };
             })
           }
           onUnlink={() =>
@@ -327,8 +328,17 @@ function Connected({
   onUnlink: () => void;
 }) {
   const guide = PLATFORM_GUIDES[platform];
+  const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // Imports run in the background: refresh until the server stops reporting "importing" (the
+  // state itself ends after IMPORT_GRACE_MS, so this never polls forever).
+  useEffect(() => {
+    if (!state.importing) return;
+    const timer = setInterval(() => router.refresh(), IMPORT_POLL_MS);
+    return () => clearInterval(timer);
+  }, [state.importing, router]);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
 

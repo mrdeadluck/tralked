@@ -73,7 +73,7 @@ O login real pela Steam (`/api/auth/steam`) de um perfil importado cai no mesmo 
 
 ## Cron
 
-Seis jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
+Sete jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
 
 | Endpoint | Faz |
 | --- | --- |
@@ -83,6 +83,7 @@ Seis jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame
 | `/api/cron/platforms` | Ressincroniza até 5 contas PSN, Xbox e RetroAchievements verificadas por execução (as mais antigas primeiro), lendo só os jogos com conquistas novas e retomando de onde parou (limite de 50 s). |
 | `/api/cron/media` | Busca vídeos, screenshots e artworks (IGDB) e capa/hero/logo (SteamGridDB) de jogos ainda sem mídia oficial. |
 | `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte e data das notícias que citam um jogo do catálogo. |
+| `/api/cron/notifications` | Diário: apaga notificações com mais de 90 dias (o texto delas pode citar outras pessoas, inclusive quem excluiu a conta). |
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://seu-dominio/api/cron/catalog

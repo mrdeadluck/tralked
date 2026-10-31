@@ -3,8 +3,8 @@ import { prisma } from "@/lib/db";
 /**
  * LGPD data export: everything Tralked stores about one user, as plain JSON. Every query is
  * scoped to the user's own rows (`userId` / `authorId` / `reporterId`) and selects explicit
- * fields, so other people's data (who liked a photo, replies by others, secrets such as API key
- * hashes or pending link codes) never ends up in the file.
+ * fields, so other people's data (who liked a photo, replies by others, notification texts that
+ * quote them, secrets such as API key hashes or pending link codes) never ends up in the file.
  */
 export async function exportUserData(userId: string, now: Date = new Date()) {
   const user = await prisma.user.findUnique({
@@ -161,9 +161,11 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
       where: { reporterId: userId },
       select: { targetType: true, targetId: true, reason: true, status: true, createdAt: true },
     }),
+    // Title and body are left out: they quote other people (who liked, who replied, what they
+    // wrote). Notifications are ephemeral and deleted after 90 days.
     prisma.notification.findMany({
       where: mine,
-      select: { kind: true, title: true, body: true, href: true, readAt: true, createdAt: true },
+      select: { kind: true, href: true, readAt: true, createdAt: true },
       orderBy: { createdAt: "asc" },
     }),
     prisma.familyMember.findUnique({

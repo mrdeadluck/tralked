@@ -1,5 +1,13 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { env } from "@/lib/env";
+
+// The community Server Actions run for real; only the session and cache invalidation are faked.
+const session = vi.hoisted(() => ({ user: null as { id: string; handle: string } | null }));
+vi.mock("@/lib/auth/session", () => ({ getSessionUser: async () => session.user }));
+vi.mock("next/cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/cache")>()),
+  updateTag: () => {},
+}));
 
 // Needs Postgres up and seeded (see db.test.ts); skipped when unreachable.
 async function databaseReachable(): Promise<boolean> {
@@ -91,18 +99,24 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
     const mineA = await populate(a, "a");
     const mineB = await populate(b, "b");
 
-    // B interacts with A's content: none of it belongs in A's export.
-    await prisma.photoLike.create({ data: { userId: b.id, photoId: mineA.photo.id } });
-    await prisma.photo.update({ where: { id: mineA.photo.id }, data: { likeCount: 1 } });
-    await prisma.comment.create({
-      data: { authorId: b.id, targetType: "photo", targetId: mineA.photo.id, body: `comentário de b ${MARK}` },
+    // B interacts with A's content through the real Server Actions (which also notify A, quoting
+    // B's name and text): none of it belongs in A's export.
+    const { likePhoto, postComment, replyToThread } = await import("@/lib/community/actions");
+    session.user = b;
+    expect(await likePhoto({ photoId: mineA.photo.id })).toMatchObject({ status: "ok", liked: true });
+    expect(
+      await postComment({ targetType: "photo", targetId: mineA.photo.id, body: `comentário de b ${MARK}` }),
+    ).toMatchObject({ status: "ok" });
+    expect(await replyToThread({ threadId: mineA.thread.id, body: `resposta de b ${MARK}` })).toMatchObject({
+      status: "ok",
     });
-    await prisma.forumPost.create({ data: { threadId: mineA.thread.id, authorId: b.id, body: `resposta de b ${MARK}` } });
     // A's own comment, and a pending link whose code must not leak.
-    const article = await prisma.article.findFirstOrThrow({ select: { id: true } });
-    await prisma.comment.create({
-      data: { authorId: a.id, targetType: "article", targetId: article.id, body: `comentário de a ${MARK}` },
-    });
+    session.user = a;
+    const article = await prisma.article.findFirstOrThrow({ where: { status: "published" }, select: { id: true } });
+    expect(
+      await postComment({ targetType: "article", targetId: article.id, body: `comentário de a ${MARK}` }),
+    ).toMatchObject({ status: "ok" });
+    session.user = null;
     await prisma.linkedAccount.create({
       data: {
         userId: a.id,
@@ -113,7 +127,10 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
         verifyExpiresAt: new Date(Date.now() + 60_000),
       },
     });
-
+    // The notifications B's actions sent A do quote B (that is why their text is not exported).
+    const inbox = await prisma.notification.findMany({ where: { userId: a.id, kind: { not: "system" } } });
+    expect(inbox.length).toBeGreaterThan(0);
+    expect(JSON.stringify(inbox)).toMatch(/Pessoa B|de b/);
     const data = await exportUserData(a.id);
     expect(data).not.toBeNull();
     const json = JSON.stringify(data);
@@ -126,12 +143,15 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
     expect(data!.community.comments.map((c) => c.body)).toEqual([`comentário de a ${MARK}`]);
     expect(data!.community.forumPosts.map((p) => p.body)).toEqual([`post de a ${MARK}`]);
     expect(data!.community.photoLikes).toEqual([]);
-    expect(data!.notifications.map((n) => n.title)).toEqual([`aviso para a ${MARK}`]);
+    // Notifications keep only kind, link and dates: their texts quote other people.
+    expect(data!.notifications.length).toBe(inbox.length + 1);
+    for (const n of data!.notifications) expect(Object.keys(n).sort()).toEqual(["createdAt", "href", "kind", "readAt"]);
 
     for (const foreign of [
       b.id,
       b.handle,
       b.email!,
+      b.displayName,
       `psn-${b.id}`,
       mineB.photo.id,
       mineB.thread.id,
@@ -145,6 +165,24 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
     ]) {
       expect(json).not.toContain(foreign);
     }
+  });
+
+  it("the notifications cron deletes notifications older than 90 days", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { deleteOldNotifications } = await import("@/lib/notifications/retention");
+    const user = await newUser("n");
+    const now = new Date("2026-10-31T12:00:00Z");
+    const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000);
+    await prisma.notification.createMany({
+      data: [
+        { userId: user.id, kind: "photo_like", title: "velha", createdAt: daysAgo(91) },
+        { userId: user.id, kind: "photo_like", title: "recente", createdAt: daysAgo(89) },
+      ],
+    });
+    const { processed } = await deleteOldNotifications(now);
+    expect(processed).toBeGreaterThanOrEqual(1);
+    const left = await prisma.notification.findMany({ where: { userId: user.id }, select: { title: true } });
+    expect(left).toEqual([{ title: "recente" }]);
   });
 
   it("returns null for a user that does not exist", async () => {
