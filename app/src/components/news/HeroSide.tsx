@@ -23,9 +23,9 @@ export function HeroSide({ article }: { article: ArticleView }) {
         className="absolute inset-0 bg-[linear-gradient(180deg,rgba(11,12,15,.05)_10%,rgba(11,12,15,.95)_80%)]"
       />
       <ArticleTags article={article} onImage className="relative" />
-      <h3 className="relative text-[19px] leading-[1.15] font-extrabold tracking-[-0.015em] text-balance">
+      <h2 className="relative text-[19px] leading-[1.15] font-extrabold tracking-[-0.015em] text-balance">
         {article.title}
-      </h3>
+      </h2>
       <ArticleByline article={article} className="relative text-[11px]" />
     </Link>
   );

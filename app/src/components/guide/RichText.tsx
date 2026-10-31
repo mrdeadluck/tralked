@@ -17,10 +17,10 @@ type RichTextProps = {
 export function RichText({ blocks, text, cards, className = "" }: RichTextProps) {
   if (blocks) {
     return (
-      <div className={`text-[15.5px] text-text-2 ${className}`}>
+      <div className={`max-w-[72ch] text-[15.5px] text-text-2 ${className}`}>
         <Blocks blocks={blocks} achievements={cards} />
       </div>
     );
   }
-  return <p className={className}>{text}</p>;
+  return <p className={`max-w-[72ch] ${className}`}>{text}</p>;
 }

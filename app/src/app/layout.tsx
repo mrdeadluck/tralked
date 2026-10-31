@@ -35,8 +35,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${archivo.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
+        {/* Keyboard users skip the header (sections, search, account) in one Tab. */}
+        <a
+          href="#principal"
+          className="sr-only z-50 rounded-[2px] bg-acc px-4 py-3 font-mono text-xs font-bold tracking-[0.1em] text-bg uppercase focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+        >
+          Pular para o conteúdo
+        </a>
         <SessionHeader />
-        <main className="mx-auto w-full max-w-[1320px] flex-1 px-5 pt-6 pb-[72px]">
+        <main id="principal" tabIndex={-1} className="mx-auto w-full max-w-[1320px] flex-1 px-5 pt-6 pb-[72px] outline-none">
           {children}
         </main>
         <Footer />

@@ -40,7 +40,8 @@ export function Logo({ size = 44 }: LogoProps) {
           TRAL<i className="text-acc not-italic">K</i>ED
         </b>
         {full ? (
-          <span className="font-mono text-[9.5px] tracking-[0.18em] text-dim uppercase">
+          // On narrow phones the tagline would push the account and menu buttons to a second row.
+          <span className="font-mono text-[9.5px] tracking-[0.18em] text-dim uppercase max-[479px]:hidden">
             Feito por pessoas que amam jogar
           </span>
         ) : null}

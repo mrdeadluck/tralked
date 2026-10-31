@@ -31,9 +31,6 @@ export function Newsletter() {
       className="flex flex-wrap items-end justify-between gap-x-12 gap-y-6 rounded-[4px] bg-acc p-[22px] text-bg sm:p-8"
     >
       <div className="flex flex-[1_1_320px] flex-col gap-2.5">
-        <span className="font-mono text-[11px] font-bold tracking-[0.14em]">
-          NEWSLETTER
-        </span>
         <h2
           id="newsletter-title"
           className="text-[clamp(26px,3vw,38px)] leading-none font-black font-stretch-[120%] tracking-[-0.035em]"

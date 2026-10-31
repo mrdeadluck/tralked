@@ -149,6 +149,21 @@ describe.skipIf(!reachable)("game profile (seeded database)", () => {
     expect(p.timeTo100).toEqual({ minutes: 4800, players: 1 });
   });
 
+  it("once a game has real images, the generated placeholders are left out", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadGameProfile } = await import("./game-profile");
+    const game = await prisma.game.findUniqueOrThrow({ where: { slug: "hollow-knight" } });
+    const real = await prisma.gameMedia.create({
+      data: { gameId: game.id, kind: "screenshot", source: "steam", url: "https://cdn.example.com/shot.jpg", order: 9 },
+    });
+    try {
+      const p = (await loadGameProfile("hollow-knight"))!;
+      expect(p.shots.map((s) => s.url)).toEqual(["https://cdn.example.com/shot.jpg"]);
+    } finally {
+      await prisma.gameMedia.delete({ where: { id: real.id } });
+    }
+  });
+
   it("public photo listings leave out players with a private profile", async () => {
     const { prisma } = await import("@/lib/db");
     const { listPhotos, galleryGames } = await import("@/lib/community/gallery");

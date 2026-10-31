@@ -78,6 +78,16 @@ test.describe("system pages", () => {
     await expect(page.getByRole("link", { name: "Ir para as notícias" })).toHaveAttribute("href", "/");
   });
 
+  test("the first Tab offers a skip link that jumps past the header", async ({ page }) => {
+    await page.goto("/noticias");
+    await page.keyboard.press("Tab");
+    const skip = page.getByRole("link", { name: "Pular para o conteúdo" });
+    await expect(skip).toBeFocused();
+    await expect(skip).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("main#principal")).toBeFocused();
+  });
+
   test("footer links to the legal and community pages", async ({ page }) => {
     await page.goto("/");
     const footer = page.getByRole("contentinfo");

@@ -288,8 +288,12 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
     .map((a) => articleStory(a, now));
 
   const poster = art.hero ?? firstUrl("screenshot");
-  const shots: GameShot[] = game.media
-    .filter((m) => m.kind === "screenshot" || m.kind === "artwork")
+  const imageRows = game.media.filter((m) => m.kind === "screenshot" || m.kind === "artwork");
+  // Generated illustrations stand in only for a game without any real image (seed fixtures);
+  // once a sync brings real ones, the placeholders no longer mix with them.
+  const hasRealImage = imageRows.some((m) => safeMediaUrl(m.url) !== null);
+  const shots: GameShot[] = imageRows
+    .filter((m) => !hasRealImage || safeMediaUrl(m.url) !== null)
     .sort((a, b) => (a.kind === b.kind ? a.order - b.order : a.kind === "screenshot" ? -1 : 1))
     .map((m, i) => ({
       id: m.id,
