@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cleanName, fetchStoreApp, htmlToText, libraryAssetUrls, parseStoreApp, parseStoreDate } from "./store";
-import { fetchTags, fetchTopList, parseOwners, rankByOwners } from "./steamspy";
+import { fetchMostOwnedPage, fetchTags, fetchTopList, parseOwners, rankByOwners } from "./steamspy";
 
 // Trimmed from the real `appdetails?appids=367520&l=brazilian` answer (31/10/2026).
 const hollowKnight = {
@@ -119,6 +119,17 @@ describe("steamspy", () => {
     const list = await fetchTopList(async () => Response.json(top), "top100owned");
     const ranked = rankByOwners([list, [{ appId: 730, name: "Counter-Strike 2", ownersMin: 1, ccu: 0, positive: 0 }]]);
     expect(ranked.map((a) => a.appId)).toEqual([730, 10, 70]);
+  });
+
+  it("reads the most-owned page", async () => {
+    const urls: string[] = [];
+    const page = await fetchMostOwnedPage(async (url) => {
+      urls.push(url);
+      return Response.json(top);
+    });
+    expect(urls[0]).toContain("request=all&page=0");
+    expect(page.map((a) => a.appId).sort((a, b) => a - b)).toEqual([10, 70, 730]);
+    await expect(fetchMostOwnedPage(async () => new Response("", { status: 503 }))).rejects.toThrow(/HTTP 503/);
   });
 
   it("reads tags, and an empty list when SteamSpy has none", async () => {

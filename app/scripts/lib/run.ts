@@ -49,12 +49,17 @@ export function createRunLog(name: string): RunLog {
   };
 }
 
-/** Runs `worker` over `items` with at most `limit` in flight. */
-export async function forEachLimited<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>) {
+/** Runs `worker` over `items` with at most `limit` in flight; takes no new item once `stop()` is true. */
+export async function forEachLimited<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<void>,
+  stop: () => boolean = () => false,
+) {
   let next = 0;
   await Promise.all(
     Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (next < items.length) {
+      while (next < items.length && !stop()) {
         const index = next++;
         await worker(items[index], index);
       }

@@ -46,6 +46,18 @@ export async function fetchTopList(politeFetch: PoliteFetch, list: TopList): Pro
   return Object.values(data).flatMap((entry) => toApp(entry) ?? []);
 }
 
+/**
+ * One page (1,000 apps) of SteamSpy's full list, most owned first. The three top-100 lists now
+ * answer the same 100 apps, so page 0 is what fills a catalog past 100. SteamSpy allows this
+ * request once a minute; a bootstrap only needs page 0.
+ */
+export async function fetchMostOwnedPage(politeFetch: PoliteFetch, page = 0): Promise<SpyApp[]> {
+  const res = await politeFetch(`${STEAMSPY}?request=all&page=${page}`);
+  if (!res.ok) throw new Error(`SteamSpy all page ${page} failed with HTTP ${res.status}`);
+  const data = (await res.json()) as Record<string, SpyEntry>;
+  return Object.values(data).flatMap((entry) => toApp(entry) ?? []);
+}
+
 /** User tags with their votes; `{}` when SteamSpy has none (it then answers an empty array). */
 export async function fetchTags(politeFetch: PoliteFetch, appId: number): Promise<Record<string, number>> {
   const res = await politeFetch(`${STEAMSPY}?request=appdetails&appid=${appId}`);

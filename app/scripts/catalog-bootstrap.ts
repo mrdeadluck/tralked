@@ -1,12 +1,14 @@
 /**
  * Fills the catalog with the most popular Steam games, from public endpoints (no API key):
- * SteamSpy's three top-100 lists (most owned first), the store page in pt-BR, Steam library art,
+ * SteamSpy's top lists plus its most-owned page (most owned first), the store page in pt-BR, Steam library art,
  * screenshots and trailers (hotlinked, never downloaded), achievements from a public reference
  * profile plus their global percentages, and skills from SteamSpy tags.
  *
  *   DATABASE_URL=postgresql://... pnpm catalog:bootstrap --limit 300 [--concurrency 3] [--only-top]
  *
- * Games already in the catalog (e.g. the seed's) are completed too, unless --only-top.
+ * --limit is the number of popular games wanted in the catalog: apps without achievements (or
+ * that are not games) are skipped and the next most owned ones taken instead. Games already in
+ * the catalog (e.g. the seed's) are completed too, unless --only-top.
  *
  * Polite: at most one request per host every 1.2 s (store 1.5 s), Tralked User-Agent, backoff on
  * 429/5xx. Resumable: games already complete in the database are skipped. Progress goes to the
@@ -37,7 +39,9 @@ const { prisma } = await import("@/lib/db");
 const { createSteamCommunity, DEFAULT_REFERENCE_STEAM_ID } = await import("@/lib/integrations/steam/community");
 const { createPoliteFetch } = await import("@/lib/integrations/steam/polite-fetch");
 const { fetchStoreApp, libraryAssetUrls } = await import("@/lib/integrations/steam/store");
-const { fetchTags, fetchTopList, rankByOwners, TOP_LISTS } = await import("@/lib/integrations/steam/steamspy");
+const { fetchMostOwnedPage, fetchTags, fetchTopList, rankByOwners, TOP_LISTS } = await import(
+  "@/lib/integrations/steam/steamspy"
+);
 const { mapTagsToSkills } = await import("@/lib/integrations/steam/tags-map");
 const { completedAppIds, writeCatalogGame } = await import("./lib/write-catalog-game");
 
@@ -126,40 +130,61 @@ for (const list of TOP_LISTS) {
     failedEndpoints.push(`steamspy ${list}`);
   }
 }
-const candidates: { appId: number; name: string }[] = rankByOwners(lists).slice(0, limit);
-const fromTop = candidates.length;
-if (!values["only-top"]) {
-  // Games already in the catalog (the seed's, older imports) get real data too.
-  const listed = new Set(candidates.map((c) => c.appId));
-  const existing = await prisma.game.findMany({
-    where: { steamAppId: { not: null } },
-    orderBy: { createdAt: "asc" },
-    select: { steamAppId: true, name: true },
-  });
-  for (const g of existing) {
-    if (g.steamAppId !== null && !listed.has(g.steamAppId)) candidates.push({ appId: g.steamAppId, name: g.name });
-  }
+// The three top lists currently answer the same 100 apps: the most-owned page fills the rest.
+try {
+  lists.push(await fetchMostOwnedPage(politeFetch, 0));
+} catch (error) {
+  log.error("SteamSpy most-owned page failed", error);
+  failedEndpoints.push("steamspy all page 0");
 }
+const ranked: { appId: number; name: string }[] = rankByOwners(lists);
 const done = await completedAppIds();
-log.info(
-  `${fromTop} candidates from ${lists.length} SteamSpy lists + ${candidates.length - fromTop} already in the catalog; ` +
-    `${candidates.filter((c) => done.has(c.appId)).length} already complete`,
-);
+log.info(`${ranked.length} ranked apps from ${lists.length} SteamSpy lists; ${done.size} games already complete`);
 
-await forEachLimited(candidates, concurrency, async (app, index) => {
-  const label = `[${index + 1}/${candidates.length}] ${app.name} (${app.appId})`;
+/** Popular games in the catalog so far (complete before this run, or written by it). */
+let popular = 0;
+async function processApp(app: { appId: number; name: string }, label: string, countsTowardLimit: boolean) {
   if (done.has(app.appId)) {
     counts.skipped++;
+    if (countsTowardLimit) popular++;
     return;
   }
   try {
-    counts[await importApp(app.appId, label)]++;
+    const outcome = await importApp(app.appId, label);
+    counts[outcome]++;
+    if (countsTowardLimit && outcome !== "skipped") popular++;
   } catch (error) {
     counts.failed++;
     failedEndpoints.push(`app ${app.appId}`);
     log.error(`${label}: failed, will be retried on the next run`, error);
   }
-});
+}
+
+const seen = new Set<number>();
+await forEachLimited(
+  ranked,
+  concurrency,
+  async (app, index) => {
+    seen.add(app.appId);
+    await processApp(app, `[#${index + 1}, ${popular}/${limit}] ${app.name} (${app.appId})`, true);
+  },
+  () => popular >= limit,
+);
+
+if (!values["only-top"]) {
+  // Games already in the catalog (the seed's, older imports) get real data too.
+  const existing = await prisma.game.findMany({
+    where: { steamAppId: { not: null } },
+    orderBy: { createdAt: "asc" },
+    select: { steamAppId: true, name: true },
+  });
+  const extra = existing.flatMap((g) =>
+    g.steamAppId !== null && !seen.has(g.steamAppId) ? [{ appId: g.steamAppId, name: g.name }] : [],
+  );
+  await forEachLimited(extra, concurrency, (app, index) =>
+    processApp(app, `[catalog ${index + 1}/${extra.length}] ${app.name} (${app.appId})`, false),
+  );
+}
 
 const [games, achievements, media] = await Promise.all([
   prisma.game.count({ where: { steamAppId: { not: null } } }),
@@ -167,7 +192,8 @@ const [games, achievements, media] = await Promise.all([
   prisma.gameMedia.count({ where: { source: "steam" } }),
 ]);
 log.info(
-  `Done in ${formatDuration(Date.now() - started)}: created ${counts.created}, updated ${counts.updated}, ` +
+  `Done in ${formatDuration(Date.now() - started)}: ${popular} popular games in the catalog; ` +
+    `created ${counts.created}, updated ${counts.updated}, ` +
     `skipped ${counts.skipped}, failed ${counts.failed}. Database now has ${games} Steam games, ` +
     `${achievements} Steam achievements, ${media} Steam media rows.`,
 );

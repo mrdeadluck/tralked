@@ -51,7 +51,7 @@ A Steam é a exceção: sem `STEAM_API_KEY` ela usa as páginas públicas da com
 Dois scripts gravam dados reais no banco indicado em `DATABASE_URL`, que é obrigatória (eles se recusam a gravar no banco `gamelog`). Os dois só inserem e atualizam, nunca apagam. Cada execução deixa um log em `scripts/.logs/`.
 
 ```bash
-# 1. Catálogo: união dos tops do SteamSpy (mais donos primeiro), ficha da loja em pt-BR,
+# 1. Catálogo: os N jogos com conquistas mais populares do SteamSpy (tops + página dos mais possuídos), ficha da loja em pt-BR,
 #    capa/hero/logo/cabeçalho/screenshots/trailers (links para o CDN da Steam, nada é baixado),
 #    conquistas com raridade global e habilidades pelas tags. Pode ser retomado: pula jogos completos.
 DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_dev pnpm catalog:bootstrap --limit 300
@@ -96,7 +96,7 @@ Resposta: `{ "job": "catalog", "processed": N }`. Token inválido retorna 401, j
 | `pnpm db:migrate` | `prisma migrate dev`. |
 | `pnpm db:seed` | Popula o banco com dados de exemplo. |
 | `pnpm db:generate` | `prisma generate` (também roda no `postinstall`). |
-| `pnpm catalog:bootstrap` | Catálogo real da Steam (`--limit N`, `--concurrency N`, `--only-top`). Exige `DATABASE_URL`. |
+| `pnpm catalog:bootstrap` | Catálogo real da Steam (`--limit N` jogos populares, `--concurrency N`, `--only-top`). Exige `DATABASE_URL`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
 | `pnpm e2e` | Playwright + axe contra o build de produção (`pnpm build && pnpm start -p 3200`): rotas públicas. |
 | `pnpm e2e:dev` | Playwright + axe contra `next dev -p 3200`: inclui as rotas que exigem login de demonstração. |
