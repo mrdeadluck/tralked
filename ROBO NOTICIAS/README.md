@@ -13,7 +13,9 @@ State lives in `data/` (gitignored). Secrets live in `.env` (gitignored).
 ## Sources (`config/fontes.json`)
 
 Verified on 2026-10-31 with real HTTP fetches using `User-Agent: TralkedBot/1.0 (+https://tralked.com)`.
-43 sources: 35 active, 8 inactive. 12 have a dated `backfill` sitemap.
+44 sources: 42 active, 2 inactive. 12 have a dated `backfill` sitemap.
+
+Bot-protection rule: when a site answers 403, shows a Cloudflare/Akamai challenge, or serves a JS-only shell to our honest User-Agent, we do not work around it (no browser-imitating headers). We only use feeds published for consumption: the site's own RSS/sitemap, YouTube channel feeds, and Google News RSS search.
 
 Notes for the collector:
 - `kind: "rss"` covers RSS 2.0 and Atom (The Verge feeds are Atom).
@@ -21,7 +23,9 @@ Notes for the collector:
 - `listingSelector` is a CSS selector for the item anchors. It also matches a few non-article links (section index pages), so de-duplicate and filter by URL pattern.
 - A `backfill.url` may be a sitemap index (monthly children, e.g. PC Gamer `sitemap-2026-10.xml`) or a yearly/urlset file. The backfill code must follow indexes and keep only entries whose `lastmod` is inside the window.
 - Entries with `gamingFilter: true` are general feeds; keep only items related to games.
-- `cd-projekt` points at the year page `/en/media/news/2026/` (the section root intermittently returns 404). Update the year in January.
+- `cd-projekt` points at the year page `/en/media/news/2026/` (the section root intermittently returns 404). TODO: the year is hard-coded in `config/fontes.json`; bump it every January (or have the collector substitute the current year) before 2027-01-01, otherwise this source stops producing new items.
+- **Google News sources** (`linkResolve: "google-news"`, 4 sources: digitalfoundry, rockstar-newswire, sony-group, nintendo-ir): the feed is `https://news.google.com/rss/search?q=<query>&hl=en-US&gl=US&ceid=US:en`. Item `<link>` values are Google redirect URLs (`https://news.google.com/rss/articles/...`), not the publisher URL. The Task 7 collector must resolve the real URL before storing the item and before `normalizeUrl`/de-duplication, and skip the item when it cannot resolve it. The item `<source>` element names the publisher. Queries use `site:` plus `when:Nd`; results are ordered by relevance, so sort by `pubDate`. They also include non-article pages of the site (index and author pages), which triage will drop. The schema requires `linkResolve: "google-news"` sources to use a `news.google.com` URL.
+- **YouTube channel feeds** (`https://www.youtube.com/feeds/videos.xml?channel_id=...`): Atom, titles and descriptions are the usable material. The endpoint is flaky: the same channel id answers 200 on one call and 404/500 on the next. The collector must treat a failure as a normal source error (`source_health`) and retry on the next 30-minute run; never fail the run.
 
 ### Active
 
@@ -37,6 +41,13 @@ Notes for the collector:
 | GamesIndustry.biz | `https://www.gamesindustry.biz/feed` | rss | yes | 100 items. Category MERCADO. Backfill: `sitemap-2026.xml` (1467 urls). |
 | The Verge (games) | `https://www.theverge.com/rss/games/index.xml` | rss (Atom) | yes | 10 items. |
 | Kotaku | `https://kotaku.com/rss` | rss | yes | Redirects to `/feed`. Backfill: sitemap index with monthly `post-sitemap-YYYY-MM.xml`. |
+| Digital Foundry (via Google News) | `https://news.google.com/rss/search?q=site:digitalfoundry.net when:30d` | rss, `linkResolve` | yes | Replaces the stale Eurogamer DF tag feed and the Cloudflare-blocked `digitalfoundry.net/feed`. 73 items, newest 2026-10-31. Tried and rejected: the YouTube feed for channel `UC9PBzalIcEQCsiIkq36PyUA` (verified from the channel page) answered 404/500 on all 12 attempts; Google News `site:eurogamer.net/digitalfoundry` returned 0 items; the plain query `"Digital Foundry"` returns third-party mentions. |
+| Rockstar Newswire (via Google News) | `https://news.google.com/rss/search?q=site:rockstargames.com/newswire when:90d` | rss, `linkResolve` | yes | The newswire page is a JS shell and `/newswire/rss` and friends return 500, so this is the route. 45 items, newest 2026-10-29 (GTA VI, GTA Online). Newswire pages are JS-rendered, so article text extraction may fail; the title is usable and `rockstar-youtube` supplies descriptions. |
+| Rockstar Games (YouTube channel) | `https://www.youtube.com/feeds/videos.xml?channel_id=UC6VcWc1rAoWdBCM0JxrRQ3A` | rss (Atom) | yes, flaky | Channel id read from `youtube.com/@RockstarGames`. 15 entries, newest 2026-10-15. Answered 404 on two early attempts, 200 on the next, then 404 again in the final verification run (see the YouTube note). |
+| Bandai Namco Entertainment (YouTube channel) | `https://www.youtube.com/feeds/videos.xml?channel_id=UCqly9F4Fr_jf2Y1Cy5hacRg` | rss (Atom) | yes, flaky | Replaces the JS-rendered press page. 15 entries, newest 2026-10-29. Channel id read from `youtube.com/@BandaiNamcoEntertainment`. |
+| Embracer Group (YouTube channel) | `https://www.youtube.com/feeds/videos.xml?channel_id=UCFq1IPfyTFFeyKOnsdI40ew` | rss (Atom) | yes, flaky | Replaces the JS-rendered press page (feeds 500). 15 entries, newest 2026-05-20, so it is low volume. Google News `site:mfn.se Embracer` (Embracer's regulated-news distributor) returns only weekly buyback notices, so it was not added. |
+| Sony Group news (via Google News) | `https://news.google.com/rss/search?q=site:sony.com/en/SonyInfo/News when:60d` | rss, `linkResolve` | yes | `sony.com` answers 403 to our User-Agent, so we do not fetch the site; Google News indexes the official newsroom. 4 items, newest 2026-10-29. `gamingFilter: true` (Sony Group is not only games). Article fetches will probably still be 403 and fall back to the title and snippet. |
+| Nintendo investor relations (via Google News) | `https://news.google.com/rss/search?q=site:nintendo.co.jp/ir when:90d` | rss, `linkResolve` | yes | The IR news list is JS-rendered. Google News returns the IR documents (financial results, sales units). 4 items, newest 2026-09-17; low volume, results season only. |
 | PlayStation Blog | `https://blog.playstation.com/feed/` | rss | yes | Backfill: `wp-sitemap.xml` index. |
 | Xbox Wire | `https://news.xbox.com/en-us/feed/` | rss | yes | Backfill: `sitemap_index.xml` (dated `lastmod`). |
 | Nintendo (news and events) | `https://www.nintendo.com/us/whatsnew/` | listing | yes | No RSS exists (`/us/rss/` is 404). Selector matches 31 links. |
@@ -67,14 +78,10 @@ Notes for the collector:
 
 | Source | URL | Type | Verified | Why |
 |---|---|---|---|---|
-| Digital Foundry | `https://www.eurogamer.net/feed/tag/topics/digital-foundry` | rss | feed loads, but stale | Newest item is 2026-02-10; DF moved to `digitalfoundry.net`, which is behind a Cloudflare challenge (403, also for `/feed`). Re-enable if Eurogamer resumes the tag feed. |
-| Rockstar Newswire | `https://www.rockstargames.com/newswire` | listing | no | Page is a 4 KB JS shell with no links; `/newswire/rss`, `/rss`, `/sitemap.xml` and the posts JSON endpoint all return HTTP 500. |
-| Epic Games Store News | `https://store.epicgames.com/en-US/news` | listing | no | HTTP 403 (Cloudflare challenge) on the store, `epicgames.com/site/.../news` and `unrealengine.com`. No public feed found. |
-| Sony Group (press) | `https://www.sony.com/en/SonyInfo/News/Press/` | listing | no | HTTP 403 "Access Denied" (Akamai). Sony Interactive's newsroom is used instead. |
-| Nintendo (IR news) | `https://www.nintendo.co.jp/ir/en/news/index.html` | listing | no | List is rendered by JS; the static HTML has no news links. Nintendo news is covered by the active `nintendo-news` listing. |
-| Bandai Namco Entertainment (press) | `https://www.bandainamcoent.co.jp/english/press/` | listing | no | List is rendered by JS. The holding site `bandainamco.co.jp` returns a 403 page. |
-| CD PROJEKT (regulatory) | `https://www.cdprojekt.com/en/investors/regulatory-announcements/` | listing | no | Returns 404 for the fetches we tried (the same WordPress quirk as the news root). Re-test with a year query. |
-| Embracer Group (press) | `https://embracer.com/news-media/pressreleases/` | listing | no | List is rendered by JS; the WordPress feeds return HTTP 500. |
+| Epic Games Store News | `https://store.epicgames.com/en-US/news` | listing | no | The store, `epicgames.com/site/.../news` and `unrealengine.com` answer 403 (Cloudflare challenge), so they are not fetched. Routes tried: YouTube feeds for the three Epic channel ids found on `youtube.com/@EpicGamesStore` (`UC5Qk8mWBwtMyEj7iQQYRk1A`, `UCT16M1NqxN-OPc3E1rP8cmQ`, `UCrNC5OLd5jUHZb6DTtwjY9A`) answered 404 on every attempt (3 rounds); Google News `site:epicgames.com/site/en-US/news` returned 0 items and `site:store.epicgames.com` only returns product and cart pages, not news. A coverage query (`"Epic Games Store" free games`) works but is third-party reporting, not Epic's own voice, so it was not added. |
+| CD PROJEKT (regulatory) | `https://www.cdprojekt.com/en/investors/regulatory-announcements/` | listing | no | 404 for every fetch (same WordPress quirk as the news root). Google News only returns third-party coverage of CD Projekt. The active `cd-projekt` news listing covers the company's own announcements. |
+
+Moved to active in the fix round: Digital Foundry, Rockstar Newswire, Sony Group, Nintendo IR, Bandai Namco and Embracer (see the active table for routes). Original blocks: Digital Foundry tag feed stale since 2026-02-10 and `digitalfoundry.net` behind a Cloudflare challenge; Rockstar newswire JS shell with 500 on feeds; `sony.com` 403 (Akamai); Nintendo IR and Bandai Namco and Embracer press lists JS-rendered.
 
 ## Models and SDK
 

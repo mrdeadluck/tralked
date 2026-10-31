@@ -71,7 +71,30 @@ describe("loadSources", () => {
   });
 
   it("rejects an unknown category", () => {
-    expect(() => loadSources(writeSources([{ ...validSource, category: "GUIAS" }]))).toThrow();
+    expect(() => loadSources(writeSources([{ ...validSource, category: "GUIAS" }]))).toThrow(/category/);
+  });
+
+  const gnUrl = "https://news.google.com/rss/search?q=site:example.com&hl=en-US&gl=US&ceid=US:en";
+
+  it("accepts linkResolve google-news on a Google News url", () => {
+    const list = loadSources(writeSources([{ ...validSource, url: gnUrl, linkResolve: "google-news" }]));
+    expect(list[0]?.linkResolve).toBe("google-news");
+  });
+
+  it("leaves linkResolve undefined when absent", () => {
+    expect(loadSources(writeSources([validSource]))[0]?.linkResolve).toBeUndefined();
+  });
+
+  it("rejects an unknown linkResolve value", () => {
+    expect(() =>
+      loadSources(writeSources([{ ...validSource, url: gnUrl, linkResolve: "bing" }])),
+    ).toThrow(/linkResolve/);
+  });
+
+  it("rejects linkResolve google-news on a non-Google-News url", () => {
+    expect(() =>
+      loadSources(writeSources([{ ...validSource, linkResolve: "google-news" }])),
+    ).toThrow(/news\.google\.com/);
   });
 
   it("rejects duplicate ids", () => {
@@ -82,5 +105,15 @@ describe("loadSources", () => {
     const list = loadSources();
     expect(list.length).toBeGreaterThan(20);
     expect(list.some((s) => s.active)).toBe(true);
+  });
+
+  it("real file: every google-news source points at news.google.com, and Lucas's named sources are active", () => {
+    const list = loadSources();
+    for (const s of list.filter((x) => x.linkResolve === "google-news")) {
+      expect(new URL(s.url).hostname).toBe("news.google.com");
+    }
+    const byId = new Map(list.map((s) => [s.id, s]));
+    expect(byId.get("digitalfoundry")?.active).toBe(true);
+    expect(byId.get("rockstar-newswire")?.active).toBe(true);
   });
 });

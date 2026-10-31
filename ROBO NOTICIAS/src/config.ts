@@ -47,7 +47,12 @@ const SourceSchema = z.object({
   gamingFilter: z.boolean(),
   backfill: z.object({ kind: z.literal("sitemap"), url: z.string().url() }).optional(),
   listingSelector: z.string().optional(),
+  /** Item links are Google News redirect URLs; the collector must resolve the publisher URL. */
+  linkResolve: z.literal("google-news").optional(),
   active: z.boolean(),
+}).refine((s) => s.linkResolve !== "google-news" || new URL(s.url).hostname === "news.google.com", {
+  message: 'linkResolve "google-news" requires a news.google.com url',
+  path: ["linkResolve"],
 });
 
 export type Source = z.infer<typeof SourceSchema>;
