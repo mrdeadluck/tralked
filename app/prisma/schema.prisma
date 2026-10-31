@@ -1,7 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// GAMELOG data model. See docs/superpowers/specs/2026-10-31-gamelog-design.md (section 7).
 
 generator client {
   provider = "prisma-client"
@@ -10,4 +7,343 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ---------- Users ----------
+
+model User {
+  id            String    @id @default(cuid())
+  steamId       String    @unique
+  handle        String    @unique
+  displayName   String
+  avatarUrl     String?
+  profilePublic Boolean   @default(false)
+  /// admin | editor | author | user
+  role          String    @default("user")
+  lastSyncedAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  games         UserGame[]
+  achievements  UserAchievement[]
+  ledger        XpLedgerEntry[]
+  skills        SkillProgress[]
+  stats         UserStats?
+  missions      Mission[]
+  guidesWritten Guide[]
+  tips          GuideTip[]
+  votes         GuideVote[]
+  revisions     GuideRevision[]
+  stepProgress  GuideStepProgress[]
+  author        Author?
+  ownedFamilies Family[]
+  membership    FamilyMember?
+}
+
+// ---------- Catalog ----------
+
+model Game {
+  id                    String   @id @default(cuid())
+  slug                  String   @unique
+  name                  String
+  steamAppId            Int      @unique
+  igdbId                Int?
+  rawgId                Int?
+  sgdbId                Int?
+  summary               String?
+  releaseDate           DateTime?
+  criticScore           Int?
+  coverUrl              String?
+  heroUrl               String?
+  logoUrl               String?
+  timeToBeatCompleteMin Int?
+  platforms             String[]
+  achievementCount      Int
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  skills       GameSkill[]
+  achievements Achievement[]
+  users        UserGame[]
+  guide        Guide?
+  articles     Article[]
+}
+
+model GameSkill {
+  gameId String
+  skill  String
+  game   Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@id([gameId, skill])
+}
+
+model Achievement {
+  id          String @id @default(cuid())
+  gameId      String
+  apiName     String
+  name        String
+  description String?
+  iconUrl     String?
+  globalPct   Float?
+  hidden      Boolean @default(false)
+  game        Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  unlocks UserAchievement[]
+  notes   GuideAchievementNote[]
+
+  @@unique([gameId, apiName])
+}
+
+model UserGame {
+  userId        String
+  gameId        String
+  playtimeMin   Int
+  unlockedCount Int
+  completedAt   DateTime?
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game          Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@id([userId, gameId])
+}
+
+model UserAchievement {
+  userId        String
+  achievementId String
+  unlockedAt    DateTime
+  suspicious    Boolean     @default(false)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@id([userId, achievementId])
+}
+
+// ---------- RPG ----------
+
+model XpLedgerEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  /// achievement | platinum | mission | guide_vote | seed (seed data only)
+  source    String
+  sourceKey String
+  xp        Int
+  skills    String[]
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, source, sourceKey])
+}
+
+model SkillProgress {
+  userId String
+  skill  String
+  level  Int
+  points Int
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, skill])
+}
+
+model UserStats {
+  userId        String @id
+  totalXp       Int
+  level         Int
+  vocation      String
+  streakCurrent Int    @default(0)
+  streakBest    Int    @default(0)
+  shields       Int    @default(0)
+  user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Mission {
+  id          String    @id @default(cuid())
+  userId      String
+  /// daily | weekly
+  kind        String
+  periodKey   String
+  title       String
+  condition   Json
+  rewardXp    Int
+  progress    Int       @default(0)
+  completedAt DateTime?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, periodKey, title])
+}
+
+// ---------- Guides ----------
+
+model Guide {
+  id           String    @id @default(cuid())
+  gameId       String    @unique
+  authorId     String
+  /// draft | review | published
+  status       String
+  version      String
+  difficulty   Int
+  hoursMin     Int
+  hoursMax     Int
+  playthroughs String
+  missables    Int
+  online       Int
+  overview     String[]
+  warnings     String[]
+  usefulCount  Int       @default(0)
+  publishedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  game         Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  author       User      @relation(fields: [authorId], references: [id])
+
+  steps     GuideStep[]
+  notes     GuideAchievementNote[]
+  tips      GuideTip[]
+  revisions GuideRevision[]
+}
+
+model GuideStep {
+  id                 String   @id @default(cuid())
+  guideId            String
+  order              Int
+  title              String
+  hours              String
+  body               String
+  achievementApiNames String[]
+  guide              Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  progress GuideStepProgress[]
+
+  @@unique([guideId, order])
+}
+
+model GuideAchievementNote {
+  id            String      @id @default(cuid())
+  guideId       String
+  achievementId String
+  /// historia | chefes | coletaveis | desafio | dlc
+  category      String
+  spoiler       Boolean     @default(false)
+  tip           String
+  steps         String[]
+  guide         Guide       @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([guideId, achievementId])
+}
+
+model GuideTip {
+  id        String   @id @default(cuid())
+  guideId   String
+  authorId  String
+  body      String
+  votes     Int      @default(0)
+  createdAt DateTime @default(now())
+  guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id])
+
+  voters GuideVote[]
+}
+
+model GuideVote {
+  userId String
+  tipId  String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tip    GuideTip @relation(fields: [tipId], references: [id], onDelete: Cascade)
+
+  @@id([userId, tipId])
+}
+
+model GuideRevision {
+  id        String   @id @default(cuid())
+  guideId   String
+  version   String
+  summary   String
+  authorId  String
+  createdAt DateTime @default(now())
+  guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id])
+}
+
+model GuideStepProgress {
+  userId String
+  stepId String
+  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  step   GuideStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@id([userId, stepId])
+}
+
+// ---------- Editorial ----------
+
+model Author {
+  id       String  @id @default(cuid())
+  handle   String  @unique
+  userId   String? @unique
+  user     User?   @relation(fields: [userId], references: [id])
+
+  articles Article[]
+}
+
+model Article {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  title         String
+  subtitle      String?
+  /// Markdown
+  body          String
+  /// GAMES | GUIAS | COMUNIDADE
+  category      String
+  platforms     String[]
+  imageLabel    String
+  authorId      String
+  gameId        String?
+  /// 0 = list, 1 = side highlight, 2 = main highlight
+  featured      Int      @default(0)
+  likes         Int      @default(0)
+  comments      Int      @default(0)
+  humanAuthored Boolean  @default(true)
+  publishedAt   DateTime
+  author        Author   @relation(fields: [authorId], references: [id])
+  game          Game?    @relation(fields: [gameId], references: [id])
+
+  @@index([publishedAt])
+}
+
+// ---------- Family ----------
+
+model Family {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  createdAt DateTime @default(now())
+  owner     User     @relation(fields: [ownerId], references: [id])
+
+  members FamilyMember[]
+  invites FamilyInvite[]
+}
+
+model FamilyMember {
+  familyId String
+  userId   String   @unique
+  role     String
+  joinedAt DateTime @default(now())
+  family   Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([familyId, userId])
+}
+
+model FamilyInvite {
+  id        String    @id @default(cuid())
+  familyId  String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  family    Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+}
+
+model NewsletterSubscriber {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  confirmedAt DateTime?
+  createdAt   DateTime  @default(now())
 }
