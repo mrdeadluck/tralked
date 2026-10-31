@@ -1,4 +1,5 @@
 import { EMBLEM, WORDMARK } from "./marks";
+import { SLOGAN } from "./slogan";
 
 type LogoProps = {
   /** 44: cabeçalho (com tagline). 34: rodapé (compacto). */
@@ -46,7 +47,7 @@ export function Logo({ size = 44 }: LogoProps) {
         {full ? (
           // On narrow phones the tagline would push the account and menu buttons to a second row.
           <span className="font-mono text-[9.5px] tracking-[0.18em] text-dim uppercase max-[479px]:hidden">
-            Feito por pessoas que amam jogar
+            {SLOGAN}
           </span>
         ) : null}
       </span>

@@ -6,6 +6,9 @@ import { CaseIntro } from "./CaseIntro";
 
 const markOpened = vi.fn(async (gameId: unknown) => ({ status: "ok" as const, gameId }));
 vi.mock("@/app/jogos/[slug]/actions", () => ({ markOpened: (id: unknown) => markOpened(id) }));
+const setCaseIntro = vi.fn(async (input: unknown) => ({ ok: true as const, input }));
+vi.mock("@/app/conta/actions", () => ({ setCaseIntroAction: (input: unknown) => setCaseIntro(input) }));
+const INTRO_OFF = "tralked:case-intro:off";
 
 let reduceMotion = false;
 
@@ -32,6 +35,7 @@ beforeEach(() => {
   reduceMotion = false;
   localStorage.clear();
   markOpened.mockClear();
+  setCaseIntro.mockClear();
   vi.stubGlobal(
     "matchMedia",
     vi.fn((query: string) => ({
@@ -55,7 +59,8 @@ afterEach(() => {
 
 const KEY = "tralked:opened:hollow-knight";
 
-function renderIntro(account: { opened: boolean } | null = null) {
+function renderIntro(login: { opened: boolean; introOff?: boolean } | null = null) {
+  const account = login ? { opened: login.opened, introOff: login.introOff ?? false } : null;
   const root = document.createElement("div");
   root.id = "gp-root";
   root.setAttribute("data-intro", "pending");
@@ -68,7 +73,8 @@ function renderIntro(account: { opened: boolean } | null = null) {
       hues={[218, 250]}
       seed={7}
       coverUrl={null}
-      discArt={null}
+      bookletArt={null}
+      disc={{ kind: "generated" }}
       platformLabel="PC · STEAM"
       discLabel="TRALKED · DISCO 1"
       plat={false}
@@ -140,6 +146,52 @@ describe("CaseIntro", () => {
     expect(markOpened).toHaveBeenCalledWith("game-1");
   });
 
+  it("'Não mostrar a animação nos próximos jogos' stays visible during the intro and is saved here and on the account", () => {
+    const { stage } = renderIntro({ opened: false });
+    const box = screen.getByRole("checkbox", { name: "Não mostrar a animação nos próximos jogos" });
+    expect(box).not.toBeChecked();
+    // The open button's area fades while the seal opens; the choice is outside it.
+    expect(box.closest(".gpc-ui")).toBeNull();
+    expect(stage).toContainElement(box);
+    fireEvent.click(box);
+    expect(box).toBeChecked();
+    expect(localStorage.getItem(INTRO_OFF)).toBe("1");
+    expect(setCaseIntro).toHaveBeenCalledWith({ off: true });
+    fireEvent.click(box);
+    expect(localStorage.getItem(INTRO_OFF)).toBeNull();
+    expect(setCaseIntro).toHaveBeenLastCalledWith({ off: false });
+  });
+
+  it("logged out, the choice stays on this browser only", () => {
+    renderIntro();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Não mostrar a animação nos próximos jogos" }));
+    expect(localStorage.getItem(INTRO_OFF)).toBe("1");
+    expect(setCaseIntro).not.toHaveBeenCalled();
+  });
+
+  it("turned off on this browser: the next game opens without the case, and is recorded as opened", () => {
+    localStorage.setItem(INTRO_OFF, "1");
+    const { root, stage } = renderIntro();
+    expect(stage).toBeNull();
+    expect(root).not.toHaveAttribute("data-intro");
+    expect(localStorage.getItem(KEY)).toBe("1");
+  });
+
+  it("logged in, the account decides and this browser follows it (re-enabled in /conta elsewhere)", () => {
+    localStorage.setItem(INTRO_OFF, "1");
+    const first = renderIntro({ opened: false, introOff: false });
+    expect(first.stage).toHaveClass("gpc-on");
+    expect(localStorage.getItem(INTRO_OFF)).toBeNull();
+    first.unmount();
+    document.getElementById("gp-root")?.remove();
+    localStorage.clear();
+
+    const second = renderIntro({ opened: false, introOff: true });
+    expect(second.stage).toBeNull();
+    expect(localStorage.getItem(INTRO_OFF)).toBe("1");
+    expect(markOpened).toHaveBeenCalledWith("game-1");
+  });
+
   it("opens as a modal <dialog> without touching the page's elements (no inert attributes)", () => {
     const header = document.createElement("header");
     document.body.prepend(header);
@@ -162,7 +214,8 @@ describe("CaseIntro", () => {
     document.body.append(root);
     render(
       <CaseIntro gameId="g" slug="x" name="Supercalifragilisticexpialidocious Edition" hues={[1, 2]} seed={1} coverUrl={null}
-        discArt={null} platformLabel="PC" discLabel="D" plat={false} bookletNote="n" account={null} />,
+        bookletArt={null}
+      disc={{ kind: "generated" }} platformLabel="PC" discLabel="D" plat={false} bookletNote="n" account={null} />,
     );
     const titles = screen.getAllByText("Supercalifragilisticexpialidocious Edition");
     expect(titles.length).toBeGreaterThan(0);

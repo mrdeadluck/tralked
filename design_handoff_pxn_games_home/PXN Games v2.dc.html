@@ -167,7 +167,7 @@ input::placeholder{color:#6E717A}
           </div>
           <h1 style="margin:0;font-weight:900;font-stretch:112%;font-size:clamp(30px,4.2vw,56px);line-height:.98;letter-spacing:-0.035em;text-wrap:balance">GTA 6 tem 25 minutos de gameplay vazados e Jason aparece nu</h1>
           <p style="margin:0;font-size:17px;line-height:1.5;color:#B9BBC2;text-wrap:pretty">Um novo vazamento de GTA 6 revela quase 25 minutos de gameplay, incluindo cenas inéditas, spoilers e Jason completamente nu.</p>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8A8D96;display:flex;gap:14px"><span style="color:#ECECE6">@Fuyushiro</span><span>há 10 horas</span></div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8A8D96;display:flex;gap:14px"><span style="color:#ECECE6">@Cronista_Iolanda</span><span>há 10 horas</span></div>
         </div>
       </a>
       <div style="flex:1 1 520px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
@@ -328,15 +328,15 @@ class Component extends DCLogic {
     const pixels = Array.from({ length: 25 }, (_, i) => { const r = Math.floor(i / 5), c = i % 5; return i === 12 ? '#ECECE6' : (r === c || r + c === 4) ? acc : 'transparent'; });
 
     const side = [
-      { img: 'gta 6 gameplay', tags: tg(['PLAYSTATION','XBOX']), title: 'GTA 6 revela novos detalhes de gameplay e até Jason pelado', author: '@Fuyushiro', time: 'ontem' },
-      { img: 'gta 6 xbox', tags: tg(['XBOX']), title: 'Bomba: Xbox compra a exclusividade de streaming de GTA 6', author: '@Al1enado', time: 'anteontem' },
-      { img: 'playstation studios', tags: tg(['PLAYSTATION']), title: 'PlayStation Studios: todos os projetos, rumores e vazamentos', author: '@Fuyushiro', time: 'anteontem' },
-      { img: 'gears of war e-day', tags: tg(['XBOX','PC']), title: 'Gears Of War E-Day estreia na Steam com 29 Mil Jogadores simultâneos', author: '@NascimentoRE', time: 'anteontem' }
+      { img: 'gta 6 gameplay', tags: tg(['PLAYSTATION','XBOX']), title: 'GTA 6 revela novos detalhes de gameplay e até Jason pelado', author: '@Cronista_Iolanda', time: 'ontem' },
+      { img: 'gta 6 xbox', tags: tg(['XBOX']), title: 'Bomba: Xbox compra a exclusividade de streaming de GTA 6', author: '@Bardo_Quiteria', time: 'anteontem' },
+      { img: 'playstation studios', tags: tg(['PLAYSTATION']), title: 'PlayStation Studios: todos os projetos, rumores e vazamentos', author: '@Cronista_Iolanda', time: 'anteontem' },
+      { img: 'gears of war e-day', tags: tg(['XBOX','PC']), title: 'Gears Of War E-Day estreia na Steam com 29 Mil Jogadores simultâneos', author: '@Vigia_Custodio', time: 'anteontem' }
     ];
     const allNews = [
-      { img: 'silver pines', tags: tg(['PLAYSTATION','XBOX','NINTENDO','PC']), title: 'Desenvolvedora de Silver Pines diz estar ciente da diferença de preço entre PlayStation e outras plataformas', desc: 'Estúdio afirma estar investigando a discrepância na PlayStation Store brasileira.', author: '@Rivia', time: 'há 1 hora', likes: 6, comments: 66 },
-      { img: 'arc raiders frozen trail', tags: tg(['PLAYSTATION','XBOX','PC']), title: 'ARC Raiders - Veja o que o público está achando da atualização Frozen Trail', desc: 'Nova atualização traz novo mapa, mecânicas e inimigos.', author: '@Rivia', time: 'há 1 hora', likes: 4, comments: 10 },
-      { img: 'gta 6 vice city', tags: tg(['PLAYSTATION','XBOX']), title: 'GTA 6 terá podcasts e fones de ouvido para as rádios', desc: 'Rockstar Games revela novidades sonoras para GTA 6: além das rádios e músicas inéditas, jogadores terão podcasts sob demanda e fones para ouvir a pé pelo mapa.', author: '@Fuyushiro', time: 'há 1 hora', likes: 12, comments: 262 }
+      { img: 'silver pines', tags: tg(['PLAYSTATION','XBOX','NINTENDO','PC']), title: 'Desenvolvedora de Silver Pines diz estar ciente da diferença de preço entre PlayStation e outras plataformas', desc: 'Estúdio afirma estar investigando a discrepância na PlayStation Store brasileira.', author: '@Arauto_Leopoldo', time: 'há 1 hora', likes: 6, comments: 66 },
+      { img: 'arc raiders frozen trail', tags: tg(['PLAYSTATION','XBOX','PC']), title: 'ARC Raiders - Veja o que o público está achando da atualização Frozen Trail', desc: 'Nova atualização traz novo mapa, mecânicas e inimigos.', author: '@Arauto_Leopoldo', time: 'há 1 hora', likes: 4, comments: 10 },
+      { img: 'gta 6 vice city', tags: tg(['PLAYSTATION','XBOX']), title: 'GTA 6 terá podcasts e fones de ouvido para as rádios', desc: 'Rockstar Games revela novidades sonoras para GTA 6: além das rádios e músicas inéditas, jogadores terão podcasts sob demanda e fones para ouvir a pé pelo mapa.', author: '@Cronista_Iolanda', time: 'há 1 hora', likes: 12, comments: 262 }
     ];
     const news = s.filter === 'TODAS' ? allNews : allNews.filter(n => n.tags.some(t => t.label === s.filter));
     const filters = ['TODAS','PLAYSTATION','XBOX','NINTENDO','PC'].map(label => {
@@ -345,7 +345,7 @@ class Component extends DCLogic {
     });
 
     const games = ['GTA 6','ARC Raiders','Gears of War: E-Day','Silver Pines'];
-    const authors = ['@Fuyushiro','@Rivia','@Al1enado','@NascimentoRE'];
+    const authors = ['@Cronista_Iolanda','@Arauto_Leopoldo','@Bardo_Quiteria','@Vigia_Custodio'];
     const titles = [...side, ...allNews].map(x => x.title);
     const ql = s.q.trim().toLowerCase();
     const pick = (text) => () => this.setState({ q: text, focus: false });
@@ -354,7 +354,7 @@ class Component extends DCLogic {
       { label: 'JOGOS', items: mk(games, 3) }, { label: 'NOTÍCIAS', items: mk(titles, 4) }, { label: 'AUTORES', items: mk(authors, 3) }
     ] : [{ label: 'EM ALTA', items: mk(games, 4) }]).filter(g => g.items.length);
 
-    const rk = [['@BillyButcher',7,639],['@ZeroJimmy',6,563],['@MotocaGamer',6,504],['@Fuyushiro',5,458],['@urso',5,449]];
+    const rk = [['@Ferreiro_Bastiao',7,639],['@Escudeiro_Tadeu',6,563],['@Mercador_Anselmo',6,504],['@Cronista_Iolanda',5,458],['@Lenhador_Bento',5,449]];
     return {
       frameW: mobileView ? '390px' : 'none', frameBorder: mobileView ? '1px solid #23252C' : '0',
       pixels, logoA: logo === 'A', logoB: logo === 'B', logoC: logo === 'C', logoD: logo === 'D',

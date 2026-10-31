@@ -101,6 +101,17 @@ body:has(.tkw) { overflow-x: clip; }
 
 type Glide = { from: number; to: number; t0: number };
 
+/**
+ * Copies of the cards needed on EACH side of the originals for a seamless loop: with any original
+ * centred, the strip must still reach past both edges of the stage (half a stage plus half a card
+ * and a gap on either side). One copy is enough for long lists; a short list on a wide screen needs
+ * more, or the end of the strip shows (and then jumps) before it wraps.
+ */
+export function copiesNeeded(stageWidth: number, cardWidth: number, period: number): number {
+  if (period <= 0 || stageWidth <= 0) return 1;
+  return Math.max(1, Math.ceil((stageWidth / 2 + cardWidth / 2 + GAP) / period));
+}
+
 const REDUCE_QUERY = "(prefers-reduced-motion: reduce)";
 const subscribeReduce = (onChange: () => void) => {
   const mq = window.matchMedia(REDUCE_QUERY);
@@ -138,6 +149,10 @@ export function NewsWire({
   );
   /** Imperative API filled by the animation effect (the arrow buttons call into it). */
   const api = useRef<{ step: (dir: 1 | -1) => void } | null>(null);
+  /** Copies of the cards on each side of the originals (see `copiesNeeded`). */
+  const [sides, setSides] = useState(1);
+  /** Position relative to "first original centred", kept when the copies are rebuilt. */
+  const phase = useRef<number | null>(null);
   const count = items.length;
   const itemsKey = items.map((i) => i.id).join("|");
 
@@ -150,9 +165,12 @@ export function NewsWire({
     const track = trackRef.current;
     if (!stage || !track || count === 0) return;
 
-    // Three copies: [hidden][originals][hidden]. Only the originals take focus; the copies on both
-    // sides let any original sit centred while the strip still covers the stage edge to edge.
+    // [hidden copies × sides][originals][hidden copies × sides]. Only the originals take focus; the
+    // copies on both sides let any original sit centred while the strip still covers the stage edge
+    // to edge, so the loop never shows its end: it wraps by exactly one copy, an identical picture.
     const cards = Array.from(track.children) as HTMLElement[];
+    /** Index of the first original card. */
+    const first = sides * count;
     let x = 0;
     let hover = false;
     let focusInside = false;
@@ -168,13 +186,14 @@ export function NewsWire({
     let period = 0;
     const measure = () => {
       geo = cards.map((c) => ({ left: c.offsetLeft, width: c.offsetWidth }));
-      period = (track.scrollWidth + GAP) / 3;
+      period = (track.scrollWidth + GAP) / (2 * sides + 1);
     };
     measure();
     /** Offset that centres card i under the lens. */
     const centred = (i: number) => stage.clientWidth / 2 - geo[i].left - geo[i].width / 2;
-    // Start with the originals where the first copy is (same picture as the server render).
-    x = -period;
+    // Start with the originals where the first copy is (same picture as the server render), or
+    // where the strip was before its copies were rebuilt.
+    x = phase.current === null ? -sides * period : centred(first) + phase.current;
 
     /**
      * Keeps x in (top - period, top], where `top` centres the first original. Every original's
@@ -182,9 +201,15 @@ export function NewsWire({
      */
     const wrap = () => {
       if (period <= 0) return;
-      const top = centred(count);
+      const top = centred(first);
       while (x <= top - period) x += period;
       while (x > top) x -= period;
+    };
+    /** More copies when the stage outgrows them (short list, wide screen); rebuilt by React. */
+    const fit = () => {
+      measure();
+      const need = copiesNeeded(stage.clientWidth, geo[first]?.width ?? 0, period);
+      if (need > sides) setSides(need);
     };
     const mark = () => {
       const mid = stage.clientWidth / 2;
@@ -226,7 +251,7 @@ export function NewsWire({
 
     /** Glides the original of item `index` under the lens, along the shortest way round the loop. */
     const glideToItem = (index: number) => {
-      const to = centred(count + index);
+      const to = centred(first + index);
       if (readReduce()) {
         glide = null;
         x = to;
@@ -314,11 +339,14 @@ export function NewsWire({
     stage.addEventListener("keydown", onKey);
     const io = new IntersectionObserver((entries) => entries.forEach((en) => (visible = en.isIntersecting)));
     io.observe(stage);
-    const ro = new ResizeObserver(measure);
+    // Also called once right away by the observer, with the real stage width.
+    const ro = new ResizeObserver(fit);
     ro.observe(track);
+    ro.observe(stage);
     frame = requestAnimationFrame(tick);
 
     return () => {
+      if (geo[first]) phase.current = x - centred(first);
       cancelAnimationFrame(frame);
       io.disconnect();
       ro.disconnect();
@@ -334,8 +362,8 @@ export function NewsWire({
       stage.removeEventListener("click", onClick, true);
       stage.removeEventListener("keydown", onKey);
     };
-    // itemsKey: rebuild when the cards change.
-  }, [count, itemsKey]);
+    // itemsKey / sides: rebuild when the cards or their copies change.
+  }, [count, itemsKey, sides]);
 
   if (count === 0) return null;
 
@@ -357,15 +385,15 @@ export function NewsWire({
       >
         <div ref={trackRef} className="tkw-track">
           {/* Copies before and after the originals for the endless loop: hidden from assistive tech and the tab order. */}
-          {items.map((item) => (
-            <WireCard key={`${item.id}<`} item={item} hidden />
-          ))}
+          {Array.from({ length: sides }, (_, c) =>
+            items.map((item) => <WireCard key={`${item.id}<${c}`} item={item} hidden />),
+          )}
           {items.map((item) => (
             <WireCard key={item.id} item={item} />
           ))}
-          {items.map((item) => (
-            <WireCard key={`${item.id}>`} item={item} hidden />
-          ))}
+          {Array.from({ length: sides }, (_, c) =>
+            items.map((item) => <WireCard key={`${item.id}>${c}`} item={item} hidden />),
+          )}
         </div>
         <div className="tkw-lens" aria-hidden="true" />
       </div>

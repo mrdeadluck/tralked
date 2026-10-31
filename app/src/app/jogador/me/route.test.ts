@@ -20,7 +20,7 @@ describe("/jogador/me", () => {
   });
 
   it("sends a logged-in user to their own sheet", async () => {
-    getSessionUser.mockResolvedValue({ id: "u1", handle: "Nyx_Vortex" });
-    expect(location(await GET()).pathname).toBe("/jogador/Nyx_Vortex");
+    getSessionUser.mockResolvedValue({ id: "u1", handle: "Escriba_Odete" });
+    expect(location(await GET()).pathname).toBe("/jogador/Escriba_Odete");
   });
 });

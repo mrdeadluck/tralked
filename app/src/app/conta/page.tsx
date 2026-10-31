@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { AccountLogin } from "@/components/account/AccountLogin";
 import { AccountNav } from "@/components/account/AccountNav";
+import { CaseIntroSetting } from "@/components/account/CaseIntroSetting";
 import { CredentialsForms } from "@/components/account/CredentialsForms";
 import { DeleteAccountForm } from "@/components/account/DeleteAccountForm";
 import { ProfileForm } from "@/components/account/ProfileForm";
@@ -49,6 +50,10 @@ async function ContaContent() {
       <AccountNav current="/conta" />
       <Section title="Perfil" lede={`Você aparece como ${user.displayName} (@${user.handle}).`}>
         <ProfileForm bio={user.bio ?? ""} profilePublic={user.profilePublic} handle={user.handle} />
+      </Section>
+
+      <Section title="Capinha dos jogos" lede="A animação de abrir o lacre na primeira visita a cada jogo.">
+        <CaseIntroSetting off={user.caseIntroOff} />
       </Section>
 
       <Section title="E-mail e senha" lede="Com eles você entra no Tralked. A senha é só do Tralked.">

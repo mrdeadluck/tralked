@@ -50,9 +50,29 @@ export const PLATFORM_NAME: Record<PlatformId, string> = {
 
 export type TierCounts = Record<TrophyTier, number>;
 
+/** `thumbnail`: the video's own still (Steam movie thumbnail, YouTube's), never shared between videos. */
 export type GameVideo =
-  | { id: string; kind: "file"; url: string; poster: string | null; title: string; source: string }
-  | { id: string; kind: "youtube"; youtubeId: string; title: string; source: string };
+  | { id: string; kind: "file"; url: string; thumbnail: string | null; title: string; source: string }
+  | { id: string; kind: "youtube"; youtubeId: string; thumbnail: string; title: string; source: string };
+
+/**
+ * What the disc label prints. Never the cover nor the hero (they are already the case front and
+ * the page background): a screenshot of the game, else its logo over a colour read from the art
+ * (`tintFrom`, only sampled for its colour), else the generated art.
+ */
+export type DiscLabelArt =
+  | { kind: "shot"; url: string }
+  | { kind: "logo"; url: string; tintFrom: string | null }
+  | { kind: "generated" };
+
+/**
+ * Muted gameplay loop behind the booklet (the game page's banner): a stored trailer file (Steam's
+ * mp4, lighter 480p first), else a YouTube trailer (privacy-enhanced embed).
+ */
+export type BackdropVideo =
+  | { kind: "file"; sources: string[]; poster: string | null }
+  | { kind: "youtube"; youtubeId: string }
+  | null;
 
 export type GameShot = { id: string; url: string | null; seed: number; label: string };
 
@@ -80,9 +100,11 @@ export type GameProfile = {
   platforms: string[];
   skills: SkillId[];
   genres: string[];
-  art: { cover: string | null; hero: string | null; logo: string | null };
+  art: { cover: string | null; hero: string | null; logo: string | null; disc: DiscLabelArt };
   hues: Hues;
   seed: number;
+  /** Background loop of the booklet; null without any trailer. */
+  backdrop: BackdropVideo;
   achievements: {
     /** Steam achievement count (the catalog headline). */
     steam: number;
@@ -149,20 +171,71 @@ const VIDEO_SOURCE: Record<string, string> = {
 
 type MediaRow = { id: string; kind: string; url: string | null; youtubeId: string | null; source: string; order: number };
 
-/** Playable videos only: an https file or a valid YouTube id. Fixture rows without either are skipped. */
-export function playableVideos(rows: MediaRow[], poster: string | null): GameVideo[] {
+const STEAM_MOVIE = /^https:\/\/[a-z0-9.-]+\.steamstatic\.com\/(?:store_trailers|steam\/apps)\/(\d+)\/movie[\w.]*\.(?:mp4|webm)(?:\?|$)/;
+
+/** Movie id of a Steam trailer file (`…/store_trailers/<id>/movie_max.mp4`, `…/steam/apps/<id>/movie480.mp4`). */
+export function steamMovieId(url: string): string | null {
+  return STEAM_MOVIE.exec(url)?.[1] ?? null;
+}
+
+/** The store's own still of a Steam trailer, at its unhashed path (the one the store page lists). */
+export const steamMovieThumbnail = (movieId: string) =>
+  `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${movieId}/movie.293x165.jpg`;
+
+export const youtubeThumbnail = (youtubeId: string) => `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`;
+
+/**
+ * Playable videos only: an https file or a valid YouTube id. Fixture rows without either are
+ * skipped. Each video gets its own thumbnail: Steam's still of that trailer, YouTube's, or else a
+ * different screenshot per video (`stills`), never one picture repeated on every tile.
+ */
+export function playableVideos(rows: MediaRow[], stills: string[] = []): GameVideo[] {
   const videos: GameVideo[] = [];
+  let spare = 0;
   for (const row of rows) {
     if (row.kind !== "video") continue;
     const title = videos.length === 0 ? "Trailer" : `Vídeo ${videos.length + 1}`;
     const source = VIDEO_SOURCE[row.source] ?? row.source;
     const url = safeMediaUrl(row.url);
-    if (url) videos.push({ id: row.id, kind: "file", url, poster, title, source });
-    else if (row.youtubeId && YOUTUBE_ID.test(row.youtubeId)) {
-      videos.push({ id: row.id, kind: "youtube", youtubeId: row.youtubeId, title, source });
+    if (url) {
+      const movie = steamMovieId(url);
+      const thumbnail = movie ? steamMovieThumbnail(movie) : (stills[spare++] ?? null);
+      videos.push({ id: row.id, kind: "file", url, thumbnail, title, source });
+    } else if (row.youtubeId && YOUTUBE_ID.test(row.youtubeId)) {
+      videos.push({ id: row.id, kind: "youtube", youtubeId: row.youtubeId, thumbnail: youtubeThumbnail(row.youtubeId), title, source });
     }
   }
   return videos;
+}
+
+/** Disc label art (see `DiscLabelArt`): never the cover nor the hero. */
+export function discLabelArt(
+  rows: MediaRow[],
+  art: { cover: string | null; hero: string | null; logo: string | null },
+): DiscLabelArt {
+  const banned = new Set([art.cover, art.hero].filter((u): u is string => u !== null));
+  const shot = rows
+    .filter((m) => m.kind === "screenshot")
+    .sort((a, b) => a.order - b.order)
+    .map((m) => safeMediaUrl(m.url))
+    .find((u): u is string => u !== null && !banned.has(u));
+  if (shot) return { kind: "shot", url: shot };
+  if (art.logo && !banned.has(art.logo)) return { kind: "logo", url: art.logo, tintFrom: art.cover ?? art.hero };
+  return { kind: "generated" };
+}
+
+/** The booklet's background loop: a stored trailer file first (Steam's 480p, then full size), else YouTube. */
+export function backdropVideo(rows: MediaRow[]): BackdropVideo {
+  const videos = rows.filter((m) => m.kind === "video").sort((a, b) => a.order - b.order);
+  for (const row of videos) {
+    const url = safeMediaUrl(row.url);
+    if (!url) continue;
+    const movie = steamMovieId(url);
+    const light = movie ? url.replace(/movie_max\.mp4(?=\?|$)/, "movie480.mp4") : url;
+    return { kind: "file", sources: light === url ? [url] : [light, url], poster: movie ? steamMovieThumbnail(movie) : null };
+  }
+  const youtube = videos.find((m) => m.youtubeId && YOUTUBE_ID.test(m.youtubeId));
+  return youtube?.youtubeId ? { kind: "youtube", youtubeId: youtube.youtubeId } : null;
 }
 
 /** "Últimas" (editorial + press), one tab per category that has stories, and "Na imprensa". */
@@ -229,11 +302,12 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
 
   const skills = game.skills.map((s) => s.skill as SkillId);
   const firstUrl = (kind: string) => game.media.filter((m) => m.kind === kind).map((m) => safeMediaUrl(m.url)).find(Boolean) ?? null;
-  const art = {
+  const images = {
     cover: firstUrl("cover") ?? safeMediaUrl(game.coverUrl),
     hero: firstUrl("hero") ?? safeMediaUrl(game.heroUrl),
     logo: firstUrl("logo") ?? safeMediaUrl(game.logoUrl),
   };
+  const art = { ...images, disc: discLabelArt(game.media, images) };
   const hues = artHues(slug, slug);
 
   const [achievementRows, completions, articles, external, gallery, similar] = await Promise.all([
@@ -287,7 +361,6 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
     .slice(0, 5)
     .map((a) => articleStory(a, now));
 
-  const poster = art.hero ?? firstUrl("screenshot");
   const imageRows = game.media.filter((m) => m.kind === "screenshot" || m.kind === "artwork");
   // Generated illustrations stand in only for a game without any real image (seed fixtures);
   // once a sync brings real ones, the placeholders no longer mix with them.
@@ -327,8 +400,14 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
     },
     timeTo100,
     guide: game.guide?.status === "published" ? { missables: game.guide.missables } : null,
-    videos: playableVideos(game.media, poster),
+    // Videos without a still of their own take a screenshot each, from the end of the list (the
+    // first ones are the disc label and the start of "Imagens oficiais").
+    videos: playableVideos(
+      game.media,
+      shots.flatMap((s) => (s.url ? [s.url] : [])).reverse(),
+    ),
     shots,
+    backdrop: backdropVideo(game.media),
     news: {
       wire: buildWireItems(articles, external, now, 10),
       tabs: buildGameNewsTabs(articles, external, now, art.hero),

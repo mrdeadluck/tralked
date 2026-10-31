@@ -17,8 +17,8 @@ const BLOCKING_IMPACTS = ["serious", "critical"];
 
 test.beforeAll(async () => {
   await sql(`delete from "User" where handle like 'e2c\\_%'`);
-  // Morrigan77 is a seeded account of the old Steam login (no credentials): a previous run may have recovered it.
-  await sql(`update "User" set email = null, "passwordHash" = null, "googleSub" = null where handle = 'Morrigan77'`);
+  // Taverneira_Gerta is a seeded account of the old Steam login (no credentials): a previous run may have recovered it.
+  await sql(`update "User" set email = null, "passwordHash" = null, "googleSub" = null where handle = 'Taverneira_Gerta'`);
 });
 
 /**
@@ -64,7 +64,7 @@ async function expectNoBlockingAxe(page: Page) {
 test.describe("connections (Exophase model)", () => {
   test("production without platform credentials: PSN, Xbox and RetroAchievements are 'Em breve'", async ({ page }) => {
     test.skip(CAN_LOGIN, "production build only (the dev server uses the fixtures)");
-    await loginAs(page, "urso");
+    await loginAs(page, "Lenhador_Bento");
     await page.goto("/conta/conexoes");
     for (const name of ["PlayStation", "Xbox", "RetroAchievements"]) {
       await expect(field(page, name)).toBeDisabled();
@@ -199,10 +199,10 @@ test.describe("connections (Exophase model)", () => {
 
   test("an old Steam-login account: typing its Steam is refused, only the claim recovers the history", async ({ page }) => {
     const fresh = await newAccount(page, "volta");
-    await field(page, "Steam").fill("morrigan77");
+    await field(page, "Steam").fill("taverneira-gerta");
     await save(page);
     await expect(row(page, "Steam")).toContainText("Essa conta já está conectada a outro perfil.");
-    const [legacy] = await sql<{ passwordHash: string | null }>(`select "passwordHash" from "User" where handle = 'Morrigan77'`);
+    const [legacy] = await sql<{ passwordHash: string | null }>(`select "passwordHash" from "User" where handle = 'Taverneira_Gerta'`);
     expect(legacy.passwordHash).toBeNull();
 
     await row(page, "Steam").getByRole("button", { name: "É sua? Reivindicar" }).click();
@@ -212,7 +212,7 @@ test.describe("connections (Exophase model)", () => {
 
     await expect(page).toHaveURL(/\/conta\/conexoes\?historico=1$/);
     await expect(page.getByRole("status").filter({ hasText: "Encontramos o seu histórico do Tralked." })).toContainText(
-      "@Morrigan77",
+      "@Taverneira_Gerta",
     );
     expect(await sql(`select id from "User" where id = $1`, [fresh.id])).toHaveLength(0);
   });

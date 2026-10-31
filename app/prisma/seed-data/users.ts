@@ -1,4 +1,5 @@
 import type { SkillId } from "../../src/lib/engine/types";
+import { SAMPLE_NAMES, seedPlayerSteamId } from "./sample-names";
 
 /** Handles are stored without the leading "@"; the UI adds it. */
 export type SeedUser = {
@@ -66,21 +67,13 @@ export const LUCAS = {
   shields: 1,
 };
 
-/** Preview `HANDLES`, in ranking order (index i drives the preview's level formula). */
-const HANDLES: { handle: string; role: SeedUser["role"] }[] = [
-  { handle: "BillyButcher", role: "user" },
-  { handle: "ZeroJimmy", role: "user" },
-  { handle: "MotocaGamer", role: "user" },
-  { handle: "Fuyushiro", role: "editor" },
-  { handle: "urso", role: "user" },
-  { handle: "Nyx_Vortex", role: "author" },
-  { handle: "KairoBR", role: "user" },
-  { handle: "ValkyrieZero", role: "user" },
-  { handle: "LunaDeFerro", role: "user" },
-  { handle: "b0ltz", role: "user" },
-  { handle: "Pixelmancer", role: "user" },
-  { handle: "Morrigan77", role: "user" },
-];
+/** Roles of the seeded players that are not plain users (an editor and an author). */
+const ROLES: Record<string, SeedUser["role"]> = { Cronista_Iolanda: "editor", Escriba_Odete: "author" };
+
+/** The preview's ranking players, in ranking order (index i drives the preview's level formula). */
+const HANDLES = SAMPLE_NAMES.flatMap((n) =>
+  n.kind === "player" ? [{ handle: n.handle, displayName: n.displayName, role: ROLES[n.handle] ?? ("user" as const) }] : [],
+);
 
 const SKILL_IDS = Object.keys(LUCAS_SKILLS) as SkillId[];
 
@@ -104,7 +97,7 @@ const VOCATION_PAIRS: [SkillId, SkillId][] = [
   ["fps", "coop"],
 ];
 
-export const PLAYERS: SeedUser[] = HANDLES.map(({ handle, role }, i) => {
+export const PLAYERS: SeedUser[] = HANDLES.map(({ handle, displayName, role }, i) => {
   const offset = offsetFor(i);
   const [first, second] = VOCATION_PAIRS[i % VOCATION_PAIRS.length];
   const skills = Object.fromEntries(
@@ -115,9 +108,9 @@ export const PLAYERS: SeedUser[] = HANDLES.map(({ handle, role }, i) => {
   skills[second] = 35 + offset;
   return {
     handle,
-    displayName: handle,
+    displayName,
     // A valid 17-digit SteamID64 (76561198000001000 + i), like a real Steam account.
-    steamId: `76561198000001${String(i).padStart(3, "0")}`,
+    steamId: seedPlayerSteamId(i),
     role,
     profilePublic: true,
     level: LUCAS_LEVEL + offset,
@@ -126,4 +119,4 @@ export const PLAYERS: SeedUser[] = HANDLES.map(({ handle, role }, i) => {
 });
 
 /** Players who join "Família Lucas" alongside the owner. */
-export const FAMILY_MEMBER_HANDLES = ["KairoBR", "LunaDeFerro"] as const;
+export const FAMILY_MEMBER_HANDLES = ["Cacador_Joaquim", "Herbalista_Rosa"] as const;

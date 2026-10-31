@@ -107,7 +107,7 @@ describe.skipIf(!reachable)("community (database)", () => {
       expect((await editComment(tx, me.id, { id: first.comment.id, body: "volta" })).status).toBe("not_found");
       expect((await deleteComment(tx, me.id, first.comment.id)).status).toBe("not_found");
 
-      // The photo author (MotocaGamer) was notified about both comments.
+      // The photo author (Mercador_Anselmo) was notified about both comments.
       expect(
         await tx.notification.count({ where: { userId: photo.authorId!, kind: "comment_reply", createdAt: { gte: photo.createdAt } } }),
       ).toBeGreaterThanOrEqual(2);

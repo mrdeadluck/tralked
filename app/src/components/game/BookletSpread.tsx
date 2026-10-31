@@ -6,6 +6,7 @@ import {
   type GameUserProfile,
   type TierCounts,
 } from "@/lib/queries/game-profile";
+import { BackdropLoop } from "./BackdropLoop";
 import { CaseReplayButton } from "./case-replay";
 import { DiscProgress } from "./DiscProgress";
 import { titleFitStyle } from "./title-fit";
@@ -124,8 +125,6 @@ export function BookletProgress({
   const best = progress?.best ?? null;
   const completed = Boolean(progress?.completed);
   const total = profile.achievements.steam || profile.achievements.byPlatform[0]?.total || 0;
-  // The disc label prints the cover (logo + key art); the wide hero only when there is no cover.
-  const discArt = profile.art.cover ?? profile.art.hero;
   const trophies = user?.trophies ?? null;
   const { tiers } = profile.achievements;
   // Logged out, the grid shows the game's own trophies: skip it while the catalog has none by tier.
@@ -176,7 +175,7 @@ export function BookletProgress({
         platinum={completed}
         hues={profile.hues}
         seed={profile.seed}
-        imageUrl={discArt}
+        art={profile.art.disc}
         name={profile.name}
         label="TRALKED · DISCO 1"
         platLabel={best ? `PLATINADO · ${best.unlocked}/${best.total}` : "PLATINADO · 100%"}
@@ -234,6 +233,7 @@ export function BookletSpread({ profile, progress }: { profile: GameProfile; pro
       <div className="gps-art" aria-hidden="true">
         <GameArt seed={profile.seed + 1} hues={profile.hues} imageUrl={profile.art.hero} figure priority width={1400} height={700} />
       </div>
+      <BackdropLoop video={profile.backdrop} gameName={profile.name} />
 
       <div className="gps-l">
         <div className="gps-tags gp-veil" style={delay(".05s")}>

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Header } from "./Header";
 
@@ -82,7 +82,9 @@ describe("Header", () => {
   it("offers an Entrar button to the Tralked login when there is no user (never Steam)", () => {
     render(<Header />);
     expect(screen.getByRole("link", { name: "Entrar" })).toHaveAttribute("href", "/entrar?returnTo=%2Fjogador%2Fme");
-    expect(screen.queryByText(/Steam/)).not.toBeInTheDocument();
+    // ("Steam / PC" in the Jogos menu is a catalog filter, not a way in.)
+    expect(screen.queryByRole("link", { name: /Steam/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Steam/ })).not.toBeInTheDocument();
   });
 
   it("points Personagem at the user's own sheet when logged in", () => {
@@ -112,6 +114,75 @@ describe("Header", () => {
   it("has no logout form when there is no user", () => {
     const { container } = render(<Header />);
     expect(container.querySelectorAll('form[action="/api/auth/logout"]')).toHaveLength(0);
+  });
+
+  describe("Jogos menu", () => {
+    const PLATFORMS = [
+      ["Steam / PC", "/jogos?plataforma=PC"],
+      ["PlayStation", "/jogos?plataforma=PLAYSTATION"],
+      ["Xbox", "/jogos?plataforma=XBOX"],
+      ["Nintendo", "/jogos?plataforma=NINTENDO"],
+      ["Retro", "/jogos?plataforma=RETRO"],
+    ] as const;
+    const toggle = () => mainNav().getByRole("button", { name: "Jogos por plataforma" });
+
+    it("is a disclosure: closed by default, the button toggles it, Steam / PC first", () => {
+      render(<Header />);
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      expect(mainNav().queryByRole("link", { name: /Steam \/ PC/ })).not.toBeInTheDocument();
+      fireEvent.click(toggle());
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+      const panel = document.getElementById(toggle().getAttribute("aria-controls")!)!;
+      expect(panel).toBeVisible();
+      const links = within(panel).getAllByRole("link");
+      expect(links.slice(0, 5).map((a) => [a.querySelector("b")?.textContent, a.getAttribute("href")])).toEqual(PLATFORMS);
+      expect(within(panel).getByRole("link", { name: /Todos os jogos/ })).toHaveAttribute("href", "/jogos");
+      fireEvent.click(toggle());
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("opens on mouse hover and closes shortly after the pointer leaves", () => {
+      vi.useFakeTimers();
+      try {
+        render(<Header />);
+        const group = toggle().parentElement!;
+        fireEvent.pointerEnter(group, { pointerType: "mouse" });
+        expect(toggle()).toHaveAttribute("aria-expanded", "true");
+        fireEvent.pointerLeave(group, { pointerType: "mouse" });
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
+        expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("opens when the Jogos link gets keyboard focus, Esc closes it back to the button, leaving closes it", () => {
+      render(
+        <>
+          <Header />
+          <button type="button">depois</button>
+        </>,
+      );
+      act(() => mainNav().getByRole("link", { name: "Jogos" }).focus());
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+      fireEvent.keyDown(toggle(), { key: "Escape" });
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      expect(toggle()).toHaveFocus();
+
+      fireEvent.click(toggle());
+      fireEvent.blur(toggle(), { relatedTarget: screen.getByRole("button", { name: "depois" }) });
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("the mobile drawer lists the same platforms under Jogos", () => {
+      render(<Header />);
+      fireEvent.click(screen.getByRole("button", { name: "Abrir menu" }));
+      const drawer = within(screen.getByRole("navigation", { name: "Menu" }));
+      const list = within(drawer.getByRole("list", { name: "Jogos por plataforma" }));
+      expect(list.getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")])).toEqual(PLATFORMS);
+    });
   });
 
   describe("account menu", () => {

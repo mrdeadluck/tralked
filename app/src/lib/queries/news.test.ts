@@ -56,7 +56,7 @@ describe.skipIf(!reachable)("news queries (seeded database)", () => {
   it("getArticle returns the article with author, or null for an unknown slug", async () => {
     const { getArticle } = await import("./news");
     const article = await getArticle("25-conquistas-mais-raras-da-steam-em-2026");
-    expect(article?.authorHandle).toBe("Fuyushiro");
+    expect(article?.authorHandle).toBe("Cronista_Iolanda");
     expect(article?.body.length).toBeGreaterThan(0);
     expect(await getArticle("nao-existe")).toBeNull();
   });
@@ -237,8 +237,8 @@ describe("wire and tab view models", () => {
     platforms: [],
     imageLabel: slug,
     imageUrl: null,
-    authorHandle: "Rivia",
-    authorLabel: "@Rivia",
+    authorHandle: "Arauto_Leopoldo",
+    authorLabel: "@Arauto_Leopoldo",
     bot: false,
     featured: 0,
     likes: 0,
@@ -321,12 +321,12 @@ describe("wire and tab view models", () => {
   it("credits robots without the '@' of a user handle, on tabs and on the wire", async () => {
     const { articleStory, authorLabel, buildWireItems } = await import("./news");
     expect(authorLabel("bot", "Robô Patch Notes")).toBe("Robô Patch Notes");
-    expect(authorLabel("editorial", "Rivia")).toBe("@Rivia");
-    expect(authorLabel(null, "Rivia")).toBe("@Rivia");
+    expect(authorLabel("editorial", "Arauto_Leopoldo")).toBe("@Arauto_Leopoldo");
+    expect(authorLabel(null, "Arauto_Leopoldo")).toBe("@Arauto_Leopoldo");
 
     const bot = { ...card("r", "GAMES", 1), authorHandle: "Robô Patch Notes", authorLabel: "Robô Patch Notes", bot: true };
     expect(articleStory(bot, now).source).toBe("Robô Patch Notes");
-    expect(articleStory(card("h", "GAMES", 1), now).source).toBe("@Rivia");
+    expect(articleStory(card("h", "GAMES", 1), now).source).toBe("@Arauto_Leopoldo");
     const [wireBot, wireHuman] = buildWireItems([bot, card("h", "GAMES", 2)], [], now);
     expect(wireBot.source).toBe("Robô Patch Notes");
     expect(wireHuman.source).toBe("Redação Tralked");

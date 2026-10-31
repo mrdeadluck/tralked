@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { AccountMenu, accountLinks, type AccountUser } from "./AccountMenu";
+import { GamesMenu } from "./GamesMenu";
 import { MobileDrawer } from "./MobileDrawer";
 import { NavLink } from "./NavLink";
 import { NotificationBell, type BellProps } from "./NotificationBell";
@@ -58,20 +59,23 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
           aria-label="Seções"
           className="flex gap-1 font-mono text-xs font-medium tracking-[0.08em] uppercase max-nav:hidden"
         >
-          {items.map((item) => (
-            <NavLink
-              key={item.href}
-              href={item.href}
-              aria-current={item.current ? "page" : undefined}
-              className={`rounded-[2px] px-3 py-[9px] whitespace-nowrap ${
-                item.current
-                  ? "bg-text text-bg"
-                  : "text-text-3 hover:bg-hover hover:text-text"
-              }`}
-            >
-              {item.label}
-            </NavLink>
-          ))}
+          {items.map((item) => {
+            const className = `rounded-[2px] px-3 py-[9px] whitespace-nowrap ${
+              item.current ? "bg-text text-bg" : "text-text-3 hover:bg-hover hover:text-text"
+            }`;
+            return item.href === "/jogos" ? (
+              <GamesMenu key={item.href} href={item.href} label={item.label} current={item.current} linkClassName={className} />
+            ) : (
+              <NavLink
+                key={item.href}
+                href={item.href}
+                aria-current={item.current ? "page" : undefined}
+                className={className}
+              >
+                {item.label}
+              </NavLink>
+            );
+          })}
         </nav>
 
         <SearchBox suggestions={suggestions} />

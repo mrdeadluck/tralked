@@ -31,7 +31,11 @@ vi.mock("@/lib/auth/credentials", async (importOriginal) => ({
   changePassword,
 }));
 
-const { changeEmailAction, changePasswordAction, deleteAccountAction, updateProfileAction } = await import("./actions");
+const userUpdate = vi.fn(async () => ({}));
+vi.mock("@/lib/db", () => ({ prisma: { user: { update: userUpdate } } }));
+
+const { changeEmailAction, changePasswordAction, deleteAccountAction, setCaseIntroAction, updateProfileAction } =
+  await import("./actions");
 
 function form(fields: Record<string, string>) {
   const data = new FormData();
@@ -44,6 +48,28 @@ beforeEach(() => {
   getSessionUser.mockResolvedValue({ id: "u1", handle: "eu" });
   updateProfileSettings.mockResolvedValue({ visibilityChanged: false });
   visibilityTags.mockResolvedValue(["gallery", "forum", "photo:p1", "player:eu"]);
+});
+
+describe("setCaseIntroAction", () => {
+  it("needs a session", async () => {
+    getSessionUser.mockResolvedValue(null);
+    expect(await setCaseIntroAction({ off: true })).toMatchObject({ ok: false });
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
+
+  it("saves the choice on the account", async () => {
+    expect(await setCaseIntroAction({ off: true })).toEqual({ ok: true });
+    expect(userUpdate).toHaveBeenCalledWith({ where: { id: "u1" }, data: { caseIntroOff: true } });
+    expect(await setCaseIntroAction({ off: false })).toEqual({ ok: true });
+    expect(userUpdate).toHaveBeenLastCalledWith({ where: { id: "u1" }, data: { caseIntroOff: false } });
+  });
+
+  it("refuses anything but a boolean", async () => {
+    for (const input of [{ off: "true" }, { off: 1 }, null, { off: true, extra: 1 }]) {
+      expect(await setCaseIntroAction(input)).toMatchObject({ ok: false });
+    }
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
 });
 
 describe("updateProfileAction", () => {

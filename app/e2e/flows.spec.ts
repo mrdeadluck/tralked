@@ -127,7 +127,7 @@ test.describe("bot API → review → publish", () => {
 
 test.describe("community", () => {
   test("comment on a photo: empty and HTML refused, plain text published; like toggles", async ({ page }) => {
-    await loginAs(page, "KairoBR");
+    await loginAs(page, "Cacador_Joaquim");
     await page.goto("/galeria/seed-photo-03");
     const box = page.getByRole("textbox", { name: "Escreva um comentário" });
     const send = page.getByRole("button", { name: "Comentar" });
@@ -162,7 +162,7 @@ test.describe("community", () => {
 
   test("forum: a player opens a thread, another replies, the author marks it as solved", async ({ page }) => {
     const title = `Como passo do chefe final? ${run}`;
-    await loginAs(page, "ValkyrieZero");
+    await loginAs(page, "Guardia_Selene");
     await page.goto("/forum/ajuda");
     await page.getByRole("button", { name: "Novo tópico" }).click();
     await page.getByLabel("Título").fill(title);
@@ -172,24 +172,24 @@ test.describe("community", () => {
     const threadUrl = page.url();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
 
-    await loginAs(page, "LunaDeFerro");
+    await loginAs(page, "Herbalista_Rosa");
     await page.goto(threadUrl);
     const reply = `Use o amuleto da carapaça e fique à esquerda. (${run})`;
     await page.getByRole("textbox", { name: "Sua resposta" }).fill(reply);
     await page.getByRole("button", { name: "Responder" }).click();
-    await expect(page.getByRole("article", { name: "Resposta de @LunaDeFerro" })).toContainText(reply);
+    await expect(page.getByRole("article", { name: "Resposta de @Herbalista_Rosa" })).toContainText(reply);
     // Only the thread author can mark a reply.
     await expect(page.getByRole("button", { name: "Esta resolveu" })).toHaveCount(0);
 
-    await loginAs(page, "ValkyrieZero");
+    await loginAs(page, "Guardia_Selene");
     await page.goto(threadUrl);
     await page.getByRole("button", { name: "Esta resolveu" }).click();
     await expect(page.getByText("Resolvido pela resposta de")).toBeVisible();
-    await expect(page.getByRole("article", { name: /Resposta de @LunaDeFerro, marcada como a que resolveu/ })).toBeVisible();
+    await expect(page.getByRole("article", { name: /Resposta de @Herbalista_Rosa, marcada como a que resolveu/ })).toBeVisible();
   });
 
   test("photo upload: a fake image is refused, and visitors cannot upload", async ({ page, playwright, baseURL }) => {
-    await loginAs(page, "KairoBR");
+    await loginAs(page, "Cacador_Joaquim");
     const fake = await page.request.post("/galeria/enviar", {
       multipart: {
         foto: { name: "captura.png", mimeType: "image/png", buffer: Buffer.from("isto não é uma imagem, é texto") },
@@ -264,13 +264,13 @@ test.describe("admin decisions and access", () => {
   });
 
   test("players and authors get a real 404 on /admin; an editor is kept out of admin-only pages", async ({ page }) => {
-    for (const handle of ["KairoBR", "Nyx_Vortex"]) {
+    for (const handle of ["Cacador_Joaquim", "Escriba_Odete"]) {
       await loginAs(page, handle);
       for (const path of ["/admin", "/admin/revisao", "/admin/robos"]) {
         expect((await page.goto(path))?.status(), `${handle} ${path}`).toBe(404);
       }
     }
-    await loginAs(page, "Fuyushiro");
+    await loginAs(page, "Cronista_Iolanda");
     expect((await page.goto("/admin/revisao"))?.status()).toBe(200);
     expect((await page.goto("/admin/robos"))?.status()).toBe(404);
   });
@@ -302,8 +302,8 @@ test.describe("admin decisions and access", () => {
     // runs, on a page the admin may open (editor) or any other page Next does not route the action.
     // (The action's own role check behind both is covered in src/app/admin/actions.test.ts.)
     for (const [handle, paths] of [
-      ["KairoBR", ["/admin/robos", "/"]],
-      ["Fuyushiro", ["/admin/robos", "/admin/revisao", "/"]],
+      ["Cacador_Joaquim", ["/admin/robos", "/"]],
+      ["Cronista_Iolanda", ["/admin/robos", "/admin/revisao", "/"]],
     ] as const) {
       await loginAs(page, handle);
       for (const path of paths) {

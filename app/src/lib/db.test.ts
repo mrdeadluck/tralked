@@ -115,7 +115,7 @@ describe.skipIf(!reachable)("seeded database", () => {
     let seen: { guideAuthorId: string | null; revisionAuthors: (string | null)[]; tipAuthors: (string | null)[]; } | undefined;
     await prisma
       .$transaction(async (tx) => {
-        const user = await tx.user.findUniqueOrThrow({ where: { handle: "Nyx_Vortex" } });
+        const user = await tx.user.findUniqueOrThrow({ where: { handle: "Escriba_Odete" } });
         await tx.user.delete({ where: { id: user.id } });
         const guide = await tx.guide.findFirstOrThrow({
           where: { game: { slug: "hollow-knight" } },
@@ -136,7 +136,7 @@ describe.skipIf(!reachable)("seeded database", () => {
     expect(seen?.revisionAuthors.filter((a) => a === null)).toHaveLength(2);
     expect(seen?.tipAuthors).toHaveLength(3);
     // Rolled back: the author still exists afterwards.
-    expect(await prisma.user.count({ where: { handle: "Nyx_Vortex" } })).toBe(1);
+    expect(await prisma.user.count({ where: { handle: "Escriba_Odete" } })).toBe(1);
   });
 
   it("keeps the family and removes the user's own data when the owner is deleted", async () => {
@@ -278,7 +278,7 @@ describe.skipIf(!reachable)("seeded database", () => {
     const lucasPsn = await prisma.linkedAccount.findFirstOrThrow({
       where: { platform: "psn", user: { handle: "lucas" } },
     });
-    const other = await prisma.user.findUniqueOrThrow({ where: { handle: "urso" } });
+    const other = await prisma.user.findUniqueOrThrow({ where: { handle: "Lenhador_Bento" } });
     await expect(
       prisma.linkedAccount.create({
         data: { userId: other.id, platform: "psn", externalId: lucasPsn.externalId, handle: "copia" },
