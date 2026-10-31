@@ -6,9 +6,10 @@ type CommunityTipsProps = {
   tips: GuideTipView[];
   loggedIn: boolean;
   returnTo: string;
+  pending?: boolean;
 };
 
-export function CommunityTips({ tips, loggedIn, returnTo }: CommunityTipsProps) {
+export function CommunityTips({ tips, loggedIn, returnTo, pending }: CommunityTipsProps) {
   return (
     <section id="g-dicas" data-sec className="scroll-mt-24">
       <SectionHead
@@ -18,7 +19,7 @@ export function CommunityTips({ tips, loggedIn, returnTo }: CommunityTipsProps) 
       {tips.length > 0 ? (
         <ul className="m-0 list-none p-0">
           {tips.map((tip) => (
-            <TipRow key={tip.id} tip={tip} loggedIn={loggedIn} returnTo={returnTo} />
+            <TipRow key={tip.id} tip={tip} loggedIn={loggedIn} returnTo={returnTo} pending={pending} />
           ))}
         </ul>
       ) : (

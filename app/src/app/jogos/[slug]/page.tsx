@@ -1,44 +1,38 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { connection } from "next/server";
 import { Suspense } from "react";
 import { FactsStrip } from "@/components/games/FactsStrip";
 import { GameHead } from "@/components/games/GameHead";
 import { LinkButton } from "@/components/games/LinkButton";
-import { getSessionUser } from "@/lib/auth/session";
-import { getGame, getGuide } from "@/lib/queries/games";
+import { GameHeadIsland } from "@/components/guide/UserIslands";
+import { listGameSlugs } from "@/lib/queries/games";
+import { getGameCached, getGuideCached } from "@/lib/queries/games-cached";
 import { gameMetadata } from "./metadata";
+
+export async function generateStaticParams() {
+  return (await listGameSlugs()).map((slug) => ({ slug }));
+}
 
 export async function generateMetadata({ params }: PageProps<"/jogos/[slug]">): Promise<Metadata> {
   const { slug } = await params;
   return gameMetadata(slug);
 }
 
-export default function GamePage({ params }: PageProps<"/jogos/[slug]">) {
-  return (
-    <Suspense fallback={<div className="min-h-[60vh]" aria-busy="true" />}>
-      <GameContent params={params} />
-    </Suspense>
-  );
-}
-
 const linkClass = "text-acc underline underline-offset-2";
 
-async function GameContent({ params }: Pick<PageProps<"/jogos/[slug]">, "params">) {
+export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
+  // Public data comes from cache, so an unknown slug is a real 404 before anything streams.
   const { slug } = await params;
-  // Relative dates ("há 3 dias") need the request time; opt this subtree into request-time rendering.
-  await connection();
-  const user = await getSessionUser();
-  const now = new Date();
-
-  const guide = await getGuide(slug, user?.id);
-  const game = guide?.game ?? (await getGame(slug, user?.id));
+  const guide = await getGuideCached(slug);
+  const game = guide?.game ?? (await getGameCached(slug));
   if (!game) notFound();
 
   return (
     <>
-      <GameHead game={game} now={now} />
+      <Suspense fallback={<GameHead game={game} />}>
+        <GameHeadIsland game={game} />
+      </Suspense>
 
       {guide ? (
         <>
@@ -71,7 +65,10 @@ async function GameContent({ params }: Pick<PageProps<"/jogos/[slug]">, "params"
             Guias completos nascem de rascunhos revisados pela comunidade. Quem escreve ou revisa
             trechos aprovados ganha XP na skill Sábio.
           </p>
-          <Link href="/jogos/hollow-knight/guia" className={`${linkClass} font-mono text-xs tracking-[0.08em] uppercase`}>
+          <Link
+            href="/jogos/hollow-knight/guia"
+            className={`${linkClass} font-mono text-xs tracking-[0.08em] uppercase`}
+          >
             Ver um guia completo de exemplo
           </Link>
         </div>

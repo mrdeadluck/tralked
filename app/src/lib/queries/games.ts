@@ -86,6 +86,16 @@ export function countGames(): Promise<number> {
   return prisma.game.count();
 }
 
+/** Slugs of every game, optionally only those with a published guide (for generateStaticParams). */
+export async function listGameSlugs(opts: { withGuide?: boolean } = {}): Promise<string[]> {
+  const games = await prisma.game.findMany({
+    where: opts.withGuide ? { guide: { is: { status: "published" } } } : {},
+    select: { slug: true },
+    orderBy: { name: "asc" },
+  });
+  return games.map((g) => g.slug);
+}
+
 // ---------- Game page ----------
 
 export type GuideMeta = {
@@ -109,6 +119,8 @@ export type GameDetail = {
   progress: { unlockedCount: number; playtimeMin: number } | null;
   /** Present only for published guides. */
   guide: GuideMeta | null;
+  /** When this object was built; relative dates ("há 3 dias") are measured against it. */
+  generatedAt: Date;
 };
 
 export async function getGame(slug: string, userId?: string): Promise<GameDetail | null> {
@@ -151,6 +163,7 @@ export async function getGame(slug: string, userId?: string): Promise<GameDetail
     skills: asSkills(game.skills.map((s) => s.skill)),
     achievementCount: game.achievementCount,
     progress: owned ? { unlockedCount: owned.unlockedCount, playtimeMin: owned.playtimeMin } : null,
+    generatedAt: new Date(),
     guide: guide
       ? {
           version: guide.version,
@@ -197,7 +210,7 @@ export type GuideStepView = {
   title: string;
   hours: string;
   body: string;
-  achievements: { name: string; tier: RarityTier; done: boolean }[];
+  achievements: { id: string; name: string; tier: RarityTier; done: boolean }[];
   done: boolean;
 };
 
@@ -248,9 +261,13 @@ export type GuideDetail = {
   skillLevels: { skill: SkillId; level: number | null }[];
 };
 
-/** Full guide with the visitor's progress per achievement and step. Null when there is no published guide. */
-export async function getGuide(slug: string, userId?: string): Promise<GuideDetail | null> {
-  const game = await getGame(slug, userId);
+
+/**
+ * The guide as every visitor sees it (no per-user marks): safe to cache and to prerender.
+ * Null when the game has no published guide.
+ */
+export async function getGuidePublic(slug: string): Promise<GuideDetail | null> {
+  const game = await getGame(slug);
   if (!game || !game.guide) return null;
 
   const guide = await prisma.guide.findUniqueOrThrow({
@@ -276,33 +293,6 @@ export async function getGuide(slug: string, userId?: string): Promise<GuideDeta
         where: { gameId: game.id, apiName: { in: stepApiNames } },
       })
     : [];
-
-  const noteAchievementIds = guide.notes.map((n) => n.achievementId);
-  const [unlocks, stepProgress, votes, skillRows] = userId
-    ? await Promise.all([
-        prisma.userAchievement.findMany({
-          where: {
-            userId,
-            achievementId: { in: [...noteAchievementIds, ...stepAchievements.map((a) => a.id)] },
-          },
-          select: { achievementId: true },
-        }),
-        prisma.guideStepProgress.findMany({
-          where: { userId, stepId: { in: guide.steps.map((s) => s.id) } },
-          select: { stepId: true },
-        }),
-        prisma.guideVote.findMany({
-          where: { userId, tipId: { in: guide.tips.map((t) => t.id) } },
-          select: { tipId: true },
-        }),
-        prisma.skillProgress.findMany({ where: { userId, skill: { in: game.skills } } }),
-      ])
-    : [[], [], [], []];
-
-  const unlocked = new Set(unlocks.map((u) => u.achievementId));
-  const doneSteps = new Set(stepProgress.map((s) => s.stepId));
-  const votedTips = new Set(votes.map((v) => v.tipId));
-  const skillLevel = new Map(skillRows.map((s) => [s.skill, s.level]));
   const byApiName = new Map(stepAchievements.map((a) => [a.apiName, a]));
 
   const achievements = guide.notes
@@ -319,7 +309,7 @@ export async function getGuide(slug: string, userId?: string): Promise<GuideDeta
         globalPct: a.globalPct,
         tier: rarityTier(a.globalPct ?? 50),
         xp: xpForAchievement(a.globalPct),
-        done: unlocked.has(a.id),
+        done: false,
       };
     })
     // Most common (easiest) first, rarest last.
@@ -333,14 +323,12 @@ export async function getGuide(slug: string, userId?: string): Promise<GuideDeta
     body: step.body,
     achievements: step.achievementApiNames.flatMap((apiName) => {
       const a = byApiName.get(apiName);
-      return a
-        ? [{ name: a.name, tier: rarityTier(a.globalPct ?? 50), done: unlocked.has(a.id) }]
-        : [];
+      return a ? [{ id: a.id, name: a.name, tier: rarityTier(a.globalPct ?? 50), done: false }] : [];
     }),
-    done: doneSteps.has(step.id),
+    done: false,
   }));
 
-  const pending = achievements.filter((a) => !a.done);
+  const totalXp = achievements.reduce((sum, a) => sum + a.xp, 0);
 
   return {
     game: { ...game, guide: game.guide },
@@ -363,8 +351,8 @@ export async function getGuide(slug: string, userId?: string): Promise<GuideDeta
       votes: tip.votes,
       authorHandle: tip.author?.handle ?? null,
       authorLevel: tip.author?.stats?.level ?? null,
-      isOwn: Boolean(userId) && tip.authorId === userId,
-      voted: votedTips.has(tip.id),
+      isOwn: false,
+      voted: false,
     })),
     revisions: guide.revisions.map((r) => ({
       id: r.id,
@@ -373,16 +361,109 @@ export async function getGuide(slug: string, userId?: string): Promise<GuideDeta
       authorHandle: r.author?.handle ?? null,
       createdAt: r.createdAt,
     })),
+    totals: { xp: totalXp, pendingCount: achievements.length, pendingXp: totalXp },
+    skillLevels: game.skills.map((skill) => ({ skill, level: null })),
+  };
+}
+
+// ---------- Per-user overlay of the guide ----------
+
+/** What a signed-in visitor adds on top of the public guide. */
+export type GuideUserState = {
+  progress: GameDetail["progress"];
+  unlockedAchievementIds: string[];
+  doneStepIds: string[];
+  votedTipIds: string[];
+  ownTipIds: string[];
+  skillLevels: Record<string, number>;
+};
+
+export async function loadGuideUserState(
+  guide: GuideDetail,
+  userId: string,
+): Promise<GuideUserState> {
+  const achievementIds = [
+    ...new Set([
+      ...guide.achievements.map((a) => a.id),
+      ...guide.steps.flatMap((s) => s.achievements.map((a) => a.id)),
+    ]),
+  ];
+  const [owned, unlocks, stepProgress, votes, ownTips, skillRows] = await Promise.all([
+    prisma.userGame.findUnique({
+      where: { userId_gameId: { userId, gameId: guide.game.id } },
+    }),
+    prisma.userAchievement.findMany({
+      where: { userId, achievementId: { in: achievementIds } },
+      select: { achievementId: true },
+    }),
+    prisma.guideStepProgress.findMany({
+      where: { userId, stepId: { in: guide.steps.map((s) => s.id) } },
+      select: { stepId: true },
+    }),
+    prisma.guideVote.findMany({
+      where: { userId, tipId: { in: guide.tips.map((t) => t.id) } },
+      select: { tipId: true },
+    }),
+    prisma.guideTip.findMany({
+      where: { id: { in: guide.tips.map((t) => t.id) }, authorId: userId },
+      select: { id: true },
+    }),
+    prisma.skillProgress.findMany({
+      where: { userId, skill: { in: guide.game.skills } },
+    }),
+  ]);
+
+  return {
+    progress: owned ? { unlockedCount: owned.unlockedCount, playtimeMin: owned.playtimeMin } : null,
+    unlockedAchievementIds: unlocks.map((u) => u.achievementId),
+    doneStepIds: stepProgress.map((s) => s.stepId),
+    votedTipIds: votes.map((v) => v.tipId),
+    ownTipIds: ownTips.map((t) => t.id),
+    skillLevels: Object.fromEntries(skillRows.map((s) => [s.skill, s.level])),
+  };
+}
+
+/** Pure merge of the public guide with one visitor's progress. */
+export function applyGuideUserState(guide: GuideDetail, state: GuideUserState): GuideDetail {
+  const unlocked = new Set(state.unlockedAchievementIds);
+  const doneSteps = new Set(state.doneStepIds);
+  const voted = new Set(state.votedTipIds);
+  const own = new Set(state.ownTipIds);
+
+  const achievements = guide.achievements.map((a) => ({ ...a, done: unlocked.has(a.id) }));
+  const pending = achievements.filter((a) => !a.done);
+
+  return {
+    ...guide,
+    game: { ...guide.game, progress: state.progress },
+    steps: guide.steps.map((step) => ({
+      ...step,
+      done: doneSteps.has(step.id),
+      achievements: step.achievements.map((a) => ({ ...a, done: unlocked.has(a.id) })),
+    })),
+    achievements,
+    tips: guide.tips.map((tip) => ({
+      ...tip,
+      voted: voted.has(tip.id),
+      isOwn: own.has(tip.id),
+    })),
     totals: {
-      xp: achievements.reduce((sum, a) => sum + a.xp, 0),
+      ...guide.totals,
       pendingCount: pending.length,
       pendingXp: pending.reduce((sum, a) => sum + a.xp, 0),
     },
-    skillLevels: game.skills.map((skill) => ({
+    skillLevels: guide.skillLevels.map(({ skill }) => ({
       skill,
-      level: userId ? (skillLevel.get(skill) ?? 1) : null,
+      level: state.skillLevels[skill] ?? 1,
     })),
   };
+}
+
+/** Full guide with the visitor's progress per achievement and step. Null when there is no published guide. */
+export async function getGuide(slug: string, userId?: string): Promise<GuideDetail | null> {
+  const guide = await getGuidePublic(slug);
+  if (!guide || !userId) return guide;
+  return applyGuideUserState(guide, await loadGuideUserState(guide, userId));
 }
 
 function parseCollectibles(value: unknown): Collectible[] {

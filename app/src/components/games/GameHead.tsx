@@ -13,7 +13,7 @@ function isPlatform(value: string): value is Platform {
   return value in PLATFORM_COLOR;
 }
 
-export function GameHead({ game, now }: { game: GameDetail; now: Date }) {
+export function GameHead({ game }: { game: GameDetail }) {
   const { progress, guide } = game;
   const pct =
     progress && game.achievementCount > 0
@@ -57,7 +57,7 @@ export function GameHead({ game, now }: { game: GameDetail; now: Date }) {
               </p>
               <div className="flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[11.5px] text-dim">
                 {guide.authorHandle ? <span className="text-text-2">@{guide.authorHandle}</span> : null}
-                <span>atualizado {timeAgo(guide.updatedAt, now)}</span>
+                <span>atualizado {timeAgo(guide.updatedAt, game.generatedAt)}</span>
                 <span>{guide.version}</span>
                 {guide.reviewers.length > 0 ? (
                   <span>revisado por {guide.reviewers.map((h) => `@${h}`).join(", ")}</span>

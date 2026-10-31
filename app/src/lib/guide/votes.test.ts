@@ -116,3 +116,48 @@ describe.skipIf(!reachable)("castTipVoteIn", () => {
       expect((await castTipVoteIn(tx, "does-not-exist", voter.id)).status).toBe("not_found");
     }));
 });
+
+// Unlike the block above this commits (recomputeUser uses the global client) and cleans up after
+// itself. Safe because DB-backed test files run one at a time (see vitest.config.ts).
+describe.skipIf(!reachable)("castTipVoteAndRecompute", () => {
+  afterAll(async () => {
+    const { prisma } = await import("@/lib/db");
+    await prisma.$disconnect();
+  });
+
+  it("credits the tip author: UserStats.totalXp +25 and Sábio points go up", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { castTipVoteAndRecompute } = await import("./votes");
+    const tag = `votercalc${Date.now()}`;
+    const guide = await prisma.guide.findFirstOrThrow({ where: { game: { slug: "hollow-knight" } } });
+    const author = await prisma.user.create({
+      data: { steamId: `${tag}-a`, handle: `${tag}-a`, displayName: "Author" },
+    });
+    const voter = await prisma.user.create({
+      data: { steamId: `${tag}-v`, handle: `${tag}-v`, displayName: "Voter" },
+    });
+    const tip = await prisma.guideTip.create({
+      data: { guideId: guide.id, authorId: author.id, body: "tip", votes: 0 },
+    });
+
+    try {
+      const result = await castTipVoteAndRecompute(tip.id, voter.id);
+      expect(result.status).toBe("voted");
+
+      const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: author.id } });
+      expect(stats.totalXp).toBe(25);
+      const sabio = await prisma.skillProgress.findUniqueOrThrow({
+        where: { userId_skill: { userId: author.id, skill: "sabio" } },
+      });
+      expect(sabio.points).toBeGreaterThan(0);
+
+      // A repeated vote changes nothing.
+      await castTipVoteAndRecompute(tip.id, voter.id);
+      const again = await prisma.userStats.findUniqueOrThrow({ where: { userId: author.id } });
+      expect(again.totalXp).toBe(25);
+    } finally {
+      await prisma.guideTip.delete({ where: { id: tip.id } });
+      await prisma.user.deleteMany({ where: { id: { in: [author.id, voter.id] } } });
+    }
+  });
+});

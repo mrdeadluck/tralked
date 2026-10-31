@@ -33,9 +33,11 @@ type GuideSidebarProps = {
   guide: GuideDetail;
   loggedIn: boolean;
   returnTo: string;
+  /** True while the visitor's progress is still loading. */
+  pending?: boolean;
 };
 
-export function GuideSidebar({ guide, loggedIn, returnTo }: GuideSidebarProps) {
+export function GuideSidebar({ guide, loggedIn, returnTo, pending = false }: GuideSidebarProps) {
   const { game, totals } = guide;
   const progress = game.progress;
   const pct =
@@ -76,6 +78,10 @@ export function GuideSidebar({ guide, loggedIn, returnTo }: GuideSidebarProps) {
               .
             </p>
           </div>
+        ) : pending ? (
+          <p className="pt-3.5 text-sm text-muted" aria-busy="true">
+            Carregando o seu progresso...
+          </p>
         ) : loggedIn ? (
           <p className="pt-3.5 text-sm text-muted">
             Este jogo ainda não aparece na sua biblioteca. Sincronize seu perfil para acompanhar o

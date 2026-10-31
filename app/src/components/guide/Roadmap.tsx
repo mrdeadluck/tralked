@@ -14,9 +14,11 @@ type RoadmapProps = {
   loggedIn: boolean;
   /** Path to come back to after the Steam login. */
   returnTo: string;
+  /** True while the visitor's progress is still loading (checkboxes are inert). */
+  pending?: boolean;
 };
 
-export function Roadmap({ steps, loggedIn, returnTo }: RoadmapProps) {
+export function Roadmap({ steps, loggedIn, returnTo, pending = false }: RoadmapProps) {
   const [done, setDone] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(steps.map((s) => [s.id, s.done])),
   );
@@ -77,7 +79,7 @@ export function Roadmap({ steps, loggedIn, returnTo }: RoadmapProps) {
                       </span>
                     </div>
                   </div>
-                  <CheckLabel checked={isDone} onChange={() => onToggle(step)}>
+                  <CheckLabel checked={isDone} disabled={pending} onChange={() => onToggle(step)}>
                     Etapa concluída
                   </CheckLabel>
                 </div>

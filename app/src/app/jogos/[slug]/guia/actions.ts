@@ -1,15 +1,20 @@
 "use server";
 
+import { updateTag } from "next/cache";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
-import { castTipVote } from "@/lib/guide/votes";
+import { castTipVoteAndRecompute } from "@/lib/guide/votes";
+import { gameTag } from "@/lib/queries/games-cached";
 
 export type ToggleStepResult =
   | { status: "ok"; done: boolean }
   | { status: "unauthenticated" }
   | { status: "not_found" };
 
-/** Marks a roadmap step as done, or clears it when it already was. Requires login. */
+/**
+ * Marks a roadmap step as done, or clears it when it already was. Requires login.
+ * Step progress is per user and not part of the cached public guide, so nothing to revalidate.
+ */
 export async function toggleStep(stepId: string): Promise<ToggleStepResult> {
   const user = await getSessionUser();
   if (!user) return { status: "unauthenticated" };
@@ -41,9 +46,15 @@ export async function voteTip(tipId: string): Promise<VoteTipResult> {
   const user = await getSessionUser();
   if (!user) return { status: "unauthenticated" };
 
-  const result = await castTipVote(tipId, user.id);  if (result.status !== "voted") return result;
+  const result = await castTipVoteAndRecompute(tipId, user.id);
+  if (result.status !== "voted") return result;
 
-  // TODO: call recomputeUser(result.authorUserId) from "@/lib/progression/recompute" once that
-  // module lands (built by another task), so the author's level and Sábio skill update right away.
+  // The public guide (cached) shows each tip's vote count: expire it so the next render is fresh.
+  const tip = await prisma.guideTip.findUnique({
+    where: { id: tipId },
+    select: { guide: { select: { game: { select: { slug: true } } } } },
+  });
+  if (tip) updateTag(gameTag(tip.guide.game.slug));
+
   return { status: "voted", votes: result.votes };
 }

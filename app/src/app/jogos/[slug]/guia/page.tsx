@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { connection } from "next/server";
 import { Suspense } from "react";
 import { FactsStrip } from "@/components/games/FactsStrip";
 import { GameHead } from "@/components/games/GameHead";
@@ -11,9 +10,21 @@ import { GuideSidebar } from "@/components/guide/GuideSidebar";
 import { Overview } from "@/components/guide/Overview";
 import { Revisions } from "@/components/guide/Revisions";
 import { Roadmap } from "@/components/guide/Roadmap";
-import { getSessionUser } from "@/lib/auth/session";
-import { getGameTitle, getGuide } from "@/lib/queries/games";
+import {
+  AchievementsIsland,
+  GameHeadIsland,
+  RoadmapIsland,
+  SidebarIsland,
+  TipsIsland,
+} from "@/components/guide/UserIslands";
+import { listGameSlugs } from "@/lib/queries/games";
+import { getGameCached, getGuideCached } from "@/lib/queries/games-cached";
 import { gameMetadata } from "../metadata";
+
+export async function generateStaticParams() {
+  // Every game, not only those with a guide: games without one prerender their redirect.
+  return (await listGameSlugs()).map((slug) => ({ slug }));
+}
 
 export async function generateMetadata({
   params,
@@ -22,48 +33,58 @@ export async function generateMetadata({
   return gameMetadata(slug);
 }
 
-export default function GuidePage({ params }: PageProps<"/jogos/[slug]/guia">) {
-  return (
-    <Suspense fallback={<div className="min-h-[60vh]" aria-busy="true" />}>
-      <GuideContent params={params} />
-    </Suspense>
-  );
-}
-
-async function GuideContent({ params }: Pick<PageProps<"/jogos/[slug]/guia">, "params">) {
+export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/guia">) {
+  // The guide text comes from cache, so unknown slugs / games without a guide resolve to a real
+  // 404 / redirect before any Suspense boundary. Only the visitor's own marks stream in.
   const { slug } = await params;
-  // Relative dates ("há 3 dias") need the request time; opt this subtree into request-time rendering.
-  await connection();
-  const user = await getSessionUser();
-  const now = new Date();
-
-  const guide = await getGuide(slug, user?.id);
+  const guide = await getGuideCached(slug);
   if (!guide) {
-    // The game exists but has no published guide: send people to the game page.
-    if (await getGameTitle(slug)) redirect(`/jogos/${slug}`);
+    if (await getGameCached(slug)) redirect(`/jogos/${slug}`);
     notFound();
   }
 
-  const loggedIn = Boolean(user);
   const returnTo = `/jogos/${slug}/guia`;
+  const now = guide.game.generatedAt;
 
   return (
     <>
-      <GameHead game={guide.game} now={now} />
+      <Suspense fallback={<GameHead game={guide.game} />}>
+        <GameHeadIsland game={guide.game} />
+      </Suspense>
       <FactsStrip facts={guide.facts} totalXp={guide.totals.xp} />
       <div className="mt-10 grid grid-cols-[minmax(0,1fr)_320px] items-start gap-12 max-[1100px]:grid-cols-1">
         <div className="flex min-w-0 flex-col gap-14">
           <Overview overview={guide.overview} warnings={guide.warnings} />
-          <Roadmap steps={guide.steps} loggedIn={loggedIn} returnTo={returnTo} />
-          <AchievementList
-            achievements={guide.achievements}
-            totalCount={guide.game.achievementCount}
-          />
+          <Suspense
+            fallback={<Roadmap steps={guide.steps} loggedIn={false} returnTo={returnTo} pending />}
+          >
+            <RoadmapIsland guide={guide} returnTo={returnTo} />
+          </Suspense>
+          <Suspense
+            fallback={
+              <AchievementList
+                achievements={guide.achievements}
+                totalCount={guide.game.achievementCount}
+              />
+            }
+          >
+            <AchievementsIsland guide={guide} />
+          </Suspense>
           <Collectibles collectibles={guide.collectibles} />
-          <CommunityTips tips={guide.tips} loggedIn={loggedIn} returnTo={returnTo} />
+          <Suspense
+            fallback={
+              <CommunityTips tips={guide.tips} loggedIn={false} returnTo={returnTo} pending />
+            }
+          >
+            <TipsIsland guide={guide} returnTo={returnTo} />
+          </Suspense>
           <Revisions revisions={guide.revisions} now={now} />
         </div>
-        <GuideSidebar guide={guide} loggedIn={loggedIn} returnTo={returnTo} />
+        <Suspense
+          fallback={<GuideSidebar guide={guide} loggedIn={false} returnTo={returnTo} pending />}
+        >
+          <SidebarIsland guide={guide} returnTo={returnTo} />
+        </Suspense>
       </div>
     </>
   );

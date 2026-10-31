@@ -1,5 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { recomputeUser } from "@/lib/progression/recompute";
 
 /** XP credited to a tip author for each distinct vote (Sábio skill). */
 export const TIP_VOTE_XP = 25;
@@ -63,4 +64,25 @@ export async function castTipVoteIn(
  */
 export function castTipVote(tipId: string, voterUserId: string): Promise<CastTipVoteResult> {
   return prisma.$transaction((tx) => castTipVoteIn(tx, tipId, voterUserId));
+}
+
+/**
+ * `castTipVote`, then refresh the tip author's level and skills from the ledger. The recompute
+ * runs only when a ledger entry was just created (a first vote on a tip whose author has a user).
+ * A failing recompute does not undo the vote: the ledger is the source of truth and the next sync
+ * recomputes the author anyway.
+ */
+export async function castTipVoteAndRecompute(
+  tipId: string,
+  voterUserId: string,
+): Promise<CastTipVoteResult> {
+  const result = await castTipVote(tipId, voterUserId);
+  if (result.status === "voted" && result.authorUserId) {
+    try {
+      await recomputeUser(result.authorUserId);
+    } catch (error) {
+      console.error("recomputeUser failed after a guide vote", error);
+    }
+  }
+  return result;
 }

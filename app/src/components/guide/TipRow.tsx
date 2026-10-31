@@ -9,9 +9,10 @@ type TipRowProps = {
   tip: GuideTipView;
   loggedIn: boolean;
   returnTo: string;
+  pending?: boolean;
 };
 
-export function TipRow({ tip, loggedIn, returnTo }: TipRowProps) {
+export function TipRow({ tip, loggedIn, returnTo, pending = false }: TipRowProps) {
   const [votes, setVotes] = useState(tip.votes);
   const [voted, setVoted] = useState(tip.voted);
   const [nudge, setNudge] = useState(false);
@@ -64,7 +65,7 @@ export function TipRow({ tip, loggedIn, returnTo }: TipRowProps) {
         onClick={onVote}
         aria-pressed={voted}
         aria-label={label}
-        disabled={tip.isOwn}
+        disabled={tip.isOwn || pending}
         className={`flex h-fit min-w-14 cursor-pointer flex-col items-center gap-0.5 rounded-[2px] border bg-transparent px-2 py-1.5 font-mono text-xs font-bold disabled:cursor-not-allowed disabled:opacity-45 ${
           voted ? "border-acc text-acc" : "border-line-2 text-text-3 hover:border-dim"
         }`}

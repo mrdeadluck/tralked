@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
-import { cacheLife } from "next/cache";
+import { cacheLife, cacheTag } from "next/cache";
 import { getGameTitle } from "@/lib/queries/games";
+import { gameTag } from "@/lib/queries/games-cached";
 
 async function cachedGameTitle(slug: string) {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("hours");
+  cacheTag(gameTag(slug));
   return getGameTitle(slug);
 }
 
