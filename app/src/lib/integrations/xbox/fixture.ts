@@ -24,9 +24,24 @@ const ACHIEVEMENTS: { name: string; gamerscore: number; rarityPct: number }[] = 
   { name: "Primeiros passos", gamerscore: 5, rarityPct: 90.2 },
 ];
 
-const TITLES: { titleId: string; name: string; unlocked: number[]; firstUnlockedAt: string }[] = [
-  { titleId: "90000001", name: "Hollow Knight", unlocked: [4, 5, 6], firstUnlockedAt: "2026-01-10T20:00:00Z" },
-  { titleId: "90000003", name: "Resident Evil 4", unlocked: [1, 2, 3, 4, 5, 6], firstUnlockedAt: "2026-08-20T21:00:00Z" },
+const TITLES: {
+  titleId: string;
+  name: string;
+  unlocked: number[];
+  firstUnlockedAt: string;
+  /** Xbox's MinutesPlayed stat (absent: Xbox has no number for the title). */
+  minutesPlayed?: number;
+}[] = [
+  { titleId: "90000001", name: "Hollow Knight", unlocked: [4, 5, 6], firstUnlockedAt: "2026-01-10T20:00:00Z", minutesPlayed: 720 },
+  {
+    titleId: "90000003",
+    name: "Resident Evil 4",
+    unlocked: [1, 2, 3, 4, 5, 6],
+    firstUnlockedAt: "2026-08-20T21:00:00Z",
+    minutesPlayed: 1830,
+  },
+  // Played (title history) without any achievement unlocked yet.
+  { titleId: "90000005", name: "Forja Abissal", unlocked: [], firstUnlockedAt: "2026-09-15T21:00:00Z", minutesPlayed: 140 },
 ];
 
 const DAY_MS = 86_400_000;
@@ -77,9 +92,19 @@ export function createXboxFixture(): XboxApi {
           currentGamerscore: unlocked.reduce((sum, a) => sum + a.gamerscore, 0),
           totalGamerscore: list.reduce((sum, a) => sum + a.gamerscore, 0),
           progress: Math.round((unlocked.length / list.length) * 100),
-          lastPlayed: unlocked.at(-1)?.unlockedAt ?? null,
+          lastPlayed: unlocked.at(-1)?.unlockedAt ?? new Date(title.firstUnlockedAt),
         };
       });
+    },
+    async getMinutesPlayed(xuid, titleIds) {
+      const found = account(xuid);
+      if (found?.isPrivate) return "private";
+      const minutes = new Map<string, number>();
+      if (!found) return minutes;
+      for (const t of TITLES) {
+        if (titleIds.includes(t.titleId) && t.minutesPlayed !== undefined) minutes.set(t.titleId, t.minutesPlayed);
+      }
+      return minutes;
     },
     async getAchievements(xuid, titleId) {
       const found = account(xuid);

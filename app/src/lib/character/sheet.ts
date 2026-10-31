@@ -19,6 +19,8 @@ export const ATTRIBUTE_SOURCE: Record<AttributeId, string> = {
   exploracao: "jogos e gêneros",
   constancia: "dias jogados",
   sabedoria: "guias e respostas",
+  resistencia: "horas totais",
+  acervo: "jogos da biblioteca",
 };
 
 export type CharacterAttribute = {

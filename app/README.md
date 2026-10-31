@@ -96,7 +96,7 @@ Um perfil importado não tem e-mail nem senha: quem reivindicar essa Steam (cód
 
 ## Cron
 
-Sete jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
+Oito jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
 
 | Endpoint | Faz |
 | --- | --- |
@@ -107,6 +107,7 @@ Sete jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame
 | `/api/cron/media` | Busca vídeos, screenshots e artworks (IGDB) e capa/hero/logo (SteamGridDB) de jogos ainda sem mídia oficial. |
 | `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte e data das notícias que citam um jogo do catálogo. |
 | `/api/cron/notifications` | Diário: apaga notificações com mais de 90 dias (o texto delas pode citar outras pessoas, inclusive quem excluiu a conta). |
+| `/api/cron/steam-catalog` | Catálogo completo da Steam, em 50 s por execução: (1) até 40% do tempo importando a lista de jogos da loja (`IStoreService/GetAppList`, 10 mil por página, exige `STEAM_API_KEY`) como entradas só com nome (`Game.stub`, fora das listagens, do sitemap e dos seletores), retomando pelo `last_appid` guardado em `SyncCursor`; terminada uma volta, as seguintes pedem só o que mudou (`if_modified_since`); (2) uma página do SteamSpy (os mil mais possuídos, girando pelas 10 primeiras) define `Game.popularity`; (3) no tempo que sobra, detalhes da loja em pt-BR (resumo, desenvolvedora, data, nota; nunca preço), tags (habilidades), conquistas com raridade e artes do CDN da Steam pelo appid (capa 600×900, hero e logo conferidos com `HEAD` antes de gravar; sem capa, SteamGridDB e depois IGDB), na ordem: jogos que alguém abriu, jogos que alguém tem ou deseja, os mais populares. Offline (`STEAM_MODE=fixture`) só a lista de apps da fixture é importada. |
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://seu-dominio/api/cron/catalog
@@ -130,7 +131,8 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
     { "path": "/api/cron/catalog", "schedule": "0 3 * * *" },
     { "path": "/api/cron/rarity", "schedule": "30 3 * * *" },
     { "path": "/api/cron/media", "schedule": "0 4 * * *" },
-    { "path": "/api/cron/notifications", "schedule": "15 5 * * *" }
+    { "path": "/api/cron/notifications", "schedule": "15 5 * * *" },
+    { "path": "/api/cron/steam-catalog", "schedule": "20 * * * *" }
   ]
 }
 ```
@@ -143,6 +145,7 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
 | `users` | a cada 30 min | contas Steam desatualizadas, poucas por vez |
 | `catalog`, `rarity`, `media` | 1x por dia, de madrugada (horário de Brasília) | dados que mudam devagar |
 | `notifications` | 1x por dia | apaga notificações com mais de 90 dias |
+| `steam-catalog` | de hora em hora | catálogo completo da Steam: lista de apps (incremental), popularidade e detalhes dos jogos mais procurados, um pouco por vez |
 
 A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste falha se as duas divergirem ou se algum job ficar sem horário.
 

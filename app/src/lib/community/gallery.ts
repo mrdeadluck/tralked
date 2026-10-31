@@ -135,6 +135,8 @@ export type GameOption = { slug: string; name: string; photoCount: number };
 /** Every game (for the upload form) with its number of visible photos (for the filter). */
 export async function galleryGames(): Promise<GameOption[]> {
   const games = await prisma.game.findMany({
+    // Name-only stubs of the full Steam catalog (thousands) stay out of the picker.
+    where: { stub: false },
     orderBy: { name: "asc" },
     select: { slug: true, name: true, _count: { select: { photos: { where: LISTED } } } },
   });

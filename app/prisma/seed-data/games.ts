@@ -185,6 +185,30 @@ export const GAMES: SeedGame[] = BASE.map((game) => {
   return { ...game, lucasPlaytimeMin: owned.playtimeMin };
 });
 
+/** Steam's own playtime details of lucas's library (fixture), keyed by appid. */
+export const LUCAS_STEAM_PLAYTIME = new Map(
+  ownedGames.map((g) => [
+    g.appId,
+    {
+      playtime2WeeksMin: "playtime2WeeksMin" in g ? g.playtime2WeeksMin : 0,
+      lastPlayedAt: "lastPlayed" in g && g.lastPlayed ? new Date(g.lastPlayed * 1000) : null,
+    },
+  ]),
+);
+
+/**
+ * Name-only entries of the full Steam catalog (`stub`: unlisted until their store details are
+ * fetched), made up like the Steam fixture's: lucas owns the first three and never played them,
+ * and wishes for the last two (wishlist.json).
+ */
+export const STUB_GAMES: { slug: string; name: string; steamAppId: number; lucasOwns: boolean }[] = [
+  { slug: "lanterna-do-farol", name: "Lanterna do Farol", steamAppId: 2009190, lucasOwns: true },
+  { slug: "ecos-de-ferro", name: "Ecos de Ferro", steamAppId: 2009191, lucasOwns: true },
+  { slug: "pomar-estelar", name: "Pomar Estelar", steamAppId: 2009192, lucasOwns: true },
+  { slug: "cidadela-de-vidro", name: "Cidadela de Vidro", steamAppId: 2009193, lucasOwns: false },
+  { slug: "rota-dos-cometas", name: "Rota dos Cometas", steamAppId: 2009194, lucasOwns: false },
+];
+
 export const GAME_SLUG_BY_PREVIEW_ID: Record<string, string> = {
   "hollow-knight": "hollow-knight",
   hades: "hades",

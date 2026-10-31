@@ -1,3 +1,4 @@
+import { parseWishlist } from "./client";
 import { createPoliteFetch, isSteamCdnUrl, readJson, readText, type PoliteFetch } from "./polite-fetch";
 import { decodeEntities } from "./text";
 import type { SteamApi, SteamPlayerAchievement, SteamSchemaAchievement } from "./types";
@@ -217,6 +218,21 @@ export function createSteamCommunity(config: SteamCommunityConfig = {}): SteamAp
         apiName: canonical.get(a.apiName.toLowerCase()) ?? a.apiName,
         unlockedAt: a.unlockedAt,
       }));
+    },
+
+    async getWishlist(steamId) {
+      // The wishlist endpoint answers without a key for public wishlists.
+      const res = await politeFetch(
+        `${WEB_API}/IWishlistService/GetWishlist/v1/?steamid=${encodeURIComponent(steamId)}`,
+      );
+      if (res.status === 401 || res.status === 403) return "private";
+      if (!res.ok) throw new Error(`Steam API wishlist failed with HTTP ${res.status}`);
+      return parseWishlist(await readJson(res));
+    },
+
+    async getAppList() {
+      // The store's app list needs a Web API key.
+      return "unsupported";
     },
 
     /** SteamID64 of a custom profile URL (`/id/<vanity>`), or null when it does not exist. */

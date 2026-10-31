@@ -46,7 +46,8 @@ import {
   PHOTOS,
   REPORTS,
 } from "./seed-data/community";
-import { FEED_ACHIEVEMENTS, GAMES, GAME_SLUG_BY_PREVIEW_ID } from "./seed-data/games";
+import steamWishlist from "../src/lib/integrations/steam/__fixtures__/wishlist.json";
+import { FEED_ACHIEVEMENTS, GAMES, GAME_SLUG_BY_PREVIEW_ID, LUCAS_STEAM_PLAYTIME, STUB_GAMES } from "./seed-data/games";
 import { HK_GUIDE } from "./seed-data/guides";
 import { ARTICLES, AUTHOR_HANDLES } from "./seed-data/news";
 import {
@@ -206,6 +207,7 @@ export async function runSeed() {
       await tx.xpLedgerEntry.deleteMany({ where: { userId: { in: seededUserIds } } });
       await tx.skillProgress.deleteMany({ where: { userId: { in: seededUserIds } } });
       await tx.mission.deleteMany({ where: { userId: { in: seededUserIds } } });
+      await tx.wishlistItem.deleteMany({ where: { userId: { in: seededUserIds } } });
 
       // ---------- Games, skills, achievements ----------
       const gameIds = new Map<string, string>();
@@ -470,6 +472,38 @@ export async function runSeed() {
           playtimeMin: g.lucasPlaytimeMin,
           unlockedCount: g.lucasUnlocked,
           completedAt: g.lucasUnlocked === g.achievementCount ? daysAgo(30) : null,
+          ...LUCAS_STEAM_PLAYTIME.get(g.steamAppId),
+        })),
+      });
+
+      // Full-catalog stubs (name only), lucas's never-played games and his Steam wishlist. Playtime
+      // XP is not seeded: the first sync pays it (playtimeUpdatedAt stays null).
+      const stubIds = new Map<number, string>();
+      for (const s of STUB_GAMES) {
+        const row = await tx.game.upsert({
+          where: { steamAppId: s.steamAppId },
+          create: { slug: s.slug, name: s.name, steamAppId: s.steamAppId, platforms: ["PC"], achievementCount: 0, stub: true },
+          update: { name: s.name, stub: true },
+        });
+        stubIds.set(s.steamAppId, row.id);
+      }
+      await tx.userGame.createMany({
+        data: STUB_GAMES.filter((s) => s.lucasOwns).map((s) => ({
+          userId: lucasId,
+          gameId: mustFind(stubIds.get(s.steamAppId), `stub ${s.slug}`),
+          playtimeMin: 0,
+          unlockedCount: 0,
+        })),
+      });
+      const steamGameId = (appId: number) =>
+        stubIds.get(appId) ?? gid(mustFind(GAMES.find((g) => g.steamAppId === appId), `app ${appId}`).slug);
+      await tx.wishlistItem.createMany({
+        data: steamWishlist.map((w) => ({
+          userId: lucasId,
+          gameId: steamGameId(w.appId),
+          platform: "steam",
+          priority: w.priority,
+          addedAt: new Date(w.dateAdded * 1000),
         })),
       });
       // Deterministic subsets so family libraries overlap only partially.

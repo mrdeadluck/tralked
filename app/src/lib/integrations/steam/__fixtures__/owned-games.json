@@ -1,72 +1,19 @@
 [
-  {
-    "appId": 367520,
-    "name": "Hollow Knight",
-    "playtimeMin": 3120
-  },
-  {
-    "appId": 1145360,
-    "name": "Hades",
-    "playtimeMin": 2760
-  },
-  {
-    "appId": 2050650,
-    "name": "Resident Evil 4",
-    "playtimeMin": 1380
-  },
-  {
-    "appId": 1245620,
-    "name": "Elden Ring",
-    "playtimeMin": 5400
-  },
-  {
-    "appId": 620,
-    "name": "Portal 2",
-    "playtimeMin": 1140
-  },
-  {
-    "appId": 646570,
-    "name": "Slay the Spire",
-    "playtimeMin": 2580
-  },
-  {
-    "appId": 550,
-    "name": "Left 4 Dead 2",
-    "playtimeMin": 4200
-  },
-  {
-    "appId": 782330,
-    "name": "DOOM Eternal",
-    "playtimeMin": 1860
-  },
-  {
-    "appId": 1693980,
-    "name": "Dead Space",
-    "playtimeMin": 720
-  },
-  {
-    "appId": 1086940,
-    "name": "Baldur's Gate 3",
-    "playtimeMin": 3600
-  },
-  {
-    "appId": 504230,
-    "name": "Celeste",
-    "playtimeMin": 1020
-  },
-  {
-    "appId": 413150,
-    "name": "Stardew Valley",
-    "playtimeMin": 4800
-  },
-  {
-    "appId": 289070,
-    "name": "Civilization VI",
-    "playtimeMin": 9600
-  },
-  {
-    "appId": 739630,
-    "name": "Phasmophobia",
-    "playtimeMin": 1560
-  }
+  { "appId": 367520, "name": "Hollow Knight", "playtimeMin": 3120, "playtime2WeeksMin": 95, "lastPlayed": 1792000000 },
+  { "appId": 1145360, "name": "Hades", "playtimeMin": 2760, "lastPlayed": 1788000000 },
+  { "appId": 2050650, "name": "Resident Evil 4", "playtimeMin": 1380, "lastPlayed": 1785000000 },
+  { "appId": 1245620, "name": "Elden Ring", "playtimeMin": 5400, "playtime2WeeksMin": 240, "lastPlayed": 1792500000 },
+  { "appId": 620, "name": "Portal 2", "playtimeMin": 1140, "lastPlayed": 1700000000 },
+  { "appId": 646570, "name": "Slay the Spire", "playtimeMin": 2580, "lastPlayed": 1760000000 },
+  { "appId": 550, "name": "Left 4 Dead 2", "playtimeMin": 4200, "lastPlayed": 1690000000 },
+  { "appId": 782330, "name": "DOOM Eternal", "playtimeMin": 1860, "lastPlayed": 1720000000 },
+  { "appId": 1693980, "name": "Dead Space", "playtimeMin": 720, "lastPlayed": 1740000000 },
+  { "appId": 1086940, "name": "Baldur's Gate 3", "playtimeMin": 3600, "lastPlayed": 1780000000 },
+  { "appId": 504230, "name": "Celeste", "playtimeMin": 1020, "lastPlayed": 1730000000 },
+  { "appId": 413150, "name": "Stardew Valley", "playtimeMin": 4800, "lastPlayed": 1770000000 },
+  { "appId": 289070, "name": "Civilization VI", "playtimeMin": 9600, "lastPlayed": 1775000000 },
+  { "appId": 739630, "name": "Phasmophobia", "playtimeMin": 1560, "lastPlayed": 1765000000 },
+  { "appId": 2009190, "name": "Lanterna do Farol", "playtimeMin": 0 },
+  { "appId": 2009191, "name": "Ecos de Ferro", "playtimeMin": 0 },
+  { "appId": 2009192, "name": "Pomar Estelar", "playtimeMin": 0 }
 ]

@@ -17,7 +17,7 @@ export async function getTrendingSuggestions(
     take: limit,
   });
   const games = await prisma.game.findMany({
-    where: { id: { in: popular.map((p) => p.gameId) } },
+    where: { id: { in: popular.map((p) => p.gameId) }, stub: false },
     select: { id: true, slug: true, name: true },
   });
   const byId = new Map(games.map((g) => [g.id, g]));

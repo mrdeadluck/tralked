@@ -5,9 +5,11 @@ import { findBursts, isSpeedPlatinum } from "@/lib/engine/fraud";
 import type { SkillId } from "@/lib/engine/types";
 import { SKILLS } from "@/lib/engine/types";
 import { platinumBonus, xpForAchievement } from "@/lib/engine/xp";
-import { getSteam } from "@/lib/integrations";
+import { getSteam, type SteamOwnedGame } from "@/lib/integrations";
 import { recomputeUser } from "@/lib/progression/recompute";
 import { syncGame } from "./catalog";
+import { playtimeLedgerRows } from "./playtime";
+import { ensureSteamGames } from "./steam-games";
 
 export type SyncUserResult = {
   /** `unlinked`: the Steam account was disconnected (or claimed by another profile) mid-run. */
@@ -16,6 +18,8 @@ export type SyncUserResult = {
   levelBefore: number;
   levelAfter: number;
   skillUps: SkillId[];
+  /** Games were left for the next sync (time budget); what was read is recorded. */
+  partial?: boolean;
 };
 
 type CatalogGame = Game & { achievements: Achievement[]; skills: GameSkill[] };
@@ -27,6 +31,8 @@ type FetchedGame = {
   playtimeMin: number;
   /** False when Steam hides the user's playtime (every game reports 0). */
   playtimeKnown: boolean;
+  /** The library sync recorded the game's playtime: recording its unlocks leaves playtime alone. */
+  fromLibrary: boolean;
   unlocks: { achievementId: string; unlockedAt: Date }[];
 };
 
@@ -94,21 +100,21 @@ async function fetchGame(
   owned: { appId: number; playtimeMin: number },
   playtimeKnown: boolean,
   requireUnlock: boolean,
-): Promise<FetchedGame | "private" | null> {
+): Promise<FetchedGame | "private" | "none"> {
   const steam = getSteam();
   const achievements = await steam.getPlayerAchievements(steamId, owned.appId);
   if (achievements === "private") return "private";
-  if (achievements.length === 0) return null;
+  if (achievements.length === 0) return "none";
   // A probed game is not known to be owned: only one with an unlock enters the library.
-  if (requireUnlock && !achievements.some((a) => a.unlockedAt)) return null;
+  if (requireUnlock && !achievements.some((a) => a.unlockedAt)) return "none";
 
   let game = await loadGame(owned.appId);
-  // Unknown game, or Steam has achievements the catalog doesn't know yet (new DLC).
+  // Unknown game (or a name-only stub), or Steam has achievements the catalog doesn't know yet (new DLC).
   const known = new Set(game?.achievements.map((a) => a.apiName));
   if (!game || achievements.some((a) => !known.has(a.apiName))) {
     if (await syncGame(owned.appId)) game = await loadGame(owned.appId);
   }
-  if (!game) return null;
+  if (!game) return "none";
 
   // Rows Steam no longer lists (removed achievements, old seed rows) stay in the catalog, but
   // completion and the platinum bonus only count what the game has today.
@@ -119,7 +125,13 @@ async function fetchGame(
     const achievementId = idByApiName.get(a.apiName);
     return achievementId && a.unlockedAt ? [{ achievementId, unlockedAt: a.unlockedAt }] : [];
   });
-  return { game: { ...game, achievements: current }, playtimeMin: owned.playtimeMin, playtimeKnown, unlocks };
+  return {
+    game: { ...game, achievements: current },
+    playtimeMin: owned.playtimeMin,
+    playtimeKnown,
+    fromLibrary: !requireUnlock,
+    unlocks,
+  };
 }
 
 /** The Steam account was disconnected (or claimed by another profile) while the sync ran. */
@@ -171,7 +183,7 @@ async function recordGame(
   known: Map<string, KnownUnlock>,
   bursts: Set<string>,
 ): Promise<number> {
-  const { game, playtimeMin, playtimeKnown, unlocks } = fetched;
+  const { game, playtimeMin, playtimeKnown, fromLibrary, unlocks } = fetched;
   const gameSkills = game.skills.map((s) => s.skill);
   const total = Math.max(game.achievementCount, game.achievements.length);
   const complete = unlocks.length >= total;
@@ -202,7 +214,14 @@ async function recordGame(
     });
     await tx.userGame.update({
       where: { userId_gameId_platform: { userId, gameId: game.id, platform: "steam" } },
-      data: { playtimeMin, unlockedCount: unlocks.length, completedAt },
+      // Library games already have their playtime (recordLibrary); probed games have none to
+      // give (a 0 must not erase playtime recorded by an earlier keyed sync). Reading the
+      // achievements at this playtime is done: the next sync skips the game until it is played.
+      data: {
+        unlockedCount: unlocks.length,
+        completedAt,
+        ...(fromLibrary && { checkedPlaytimeMin: playtimeMin }),
+      },
     });
 
     const created = await tx.userAchievement.createMany({
@@ -247,6 +266,137 @@ async function recordGame(
     await tx.xpLedgerEntry.createMany({ data: ledger, skipDuplicates: true });
     return created.count;
   }, TRANSACTION_OPTIONS);
+}
+
+/** What the library sync knows of an owned game. */
+type LibraryEntry = { gameId: string; checkedPlaytimeMin: number | null };
+
+/**
+ * Records the whole Steam library (keyed adapter: GetOwnedGames), never-played games included:
+ * games unknown to the catalog become name-only stubs, every owned game gets its UserGame row
+ * with Steam's playtime, last-2-weeks playtime and last play time, and the playtime milestones
+ * reached pay XP (`playtime` ledger entries, once each). One transaction, guarded like the games'
+ * (an unlink meanwhile aborts it). Only rows whose playtime changed are rewritten, and only their
+ * milestones are offered to the ledger. Returns appid → what the achievements pass needs.
+ */
+async function recordLibrary(
+  userId: string,
+  link: SteamSnapshot,
+  owned: SteamOwnedGame[],
+  /** False when Steam hides playtime (every game 0): stored playtime is then left as it was. */
+  playtimeKnown: boolean,
+  now: Date,
+): Promise<Map<number, LibraryEntry>> {
+  const ids = await ensureSteamGames(owned.map((g) => ({ appId: g.appId, name: g.name })), { now });
+  const stored = new Map(
+    (
+      await prisma.userGame.findMany({
+        where: { userId, platform: "steam" },
+        select: {
+          gameId: true,
+          playtimeMin: true,
+          playtime2WeeksMin: true,
+          lastPlayedAt: true,
+          playtimeUpdatedAt: true,
+          checkedPlaytimeMin: true,
+        },
+      })
+    ).map((r) => [r.gameId, r]),
+  );
+
+  const result = new Map<number, LibraryEntry>();
+  const created: Prisma.UserGameCreateManyInput[] = [];
+  const updated: { gameId: string; data: Prisma.UserGameUpdateInput }[] = [];
+  const paying: { gameId: string; game: SteamOwnedGame }[] = [];
+  for (const game of owned) {
+    const gameId = ids.get(game.appId);
+    if (!gameId) continue;
+    const before = stored.get(gameId);
+    result.set(game.appId, { gameId, checkedPlaytimeMin: before?.checkedPlaytimeMin ?? null });
+    const fields = {
+      playtimeMin: Math.max(0, game.playtimeMin),
+      playtime2WeeksMin: game.playtime2WeeksMin ?? null,
+      lastPlayedAt: game.lastPlayedAt ?? null,
+      playtimeUpdatedAt: now,
+    };
+    if (!before) {
+      created.push({ userId, gameId, platform: "steam", unlockedCount: 0, ...fields });
+      paying.push({ gameId, game });
+      continue;
+    }
+    if (!playtimeKnown) continue;
+    const changed =
+      before.playtimeUpdatedAt === null ||
+      before.playtimeMin !== fields.playtimeMin ||
+      before.playtime2WeeksMin !== fields.playtime2WeeksMin ||
+      (before.lastPlayedAt?.getTime() ?? null) !== (fields.lastPlayedAt?.getTime() ?? null);
+    if (!changed) continue;
+    updated.push({ gameId, data: fields });
+    // Rows written before playtime paid XP (no playtimeUpdatedAt) are offered their milestones too.
+    if (before.playtimeUpdatedAt === null || fields.playtimeMin > before.playtimeMin) paying.push({ gameId, game });
+  }
+
+  const skillRows = paying.length
+    ? await prisma.gameSkill.findMany({
+        where: { gameId: { in: paying.map((p) => p.gameId) } },
+        select: { gameId: true, skill: true },
+      })
+    : [];
+  const skillsOf = new Map<string, string[]>();
+  for (const s of skillRows) skillsOf.set(s.gameId, [...(skillsOf.get(s.gameId) ?? []), s.skill]);
+  const ledger = paying.flatMap(({ gameId, game }) =>
+    playtimeLedgerRows({
+      userId,
+      platform: "steam",
+      gameId,
+      playtimeMin: game.playtimeMin,
+      skills: skillsOf.get(gameId) ?? [],
+      lastPlayedAt: game.lastPlayedAt,
+      now,
+    }),
+  );
+
+  if (created.length > 0 || updated.length > 0 || ledger.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      await assertSteamStillLinked(tx, userId, link);
+      if (created.length > 0) await tx.userGame.createMany({ data: created, skipDuplicates: true });
+      for (const { gameId, data } of updated) {
+        await tx.userGame.update({
+          where: { userId_gameId_platform: { userId, gameId, platform: "steam" } },
+          data,
+        });
+      }
+      if (ledger.length > 0) await tx.xpLedgerEntry.createMany({ data: ledger, skipDuplicates: true });
+    }, TRANSACTION_OPTIONS);
+  }
+  return result;
+}
+
+/**
+ * Replaces the user's Steam wishlist with Steam's (apps unknown to the catalog become stubs queued
+ * for details). Best effort: a failure only leaves the stored wishlist as it was.
+ */
+async function syncWishlist(userId: string, steamId: string, link: SteamSnapshot, now: Date): Promise<void> {
+  try {
+    const items = await getSteam().getWishlist(steamId);
+    if (items === "private") return;
+    const ids = await ensureSteamGames(
+      items.map((i) => ({ appId: i.appId })),
+      { requestDetails: true, now },
+    );
+    const rows = items.flatMap((i) => {
+      const gameId = ids.get(i.appId);
+      return gameId ? [{ userId, gameId, platform: "steam", priority: i.priority, addedAt: i.addedAt }] : [];
+    });
+    await prisma.$transaction(async (tx) => {
+      await assertSteamStillLinked(tx, userId, link);
+      await tx.wishlistItem.deleteMany({ where: { userId, platform: "steam" } });
+      if (rows.length > 0) await tx.wishlistItem.createMany({ data: rows, skipDuplicates: true });
+    }, TRANSACTION_OPTIONS);
+  } catch (error) {
+    if (error instanceof SteamUnlinkedError) throw error;
+    console.error(`Sync: could not read the Steam wishlist of user ${userId}`, error);
+  }
 }
 
 const weekOf = (ms: number) => Math.floor(ms / PROBE_RECHECK_MS);
@@ -348,28 +498,59 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
   if (library === "private") return privateResult();
   // Without a library list (no API key) the catalog's games are probed one by one instead.
   const probing = library === "unsupported";
-  const candidates = probing
+  const unlinked = (): SyncUserResult => ({
+    status: "unlinked",
+    newUnlocks: 0,
+    levelBefore: before.level,
+    levelAfter: before.level,
+    skillUps: [],
+  });
+
+  // Keyed library: every owned game (never-played ones too) with its playtime, and the wishlist.
+  let libraryEntries = new Map<number, LibraryEntry>();
+  if (!probing) {
+    const known = library.some((g) => g.playtimeMin > 0);
+    try {
+      libraryEntries = await recordLibrary(userId, link, library, known, new Date(startedAt));
+      await syncWishlist(userId, steamId, link, new Date(startedAt));
+    } catch (error) {
+      if (error instanceof SteamUnlinkedError) return unlinked();
+      throw error;
+    }
+  }
+
+  const candidates: SteamOwnedGame[] = probing
     ? await catalogProbeCandidates(userId, user.lastSyncedAt, startedAt, options.probeAll)
     : library;
   const budgetMs = options.probeBudgetMs ?? PROBE_BUDGET_MS;
   // Games never played have no unlocks; skipping them saves most of a big library's API calls.
   // When Steam hides playtime every game reports 0, so then every owned game is a candidate.
   const playtimeKnown = candidates.some((g) => g.playtimeMin > 0);
-  const owned = playtimeKnown ? candidates.filter((g) => g.playtimeMin > 0) : candidates;
+  // A library game is read again only when played since its last read (playtime moved), so a
+  // re-sync of a big library reads just the games played lately; the most recent first.
+  const owned = playtimeKnown
+    ? candidates
+        .filter((g) => g.playtimeMin > 0)
+        .filter((g) => probing || options.probeAll || libraryEntries.get(g.appId)?.checkedPlaytimeMin !== g.playtimeMin)
+        .sort((a, b) => (b.lastPlayedAt?.getTime() ?? 0) - (a.lastPlayedAt?.getTime() ?? 0))
+    : candidates;
   let sawPrivate = false;
   let attempted = 0;
   let failures = 0;
   let consecutiveFailures = 0;
   let firstError: unknown;
+  const outOfTime = () => now() - startedAt >= budgetMs;
   const stop = () =>
-    sawPrivate ||
-    (probing && (now() - startedAt >= budgetMs || consecutiveFailures >= PROBE_CIRCUIT_BREAKER));
+    sawPrivate || outOfTime() || (probing && consecutiveFailures >= PROBE_CIRCUIT_BREAKER);
+  /** Library games read without achievements to record: their read is done at this playtime. */
+  const readEmpty: { appId: number; playtimeMin: number }[] = [];
   const results = await mapPool(owned, STEAM_CONCURRENCY, stop, async (game) => {
     attempted++;
     try {
       const fetched = await fetchGame(steamId, game, playtimeKnown, probing);
       consecutiveFailures = 0;
       if (fetched === "private") sawPrivate = true;
+      if (fetched === "none" && !probing) readEmpty.push(game);
       return fetched;
     } catch (error) {
       // One broken game must not block the rest; it is retried on the next sync.
@@ -382,8 +563,19 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
   });
   if (sawPrivate) return privateResult();
   if (attempted > 0 && failures === attempted) throw firstError;
+  const partial = attempted < owned.length;
 
-  const fetchedGames = results.filter((r): r is FetchedGame => r !== null && r !== "private");
+  for (const { appId, playtimeMin } of readEmpty) {
+    const gameId = libraryEntries.get(appId)?.gameId;
+    if (gameId) {
+      await prisma.userGame.updateMany({
+        where: { userId, gameId, platform: "steam" },
+        data: { checkedPlaytimeMin: playtimeMin },
+      });
+    }
+  }
+
+  const fetchedGames = results.filter((r): r is FetchedGame => r !== null && r !== "private" && r !== "none");
 
   // Anti-fraud looks at all of the user's unlocks together (bursts can span games), using
   // Steam's real unlock times, so importing old history never trips the burst rule by itself.
@@ -414,9 +606,7 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
     } catch (error) {
       // Disconnected while this run was reading: stop. The unlink already removed what was
       // recorded and recomputed; nothing more is written for this account.
-      if (error instanceof SteamUnlinkedError) {
-        return { status: "unlinked", newUnlocks: 0, levelBefore: before.level, levelAfter: before.level, skillUps: [] };
-      }
+      if (error instanceof SteamUnlinkedError) return unlinked();
       throw error;
     }
   }
@@ -434,6 +624,7 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
     skillUps: SKILLS.map((s) => s.id).filter(
       (id) => (after.skillLevels.get(id) ?? 1) > (before.skillLevels.get(id) ?? 1),
     ),
+    partial,
   };
 }
 

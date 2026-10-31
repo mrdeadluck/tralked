@@ -64,20 +64,83 @@ describe("steam client", () => {
       response: {
         game_count: 2,
         games: [
-          { appid: 367520, name: "Hollow Knight", playtime_forever: 3120 },
-          { appid: 620, playtime_forever: 0 },
+          {
+            appid: 367520,
+            name: "Hollow Knight",
+            playtime_forever: 3120,
+            playtime_2weeks: 45,
+            rtime_last_played: 1700000000,
+          },
+          { appid: 620, playtime_forever: 0, rtime_last_played: 0 },
         ],
       },
     });
     await expect(client.getOwnedGames("765")).resolves.toEqual([
-      { appId: 367520, playtimeMin: 3120 },
-      { appId: 620, playtimeMin: 0 },
+      {
+        appId: 367520,
+        playtimeMin: 3120,
+        name: "Hollow Knight",
+        playtime2WeeksMin: 45,
+        lastPlayedAt: new Date(1700000000 * 1000),
+      },
+      { appId: 620, playtimeMin: 0, name: undefined, playtime2WeeksMin: 0, lastPlayedAt: null },
     ]);
     const url = lastUrl();
     expect(url.pathname).toBe("/IPlayerService/GetOwnedGames/v1/");
     expect(url.searchParams.get("steamid")).toBe("765");
     expect(url.searchParams.get("include_appinfo")).toBe("1");
+    expect(url.searchParams.get("include_played_free_games")).toBe("1");
     expect(url.searchParams.get("key")).toBe("KEY");
+  });
+
+  it("getWishlist maps items; an empty or private answer is an empty list; 403 is private", async () => {
+    const { client, lastUrl } = setup({
+      response: {
+        items: [
+          { appid: 1145360, priority: 0, date_added: 1700000000 },
+          { appid: 0, priority: 1 },
+          { appid: 620 },
+        ],
+      },
+    });
+    await expect(client.getWishlist("765")).resolves.toEqual([
+      { appId: 1145360, priority: 0, addedAt: new Date(1700000000 * 1000) },
+      { appId: 620, priority: null, addedAt: null },
+    ]);
+    expect(lastUrl().pathname).toBe("/IWishlistService/GetWishlist/v1/");
+    expect(lastUrl().searchParams.get("steamid")).toBe("765");
+    await expect(setup({ response: {} }).client.getWishlist("1")).resolves.toEqual([]);
+    await expect(setup({}, 403).client.getWishlist("1")).resolves.toBe("private");
+    await expect(setup({}, 500).client.getWishlist("1")).rejects.toThrow(/HTTP 500/);
+  });
+
+  it("getAppList reads one page of games with the pagination cursor", async () => {
+    const { client, lastUrl } = setup({
+      response: {
+        apps: [
+          { appid: 10, name: "Counter-Strike", last_modified: 1666823513 },
+          { appid: 20, name: "  " },
+          { appid: 30, name: "Day of Defeat" },
+        ],
+        have_more_results: true,
+        last_appid: 30,
+      },
+    });
+    await expect(client.getAppList({ lastAppId: 5, ifModifiedSince: 1600000000, maxResults: 3 })).resolves.toEqual({
+      apps: [
+        { appId: 10, name: "Counter-Strike", lastModified: 1666823513 },
+        { appId: 30, name: "Day of Defeat", lastModified: null },
+      ],
+      haveMore: true,
+      lastAppId: 30,
+    });
+    const url = lastUrl();
+    expect(url.pathname).toBe("/IStoreService/GetAppList/v1/");
+    expect(url.searchParams.get("include_games")).toBe("1");
+    expect(url.searchParams.get("last_appid")).toBe("5");
+    expect(url.searchParams.get("if_modified_since")).toBe("1600000000");
+    expect(url.searchParams.get("max_results")).toBe("3");
+    await expect(setup({ response: {} }).client.getAppList()).resolves.toEqual({ apps: [], haveMore: false, lastAppId: 0 });
   });
 
   it("getOwnedGames returns 'private' when game details are hidden ({response:{}})", async () => {

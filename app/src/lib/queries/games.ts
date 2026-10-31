@@ -51,7 +51,8 @@ export async function listGames(filter: GameFilter, userId?: string): Promise<Ga
   // "Almost" is relative to someone's progress: no user, no result.
   if (filter.almost && !userId) return [];
 
-  const where: Prisma.GameWhereInput = {};
+  // Name-only stubs of the full Steam catalog stay out until their details are fetched.
+  const where: Prisma.GameWhereInput = { stub: false };
   if (filter.skill) where.skills = { some: { skill: filter.skill } };
   if (filter.withGuide) where.guide = { is: { status: "published" } };
   if (filter.platform) where.platforms = { has: filter.platform };
@@ -92,7 +93,7 @@ export async function listGames(filter: GameFilter, userId?: string): Promise<Ga
 }
 
 export function countGames(): Promise<number> {
-  return prisma.game.count();
+  return prisma.game.count({ where: { stub: false } });
 }
 
 /** How many game pages (and guide pages) the build prerenders; the rest render on first request. */
@@ -107,7 +108,7 @@ export async function listGameSlugs(
   opts: { withGuide?: boolean; limit?: number } = {},
 ): Promise<string[]> {
   const games = await prisma.game.findMany({
-    where: opts.withGuide ? { guide: { is: { status: "published" } } } : {},
+    where: opts.withGuide ? { guide: { is: { status: "published" } } } : { stub: false },
     select: { slug: true },
     orderBy: [{ users: { _count: "desc" } }, { updatedAt: "desc" }, { slug: "asc" }],
     take: opts.limit ?? PRERENDER_GAMES,

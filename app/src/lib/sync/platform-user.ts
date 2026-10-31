@@ -5,15 +5,17 @@ import { platformAvailable } from "@/lib/integrations/availability";
 import { xpForPlatformAchievement } from "@/lib/engine/trophies";
 import { platinumBonus } from "@/lib/engine/xp";
 import { platinumSourceKey, recomputeUser } from "@/lib/progression/recompute";
-import { loadNameIndex, resolvePlatformGame } from "./platform-games";
+import { loadNameIndex, resolvePlatformGame, type NameIndex } from "./platform-games";
 import {
   CODE_PLATFORMS,
   readLibrary,
   type CodePlatform,
   type LibraryAchievement,
   type LibraryTitle,
+  type PlaytimeTitle,
   type StoredProgress,
 } from "./platform-library";
+import { playtimeLedgerRows } from "./playtime";
 
 export type SyncPlatformResult = {
   /** `unlinked`: no active connection on that platform (never linked, unlinked or a pending claim). */
@@ -165,14 +167,23 @@ async function recordTitle(
       : null;
 
     const playtimeMin = title.playtimeMin ?? 0;
+    // RetroAchievements reports play time with each title: reading the title is reading it (even
+    // when RA has none), so the row stops being re-read for it. PSN/Xbox play time comes from their
+    // played-games lists (recordPlaytime).
+    const playtimeFields = platform === "retro" ? { playtimeUpdatedAt: seenAt } : {};
+    const before = await tx.userGame.findUnique({
+      where: { userId_gameId_platform: { userId, gameId, platform } },
+      select: { playtimeMin: true, playtimeUpdatedAt: true },
+    });
     await tx.userGame.upsert({
       where: { userId_gameId_platform: { userId, gameId, platform } },
-      create: { userId, gameId, platform, playtimeMin, unlockedCount: unlocked.length, completedAt },
+      create: { userId, gameId, platform, playtimeMin, unlockedCount: unlocked.length, completedAt, ...playtimeFields },
       update: {
         // Platforms without playtime keep whatever was recorded before.
         ...(title.playtimeMin !== null && { playtimeMin }),
         unlockedCount: unlocked.length,
         completedAt,
+        ...playtimeFields,
       },
     });
 
@@ -220,8 +231,102 @@ async function recordTitle(
         createdAt: completedAt,
       });
     }
-    await tx.xpLedgerEntry.createMany({ data: ledger, skipDuplicates: true });
+    // Hours milestones of the play time the title carries (RetroAchievements), offered when the
+    // play time is new or grew (or predates Plano 4): each milestone pays once.
+    const grew =
+      title.playtimeMin !== null &&
+      (!before || before.playtimeUpdatedAt === null || title.playtimeMin > before.playtimeMin);
+    const hours =
+      grew && title.playtimeMin !== null
+        ? playtimeLedgerRows({ userId, platform, gameId, playtimeMin: title.playtimeMin, skills: gameSkills, now: seenAt })
+        : [];
+    await tx.xpLedgerEntry.createMany({ data: [...ledger, ...hours], skipDuplicates: true });
     return created.count;
+  }, TRANSACTION_OPTIONS);
+}
+
+/**
+ * Records the play time of a platform's played-games list (PSN, Xbox): each title is mapped to its
+ * catalog game (versions of one game, PS4 and PS5, add up), the platform's UserGame row gets the
+ * play time and last play (created when the game has no trophies yet: played without trophies),
+ * and the hours milestones reached pay XP once (`playtime` entries with the platform set, voided
+ * by an unlink). One transaction guarded like the titles'. Rows whose play time did not change are
+ * left alone.
+ */
+async function recordPlaytime(
+  account: AccountSnapshot,
+  titles: PlaytimeTitle[],
+  names: NameIndex,
+  now: Date,
+): Promise<void> {
+  const { userId, platform } = account;
+  const perGame = new Map<string, { playtimeMin: number; lastPlayedAt: Date | null }>();
+  for (const title of titles) {
+    if (!Number.isFinite(title.playtimeMin) || title.playtimeMin <= 0) continue;
+    const gameId = await resolvePlatformGame(platform, title, names);
+    const acc = perGame.get(gameId) ?? { playtimeMin: 0, lastPlayedAt: null };
+    acc.playtimeMin += Math.floor(title.playtimeMin);
+    if (title.lastPlayedAt && (!acc.lastPlayedAt || title.lastPlayedAt > acc.lastPlayedAt)) {
+      acc.lastPlayedAt = title.lastPlayedAt;
+    }
+    perGame.set(gameId, acc);
+  }
+  if (perGame.size === 0) return;
+
+  const gameIds = [...perGame.keys()];
+  const [stored, skillRows] = await Promise.all([
+    prisma.userGame.findMany({
+      where: { userId, platform, gameId: { in: gameIds } },
+      select: { gameId: true, playtimeMin: true, lastPlayedAt: true, playtimeUpdatedAt: true },
+    }),
+    prisma.gameSkill.findMany({ where: { gameId: { in: gameIds } }, select: { gameId: true, skill: true } }),
+  ]);
+  const before = new Map(stored.map((s) => [s.gameId, s]));
+  const skillsOf = new Map<string, string[]>();
+  for (const s of skillRows) skillsOf.set(s.gameId, [...(skillsOf.get(s.gameId) ?? []), s.skill]);
+
+  const writes: { gameId: string; playtimeMin: number; lastPlayedAt: Date | null; pay: boolean }[] = [];
+  for (const [gameId, { playtimeMin, lastPlayedAt }] of perGame) {
+    const row = before.get(gameId);
+    const unchanged =
+      row &&
+      row.playtimeUpdatedAt !== null &&
+      row.playtimeMin === playtimeMin &&
+      (row.lastPlayedAt?.getTime() ?? null) === (lastPlayedAt?.getTime() ?? null);
+    if (unchanged) continue;
+    writes.push({
+      gameId,
+      playtimeMin,
+      lastPlayedAt,
+      pay: !row || row.playtimeUpdatedAt === null || playtimeMin > row.playtimeMin,
+    });
+  }
+  if (writes.length === 0) return;
+
+  const ledger = writes
+    .filter((w) => w.pay)
+    .flatMap((w) =>
+      playtimeLedgerRows({
+        userId,
+        platform,
+        gameId: w.gameId,
+        playtimeMin: w.playtimeMin,
+        skills: skillsOf.get(w.gameId) ?? [],
+        lastPlayedAt: w.lastPlayedAt,
+        now,
+      }),
+    );
+  await prisma.$transaction(async (tx) => {
+    await assertStillLinked(tx, account);
+    for (const w of writes) {
+      const fields = { playtimeMin: w.playtimeMin, lastPlayedAt: w.lastPlayedAt, playtimeUpdatedAt: now };
+      await tx.userGame.upsert({
+        where: { userId_gameId_platform: { userId, gameId: w.gameId, platform } },
+        create: { userId, gameId: w.gameId, platform, unlockedCount: 0, ...fields },
+        update: fields,
+      });
+    }
+    if (ledger.length > 0) await tx.xpLedgerEntry.createMany({ data: ledger, skipDuplicates: true });
   }, TRANSACTION_OPTIONS);
 }
 
@@ -236,7 +341,7 @@ async function storedProgress(
 ): Promise<Map<string, StoredProgress>> {
   const games = await prisma.userGame.findMany({
     where: { userId, platform },
-    select: { gameId: true, unlockedCount: true },
+    select: { gameId: true, unlockedCount: true, playtimeUpdatedAt: true, lastPlayedAt: true },
   });
   if (games.length === 0) return new Map();
   const [links, hardcore] = await Promise.all([
@@ -255,12 +360,20 @@ async function storedProgress(
   for (const h of hardcore) {
     hardcoreByGame.set(h.achievement.gameId, (hardcoreByGame.get(h.achievement.gameId) ?? 0) + 1);
   }
-  const countByGame = new Map(games.map((g) => [g.gameId, g.unlockedCount]));
+  const byGame = new Map(games.map((g) => [g.gameId, g]));
   return new Map(
-    links.map((l) => [
-      l.externalId,
-      { unlocked: countByGame.get(l.gameId) ?? 0, hardcore: hardcoreByGame.get(l.gameId) ?? 0 },
-    ]),
+    links.map((l) => {
+      const game = byGame.get(l.gameId);
+      return [
+        l.externalId,
+        {
+          unlocked: game?.unlockedCount ?? 0,
+          hardcore: hardcoreByGame.get(l.gameId) ?? 0,
+          playtimeSynced: game?.playtimeUpdatedAt != null,
+          lastPlayedAt: game?.lastPlayedAt ?? null,
+        },
+      ];
+    }),
   );
 }
 
@@ -370,6 +483,12 @@ export async function syncPlatformAccount(
       if (error instanceof AccountChangedError) return unchanged("unlinked");
       throw error;
     }
+  }
+  try {
+    await recordPlaytime(snapshot, library.playtime, names, startedAt);
+  } catch (error) {
+    if (error instanceof AccountChangedError) return unchanged("unlinked");
+    throw error;
   }
 
   await recomputeUser(userId);

@@ -1,6 +1,6 @@
 import type { TrophyTier } from "@/lib/engine/trophies";
 import { timeoutSignal } from "../http";
-import type { PsnApi, PsnProfile, PsnServiceName, PsnTitle, PsnTrophy } from "./types";
+import type { PsnApi, PsnPlayedGame, PsnProfile, PsnServiceName, PsnTitle, PsnTrophy } from "./types";
 
 /**
  * Unofficial PlayStation Network client (the endpoints the PlayStation App uses, as documented
@@ -14,6 +14,10 @@ import type { PsnApi, PsnProfile, PsnServiceName, PsnTitle, PsnTrophy } from "./
 const AUTH_BASE = "https://ca.account.sony.com/api/authz/v3/oauth";
 const LEGACY_PROFILE_BASE = "https://us-prof.np.community.playstation.net/userProfile/v1/users";
 const TROPHY_BASE = "https://m.np.playstation.com/api/trophy/v1";
+const GAMELIST_BASE = "https://m.np.playstation.com/api/gamelist/v2";
+const PLAYED_PAGE_SIZE = 200;
+/** Safety stop for the played-games pagination (200 × 50 = 10k games). */
+const MAX_PLAYED_PAGES = 50;
 // Public client id/secret of the PlayStation App (not secrets of Tralked).
 const CLIENT_ID = "09515159-7237-4370-9b40-3806e67c0891";
 const CLIENT_BASIC =
@@ -90,6 +94,31 @@ const rateOrNull = (value: string | undefined) => {
   const pct = Number(value);
   return Number.isFinite(pct) ? pct : null;
 };
+
+type PlayedRecord = {
+  titleId?: string;
+  name?: string;
+  localizedName?: string;
+  category?: string;
+  playDuration?: string;
+  firstPlayedDateTime?: string;
+  lastPlayedDateTime?: string;
+  concept?: { name?: string };
+};
+
+/**
+ * Minutes of an ISO 8601 duration as PSN writes `playDuration` ("PT228H56M33S", "P1DT2H"), rounded
+ * down; null when it cannot be read.
+ */
+export function parsePlayDuration(value: string | undefined): number | null {
+  if (!value) return null;
+  const match = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/.exec(value.trim());
+  if (!match || value.trim() === "P" || value.trim() === "PT") return null;
+  const [, days, hours, minutes, seconds] = match;
+  const total =
+    Number(days ?? 0) * 1440 + Number(hours ?? 0) * 60 + Number(minutes ?? 0) + Number(seconds ?? 0) / 60;
+  return Number.isFinite(total) ? Math.floor(total) : null;
+}
 
 export class PsnAuthError extends Error {
   constructor(step: string, status?: number) {
@@ -290,6 +319,35 @@ export function createPsnClient({
           rarityPct: rateOrNull(mine?.trophyEarnedRate),
         };
       });
+    },
+
+    async getPlayedGames(accountId): Promise<PsnPlayedGame[] | "private"> {
+      const games: PsnPlayedGame[] = [];
+      for (let page = 0, offset = 0; page < MAX_PLAYED_PAGES; page++) {
+        const url = new URL(`${GAMELIST_BASE}/users/${encodeURIComponent(accountId)}/titles`);
+        url.searchParams.set("categories", "ps4_game,ps5_native_game");
+        url.searchParams.set("limit", String(PLAYED_PAGE_SIZE));
+        url.searchParams.set("offset", String(offset));
+        const body = await get<{ titles?: PlayedRecord[]; nextOffset?: number }>(url.toString(), "played games");
+        if (body === "private") return "private";
+        if (body === null) return games;
+        for (const t of body.titles ?? []) {
+          const playtimeMin = parsePlayDuration(t.playDuration);
+          const name = (t.localizedName || t.name || t.concept?.name || "").trim();
+          if (!t.titleId || !name || playtimeMin === null) continue;
+          games.push({
+            titleId: t.titleId,
+            name,
+            category: t.category ?? "unknown",
+            playtimeMin,
+            firstPlayedAt: dateOrNull(t.firstPlayedDateTime),
+            lastPlayedAt: dateOrNull(t.lastPlayedDateTime),
+          });
+        }
+        if (!body.nextOffset || body.nextOffset <= offset) return games;
+        offset = body.nextOffset;
+      }
+      return games;
     },
   };
 }

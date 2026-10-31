@@ -75,6 +75,8 @@ export async function syncGame(appId: number): Promise<Game | null> {
         ? Math.round(igdb.timeToBeatCompleteSec / 60)
         : undefined,
     achievementCount: schema.length,
+    // A name-only stub of the full Steam catalog becomes a listed game once it has achievements.
+    stub: false,
   };
   const skills = igdb ? mapToSkills(igdb) : [];
 
@@ -145,8 +147,9 @@ export async function syncGame(appId: number): Promise<Game | null> {
  */
 async function staleGames(limit: number, where: Prisma.GameWhereInput) {
   // Only games on Steam: these jobs refresh from the Steam/IGDB/RAWG/SGDB-by-appid pipeline.
+  // Name-only stubs of the full Steam catalog are left to the details job (lib/sync/steam-catalog.ts).
   const rows = await prisma.game.findMany({
-    where: { AND: [{ steamAppId: { not: null } }, where] },
+    where: { AND: [{ steamAppId: { not: null }, stub: false }, where] },
     orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     take: limit,
     select: { id: true, steamAppId: true },

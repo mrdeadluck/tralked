@@ -80,6 +80,12 @@ describe.skipIf(!reachable)("catalog jobs", () => {
       async getPlayerAchievements() {
         return [];
       },
+      async getWishlist() {
+        return [];
+      },
+      async getAppList() {
+        return "unsupported";
+      },
     };
   });
 

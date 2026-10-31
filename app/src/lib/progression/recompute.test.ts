@@ -287,6 +287,8 @@ describe.skipIf(!reachable)("recomputeUser", () => {
       exploracao: { points: 80, level: 2 }, // 1 game with unlocks (20) + 1 genre, rpg (60)
       constancia: { points: 40, level: 2 }, // 2 active days (30) + best streak 2 (10)
       sabedoria: { points: 0, level: 1 },
+      resistencia: { points: 50, level: 2 }, // round(10 * 10h^0.7)
+      acervo: { points: 10, level: 1 }, // 1 game played
     });
   });
 

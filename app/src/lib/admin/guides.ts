@@ -210,7 +210,7 @@ export async function createGuideForGame(
 /** Catalog games without a guide, for "Novo guia". */
 export async function gamesWithoutGuide(): Promise<{ id: string; name: string; slug: string }[]> {
   return prisma.game.findMany({
-    where: { guide: { is: null } },
+    where: { guide: { is: null }, stub: false },
     orderBy: { name: "asc" },
     select: { id: true, name: true, slug: true },
   });

@@ -38,8 +38,28 @@ export type LibraryTitle = {
 
 export type LibraryAccount = { externalId: string; handle: string };
 
+/**
+ * A game with the platform's own play time, read from the platform's played-games list (PSN
+ * gamelist, Xbox MinutesPlayed), with or without achievements. PSN lists each version (PS4/PS5)
+ * under its own store title id; the sync adds versions of the same game up.
+ */
+export type PlaytimeTitle = {
+  /** PSN store title id (`CUSA…`/`PPSA…`) or Xbox titleId. */
+  externalId: string;
+  name: string;
+  platformLabel: string;
+  playtimeMin: number;
+  lastPlayedAt: Date | null;
+};
+
 /** What the database already holds for a title (from its UserGame row and unlocks). */
-export type StoredProgress = { unlocked: number; hardcore: number };
+export type StoredProgress = {
+  unlocked: number;
+  hardcore: number;
+  /** The row's playtime was written by a Plano 4 sync (`playtimeUpdatedAt`). */
+  playtimeSynced?: boolean;
+  lastPlayedAt?: Date | null;
+};
 
 export type ReadOptions = {
   /**
@@ -65,6 +85,8 @@ export type LibraryResult = {
   upToDate: number;
   /** Current handle on the platform, when the sync learned it (RA usernames can change). */
   handle?: string;
+  /** Play time of the games played (PSN, Xbox); RA play time comes with each title instead. */
+  playtime: PlaytimeTitle[];
 };
 
 type Listed<T> = {
@@ -74,12 +96,15 @@ type Listed<T> = {
   /** Unlock counts the platform's title list reports. */
   unlocked: number;
   hardcore?: number;
+  /** The title also carries play time: a row whose playtime predates Plano 4 is read again once. */
+  carriesPlaytime?: boolean;
 };
 
 const upToDate = (listed: Listed<unknown>, stored: StoredProgress | undefined) =>
   stored !== undefined &&
   stored.unlocked === listed.unlocked &&
-  (listed.hardcore === undefined || stored.hardcore === listed.hardcore);
+  (listed.hardcore === undefined || stored.hardcore === listed.hardcore) &&
+  (!listed.carriesPlaytime || stored.playtimeSynced === true);
 
 async function collect<T>(
   items: Listed<T>[],
@@ -97,6 +122,7 @@ async function collect<T>(
     failures: [],
     partial: false,
     upToDate: items.length - pending.length,
+    playtime: [],
   };
   // Sequential on purpose: the unofficial APIs rate-limit aggressively.
   for (const [index, { item, id }] of pending.entries()) {
@@ -129,7 +155,7 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
       lastUpdated: t.lastPlayed,
       unlocked: Object.values(t.earnedCounts).reduce((sum, n) => sum + n, 0),
     }));
-  return collect(played, options, async (t) => {
+  const result = await collect(played, options, async (t) => {
     const trophies = await psn.getTrophies(account.externalId, t.npTitleId, t.serviceName);
     if (trophies === "private") return "private";
     return {
@@ -152,6 +178,24 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
       })),
     };
   });
+  if (result === "private") return result;
+  // Play time is a separate list (one request per 200 games), read on every sync. Hidden gaming
+  // history or an outage only leaves play time out: trophies still import.
+  try {
+    const games = await psn.getPlayedGames(account.externalId);
+    if (games !== "private") {
+      result.playtime = games.map((g) => ({
+        externalId: g.titleId,
+        name: g.name,
+        platformLabel: g.category === "ps4_game" ? "PS4" : "PS5",
+        playtimeMin: g.playtimeMin,
+        lastPlayedAt: g.lastPlayedAt,
+      }));
+    }
+  } catch (error) {
+    result.failures.push({ externalId: "played-games", error });
+  }
+  return result;
 }
 
 async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<LibraryResult | "private"> {
@@ -161,7 +205,7 @@ async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<
   const played = titles
     .filter((t) => t.currentAchievements > 0)
     .map((t) => ({ item: t, id: t.titleId, lastUpdated: t.lastPlayed, unlocked: t.currentAchievements }));
-  return collect(played, options, async (t) => {
+  const result = await collect(played, options, async (t) => {
     const list = await xbox.getAchievements(account.externalId, t.titleId);
     if (list === "private") return "private";
     return {
@@ -184,6 +228,31 @@ async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<
       })),
     };
   });
+  if (result === "private") return result;
+  // Minutes played of every title in the history (achievements or not), asked only for titles
+  // played since the stored time (or never stored), in batches. Best effort, like PSN's.
+  const stored = options.stored;
+  const due = titles.filter((t) => {
+    const before = stored?.get(t.titleId);
+    if (!before || !before.playtimeSynced) return true;
+    return t.lastPlayed !== null && (!before.lastPlayedAt || t.lastPlayed > before.lastPlayedAt);
+  });
+  if (due.length > 0) {
+    try {
+      const minutes = await xbox.getMinutesPlayed(account.externalId, due.map((t) => t.titleId));
+      if (minutes !== "private") {
+        result.playtime = due.flatMap((t) => {
+          const value = minutes.get(t.titleId);
+          return value !== undefined && value > 0
+            ? [{ externalId: t.titleId, name: t.name, platformLabel: "Xbox", playtimeMin: value, lastPlayedAt: t.lastPlayed }]
+            : [];
+        });
+      }
+    } catch (error) {
+      result.failures.push({ externalId: "minutes-played", error });
+    }
+  }
+  return result;
 }
 
 async function readRetro(account: LibraryAccount, options: ReadOptions): Promise<LibraryResult | "private"> {
@@ -200,6 +269,7 @@ async function readRetro(account: LibraryAccount, options: ReadOptions): Promise
       lastUpdated: g.lastPlayed,
       unlocked: g.numAwarded,
       hardcore: g.numAwardedHardcore,
+      carriesPlaytime: true,
     }));
   const result = await collect(played, options, async (g) => {
     const progress = await retro.getGameProgress(user, g.gameId);
