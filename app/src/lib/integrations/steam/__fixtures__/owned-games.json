@@ -1,0 +1,72 @@
+[
+  {
+    "appId": 367520,
+    "name": "Hollow Knight",
+    "playtimeMin": 3120
+  },
+  {
+    "appId": 1145360,
+    "name": "Hades",
+    "playtimeMin": 2760
+  },
+  {
+    "appId": 2050650,
+    "name": "Resident Evil 4",
+    "playtimeMin": 1380
+  },
+  {
+    "appId": 1245620,
+    "name": "Elden Ring",
+    "playtimeMin": 5400
+  },
+  {
+    "appId": 620,
+    "name": "Portal 2",
+    "playtimeMin": 1140
+  },
+  {
+    "appId": 646570,
+    "name": "Slay the Spire",
+    "playtimeMin": 2580
+  },
+  {
+    "appId": 550,
+    "name": "Left 4 Dead 2",
+    "playtimeMin": 4200
+  },
+  {
+    "appId": 782330,
+    "name": "DOOM Eternal",
+    "playtimeMin": 1860
+  },
+  {
+    "appId": 1693980,
+    "name": "Dead Space",
+    "playtimeMin": 720
+  },
+  {
+    "appId": 1086940,
+    "name": "Baldur's Gate 3",
+    "playtimeMin": 3600
+  },
+  {
+    "appId": 504230,
+    "name": "Celeste",
+    "playtimeMin": 1020
+  },
+  {
+    "appId": 413150,
+    "name": "Stardew Valley",
+    "playtimeMin": 4800
+  },
+  {
+    "appId": 289070,
+    "name": "Civilization VI",
+    "playtimeMin": 9600
+  },
+  {
+    "appId": 739630,
+    "name": "Phasmophobia",
+    "playtimeMin": 1560
+  }
+]
