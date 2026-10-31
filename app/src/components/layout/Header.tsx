@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Logo } from "@/components/brand/Logo";
+import { LogoutForm } from "./LogoutForm";
 import { MobileDrawer } from "./MobileDrawer";
 import { SearchBox, type SearchSuggestion } from "./SearchBox";
 
@@ -82,6 +83,12 @@ export function Header({ user, suggestions }: HeaderProps) {
               className="size-10 flex-none rounded-full border-2 border-acc bg-[repeating-linear-gradient(135deg,#1a1c22_0_5px,#22242b_5px_10px)]"
             />
           </Link>
+          {user ? (
+            <LogoutForm
+              className="max-nav:hidden"
+              buttonClassName="cursor-pointer rounded-[2px] border border-[#2a2c33] px-2.5 py-[7px] font-mono text-[10px] tracking-[0.1em] text-text-3 uppercase hover:border-acc hover:text-text"
+            />
+          ) : null}
           <button
             type="button"
             aria-expanded={drawerOpen}
@@ -99,6 +106,7 @@ export function Header({ user, suggestions }: HeaderProps) {
         id={DRAWER_ID}
         open={drawerOpen}
         items={items}
+        loggedIn={Boolean(user)}
         onNavigate={() => setDrawerOpen(false)}
       />
     </header>

@@ -72,4 +72,22 @@ describe("Header", () => {
     expect(screen.getByText("@lucas")).toBeInTheDocument();
     expect(screen.getByText("NV 47")).toBeInTheDocument();
   });
+
+  it("offers a logout form posting to /api/auth/logout, in the header and in the mobile drawer", () => {
+    const { container } = render(<Header user={{ handle: "@lucas", level: 47 }} />);
+    const forms = container.querySelectorAll('form[action="/api/auth/logout"]');
+    expect(forms).toHaveLength(2);
+    for (const form of forms) {
+      expect(form).toHaveAttribute("method", "post");
+      expect(within(form as HTMLElement).getByRole("button", { name: "Sair", hidden: true })).toHaveAttribute(
+        "type",
+        "submit",
+      );
+    }
+  });
+
+  it("has no logout form when there is no user", () => {
+    const { container } = render(<Header />);
+    expect(container.querySelectorAll('form[action="/api/auth/logout"]')).toHaveLength(0);
+  });
 });
