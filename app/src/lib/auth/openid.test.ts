@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSteamLoginUrl, verifySteamAssertion } from "./openid";
 
 const STEAM_ID = "76561198000000000";
+const NOW = new Date("2026-10-31T12:00:00Z");
 
 function assertionParams(overrides: Record<string, string> = {}) {
   return new URLSearchParams({
@@ -11,9 +12,9 @@ function assertionParams(overrides: Record<string, string> = {}) {
     "openid.claimed_id": `https://steamcommunity.com/openid/id/${STEAM_ID}`,
     "openid.identity": `https://steamcommunity.com/openid/id/${STEAM_ID}`,
     "openid.return_to": "http://localhost:3000/api/auth/steam/callback",
-    "openid.response_nonce": "2026-10-31T00:00:00Zabc",
+    "openid.response_nonce": "2026-10-31T12:00:00Zabc",
     "openid.assoc_handle": "1234567890",
-    "openid.signed": "signed,op_endpoint,claimed_id,identity,return_to",
+    "openid.signed": "signed,op_endpoint,claimed_id,identity,return_to,response_nonce,assoc_handle",
     "openid.sig": "c2ln",
     ...overrides,
   });
@@ -25,7 +26,15 @@ function mockFetch(body: string) {
   return fn;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe("buildSteamLoginUrl", () => {
   it("targets the Steam OpenID endpoint with checkid_setup, return_to and realm", () => {
@@ -53,9 +62,22 @@ describe("verifySteamAssertion", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://steamcommunity.com/openid/login");
     expect(init.method).toBe("POST");
+    expect(init.signal).toBeInstanceOf(AbortSignal);
     const sent = new URLSearchParams(init.body as string);
     expect(sent.get("openid.mode")).toBe("check_authentication");
     expect(sent.get("openid.sig")).toBe("c2ln");
+  });
+
+  it("forwards only openid.* fields to Steam", async () => {
+    const fetchMock = mockFetch("is_valid:true\n");
+    const params = assertionParams();
+    params.set("state", "abc");
+    params.set("returnTo", "/jogos");
+    await verifySteamAssertion(params);
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const sent = new URLSearchParams(init.body as string);
+    expect([...sent.keys()].every((key) => key.startsWith("openid."))).toBe(true);
   });
 
   it("returns null when Steam says is_valid:false", async () => {
@@ -63,36 +85,89 @@ describe("verifySteamAssertion", () => {
     await expect(verifySteamAssertion(assertionParams())).resolves.toBeNull();
   });
 
-  it("returns null without calling Steam when claimed_id is out of pattern", async () => {
-    const fetchMock = mockFetch("is_valid:true\n");
-    const bad = [
-      "https://evil.example.com/openid/id/76561198000000000",
-      "https://steamcommunity.com/openid/id/123",
-      "https://steamcommunity.com/openid/id/76561198000000000x",
-      "",
+  describe("rejects without calling Steam", () => {
+    const rejected: [string, () => URLSearchParams][] = [
+      ["claimed_id on another host", () =>
+        assertionParams({ "openid.claimed_id": `https://evil.example.com/openid/id/${STEAM_ID}` })],
+      ["claimed_id with too few digits", () =>
+        assertionParams({ "openid.claimed_id": "https://steamcommunity.com/openid/id/123" })],
+      ["claimed_id with trailing junk", () =>
+        assertionParams({ "openid.claimed_id": `https://steamcommunity.com/openid/id/${STEAM_ID}x` })],
+      ["empty claimed_id", () => assertionParams({ "openid.claimed_id": "" })],
+      ["mode other than id_res", () => assertionParams({ "openid.mode": "cancel" })],
+      ["foreign op_endpoint", () =>
+        assertionParams({ "openid.op_endpoint": "https://evil.example.com/openid/login" })],
+      ["identity different from claimed_id", () =>
+        assertionParams({ "openid.identity": "https://steamcommunity.com/openid/id/76561198999999999" })],
+      ["missing identity", () => {
+        const p = assertionParams();
+        p.delete("openid.identity");
+        return p;
+      }],
+      ...["claimed_id", "identity", "return_to", "response_nonce"].map(
+        (field): [string, () => URLSearchParams] => [
+          `signed list without ${field}`,
+          () =>
+            assertionParams({
+              "openid.signed": "signed,op_endpoint,claimed_id,identity,return_to,response_nonce"
+                .split(",")
+                .filter((f) => f !== field)
+                .join(","),
+            }),
+        ],
+      ),
+      ["response_nonce older than 5 minutes", () =>
+        assertionParams({ "openid.response_nonce": "2026-10-31T11:54:00Zabc" })],
+      ["response_nonce without timestamp", () =>
+        assertionParams({ "openid.response_nonce": "garbage" })],
+      ["duplicate claimed_id (attacker first)", () => {
+        const p = new URLSearchParams();
+        p.append("openid.claimed_id", `https://steamcommunity.com/openid/id/${STEAM_ID}`);
+        for (const [k, v] of assertionParams()) p.append(k, v);
+        return p;
+      }],
+      ["duplicate claimed_id (attacker last)", () => {
+        const p = assertionParams();
+        p.append("openid.claimed_id", "https://steamcommunity.com/openid/id/76561198999999999");
+        return p;
+      }],
+      ["duplicate mode", () => {
+        const p = assertionParams();
+        p.append("openid.mode", "id_res");
+        return p;
+      }],
+      ["duplicate sig", () => {
+        const p = assertionParams();
+        p.append("openid.sig", "other");
+        return p;
+      }],
     ];
-    for (const claimed of bad) {
-      await expect(
-        verifySteamAssertion(assertionParams({ "openid.claimed_id": claimed })),
-      ).resolves.toBeNull();
-    }
-    expect(fetchMock).not.toHaveBeenCalled();
+
+    it.each(rejected)("%s", async (_name, build) => {
+      const fetchMock = mockFetch("is_valid:true\n");
+      await expect(verifySteamAssertion(build())).resolves.toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 
-  it("returns null when mode is not id_res", async () => {
-    const fetchMock = mockFetch("is_valid:true\n");
+  it("accepts a response_nonce just inside the 5 minute window", async () => {
+    mockFetch("is_valid:true\n");
     await expect(
-      verifySteamAssertion(assertionParams({ "openid.mode": "cancel" })),
-    ).resolves.toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled();
+      verifySteamAssertion(assertionParams({ "openid.response_nonce": "2026-10-31T11:55:30Zabc" })),
+    ).resolves.toBe(STEAM_ID);
   });
 
-  it("returns null when the Steam request fails", async () => {
+  it("returns null when the Steam request fails or times out", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
     await expect(verifySteamAssertion(assertionParams())).resolves.toBeNull();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => Promise.reject(new Error("network"))),
+    );
+    await expect(verifySteamAssertion(assertionParams())).resolves.toBeNull();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new DOMException("timed out", "TimeoutError"))),
     );
     await expect(verifySteamAssertion(assertionParams())).resolves.toBeNull();
   });
