@@ -9,7 +9,7 @@ test.describe("smoke", () => {
 
       const response = await page.goto(route.path);
       expect(response?.status()).toBe(200);
-      await expect(page.getByRole("banner").first()).toContainText("TRALKED");
+      await expect(page.getByRole("banner").first().getByRole("img", { name: "Tralked" })).toBeVisible();
       await expect(page.locator("main")).toBeVisible();
     });
   }

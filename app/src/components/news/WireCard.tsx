@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { GameArt } from "@/components/art/GameArt";
+import { Wordmark } from "@/components/brand/Logo";
 import { isSafeHref } from "@/lib/content/url";
 import type { WireItem } from "@/lib/queries/news";
 
@@ -13,7 +14,7 @@ import type { WireItem } from "@/lib/queries/news";
 function Brand() {
   return (
     <span className="tkw-brand" aria-hidden="true">
-      TRAL<i>K</i>ED
+      <Wordmark height={16} />
     </span>
   );
 }
