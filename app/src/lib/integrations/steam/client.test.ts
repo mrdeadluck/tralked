@@ -162,6 +162,24 @@ describe("steam client", () => {
     await expect(client.getPlayerAchievements("765", 1)).resolves.toBe("private");
   });
 
+  it("getPlayerAchievements returns [] on HTTP 400 (app has no stats)", async () => {
+    const { client } = setup({ playerstats: { error: "Requested app has no stats", success: false } }, 400);
+    await expect(client.getPlayerAchievements("765", 1)).resolves.toEqual([]);
+  });
+
+  it("getPlayerAchievements returns [] when success:false says the app has no stats", async () => {
+    const { client } = setup({ playerstats: { error: "Requested app has no stats", success: false } });
+    await expect(client.getPlayerAchievements("765", 1)).resolves.toEqual([]);
+  });
+
+  it("getPlayerAchievements throws on other success:false errors without leaking the key", async () => {
+    const { client } = setup({ playerstats: { error: "Something odd", success: false } });
+    const err = await client.getPlayerAchievements("765", 1).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/Something odd/);
+    expect((err as Error).message).not.toContain("KEY");
+  });
+
   it("getPlayerAchievements returns [] for games without achievements", async () => {
     const { client } = setup({ playerstats: { success: true } });
     await expect(client.getPlayerAchievements("765", 1)).resolves.toEqual([]);

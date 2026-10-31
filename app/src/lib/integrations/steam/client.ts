@@ -45,6 +45,7 @@ type GlobalPercentagesResponse = {
 type PlayerAchievementsResponse = {
   playerstats?: {
     success?: boolean;
+    error?: string;
     achievements?: { apiname: string; achieved?: number; unlocktime?: number }[];
   };
 };
@@ -130,9 +131,16 @@ export function createSteamClient({
       const path = "/ISteamUserStats/GetPlayerAchievements/v1/";
       const res = await request(path, { steamid: steamId, appid: appId, l: "english" });
       if (res.status === 403) return "private";
+      // Steam answers 400 "Requested app has no stats" for games without achievements.
+      if (res.status === 400) return [];
       if (!res.ok) throw new Error(`Steam API ${path} failed with HTTP ${res.status}`);
       const data = (await res.json()) as PlayerAchievementsResponse;
-      if (data.playerstats?.success === false) return "private";
+      if (data.playerstats?.success === false) {
+        const error = data.playerstats.error ?? "";
+        if (/no stats/i.test(error)) return [];
+        if (!error || /not public/i.test(error)) return "private";
+        throw new Error(`Steam API ${path} failed: ${error}`);
+      }
       return (data.playerstats?.achievements ?? []).map((a) => ({
         apiName: a.apiname,
         unlockedAt: a.unlocktime ? new Date(a.unlocktime * 1000) : null,
