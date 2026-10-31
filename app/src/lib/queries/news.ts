@@ -231,6 +231,17 @@ export async function getLatestArticles(limit: number): Promise<ArticleCard[]> {
   return rows.map(toCard);
 }
 
+/** Latest published articles about one game (ArticleGame links or the legacy single game). */
+export async function getArticlesForGame(gameId: string, limit: number): Promise<ArticleCard[]> {
+  const rows = await prisma.article.findMany({
+    where: { ...PUBLISHED, OR: [{ gameId }, { games: { some: { gameId } } }] },
+    orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+    take: limit,
+    select: cardSelect,
+  });
+  return rows.map(toCard);
+}
+
 /** "Mais lidas": there is no view counter yet, so reader reactions (likes + comments) rank them. */
 export async function getMostRead(limit: number): Promise<ArticleCard[]> {
   const rows = await prisma.article.findMany({

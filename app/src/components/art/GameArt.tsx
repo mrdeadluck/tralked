@@ -37,7 +37,7 @@ function rng(seed: number) {
 }
 
 /** Generated landscape art, ported from preview/tralked-jogo.html `paint()`. */
-function paint(cv: HTMLCanvasElement, [h1, h2]: Hues, seed: number, opts: { figure?: boolean; light?: boolean }) {
+export function paint(cv: HTMLCanvasElement, [h1, h2]: Hues, seed: number, opts: { figure?: boolean; light?: boolean }) {
   const ctx = cv.getContext("2d");
   if (!ctx) return;
   const w = cv.width;
