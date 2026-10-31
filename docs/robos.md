@@ -40,7 +40,7 @@ Uma chave revogada para de funcionar na hora e passa a receber `401`. Cada chave
 | POST | `/api/v1/guides` | `guides:write` | Cria o guia de um jogo (um guia por jogo) e responde 201. |
 | GET | `/api/v1/guides/{id}` | `guides:write` | Mostra o status e a versão de um guia desta chave. |
 | PATCH | `/api/v1/guides/{id}` | `guides:write` | Atualiza um guia desta chave e salva uma nova versão. |
-| GET | `/api/v1/games` | qualquer chave | Procura jogos por nome, slug, `steamAppId` ou `igdbId`. |
+| GET | `/api/v1/games` | qualquer chave | Procura jogos por nome, slug, `steamAppId` ou `igdbId`; esconde os stubs do catálogo e ordena por popularidade. |
 | GET | `/api/v1/games/{slug}/insights` | qualquer chave | Dados agregados do jogo entre os jogadores do Tralked. |
 | GET | `/api/v1/games/{slug}/dossie` | qualquer chave | Dossiê do jogo: ficha, números do Tralked e todas as conquistas visíveis. |
 | GET | `/api/v1/openapi.json` | pública | Descrição OpenAPI 3.1 da API inteira. |
@@ -248,7 +248,7 @@ Rascunhos, notícias na fila de revisão e notícias arquivadas não aparecem. U
 curl "$TRALKED_URL/api/v1/articles?since=2026-10-01T00:00:00Z&limit=50"   -H "Authorization: Bearer $TRALKED_KEY"
 ```
 
-Cada item traz `id`, `slug`, `title`, `category`, `publishedAt`, `source` (`editorial` ou `bot`) e `games` (os slugs dos jogos da notícia):
+Cada item traz `id`, `slug`, `title`, `category`, `publishedAt`, `source` (`editorial` ou `bot`) e `games` (os slugs dos jogos da notícia, sem os stubs do catálogo):
 
 ```json
 {
@@ -451,7 +451,7 @@ Antes de escrever, confirme que o jogo existe no catálogo. Informe um destes pa
 - `steamAppId`
 - `igdbId`
 
-A resposta traz até 20 jogos e, para cada um, o guia que ele tiver.
+A resposta traz até 20 jogos e, para cada um, o guia que ele tiver. A busca esconde os stubs do catálogo (jogos importados só com o nome, sem ficha) em todos os parâmetros, e a busca por `q` ordena por popularidade, do mais popular para o menos, e depois por nome. Um jogo escondido não pode ser usado como fonte: `/insights` e `/dossie` respondem 404 para ele e o feed não lista o slug dele. Se a notícia citar o jogo de forma explícita em `games`, ele ainda é aceito.
 
 ```bash
 curl "$TRALKED_URL/api/v1/games?q=hades" \
@@ -476,7 +476,7 @@ curl "$TRALKED_URL/api/v1/games?q=hades" \
 
 ## Dados de um jogo
 
-Dois endpoints dão ao robô material para escrever sobre um jogo famoso. Os dois aceitam qualquer chave ativa, devolvem `404 not_found` para um slug que não existe no catálogo e trazem só números agregados, nunca usuários.
+Dois endpoints dão ao robô material para escrever sobre um jogo famoso. Os dois aceitam qualquer chave ativa, devolvem `404 not_found` para um slug que não existe no catálogo ou que é um stub, e trazem só números agregados, nunca usuários.
 
 `GET /api/v1/games/{slug}/insights` é o resumo curto:
 
@@ -524,7 +524,7 @@ Todo erro tem o mesmo formato. Em `issues`, `path` é um JSON Pointer para o cam
 | 400 | `idempotency_key_required` | Falta o cabeçalho `Idempotency-Key` em POST ou PATCH. |
 | 401 | `unauthorized` | A chave está ausente, é inválida ou foi revogada. |
 | 403 | `forbidden` | A chave não tem o escopo do endpoint, ou pediu `published` sem o escopo `publish`. |
-| 404 | `not_found` | O id não existe, ou o conteúdo foi criado por outra chave. Em `/insights` e `/dossie`, o jogo não existe no catálogo. |
+| 404 | `not_found` | O id não existe, ou o conteúdo foi criado por outra chave. Em `/insights` e `/dossie`, o jogo não existe no catálogo ou é um stub. |
 | 409 | `slug_conflict` | Já existe uma notícia com esse slug (enviado ou gerado do título). |
 | 409 | `guide_exists` | O jogo já tem guia. A mensagem traz o id; se o guia for desta chave, use PATCH. |
 | 409 | `published_locked` | A redação já publicou o conteúdo, e só uma chave com `publish` pode alterá-lo. |

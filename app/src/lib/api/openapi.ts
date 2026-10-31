@@ -212,7 +212,8 @@ export function openApiDocument(): JsonSchema {
         get: {
           tags: ["Catálogo"],
           summary: "Procurar jogo",
-          description: "Informe um parâmetro: q (parte do nome ou apelido), slug, steamAppId ou igdbId.",
+          description:
+            "Informe um parâmetro: q (parte do nome ou apelido), slug, steamAppId ou igdbId. A busca esconde os stubs do catálogo (jogos só com o nome) e q ordena por popularidade, do mais popular para o menos, e depois por nome.",
           parameters: ["q", "slug", "steamAppId", "igdbId"].map((name) => ({
             name,
             in: "query",
@@ -232,7 +233,7 @@ export function openApiDocument(): JsonSchema {
           tags: ["Catálogo"],
           summary: "Dados agregados de um jogo no Tralked",
           description:
-            "Qualquer chave ativa. Só agregados, sem usuários: a média de tempo de jogo só aparece com 3 ou mais jogadores que jogaram.",
+            "Qualquer chave ativa. Só agregados, sem usuários: a média de tempo de jogo só aparece com 3 ou mais jogadores que jogaram. Responde 404 para um stub do catálogo.",
           parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
           responses: {
             "200": { description: "Dados do jogo.", content: json(ref("GameInsights")) },
@@ -247,7 +248,7 @@ export function openApiDocument(): JsonSchema {
           tags: ["Catálogo"],
           summary: "Dossiê de um jogo: ficha, números do Tralked e conquistas",
           description:
-            "Qualquer chave ativa. Para pautas atemporais: a ficha do jogo, agregados dos jogadores do Tralked e todas as conquistas visíveis (até 500), da mais rara para a menos. Só agregados, sem usuários: a média de tempo de jogo só aparece com 3 ou mais jogadores que jogaram.",
+            "Qualquer chave ativa. Para pautas atemporais: a ficha do jogo, agregados dos jogadores do Tralked e todas as conquistas visíveis (até 500), da mais rara para a menos. Só agregados, sem usuários: a média de tempo de jogo só aparece com 3 ou mais jogadores que jogaram. Responde 404 para um stub do catálogo.",
           parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
           responses: {
             "200": { description: "Dossiê do jogo.", content: json(ref("GameDossier")) },
@@ -324,7 +325,7 @@ export function openApiDocument(): JsonSchema {
                   category: { type: "string" },
                   publishedAt: { type: "string", format: "date-time" },
                   source: { type: "string", enum: ["editorial", "bot"] },
-                  games: { type: "array", items: { type: "string" }, description: "Slugs dos jogos da notícia." },
+                  games: { type: "array", items: { type: "string" }, description: "Slugs dos jogos da notícia, sem os stubs do catálogo." },
                 },
               },
             },

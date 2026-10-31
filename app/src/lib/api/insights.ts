@@ -52,6 +52,7 @@ export async function gameInsights(slug: string): Promise<GameInsights | null> {
     where: { slug: parsed.data },
     select: {
       id: true,
+      stub: true,
       slug: true,
       name: true,
       releaseDate: true,
@@ -60,7 +61,7 @@ export async function gameInsights(slug: string): Promise<GameInsights | null> {
       timeToBeatCompleteMin: true,
     },
   });
-  if (!game) return null;
+  if (!game || game.stub) return null;
 
   const [tralked, rarest] = await Promise.all([
     playerStats(game.id),
@@ -113,6 +114,7 @@ export async function gameDossier(slug: string): Promise<GameDossier | null> {
     where: { slug: parsed.data },
     select: {
       id: true,
+      stub: true,
       slug: true,
       name: true,
       steamAppId: true,
@@ -126,7 +128,7 @@ export async function gameDossier(slug: string): Promise<GameDossier | null> {
       achievementCount: true,
     },
   });
-  if (!game) return null;
+  if (!game || game.stub) return null;
 
   const [stats, completedPlayers, achievements] = await Promise.all([
     playerStats(game.id),

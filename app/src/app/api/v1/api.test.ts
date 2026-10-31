@@ -797,6 +797,43 @@ describe("GET /api/v1/games", () => {
     expect((byApp.games as { slug: string }[]).map((g) => g.slug)).toEqual(["portal-2"]);
   });
 
+  describe("catalog stubs", () => {
+    const created = ["t20-stub-saga", "t20-real-saga", "t20-pop-low", "t20-pop-high", "t20-stub-app"];
+    const hits = async (query: string) =>
+      ((await json(await games.GET(call("GET", `/api/v1/games${query}`, { key: keys.reader })))).games as { slug: string }[]).map((g) => g.slug);
+
+    beforeAll(async () => {
+      const base = { platforms: [], achievementCount: 0 };
+      await prisma.game.createMany({
+        data: [
+          { ...base, slug: "t20-stub-saga", name: "T20 Zeta Saga", stub: true, steamAppId: 990020001, igdbId: 990020001 },
+          { ...base, slug: "t20-real-saga", name: "T20 Zeta Saga Remastered" },
+          { ...base, slug: "t20-pop-low", name: "T20 Popularity Alpha", popularity: 10 },
+          { ...base, slug: "t20-pop-high", name: "T20 Popularity Beta", popularity: 5000 },
+          { ...base, slug: "t20-stub-app", name: "T20 Stub App", stub: true, steamAppId: 990020002 },
+        ],
+      });
+    });
+    afterAll(async () => {
+      await prisma.game.deleteMany({ where: { slug: { in: created } } });
+    });
+
+    it("q returns only the non-stub when a stub and a non-stub have similar names", async () => {
+      expect(await hits("?q=t20 zeta saga")).toEqual(["t20-real-saga"]);
+    });
+
+    it("q orders by popularity descending, then by name", async () => {
+      expect(await hits("?q=t20 popularity")).toEqual(["t20-pop-high", "t20-pop-low"]);
+    });
+
+    it("slug, steamAppId and igdbId lookups of a stub return an empty list", async () => {
+      expect(await hits("?steamAppId=990020002")).toEqual([]);
+      expect(await hits("?igdbId=990020001")).toEqual([]);
+      expect(await hits("?slug=t20-stub-saga")).toEqual([]);
+      expect(await hits("?slug=t20-real-saga")).toEqual(["t20-real-saga"]);
+    });
+  });
+
   it("400 for a bad parameter; 401 without a key", async () => {
     const bad = await games.GET(call("GET", "/api/v1/games?steamAppId=abc", { key: keys.reader }));
     expect(bad.status).toBe(400);
@@ -869,6 +906,25 @@ describe("GET /api/v1/articles (recent feed)", () => {
     const times = list.map((a) => Date.parse(a.publishedAt));
     expect(times).toEqual([...times].sort((a, b) => b - a));
     expect(list.every((a) => Date.now() - Date.parse(a.publishedAt) <= 7 * 24 * 60 * 60 * 1000)).toBe(true);
+  });
+
+  it("omits catalog stubs from an article's games", async () => {
+    await prisma.game.create({
+      data: { slug: "t20-feed-stub", name: "T20 Feed Stub", stub: true, platforms: [], achievementCount: 0 },
+    });
+    try {
+      await insertArticle("t4-feed-stub", {
+        status: "published",
+        source: "editorial",
+        publishedAt: hoursAgo(1),
+        games: ["hades", "t20-feed-stub"],
+      });
+      const list = (await json(await feed())).articles as { slug: string; games: string[] }[];
+      expect(list.find((a) => a.slug === "t4-feed-stub")?.games).toEqual(["hades"]);
+    } finally {
+      await prisma.article.deleteMany({ where: { slug: "t4-feed-stub" } });
+      await prisma.game.deleteMany({ where: { slug: "t20-feed-stub" } });
+    }
   });
 
   it("since moves the lower bound; limit caps the list", async () => {
@@ -1000,6 +1056,15 @@ describe("GET /api/v1/games/{slug}/insights", () => {
       });
     } finally {
       await prisma.game.delete({ where: { id: bare.id } });
+    }
+  });
+
+  it("404 for a catalog stub", async () => {
+    await prisma.game.create({ data: { slug: "t20-insights-stub", name: "T20 Stub", stub: true, platforms: [], achievementCount: 0 } });
+    try {
+      expect((await ask("/api/v1/games/t20-insights-stub/insights")).status).toBe(404);
+    } finally {
+      await prisma.game.deleteMany({ where: { slug: "t20-insights-stub" } });
     }
   });
 
@@ -1138,6 +1203,15 @@ describe("GET /api/v1/games/{slug}/dossie", () => {
       });
     } finally {
       await prisma.game.delete({ where: { id: bare.id } });
+    }
+  });
+
+  it("404 for a catalog stub", async () => {
+    await prisma.game.create({ data: { slug: "t20-dossier-stub", name: "T20 Stub", stub: true, platforms: [], achievementCount: 0 } });
+    try {
+      expect((await ask("/api/v1/games/t20-dossier-stub/dossie")).status).toBe(404);
+    } finally {
+      await prisma.game.deleteMany({ where: { slug: "t20-dossier-stub" } });
     }
   });
 
