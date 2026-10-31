@@ -55,17 +55,37 @@ test.describe("game page case intro", () => {
     await expect(page).toHaveURL(/\/jogos\/hollow-knight$/);
     expect(await page.evaluate(() => (window as unknown as { __gpFirst?: string | null }).__gpFirst)).toBe("pending");
     await expect(intro(page)).toBeVisible();
-    // The background is inert while the dialog is open.
+    // The background is inert while the dialog is open: a native modal <dialog> (top layer), so
+    // no element of the page gets an attribute React did not render.
     await expect(page.locator("#gp-root")).toHaveAttribute("data-intro", "stage");
-    const background = await page
-      .locator("body > *:not([data-testid=case-intro]):not(script):not(style)")
-      .evaluateAll((els) => els.map((e) => [`${e.tagName}.${e.className}#${e.id}`, e.hasAttribute("inert")] as const));
-    expect(background.length).toBeGreaterThan(0);
-    expect(background.filter(([, inert]) => !inert)).toEqual([]);
-    expect(background.some(([tag]) => tag.startsWith("MAIN."))).toBe(true);
+    expect(await page.locator("[data-testid=case-intro]").evaluate((d) => d.matches("dialog:modal"))).toBe(true);
+    expect(await page.locator("[inert]").count()).toBe(0);
+    // A click on the page behind the dialog does not reach it.
+    const blocked = await page.evaluate(() => {
+      const main = document.querySelector("main")!.getBoundingClientRect();
+      const hit = document.elementFromPoint(main.left + 5, main.top + 5);
+      return Boolean(hit?.closest("[data-testid=case-intro]"));
+    });
+    expect(blocked).toBe(true);
     await page.getByRole("button", { name: "Pular" }).click();
     await expect(intro(page)).toBeHidden();
-    expect(await page.locator("[inert]").count()).toBe(0);
+    expect(await page.locator("[data-testid=case-intro]").evaluate((d) => d.matches(":modal"))).toBe(false);
+  });
+
+  test("first-visit hard load: no hydration mismatch or other console error", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    page.on("pageerror", (error) => errors.push(error.message));
+    await openGame(page);
+    await expect(intro(page)).toBeVisible();
+    // Let every island hydrate while the dialog is up, then close it.
+    await page.waitForTimeout(1500);
+    await page.getByRole("button", { name: "Pular" }).click();
+    await expect(intro(page)).toBeHidden();
+    expect(errors.filter((e) => /hydrat/i.test(e))).toEqual([]);
+    expect(errors).toEqual([]);
   });
 
   test("a second visit does not show the case again", async ({ page }) => {

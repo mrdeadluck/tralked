@@ -11,6 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { GameArt, type Hues } from "@/components/art/GameArt";
+import { Wordmark } from "@/components/brand/Logo";
 import { useSound } from "@/components/fx/useSound";
 import { markOpened } from "@/app/jogos/[slug]/actions";
 import { registerCaseReplay } from "./case-replay";
@@ -86,8 +87,7 @@ const CSS = `
 .gpc.gpc-has-cover { --ch: calc(var(--band) + var(--cw) * var(--cover-r, 1.5)); }
 .gpc-out > img.gpc-cover { top: var(--band); height: calc(100% - var(--band)); object-fit: cover; }
 .gpc-top { position: absolute; left: 0; right: 0; top: 0; height: var(--band); background: linear-gradient(180deg, var(--bg), #121318); display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 2px solid var(--acc); }
-.gpc-top b { font-weight: 900; font-stretch: 125%; font-size: calc(var(--cw) * .06); letter-spacing: -0.02em; }
-.gpc-top b i { font-style: normal; color: var(--acc); }
+.gpc-top svg { height: calc(var(--cw) * .055); width: auto; color: var(--text); }
 .gpc-top span { font-family: var(--font-jetbrains-mono), monospace; font-size: calc(var(--cw) * .032); letter-spacing: .14em; color: var(--text-2); border: 1px solid var(--border-2); padding: 2px 5px; white-space: nowrap; }
 .gpc-title { position: absolute; left: 0; right: 0; bottom: 9%; text-align: center; padding: 0 8%; }
 .gpc-title b { display: block; font-weight: 900; font-stretch: 125%; font-size: min(calc(var(--cw) * .115), calc(var(--cw) * .84 / var(--longest, 1))); line-height: .9; letter-spacing: -0.03em; text-transform: uppercase; color: #f3f1ea; text-shadow: 0 4px 24px rgba(0,0,0,.7); overflow-wrap: normal; word-break: normal; hyphens: manual; }
@@ -568,9 +568,7 @@ export function CaseIntro(props: CaseIntroProps) {
                 <GameArt seed={seed + 7} hues={hues} figure light width={560} height={772} />
               )}
               <div className="gpc-top">
-                <b>
-                  TRAL<i>K</i>ED
-                </b>
+                <Wordmark height={16} />
                 <span>{platformLabel}</span>
               </div>
               {coverUrl ? null : (
