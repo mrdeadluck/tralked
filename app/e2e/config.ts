@@ -13,7 +13,8 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export type E2EMode = "prod" | "dev";
 
-export const PORT = 3200;
+// E2E_PORT lets parallel worktrees run their own server without fighting over 3200.
+export const PORT = Number(process.env.E2E_PORT ?? 3200);
 export const BASE_URL = `http://localhost:${PORT}`;
 
 const DEFAULT_DATABASE_URL = "postgresql://gamelog:gamelog@localhost:5433/gamelog_e2e";

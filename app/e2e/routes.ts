@@ -15,6 +15,8 @@ export const ROUTES: E2ERoute[] = [
   { path: "/jogos", name: "jogos" },
   { path: "/jogos/hollow-knight", name: "jogo" },
   { path: "/jogos/hollow-knight/guia", name: "jogo-guia" },
+  { path: "/jogos/celeste", name: "jogo-sem-guia" },
+  { path: "/jogos/hollow-knight", name: "jogo-logado", auth: true },
   { path: "/noticias", name: "noticias" },
   { path: "/noticias?categoria=guias&pagina=1", name: "noticias-guias" },
   { path: "/noticias?pagina=2", name: "noticias-pagina-2" },
