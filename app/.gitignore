@@ -50,3 +50,5 @@ next-env.d.ts
 
 # gallery uploads written by the local storage adapter (dev)
 /public/uploads/
+# script progress logs
+/scripts/.logs/

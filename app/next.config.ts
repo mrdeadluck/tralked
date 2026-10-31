@@ -6,6 +6,19 @@ const nextConfig: NextConfig = {
   partialPrefetching: false,
   // The dev badge overlaps the page in e2e screenshots and trips axe in dev mode.
   devIndicators: false,
+  // Steam art is hotlinked from Steam's CDNs (never stored): store/library art, achievement icons
+  // and avatars. Query strings stay allowed because Steam versions its files with `?t=`.
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "shared.akamai.steamstatic.com", pathname: "/store_item_assets/**" },
+      { protocol: "https", hostname: "shared.fastly.steamstatic.com", pathname: "/store_item_assets/**" },
+      { protocol: "https", hostname: "shared.fastly.steamstatic.com", pathname: "/community_assets/**" },
+      { protocol: "https", hostname: "avatars.fastly.steamstatic.com", pathname: "/**" },
+      { protocol: "https", hostname: "avatars.akamai.steamstatic.com", pathname: "/**" },
+      { protocol: "https", hostname: "cdn.cloudflare.steamstatic.com", pathname: "/steam/apps/**" },
+      { protocol: "https", hostname: "cdn.akamai.steamstatic.com", pathname: "/steam/apps/**" },
+    ],
+  },
   turbopack: {
     rules: {
       "*.css": {
