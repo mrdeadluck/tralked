@@ -15,6 +15,7 @@ const articleById = await import("./articles/[id]/route");
 const guides = await import("./guides/route");
 const guideById = await import("./guides/[id]/route");
 const games = await import("./games/route");
+const insights = await import("./games/[slug]/insights/route");
 const openapi = await import("./openapi.json/route");
 const articleSchema = await import("./schemas/article.json/route");
 const guideSchema = await import("./schemas/guide.json/route");
@@ -768,6 +769,204 @@ describe("GET /api/v1/games", () => {
     expect((await json(bad)).error?.issues).toEqual([{ path: "?steamAppId", message: expect.any(String) }]);
     expect((await games.GET(call("GET", "/api/v1/games?q=", { key: keys.reader }))).status).toBe(400);
     expect((await games.GET(call("GET", "/api/v1/games?q=hades"))).status).toBe(401);
+  });
+});
+
+describe("GET /api/v1/articles (recent feed)", () => {
+  const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000);
+  const feed = async (query = "", key: Key | null = keys.reader) =>
+    articles.GET(call("GET", `/api/v1/articles${query}`, { key }));
+  const slugs = async (query = "") =>
+    ((await json(await feed(query))).articles as { slug: string }[]).map((a) => a.slug);
+
+  const createdSlugs: string[] = [];
+  afterAll(async () => {
+    await prisma.article.deleteMany({ where: { slug: { in: createdSlugs } } });
+  });
+
+  async function insertArticle(slug: string, data: { status: string; source: string; publishedAt: Date; games?: string[] }) {
+    createdSlugs.push(slug);
+    const author = await prisma.author.findFirstOrThrow();
+    const found = await prisma.game.findMany({ where: { slug: { in: data.games ?? [] } }, select: { id: true } });
+    await prisma.article.create({
+      data: {
+        slug,
+        title: `Feed ${slug}`,
+        body: "",
+        blocks: [],
+        status: data.status,
+        category: "GAMES",
+        platforms: [],
+        imageLabel: slug,
+        authorId: author.id,
+        source: data.source,
+        publishedAt: data.publishedAt,
+        games: { create: found.map((g) => ({ gameId: g.id })) },
+      },
+    });
+  }
+
+  beforeAll(async () => {
+    await insertArticle("t4-feed-editorial", { status: "published", source: "editorial", publishedAt: hoursAgo(5), games: ["hades", "celeste"] });
+    await insertArticle("t4-feed-bot", { status: "published", source: "bot", publishedAt: hoursAgo(2) });
+    await insertArticle("t4-feed-draft", { status: "draft", source: "editorial", publishedAt: hoursAgo(1) });
+    await insertArticle("t4-feed-review", { status: "review", source: "bot", publishedAt: hoursAgo(1) });
+    await insertArticle("t4-feed-archived", { status: "archived", source: "bot", publishedAt: hoursAgo(3) });
+    await insertArticle("t4-feed-old", { status: "published", source: "editorial", publishedAt: hoursAgo(24 * 10) });
+  });
+
+  it("lists editorial and bot articles of the last 7 days, newest first, without drafts, archived or older ones", async () => {
+    const response = await feed();
+    expect(response.status).toBe(200);
+    const body = await json(response);
+    const list = body.articles as { id: string; slug: string; title: string; category: string; publishedAt: string; source: string; games: string[] }[];
+    const mine = list.filter((a) => a.slug.startsWith("t4-feed-"));
+    expect(mine.map((a) => a.slug)).toEqual(["t4-feed-bot", "t4-feed-editorial"]);
+    expect(mine[0]).toEqual({
+      id: expect.any(String),
+      slug: "t4-feed-bot",
+      title: "Feed t4-feed-bot",
+      category: "GAMES",
+      publishedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+      source: "bot",
+      games: [],
+    });
+    expect(mine[1]).toMatchObject({ source: "editorial", games: ["celeste", "hades"] });
+    const times = list.map((a) => Date.parse(a.publishedAt));
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+    expect(list.every((a) => Date.now() - Date.parse(a.publishedAt) <= 7 * 24 * 60 * 60 * 1000)).toBe(true);
+  });
+
+  it("since moves the lower bound; limit caps the list", async () => {
+    expect(await slugs(`?since=${hoursAgo(4).toISOString()}`)).toEqual(expect.arrayContaining(["t4-feed-bot"]));
+    expect((await slugs(`?since=${hoursAgo(4).toISOString()}`)).includes("t4-feed-editorial")).toBe(false);
+    expect(await slugs(`?since=${hoursAgo(24 * 11).toISOString()}`)).toContain("t4-feed-old");
+    expect(await slugs("?limit=1")).toHaveLength(1);
+  });
+
+  it("400 on ?limit and ?since when malformed or out of range", async () => {
+    for (const [query, param] of [
+      ["?limit=500", "?limit"],
+      ["?limit=0", "?limit"],
+      ["?limit=abc", "?limit"],
+      ["?since=ontem", "?since"],
+      ["?since=2026-10-01", "?since"],
+    ] as const) {
+      const response = await feed(query);
+      expect(response.status, query).toBe(400);
+      expect((await json(response)).error?.issues).toEqual([{ path: param, message: expect.any(String) }]);
+    }
+  });
+
+  it("401 without a key", async () => {
+    expect((await feed("", null)).status).toBe(401);
+  });
+});
+
+describe("GET /api/v1/games/{slug}/insights", () => {
+  const slug = "t4-insights-game";
+  const ask = (path: string, key: Key | null = keys.reader) =>
+    insights.GET(call("GET", path, { key }), { params: Promise.resolve({ slug: path.split("/")[4] }) });
+  let userIds: string[] = [];
+
+  beforeAll(async () => {
+    userIds = (await prisma.user.findMany({ take: 3, orderBy: { handle: "asc" }, select: { id: true } })).map((u) => u.id);
+    await prisma.game.create({
+      data: {
+        slug,
+        name: "T4 Insights",
+        platforms: ["PC"],
+        achievementCount: 7,
+        timeToBeatCompleteMin: 600,
+        releaseDate: new Date("2024-05-06T00:00:00Z"),
+        achievements: {
+          create: [
+            { apiName: "A_COMMON", name: "Comum", globalPct: 80 },
+            { apiName: "A_RARE", name: "Rara", globalPct: 1.5 },
+            { apiName: "A_HIDDEN", name: "Escondida", globalPct: 0.1, hidden: true },
+            { apiName: "A_NULL", name: "Sem dado", globalPct: null },
+            { apiName: "B_20", name: "Vinte", globalPct: 20 },
+            { apiName: "B_10", name: "Dez", globalPct: 10 },
+            { apiName: "B_5", name: "Cinco", globalPct: 5 },
+            { apiName: "B_40", name: "Quarenta", globalPct: 40 },
+          ],
+        },
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.game.deleteMany({ where: { slug } });
+  });
+
+  const play = async (gameId: string, rows: [number, number][]) => {
+    await prisma.userGame.deleteMany({ where: { gameId } });
+    await prisma.userGame.createMany({
+      data: rows.map(([i, playtimeMin]) => ({ userId: userIds[i], gameId, platform: "steam", playtimeMin, unlockedCount: 0 })),
+    });
+  };
+
+  it("with 2 players the average playtime stays hidden", async () => {
+    const { id } = await prisma.game.findUniqueOrThrow({ where: { slug } });
+    await play(id, [[0, 100], [1, 300]]);
+    const response = await ask(`/api/v1/games/${slug}/insights`);
+    expect(response.status).toBe(200);
+    expect((await json(response)).tralked).toEqual({ players: 2, avgPlaytimeMin: null });
+  });
+
+  it("with 3 players it is their average; zero-minute libraries count as players only", async () => {
+    const { id } = await prisma.game.findUniqueOrThrow({ where: { slug } });
+    await play(id, [[0, 100], [1, 300], [2, 500]]);
+    expect((await json(await ask(`/api/v1/games/${slug}/insights`))).tralked).toEqual({ players: 3, avgPlaytimeMin: 300 });
+    await play(id, [[0, 100], [1, 300], [2, 0]]);
+    expect((await json(await ask(`/api/v1/games/${slug}/insights`))).tralked).toEqual({ players: 3, avgPlaytimeMin: null });
+  });
+
+  it("describes the game and lists the 5 rarest visible achievements, ascending, with no user data", async () => {
+    const { id } = await prisma.game.findUniqueOrThrow({ where: { slug } });
+    await play(id, [[0, 100], [1, 300], [2, 500]]);
+    const response = await ask(`/api/v1/games/${slug}/insights`);
+    const body = await json(response);
+    expect(body.game).toEqual({
+      slug,
+      name: "T4 Insights",
+      releaseDate: "2024-05-06T00:00:00.000Z",
+      platforms: ["PC"],
+      achievementCount: 7,
+      timeToBeatCompleteMin: 600,
+    });
+    expect(body.rarest).toEqual([
+      { platform: "steam", apiName: "A_RARE", name: "Rara", globalPct: 1.5 },
+      { platform: "steam", apiName: "B_5", name: "Cinco", globalPct: 5 },
+      { platform: "steam", apiName: "B_10", name: "Dez", globalPct: 10 },
+      { platform: "steam", apiName: "B_20", name: "Vinte", globalPct: 20 },
+      { platform: "steam", apiName: "B_40", name: "Quarenta", globalPct: 40 },
+    ]);
+    expect(Object.keys(body).sort()).toEqual(["game", "rarest", "tralked"]);
+    const text = JSON.stringify(body);
+    const handles = (await prisma.user.findMany({ where: { id: { in: userIds } }, select: { handle: true } })).map((u) => u.handle);
+    for (const forbidden of [...userIds, ...handles]) expect(text).not.toContain(forbidden);
+  });
+
+  it("a game with no data has null release and zero players", async () => {
+    const bare = await prisma.game.create({ data: { slug: "t4-insights-bare", name: "T4 Bare", platforms: [], achievementCount: 0 } });
+    try {
+      const body = await json(await ask("/api/v1/games/t4-insights-bare/insights"));
+      expect(body).toEqual({
+        game: { slug: "t4-insights-bare", name: "T4 Bare", releaseDate: null, platforms: [], achievementCount: 0, timeToBeatCompleteMin: null },
+        tralked: { players: 0, avgPlaytimeMin: null },
+        rarest: [],
+      });
+    } finally {
+      await prisma.game.delete({ where: { id: bare.id } });
+    }
+  });
+
+  it("404 for an unknown slug, 401 without a key", async () => {
+    const missing = await ask("/api/v1/games/jogo-que-nao-existe/insights");
+    expect(missing.status).toBe(404);
+    expect((await json(missing)).error?.code).toBe("not_found");
+    expect((await ask(`/api/v1/games/${slug}/insights`, null)).status).toBe(401);
   });
 });
 
