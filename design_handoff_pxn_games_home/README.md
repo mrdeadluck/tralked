@@ -93,7 +93,7 @@ Alternativas exploradas no protótipo (prop `logo`): "Blocos" (P/X/N em 3 blocos
 ### 2. Hero (destaque)
 - Linha flex wrap, gap 12px.
 - **Card principal**: flex 1 1 560px, min-height 460px (420 no mobile), padding 32px (20 mobile), radius 4. Overlay `linear-gradient(180deg, rgba(11,12,15,0) 30%, rgba(11,12,15,.96) 92%)`. Selo "EXCLUSIVO" topo-direita (accent, mono 11px/700). Conteúdo no rodapé: tags → H1 → subtítulo → meta.
-  - Copy: H1 "GTA 6 tem 25 minutos de gameplay vazados e Jason aparece nu"; sub "Um novo vazamento de GTA 6 revela quase 25 minutos de gameplay, incluindo cenas inéditas, spoilers e Jason completamente nu."; meta "@Fuyushiro · há 10 horas".
+  - Copy: H1 "GTA 6 tem 25 minutos de gameplay vazados e Jason aparece nu"; sub "Um novo vazamento de GTA 6 revela quase 25 minutos de gameplay, incluindo cenas inéditas, spoilers e Jason completamente nu."; meta "@Cronista_Iolanda · há 10 horas".
 - **Grid lateral**: flex 1 1 520px, `grid-template-columns: repeat(auto-fit, minmax(240px,1fr))`, 4 cards (min-height 224px, padding 18px), com mesmo overlay.
 - Hover em todos os cards do hero: `translateY(-3px)` + `box-shadow: 0 0 0 1px accent`, transição 0.2s.
 
@@ -108,7 +108,7 @@ Alternativas exploradas no protótipo (prop `logo`): "Blocos" (P/X/N em 3 blocos
 ### 5. Sidebar (flex 1 1 340px, max 440px, gap 20px)
 - **Discord**: `#5865F2`, padding 18, ícone 44px, "Comunidade no Discord" / "Converse sobre games com a gente", seta →; hover translateY(-2px).
 - **Ranking da comunidade**: card `#121317`. Linhas em grid `28px 40px 1fr auto`: posição (Archivo 900/125%, 20px; 1º em accent, 2º–3º `#ECECE6`, demais `#5D6068`), avatar, nome + barra de XP (3px, fill accent proporcional ao 1º), XP + "NV n".
-  - Dados: @BillyButcher 7/639, @ZeroJimmy 6/563, @MotocaGamer 6/504, @Fuyushiro 5/458, @urso 5/449.
+  - Dados: @Ferreiro_Bastiao 7/639, @Escudeiro_Tadeu 6/563, @Mercador_Anselmo 6/504, @Cronista_Iolanda 5/458, @Lenhador_Bento 5/449.
 - **Política editorial**: card `#ECECE6`, texto escuro: label "POLÍTICA EDITORIAL" + "Feito pela redação, vigiado por você" (Archivo 900, 26px).
 
 ### 6. Rodapé

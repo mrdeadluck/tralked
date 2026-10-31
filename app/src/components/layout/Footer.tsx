@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/brand/Logo";
+import { SLOGAN } from "@/components/brand/slogan";
+import { GAME_MENU_OPTIONS } from "./game-menu";
 import { NavLink } from "./NavLink";
 import { Newsletter } from "./Newsletter";
 
@@ -14,12 +16,7 @@ const COLUMNS = [
   },
   {
     title: "Plataformas",
-    links: [
-      { href: "/jogos?plataforma=PLAYSTATION", label: "PlayStation" },
-      { href: "/jogos?plataforma=XBOX", label: "Xbox" },
-      { href: "/jogos?plataforma=NINTENDO", label: "Nintendo" },
-      { href: "/jogos?plataforma=PC", label: "PC" },
-    ],
+    links: GAME_MENU_OPTIONS.map(({ href, label }) => ({ href, label })),
   },
   {
     title: "Comunidade",
@@ -50,9 +47,7 @@ export function Footer() {
         <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-8">
           <div className="flex flex-col gap-2.5">
             <Logo size={34} />
-            <p className="text-sm text-[#8a8d96]">
-              Feito por pessoas que amam jogar.
-            </p>
+            <p className="text-sm text-[#8a8d96]">{SLOGAN}</p>
           </div>
           {COLUMNS.map((column) => (
             <div key={column.title} className="flex flex-col gap-2.5">

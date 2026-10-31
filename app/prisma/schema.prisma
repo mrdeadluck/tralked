@@ -66,6 +66,9 @@ model User {
   lastSyncAttemptAt DateTime?
   /// When the "Despertar" level-up sequence of the first sync was shown (it is shown once).
   despertarShownAt  DateTime?
+  /// "Não mostrar a animação nos próximos jogos": the sealed-case intro of game pages is skipped on
+  /// every device (re-enabled in /conta). The browser also remembers it for logged-out visits.
+  caseIntroOff      Boolean   @default(false)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

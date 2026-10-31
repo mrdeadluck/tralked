@@ -36,8 +36,8 @@ describe("JSON-LD", () => {
       author: { "@type": "Organization", name: "Robô Patch Notes" },
       about: [{ "@type": "VideoGame", name: "Hades" }],
     });
-    const human = newsArticleJsonLd({ ...article, bot: false, authorLabel: "@Rivia", imageUrl: null, heroUrl: null });
-    expect(human.author).toEqual({ "@type": "Person", name: "Rivia" });
+    const human = newsArticleJsonLd({ ...article, bot: false, authorLabel: "@Arauto_Leopoldo", imageUrl: null, heroUrl: null });
+    expect(human.author).toEqual({ "@type": "Person", name: "Arauto_Leopoldo" });
     expect(human.image).toEqual([new URL("/opengraph-image", env.APP_URL).toString()]);
   });
 

@@ -44,7 +44,7 @@ describe("<Blocks>", () => {
     { type: "paragraph", text: "Comece pelo **Caminho**." },
     { type: "list", ordered: true, items: ["Um", "Dois"] },
     { type: "list", ordered: false, items: ["Solto"] },
-    { type: "quote", text: "Vale a pena.", author: "@KairoBR" },
+    { type: "quote", text: "Vale a pena.", author: "@Cacador_Joaquim" },
     { type: "image", url: "https://cdn.example.com/a.webp", alt: "Mapa de Hallownest", credit: "Team Cherry" },
     { type: "video", youtubeId: "dQw4w9WgXcQ" },
     { type: "callout", tone: "aviso", text: "Salve antes." },
@@ -75,7 +75,7 @@ describe("<Blocks>", () => {
     expect(container.querySelector("ol")?.children).toHaveLength(2);
     expect(container.querySelector("ul")?.textContent).toBe("Solto");
     expect(container.querySelector("blockquote")?.textContent).toBe("Vale a pena.");
-    expect(container.querySelector("figcaption")?.textContent).toBe("@KairoBR");
+    expect(container.querySelector("figcaption")?.textContent).toBe("@Cacador_Joaquim");
 
     const img = screen.getByRole("img", { name: "Mapa de Hallownest" });
     expect(img.getAttribute("src")).toBe("https://cdn.example.com/a.webp");

@@ -51,45 +51,45 @@ export const FORUM_THREADS: SeedThread[] = [
     ],
   },
   {
-    id: "seed-thread-2", categorySlug: "ajuda", gameSlug: "hollow-knight", authorHandle: "ZeroJimmy", pinned: false, agoHours: 30,
+    id: "seed-thread-2", categorySlug: "ajuda", gameSlug: "hollow-knight", authorHandle: "Escudeiro_Tadeu", pinned: false, agoHours: 30,
     title: "Ritual ou Banishment primeiro?", slug: "ritual-ou-banishment-primeiro",
     posts: [
-      { id: "seed-post-2-1", authorHandle: "ZeroJimmy", agoHours: 30, body: "Quero fazer as duas conquistas da Trupe Grimm. Qual faço no save principal?" },
-      { id: "seed-post-2-2", authorHandle: "Nyx_Vortex", agoHours: 28, body: "Faça Ritual no save principal e deixe Banishment para um save separado, como o guia indica na etapa 4." },
-      { id: "seed-post-2-3", authorHandle: "ZeroJimmy", agoHours: 26, body: "Funcionou, obrigado!" },
+      { id: "seed-post-2-1", authorHandle: "Escudeiro_Tadeu", agoHours: 30, body: "Quero fazer as duas conquistas da Trupe Grimm. Qual faço no save principal?" },
+      { id: "seed-post-2-2", authorHandle: "Escriba_Odete", agoHours: 28, body: "Faça Ritual no save principal e deixe Banishment para um save separado, como o guia indica na etapa 4." },
+      { id: "seed-post-2-3", authorHandle: "Escudeiro_Tadeu", agoHours: 26, body: "Funcionou, obrigado!" },
     ],
     solvedPostId: "seed-post-2-2",
   },
   {
-    id: "seed-thread-3", categorySlug: null, gameSlug: "hollow-knight", authorHandle: "KairoBR", pinned: false, agoHours: 12,
+    id: "seed-thread-3", categorySlug: null, gameSlug: "hollow-knight", authorHandle: "Cacador_Joaquim", pinned: false, agoHours: 12,
     title: "Dicas para o Panteão 5 sem dano", slug: "dicas-panteao-5-sem-dano",
     posts: [
-      { id: "seed-post-3-1", authorHandle: "KairoBR", agoHours: 12, body: "Alguém tem uma ordem de amuletos boa para o Panteão 5?" },
-      { id: "seed-post-3-2", authorHandle: "LunaDeFerro", agoHours: 9, body: "Golpe Rápido, Marca do Orgulho e Coração Inquebrável funcionaram para mim." },
+      { id: "seed-post-3-1", authorHandle: "Cacador_Joaquim", agoHours: 12, body: "Alguém tem uma ordem de amuletos boa para o Panteão 5?" },
+      { id: "seed-post-3-2", authorHandle: "Herbalista_Rosa", agoHours: 9, body: "Golpe Rápido, Marca do Orgulho e Coração Inquebrável funcionaram para mim." },
     ],
   },
   {
-    id: "seed-thread-4", categorySlug: "geral", gameSlug: null, authorHandle: "MotocaGamer", pinned: false, agoHours: 50,
+    id: "seed-thread-4", categorySlug: "geral", gameSlug: null, authorHandle: "Mercador_Anselmo", pinned: false, agoHours: 50,
     title: "Qual foi a sua primeira platina?", slug: "qual-foi-a-sua-primeira-platina",
     posts: [
-      { id: "seed-post-4-1", authorHandle: "MotocaGamer", agoHours: 50, body: "A minha foi num jogo de plataforma. E a de vocês?" },
-      { id: "seed-post-4-2", authorHandle: "urso", agoHours: 47, body: "Um jogo de corrida, há muitos anos." },
+      { id: "seed-post-4-1", authorHandle: "Mercador_Anselmo", agoHours: 50, body: "A minha foi num jogo de plataforma. E a de vocês?" },
+      { id: "seed-post-4-2", authorHandle: "Lenhador_Bento", agoHours: 47, body: "Um jogo de corrida, há muitos anos." },
       { id: "seed-post-4-3", authorHandle: "lucas", agoHours: 40, body: "Hollow Knight no PS4, depois de muitas tentativas no Panteão." },
     ],
   },
   {
-    id: "seed-thread-5", categorySlug: "ajuda", gameSlug: "hades", authorHandle: "b0ltz", pinned: false, agoHours: 70,
+    id: "seed-thread-5", categorySlug: "ajuda", gameSlug: "hades", authorHandle: "Barqueiro_Tobias", pinned: false, agoHours: 70,
     title: "Vale fazer todas as profecias antes do final verdadeiro?", slug: "profecias-antes-do-final",
     posts: [
-      { id: "seed-post-5-1", authorHandle: "b0ltz", agoHours: 70, body: "Estou na décima fuga. Faço as profecias agora ou depois?" },
-      { id: "seed-post-5-2", authorHandle: "Pixelmancer", agoHours: 66, body: "Depois. Muitas saem naturalmente enquanto você avança na história." },
+      { id: "seed-post-5-1", authorHandle: "Barqueiro_Tobias", agoHours: 70, body: "Estou na décima fuga. Faço as profecias agora ou depois?" },
+      { id: "seed-post-5-2", authorHandle: "Alquimista_Damiao", agoHours: 66, body: "Depois. Muitas saem naturalmente enquanto você avança na história." },
     ],
   },
   {
-    id: "seed-thread-6", categorySlug: "geral", gameSlug: "resident-evil-4", authorHandle: "Morrigan77", pinned: false, agoHours: 100,
+    id: "seed-thread-6", categorySlug: "geral", gameSlug: "resident-evil-4", authorHandle: "Taverneira_Gerta", pinned: false, agoHours: 100,
     title: "Melhor arma para a faca sem upgrades", slug: "melhor-arma-faca-sem-upgrades",
     posts: [
-      { id: "seed-post-6-1", authorHandle: "Morrigan77", agoHours: 100, body: "Tópico de exemplo: qual arma vocês usam para a conquista de faca sem melhorias?" },
+      { id: "seed-post-6-1", authorHandle: "Taverneira_Gerta", agoHours: 100, body: "Tópico de exemplo: qual arma vocês usam para a conquista de faca sem melhorias?" },
     ],
   },
 ];
@@ -105,18 +105,18 @@ export const PHOTOS: {
   agoHours: number;
   likedBy: string[];
 }[] = [
-  { id: "seed-photo-01", authorHandle: "lucas", gameSlug: "hollow-knight", caption: "Chegando em Hallownest pela primeira vez.", width: 1920, height: 1080, agoHours: 3, likedBy: ["KairoBR", "LunaDeFerro", "ZeroJimmy", "urso"] },
-  { id: "seed-photo-02", authorHandle: "KairoBR", gameSlug: "elden-ring", caption: "Pôr do sol nas Terras Intermédias.", width: 1920, height: 1080, agoHours: 8, likedBy: ["lucas", "LunaDeFerro"] },
-  { id: "seed-photo-03", authorHandle: "LunaDeFerro", gameSlug: "celeste", caption: "Topo da montanha, finalmente.", width: 1080, height: 1350, agoHours: 15, likedBy: ["lucas"] },
-  { id: "seed-photo-04", authorHandle: "ZeroJimmy", gameSlug: "hades", caption: "Primeira fuga completa.", width: 1920, height: 1080, agoHours: 22, likedBy: ["b0ltz", "Pixelmancer", "lucas"] },
-  { id: "seed-photo-05", authorHandle: "MotocaGamer", gameSlug: "doom-eternal", caption: "Arena final, sem dano.", width: 1920, height: 1080, agoHours: 30, likedBy: [] },
-  { id: "seed-photo-06", authorHandle: "urso", gameSlug: "stardew-valley", caption: "A fazenda depois de três anos.", width: 1080, height: 1080, agoHours: 41, likedBy: ["lucas", "Morrigan77"] },
-  { id: "seed-photo-07", authorHandle: "Nyx_Vortex", gameSlug: "hollow-knight", caption: "O Palácio Branco em silêncio.", width: 1920, height: 1080, agoHours: 55, likedBy: ["lucas", "KairoBR", "ValkyrieZero"] },
-  { id: "seed-photo-08", authorHandle: "ValkyrieZero", gameSlug: "baldurs-gate-3", caption: "Grupo reunido antes do ato 3.", width: 1920, height: 1080, agoHours: 70, likedBy: ["urso"] },
-  { id: "seed-photo-09", authorHandle: "b0ltz", gameSlug: "portal-2", caption: "Teste cooperativo resolvido.", width: 1920, height: 1080, agoHours: 90, likedBy: [] },
-  { id: "seed-photo-10", authorHandle: "Pixelmancer", gameSlug: "slay-the-spire", caption: "Ascensão 20 vencida.", width: 1080, height: 1350, agoHours: 120, likedBy: ["b0ltz"] },
-  { id: "seed-photo-11", authorHandle: "Morrigan77", gameSlug: "dead-space", caption: "Corredor da Ishimura.", width: 1920, height: 1080, agoHours: 150, likedBy: ["MotocaGamer", "lucas"] },
-  { id: "seed-photo-12", authorHandle: "BillyButcher", gameSlug: "resident-evil-4", caption: "A vila, de novo.", width: 1920, height: 1080, agoHours: 200, likedBy: [] },
+  { id: "seed-photo-01", authorHandle: "lucas", gameSlug: "hollow-knight", caption: "Chegando em Hallownest pela primeira vez.", width: 1920, height: 1080, agoHours: 3, likedBy: ["Cacador_Joaquim", "Herbalista_Rosa", "Escudeiro_Tadeu", "Lenhador_Bento"] },
+  { id: "seed-photo-02", authorHandle: "Cacador_Joaquim", gameSlug: "elden-ring", caption: "Pôr do sol nas Terras Intermédias.", width: 1920, height: 1080, agoHours: 8, likedBy: ["lucas", "Herbalista_Rosa"] },
+  { id: "seed-photo-03", authorHandle: "Herbalista_Rosa", gameSlug: "celeste", caption: "Topo da montanha, finalmente.", width: 1080, height: 1350, agoHours: 15, likedBy: ["lucas"] },
+  { id: "seed-photo-04", authorHandle: "Escudeiro_Tadeu", gameSlug: "hades", caption: "Primeira fuga completa.", width: 1920, height: 1080, agoHours: 22, likedBy: ["Barqueiro_Tobias", "Alquimista_Damiao", "lucas"] },
+  { id: "seed-photo-05", authorHandle: "Mercador_Anselmo", gameSlug: "doom-eternal", caption: "Arena final, sem dano.", width: 1920, height: 1080, agoHours: 30, likedBy: [] },
+  { id: "seed-photo-06", authorHandle: "Lenhador_Bento", gameSlug: "stardew-valley", caption: "A fazenda depois de três anos.", width: 1080, height: 1080, agoHours: 41, likedBy: ["lucas", "Taverneira_Gerta"] },
+  { id: "seed-photo-07", authorHandle: "Escriba_Odete", gameSlug: "hollow-knight", caption: "O Palácio Branco em silêncio.", width: 1920, height: 1080, agoHours: 55, likedBy: ["lucas", "Cacador_Joaquim", "Guardia_Selene"] },
+  { id: "seed-photo-08", authorHandle: "Guardia_Selene", gameSlug: "baldurs-gate-3", caption: "Grupo reunido antes do ato 3.", width: 1920, height: 1080, agoHours: 70, likedBy: ["Lenhador_Bento"] },
+  { id: "seed-photo-09", authorHandle: "Barqueiro_Tobias", gameSlug: "portal-2", caption: "Teste cooperativo resolvido.", width: 1920, height: 1080, agoHours: 90, likedBy: [] },
+  { id: "seed-photo-10", authorHandle: "Alquimista_Damiao", gameSlug: "slay-the-spire", caption: "Ascensão 20 vencida.", width: 1080, height: 1350, agoHours: 120, likedBy: ["Barqueiro_Tobias"] },
+  { id: "seed-photo-11", authorHandle: "Taverneira_Gerta", gameSlug: "dead-space", caption: "Corredor da Ishimura.", width: 1920, height: 1080, agoHours: 150, likedBy: ["Mercador_Anselmo", "lucas"] },
+  { id: "seed-photo-12", authorHandle: "Ferreiro_Bastiao", gameSlug: "resident-evil-4", caption: "A vila, de novo.", width: 1920, height: 1080, agoHours: 200, likedBy: [] },
 ];
 
 /** Comments; `target` is resolved by the seed (article slug, the HK guide or a photo id). */
@@ -128,24 +128,24 @@ export const COMMENTS: {
   agoHours: number;
   status?: "visible" | "hidden" | "removed";
 }[] = [
-  { id: "seed-comment-01", authorHandle: "ZeroJimmy", target: { type: "article", slug: "25-conquistas-mais-raras-da-steam-em-2026" }, body: "Ótima lista. Já tenho três delas!", agoHours: 1 },
-  { id: "seed-comment-02", authorHandle: "KairoBR", target: { type: "article", slug: "25-conquistas-mais-raras-da-steam-em-2026" }, body: "Faltou falar do tempo de grind de algumas.", agoHours: 1.5 },
-  { id: "seed-comment-03", authorHandle: "LunaDeFerro", target: { type: "article", slug: "hollow-knight-guia-100-por-cento-em-7-etapas" }, body: "A nova ordem das etapas ficou bem melhor.", agoHours: 6 },
-  { id: "seed-comment-04", authorHandle: "urso", target: { type: "guide", gameSlug: "hollow-knight" }, body: "Seguindo a rota, estou na etapa 3.", agoHours: 10 },
-  { id: "seed-comment-05", authorHandle: "Nyx_Vortex", target: { type: "guide", gameSlug: "hollow-knight" }, body: "Atualizei a nota sobre o Panteão, confiram.", agoHours: 4 },
-  { id: "seed-comment-06", authorHandle: "KairoBR", target: { type: "photo", id: "seed-photo-01" }, body: "Que nostalgia!", agoHours: 2 },
+  { id: "seed-comment-01", authorHandle: "Escudeiro_Tadeu", target: { type: "article", slug: "25-conquistas-mais-raras-da-steam-em-2026" }, body: "Ótima lista. Já tenho três delas!", agoHours: 1 },
+  { id: "seed-comment-02", authorHandle: "Cacador_Joaquim", target: { type: "article", slug: "25-conquistas-mais-raras-da-steam-em-2026" }, body: "Faltou falar do tempo de grind de algumas.", agoHours: 1.5 },
+  { id: "seed-comment-03", authorHandle: "Herbalista_Rosa", target: { type: "article", slug: "hollow-knight-guia-100-por-cento-em-7-etapas" }, body: "A nova ordem das etapas ficou bem melhor.", agoHours: 6 },
+  { id: "seed-comment-04", authorHandle: "Lenhador_Bento", target: { type: "guide", gameSlug: "hollow-knight" }, body: "Seguindo a rota, estou na etapa 3.", agoHours: 10 },
+  { id: "seed-comment-05", authorHandle: "Escriba_Odete", target: { type: "guide", gameSlug: "hollow-knight" }, body: "Atualizei a nota sobre o Panteão, confiram.", agoHours: 4 },
+  { id: "seed-comment-06", authorHandle: "Cacador_Joaquim", target: { type: "photo", id: "seed-photo-01" }, body: "Que nostalgia!", agoHours: 2 },
   { id: "seed-comment-07", authorHandle: "lucas", target: { type: "photo", id: "seed-photo-02" }, body: "Essa luz ficou linda.", agoHours: 7 },
-  { id: "seed-comment-08", authorHandle: "b0ltz", target: { type: "photo", id: "seed-photo-04" }, body: "Parabéns pela fuga!", agoHours: 20 },
-  { id: "seed-comment-09", authorHandle: "BillyButcher", target: { type: "article", slug: "25-conquistas-mais-raras-da-steam-em-2026" }, body: "Comentário de exemplo removido pela moderação.", agoHours: 0.5, status: "hidden" },
+  { id: "seed-comment-08", authorHandle: "Barqueiro_Tobias", target: { type: "photo", id: "seed-photo-04" }, body: "Parabéns pela fuga!", agoHours: 20 },
+  { id: "seed-comment-09", authorHandle: "Ferreiro_Bastiao", target: { type: "article", slug: "25-conquistas-mais-raras-da-steam-em-2026" }, body: "Comentário de exemplo removido pela moderação.", agoHours: 0.5, status: "hidden" },
 ];
 
 /** Example moderation queue entries. */
 export const REPORTS: { id: string; reporterHandle: string; commentId: string; reason: string; agoHours: number }[] = [
-  { id: "seed-report-1", reporterHandle: "LunaDeFerro", commentId: "seed-comment-09", reason: "Spam (exemplo).", agoHours: 0.4 },
+  { id: "seed-report-1", reporterHandle: "Herbalista_Rosa", commentId: "seed-comment-09", reason: "Spam (exemplo).", agoHours: 0.4 },
 ];
 
 export const LUCAS_NOTIFICATIONS: { id: string; kind: string; title: string; body?: string; href?: string; agoHours: number; read: boolean }[] = [
-  { id: "seed-notif-1", kind: "photo_like", title: "KairoBR curtiu sua foto", href: "/galeria", agoHours: 2, read: false },
+  { id: "seed-notif-1", kind: "photo_like", title: "Cacador_Joaquim curtiu sua foto", href: "/galeria", agoHours: 2, read: false },
   { id: "seed-notif-2", kind: "comment_reply", title: "Novo comentário na sua foto", body: "Que nostalgia!", href: "/galeria", agoHours: 2, read: false },
   { id: "seed-notif-3", kind: "level_up", title: "Você chegou ao nível 47", href: "/jogador/lucas", agoHours: 26, read: true },
   { id: "seed-notif-4", kind: "system", title: "Sua conta PSN foi verificada", href: "/conta", agoHours: 200, read: true },

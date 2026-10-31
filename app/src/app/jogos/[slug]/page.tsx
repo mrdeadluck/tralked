@@ -85,7 +85,7 @@ const sessionUser = cache(getSessionUser);
 const visitor = cache(async (slug: string) => {
   const user = await sessionUser();
   if (!user) return null;
-  return { id: user.id, profile: await getGameProfileForUser(slug, user.id) };
+  return { id: user.id, introOff: user.caseIntroOff, profile: await getGameProfileForUser(slug, user.id) };
 });
 
 const delay = (d: string) => ({ "--d": d }) as CSSProperties;
@@ -107,12 +107,13 @@ async function IntroIsland({ profile }: { profile: GameProfile }) {
       hues={profile.hues}
       seed={profile.seed}
       coverUrl={profile.art.cover}
-      discArt={profile.art.hero ?? profile.art.cover}
+      bookletArt={profile.art.hero ?? profile.art.cover}
+      disc={profile.art.disc}
       platformLabel={platformLabel}
       plat={Boolean(best?.completed)}
       discLabel={best?.completed ? `PLATINADO · ${best.best.unlocked}/${best.best.total}` : "TRALKED · DISCO 1"}
       bookletNote={profile.guide ? "Guia de conquistas 100%" : "Encarte do jogo"}
-      account={me ? { opened: Boolean(me.profile?.opened) } : null}
+      account={me ? { opened: Boolean(me.profile?.opened), introOff: me.introOff } : null}
     />
   );
 }

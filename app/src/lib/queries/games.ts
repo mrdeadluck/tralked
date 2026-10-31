@@ -30,9 +30,27 @@ export type GameFilter = {
   almost?: boolean;
   withGuide?: boolean;
   q?: string;
-  /** PLAYSTATION | XBOX | NINTENDO | PC */
+  /** PC | PLAYSTATION | XBOX | NINTENDO | RETRO */
   platform?: string;
 };
+
+/** Platform filters of the catalog (the "Jogos" menu), Steam / PC first. */
+export const CATALOG_PLATFORMS = ["PC", "PLAYSTATION", "XBOX", "NINTENDO", "RETRO"] as const;
+
+/** Account platform whose game ids (GamePlatformLink) also put a game under a catalog platform. */
+const LINK_PLATFORM: Record<string, string | undefined> = { PC: "steam", PLAYSTATION: "psn", XBOX: "xbox", RETRO: "retro" };
+
+/**
+ * A game is on a catalog platform when its catalog list says so, or when it has an id on that
+ * platform's network (games created by a PSN/Xbox/RetroAchievements sync list their console, e.g.
+ * "PS5" or "SNES"). Retro games only exist through RetroAchievements ids.
+ */
+export function platformWhere(platform: string): Prisma.GameWhereInput {
+  const link = LINK_PLATFORM[platform];
+  const byLink: Prisma.GameWhereInput | null = link ? { platformLinks: { some: { platform: link } } } : null;
+  if (platform === "RETRO") return byLink!;
+  return byLink ? { OR: [{ platforms: { has: platform } }, byLink] } : { platforms: { has: platform } };
+}
 
 export type GameCard = {
   id: string;
@@ -54,7 +72,7 @@ export async function listGames(filter: GameFilter, userId?: string): Promise<Ga
   const where: Prisma.GameWhereInput = {};
   if (filter.skill) where.skills = { some: { skill: filter.skill } };
   if (filter.withGuide) where.guide = { is: { status: "published" } };
-  if (filter.platform) where.platforms = { has: filter.platform };
+  if (filter.platform) Object.assign(where, platformWhere(filter.platform));
   const q = filter.q?.trim();
   if (q) where.name = { contains: q, mode: "insensitive" };
 

@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { Hues } from "@/components/art/GameArt";
+import type { DiscLabelArt } from "@/lib/queries/game-profile";
 import { Disc } from "./Disc";
 
 /*
@@ -36,7 +37,7 @@ export function DiscProgress({
   platinum,
   hues,
   seed,
-  imageUrl,
+  art,
   name,
   label,
   platLabel,
@@ -47,7 +48,8 @@ export function DiscProgress({
   platinum: boolean;
   hues: Hues;
   seed: number;
-  imageUrl: string | null;
+  /** Disc label art (never the cover nor the hero). */
+  art: DiscLabelArt;
   name: string;
   label: string;
   /** Disc label when shown as platinum. */
@@ -80,7 +82,7 @@ export function DiscProgress({
         <Disc
           hues={hues}
           seed={seed}
-          imageUrl={imageUrl}
+          art={art}
           name={name}
           label={plat ? platLabel : label}
           plat={plat}

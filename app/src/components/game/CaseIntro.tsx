@@ -11,9 +11,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { GameArt, type Hues } from "@/components/art/GameArt";
+import type { DiscLabelArt } from "@/lib/queries/game-profile";
 import { Wordmark } from "@/components/brand/Logo";
 import { useSound } from "@/components/fx/useSound";
+import { setCaseIntroAction } from "@/app/conta/actions";
 import { markOpened } from "@/app/jogos/[slug]/actions";
+import { readIntroOff, writeIntroOff } from "./case-intro-pref";
 import { registerCaseReplay } from "./case-replay";
 import { Disc } from "./Disc";
 import { openedKey } from "./opened-key";
@@ -66,6 +69,11 @@ const CSS = `
 .gpc-mute svg { width: 16px; height: 16px; }
 .gpc-mute[aria-pressed="true"] .gpc-wave { opacity: .15; }
 .gpc-skip:hover, .gpc-mute:hover { border-color: var(--text); color: var(--text); }
+/* "Não mostrar a animação nos próximos jogos": stays on screen for the whole intro, between mute and skip. */
+.gpc-pref { position: absolute; top: 18px; left: 66px; z-index: 4; max-width: calc(100% - 66px - 112px); min-height: 36px; display: flex; align-items: center; gap: 9px; padding: 6px 12px 6px 10px; border: 1px solid var(--border-2); border-radius: 2px; background: rgba(11,12,15,.6); font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; line-height: 1.35; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); cursor: pointer; }
+.gpc-pref:hover { border-color: var(--text); color: var(--text); }
+.gpc-pref:has(:focus-visible) { outline: 2px solid var(--acc); outline-offset: 2px; }
+.gpc-pref input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--acc); cursor: pointer; }
 
 .gpc-wrap { position: relative; transform-style: preserve-3d; transform: rotateX(14deg) rotateY(-24deg) rotateZ(1.5deg) translateY(-3vh); transition: transform 1.2s cubic-bezier(.55,.05,.2,1); animation: gpc-drop .9s cubic-bezier(.2,.9,.25,1.05) backwards; }
 @keyframes gpc-drop { from { transform: rotateX(30deg) rotateY(-40deg) translateY(-30vh) scale(.8); opacity: 0; } }
@@ -133,14 +141,19 @@ type CaseIntroProps = {
   seed: number;
   /** Real cover for the case front (generated art otherwise). */
   coverUrl: string | null;
-  /** Real art for the disc label and the booklet (hero, else cover). */
-  discArt: string | null;
+  /** Real art for the booklet inside the case (hero, else cover). */
+  bookletArt: string | null;
+  /** The disc's label: never the cover nor the hero (see `DiscLabelArt`). */
+  disc: DiscLabelArt;
   platformLabel: string;
   discLabel: string;
   plat: boolean;
   bookletNote: string;
-  /** Logged in: whether the account already opened the game. Null: logged out (localStorage). */
-  account: { opened: boolean } | null;
+  /**
+   * Logged in: whether the account already opened the game, and whether it turned the intro off
+   * ("Não mostrar a animação nos próximos jogos"). Null: logged out (localStorage only).
+   */
+  account: { opened: boolean; introOff: boolean } | null;
 };
 
 const root = () => document.getElementById(ROOT_ID);
@@ -170,7 +183,7 @@ const revealNow = () => {
 type Noise = { dur: number; from: number; to: number; gain: number; type: BiquadFilterType };
 
 export function CaseIntro(props: CaseIntroProps) {
-  const { gameId, slug, name, hues, seed, coverUrl, discArt, platformLabel, discLabel, plat, bookletNote, account } = props;
+  const { gameId, slug, name, hues, seed, coverUrl, bookletArt, disc, platformLabel, discLabel, plat, bookletNote, account } = props;
   const { muted, toggleMuted } = useSound();
   const mutedRef = useRef(muted);
   const audio = useRef<AudioContext | null>(null);
@@ -192,6 +205,25 @@ export function CaseIntro(props: CaseIntroProps) {
   const [staged, setStaged] = useState<{ auto: boolean; n: number } | null>(null);
   /** Height / width of the real cover, so the case takes its proportion (clamped to a plausible box). */
   const [coverRatio, setCoverRatio] = useState(1.5);
+  /** "Não mostrar a animação nos próximos jogos" (checked on a replay when it is already off). */
+  const [introOff, setIntroOff] = useState(false);
+
+  const toggleIntroOff = (off: boolean) => {
+    setIntroOff(off);
+    writeIntroOff(off);
+    if (!account) return;
+    // The account could not save it (session expired, network): undo it here too, so the box shows
+    // what will really happen on the next game.
+    const undo = () => {
+      setIntroOff(!off);
+      writeIntroOff(!off);
+    };
+    void setCaseIntroAction({ off })
+      .then((result) => {
+        if (!result.ok) undo();
+      })
+      .catch(undo);
+  };
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -438,7 +470,13 @@ export function CaseIntro(props: CaseIntroProps) {
       // sem armazenamento local
     }
     const opened = local || Boolean(account?.opened);
-    if (opened || reduce) {
+    // Logged in, the account's choice wins and this browser's copy follows it (re-enabled in /conta
+    // on another device); logged out, the browser's copy is all there is.
+    const off = account ? account.introOff : readIntroOff();
+    if (account) writeIntroOff(account.introOff);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only state, read once after hydration
+    setIntroOff(off);
+    if (opened || reduce || off) {
       revealNow();
       // Keep both records in sync (account opened elsewhere / opened here while logged out).
       if (!local || (account && !account.opened)) remember();
@@ -446,7 +484,6 @@ export function CaseIntro(props: CaseIntroProps) {
       // Mounting the stage is the decision itself: returning visitors never mount it. It depends on
       // browser-only state (localStorage, the motion preference), so it cannot be made while
       // rendering or hydrating; it runs once, after hydration.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStaged({ auto: true, n: 1 });
     }
     const unregister = reduce
@@ -491,7 +528,7 @@ export function CaseIntro(props: CaseIntroProps) {
   /** Keeps Tab inside the dialog while it is open. */
   const trapFocus = (e: ReactKeyboardEvent<HTMLDialogElement>) => {
     if (e.key !== "Tab" || !stage.current) return;
-    const items = [...stage.current.querySelectorAll<HTMLElement>("button")].filter(
+    const items = [...stage.current.querySelectorAll<HTMLElement>("button, input")].filter(
       (b) => !b.closest(".gpc-gone"),
     );
     if (items.length === 0) return;
@@ -536,6 +573,10 @@ export function CaseIntro(props: CaseIntroProps) {
           <path className="gpc-wave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />
         </svg>
       </button>
+      <label className="gpc-pref">
+        <input type="checkbox" checked={introOff} onChange={(e) => toggleIntroOff(e.target.checked)} />
+        Não mostrar a animação nos próximos jogos
+      </label>
       <button type="button" className="gpc-skip" onClick={finishInstant}>
         Pular
       </button>
@@ -547,7 +588,7 @@ export function CaseIntro(props: CaseIntroProps) {
           </div>
           <div className="gpc-edge" />
           <div ref={slot} className="gpc-slot">
-            <Disc hues={hues} seed={seed} imageUrl={coverUrl ?? discArt} name={name} label={discLabel} plat={plat} />
+            <Disc hues={hues} seed={seed} art={disc} name={name} label={discLabel} plat={plat} />
           </div>
           <div className="gpc-front">
             <div className="gpc-face gpc-out">
@@ -585,7 +626,7 @@ export function CaseIntro(props: CaseIntroProps) {
               <i className="gpc-clip" style={{ bottom: "6%", left: "20%" }} />
               <i className="gpc-clip" style={{ bottom: "6%", right: "20%" }} />
               <div ref={booklet} className="gpc-booklet">
-                <GameArt seed={seed + 8} hues={hues} imageUrl={discArt} figure width={420} height={560} />
+                <GameArt seed={seed + 8} hues={hues} imageUrl={bookletArt} figure width={420} height={560} />
                 <div className="gpc-b-in">
                   <span>Manual</span>
                   <div>

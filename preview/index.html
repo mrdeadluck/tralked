@@ -598,25 +598,25 @@ const GAME = Object.fromEntries(GAMES.map(g => [g.id, g]));
 const pctDone = g => Math.round(g.done / g.total * 100);
 
 /* ---------- Notícias (exemplo) ---------- */
-const AUTHORS = ['@Fuyushiro', '@Rivia', '@Al1enado', '@NascimentoRE', '@Nyx_Vortex'];
-const HERO = { cat: 'GUIAS', tags: ['PC'], img: 'imagem: conquistas raras', title: 'As 25 conquistas mais raras da Steam em 2026, e o que é preciso para fazer cada uma', sub: 'Levantamento da redação cruzou raridade global e tempo médio de conclusão. Três delas têm menos de 0,1% de desbloqueio.', author: '@Fuyushiro', time: 'há 2 horas' };
+const AUTHORS = ['@Cronista_Iolanda', '@Arauto_Leopoldo', '@Bardo_Quiteria', '@Vigia_Custodio', '@Escriba_Odete'];
+const HERO = { cat: 'GUIAS', tags: ['PC'], img: 'imagem: conquistas raras', title: 'As 25 conquistas mais raras da Steam em 2026, e o que é preciso para fazer cada uma', sub: 'Levantamento da redação cruzou raridade global e tempo médio de conclusão. Três delas têm menos de 0,1% de desbloqueio.', author: '@Cronista_Iolanda', time: 'há 2 horas' };
 const SIDE = [
-  { cat: 'GUIAS', tags: ['PC'], img: 'hollow knight', title: 'Hollow Knight: guia de 100% ganha rota em 7 etapas', author: '@Nyx_Vortex', time: 'ontem', game: 'hollow-knight' },
-  { cat: 'COMUNIDADE', tags: [], img: 'evento halloween', title: 'Semana do terror: conquistas de Survival Horror valem XP em dobro', author: '@Rivia', time: 'ontem' },
-  { cat: 'GAMES', tags: ['PLAYSTATION', 'XBOX', 'PC'], img: 'hades', title: 'Hades: os 3 desafios que mais travam o 100% da comunidade', author: '@Al1enado', time: 'anteontem', game: 'hades' },
-  { cat: 'GAMES', tags: ['PC'], img: 'civilization vi', title: 'Civilization VI e suas 320 conquistas: vale a pena começar agora?', author: '@NascimentoRE', time: 'anteontem', game: 'civ6' }
+  { cat: 'GUIAS', tags: ['PC'], img: 'hollow knight', title: 'Hollow Knight: guia de 100% ganha rota em 7 etapas', author: '@Escriba_Odete', time: 'ontem', game: 'hollow-knight' },
+  { cat: 'COMUNIDADE', tags: [], img: 'evento halloween', title: 'Semana do terror: conquistas de Survival Horror valem XP em dobro', author: '@Arauto_Leopoldo', time: 'ontem' },
+  { cat: 'GAMES', tags: ['PLAYSTATION', 'XBOX', 'PC'], img: 'hades', title: 'Hades: os 3 desafios que mais travam o 100% da comunidade', author: '@Bardo_Quiteria', time: 'anteontem', game: 'hades' },
+  { cat: 'GAMES', tags: ['PC'], img: 'civilization vi', title: 'Civilization VI e suas 320 conquistas: vale a pena começar agora?', author: '@Vigia_Custodio', time: 'anteontem', game: 'civ6' }
 ];
 const NEWS = [
-  { cat: 'GUIAS', tags: ['PC', 'PLAYSTATION', 'XBOX'], img: 'baldurs gate 3', title: "Baldur's Gate 3: 10 conquistas perdíveis para conhecer antes de começar", desc: 'Algumas escolhas do primeiro ato fecham conquistas para o resto da campanha. Veja o que evitar e quando salvar.', author: '@Rivia', time: 'há 1 hora', likes: 48, comments: 66, game: 'bg3' },
-  { cat: 'COMUNIDADE', tags: ['PLAYSTATION', 'XBOX'], img: 'perfil multiplataforma', title: 'Em breve: importe conquistas de PlayStation e Xbox para o seu personagem', desc: 'A redação explica como vai funcionar a importação e por que as skills por gênero vão somar tudo num só perfil.', author: '@Fuyushiro', time: 'há 3 horas', likes: 212, comments: 94 },
-  { cat: 'GAMES', tags: ['NINTENDO', 'PC'], img: 'celeste', title: 'Celeste: a comunidade elegeu o Capítulo 9 como o desafio mais difícil do ano', desc: 'Votação com mais de 8 mil jogadores coloca o Farewell no topo. Veja as dicas mais votadas para atravessar.', author: '@Al1enado', time: 'há 5 horas', likes: 31, comments: 18, game: 'celeste' },
-  { cat: 'GUIAS', tags: ['PC', 'PLAYSTATION', 'XBOX'], img: 'resident evil 4', title: 'Resident Evil 4: rota para o rank S+ no Profissional sem armas infinitas', desc: 'Guia atualizado com os pontos de save que mais ajudam e os chefes que exigem preparo.', author: '@NascimentoRE', time: 'ontem', likes: 77, comments: 40, game: 're4' },
-  { cat: 'COMUNIDADE', tags: ['PC'], img: 'phasmophobia', title: 'Phasmophobia: as conquistas co-op que mais pedem grupo no Discord', desc: 'Levantamos os pedidos de grupo da semana. Monte sua equipe pelo canal de caçadas.', author: '@Rivia', time: 'ontem', likes: 22, comments: 35, game: 'phasmophobia' }
+  { cat: 'GUIAS', tags: ['PC', 'PLAYSTATION', 'XBOX'], img: 'baldurs gate 3', title: "Baldur's Gate 3: 10 conquistas perdíveis para conhecer antes de começar", desc: 'Algumas escolhas do primeiro ato fecham conquistas para o resto da campanha. Veja o que evitar e quando salvar.', author: '@Arauto_Leopoldo', time: 'há 1 hora', likes: 48, comments: 66, game: 'bg3' },
+  { cat: 'COMUNIDADE', tags: ['PLAYSTATION', 'XBOX'], img: 'perfil multiplataforma', title: 'Em breve: importe conquistas de PlayStation e Xbox para o seu personagem', desc: 'A redação explica como vai funcionar a importação e por que as skills por gênero vão somar tudo num só perfil.', author: '@Cronista_Iolanda', time: 'há 3 horas', likes: 212, comments: 94 },
+  { cat: 'GAMES', tags: ['NINTENDO', 'PC'], img: 'celeste', title: 'Celeste: a comunidade elegeu o Capítulo 9 como o desafio mais difícil do ano', desc: 'Votação com mais de 8 mil jogadores coloca o Farewell no topo. Veja as dicas mais votadas para atravessar.', author: '@Bardo_Quiteria', time: 'há 5 horas', likes: 31, comments: 18, game: 'celeste' },
+  { cat: 'GUIAS', tags: ['PC', 'PLAYSTATION', 'XBOX'], img: 'resident evil 4', title: 'Resident Evil 4: rota para o rank S+ no Profissional sem armas infinitas', desc: 'Guia atualizado com os pontos de save que mais ajudam e os chefes que exigem preparo.', author: '@Vigia_Custodio', time: 'ontem', likes: 77, comments: 40, game: 're4' },
+  { cat: 'COMUNIDADE', tags: ['PC'], img: 'phasmophobia', title: 'Phasmophobia: as conquistas co-op que mais pedem grupo no Discord', desc: 'Levantamos os pedidos de grupo da semana. Monte sua equipe pelo canal de caçadas.', author: '@Arauto_Leopoldo', time: 'ontem', likes: 22, comments: 35, game: 'phasmophobia' }
 ];
 
 /* ---------- Guia modelo: Hollow Knight ---------- */
 const HK = {
-  author: '@Nyx_Vortex', reviewers: 14, updated: 'há 3 dias', version: 'v3.2', useful: 1284,
+  author: '@Escriba_Odete', reviewers: 14, updated: 'há 3 dias', version: 'v3.2', useful: 1284,
   overview: [
     'Hollow Knight é um metroidvania de exploração densa, com chefes exigentes e muitos coletáveis. O 100% de conquistas pede uma jornada completa, os panteões do conteúdo Godmaster e saves dedicados a speedrun e ao modo Alma de Aço.',
     'Nenhuma conquista é perdível de forma definitiva: depois dos créditos o jogo volta para antes do chefe final. A parte mais difícil está nos panteões e na Alma de Aço, onde morrer apaga o save.'
@@ -673,15 +673,15 @@ const HK = {
     { n: 'Chefes no Salão dos Deuses', got: 38, tot: 44, d: 'Exemplo de contagem para os panteões.' }
   ],
   tips: [
-    { u: '@KairoBR', lv: 92, t: 'Para o Panteão de Hallownest, treinar só os últimos cinco chefes em sequência me poupou umas 10 horas.', v: 342 },
-    { u: '@LunaDeFerro', lv: 71, t: 'Na Alma de Aço, salve o banco antes de cada área nova. Parece óbvio, mas é onde mais gente perde o save.', v: 198 },
-    { u: '@b0ltz', lv: 64, t: 'Dá para fazer Banishment e Speedrun 2 no mesmo save sem perder tempo: Brumm fica no caminho.', v: 87 }
+    { u: '@Cacador_Joaquim', lv: 92, t: 'Para o Panteão de Hallownest, treinar só os últimos cinco chefes em sequência me poupou umas 10 horas.', v: 342 },
+    { u: '@Herbalista_Rosa', lv: 71, t: 'Na Alma de Aço, salve o banco antes de cada área nova. Parece óbvio, mas é onde mais gente perde o save.', v: 198 },
+    { u: '@Barqueiro_Tobias', lv: 64, t: 'Dá para fazer Banishment e Speedrun 2 no mesmo save sem perder tempo: Brumm fica no caminho.', v: 87 }
   ],
   revs: [
-    ['v3.2', 'Rota de speedrun revisada e dicas do Panteão de Hallownest ampliadas.', '@Nyx_Vortex, há 3 dias'],
-    ['v3.0', 'Guia reorganizado em 7 etapas e lista de coletáveis adicionada.', '@KairoBR, há 2 meses'],
-    ['v2.1', 'Correção sobre Ritual e Banishment serem excludentes.', '@b0ltz, há 5 meses'],
-    ['v1.0', 'Primeira versão publicada.', '@Nyx_Vortex, há 1 ano']
+    ['v3.2', 'Rota de speedrun revisada e dicas do Panteão de Hallownest ampliadas.', '@Escriba_Odete, há 3 dias'],
+    ['v3.0', 'Guia reorganizado em 7 etapas e lista de coletáveis adicionada.', '@Cacador_Joaquim, há 2 meses'],
+    ['v2.1', 'Correção sobre Ritual e Banishment serem excludentes.', '@Barqueiro_Tobias, há 5 meses'],
+    ['v1.0', 'Primeira versão publicada.', '@Escriba_Odete, há 1 ano']
   ]
 };
 const CATS = [['todas', 'Todas'], ['pendentes', 'Pendentes'], ['historia', 'História'], ['chefes', 'Chefes'], ['coletaveis', 'Coletáveis'], ['desafio', 'Desafio'], ['dlc', 'Expansões']];
@@ -1081,7 +1081,7 @@ function watchToc() {
 
 /* ---------- View: Ranking ---------- */
 let rankSkill = 'geral';
-const HANDLES = ['@BillyButcher', '@ZeroJimmy', '@MotocaGamer', '@Fuyushiro', '@urso', '@Nyx_Vortex', '@KairoBR', '@ValkyrieZero', '@LunaDeFerro', '@b0ltz', '@Pixelmancer', '@Morrigan77'];
+const HANDLES = ['@Ferreiro_Bastiao', '@Escudeiro_Tadeu', '@Mercador_Anselmo', '@Cronista_Iolanda', '@Lenhador_Bento', '@Escriba_Odete', '@Cacador_Joaquim', '@Guardia_Selene', '@Herbalista_Rosa', '@Barqueiro_Tobias', '@Alquimista_Damiao', '@Taverneira_Gerta'];
 function rankRows(skill) {
   const me = skill === 'geral' ? S.level : S.skills[skill].lv;
   const rows = HANDLES.map((h, i) => ({ h, lv: me + 40 - i * 4 + (i % 3), voc: VOCATIONS[i % VOCATIONS.length].name }));
