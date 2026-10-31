@@ -5,6 +5,7 @@ import { Prisma, type User } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { timeoutSignal } from "@/lib/integrations/http";
+import { normalizeEmail } from "./credentials";
 import { generateHandle } from "./upsert-user";
 
 /**
@@ -163,8 +164,10 @@ export async function exchangeGoogleCode(
 export type GoogleUpsertResult =
   | { ok: true; user: User }
   /** taken: this Google account belongs to another user; different: the logged-in account is
-   * already linked to another Google account (never replaced silently). */
-  | { ok: false; reason: "taken" | "different" };
+   * already linked to another Google account (never replaced silently); email_taken: logged
+   * out, and the Google e-mail is already the login of another Tralked account (it is never
+   * taken over by Google: that account logs in with its password and connects Google). */
+  | { ok: false; reason: "taken" | "different" | "email_taken" };
 
 const httpsOrUndefined = (url: string | undefined) => (url?.startsWith("https://") ? url : undefined);
 
@@ -181,8 +184,12 @@ export async function upsertUserFromGoogle(
   claims: GoogleClaims,
   sessionUserId: string | null,
 ): Promise<GoogleUpsertResult> {
-  const email = claims.emailVerified ? claims.email : undefined;
+  const email = claims.emailVerified && claims.email ? normalizeEmail(claims.email) : undefined;
   const owner = await prisma.user.findUnique({ where: { googleSub: claims.sub } });
+  // E-mails are unique logins: one that already belongs to an account is never copied to another.
+  const emailOwner = email
+    ? await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, select: { id: true } })
+    : null;
 
   if (sessionUserId) {
     if (owner && owner.id !== sessionUserId) return { ok: false, reason: "taken" };
@@ -194,7 +201,7 @@ export async function upsertUserFromGoogle(
       // instead of replacing it.
       const { count } = await prisma.user.updateMany({
         where: { id: sessionUserId, googleSub: null },
-        data: { googleSub: claims.sub, email: current.email ?? email },
+        data: { googleSub: claims.sub, email: current.email ?? (emailOwner ? undefined : email) },
       });
       if (count === 0) return { ok: false, reason: "different" };
     } catch (error) {
@@ -205,6 +212,7 @@ export async function upsertUserFromGoogle(
   }
 
   if (owner) return { ok: true, user: owner };
+  if (emailOwner) return { ok: false, reason: "email_taken" };
 
   const displayName = (claims.name ?? email?.split("@")[0] ?? "Leitor").slice(0, 60);
   const handle = await generateHandle(

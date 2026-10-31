@@ -31,6 +31,7 @@ import { SKILLS, type SkillId, type SkillState } from "../src/lib/engine/types";
 import { vocationFor } from "../src/lib/engine/vocation";
 import { dailyPeriodKey, weeklyPeriodKey } from "../src/lib/progression/periods";
 import { recomputeUser } from "../src/lib/progression/recompute";
+import { hashPassword } from "../src/lib/auth/password";
 import { recountAllArticleComments } from "../src/lib/community/comments";
 import { skillsFromLedger } from "../src/lib/progression/skills-from-ledger";
 import { markdownToBlocks } from "./seed-data/blocks";
@@ -51,6 +52,7 @@ import { ARTICLES, AUTHOR_HANDLES } from "./seed-data/news";
 import {
   FAMILY_MEMBER_HANDLES,
   LUCAS,
+  LUCAS_DEV_LOGIN,
   LUCAS_LEVEL,
   LUCAS_LEVEL_FRACTION,
   LUCAS_SKILLS,
@@ -128,6 +130,8 @@ function mustFind<T>(value: T | undefined | null, what: string): T {
 }
 
 export async function runSeed() {
+  // Hashed outside the transaction (scrypt takes a moment).
+  const lucasPasswordHash = await hashPassword(LUCAS_DEV_LOGIN.password);
   await prisma.$transaction(
     async (tx) => {
       // ---------- Users ----------
@@ -150,8 +154,14 @@ export async function runSeed() {
         })),
       ];
       for (const u of allUsers) {
+        // Only lucas can log in with e-mail + password; the others stay without credentials, like
+        // accounts of the old Steam login (reseeding resets an account recovered in a test).
+        const credentials =
+          u.handle === LUCAS.handle
+            ? { email: LUCAS_DEV_LOGIN.email, passwordHash: lucasPasswordHash, googleSub: null }
+            : { email: null, passwordHash: null, googleSub: null };
         // Seeded characters already have a history: their "Despertar" (first-sync sequence) was shown.
-        const data = { ...u, lastSyncedAt: hoursAgo(2), despertarShownAt: daysAgo(400) };
+        const data = { ...u, ...credentials, lastSyncedAt: hoursAgo(2), despertarShownAt: daysAgo(400) };
         const row = await tx.user.upsert({
           where: { handle: u.handle },
           create: data,

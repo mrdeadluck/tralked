@@ -53,5 +53,5 @@ export function timeAgo(date: Date, now: Date): string {
   return `há ${years} ${years === 1 ? "ano" : "anos"}`;
 }
 
-/** Steam login that brings the user back to `path` afterwards. */
-export const loginHref = (path: string) => `/api/auth/steam?returnTo=${encodeURIComponent(path)}`;
+/** The Tralked login page, coming back to `path` afterwards. */
+export const loginHref = (path: string) => `/entrar?returnTo=${encodeURIComponent(path)}`;

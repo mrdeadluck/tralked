@@ -27,7 +27,8 @@ const EXPECTED_LINKS = [
   ["Jogos", "/jogos"],
   ["Fórum", "/forum"],
   ["Galeria", "/galeria"],
-  ["Personagem", "/jogador/me"],
+  // Logged out, "Personagem" goes to the Tralked login, which comes back to the sheet.
+  ["Personagem", "/entrar?returnTo=%2Fjogador%2Fme"],
   ["Highscores", "/highscores"],
   ["Família", "/familia"],
 ] as const;
@@ -78,9 +79,15 @@ describe("Header", () => {
     ).not.toHaveAttribute("aria-current");
   });
 
-  it("shows a placeholder level when there is no user", () => {
+  it("offers an Entrar button to the Tralked login when there is no user (never Steam)", () => {
     render(<Header />);
-    expect(screen.getByText("NV —")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Entrar" })).toHaveAttribute("href", "/entrar?returnTo=%2Fjogador%2Fme");
+    expect(screen.queryByText(/Steam/)).not.toBeInTheDocument();
+  });
+
+  it("points Personagem at the user's own sheet when logged in", () => {
+    render(<Header user={USER} />);
+    expect(mainNav().getByRole("link", { name: "Personagem" })).toHaveAttribute("href", "/jogador/%40lucas");
   });
 
   it("shows the handle and level of the given user", () => {

@@ -3,6 +3,43 @@ import ownedGames from "./__fixtures__/owned-games.json";
 import player from "./__fixtures__/player.json";
 import type { SteamApi } from "./types";
 
+/**
+ * Offline public profiles read by the Steam connection check (code in the "Resumo"). Each code is
+ * fixed, so a test sets the pending link's code to it (as if the user had pasted it). They
+ * mirror the seed: `jogador-demo` is lucas's Steam (seeded with a password), `morrigan77` is
+ * Morrigan77's (an account of the old Steam login, without credentials).
+ */
+export const STEAM_FIXTURE_PROFILES = [
+  {
+    steamId: player.steamId,
+    vanity: "jogador-demo",
+    personaName: player.personaName,
+    summary: "Perfil de demonstração do Tralked. TRK-LUCAS2",
+    profilePublic: true,
+  },
+  {
+    steamId: "76561198000000042",
+    vanity: "tralked-teste",
+    personaName: "Tralked Teste",
+    summary: "Conta de teste do Tralked.<br>Código: TRK-STEAM2",
+    profilePublic: true,
+  },
+  {
+    steamId: "76561198000000043",
+    vanity: "perfil-fechado",
+    personaName: "Perfil Fechado",
+    summary: "",
+    profilePublic: false,
+  },
+  {
+    steamId: "76561198000001011",
+    vanity: "morrigan77",
+    personaName: "Morrigan77",
+    summary: "Jogando desde sempre. TRK-HERDA2",
+    profilePublic: true,
+  },
+] as const;
+
 /** Offline Steam adapter backed by JSON fixtures (Hollow Knight + the demo library). */
 export function createSteamFixture(): SteamApi {
   const hasData = (appId: number) => appId === hollowKnight.appId;

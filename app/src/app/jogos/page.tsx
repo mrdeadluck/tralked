@@ -83,7 +83,7 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
       ) : almost && !user ? (
         <p className="py-10 text-[15px] text-[#8A8D96]">
           <a href={loginHref(returnTo)} className="text-acc underline underline-offset-2">
-            Entre com a Steam
+            Entre
           </a>{" "}
           para ver os jogos em que você está perto do 100%.
         </p>

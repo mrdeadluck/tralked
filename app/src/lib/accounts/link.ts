@@ -1,15 +1,18 @@
 import { randomInt } from "node:crypto";
-import { Prisma } from "@/generated/prisma/client";
+import { Prisma, type LinkedAccount } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { parseSteamProfileInput, steamProfileHandle } from "@/lib/integrations/steam/profile-lookup";
 import { recomputeUser } from "@/lib/progression/recompute";
 import type { CodePlatform } from "@/lib/sync/platform-library";
-import { lookupProfile } from "./profiles";
+import { lookupProfile, type LinkPlatform, type PlatformProfile } from "./profiles";
 
 /**
- * Linking PSN, Xbox and RetroAchievements accounts (Exophase model). The user types their
- * handle, receives a temporary code, pastes it in the platform profile (PSN "Sobre mim", Xbox
- * bio, RA motto) and confirms; Tralked reads the public profile with its own service account.
- * The user never hands over a password or token.
+ * Linking Steam, PSN, Xbox and RetroAchievements accounts (Exophase model). The user types their
+ * handle (Steam: profile link, custom URL or SteamID64), receives a temporary code, pastes it in
+ * the platform profile (Steam "Resumo", PSN "Sobre mim", Xbox bio, RA motto) and confirms;
+ * Tralked reads the public profile (with its own service account where the platform needs one).
+ * The user never hands over a password or token. Steam's confirmation also fills User.steamId
+ * and may recover an account of the old Steam login: see ./steam-link.ts.
  *
  * Anti-squatting: a pending link does not reserve the platform account. While pending (or after
  * an unlink), the user's own row (unique per user and platform) holds a placeholder externalId
@@ -39,6 +42,19 @@ export const HANDLE_PATTERNS: Record<CodePlatform, RegExp> = {
   // RetroAchievements username.
   retro: /^[A-Za-z0-9_]{2,32}$/,
 };
+
+/**
+ * The handle as stored while the link is pending, or null when the platform cannot have it.
+ * A Steam profile link is reduced to its SteamID64 or custom URL name.
+ */
+export function normalizeLinkHandle(platform: LinkPlatform, handle: string): string | null {
+  if (platform === "steam") {
+    const ref = parseSteamProfileInput(handle);
+    return ref ? steamProfileHandle(ref) : null;
+  }
+  const trimmed = handle.trim();
+  return HANDLE_PATTERNS[platform].test(trimmed) ? trimmed : null;
+}
 
 export type TooSoon = { ok: false; reason: "too_soon"; retryAfterSec: number };
 
@@ -98,12 +114,12 @@ export function containsCode(text: string, code: string): boolean {
  */
 export async function startLink(
   userId: string,
-  platform: CodePlatform,
+  platform: LinkPlatform,
   handle: string,
   now: Date = new Date(),
 ): Promise<StartLinkResult> {
-  const trimmed = handle.trim();
-  if (!HANDLE_PATTERNS[platform].test(trimmed)) return { ok: false, reason: "invalid_handle" };
+  const trimmed = normalizeLinkHandle(platform, handle);
+  if (!trimmed) return { ok: false, reason: "invalid_handle" };
 
   const rows = await prisma.linkedAccount.findMany({ where: { userId } });
   const existing = rows.find((r) => r.platform === platform);
@@ -139,16 +155,21 @@ export async function startLink(
 const isUniqueViolation = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 
+export type PendingCodeCheck =
+  | { ok: true; pending: LinkedAccount; profile: PlatformProfile }
+  | { ok: false; reason: "expired" | "not_found" | "code_missing" | "private" }
+  | TooSoon;
+
 /**
- * Checks the pending link: the profile must exist, show the code, belong to nobody else and
- * have its trophies/achievements visible. On success the link is verified and the real
- * platform id is stored.
+ * First half of a confirmation (shared with Steam): the pending code must still be valid, the
+ * per-link cooldown free, and the profile must exist and show the code. A Steam profile that
+ * is private does not show its "Resumo" at all, so a missing code there is reported as private.
  */
-export async function confirmLink(
+export async function checkPendingCode(
   userId: string,
-  platform: CodePlatform,
+  platform: LinkPlatform,
   now: Date = new Date(),
-): Promise<ConfirmLinkResult> {
+): Promise<PendingCodeCheck> {
   const pending = await prisma.linkedAccount.findUnique({
     where: { userId_platform: { userId, platform } },
   });
@@ -176,7 +197,25 @@ export async function confirmLink(
 
   const profile = await lookupProfile(platform, pending.handle);
   if (!profile) return { ok: false, reason: "not_found" };
-  if (!containsCode(profile.text, pending.verifyCode)) return { ok: false, reason: "code_missing" };
+  if (!containsCode(profile.text, pending.verifyCode)) {
+    return { ok: false, reason: platform === "steam" && profile.isPrivate ? "private" : "code_missing" };
+  }
+  return { ok: true, pending, profile };
+}
+
+/**
+ * Checks the pending link: the profile must exist, show the code, belong to nobody else and
+ * have its trophies/achievements visible. On success the link is verified and the real
+ * platform id is stored.
+ */
+export async function confirmLink(
+  userId: string,
+  platform: CodePlatform,
+  now: Date = new Date(),
+): Promise<ConfirmLinkResult> {
+  const check = await checkPendingCode(userId, platform, now);
+  if (!check.ok) return check;
+  const { pending, profile } = check;
 
   const owner = await prisma.linkedAccount.findUnique({
     where: { platform_externalId: { platform, externalId: profile.externalId } },
@@ -214,7 +253,7 @@ export async function confirmLink(
  * back to "Não conectada". The row stays (placeholder externalId) so the start limit still counts.
  * Returns false when there is no unconfirmed link to cancel.
  */
-export async function cancelPendingLink(userId: string, platform: CodePlatform): Promise<boolean> {
+export async function cancelPendingLink(userId: string, platform: LinkPlatform): Promise<boolean> {
   const { count } = await prisma.linkedAccount.updateMany({
     where: { userId, platform, verifiedAt: null, verifyCode: { not: null } },
     data: { verifyCode: null, verifyExpiresAt: null },
@@ -228,11 +267,12 @@ export async function cancelPendingLink(userId: string, platform: CodePlatform):
  * platform's library rows and valid unlocks are removed, and its ledger entries are voided
  * (never deleted): relinking the same account later does not pay those unlocks again, while
  * another user who proves ownership is paid normally. Suspicious unlocks are kept, so fraud
- * history survives. Returns false when the platform was not linked.
+ * history survives. Disconnecting Steam also clears User.steamId (the Steam sync stops).
+ * Returns false when the platform was not linked.
  */
 export async function unlink(
   userId: string,
-  platform: CodePlatform,
+  platform: LinkPlatform,
   now: Date = new Date(),
 ): Promise<boolean> {
   const removed = await prisma.$transaction(async (tx) => {
@@ -258,6 +298,7 @@ export async function unlink(
       where: { userId, suspicious: false, achievement: { platform } },
     });
     await tx.userGame.deleteMany({ where: { userId, platform } });
+    if (platform === "steam") await tx.user.update({ where: { id: userId }, data: { steamId: null, lastSyncedAt: null } });
     return true;
   });
   if (removed) await recomputeUser(userId, now);

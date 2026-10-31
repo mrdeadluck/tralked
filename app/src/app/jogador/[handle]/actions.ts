@@ -24,7 +24,7 @@ const PRIVATE_PROFILE_ERROR =
 /** Syncs the logged-in user's Steam achievements. Rate-limited to one run per 2 minutes. */
 export async function syncNow(): Promise<SyncNowResult> {
   const user = await getSessionUser();
-  if (!user) return { ok: false, error: "Entre com a Steam para sincronizar." };
+  if (!user) return { ok: false, error: "Entre na sua conta para sincronizar." };
 
   try {
     if (!(await claimSyncSlot(user.id))) {

@@ -53,10 +53,10 @@ export function DailyQuestCard({
               Missões diárias rendem XP extra.
             </p>
             <NavLink
-              href="/api/auth/steam"
+              href="/entrar?returnTo=%2F"
               className="font-mono text-[11px] font-bold tracking-[0.1em] text-acc uppercase"
             >
-              Entre com a Steam para receber missões →
+              Entre para receber missões →
             </NavLink>
           </>
         )}

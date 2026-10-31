@@ -1,5 +1,5 @@
 /**
- * Imports a public Steam profile the way a Steam login + first sync would, without the login:
+ * Imports a public Steam profile the way the old Steam login + first sync did, without any login:
  * creates (or refreshes) the user by SteamID64, links the Steam account and runs the regular
  * sync. Without an API key the sync probes the catalog's games one by one (run the catalog
  * bootstrap first), keeping games with at least one unlock and Steam's real unlock times.
@@ -59,7 +59,7 @@ if (!summary.profilePublic) {
   process.exit(1);
 }
 
-// Same path as a Steam login, so a later real login lands on this very user.
+// Keyed by SteamID64: connecting this Steam later (code in the Resumo) recovers this very user.
 const user = await upsertUserFromSteam(steamId);
 if (values.admin && user.role !== "admin") {
   await prisma.user.update({ where: { id: user.id }, data: { role: "admin" } });

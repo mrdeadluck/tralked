@@ -5,7 +5,7 @@ import { getSteam } from "@/lib/integrations";
 const MAX_HANDLE_LENGTH = 20;
 const FALLBACK_HANDLE = "jogador";
 // `/jogador/me` is a route alias, so "me" can never be a real handle.
-const RESERVED_HANDLES = new Set(["me"]);
+export const RESERVED_HANDLES: ReadonlySet<string> = new Set(["me"]);
 
 /** Lowercase ASCII `[a-z0-9_]`, at most 20 chars. */
 export function slugifyPersonaName(personaName: string): string {
@@ -49,9 +49,9 @@ export async function generateHandle(
 }
 
 /**
- * Creates the user on first login; refreshes Steam profile data afterwards. The Steam account
- * is mirrored in a verified LinkedAccount (OpenID already proved ownership), kept in sync with
- * the persona name on every login.
+ * Creates (or refreshes) a user by SteamID64, as the old Steam login did; now only used by
+ * `pnpm steam:import`. Steam connections of signed-up users go through lib/accounts/steam-link.ts.
+ * The Steam account is mirrored in a verified LinkedAccount, kept in sync with the persona name.
  */
 export async function upsertUserFromSteam(steamId: string, now: Date = new Date()): Promise<User> {
   const summary = await getSteam().getPlayerSummary(steamId);

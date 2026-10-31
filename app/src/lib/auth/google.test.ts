@@ -165,6 +165,20 @@ describe.skipIf(!reachable)("upsertUserFromGoogle", () => {
     expect(result).toMatchObject({ ok: true, user: { email: null } });
   });
 
+  it("never creates or fills a second account with an e-mail that is already someone's login", async () => {
+    const { prisma } = await import("@/lib/db");
+    await prisma.user.create({
+      data: { handle: "test_google_dona", displayName: "Dona", email: "dona@example.com", passwordHash: "scrypt$x" },
+    });
+    await expect(
+      upsertUserFromGoogle({ sub: `${SUB_PREFIX}5`, email: "Dona@Example.com", emailVerified: true, name: "Dona" }, null),
+    ).resolves.toEqual({ ok: false, reason: "email_taken" });
+
+    const other = await prisma.user.create({ data: { handle: "test_google_outra", displayName: "Outra" } });
+    const linked = await upsertUserFromGoogle({ sub: `${SUB_PREFIX}6`, email: "dona@example.com", emailVerified: true }, other.id);
+    expect(linked).toMatchObject({ ok: true, user: { id: other.id, googleSub: `${SUB_PREFIX}6`, email: null } });
+  });
+
   it("links Google to the logged-in account, and refuses a Google account owned by someone else", async () => {
     const { prisma } = await import("@/lib/db");
     const steamUser = await prisma.user.create({ data: { handle: "test_google_steam", displayName: "Steam" } });

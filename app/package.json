@@ -14,6 +14,7 @@
     "db:generate": "prisma generate",
     "catalog:bootstrap": "tsx scripts/catalog-bootstrap.ts",
     "steam:import": "tsx scripts/import-steam-profile.ts",
+    "user:invite": "tsx scripts/invite-user.ts",
     "comments:recount": "tsx scripts/recount-article-comments.ts",
     "postinstall": "prisma generate",
     "test:db": "vitest run src/lib/db.test.ts",

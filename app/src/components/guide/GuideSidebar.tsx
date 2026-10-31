@@ -91,7 +91,7 @@ export function GuideSidebar({ guide, loggedIn, returnTo, pending = false }: Gui
         ) : (
           <p className="pt-3.5 text-sm text-muted">
             <a href={loginHref(returnTo)} className="text-acc underline underline-offset-2">
-              Entre com a Steam
+              Entre
             </a>{" "}
             para ver seu progresso neste jogo e quanto XP as conquistas pendentes valem.
           </p>

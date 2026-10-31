@@ -7,7 +7,7 @@ import { FamilyRanking } from "@/components/family/FamilyRanking";
 import { CreateFamilyForm } from "@/components/family/CreateFamilyForm";
 import { InvitePanel } from "@/components/family/InvitePanel";
 import { LeaveFamilyButton } from "@/components/family/LeaveFamilyButton";
-import { SteamLoginLink } from "@/components/family/SteamLoginLink";
+import { LoginLink } from "@/components/account/LoginLink";
 import { Card } from "@/components/ui/Card";
 import { SectionHead } from "@/components/ui/SectionHead";
 import { getSessionUser } from "@/lib/auth/session";
@@ -61,7 +61,7 @@ async function FamiliaContent() {
             ranking do grupo e o que está perto do 100%. Funciona por link de convite, sem mexer na Família
             Steam e sem pedir senha da Steam.
           </p>
-          <SteamLoginLink returnTo="/familia" />
+          <LoginLink returnTo="/familia" />
         </Card>
       </Intro>
     );

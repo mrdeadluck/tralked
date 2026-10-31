@@ -1,7 +1,7 @@
 import type { TrophyTier } from "@/lib/engine/trophies";
 import { getPsn, getRetro, getXbox } from "@/lib/integrations";
 
-/** Platforms linked by verification code (Steam comes from OpenID and has its own sync). */
+/** Platforms imported by the platform sync (Steam is linked by code too, but has its own sync: lib/sync/user.ts). */
 export type CodePlatform = "psn" | "xbox" | "retro";
 export const CODE_PLATFORMS: readonly CodePlatform[] = ["psn", "xbox", "retro"];
 

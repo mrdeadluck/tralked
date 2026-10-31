@@ -35,7 +35,7 @@ export default function TermosPage() {
 
       <LegalSection id="conta" title="Sua conta">
         <ul>
-          <li>Você entra com a Steam ou com o Google e é responsável pelo que for feito com a sua conta.</li>
+          <li>Você entra com o e-mail e a senha da sua conta do Tralked (ou com o Google, se o conectar), guarda a senha com você e é responsável pelo que for feito com a sua conta.</li>
           <li>Só conecte contas de jogo que são suas. Vincular a conta de outra pessoa é proibido.</li>
           <li>Conquistas obtidas com trapaça podem ser anuladas, e o XP correspondente sai da ficha.</li>
           <li>

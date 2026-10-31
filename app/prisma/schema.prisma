@@ -40,11 +40,16 @@ datasource db {
 
 model User {
   id                String    @id @default(cuid())
-  /// Steam account (also mirrored in LinkedAccount). Null for accounts created through Google.
+  /// Steam account, set when the Steam connection is verified (code in the profile summary) and
+  /// mirrored in LinkedAccount; the Steam sync reads it. Null until Steam is connected.
   steamId           String?   @unique
-  /// Google OpenID `sub` (login of readers; may be linked to an existing account).
+  /// Google OpenID `sub` (optional login; may be linked to an existing account).
   googleSub         String?   @unique
-  email             String?
+  /// Login e-mail, stored trimmed and lowercased. Unique when present (NULLs never collide).
+  email             String?   @unique
+  /// Tralked password: `scrypt$N$r$p$salt$hash` (lib/auth/password.ts). Null for accounts that
+  /// never set one (Google-only accounts, and legacy accounts created by the old Steam login).
+  passwordHash      String?
   bio               String?
   handle            String    @unique
   displayName       String
@@ -88,11 +93,27 @@ model User {
   photoLikes     PhotoLike[]
   apiKeys        ApiKey[]
   notifications  Notification[]
+  passwordResets PasswordResetToken[]
+}
+
+/// A "set a new password" link (forgot password, or `pnpm user:invite`). Only the SHA-256 of the
+/// random token is stored; the token is single-use (`usedAt`) and expires after an hour.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 /// A gaming account linked to a user. Ownership is proven by pasting `verifyCode` in the
-/// platform profile (PSN/Xbox "about me", RA motto) before `verifyExpiresAt`; `verifiedAt` set
-/// means verified. Steam accounts come from OpenID and are verified on creation.
+/// platform profile (Steam "Resumo", PSN/Xbox "about me", RA motto) before `verifyExpiresAt`;
+/// `verifiedAt` set means verified. Steam rows of accounts created by the old Steam login (OpenID)
+/// were verified on creation.
 /// A pending or unlinked (unverified) row stores `pending:<userId>[:<recent link start times,
 /// base36 ms>]` as externalId, so it never reserves the platform account; the real id is written
 /// on confirmation. `lastSyncAttemptAt` also holds the last confirmation attempt (cooldown).

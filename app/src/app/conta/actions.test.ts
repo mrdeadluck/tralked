@@ -8,6 +8,8 @@ const redirect = vi.fn(() => {
 });
 const deleteAccount = vi.fn();
 const updateProfileSettings = vi.fn();
+const changeEmail = vi.fn();
+const changePassword = vi.fn();
 
 vi.mock("@/lib/auth/session", () => ({ getSessionUser, destroySession }));
 vi.mock("next/cache", async (importOriginal) => ({
@@ -21,7 +23,19 @@ vi.mock("@/lib/accounts/settings", async (importOriginal) => ({
   updateProfileSettings,
 }));
 
-const { deleteAccountAction, updateProfileAction } = await import("./actions");
+vi.mock("@/lib/auth/credentials", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/credentials")>()),
+  changeEmail,
+  changePassword,
+}));
+
+const { changeEmailAction, changePasswordAction, deleteAccountAction, updateProfileAction } = await import("./actions");
+
+function form(fields: Record<string, string>) {
+  const data = new FormData();
+  for (const [key, value] of Object.entries(fields)) data.set(key, value);
+  return data;
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -83,5 +97,38 @@ describe("deleteAccountAction", () => {
     expect(await deleteAccountAction({ confirmation: "EXCLUIR" })).toMatchObject({ ok: false });
     expect(destroySession).not.toHaveBeenCalled();
     error.mockRestore();
+  });
+});
+
+describe("changeEmailAction / changePasswordAction", () => {
+  it("need a session and valid fields", async () => {
+    getSessionUser.mockResolvedValueOnce(null);
+    expect(await changeEmailAction({}, form({ email: "eu@exemplo.com" }))).toMatchObject({ message: expect.any(String) });
+    expect(await changeEmailAction({}, form({ email: "nao-e-email" }))).toMatchObject({ errors: { email: "Informe um e-mail válido." } });
+    expect(await changePasswordAction({}, form({ password: "curta", confirm: "curta" }))).toMatchObject({
+      errors: { password: expect.stringContaining("8 caracteres") },
+    });
+    expect(await changePasswordAction({}, form({ password: "senha nova 1", confirm: "senha nova 2" }))).toMatchObject({
+      errors: { confirm: "As senhas não são iguais." },
+    });
+    expect(changeEmail).not.toHaveBeenCalled();
+    expect(changePassword).not.toHaveBeenCalled();
+  });
+
+  it("change only the logged-in user's credentials, checking the current password", async () => {
+    changeEmail.mockResolvedValueOnce({ ok: true });
+    expect(await changeEmailAction({}, form({ email: " Eu@Exemplo.com ", current: "atual", userId: "outro" }))).toMatchObject({ done: true });
+    expect(changeEmail).toHaveBeenCalledWith("u1", "eu@exemplo.com", "atual");
+
+    changePassword.mockResolvedValueOnce({ ok: false, reason: "wrong_password" });
+    expect(await changePasswordAction({}, form({ current: "errada", password: "senha nova 1", confirm: "senha nova 1" }))).toEqual({
+      errors: { current: "A senha atual não confere." },
+    });
+    expect(changePassword).toHaveBeenCalledWith("u1", "errada", "senha nova 1");
+
+    changeEmail.mockResolvedValueOnce({ ok: false, reason: "email_taken" });
+    expect(await changeEmailAction({}, form({ email: "dele@exemplo.com" }))).toMatchObject({
+      errors: { email: "Esse e-mail já é usado por outra conta." },
+    });
   });
 });

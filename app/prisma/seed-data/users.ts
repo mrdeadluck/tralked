@@ -47,6 +47,13 @@ export const LUCAS_LEVEL = 47;
 /** Fraction of level 48's XP gap already earned (preview: 88%). */
 export const LUCAS_LEVEL_FRACTION = 0.88;
 
+/**
+ * Development-only login of the demo admin (`/entrar`). Documented in the README; never use it
+ * outside a local database. The other seeded users have no credentials, like the accounts of the
+ * old Steam login (they can be recovered by connecting their Steam, see lib/accounts/steam-link.ts).
+ */
+export const LUCAS_DEV_LOGIN = { email: "lucas@tralked.dev", password: "tralked-dev-lucas" } as const;
+
 export const LUCAS = {
   handle: "lucas",
   displayName: "Lucas",

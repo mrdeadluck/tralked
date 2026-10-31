@@ -44,7 +44,11 @@ export async function GET(request: NextRequest) {
   }
   if (!result.ok) {
     return redirectTo(
-      result.reason === "different" ? "/conta/conexoes?erro=google_diferente" : "/?login=google_em_uso",
+      result.reason === "different"
+        ? "/conta/conexoes?erro=google_diferente"
+        : result.reason === "email_taken"
+          ? "/entrar?erro=google_email"
+          : "/?login=google_em_uso",
     );
   }
 

@@ -5,7 +5,6 @@ import { AccountLogin } from "@/components/account/AccountLogin";
 import { PageHead } from "@/components/community/PageHead";
 import { Pager, pageParam } from "@/components/community/Pager";
 import { MarkAllReadButton } from "@/components/layout/MarkAllReadButton";
-import { googleLoginEnabled } from "@/lib/auth/google";
 import { getSessionUser } from "@/lib/auth/session";
 import { getInbox, type NotificationView } from "@/lib/notifications/inbox";
 import { NOTIFICATION_RETENTION_DAYS } from "@/lib/notifications/retention";
@@ -33,7 +32,7 @@ export default function NotificacoesPage({ searchParams }: PageProps<"/notificac
 
 async function Inbox({ searchParams }: { searchParams: PageProps<"/notificacoes">["searchParams"] }) {
   const user = await getSessionUser();
-  if (!user) return <AccountLogin returnTo="/notificacoes" google={googleLoginEnabled()} />;
+  if (!user) return <AccountLogin returnTo="/notificacoes" />;
 
   const { pagina } = await searchParams;
   const inbox = await getInbox(user.id, pageParam(pagina));

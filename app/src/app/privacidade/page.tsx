@@ -14,7 +14,6 @@ export const metadata: Metadata = {
 
 const COOKIES = [
   { name: "gl_session", kind: "Necessário", what: "Mantém você conectado (assinado, não guarda dados pessoais).", lasts: "30 dias" },
-  { name: "gl_oid_state", kind: "Necessário", what: "Protege o login com a Steam contra falsificação.", lasts: "10 minutos" },
   { name: "gl_google_oauth", kind: "Necessário", what: "Protege o login com o Google contra falsificação.", lasts: "10 minutos" },
   { name: "tk_consent", kind: "Necessário", what: "Lembra a sua escolha sobre cookies opcionais.", lasts: "1 ano" },
 ];
@@ -43,11 +42,16 @@ export default function PrivacidadePage() {
       </LegalSection>
 
       <LegalSection id="contas" title="Conta e login">
-        <p>Quando você entra, guardamos o mínimo para identificar a conta:</p>
+        <p>Guardamos o mínimo para identificar a conta:</p>
         <ul>
           <li>
-            <strong>Steam:</strong> o SteamID64, o nome e o avatar do perfil e se ele é público. A Steam
-            confirma que a conta é sua; ela nunca nos envia a sua senha.
+            <strong>E-mail e senha:</strong> o e-mail com que você entra e a senha só em forma de hash
+            (scrypt, com sal próprio): nem a equipe consegue ler a sua senha. Links de &quot;esqueci a
+            senha&quot; valem 1 hora e também são guardados só em hash.
+          </li>
+          <li>
+            <strong>Steam:</strong> o SteamID64, o nome e o avatar do perfil e se ele é público. Você prova
+            que a conta é sua colando um código no Resumo do perfil; a Steam nunca nos envia a sua senha.
           </li>
           <li>
             <strong>Google:</strong> o identificador da conta, o nome, a foto e o e-mail (quando verificado

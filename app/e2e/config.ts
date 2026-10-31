@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
@@ -21,6 +23,12 @@ const DEFAULT_DATABASE_URL = "postgresql://gamelog:gamelog@localhost:5433/gamelo
 
 /** Signs the e2e server's session cookies (flow tests sign their own to act as any seeded user). */
 export const E2E_SESSION_SECRET = "e2e-session-secret-with-at-least-32-chars";
+
+/**
+ * Where the e2e server also writes its "set your password" links (DEV_MAIL_LOG_FILE, honored only
+ * outside production), so the password-reset flow can follow the link it printed.
+ */
+export const MAIL_LOG_FILE = path.join(os.tmpdir(), `tralked-e2e-mail-${PORT}.log`);
 
 /** The development servers' databases: e2e writes (comments, keys, intros), so never these. */
 const FORBIDDEN_DATABASES = new Set(["gamelog", "gamelog_dev"]);
@@ -90,6 +98,7 @@ export function createConfig(mode: E2EMode) {
         IGDB_CLIENT_SECRET: "",
         RAWG_API_KEY: "",
         SGDB_API_KEY: "",
+        DEV_MAIL_LOG_FILE: MAIL_LOG_FILE,
       },
     },
   });

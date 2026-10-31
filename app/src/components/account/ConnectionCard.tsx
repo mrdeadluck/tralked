@@ -10,7 +10,7 @@ import {
   unlinkAction,
 } from "@/lib/accounts/actions";
 import { ConnectionShell, type ConnectionTone } from "./ConnectionShell";
-import { PLATFORM_GUIDES, type CodePlatform } from "./platform-guides";
+import { PLATFORM_GUIDES, type LinkPlatform } from "./platform-guides";
 
 export type ConnectionCardState =
   | { kind: "disconnected"; expiredHandle: string | null }
@@ -28,7 +28,8 @@ type Notice = { tone: "ok" | "error"; text: string };
 /** How often a card with an import in progress asks the server for the new state. */
 const IMPORT_POLL_MS = 5000;
 
-const PLATFORM_COLOR: Record<CodePlatform, string> = {
+const PLATFORM_COLOR: Record<LinkPlatform, string> = {
+  steam: "var(--pc)",
   psn: "var(--ps)",
   xbox: "var(--xbox)",
   retro: "var(--r-epico)",
@@ -51,10 +52,10 @@ const INPUT =
   "h-11 w-full max-w-[320px] rounded-[2px] border border-line-2 bg-bg px-3 text-[16px] text-text focus:border-text";
 
 /**
- * PSN / Xbox / RetroAchievements card: link with a code pasted in the platform profile
+ * Steam / PSN / Xbox / RetroAchievements card: link with a code pasted in the platform profile
  * (Exophase model), confirm, sync now and unlink with an inline confirmation.
  */
-export function ConnectionCard({ platform, state }: { platform: CodePlatform; state: ConnectionCardState }) {
+export function ConnectionCard({ platform, state }: { platform: LinkPlatform; state: ConnectionCardState }) {
   const guide = PLATFORM_GUIDES[platform];
   const router = useRouter();
   const id = useId();
@@ -97,9 +98,17 @@ export function ConnectionCard({ platform, state }: { platform: CodePlatform; st
           onConfirm={() =>
             run(async () => {
               const result = await confirmLinkAction({ platform });
-              return result.ok
-                ? { tone: "ok", text: `${result.handle} conectada. Estamos importando seus troféus; você já pode apagar o código do perfil.` }
-                : { tone: "error", text: result.error };
+              if (!result.ok) return { tone: "error", text: result.error };
+              // The Steam belonged to an account of the old Steam login: this session is now that
+              // account's, and the page says so.
+              if (result.recovered) {
+                router.push("/conta/conexoes?historico=1");
+                return null;
+              }
+              return {
+                tone: "ok",
+                text: `${result.handle} conectada. Estamos importando suas ${guide.unlocks}; você já pode apagar o código do perfil.`,
+              };
             })
           }
           onNewCode={() =>
@@ -164,7 +173,7 @@ function StartForm({
   onStart,
 }: {
   id: string;
-  platform: CodePlatform;
+  platform: LinkPlatform;
   defaultHandle: string;
   expired: boolean;
   busy: boolean;
@@ -188,7 +197,7 @@ function StartForm({
           id={`${id}-handle`}
           name="handle"
           required
-          maxLength={40}
+          maxLength={guide.maxLength}
           defaultValue={defaultHandle}
           placeholder={guide.placeholder}
           autoComplete="off"
@@ -213,7 +222,7 @@ function PendingSteps({
   onNewCode,
   onCancel,
 }: {
-  platform: CodePlatform;
+  platform: LinkPlatform;
   state: Extract<ConnectionCardState, { kind: "pending" }>;
   busy: boolean;
   onConfirm: () => void;
@@ -321,7 +330,7 @@ function Connected({
   onSync,
   onUnlink,
 }: {
-  platform: CodePlatform;
+  platform: LinkPlatform;
   state: Extract<ConnectionCardState, { kind: "connected" }>;
   busy: boolean;
   onSync: () => void;
@@ -353,7 +362,7 @@ function Connected({
   const syncLine = state.failed
     ? `A última importação não terminou. Confira se o perfil está público. ${guide.privacy}`
     : state.importing
-      ? "Importando seus troféus… isso pode levar alguns minutos."
+      ? `Importando suas ${guide.unlocks}… isso pode levar alguns minutos.`
       : state.lastSyncedLabel
         ? `Última sincronização: ${state.lastSyncedLabel}.`
         : "Ainda não sincronizada.";

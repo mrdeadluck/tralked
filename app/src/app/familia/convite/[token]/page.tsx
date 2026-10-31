@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { AcceptInviteButton } from "@/components/family/AcceptInviteButton";
 import { FamilyMembers } from "@/components/family/FamilyMembers";
-import { SteamLoginLink } from "@/components/family/SteamLoginLink";
+import { LoginLink } from "@/components/account/LoginLink";
 import { Card } from "@/components/ui/Card";
 import { SectionHead } from "@/components/ui/SectionHead";
 import { getSessionUser } from "@/lib/auth/session";
@@ -67,9 +67,9 @@ async function ConviteContent({ params }: { params: Promise<{ token: string }> }
           </h3>
           <p className="text-muted">
             A Família Tralked junta as bibliotecas Steam dos membros: quem tem cada jogo, ranking do grupo e
-            o que está perto do 100%. Entre com a Steam para aceitar o convite. Não pedimos senha da Steam.
+            o que está perto do 100%. Entre (ou crie a sua conta) para aceitar o convite. Não pedimos senha da Steam.
           </p>
-          <SteamLoginLink returnTo={`/familia/convite/${token}`} />
+          <LoginLink returnTo={`/familia/convite/${token}`} />
         </Card>
       </div>
     );

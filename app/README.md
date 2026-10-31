@@ -20,16 +20,18 @@ pnpm db:seed             # catálogo de exemplo: jogos, guias, notícias e usuá
 pnpm dev                 # http://localhost:3000
 ```
 
-### Login de demonstração
+### Entrar em desenvolvimento
 
-Em desenvolvimento, abra `http://localhost:3000/api/auth/demo`. A rota cria uma sessão como o usuário seed `lucas` e redireciona para `/jogador/lucas`.
+A conta é do próprio Tralked: e-mail + senha em `/entrar` (criar conta em `/cadastrar`). O seed dá ao admin `lucas` um e-mail e uma senha **só de desenvolvimento**, definidos em `prisma/seed-data/users.ts` (`LUCAS_DEV_LOGIN`); os outros usuários do seed não têm credenciais. Nunca use essas credenciais fora de um banco local.
 
-A rota só existe fora de produção (`NODE_ENV !== "production"`) e responde 404 quando `STEAM_API_KEY` está configurada, caso em que o login real é feito pela Steam (`/api/auth/steam`).
+Atalho: `http://localhost:3000/api/auth/demo` cria uma sessão como `lucas` e redireciona para `/jogador/lucas`. A rota só existe fora de produção (`NODE_ENV !== "production"`) e responde 404 quando `STEAM_API_KEY` está configurada.
 
 ## Contas e papéis
 
-- **Login**: Steam (OpenID, com `STEAM_API_KEY`) e Google (com `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`). Sem chaves, só o login de demonstração acima. O Tralked nunca pede senha nem token de sessão de ninguém.
-- **Contas vinculadas** (`/conta/conexoes`): PSN, Xbox e RetroAchievements pelo modelo Exophase. O jogador digita o ID, recebe um código `TRK-XXXXXX` (vale 30 min), cola no "Sobre mim"/bio/lema do perfil e confirma; o Tralked lê o perfil público com a conta de serviço. Código ausente, expirado ou conta já vinculada a outra pessoa são recusados com mensagem clara. Em desenvolvimento os perfis vêm das fixtures (`src/lib/integrations/{psn,xbox,retro}/fixture.ts`).
+- **Login**: conta do Tralked, com **e-mail + senha** (`/entrar`, `/cadastrar`; sessão no cookie `gl_session`). A senha é guardada só como hash scrypt (`src/lib/auth/password.ts`); o login responde "E-mail ou senha incorretos" igual para e-mail desconhecido e senha errada, e limita tentativas por IP e por e-mail (em memória, por instância). Google é opcional (com `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`), em `/entrar` e como conexão. **Não existe mais login pela Steam**: a Steam é uma conexão. O Tralked nunca pede senha nem token de outros serviços (Steam, PSN, Xbox, Google); a única senha é a do próprio Tralked.
+- **Esqueci a senha** (`/esqueci-senha` → `/redefinir-senha?token=`): a resposta é sempre a mesma; o link vale 1 h, funciona uma vez e o banco guarda só o hash do token. Sem provedor de e-mail ainda, **fora de produção o link sai no console do servidor** (`[senha] Link para definir a senha de …`); em produção nada é impresso (use `pnpm user:invite`). Com `DEV_MAIL_LOG_FILE` definido (os e2e definem), o link também é gravado nesse arquivo, só fora de produção. E-mail e senha se trocam em `/conta`.
+- **Contas vinculadas** (`/conta/conexoes`): Steam, PSN, Xbox e RetroAchievements pelo modelo Exophase. O jogador informa o perfil (Steam: link do perfil, nome personalizado ou SteamID64), recebe um código `TRK-XXXXXX` (vale 30 min), cola no "Resumo" (Steam), "Sobre mim" (PSN), bio (Xbox) ou lema (RA) e confirma; o Tralked lê o perfil público (Steam: `steamcommunity.com/profiles/<id>?xml=1`, campo `<summary>`; as demais com a conta de serviço). Código ausente, expirado, perfil privado ou conta já vinculada a outra pessoa são recusados com mensagem clara. A Steam conectada preenche `User.steamId` e a sincronização começa em segundo plano. Em desenvolvimento os perfis vêm das fixtures (`src/lib/integrations/steam/fixture.ts` → `STEAM_FIXTURE_PROFILES`, e `src/lib/integrations/{psn,xbox,retro}/fixture.ts`).
+- **Contas antigas (do login Steam)**: quem entrava pela Steam (ex.: `mrdead`, `diguzz`) tem conta sem e-mail e sem senha. Ao criar uma conta nova e conectar a mesma Steam, o Tralked "recupera o histórico": o e-mail/senha passam para a conta antiga (que mantém @, XP, conquistas e papel), a conta nova (ainda vazia) é apagada e a sessão muda para a antiga. Se a conta antiga já tem senha ou Google, é recusado como "já vinculada". Para dar acesso direto a uma conta antiga (ex.: o admin): `DATABASE_URL=... APP_URL=... pnpm user:invite <handle> <email>` grava o e-mail e imprime um link de "definir senha" (o mesmo de "esqueci a senha", 1 h, uso único).
 - **Papéis**: `user`, `author`, `editor` (notícias, guias, revisão e moderação) e `admin` (também fraude, jogos, robôs, feeds e usuários). No seed, `lucas` é admin, `Fuyushiro` é editor e `Nyx_Vortex` é autor. Quem não tem o papel recebe 404 em `/admin` (no `src/proxy.ts`, antes de renderizar) e as Server Actions conferem o papel de novo.
 - **Conta e LGPD** (`/conta`): perfil, privacidade, exportação dos dados (`/conta/exportar`) e exclusão da conta.
 
@@ -52,8 +54,8 @@ Copie `.env.example` para `.env`. Em desenvolvimento todas as obrigatórias têm
 | `DATABASE_URL` | obrigatória | Conexão Postgres. Padrão local: `postgresql://gamelog:gamelog@localhost:5433/gamelog`. |
 | `SESSION_SECRET` | obrigatória | Segredo (>= 32 caracteres) que assina o cookie de sessão. |
 | `CRON_SECRET` | obrigatória | Token Bearer exigido pelos endpoints de cron. |
-| `APP_URL` | obrigatória | URL pública do app (ex.: `https://tralked.exemplo.com`). Usada em redirects e no retorno do login Steam. |
-| `STEAM_API_KEY` | opcional | Login Steam, biblioteca, conquistas e raridade global. Também desativa o login de demonstração. |
+| `APP_URL` | obrigatória | URL pública do app (ex.: `https://tralked.exemplo.com`). Usada em redirects e nos links de definir senha. |
+| `STEAM_API_KEY` | opcional | Biblioteca, conquistas e raridade global pela Web API. A conexão Steam (código no Resumo) lê o perfil público com ou sem chave. Também desativa o login de demonstração. |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | opcional | Metadados de jogos (IGDB / Twitch): capa, descrição, gêneros, datas. |
 | `RAWG_API_KEY` | opcional | Metadados complementares de jogos (RAWG). |
 | `SGDB_API_KEY` | opcional | Artes (capas, banners, ícones) via SteamGridDB. |
@@ -61,7 +63,8 @@ Copie `.env.example` para `.env`. Em desenvolvimento todas as obrigatórias têm
 | `XBOX_OPENXBL_KEY` | opcional | Chave da OpenXBL (xbl.io) da conta de serviço Xbox do Tralked. API não oficial. |
 | `RA_USERNAME` / `RA_API_KEY` | opcional | Usuário e chave da Web API oficial do RetroAchievements (conta de serviço). |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | opcional | Login com Google (OAuth, código + PKCE). URI de redirecionamento: `$APP_URL/api/auth/google/callback`. Sem as duas, `/api/auth/google` responde 404 e o botão some. |
-| `STEAM_MODE` | opcional | Só vale sem `STEAM_API_KEY`: `fixture` usa os dados offline em vez das páginas públicas da Steam (testes e e2e usam). |
+| `STEAM_MODE` | opcional | `fixture` usa os dados offline em vez das páginas públicas da Steam (testes e e2e usam); para a biblioteca, só vale sem `STEAM_API_KEY`. |
+| `DEV_MAIL_LOG_FILE` | nunca | Só fora de produção: arquivo onde os links de "definir senha" também são gravados (os e2e leem dali). |
 
 Sem uma chave, a integração correspondente usa fixtures locais (`src/lib/integrations/*/__fixtures__`), então o app funciona offline com os dados do seed. Para ligar dados reais, basta preencher a chave no `.env` e reiniciar; as integrações são escolhidas por `hasKey()` em `src/lib/env.ts`.
 
@@ -82,7 +85,7 @@ DATABASE_URL=... pnpm steam:import 76561198012210783 --admin --psn MrDead_   # d
 DATABASE_URL=... pnpm steam:import diguzzz                                    # vanity ou SteamID64; conta não verificada
 ```
 
-O login real pela Steam (`/api/auth/steam`) de um perfil importado cai no mesmo usuário, porque os dois caminhos buscam o usuário pelo SteamID64.
+Um perfil importado não tem e-mail nem senha: quem conectar essa Steam (código no Resumo) a uma conta nova recupera esse mesmo usuário (veja "Contas antigas" acima), ou o admin usa `pnpm user:invite`.
 
 ### PSN e Xbox pendentes
 
@@ -166,6 +169,7 @@ A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste 
 | `pnpm catalog:bootstrap` | Catálogo real da Steam (`--limit N` jogos populares, `--concurrency N`, `--only-top`). Exige `DATABASE_URL`. |
 | `pnpm comments:recount` | Reconta `Article.comments` pelos comentários visíveis. Exige `DATABASE_URL`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
+| `pnpm user:invite` | `<handle> <email>`: grava o e-mail de login de uma conta e imprime um link de "definir senha" (1 h, uso único; só no terminal). Exige `DATABASE_URL`; o link usa `APP_URL`. |
 | `pnpm e2e` | Playwright + axe contra o build de produção (`pnpm build && pnpm start -p 3200`): rotas públicas. |
 | `pnpm e2e:dev` | Playwright + axe contra `next dev -p 3200`: inclui as rotas que exigem login de demonstração. |
 | `pnpm e2e:screens` | Screenshots de todas as rotas (1440×900 e 390×844) em `e2e/__screens__/` (ignorado pelo controle de versão). |
@@ -236,17 +240,20 @@ src/app/              rotas (App Router)
   admin               painel da redação (editor/admin): notícias e guias em blocos, fila de revisão,
                       moderação, fraude, jogos, chaves de robô, feeds e papéis (só admin nos 5 últimos)
   api/v1              API para robôs: notícias, guias, busca de jogos, OpenAPI e JSON Schemas
-  api/auth            login Steam, Google, demo e logout
+  entrar, cadastrar   login e cadastro com e-mail + senha; esqueci-senha e redefinir-senha
+  api/auth            login Google, demo e logout
   api/cron/[job]      jobs de sincronização
 src/components/       componentes de UI
 src/lib/
   engine/             regras puras: XP, vocação, habilidades, streak, missões, antifraude
   integrations/       clientes Steam, IGDB, RAWG, SteamGridDB, PSN, Xbox (OpenXBL), RetroAchievements e RSS (com fixtures)
   sync/               sincronização de catálogo, usuários Steam, contas PSN/Xbox/RA, mídia e notícias externas
-  accounts/           vinculação de contas PSN/Xbox/RA por código de verificação (+ Server Actions)
+  accounts/           vinculação de Steam/PSN/Xbox/RA por código no perfil (+ Server Actions); steam-link.ts
+                      recupera contas antigas do login Steam
   progression/       recálculo de XP/habilidades a partir do ledger e chaves de período
   queries/            consultas ao banco usadas pelas páginas
-  auth/               sessão (jose), OpenID Steam, login Google (OAuth + PKCE), upsert de usuário
+  auth/               sessão (jose), e-mail + senha (scrypt), limites de tentativas, links de definir senha,
+                      login Google (OAuth + PKCE)
   family/             regras do modo família
   guide/              votos nos passos dos guias
   api/                API para robôs: chaves (hash SHA-256), escopos, limite de 60 req/min por chave
@@ -260,7 +267,7 @@ src/proxy.ts          /admin responde 404 de verdade a quem não é da redação
 
 - `next build` precisa do banco acessível: as páginas dinâmicas (`/jogos/[slug]`, `/noticias/[slug]`, `/jogador/[handle]`) usam `generateStaticParams`, que consulta o Postgres. Suba e popule o banco antes (`pnpm db:up && pnpm db:seed`).
 - As suítes de teste que usam o banco (`pnpm test`) também precisam do Postgres no ar e das migrations aplicadas.
-- Admin: entre como `lucas` (`/api/auth/demo`, só em desenvolvimento; o seed dá papel admin) e abra `/admin`. Papéis: `editor` cuida de notícias, guias, revisão e moderação; `admin` também de fraude, jogos, robôs, feeds e usuários. Ninguém muda o próprio papel.
+- Admin: entre como `lucas` (`/entrar` com as credenciais de desenvolvimento do seed, ou `/api/auth/demo`; o seed dá papel admin) e abra `/admin`. Papéis: `editor` cuida de notícias, guias, revisão e moderação; `admin` também de fraude, jogos, robôs, feeds e usuários. Ninguém muda o próprio papel.
 - O projeto usa Next.js 16 com Cache Components; veja `AGENTS.md` antes de alterar convenções do framework.
 - Emulador web (SNES/PS1 no navegador): planejado (`../docs/superpowers/specs/2026-10-31-emulador-web-plano-lucas.pdf`), ainda não implementado. Nenhuma rota `/jogar` existe nesta versão.
-- E-mail: não há provedor ainda. Em desenvolvimento o link de confirmação da newsletter sai no console do servidor; em produção o endereço só é registrado e o formulário avisa isso.
+- E-mail: não há provedor ainda. Em desenvolvimento os links de confirmação da newsletter e de "definir senha" saem no console do servidor; em produção o endereço só é registrado (newsletter) e o link de senha não é enviado: use `pnpm user:invite`.

@@ -13,7 +13,7 @@ import { RichText } from "./RichText";
 type RoadmapProps = {
   steps: GuideStepView[];
   loggedIn: boolean;
-  /** Path to come back to after the Steam login. */
+  /** Path to come back to after the login. */
   returnTo: string;
   /** True while the visitor's progress is still loading (checkboxes are inert). */
   pending?: boolean;

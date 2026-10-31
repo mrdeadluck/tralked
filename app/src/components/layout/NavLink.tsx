@@ -2,10 +2,10 @@ import Link from "next/link";
 import type { ComponentProps } from "react";
 
 /**
- * Paths answered by route handlers that redirect (often off-site, e.g. `/jogador/me` → Steam
- * login). A next/link client navigation would fetch them as an RSC payload, fail on the
- * cross-origin redirect (CORS) and only then fall back to a full navigation, and its prefetch
- * would start a Steam login (new state cookie) on every page view. They get a plain <a>.
+ * Paths answered by route handlers that redirect (`/jogador/me` → the player's sheet or the
+ * login, `/api/…`). A next/link client navigation would fetch them as an RSC payload and only
+ * then fall back to a full navigation, and its prefetch would hit the handler on every page
+ * view. They get a plain <a>.
  */
 export function needsFullNavigation(href: string): boolean {
   return href === "/jogador/me" || href.startsWith("/jogador/me?") || href.startsWith("/api/");

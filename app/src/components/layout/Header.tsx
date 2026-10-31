@@ -21,6 +21,7 @@ export const NAV_ITEMS = [
 ] as const;
 
 const DRAWER_ID = "menu-mobile";
+const LOGIN_HREF = "/entrar?returnTo=%2Fjogador%2Fme";
 
 function isCurrent(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
@@ -38,9 +39,11 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Logged in, "Personagem" points straight at the player's own sheet (no redirect hop).
+  // "Personagem" points straight at the player's own sheet when logged in, and at the login
+  // (which comes back to the sheet) otherwise: no redirect hop either way.
   const items = NAV_ITEMS.map((item) => {
-    const href = item.href === "/jogador/me" && user ? `/jogador/${encodeURIComponent(user.handle)}` : item.href;
+    const href =
+      item.href === "/jogador/me" ? (user ? `/jogador/${encodeURIComponent(user.handle)}` : LOGIN_HREF) : item.href;
     return { ...item, href, current: isCurrent(pathname, href) };
   });
 
@@ -78,22 +81,12 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
           {user ? (
             <AccountMenu user={user} />
           ) : (
-            <NavLink
-              href="/jogador/me"
-              className="flex items-center gap-2.5"
+            <Link
+              href={LOGIN_HREF}
+              className="inline-flex h-10 items-center rounded-[2px] border border-acc bg-acc px-4 font-mono text-xs font-bold tracking-[0.1em] text-bg uppercase hover:brightness-[1.08]"
             >
-              <span className="flex flex-col items-end font-mono leading-[1.2] max-nav:hidden">
-                <small className="text-[10px] tracking-[0.1em] text-dim uppercase">
-                  Personagem
-                </small>
-                <b className="text-[13px]">NV —</b>
-              </span>
-              <span className="sr-only nav:hidden">Personagem</span>
-              <span
-                aria-hidden="true"
-                className="size-10 flex-none rounded-full border-2 border-acc bg-[repeating-linear-gradient(135deg,#1a1c22_0_5px,#22242b_5px_10px)]"
-              />
-            </NavLink>
+              Entrar
+            </Link>
           )}
           <button
             type="button"

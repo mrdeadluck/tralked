@@ -3,10 +3,10 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { AccountLogin } from "@/components/account/AccountLogin";
 import { AccountNav } from "@/components/account/AccountNav";
+import { CredentialsForms } from "@/components/account/CredentialsForms";
 import { DeleteAccountForm } from "@/components/account/DeleteAccountForm";
 import { ProfileForm } from "@/components/account/ProfileForm";
 import { PageHead } from "@/components/community/PageHead";
-import { googleLoginEnabled } from "@/lib/auth/google";
 import { getSessionUser } from "@/lib/auth/session";
 
 export const metadata: Metadata = {
@@ -42,13 +42,17 @@ function Section({ title, lede, children }: { title: string; lede?: string; chil
 
 async function ContaContent() {
   const user = await getSessionUser();
-  if (!user) return <AccountLogin returnTo="/conta" google={googleLoginEnabled()} />;
+  if (!user) return <AccountLogin returnTo="/conta" />;
 
   return (
     <>
       <AccountNav current="/conta" />
       <Section title="Perfil" lede={`Você aparece como ${user.displayName} (@${user.handle}).`}>
         <ProfileForm bio={user.bio ?? ""} profilePublic={user.profilePublic} handle={user.handle} />
+      </Section>
+
+      <Section title="E-mail e senha" lede="Com eles você entra no Tralked. A senha é só do Tralked.">
+        <CredentialsForms email={user.email} hasPassword={user.passwordHash !== null} />
       </Section>
 
       <Section title="Seus dados" lede="Uma cópia de tudo o que o Tralked guarda sobre você, em JSON.">
