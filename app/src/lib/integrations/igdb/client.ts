@@ -1,5 +1,6 @@
 import { timeoutSignal } from "../http";
-import type { IgdbApi, IgdbGame } from "./types";
+import { normalizeTitle } from "../title-match";
+import type { IgdbApi, IgdbGame, IgdbMedia } from "./types";
 
 const API_BASE = "https://api.igdb.com/v4";
 const TOKEN_URL = "https://id.twitch.tv/oauth2/token";
@@ -60,6 +61,27 @@ const GAME_FIELDS = [
 ].join(",");
 
 const names = (list?: Named) => (list ?? []).map((item) => item.name);
+
+const SEARCH_LIMIT = 10;
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+
+type ImageRecord = { image_id?: string; width?: number; height?: number };
+type MediaRecord = {
+  videos?: { video_id?: string; name?: string }[];
+  screenshots?: ImageRecord[];
+  artworks?: ImageRecord[];
+};
+
+const MEDIA_FIELDS = [
+  "videos.video_id",
+  "videos.name",
+  "screenshots.image_id",
+  "screenshots.width",
+  "screenshots.height",
+  "artworks.image_id",
+  "artworks.width",
+  "artworks.height",
+].join(",");
 
 export function createIgdbClient({
   clientId,
@@ -126,6 +148,34 @@ export function createIgdbClient({
     return result;
   }
 
+  async function loadGame(igdbId: number): Promise<IgdbGame | null> {
+    const [game] = await query<GameRecord>("games", `fields ${GAME_FIELDS}; where id = ${igdbId};`);
+    if (!game) return null;
+
+    const [ttb] = await query<{ completely?: number }>(
+      "game_time_to_beats",
+      `fields completely; where game_id = ${game.id};`,
+    );
+
+    return {
+      igdbId: game.id,
+      name: game.name,
+      summary: game.summary,
+      releaseDate:
+        game.first_release_date !== undefined
+          ? new Date(game.first_release_date * 1000)
+          : undefined,
+      genres: names(game.genres),
+      themes: names(game.themes),
+      gameModes: names(game.game_modes),
+      perspectives: names(game.player_perspectives),
+      keywords: names(game.keywords),
+      aggregatedRating: game.aggregated_rating,
+      coverImageId: game.cover?.image_id,
+      timeToBeatCompleteSec: ttb?.completely,
+    };
+  }
+
   return {
     async findBySteamAppId(appId): Promise<IgdbGame | null> {
       const [external] = await query<{ game?: number }>(
@@ -133,34 +183,38 @@ export function createIgdbClient({
         `fields game; where uid = "${appId}" & external_game_source = ${STEAM_SOURCE}; limit 1;`,
       );
       if (!external?.game) return null;
+      return loadGame(external.game);
+    },
 
-      const [game] = await query<GameRecord>(
+    async findByName(name): Promise<IgdbGame | null> {
+      // Apicalypse strings cannot hold quotes or backslashes; they never matter for matching.
+      const term = name.replace(/["\\]/g, " ").trim();
+      if (!term) return null;
+      const hits = await query<{ id: number; name: string }>(
         "games",
-        `fields ${GAME_FIELDS}; where id = ${external.game};`,
+        `search "${term}"; fields id,name; limit ${SEARCH_LIMIT};`,
       );
-      if (!game) return null;
+      // Only an exact (normalized) name match: a fuzzy hit would attach the wrong game.
+      const wanted = normalizeTitle(name);
+      const hit = hits.find((h) => normalizeTitle(h.name) === wanted);
+      return hit ? loadGame(hit.id) : null;
+    },
 
-      const [ttb] = await query<{ completely?: number }>(
-        "game_time_to_beats",
-        `fields completely; where game_id = ${game.id};`,
+    async getMedia(igdbId): Promise<IgdbMedia> {
+      const [game] = await query<MediaRecord>(
+        "games",
+        `fields ${MEDIA_FIELDS}; where id = ${igdbId};`,
       );
-
+      const images = (list?: ImageRecord[]) =>
+        (list ?? [])
+          .filter((i) => i.image_id)
+          .map((i) => ({ imageId: i.image_id!, width: i.width ?? null, height: i.height ?? null }));
       return {
-        igdbId: game.id,
-        name: game.name,
-        summary: game.summary,
-        releaseDate:
-          game.first_release_date !== undefined
-            ? new Date(game.first_release_date * 1000)
-            : undefined,
-        genres: names(game.genres),
-        themes: names(game.themes),
-        gameModes: names(game.game_modes),
-        perspectives: names(game.player_perspectives),
-        keywords: names(game.keywords),
-        aggregatedRating: game.aggregated_rating,
-        coverImageId: game.cover?.image_id,
-        timeToBeatCompleteSec: ttb?.completely,
+        videos: (game?.videos ?? [])
+          .filter((v) => v.video_id && YOUTUBE_ID.test(v.video_id))
+          .map((v) => ({ youtubeId: v.video_id!, name: v.name ?? null })),
+        screenshots: images(game?.screenshots),
+        artworks: images(game?.artworks),
       };
     },
   };

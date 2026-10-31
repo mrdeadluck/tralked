@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { ATTRIBUTES, computeAttributes, type AttributeInput } from "@/lib/engine/attributes";
 import {
   generateMissions,
   missionProgress,
@@ -6,11 +7,12 @@ import {
   type UnlockEvent,
 } from "@/lib/engine/missions";
 import { computeStreak, toLocalDay } from "@/lib/engine/streak";
+import { trophyTierFromRarity, type TrophyTier } from "@/lib/engine/trophies";
 import { SKILLS, type SkillId, type SkillState } from "@/lib/engine/types";
 import { vocationFor } from "@/lib/engine/vocation";
 import { levelFromXp } from "@/lib/engine/xp";
 import { dailyPeriodKey, isoWeekKey, weeklyPeriodKey } from "./periods";
-import { skillsFromLedger, type LedgerSkillEntry } from "./skills-from-ledger";
+import { skillPointTotals, skillsFromLedger, type LedgerSkillEntry } from "./skills-from-ledger";
 
 const DAY_MS = 86_400_000;
 // Longest period start we may need (the Monday of the current ISO week) is under 7 days back.
@@ -20,15 +22,26 @@ const TOP_SKILL_COUNT = 3;
 type SkillMap = Record<SkillId, SkillState>;
 
 /**
+ * sourceKey of a `platinum` entry: the gameId for Steam (Plan 1 entries) and
+ * `${platform}:${gameId}` for the other platforms, so one game can be completed once per platform.
+ */
+export const platinumSourceKey = (platform: string, gameId: string) =>
+  platform === "steam" ? gameId : `${platform}:${gameId}`;
+
+/** Game of a `platinum` entry (inverse of `platinumSourceKey`; cuids never contain ":"). */
+export const platinumGameId = (sourceKey: string) => sourceKey.slice(sourceKey.indexOf(":") + 1);
+
+/**
  * Current skills of the games behind `achievement` (sourceKey = achievementId) and `platinum`
- * (sourceKey = gameId) ledger entries, keyed by `${source}:${sourceKey}`.
+ * (see `platinumGameId`) ledger entries, keyed by `${source}:${sourceKey}`.
  */
 async function currentGameSkills(
   rows: { source: string; sourceKey: string }[],
 ): Promise<Map<string, string[]>> {
   const keysOf = (source: string) => rows.filter((r) => r.source === source).map((r) => r.sourceKey);
   const achievementIds = keysOf("achievement");
-  const platinumGameIds = keysOf("platinum");
+  const platinumKeys = keysOf("platinum");
+  const platinumGameIds = platinumKeys.map(platinumGameId);
   if (achievementIds.length === 0 && platinumGameIds.length === 0) return new Map();
 
   const achievements = await prisma.achievement.findMany({
@@ -47,9 +60,9 @@ async function currentGameSkills(
     const skills = skillsByGame.get(a.gameId);
     if (skills) result.set(`achievement:${a.id}`, skills);
   }
-  for (const id of platinumGameIds) {
-    const skills = skillsByGame.get(id);
-    if (skills) result.set(`platinum:${id}`, skills);
+  for (const key of platinumKeys) {
+    const skills = skillsByGame.get(platinumGameId(key));
+    if (skills) result.set(`platinum:${key}`, skills);
   }
   return result;
 }
@@ -60,10 +73,11 @@ async function currentGameSkills(
  * game has now (so a game that only later got skills, from the catalog job or an admin override,
  * also counts for past unlocks). Entries with explicit `skillPoints` (seed, guide votes) and
  * sources without a game keep their own `skills`. The `skills` column stays as an audit copy.
+ * Voided entries (confirmed fraud) are left out.
  */
 async function loadLedger(userId: string) {
   const rows = await prisma.xpLedgerEntry.findMany({
-    where: { userId },
+    where: { userId, voidedAt: null },
     select: { source: true, sourceKey: true, xp: true, skills: true, skillPoints: true },
   });
   const fromGame = await currentGameSkills(rows.filter((r) => r.skillPoints === null));
@@ -201,18 +215,114 @@ async function applyMissions(userId: string, now: Date, topSkills: SkillId[]): P
   return completedAny;
 }
 
-async function computeUserStreak(userId: string, now: Date) {
-  const unlocks = await prisma.userAchievement.findMany({
+/** Valid (non-suspicious) unlocks of every platform, with what the attributes need. */
+function loadValidUnlocks(userId: string) {
+  return prisma.userAchievement.findMany({
     where: { userId, suspicious: false },
-    select: { unlockedAt: true },
+    select: {
+      unlockedAt: true,
+      hardcore: true,
+      achievement: {
+        select: { gameId: true, platform: true, globalPct: true, trophyTier: true },
+      },
+    },
   });
-  const days = new Set(unlocks.map((u) => toLocalDay(u.unlockedAt)));
-  return computeStreak([...days], toLocalDay(now));
+}
+
+type ValidUnlock = Awaited<ReturnType<typeof loadValidUnlocks>>[number];
+
+const TROPHY_TIERS = new Set<string>(["bronze", "silver", "gold", "platinum"]);
+
+/** Native tier (PSN) when there is one, otherwise the tier from the global rarity. */
+const tierOf = (a: ValidUnlock["achievement"]): TrophyTier =>
+  a.trophyTier && TROPHY_TIERS.has(a.trophyTier)
+    ? (a.trophyTier as TrophyTier)
+    : trophyTierFromRarity(a.globalPct);
+
+/**
+ * Builds the attribute input from the database. Games are merged across platforms (one game
+ * owned on Steam and PSN is one game): playtime adds up, unlocks are pooled, and the game is
+ * complete when any platform is. A completion on a platform without a native platinum trophy
+ * (Steam, Xbox, RetroAchievements) counts as one platinum for Glória. Genres only come from
+ * games actually played (playtime or at least one unlock).
+ */
+async function attributeInput(
+  userId: string,
+  unlocks: ValidUnlock[],
+  streak: { activeDays: number; bestStreak: number },
+  sabioPoints: number,
+): Promise<AttributeInput> {
+  const [userGames, solvedAnswers, publishedGuides] = await Promise.all([
+    prisma.userGame.findMany({
+      where: { userId },
+      select: { gameId: true, platform: true, playtimeMin: true, completedAt: true },
+    }),
+    prisma.forumThread.count({
+      where: {
+        solvedPost: { is: { authorId: userId, status: "visible" } },
+        // Solving one's own question does not count.
+        OR: [{ authorId: null }, { authorId: { not: userId } }],
+      },
+    }),
+    prisma.guide.count({ where: { authorId: userId, status: "published" } }),
+  ]);
+
+  type GameAcc = { playtimeMin: number; unlocked: AttributeInput["games"][number]["unlocked"]; completed: boolean };
+  const games = new Map<string, GameAcc>();
+  const accOf = (gameId: string) => {
+    let acc = games.get(gameId);
+    if (!acc) {
+      acc = { playtimeMin: 0, unlocked: [], completed: false };
+      games.set(gameId, acc);
+    }
+    return acc;
+  };
+
+  const nativePlatinum = new Set<string>();
+  for (const u of unlocks) {
+    const tier = tierOf(u.achievement);
+    if (tier === "platinum") nativePlatinum.add(`${u.achievement.gameId}:${u.achievement.platform}`);
+    accOf(u.achievement.gameId).unlocked.push({
+      globalPct: u.achievement.globalPct,
+      hardcore: u.hardcore,
+      tier,
+    });
+  }
+  for (const ug of userGames) {
+    const acc = accOf(ug.gameId);
+    acc.playtimeMin += Math.max(0, ug.playtimeMin);
+    if (ug.completedAt) {
+      acc.completed = true;
+      if (!nativePlatinum.has(`${ug.gameId}:${ug.platform}`)) {
+        acc.unlocked.push({ globalPct: null, hardcore: false, tier: "platinum" });
+      }
+    }
+  }
+
+  const played = [...games].filter(([, g]) => g.playtimeMin > 0 || g.unlocked.length > 0);
+  const skillRows = await prisma.gameSkill.findMany({
+    where: { gameId: { in: played.map(([id]) => id) } },
+    select: { gameId: true, skill: true },
+  });
+  const skillsByGame = new Map<string, SkillId[]>();
+  for (const row of skillRows) {
+    skillsByGame.set(row.gameId, [...(skillsByGame.get(row.gameId) ?? []), row.skill as SkillId]);
+  }
+
+  return {
+    games: [...games].map(([gameId, g]) => ({ ...g, skills: skillsByGame.get(gameId) ?? [] })),
+    activeDays: streak.activeDays,
+    bestStreak: streak.bestStreak,
+    sabioPoints,
+    solvedAnswers,
+    publishedGuides,
+  };
 }
 
 /**
- * Rebuilds everything derived from the XP ledger for one user: missions (create, progress,
- * payment), SkillProgress, total XP, level, vocation and streak. Safe to run any number of
+ * Rebuilds everything derived from the XP ledger and the unlocks for one user: missions
+ * (create, progress, payment), SkillProgress, AttributeProgress, total XP, level, vocation and
+ * streak. Voided ledger entries and suspicious unlocks are left out. Safe to run any number of
  * times, also concurrently: the ledger is only ever appended to with unique keys.
  */
 export async function recomputeUser(userId: string, now: Date = new Date()): Promise<void> {
@@ -224,7 +334,17 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
     skills = skillsFromLedger(entries);
   }
 
-  const streak = await computeUserStreak(userId, now);
+  const unlocks = await loadValidUnlocks(userId);
+  const days = [...new Set(unlocks.map((u) => toLocalDay(u.unlockedAt)))];
+  const streak = computeStreak(days, toLocalDay(now));
+  const attributes = computeAttributes(
+    await attributeInput(
+      userId,
+      unlocks,
+      { activeDays: days.length, bestStreak: streak.best },
+      skillPointTotals(entries).sabio,
+    ),
+  );
   const stats = {
     totalXp,
     level: levelFromXp(totalXp).level,
@@ -242,10 +362,58 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
         update: skills[id],
       }),
     ),
+    ...ATTRIBUTES.map(({ id }) =>
+      prisma.attributeProgress.upsert({
+        where: { userId_attribute: { userId, attribute: id } },
+        create: { userId, attribute: id, ...attributes[id] },
+        update: attributes[id],
+      }),
+    ),
     prisma.userStats.upsert({
       where: { userId },
       create: { userId, ...stats },
       update: stats,
     }),
   ]);
+}
+
+/**
+ * Confirmed fraud: voids the user's ledger entries of these achievements (and the platinum
+ * bonus of every game they belong to, since the completion is tainted), marks the unlocks
+ * suspicious so no later sync pays them again, then recomputes. Entries are never deleted, so
+ * the decision stays auditable. Returns how many entries were voided by this call.
+ */
+export async function voidFraudEntries(
+  userId: string,
+  achievementIds: string[],
+  now: Date = new Date(),
+): Promise<number> {
+  if (achievementIds.length === 0) return 0;
+  const achievements = await prisma.achievement.findMany({
+    where: { id: { in: achievementIds } },
+    select: { gameId: true, platform: true },
+  });
+  const platinumKeys = [...new Set(achievements.map((a) => platinumSourceKey(a.platform, a.gameId)))];
+
+  const voided = await prisma.$transaction(async (tx) => {
+    await tx.userAchievement.updateMany({
+      where: { userId, achievementId: { in: achievementIds } },
+      data: { suspicious: true },
+    });
+    const { count } = await tx.xpLedgerEntry.updateMany({
+      where: {
+        userId,
+        voidedAt: null,
+        OR: [
+          { source: "achievement", sourceKey: { in: achievementIds } },
+          { source: "platinum", sourceKey: { in: platinumKeys } },
+        ],
+      },
+      data: { voidedAt: now },
+    });
+    return count;
+  });
+
+  await recomputeUser(userId, now);
+  return voided;
 }

@@ -27,6 +27,16 @@ const schema = z.object({
   IGDB_CLIENT_SECRET: optional(),
   RAWG_API_KEY: optional(),
   SGDB_API_KEY: optional(),
+  // PlayStation Network service account (its NPSSO cookie, exchanged server-side for tokens).
+  PSN_NPSSO: optional(),
+  // OpenXBL (xbl.io) API key of the Tralked service account.
+  XBOX_OPENXBL_KEY: optional(),
+  // RetroAchievements Web API: the service account's username and web API key.
+  RA_USERNAME: optional(),
+  RA_API_KEY: optional(),
+  // Google OAuth client (login of readers). Both must be set, otherwise Google login is off.
+  GOOGLE_CLIENT_ID: optional(),
+  GOOGLE_CLIENT_SECRET: optional(),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -57,7 +67,11 @@ export type OptionalKeyName =
   | "STEAM_API_KEY"
   | "IGDB_CLIENT_ID"
   | "RAWG_API_KEY"
-  | "SGDB_API_KEY";
+  | "SGDB_API_KEY"
+  | "PSN_NPSSO"
+  | "XBOX_OPENXBL_KEY"
+  | "RA_API_KEY"
+  | "GOOGLE_CLIENT_ID";
 
 export function hasKey(name: OptionalKeyName): boolean {
   return Boolean(env[name]);

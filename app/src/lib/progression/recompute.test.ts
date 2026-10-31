@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { levelFromXp } from "@/lib/engine/xp";
 import { env } from "@/lib/env";
 
 // Needs Postgres up and seeded (see db.test.ts); skipped when unreachable.
@@ -237,6 +238,56 @@ describe.skipIf(!reachable)("recomputeUser", () => {
     expect(missions.filter((m) => m.kind === "weekly")).toHaveLength(2);
     expect(missions.some((m) => m.title === "Custom daily")).toBe(true);
     expect(missions.some((m) => m.title === "Custom weekly")).toBe(true);
+  });
+
+  it("leaves voided ledger entries out of XP, level and skills", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { recomputeUser } = await import("./recompute");
+    const user = await newUser();
+    await prisma.xpLedgerEntry.createMany({
+      data: [
+        { userId: user.id, source: "achievement", sourceKey: achievementIds[0], xp: 1_000, skills: ["rpg"] },
+        { userId: user.id, source: "achievement", sourceKey: achievementIds[1], xp: 50_000, skills: ["rpg"], voidedAt: NOW },
+      ],
+    });
+
+    await recomputeUser(user.id, NOW);
+
+    const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
+    expect(stats.totalXp).toBe(1_000);
+    expect(stats.level).toBe(levelFromXp(1_000).level);
+    expect(stats.level).toBeLessThan(levelFromXp(51_000).level);
+    const rpg = await prisma.skillProgress.findUniqueOrThrow({
+      where: { userId_skill: { userId: user.id, skill: "rpg" } },
+    });
+    expect(rpg).toMatchObject({ level: 1, points: 83 }); // round(1000 / 12)
+  });
+
+  it("writes the 7 attributes from library, unlocks and streak", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { recomputeUser } = await import("./recompute");
+    const user = await newUser();
+    const game = await prisma.achievement.findUniqueOrThrow({ where: { id: achievementIds[0] } });
+    await prisma.userGame.create({
+      data: { userId: user.id, gameId: game.gameId, platform: "steam", playtimeMin: 600, unlockedCount: 2 },
+    });
+    await unlock(user.id, 0, new Date(NOW.getTime() - HOUR)); // 5%: gold, rare
+    await unlock(user.id, 6, new Date(NOW.getTime() - 25 * HOUR)); // 60%: bronze
+    await unlock(user.id, 7, new Date(NOW.getTime() - 2 * HOUR), true); // suspicious: ignored
+
+    await recomputeUser(user.id, NOW);
+
+    const rows = await prisma.attributeProgress.findMany({ where: { userId: user.id } });
+    const byId = Object.fromEntries(rows.map((r) => [r.attribute, { points: r.points, level: r.level }]));
+    expect(byId).toEqual({
+      vigor: { points: 138, level: 3 }, // round(40 * log2(1 + 10h))
+      precisao: { points: 30, level: 2 }, // one unlock at <= 5%
+      gloria: { points: 60, level: 2 }, // (gold 5 + bronze 1) x 10
+      colecao: { points: 0, level: 1 },
+      exploracao: { points: 80, level: 2 }, // 1 game with unlocks (20) + 1 genre, rpg (60)
+      constancia: { points: 40, level: 2 }, // 2 active days (30) + best streak 2 (10)
+      sabedoria: { points: 0, level: 1 },
+    });
   });
 
   it("keeps lucas's seeded missions complete (3 daily + 2 weekly, ISO week key)", async () => {

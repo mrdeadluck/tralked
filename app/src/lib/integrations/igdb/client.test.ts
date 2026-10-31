@@ -238,6 +238,62 @@ describe("igdb client", () => {
   });
 });
 
+describe("igdb client: search and media", () => {
+  it("finds a game by exact (normalized) name only", async () => {
+    const bodies: string[] = [];
+    const { client } = setup({
+      games: (_url, init) => {
+        const body = String(init.body);
+        bodies.push(body);
+        if (body.startsWith("search")) {
+          return [
+            { id: 1, name: "Hollow Knight: Silksong" },
+            { id: 2, name: "Hollow Knight™" },
+          ];
+        }
+        return [{ id: 2, name: "Hollow Knight" }];
+      },
+      ttb: () => [],
+    });
+    const found = await client.findByName('Hollow "Knight"');
+    expect(found?.igdbId).toBe(2);
+    expect(bodies[0]).toBe('search "Hollow  Knight"; fields id,name; limit 10;');
+    expect(bodies[1]).toContain("where id = 2");
+  });
+
+  it("returns null when no search hit has the same name", async () => {
+    const { client } = setup({ games: () => [{ id: 1, name: "Hollow Knight: Silksong" }] });
+    await expect(client.findByName("Hollow Knight")).resolves.toBeNull();
+  });
+
+  it("reads trailers, screenshots and artworks in one query", async () => {
+    let body = "";
+    const { client } = setup({
+      games: (_url, init) => {
+        body = String(init.body);
+        return [
+          {
+            id: 7,
+            videos: [
+              { video_id: "UAO2urG23S4", name: "Trailer" },
+              { video_id: "javascript:alert(1)", name: "Bad" },
+            ],
+            screenshots: [{ image_id: "sc1", width: 1920, height: 1080 }, {}],
+            artworks: [{ image_id: "ar1" }],
+          },
+        ];
+      },
+    });
+    await expect(client.getMedia(7)).resolves.toEqual({
+      videos: [{ youtubeId: "UAO2urG23S4", name: "Trailer" }],
+      screenshots: [{ imageId: "sc1", width: 1920, height: 1080 }],
+      artworks: [{ imageId: "ar1", width: null, height: null }],
+    });
+    expect(body).toContain("where id = 7");
+    expect(body).toContain("videos.video_id");
+  });
+});
+
 describe("igdb fixture", () => {
   const igdb = createIgdbFixture();
 

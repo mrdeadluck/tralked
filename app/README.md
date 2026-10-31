@@ -40,18 +40,25 @@ Copie `.env.example` para `.env`. Em desenvolvimento todas as obrigatórias têm
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | opcional | Metadados de jogos (IGDB / Twitch): capa, descrição, gêneros, datas. |
 | `RAWG_API_KEY` | opcional | Metadados complementares de jogos (RAWG). |
 | `SGDB_API_KEY` | opcional | Artes (capas, banners, ícones) via SteamGridDB. |
+| `PSN_NPSSO` | opcional | Cookie NPSSO da **conta de serviço** PlayStation do Tralked (não de usuários). Trocado no servidor por tokens de acesso/refresh, guardados só em memória. API não oficial: pode quebrar. |
+| `XBOX_OPENXBL_KEY` | opcional | Chave da OpenXBL (xbl.io) da conta de serviço Xbox do Tralked. API não oficial. |
+| `RA_USERNAME` / `RA_API_KEY` | opcional | Usuário e chave da Web API oficial do RetroAchievements (conta de serviço). |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | opcional | Login com Google (OAuth, código + PKCE). URI de redirecionamento: `$APP_URL/api/auth/google/callback`. Sem as duas, `/api/auth/google` responde 404 e o botão some. |
 
 Sem uma chave, a integração correspondente usa fixtures locais (`src/lib/integrations/*/__fixtures__`), então o app funciona offline com os dados do seed. Para ligar dados reais, basta preencher a chave no `.env` e reiniciar; as integrações são escolhidas por `hasKey()` em `src/lib/env.ts`.
 
 ## Cron
 
-Três jobs, cada um limitado a uma quantidade fixa de jogos/usuários por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
+Seis jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
 
 | Endpoint | Faz |
 | --- | --- |
 | `/api/cron/catalog` | Sincroniza o catálogo de jogos e metadados. |
 | `/api/cron/rarity` | Atualiza a raridade global das conquistas. |
 | `/api/cron/users` | Ressincroniza usuários com dados desatualizados. |
+| `/api/cron/platforms` | Ressincroniza contas PSN, Xbox e RetroAchievements verificadas (as mais antigas primeiro). |
+| `/api/cron/media` | Busca vídeos, screenshots e artworks (IGDB) e capa/hero/logo (SteamGridDB) de jogos ainda sem mídia oficial. |
+| `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte e data das notícias que citam um jogo do catálogo. |
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://seu-dominio/api/cron/catalog
@@ -108,16 +115,17 @@ src/app/              rotas (App Router)
   highscores          ranking por habilidade (?skill=...)
   familia             modo família e convites
   noticias/[slug]     artigos
-  api/auth            login Steam, demo e logout
+  api/auth            login Steam, Google, demo e logout
   api/cron/[job]      jobs de sincronização
 src/components/       componentes de UI
 src/lib/
   engine/             regras puras: XP, vocação, habilidades, streak, missões, antifraude
-  integrations/       clientes Steam, IGDB, RAWG e SteamGridDB (com fixtures)
-  sync/               sincronização de catálogo, usuários e vínculo de conta
+  integrations/       clientes Steam, IGDB, RAWG, SteamGridDB, PSN, Xbox (OpenXBL), RetroAchievements e RSS (com fixtures)
+  sync/               sincronização de catálogo, usuários Steam, contas PSN/Xbox/RA, mídia e notícias externas
+  accounts/           vinculação de contas PSN/Xbox/RA por código de verificação (+ Server Actions)
   progression/       recálculo de XP/habilidades a partir do ledger e chaves de período
   queries/            consultas ao banco usadas pelas páginas
-  auth/               sessão (jose), OpenID Steam, upsert de usuário
+  auth/               sessão (jose), OpenID Steam, login Google (OAuth + PKCE), upsert de usuário
   family/             regras do modo família
   guide/              votos nos passos dos guias
 ```
