@@ -19,6 +19,11 @@ test.describe("smoke", () => {
     expect(response?.status()).toBe(404);
   });
 
+  test("unknown article is a real 404", async ({ page }) => {
+    const response = await page.goto("/noticias/noticia-que-nao-existe");
+    expect(response?.status()).toBe(404);
+  });
+
   test("header exposes the seven sections", async ({ page }) => {
     await page.goto("/");
     const nav = page.getByRole("navigation", { name: "Seções" });

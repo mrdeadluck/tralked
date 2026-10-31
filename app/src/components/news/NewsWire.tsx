@@ -1,0 +1,390 @@
+"use client";
+
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import type { WireItem } from "@/lib/queries/news";
+import { WireCard } from "./WireCard";
+
+/*
+ * "Em circulação": the moving news wire of preview/tralked-jogo.html. Cards drift left under a
+ * fixed central frame; the card under the frame is in focus. Pause button, drag, arrows (buttons
+ * and keyboard), and it stops on hover, on keyboard focus and when off screen.
+ * Reduced motion: starts paused and moves instantly instead of gliding.
+ * Without JS it is a static, scrollable-by-focus row of links.
+ */
+
+const SPEED = 38; // px/s, as in the preview
+const GLIDE_MS = 600;
+const GAP = 18;
+
+// Colors below are the approved preview's paper/ink tones for the wire cards only.
+const CSS = `
+.tkw { --wire-bg: #17171a; --paper: var(--text); --paper-hi: #f6f5ef; --ink: var(--bg); --ink-2: #5f626a; --acc-ink: #4f6a00;
+  --mono: var(--font-jetbrains-mono), ui-monospace, Consolas, monospace;
+  position: relative; width: 100vw; margin-left: calc(50% - 50vw); background: var(--wire-bg);
+  border-block: 1px solid var(--border); padding: 48px 0 30px; overflow: hidden; }
+body:has(.tkw) { overflow-x: clip; }
+.tkw-head { max-width: 1320px; margin: 0 auto; padding: 0 20px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.tkw-head h2 { font-weight: 900; font-stretch: 125%; font-size: 26px; line-height: 1; letter-spacing: -0.03em; text-transform: uppercase; }
+.tkw-head p { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.tkw-stage { position: relative; padding: 46px 0; cursor: grab; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.tkw-stage[data-dragging] { cursor: grabbing; }
+.tkw-track { display: flex; gap: ${GAP}px; width: max-content; will-change: transform; }
+.tkw-lens { position: absolute; left: 50%; top: 50%; width: 330px; height: 404px; translate: -50% -50%; border: 1px solid rgba(236,236,230,.22); border-radius: 22px; pointer-events: none; z-index: 2; }
+.tkw-lens::after { content: ""; position: absolute; left: 50%; bottom: -14px; width: 6px; height: 6px; translate: -50% 0; background: var(--acc); }
+.tkw-foot { max-width: 1320px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.tkw-pause { width: 40px; height: 40px; border-radius: 2px; border: 0; background: var(--text); color: var(--bg); display: grid; place-items: center; cursor: pointer; flex: none; }
+.tkw-pause:hover { background: var(--acc); }
+.tkw-pause svg { width: 14px; height: 14px; }
+.tkw-nav { display: flex; gap: 6px; flex: none; }
+.tkw-btn { width: 36px; height: 36px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); border-radius: 2px; display: grid; place-items: center; cursor: pointer; }
+.tkw-btn:hover { border-color: var(--text); }
+.tkw-btn svg { width: 16px; height: 16px; }
+.tkw-focus { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tkw-focus b { color: var(--text); font-weight: 500; }
+
+.tkw-card { flex: 0 0 300px; height: 370px; position: relative; border-radius: 2px; overflow: hidden; display: flex; flex-direction: column; transform: scale(.93); filter: saturate(.7) brightness(.78); transition: transform .6s cubic-bezier(.2,.8,.2,1), filter .6s; -webkit-user-drag: none; }
+.tkw-card[data-focus] { transform: scale(1); filter: none; }
+.tkw-card:focus-visible { outline: 2px solid var(--acc); outline-offset: 4px; }
+.tkw-art { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.tkw-arrow { position: absolute; right: 10px; bottom: 10px; width: 16px; height: 16px; z-index: 2; }
+.tkw-brand { font-weight: 900; font-stretch: 125%; letter-spacing: -0.03em; }
+.tkw-brand i { font-style: normal; color: var(--acc); }
+.tkw-meta { font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; }
+.tkw-leader { display: flex; gap: 4px; align-items: baseline; font-family: var(--mono); font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase; }
+.tkw-leader i { flex: 1; border-bottom: 1px dotted currentColor; opacity: .5; transform: translateY(-3px); }
+.tkw-hl { font-weight: 500; font-size: 22px; line-height: 1.02; letter-spacing: -0.015em; text-transform: uppercase; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+
+.tkw-paper { background: var(--paper); color: var(--ink); padding: 14px; gap: 12px; }
+.tkw-paper .tkw-img { position: relative; margin-left: auto; width: 74%; flex: 1; min-height: 0; overflow: hidden; }
+.tkw-paper .tkw-meta { color: var(--ink-2); }
+
+.tkw-block { background: var(--paper); color: var(--ink); display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.tkw-block .tkw-a1 { grid-column: 1; grid-row: 1; padding: 14px; min-width: 0; }
+.tkw-block .tkw-a1 .tkw-hl { color: var(--acc-ink); }
+.tkw-block .tkw-a2 { grid-column: 2; grid-row: 1; background: var(--acc); }
+.tkw-block .tkw-a3 { grid-column: 1; grid-row: 2; background: var(--acc); display: flex; align-items: flex-end; padding: 12px; }
+.tkw-block .tkw-a3 .tkw-brand i { color: var(--ink); }
+.tkw-block .tkw-a4 { grid-column: 2; grid-row: 2; padding: 12px; display: flex; flex-direction: column; justify-content: center; gap: 10px; background: var(--paper-hi); border-top-left-radius: 14px; margin: -14px 0 0 -14px; min-width: 0; }
+.tkw-block .tkw-a4 b { font-weight: 500; font-size: 12px; line-height: 1.1; text-transform: uppercase; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.tkw-block .tkw-a4 .tkw-leader { color: var(--acc-ink); margin-top: 3px; }
+.tkw-block .tkw-mark { position: absolute; left: 13%; top: 37%; width: 18%; aspect-ratio: 1; border: 6px solid rgba(11,12,15,.08); }
+
+.tkw-newp { background: var(--paper); color: var(--ink); }
+.tkw-newp .tkw-top { padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start; }
+.tkw-newp .tkw-thin { font-weight: 300; font-stretch: 100%; font-size: 21px; line-height: .9; color: var(--ink-2); letter-spacing: -0.02em; white-space: pre-line; flex: none; }
+.tkw-newp .tkw-top .tkw-hl { font-weight: 700; font-size: 21px; -webkit-line-clamp: 3; }
+.tkw-newp .tkw-img { position: relative; flex: 1; min-height: 0; }
+.tkw-newp .tkw-img .tkw-meta { position: absolute; left: 12px; right: 36px; bottom: 34px; color: var(--paper); opacity: .85; }
+.tkw-newp .tkw-img .tkw-brand { position: absolute; left: 12px; bottom: 10px; font-size: 16px; color: var(--paper); }
+.tkw-newp .tkw-arrow { color: var(--paper); }
+
+.tkw-portrait { background: var(--bg); color: var(--text); }
+.tkw-portrait .tkw-art { filter: grayscale(1) contrast(1.15); position: absolute; inset: 0; }
+.tkw-portrait .tkw-tag { position: absolute; left: 50%; top: 46%; translate: -50% 0; max-width: 84%; width: max-content; text-align: center; font-family: var(--mono); font-size: 9px; line-height: 1.4; background: rgba(236,236,230,.92); color: var(--ink); padding: 2px 6px; letter-spacing: .08em; text-transform: uppercase; }
+.tkw-portrait .tkw-giant { position: absolute; left: -4px; right: -40px; bottom: -10px; font-weight: 900; font-stretch: 125%; font-size: 66px; line-height: .85; letter-spacing: -0.04em; color: rgba(236,236,230,.86); mix-blend-mode: difference; white-space: nowrap; text-transform: none; }
+
+.tkw-dark { background: var(--bg); color: var(--text); }
+.tkw-dark .tkw-hl { margin: 14px; font-weight: 600; font-size: 25px; -webkit-line-clamp: 3; }
+.tkw-dark .tkw-img { position: relative; flex: 1; min-height: 0; }
+.tkw-dark .tkw-img .tkw-meta { position: absolute; left: 14px; right: 36px; bottom: 12px; color: var(--text-2); }
+
+@media (max-width: 600px) { .tkw-lens { display: none; } }
+@media (prefers-reduced-motion: reduce) { .tkw-card { transition: none; } }
+`;
+
+type Glide = { from: number; to: number; t0: number };
+
+const REDUCE_QUERY = "(prefers-reduced-motion: reduce)";
+const subscribeReduce = (onChange: () => void) => {
+  const mq = window.matchMedia(REDUCE_QUERY);
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+};
+const readReduce = () => window.matchMedia(REDUCE_QUERY).matches;
+
+export function NewsWire({
+  items,
+  title = "Em circulação",
+  description,
+  label = "Notícias em movimento",
+  className = "",
+}: {
+  items: WireItem[];
+  title?: string;
+  description?: string;
+  /** Accessible name of the carousel. */
+  label?: string;
+  className?: string;
+}) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const reduce = useSyncExternalStore(subscribeReduce, readReduce, () => false);
+  /** null until the user presses the button: reduced motion starts paused. */
+  const [userPaused, setUserPaused] = useState<boolean | null>(null);
+  const paused = userPaused ?? reduce;
+  const pausedRef = useRef(paused);
+  const [focused, setFocused] = useState<{ kicker: string; title: string } | null>(
+    items[0] ? { kicker: items[0].kicker, title: items[0].title } : null,
+  );
+  /** Imperative API filled by the animation effect (the arrow buttons call into it). */
+  const api = useRef<{ step: (dir: 1 | -1) => void } | null>(null);
+  const count = items.length;
+  const itemsKey = items.map((i) => i.id).join("|");
+
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    const track = trackRef.current;
+    if (!stage || !track || count === 0) return;
+
+    const cards = Array.from(track.children) as HTMLElement[];
+    let x = 0;
+    let hover = false;
+    let focusInside = false;
+    let visible = true;
+    let drag: { x0: number; start: number; moved: number; id: number } | null = null;
+    let glide: Glide | null = null;
+    let last = 0;
+    let current: HTMLElement | null = null;
+    let frame = 0;
+    // Card geometry relative to the track (transforms don't change it); refreshed on resize.
+    let geo: { left: number; width: number }[] = [];
+    let half = 0;
+    const measure = () => {
+      geo = cards.map((c) => ({ left: c.offsetLeft, width: c.offsetWidth }));
+      half = track.scrollWidth / 2 + GAP / 2;
+    };
+    measure();
+
+    const wrap = () => {
+      if (half <= 0) return;
+      while (x <= -half) x += half;
+      while (x > 0) x -= half;
+    };
+    const mark = () => {
+      const mid = stage.clientWidth / 2;
+      let best = cards[0];
+      let bestDistance = Infinity;
+      cards.forEach((card, i) => {
+        const d = Math.abs(geo[i].left + x + geo[i].width / 2 - mid);
+        if (d < bestDistance) {
+          bestDistance = d;
+          best = card;
+        }
+      });
+      if (best !== current) {
+        current?.removeAttribute("data-focus");
+        best.setAttribute("data-focus", "");
+        current = best;
+        setFocused({ kicker: best.dataset.kicker ?? "", title: best.dataset.title ?? "" });
+      }
+    };
+    const render = () => {
+      wrap();
+      track.style.transform = `translate3d(${x}px,0,0)`;
+      mark();
+    };
+    const tick = (t: number) => {
+      const dt = Math.min(0.05, (t - last) / 1000 || 0);
+      last = t;
+      if (glide) {
+        const k = Math.min(1, (t - glide.t0) / GLIDE_MS);
+        const e = 1 - Math.pow(1 - k, 3);
+        x = glide.from + (glide.to - glide.from) * e;
+        if (k >= 1) glide = null;
+      } else if (!drag && !pausedRef.current && !hover && !focusInside && visible) {
+        x -= SPEED * dt;
+      }
+      render();
+      frame = requestAnimationFrame(tick);
+    };
+
+    const glideTo = (card: HTMLElement) => {
+      const i = cards.indexOf(card);
+      if (i < 0) return;
+      const to = stage.clientWidth / 2 - geo[i].left - geo[i].width / 2;
+      if (readReduce()) {
+        glide = null;
+        x = to;
+        render();
+      } else {
+        glide = { from: x, to, t0: performance.now() };
+      }
+    };
+    const step = (dir: 1 | -1) => {
+      const i = current ? cards.indexOf(current) : 0;
+      let j = i + dir;
+      if (j < 0) j += count;
+      if (j >= cards.length) j -= count;
+      glideTo(cards[j]);
+    };
+    api.current = { step };
+
+    const onEnter = (e: PointerEvent) => {
+      if (e.pointerType === "mouse") hover = true;
+    };
+    const onLeave = () => {
+      hover = false;
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      focusInside = true;
+      const card = (e.target as HTMLElement).closest<HTMLElement>(".tkw-card");
+      if (card) glideTo(card);
+    };
+    const onFocusOut = (e: FocusEvent) => {
+      if (!stage.contains(e.relatedTarget as Node | null)) focusInside = false;
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      drag = { x0: e.clientX, start: x, moved: 0, id: e.pointerId };
+      glide = null;
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x0;
+      drag.moved = Math.max(drag.moved, Math.abs(dx));
+      // Capture only once it is a real drag, so plain clicks still reach the links.
+      if (drag.moved > 6 && !stage.hasPointerCapture(e.pointerId)) {
+        stage.setPointerCapture(e.pointerId);
+        stage.setAttribute("data-dragging", "");
+      }
+      x = drag.start + dx;
+    };
+    let justDragged = false;
+    const onUp = () => {
+      if (!drag) return;
+      const moved = drag.moved;
+      drag = null;
+      stage.removeAttribute("data-dragging");
+      if (moved > 6) {
+        justDragged = true;
+        setTimeout(() => (justDragged = false), 0);
+        if (current) glideTo(current);
+      }
+    };
+    const onClick = (e: MouseEvent) => {
+      if (justDragged) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        step(1);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        step(-1);
+      }
+    };
+
+    stage.addEventListener("pointerenter", onEnter);
+    stage.addEventListener("pointerleave", onLeave);
+    stage.addEventListener("focusin", onFocusIn);
+    stage.addEventListener("focusout", onFocusOut);
+    stage.addEventListener("pointerdown", onDown);
+    stage.addEventListener("pointermove", onMove);
+    stage.addEventListener("pointerup", onUp);
+    stage.addEventListener("pointercancel", onUp);
+    stage.addEventListener("click", onClick, true);
+    stage.addEventListener("keydown", onKey);
+    const io = new IntersectionObserver((entries) => entries.forEach((en) => (visible = en.isIntersecting)));
+    io.observe(stage);
+    const ro = new ResizeObserver(measure);
+    ro.observe(track);
+    frame = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      io.disconnect();
+      ro.disconnect();
+      api.current = null;
+      stage.removeEventListener("pointerenter", onEnter);
+      stage.removeEventListener("pointerleave", onLeave);
+      stage.removeEventListener("focusin", onFocusIn);
+      stage.removeEventListener("focusout", onFocusOut);
+      stage.removeEventListener("pointerdown", onDown);
+      stage.removeEventListener("pointermove", onMove);
+      stage.removeEventListener("pointerup", onUp);
+      stage.removeEventListener("pointercancel", onUp);
+      stage.removeEventListener("click", onClick, true);
+      stage.removeEventListener("keydown", onKey);
+    };
+    // itemsKey: rebuild when the cards change.
+  }, [count, itemsKey]);
+
+  if (count === 0) return null;
+
+  return (
+    <section className={`tkw ${className}`} aria-labelledby={titleId}>
+      <style href="tralked-news-wire" precedence="default">
+        {CSS}
+      </style>
+      <div className="tkw-head">
+        <h2 id={titleId}>{title}</h2>
+        {description ? <p>{description}</p> : null}
+      </div>
+      <div
+        ref={stageRef}
+        className="tkw-stage"
+        role="region"
+        aria-roledescription="carrossel"
+        aria-label={label}
+      >
+        <div ref={trackRef} className="tkw-track">
+          {items.map((item) => (
+            <WireCard key={item.id} item={item} />
+          ))}
+          {/* Second copy for the endless loop: hidden from assistive tech and the tab order. */}
+          {items.map((item) => (
+            <WireCard key={`${item.id}~`} item={item} hidden />
+          ))}
+        </div>
+        <div className="tkw-lens" aria-hidden="true" />
+      </div>
+      <div className="tkw-foot">
+        <button
+          type="button"
+          className="tkw-pause"
+          aria-pressed={paused}
+          aria-label={paused ? "Retomar notícias" : "Pausar notícias"}
+          onClick={() => setUserPaused(!paused)}
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            {paused ? (
+              <path d="M7 4v16l13-8z" />
+            ) : (
+              <>
+                <rect x="6" y="4" width="4" height="16" />
+                <rect x="14" y="4" width="4" height="16" />
+              </>
+            )}
+          </svg>
+        </button>
+        <span className="tkw-focus" aria-live="off">
+          {focused ? (
+            <>
+              {focused.kicker} · <b>{focused.title}</b>
+            </>
+          ) : null}
+        </span>
+        <div className="tkw-nav">
+          <button type="button" className="tkw-btn" aria-label="Notícia anterior" onClick={() => api.current?.step(-1)}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="m10 3-5 5 5 5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+            </svg>
+          </button>
+          <button type="button" className="tkw-btn" aria-label="Próxima notícia" onClick={() => api.current?.step(1)}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
