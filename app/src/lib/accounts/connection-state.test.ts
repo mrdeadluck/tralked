@@ -8,46 +8,48 @@ const ago = (ms: number) => new Date(NOW.getTime() - ms);
 function view(over: Partial<LinkedAccountView>): LinkedAccountView {
   return {
     platform: "psn",
+    active: false,
     handle: "Lucas-Exemplo",
+    fieldValue: null,
     verified: false,
-    pendingCode: null,
-    codeExpiresAt: null,
+    claimCode: null,
+    claimExpiresAt: null,
     lastSyncedAt: null,
     lastSyncAttemptAt: null,
     ...over,
   };
 }
 
+const active = (over: Partial<LinkedAccountView> = {}) => view({ active: true, fieldValue: "Lucas-Exemplo", ...over });
+
 describe("connectionState", () => {
   it("is disconnected without a row", () => {
-    expect(connectionState(undefined, NOW)).toEqual({ kind: "disconnected", expiredHandle: null });
+    expect(connectionState(undefined, NOW)).toEqual({ kind: "disconnected", claim: null });
   });
 
-  it("is pending while the code is valid and disconnected (expired) afterwards", () => {
+  it("an inactive row is disconnected, with its claim while the code is valid", () => {
     const expiresAt = new Date(NOW.getTime() + 60_000);
-    expect(connectionState(view({ pendingCode: "TRK-ABCDEF", codeExpiresAt: expiresAt }), NOW)).toEqual({
-      kind: "pending",
-      handle: "Lucas-Exemplo",
-      code: "TRK-ABCDEF",
-      expiresAt,
+    expect(connectionState(view({ claimCode: "TRK-ABCDEF", claimExpiresAt: expiresAt }), NOW)).toEqual({
+      kind: "disconnected",
+      claim: { handle: "Lucas-Exemplo", code: "TRK-ABCDEF", expiresAt },
     });
-    // getLinkedAccounts hides expired codes: an unverified row without code is an expired link.
-    expect(connectionState(view({}), NOW)).toEqual({ kind: "disconnected", expiredHandle: "Lucas-Exemplo" });
+    expect(connectionState(view({}), NOW)).toEqual({ kind: "disconnected", claim: null });
   });
 
-  it("only verified accounts are connected", () => {
-    const synced = connectionState(view({ verified: true, lastSyncedAt: ago(60_000), lastSyncAttemptAt: ago(90_000) }), NOW);
-    expect(synced).toMatchObject({ kind: "connected", importing: false, failed: false });
+  it("every active connection is connected, typed in (unverified) or claimed (verified)", () => {
+    const typed = connectionState(active({ lastSyncedAt: ago(60_000), lastSyncAttemptAt: ago(90_000) }), NOW);
+    expect(typed).toMatchObject({ kind: "connected", value: "Lucas-Exemplo", verified: false, importing: false, failed: false });
+    expect(connectionState(active({ verified: true }), NOW)).toMatchObject({ kind: "connected", verified: true });
   });
 
   it("tells a running import from a failed one", () => {
-    expect(connectionState(view({ verified: true }), NOW)).toMatchObject({ importing: true, failed: false });
-    expect(connectionState(view({ verified: true, lastSyncAttemptAt: ago(60_000) }), NOW)).toMatchObject({
+    expect(connectionState(active(), NOW)).toMatchObject({ importing: true, failed: false });
+    expect(connectionState(active({ lastSyncAttemptAt: ago(60_000) }), NOW)).toMatchObject({
       importing: true,
       failed: false,
     });
     expect(
-      connectionState(view({ verified: true, lastSyncedAt: ago(IMPORT_GRACE_MS * 3), lastSyncAttemptAt: ago(IMPORT_GRACE_MS * 2) }), NOW),
+      connectionState(active({ lastSyncedAt: ago(IMPORT_GRACE_MS * 3), lastSyncAttemptAt: ago(IMPORT_GRACE_MS * 2) }), NOW),
     ).toMatchObject({ importing: false, failed: true });
   });
 });

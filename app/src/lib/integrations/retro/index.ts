@@ -1,4 +1,5 @@
-import { env, hasKey } from "@/lib/env";
+import { env } from "@/lib/env";
+import { pickClient } from "../availability";
 import { createRetroClient } from "./client";
 import { createRetroFixture } from "./fixture";
 import type { RetroApi } from "./types";
@@ -7,11 +8,13 @@ export type * from "./types";
 
 let instance: RetroApi | undefined;
 
-/** Real RetroAchievements client when RA_API_KEY is set, otherwise the offline fixture. */
+/**
+ * Real RetroAchievements client when RA_API_KEY is set (RA_USERNAME goes along when present);
+ * otherwise the offline fixture outside production, and PlatformNotConfiguredError in production
+ * (see ../availability.ts).
+ */
 export function getRetro(): RetroApi {
-  instance ??= hasKey("RA_API_KEY") && env.RA_API_KEY
-    ? createRetroClient({ apiKey: env.RA_API_KEY, username: env.RA_USERNAME })
-    : createRetroFixture();
+  instance ??= pickClient("retro", (apiKey) => createRetroClient({ apiKey, username: env.RA_USERNAME }), createRetroFixture);
   return instance;
 }
 

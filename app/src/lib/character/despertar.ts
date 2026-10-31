@@ -19,7 +19,7 @@ export async function pendingDespertar(userId: string): Promise<number[] | null>
       lastSyncedAt: true,
       stats: { select: { level: true } },
       linkedAccounts: {
-        where: { verifiedAt: { not: null }, lastSyncedAt: { not: null } },
+        where: { linkedAt: { not: null }, lastSyncedAt: { not: null } },
         select: { id: true },
         take: 1,
       },

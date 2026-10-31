@@ -73,7 +73,11 @@ if (steamAccount) {
   await prisma.linkedAccount.update({
     where: { id: steamAccount.id },
     // Never downgrades: an already verified account stays verified.
-    data: { handle: summary.personaName, ...(verified && !steamAccount.verifiedAt && { verifiedAt: new Date() }) },
+    data: {
+      handle: summary.personaName,
+      // upsertUserFromSteam made the row active; a proven account is also verified.
+      ...(verified && !steamAccount.verifiedAt && { verifiedAt: new Date() }),
+    },
   });
 } else {
   await prisma.linkedAccount.create({
@@ -93,12 +97,12 @@ if (values.psn) {
     where: { userId_platform: { userId: user.id, platform: "psn" } },
   });
   if (existing) {
-    log.info(`PSN account already present (${existing.handle}, ${existing.verifiedAt ? "verified" : "pending"}), left as is`);
+    log.info(`PSN account already present (${existing.handle}, ${existing.linkedAt ? "connected" : "pending"}), left as is`);
   } else {
     // The PSN accountId is only known once PSN access is configured (PSN_NPSSO) and the link is
     // confirmed; until then the row is pending (no verifiedAt) with a placeholder id.
     await prisma.linkedAccount.create({
-      data: { userId: user.id, platform: "psn", externalId: `pending:${values.psn}`, handle: values.psn },
+      data: { userId: user.id, platform: "psn", externalId: `pending:${values.psn}`, handle: values.psn, linkedAt: null },
     });
     log.info(`PSN account ${values.psn} added as pending`);
   }

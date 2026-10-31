@@ -46,7 +46,8 @@ export function attributeBand(points: number): { level: number; current: number;
 
 export const PLATFORM_ORDER: PlatformId[] = ["steam", "psn", "xbox", "retro"];
 
-export type CharacterPlatform = { platform: PlatformId; handle: string };
+/** An active connection; `verified` false when it was typed in without proof (Exophase model). */
+export type CharacterPlatform = { platform: PlatformId; handle: string; verified: boolean };
 
 export type TrophyTotals = Record<TrophyTier, number>;
 
@@ -112,8 +113,8 @@ export async function getCharacterSheetExtras(userId: string): Promise<Character
     }),
     prisma.attributeProgress.findMany({ where: { userId } }),
     prisma.linkedAccount.findMany({
-      where: { userId, verifiedAt: { not: null } },
-      select: { platform: true, handle: true },
+      where: { userId, linkedAt: { not: null } },
+      select: { platform: true, handle: true, verifiedAt: true },
     }),
     prisma.userAchievement.findMany({
       where: { userId, suspicious: false },
@@ -130,11 +131,11 @@ export async function getCharacterSheetExtras(userId: string): Promise<Character
     return { id, name, description, source: ATTRIBUTE_SOURCE[id], points, ...attributeBand(points) };
   });
 
-  const byPlatform = new Map(accounts.map((a) => [a.platform, a.handle]));
-  const platforms = PLATFORM_ORDER.filter((p) => byPlatform.has(p)).map((platform) => ({
-    platform,
-    handle: byPlatform.get(platform)!,
-  }));
+  const byPlatform = new Map(accounts.map((a) => [a.platform, a]));
+  const platforms = PLATFORM_ORDER.flatMap((platform) => {
+    const account = byPlatform.get(platform);
+    return account ? [{ platform, handle: account.handle, verified: account.verifiedAt !== null }] : [];
+  });
 
   return {
     bio: user?.bio ?? null,

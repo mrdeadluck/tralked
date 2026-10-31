@@ -175,7 +175,7 @@ export async function runSeed() {
       // ---------- Linked accounts ----------
       for (const u of allUsers) {
         const userId = uid(u.handle);
-        const data = { externalId: u.steamId, handle: u.displayName, verifiedAt: daysAgo(400), lastSyncedAt: hoursAgo(2) };
+        const data = { externalId: u.steamId, handle: u.displayName, linkedAt: daysAgo(400), verifiedAt: daysAgo(400), lastSyncedAt: hoursAgo(2) };
         await tx.linkedAccount.upsert({
           where: { userId_platform: { userId, platform: "steam" } },
           create: { userId, platform: "steam", ...data },
@@ -187,6 +187,7 @@ export async function runSeed() {
         const data = {
           externalId: a.externalId,
           handle: a.handle,
+          linkedAt: daysAgo(200),
           verifiedAt: daysAgo(200),
           verifyCode: null,
           verifyExpiresAt: null,

@@ -64,6 +64,7 @@ export async function upsertUserFromSteam(steamId: string, now: Date = new Date(
     platform: "steam",
     externalId: steamId,
     handle: summary.personaName,
+    linkedAt: now,
     verifiedAt: now,
   };
 
@@ -81,7 +82,8 @@ export async function upsertUserFromSteam(steamId: string, now: Date = new Date(
           upsert: {
             where: { userId_platform: { userId: existing.id, platform: "steam" } },
             create: steamAccount,
-            update: { externalId: steamId, handle: summary.personaName },
+            // An inactive row (unlinked) becomes active again: it holds the real id once more.
+            update: { externalId: steamId, handle: summary.personaName, linkedAt: now },
           },
         },
       },

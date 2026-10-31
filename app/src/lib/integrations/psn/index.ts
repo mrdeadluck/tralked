@@ -1,4 +1,4 @@
-import { env, hasKey } from "@/lib/env";
+import { pickClient } from "../availability";
 import { createPsnClient } from "./client";
 import { createPsnFixture } from "./fixture";
 import type { PsnApi } from "./types";
@@ -8,13 +8,12 @@ export type * from "./types";
 let instance: PsnApi | undefined;
 
 /**
- * Real PSN client when the service account's NPSSO is set, otherwise the offline fixture.
+ * Real PSN client when the service account's NPSSO is set; otherwise the offline fixture outside
+ * production, and PlatformNotConfiguredError in production (see ../availability.ts).
  * Memoized per process, so every caller shares one token cache.
  */
 export function getPsn(): PsnApi {
-  instance ??= hasKey("PSN_NPSSO") && env.PSN_NPSSO
-    ? createPsnClient({ npsso: env.PSN_NPSSO })
-    : createPsnFixture();
+  instance ??= pickClient("psn", (npsso) => createPsnClient({ npsso }), createPsnFixture);
   return instance;
 }
 

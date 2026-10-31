@@ -2,27 +2,32 @@ import { randomInt } from "node:crypto";
 import { Prisma, type LinkedAccount } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { toLocalDay } from "@/lib/engine/streak";
+import { platformAvailable } from "@/lib/integrations/availability";
 import { parseSteamProfileInput, steamProfileHandle } from "@/lib/integrations/steam/profile-lookup";
 import { recomputeUser, revalidateMissions } from "@/lib/progression/recompute";
 import type { CodePlatform } from "@/lib/sync/platform-library";
 import { lookupProfile, type LinkPlatform, type PlatformProfile } from "./profiles";
 
 /**
- * Linking Steam, PSN, Xbox and RetroAchievements accounts (Exophase model). The user types their
- * handle (Steam: profile link, custom URL or SteamID64), receives a temporary code, pastes it in
- * the platform profile (Steam "Resumo", PSN "Sobre mim", Xbox bio, RA motto) and confirms;
- * Tralked reads the public profile (with its own service account where the platform needs one).
- * The user never hands over a password or token. Steam's confirmation also fills User.steamId
- * and may recover an account of the old Steam login: see ./steam-link.ts.
+ * Claims and disconnections of Steam, PSN, Xbox and RetroAchievements accounts.
  *
- * Anti-squatting: a pending link does not reserve the platform account. While pending (or after
- * an unlink), the user's own row (unique per user and platform) holds a placeholder externalId
- * `pending:<userId>[:<start times>]`; the real id is only written when the code is confirmed,
- * so starting a link for someone else's account blocks nobody.
+ * Connecting is instant (./connect.ts): typing the profile links it, unverified. A platform account
+ * can only be on one Tralked profile, so when it is already on another one the user claims it here
+ * (the only place that asks for proof): they receive a temporary code, paste it in the platform
+ * profile (Steam "Resumo", PSN "Sobre mim", Xbox bio, RA motto) and confirm; Tralked reads the
+ * public profile (with its own service account where the platform needs one). Proven, the account
+ * moves to the claimant as verified, the previous profile loses it through the unlink path (its XP
+ * from it is voided) and is notified. The user never hands over a password or token. Steam's
+ * claim also fills User.steamId and may recover an account of the old Steam login: ./steam-link.ts.
+ *
+ * Anti-squatting: a pending claim reserves nothing. While pending (or after an unlink), the
+ * user's own row (unique per user and platform) is inactive (`linkedAt` null) and holds a
+ * placeholder externalId `pending:<userId>[:<start times>]`; the real id is only written when the
+ * account is linked or the code is confirmed.
  *
  * Rate limits (each confirmation reads the platform with the service account):
  * - confirm: once per CONFIRM_COOLDOWN_MS per user and platform (`lastSyncAttemptAt`, which
- *   starting a link never resets);
+ *   starting a claim never resets);
  * - start: at most MAX_STARTS_PER_HOUR per user over all platforms (start times are kept in the
  *   placeholder externalId, so no schema change is needed).
  */
@@ -33,6 +38,7 @@ export const MAX_STARTS_PER_HOUR = 5;
 const HOUR_MS = 60 * 60_000;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O, 1/I
 const CODE_LENGTH = 6;
+const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
 /** Handle formats accepted per platform (checked before any request to the platform). */
 export const HANDLE_PATTERNS: Record<CodePlatform, RegExp> = {
@@ -45,8 +51,8 @@ export const HANDLE_PATTERNS: Record<CodePlatform, RegExp> = {
 };
 
 /**
- * The handle as stored while the link is pending, or null when the platform cannot have it.
- * A Steam profile link is reduced to its SteamID64 or custom URL name.
+ * The handle as typed for a lookup, or null when the platform cannot have it. A Steam profile
+ * link is reduced to its SteamID64 or custom URL name.
  */
 export function normalizeLinkHandle(platform: LinkPlatform, handle: string): string | null {
   if (platform === "steam") {
@@ -57,14 +63,21 @@ export function normalizeLinkHandle(platform: LinkPlatform, handle: string): str
   return HANDLE_PATTERNS[platform].test(trimmed) ? trimmed : null;
 }
 
+const PLATFORM_NAMES: Record<LinkPlatform, string> = {
+  steam: "Steam",
+  psn: "PlayStation",
+  xbox: "Xbox",
+  retro: "RetroAchievements",
+};
+
 export type TooSoon = { ok: false; reason: "too_soon"; retryAfterSec: number };
 
-export type StartLinkResult =
+export type StartClaimResult =
   | { ok: true; code: string; expiresAt: Date }
-  | { ok: false; reason: "invalid_handle" | "already_linked" }
+  | { ok: false; reason: "invalid_handle" | "already_linked" | "unavailable" }
   | TooSoon;
 
-export type ConfirmLinkFailure =
+export type ConfirmClaimFailure =
   | "code_missing"
   | "expired"
   | "taken"
@@ -72,19 +85,19 @@ export type ConfirmLinkFailure =
   | "not_found"
   | "too_soon";
 
-export type ConfirmLinkResult =
-  | { ok: true; handle: string; externalId: string }
-  | { ok: false; reason: Exclude<ConfirmLinkFailure, "too_soon"> }
+export type ConfirmClaimResult =
+  | { ok: true; handle: string; externalId: string; previousHolderId: string | null }
+  | { ok: false; reason: Exclude<ConfirmClaimFailure, "too_soon"> }
   | TooSoon;
 
-/** Placeholder externalId of a pending/unlinked row, carrying the recent link start times. */
+/** Placeholder externalId of an inactive row, carrying the recent claim start times. */
 export function pendingExternalId(userId: string, starts: number[] = []): string {
   return starts.length > 0
     ? `pending:${userId}:${starts.map((t) => t.toString(36)).join(".")}`
     : `pending:${userId}`;
 }
 
-/** Start times kept in a placeholder externalId (none for a verified row). */
+/** Start times kept in a placeholder externalId (none for an active row). */
 export function startsOf(externalId: string, userId: string): number[] {
   const prefix = `pending:${userId}:`;
   if (!externalId.startsWith(prefix)) return [];
@@ -110,21 +123,27 @@ export function containsCode(text: string, code: string): boolean {
 }
 
 /**
- * Starts (or restarts, with a new code) linking `handle` on `platform`. A verified account on
- * that platform must be unlinked first. Limited to MAX_STARTS_PER_HOUR per user.
+ * Starts (or restarts, with a new code) claiming `handle` on `platform`. An account already
+ * connected on that platform must be disconnected first (the claim is kept on the user's inactive
+ * row). Limited to MAX_STARTS_PER_HOUR per user.
  */
-export async function startLink(
+export async function startClaim(
   userId: string,
   platform: LinkPlatform,
   handle: string,
   now: Date = new Date(),
-): Promise<StartLinkResult> {
+): Promise<StartClaimResult> {
   const trimmed = normalizeLinkHandle(platform, handle);
   if (!trimmed) return { ok: false, reason: "invalid_handle" };
+  if (platform !== "steam" && !platformAvailable(platform)) return { ok: false, reason: "unavailable" };
 
   const rows = await prisma.linkedAccount.findMany({ where: { userId } });
   const existing = rows.find((r) => r.platform === platform);
-  if (existing?.verifiedAt) return { ok: false, reason: "already_linked" };
+  if (existing?.linkedAt) return { ok: false, reason: "already_linked" };
+  if (platform === "steam") {
+    const me = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { steamId: true } });
+    if (me.steamId) return { ok: false, reason: "already_linked" };
+  }
 
   const windowStart = now.getTime() - HOUR_MS;
   const recent = rows
@@ -141,20 +160,28 @@ export async function startLink(
   const pending = {
     externalId: pendingExternalId(userId, [...ownStarts, now.getTime()]),
     handle: trimmed,
+    linkedAt: null,
     verifyCode: code,
     verifyExpiresAt: expiresAt,
     verifiedAt: null,
   };
-  await prisma.linkedAccount.upsert({
-    where: { userId_platform: { userId, platform } },
-    create: { userId, platform, ...pending },
-    update: pending,
-  });
+  try {
+    await prisma.linkedAccount.upsert({
+      // Only an inactive row is reused: an account linked a moment ago is never overwritten.
+      where: { userId_platform: { userId, platform }, linkedAt: null },
+      create: { userId, platform, ...pending },
+      update: pending,
+    });
+  } catch (error) {
+    // The row became active meanwhile (the guarded update matched nothing, or the create collided).
+    if (isKnownError(error, "P2025") || isKnownError(error, "P2002")) return { ok: false, reason: "already_linked" };
+    throw error;
+  }
   return { ok: true, code, expiresAt };
 }
 
-const isUniqueViolation = (error: unknown) =>
-  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+export const isKnownError = (error: unknown, code: string) =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === code;
 
 export type PendingCodeCheck =
   | { ok: true; pending: LinkedAccount; profile: PlatformProfile }
@@ -162,8 +189,8 @@ export type PendingCodeCheck =
   | TooSoon;
 
 /**
- * First half of a confirmation (shared with Steam): the pending code must still be valid, the
- * per-link cooldown free, and the profile must exist and show the code. A Steam profile that
+ * First half of a claim confirmation (shared with Steam): the pending code must still be valid,
+ * the per-claim cooldown free, and the profile must exist and show the code. A Steam profile that
  * is private does not show its "Resumo" at all, so a missing code there is reported as private.
  */
 export async function checkPendingCode(
@@ -174,16 +201,16 @@ export async function checkPendingCode(
   const pending = await prisma.linkedAccount.findUnique({
     where: { userId_platform: { userId, platform } },
   });
-  if (!pending || pending.verifiedAt || !pending.verifyCode || !pending.verifyExpiresAt) {
+  if (!pending || pending.linkedAt || !pending.verifyCode || !pending.verifyExpiresAt) {
     return { ok: false, reason: "expired" };
   }
   if (pending.verifyExpiresAt <= now) return { ok: false, reason: "expired" };
 
-  // Atomic cooldown claim: two confirmations of the same link cannot both reach the platform.
+  // Atomic cooldown claim: two confirmations of the same claim cannot both reach the platform.
   const claimed = await prisma.linkedAccount.updateMany({
     where: {
       id: pending.id,
-      verifiedAt: null,
+      linkedAt: null,
       OR: [
         { lastSyncAttemptAt: null },
         { lastSyncAttemptAt: { lte: new Date(now.getTime() - CONFIRM_COOLDOWN_MS) } },
@@ -204,115 +231,191 @@ export async function checkPendingCode(
   return { ok: true, pending, profile };
 }
 
+/** Thrown inside a transaction to roll it back when a guarded update matched nothing. */
+export class Raced extends Error {}
+
 /**
- * Checks the pending link: the profile must exist, show the code, belong to nobody else and
- * have its trophies/achievements visible. On success the link is verified and the real
- * platform id is stored.
+ * Second half of a claim: the proven account becomes the claimant's verified, active connection.
+ * Whoever had it (an active link of another profile, or for Steam a User.steamId) loses it in the
+ * same transaction through the unlink path (XP from it voided, library rows removed) and gets a
+ * notification. Their level and missions are recomputed afterwards.
  */
-export async function confirmLink(
+export async function takeOverAccount(
   userId: string,
-  platform: CodePlatform,
-  now: Date = new Date(),
-): Promise<ConfirmLinkResult> {
-  const check = await checkPendingCode(userId, platform, now);
-  if (!check.ok) return check;
-  const { pending, profile } = check;
+  pending: LinkedAccount,
+  profile: PlatformProfile,
+  now: Date,
+): Promise<ConfirmClaimResult | { ok: false; reason: "different" }> {
+  const platform = pending.platform as LinkPlatform;
+  const externalId = profile.externalId;
+  const [row, steamOwner] = await Promise.all([
+    prisma.linkedAccount.findUnique({
+      where: { platform_externalId: { platform, externalId } },
+      select: { userId: true },
+    }),
+    platform === "steam"
+      ? prisma.user.findFirst({ where: { steamId: externalId, id: { not: userId } }, select: { id: true } })
+      : null,
+  ]);
+  const holderId = (row && row.userId !== userId ? row.userId : null) ?? steamOwner?.id ?? null;
 
-  const owner = await prisma.linkedAccount.findUnique({
-    where: { platform_externalId: { platform, externalId: profile.externalId } },
-    select: { userId: true },
-  });
-  if (owner && owner.userId !== userId) return { ok: false, reason: "taken" };
-  if (profile.isPrivate) return { ok: false, reason: "private" };
-
+  let released: { days: string[] } | null = null;
   try {
-    await prisma.linkedAccount.update({
-      where: { id: pending.id, verifiedAt: null, verifyCode: pending.verifyCode },
-      data: {
-        externalId: profile.externalId,
-        handle: profile.handle,
-        verifiedAt: now,
-        verifyCode: null,
-        verifyExpiresAt: null,
-        // lastSyncAttemptAt stays at this attempt, so the cooldown also covers unlink + relink.
-      },
-    });
+    await prisma.$transaction(async (tx) => {
+      if (holderId) {
+        released = await releaseAccount(tx, holderId, platform, now);
+        if (released) {
+          const name = PLATFORM_NAMES[platform];
+          await tx.notification.create({
+            data: {
+              userId: holderId,
+              kind: "system",
+              title: `Sua conexão ${name} foi reivindicada`,
+              body: `Outra pessoa provou, com um código no perfil, ser dona da conta ${name} ${profile.handle}. Ela saiu do seu personagem e o XP que veio dela foi anulado. Se a conta é sua, conecte de novo em Conexões e use "Reivindicar".`,
+              href: "/conta/conexoes",
+            },
+          });
+        }
+      }
+      if (platform === "steam") {
+        // The guard makes a concurrent link of another Steam account fail instead of replacing it.
+        const { count } = await tx.user.updateMany({
+          where: { id: userId, OR: [{ steamId: null }, { steamId: externalId }] },
+          data: { steamId: externalId, lastSyncedAt: null },
+        });
+        if (count === 0) throw new Raced();
+      }
+      await tx.linkedAccount.update({
+        where: { id: pending.id, linkedAt: null, verifyCode: pending.verifyCode },
+        data: {
+          externalId,
+          handle: profile.handle,
+          linkedAt: now,
+          verifiedAt: now,
+          verifyCode: null,
+          verifyExpiresAt: null,
+          lastSyncedAt: null,
+          // lastSyncAttemptAt stays at this attempt, so the cooldown also covers unlink + reclaim.
+        },
+      });
+    }, TRANSACTION_OPTIONS);
   } catch (error) {
-    // Another user verified the same platform account a moment earlier.
-    if (isUniqueViolation(error)) return { ok: false, reason: "taken" };
-    // The pending link changed under us (restarted or confirmed concurrently).
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
-      return { ok: false, reason: "expired" };
-    }
+    if (error instanceof Raced) return { ok: false, reason: "different" };
+    // Someone else linked this account a moment earlier.
+    if (isKnownError(error, "P2002")) return { ok: false, reason: "taken" };
+    // The pending claim changed under us (restarted or confirmed concurrently).
+    if (isKnownError(error, "P2025")) return { ok: false, reason: "expired" };
     throw error;
   }
-  return { ok: true, handle: profile.handle, externalId: profile.externalId };
+  const done = released as { days: string[] } | null;
+  if (holderId && done) {
+    await revalidateMissions(holderId, done.days, now);
+    await recomputeUser(holderId, now);
+  }
+  return { ok: true, handle: profile.handle, externalId, previousHolderId: done ? holderId : null };
 }
 
 /**
- * Cancels a link that was started but never confirmed: the code stops working and the card goes
- * back to "Não conectada". The row stays (placeholder externalId) so the start limit still counts.
- * Returns false when there is no unconfirmed link to cancel.
+ * Checks the pending claim of a PSN/Xbox/RA account: the profile must exist, show the code and
+ * have its trophies/achievements visible. Proven, the account becomes the user's verified
+ * connection, taken from whoever had it.
  */
-export async function cancelPendingLink(userId: string, platform: LinkPlatform): Promise<boolean> {
+export async function confirmClaim(
+  userId: string,
+  platform: CodePlatform,
+  now: Date = new Date(),
+): Promise<ConfirmClaimResult> {
+  const check = await checkPendingCode(userId, platform, now);
+  if (!check.ok) return check;
+  if (check.profile.isPrivate) return { ok: false, reason: "private" };
+  const result = await takeOverAccount(userId, check.pending, check.profile, now);
+  // "different" only happens for Steam (User.steamId).
+  return result.ok || result.reason !== "different" ? result : { ok: false, reason: "expired" };
+}
+
+/**
+ * Cancels a claim that was started but never confirmed: the code stops working. The row stays
+ * (placeholder externalId) so the start limit still counts. Returns false when there is no
+ * unconfirmed claim to cancel.
+ */
+export async function cancelClaim(userId: string, platform: LinkPlatform): Promise<boolean> {
   const { count } = await prisma.linkedAccount.updateMany({
-    where: { userId, platform, verifiedAt: null, verifyCode: { not: null } },
+    where: { userId, platform, linkedAt: null, verifyCode: { not: null } },
     data: { verifyCode: null, verifyExpiresAt: null },
   });
   return count > 0;
 }
 
 /**
- * Disconnects the account: the row goes back to the unlinked state (placeholder externalId, so
- * the platform account is free for anyone; the verification counts as a recent start), the
+ * Inside a transaction: disconnects `userId`'s account on `platform`. The row goes back to the
+ * inactive state (placeholder externalId, so the platform account is free for anyone), the
  * platform's library rows and valid unlocks are removed, and its ledger entries are voided
- * (never deleted): relinking the same account later does not pay those unlocks again, while
- * another user who proves ownership is paid normally. Mission rewards that those unlocks
- * completed are voided too (the missions are re-checked without them). Suspicious unlocks are
- * kept, so fraud history survives. Disconnecting Steam also clears User.steamId (the Steam sync
- * stops). Returns false when the platform was not linked.
+ * (never deleted): linking the same account again later does not pay those unlocks again, while
+ * another user who links it is paid normally. Suspicious unlocks are kept, so fraud history
+ * survives. Disconnecting Steam also clears User.steamId (the Steam sync stops). Returns the days
+ * whose missions must be re-checked, or null when nothing was connected.
  *
- * The account row is locked FOR UPDATE: a platform sync of this account re-checks the same row
- * (FOR SHARE) in every title transaction, so it either records that title before the unlink
- * (which then removes it) or sees the account gone and stops.
+ * The rows are locked FOR UPDATE: a platform sync re-checks the account row (FOR SHARE) in every
+ * title transaction, and the Steam sync the user row, so a sync either records its title before
+ * the unlink (which then removes it) or sees the account gone and stops.
  */
-export async function unlink(
+export async function releaseAccount(
+  tx: Prisma.TransactionClient,
   userId: string,
   platform: LinkPlatform,
-  now: Date = new Date(),
-): Promise<boolean> {
-  const removed = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "LinkedAccount" WHERE "userId" = ${userId} AND platform = ${platform} FOR UPDATE`;
-    const account = await tx.linkedAccount.findUnique({
-      where: { userId_platform: { userId, platform } },
-    });
-    if (!account?.verifiedAt) return null;
+  now: Date,
+): Promise<{ days: string[] } | null> {
+  if (platform === "steam") await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+  await tx.$queryRaw`SELECT id FROM "LinkedAccount" WHERE "userId" = ${userId} AND platform = ${platform} FOR UPDATE`;
+  const account = await tx.linkedAccount.findUnique({
+    where: { userId_platform: { userId, platform } },
+  });
+  const steamId =
+    platform === "steam"
+      ? (await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { steamId: true } })).steamId
+      : null;
+  if (!account?.linkedAt && !steamId) return null;
+  if (account?.linkedAt) {
     await tx.linkedAccount.update({
       where: { id: account.id },
       data: {
-        externalId: pendingExternalId(userId, [account.verifiedAt.getTime()]),
+        externalId: pendingExternalId(userId),
+        linkedAt: null,
         verifiedAt: null,
         verifyCode: null,
         verifyExpiresAt: null,
         lastSyncedAt: null,
       },
     });
-    await tx.xpLedgerEntry.updateMany({
-      where: { userId, platform, voidedAt: null },
-      data: { voidedAt: now },
-    });
-    // Days of the unlocks that go away: the missions of those days and weeks are re-checked.
-    const gone = await tx.userAchievement.findMany({
-      where: { userId, suspicious: false, achievement: { platform } },
-      select: { unlockedAt: true },
-    });
-    await tx.userAchievement.deleteMany({
-      where: { userId, suspicious: false, achievement: { platform } },
-    });
-    await tx.userGame.deleteMany({ where: { userId, platform } });
-    if (platform === "steam") await tx.user.update({ where: { id: userId }, data: { steamId: null, lastSyncedAt: null } });
-    return { days: [...new Set(gone.map((u) => toLocalDay(u.unlockedAt)))] };
+  }
+  await tx.xpLedgerEntry.updateMany({
+    where: { userId, platform, voidedAt: null },
+    data: { voidedAt: now },
   });
+  // Days of the unlocks that go away: the missions of those days and weeks are re-checked.
+  const gone = await tx.userAchievement.findMany({
+    where: { userId, suspicious: false, achievement: { platform } },
+    select: { unlockedAt: true },
+  });
+  await tx.userAchievement.deleteMany({
+    where: { userId, suspicious: false, achievement: { platform } },
+  });
+  await tx.userGame.deleteMany({ where: { userId, platform } });
+  if (platform === "steam") await tx.user.update({ where: { id: userId }, data: { steamId: null, lastSyncedAt: null } });
+  return { days: [...new Set(gone.map((u) => toLocalDay(u.unlockedAt)))] };
+}
+
+/**
+ * Disconnects the account (see releaseAccount), then re-checks the missions that its unlocks
+ * completed (their rewards are voided) and recomputes the user. Returns false when the platform
+ * was not connected.
+ */
+export async function unlink(
+  userId: string,
+  platform: LinkPlatform,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const removed = await prisma.$transaction((tx) => releaseAccount(tx, userId, platform, now), TRANSACTION_OPTIONS);
   if (!removed) return false;
   await revalidateMissions(userId, removed.days, now);
   await recomputeUser(userId, now);

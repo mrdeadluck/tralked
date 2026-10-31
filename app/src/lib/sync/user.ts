@@ -10,7 +10,8 @@ import { recomputeUser } from "@/lib/progression/recompute";
 import { syncGame } from "./catalog";
 
 export type SyncUserResult = {
-  status: "ok" | "private";
+  /** `unlinked`: the Steam account was disconnected (or claimed by another profile) mid-run. */
+  status: "ok" | "private" | "unlinked";
   newUnlocks: number;
   levelBefore: number;
   levelAfter: number;
@@ -121,6 +122,25 @@ async function fetchGame(
   return { game: { ...game, achievements: current }, playtimeMin: owned.playtimeMin, playtimeKnown, unlocks };
 }
 
+/** The Steam account was disconnected (or claimed by another profile) while the sync ran. */
+class SteamUnlinkedError extends Error {
+  constructor() {
+    super("The Steam account changed during the sync");
+  }
+}
+
+/**
+ * Locks the user row FOR SHARE until the game's transaction ends and checks it still has the
+ * Steam account the run started with. Disconnecting Steam (lib/accounts/link.ts releaseAccount)
+ * takes the same row FOR UPDATE, so it either waits for this game (and then removes it) or has
+ * already committed (and the run stops).
+ */
+async function assertSteamStillLinked(tx: Prisma.TransactionClient, userId: string, steamId: string) {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "User" WHERE id = ${userId} AND "steamId" = ${steamId} FOR SHARE`;
+  if (rows.length === 0) throw new SteamUnlinkedError();
+}
+
 /** `cleared`: an admin released the unlock (fraudReview), so the rules no longer flag it. */
 type KnownUnlock = { unlockedAt: Date; suspicious: boolean; cleared: boolean };
 
@@ -137,6 +157,7 @@ const suspiciousVerdict = (before: KnownUnlock | undefined, ruleMatches: boolean
  */
 async function recordGame(
   userId: string,
+  steamId: string,
   fetched: FetchedGame,
   known: Map<string, KnownUnlock>,
   bursts: Set<string>,
@@ -163,6 +184,7 @@ async function recordGame(
   const pctById = new Map(game.achievements.map((a) => [a.id, a.globalPct]));
 
   return prisma.$transaction(async (tx) => {
+    await assertSteamStillLinked(tx, userId, steamId);
     await tx.userGame.createMany({
       data: [
         { userId, gameId: game.id, platform: "steam", playtimeMin, unlockedCount: unlocks.length, completedAt },
@@ -373,11 +395,21 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
 
   let newUnlocks = 0;
   for (const fetched of fetchedGames) {
-    newUnlocks += await recordGame(userId, fetched, known, bursts);
+    try {
+      newUnlocks += await recordGame(userId, steamId, fetched, known, bursts);
+    } catch (error) {
+      // Disconnected while this run was reading: stop. The unlink already removed what was
+      // recorded and recomputed; nothing more is written for this account.
+      if (error instanceof SteamUnlinkedError) {
+        return { status: "unlinked", newUnlocks: 0, levelBefore: before.level, levelAfter: before.level, skillUps: [] };
+      }
+      throw error;
+    }
   }
 
   await recomputeUser(userId);
-  await prisma.user.update({ where: { id: userId }, data: { lastSyncedAt: new Date() } });
+  // Guarded like the games: a Steam disconnected meanwhile is not marked synced.
+  await prisma.user.updateMany({ where: { id: userId, steamId }, data: { lastSyncedAt: new Date() } });
 
   const after = await currentProgress(userId);
   return {

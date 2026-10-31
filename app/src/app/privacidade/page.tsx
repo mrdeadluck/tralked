@@ -50,8 +50,9 @@ export default function PrivacidadePage() {
             senha&quot; valem 1 hora e também são guardados só em hash.
           </li>
           <li>
-            <strong>Steam:</strong> o SteamID64, o nome e o avatar do perfil e se ele é público. Você prova
-            que a conta é sua colando um código no Resumo do perfil; a Steam nunca nos envia a sua senha.
+            <strong>Steam:</strong> o SteamID64, o nome e o avatar do perfil e se ele é público. Basta
+            informar o perfil; só para reivindicar uma conta que já está em outro perfil você prova que ela
+            é sua colando um código no Resumo. A Steam nunca nos envia a sua senha.
           </li>
           <li>
             <strong>Google:</strong> o identificador da conta, o nome, a foto e o e-mail (quando verificado
@@ -72,9 +73,9 @@ export default function PrivacidadePage() {
           contas privadas não são lidas.
         </p>
         <p>
-          Para conectar PlayStation, Xbox ou RetroAchievements, você cola um código temporário no seu
-          perfil da plataforma. Guardamos o identificador público da conta e o nome nela, nunca senha ou
-          token de acesso seu.
+          Para conectar PlayStation, Xbox ou RetroAchievements, basta informar o seu perfil público (para
+          reivindicar uma conta que já está em outro perfil, você cola um código temporário nele).
+          Guardamos o identificador público da conta e o nome nela, nunca senha ou token de acesso seu.
         </p>
       </LegalSection>
 

@@ -110,22 +110,27 @@ model PasswordResetToken {
   @@index([userId])
 }
 
-/// A gaming account linked to a user. Ownership is proven by pasting `verifyCode` in the
-/// platform profile (Steam "Resumo", PSN/Xbox "about me", RA motto) before `verifyExpiresAt`;
-/// `verifiedAt` set means verified. Steam rows of accounts created by the old Steam login (OpenID)
-/// were verified on creation.
-/// A pending or unlinked (unverified) row stores `pending:<userId>[:<recent link start times,
-/// base36 ms>]` as externalId, so it never reserves the platform account; the real id is written
-/// on confirmation. `lastSyncAttemptAt` also holds the last confirmation attempt (cooldown).
+/// A gaming account linked to a user (Exophase model, lib/accounts/connect.ts). Typing the profile
+/// in /conta/conexoes links it at once: `linkedAt` set means an active connection, which syncs and
+/// pays XP. `verifiedAt` set means ownership was also proven, by pasting `verifyCode` in the
+/// platform profile (Steam "Resumo", PSN/Xbox "about me", RA motto) before `verifyExpiresAt`: only
+/// claims of an account already on another profile need that (lib/accounts/link.ts). Steam rows of
+/// accounts created by the old Steam login (OpenID) were verified on creation.
+/// An inactive row (unlinked account, or a claim waiting for its code) stores `pending:<userId>
+/// [:<recent claim start times, base36 ms>]` as externalId and has no `linkedAt`, so it never
+/// reserves the platform account (database checks keep `linkedAt` and the placeholder in step).
+/// `lastSyncAttemptAt` also holds the last claim confirmation attempt (cooldown).
 model LinkedAccount {
   id                String    @id @default(cuid())
   userId            String
   /// steam | psn | xbox | retro
   platform          String
-  /// SteamID64, PSN accountId, Xbox XUID, RA username.
+  /// SteamID64, PSN accountId, Xbox XUID, RA ULID (or the `pending:` placeholder of an inactive row).
   externalId        String
   /// Display name on the platform (PSN online id, gamertag, RA user).
   handle            String
+  /// Active connection since (null: inactive row). Rows created with a real id are active.
+  linkedAt          DateTime? @default(now())
   verifiedAt        DateTime?
   verifyCode        String?
   verifyExpiresAt   DateTime?

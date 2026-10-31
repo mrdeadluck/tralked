@@ -87,7 +87,7 @@ describe("upsertUserFromSteam", () => {
         profilePublic: true,
         // OpenID proved ownership: the Steam account is linked and verified right away.
         linkedAccounts: {
-          create: { platform: "steam", externalId: STEAM_ID, handle: "Lucas Épico!", verifiedAt: NOW },
+          create: { platform: "steam", externalId: STEAM_ID, handle: "Lucas Épico!", linkedAt: NOW, verifiedAt: NOW },
         },
       },
     });
@@ -110,8 +110,8 @@ describe("upsertUserFromSteam", () => {
         linkedAccounts: {
           upsert: {
             where: { userId_platform: { userId: "u1", platform: "steam" } },
-            create: { platform: "steam", externalId: STEAM_ID, handle: "Lucas Épico!", verifiedAt: NOW },
-            update: { externalId: STEAM_ID, handle: "Lucas Épico!" },
+            create: { platform: "steam", externalId: STEAM_ID, handle: "Lucas Épico!", linkedAt: NOW, verifiedAt: NOW },
+            update: { externalId: STEAM_ID, handle: "Lucas Épico!", linkedAt: NOW },
           },
         },
       },

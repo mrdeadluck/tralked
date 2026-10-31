@@ -9,7 +9,7 @@ import { XpBar } from "./XpBar";
 
 type CharacterCardProps = {
   character: Character;
-  /** Contas verificadas, na ordem Steam, PSN, Xbox, RetroAchievements. */
+  /** Conexões ativas (verificadas ou não), na ordem Steam, PSN, Xbox, RetroAchievements. */
   platforms: CharacterPlatform[];
   /** Bio em texto puro escrita pelo jogador. */
   bio: string | null;
@@ -56,10 +56,14 @@ export function CharacterCard({ character, platforms, bio, actions }: CharacterC
           {platforms.length > 0 ? (
             <ul aria-label="Plataformas conectadas" className="m-0 flex list-none flex-wrap gap-1.5 p-0">
               {platforms.map((p) => (
-                <li key={p.platform} title={`${PLATFORM_LABEL[p.platform]}: ${p.handle}`}>
+                <li
+                  key={p.platform}
+                  title={`${PLATFORM_LABEL[p.platform]}: ${p.handle}${p.verified ? "" : " (conexão não verificada)"}`}
+                >
                   <Chip color={PLATFORM_TOKEN[p.platform]}>
                     {PLATFORM_LABEL[p.platform]}
                     <span className="sr-only">: {p.handle}</span>
+                    {p.verified ? null : <span className="text-muted"> · não verificada</span>}
                   </Chip>
                 </li>
               ))}

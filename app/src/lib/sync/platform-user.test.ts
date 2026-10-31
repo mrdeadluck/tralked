@@ -228,15 +228,42 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     expect(sonic.playtimeMin).toBe(300);
   });
 
-  it("reports private profiles and skips unverified accounts", async () => {
+  it("reports private profiles, syncs active links even when unverified, and skips inactive rows", async () => {
     const { prisma } = await import("@/lib/db");
-    const { syncPlatformAccount } = await import("./platform-user");
+    const { syncPlatformAccount, syncStalePlatformAccounts } = await import("./platform-user");
     const closed = await userWith("psn", "9000000000000000003", "Perfil-Fechado");
     await expect(syncPlatformAccount(closed.id, "psn")).resolves.toMatchObject({ status: "private", newUnlocks: 0 });
 
-    const pending = await userWith("xbox", "2535400000000002-pending", "Tralked Teste", false);
-    await expect(syncPlatformAccount(pending.id, "xbox")).resolves.toMatchObject({ status: "unverified" });
-    expect(await prisma.xpLedgerEntry.count({ where: { userId: pending.id } })).toBe(0);
+    // Linked by typing the gamertag (Exophase model): no proof, but it syncs and pays XP.
+    const typed = await userWith("xbox", "2535400000000002", "Tralked Teste", false);
+    const result = await syncPlatformAccount(typed.id, "xbox");
+    expect(result).toMatchObject({ status: "ok" });
+    expect(result.newUnlocks).toBeGreaterThan(0);
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: typed.id, voidedAt: null } })).toBeGreaterThan(0);
+
+    // An inactive row (unlinked, or a claim waiting for its code) is never read.
+    counter++;
+    const inactive = await prisma.user.create({ data: { handle: `${HANDLE_PREFIX}${counter}`, displayName: "Teste" } });
+    await prisma.linkedAccount.create({
+      data: { userId: inactive.id, platform: "xbox", externalId: `pending:${inactive.id}`, handle: "Tralked Teste", linkedAt: null, verifyCode: "TRK-AAAAAA" },
+    });
+    await expect(syncPlatformAccount(inactive.id, "xbox")).resolves.toMatchObject({ status: "unlinked" });
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: inactive.id } })).toBe(0);
+    // Nor picked by the cron.
+    await expect(syncStalePlatformAccounts({ where: { userId: inactive.id } })).resolves.toEqual({ processed: 0, failed: 0 });
+  });
+
+  it("the cron skips platforms without a credential in production (never their fixtures)", async () => {
+    const { syncStalePlatformAccounts } = await import("./platform-user");
+    const user = await userWith("psn", "9000000000000000002", "Tralked-Teste");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PLATFORM_FIXTURES", "");
+    try {
+      await expect(syncStalePlatformAccounts({ where: { userId: user.id } })).resolves.toEqual({ processed: 0, failed: 0 });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    await expect(syncStalePlatformAccounts({ where: { userId: user.id } })).resolves.toEqual({ processed: 1, failed: 0 });
   });
 
   it("voids confirmed fraud: XP, platinum and level drop and stay down after a new sync", async () => {
@@ -412,7 +439,7 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     }) as unknown as typeof prisma.game.findUniqueOrThrow);
     try {
       const result = await syncPlatformAccount(user.id, "psn");
-      expect(result).toMatchObject({ status: "unverified", newUnlocks: 0 });
+      expect(result).toMatchObject({ status: "unlinked", newUnlocks: 0 });
       expect(titles).toBe(2); // the second title saw the account gone and the run stopped
       expect(await unlinked).toBe(true);
 

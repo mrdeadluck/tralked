@@ -1,11 +1,12 @@
-import { getPsn, getRetro, getXbox } from "@/lib/integrations";
+import { getPsn, getRetro, getSteam, getXbox } from "@/lib/integrations";
+import { steamMode } from "@/lib/integrations/steam";
 import { getSteamProfileLookup, parseSteamProfileInput } from "@/lib/integrations/steam/profile-lookup";
 import type { CodePlatform } from "@/lib/sync/platform-library";
 
-/** Platforms linked with a code pasted in the profile: PSN, Xbox, RetroAchievements and Steam. */
+/** Platforms connected on /conta/conexoes: Steam, PSN, Xbox and RetroAchievements. */
 export type LinkPlatform = CodePlatform | "steam";
 
-/** A public profile as the link verification sees it. */
+/** A public profile as the connection (and a claim's code check) sees it. */
 export type PlatformProfile = {
   /** SteamID64, PSN accountId, Xbox XUID, RA ULID: stable, used as LinkedAccount.externalId. */
   externalId: string;
@@ -13,7 +14,10 @@ export type PlatformProfile = {
   handle: string;
   /** The free text where the user pastes the code: Steam "Resumo", PSN "Sobre mim", Xbox bio, RA motto. */
   text: string;
-  /** The trophies/achievements are hidden from the service account, so sync cannot read them. */
+  /**
+   * The trophies/achievements are hidden from the service account, so sync cannot read them
+   * (Steam: the profile, or with the Web API key its game details, is not public).
+   */
   isPrivate: boolean;
 };
 
@@ -27,14 +31,17 @@ export async function lookupProfile(
       // The public community profile (no service account needed); its summary is the "Resumo".
       const ref = parseSteamProfileInput(handle);
       const profile = ref ? await getSteamProfileLookup().find(ref) : null;
-      return profile
-        ? {
-            externalId: profile.steamId,
-            handle: profile.personaName,
-            text: profile.summary,
-            isPrivate: !profile.profilePublic,
-          }
-        : null;
+      if (!profile) return null;
+      // "Detalhes de jogos" can only be checked with the Web API key (an empty answer means
+      // private); without it, the first sync finds out and the connection shows the privacy help.
+      const gamesPrivate =
+        profile.profilePublic && steamMode() === "api" && (await getSteam().getOwnedGames(profile.steamId)) === "private";
+      return {
+        externalId: profile.steamId,
+        handle: profile.personaName,
+        text: profile.summary,
+        isPrivate: !profile.profilePublic || gamesPrivate,
+      };
     }
     case "psn": {
       const profile = await getPsn().findProfile(handle);

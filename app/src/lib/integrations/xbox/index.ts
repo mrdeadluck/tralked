@@ -1,4 +1,4 @@
-import { env, hasKey } from "@/lib/env";
+import { pickClient } from "../availability";
 import { createXboxClient } from "./client";
 import { createXboxFixture } from "./fixture";
 import type { XboxApi } from "./types";
@@ -7,11 +7,12 @@ export type * from "./types";
 
 let instance: XboxApi | undefined;
 
-/** Real OpenXBL client when XBOX_OPENXBL_KEY is set, otherwise the offline fixture. */
+/**
+ * Real OpenXBL client when XBOX_OPENXBL_KEY is set; otherwise the offline fixture outside
+ * production, and PlatformNotConfiguredError in production (see ../availability.ts).
+ */
 export function getXbox(): XboxApi {
-  instance ??= hasKey("XBOX_OPENXBL_KEY") && env.XBOX_OPENXBL_KEY
-    ? createXboxClient({ apiKey: env.XBOX_OPENXBL_KEY })
-    : createXboxFixture();
+  instance ??= pickClient("xbox", (apiKey) => createXboxClient({ apiKey }), createXboxFixture);
   return instance;
 }
 

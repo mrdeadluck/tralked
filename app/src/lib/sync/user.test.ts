@@ -122,7 +122,10 @@ describe.skipIf(!reachable)("syncUser", () => {
 
   async function cleanup() {
     const { prisma } = await import("@/lib/db");
-    await prisma.user.deleteMany({ where: { steamId: { startsWith: STEAM_PREFIX } } });
+    // By handle too: a user whose Steam was disconnected has no steamId left.
+    await prisma.user.deleteMany({
+      where: { OR: [{ steamId: { startsWith: STEAM_PREFIX } }, { handle: { startsWith: "test_sync_" } }] },
+    });
     await prisma.game.deleteMany({
       where: { steamAppId: { gte: APP_BASE, lt: APP_BASE + 1000 } },
     });
@@ -155,6 +158,29 @@ describe.skipIf(!reachable)("syncUser", () => {
     await cleanup();
     const { prisma } = await import("@/lib/db");
     await prisma.$disconnect();
+  });
+
+  it("a Steam disconnected (or claimed by another profile) while the sync reads stops it: nothing is written", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { unlink } = await import("@/lib/accounts/link");
+    const { syncUser } = await import("./user");
+    const appId = newAppId();
+    const steam = fakeSteam({ [appId]: { pcts: pctsOf(3), unlocks: { A0: new Date("2024-01-02T10:00:00Z") } } });
+    const user = await newUser();
+    const read = steam.api.getPlayerAchievements;
+    // The account goes away between reading Steam and recording the games.
+    steam.api.getPlayerAchievements = async (steamId, id) => {
+      const achievements = await read(steamId, id);
+      await unlink(user.id, "steam");
+      return achievements;
+    };
+    steamState.api = steam.api;
+
+    expect(await syncUser(user.id)).toMatchObject({ status: "unlinked", newUnlocks: 0 });
+    expect(await prisma.userGame.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.userAchievement.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(0);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).lastSyncedAt).toBeNull();
   });
 
   it("imports history: creates the game on demand, keeps Steam unlock times and grants XP", async () => {

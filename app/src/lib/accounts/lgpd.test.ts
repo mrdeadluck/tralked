@@ -126,6 +126,7 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
         userId: a.id,
         platform: "xbox",
         externalId: `pending:${a.id}`,
+        linkedAt: null,
         handle: "gt_a",
         verifyCode: "TRK-ABCDEF",
         verifyExpiresAt: new Date(Date.now() + 60_000),

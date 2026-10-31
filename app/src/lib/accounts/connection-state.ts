@@ -3,30 +3,36 @@ import type { LinkedAccountView } from "./queries";
 /** An import attempt older than this without a newer success counts as failed. */
 export const IMPORT_GRACE_MS = 10 * 60_000;
 
+/** A claim waiting for the code to show up in the platform profile. */
+export type PendingClaim = { handle: string; code: string; expiresAt: Date };
+
 export type ConnectionState =
-  | { kind: "disconnected"; /** Handle of a link whose code expired, to prefill the form. */ expiredHandle: string | null }
-  | { kind: "pending"; handle: string; code: string; expiresAt: Date }
+  | { kind: "disconnected"; claim: PendingClaim | null }
   | {
       kind: "connected";
       handle: string;
+      /** What the field shows (Steam: the SteamID64). */
+      value: string;
+      /** Ownership proven with a code; typed-in connections are "não verificada". */
+      verified: boolean;
       lastSyncedAt: Date | null;
-      /** An import is running (or queued right after the confirmation). */
+      /** An import is running (or queued right after the link). */
       importing: boolean;
       /** The latest import did not finish (private profile or platform unavailable). */
       failed: boolean;
     };
 
 /**
- * State of one platform card on /conta/conexoes. Only verified accounts count as connected; a
- * pending row is "pending" while its code is valid and "disconnected" (expired) afterwards.
+ * State of one platform row on /conta/conexoes. Active connections (verified or not) are
+ * connected; an inactive row only matters while it holds a valid claim code.
  */
 export function connectionState(view: LinkedAccountView | undefined, now: Date = new Date()): ConnectionState {
-  if (!view) return { kind: "disconnected", expiredHandle: null };
-  if (!view.verified) {
-    if (view.pendingCode && view.codeExpiresAt) {
-      return { kind: "pending", handle: view.handle, code: view.pendingCode, expiresAt: view.codeExpiresAt };
-    }
-    return { kind: "disconnected", expiredHandle: view.handle };
+  if (!view || !view.active) {
+    const claim =
+      view?.claimCode && view.claimExpiresAt
+        ? { handle: view.handle, code: view.claimCode, expiresAt: view.claimExpiresAt }
+        : null;
+    return { kind: "disconnected", claim };
   }
   const attempt = view.lastSyncAttemptAt;
   const synced = view.lastSyncedAt;
@@ -35,8 +41,10 @@ export function connectionState(view: LinkedAccountView | undefined, now: Date =
   return {
     kind: "connected",
     handle: view.handle,
+    value: view.fieldValue ?? view.handle,
+    verified: view.verified,
     lastSyncedAt: synced,
-    // Verified but never attempted: the first import is queued (after() or the cron).
+    // Linked but never attempted: the first import is queued (after() or the cron).
     importing: (unfinished && recent) || (attempt === null && synced === null),
     failed: unfinished && !recent,
   };

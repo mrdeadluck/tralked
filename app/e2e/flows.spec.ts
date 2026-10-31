@@ -6,7 +6,7 @@ import { loginAs, sql, userId } from "./helpers";
 /*
  * End-to-end flows of the Review Focus (global constraints): the bot API with a key created in
  * /admin/robos and an editor publishing what it sent, community writes (comment, like, forum
- * reply, "Resolveu", refused uploads), the PSN link flow on fixtures, fraud lowering a level,
+ * reply, "Resolveu", refused uploads), fraud lowering a level,
  * non-staff locked out of /admin and its Server Actions, and the newsletter double opt-in.
  *
  * Sessions are signed with the e2e server's secret (loginAs), so these run against the
@@ -212,56 +212,6 @@ test.describe("community", () => {
       multipart: { foto: { name: "a.png", mimeType: "image/png", buffer: Buffer.from([0x89, 0x50]) }, jogo: "hollow-knight" },
     });
     expect(cross.status()).toBe(403);
-  });
-});
-
-test.describe("account links (fixtures)", () => {
-  test("PSN: the code must be in the profile, and an expired code asks for a new one", async ({ page }) => {
-    const handle = "urso";
-    const id = await userId(handle);
-    // Start clean: no PSN row for this user (a previous run may have left one pending).
-    await sql(`delete from "LinkedAccount" where "userId" = $1 and platform = 'psn'`, [id]);
-    await loginAs(page, handle);
-    await page.goto("/conta/conexoes");
-    const card = page.getByRole("region", { name: "PlayStation" });
-    await expect(card).toContainText("Não conectada");
-
-    await card.getByRole("textbox").fill("Tralked-Teste");
-    await card.getByRole("button", { name: "Gerar código" }).click();
-    await expect(card.locator("code")).toHaveText(/^TRK-[A-Z2-9]{6}$/);
-    await expect(card).toContainText("Aguardando código");
-
-    // The fixture profile's "Sobre mim" does not carry the code.
-    await card.getByRole("button", { name: "Já colei o código" }).click();
-    await expect(card.getByRole("alert")).toContainText("Não encontramos o código");
-    const [pending] = await sql<{ verifiedAt: Date | null }>(
-      `select "verifiedAt" from "LinkedAccount" where "userId" = $1 and platform = 'psn'`,
-      [id],
-    );
-    expect(pending.verifiedAt).toBeNull();
-
-    // Thirty minutes later the code is gone: the card asks for a new one.
-    // (A JS Date, written the way the app writes it: the column has no time zone.)
-    await sql(`update "LinkedAccount" set "verifyExpiresAt" = $2 where "userId" = $1 and platform = 'psn'`, [
-      id,
-      new Date(Date.now() - 60_000),
-    ]);
-    await page.reload();
-    await expect(card).toContainText("Código expirado");
-    await expect(card).toContainText("O código anterior expirou");
-    await expect(card.getByRole("textbox")).toHaveValue("Tralked-Teste");
-
-    // A new code, then "Cancelar": the card is back to the start and the code is dead.
-    await card.getByRole("button", { name: "Gerar código" }).click();
-    await expect(card).toContainText("Aguardando código");
-    await card.getByRole("button", { name: "Cancelar" }).click();
-    await expect(card).toContainText("Não conectada");
-    await expect(card.getByRole("textbox")).toHaveValue("");
-    const [cancelled] = await sql<{ verifyCode: string | null }>(
-      `select "verifyCode" from "LinkedAccount" where "userId" = $1 and platform = 'psn'`,
-      [id],
-    );
-    expect(cancelled.verifyCode).toBeNull();
   });
 });
 

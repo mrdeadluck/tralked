@@ -42,8 +42,8 @@ async function CadastrarContent() {
             .
           </p>
           <p>
-            Depois de criar a conta, conecte a sua Steam: você cola um código temporário no Resumo do
-            perfil Steam e o Tralked importa biblioteca, conquistas e XP. PlayStation, Xbox e
+            Depois de criar a conta, informe o seu perfil Steam (link, nome personalizado ou SteamID64)
+            e o Tralked importa biblioteca, conquistas e XP, sem senha e sem código. PlayStation, Xbox e
             RetroAchievements funcionam do mesmo jeito.
           </p>
           <p>

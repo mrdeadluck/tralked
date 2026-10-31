@@ -4,10 +4,10 @@ import { MAIL_LOG_FILE } from "./config";
 import { CAN_LOGIN, sql } from "./helpers";
 
 /**
- * Tralked's own accounts: sign-up, login, wrong password, forgot/reset password, connecting
- * Steam with a code in the profile "Resumo" (offline fixture profiles, src/lib/integrations/steam/
- * fixture.ts) and recovering an account of the old Steam login. Runs in both modes: nothing
- * here needs the demo login. Accounts created here are prefixed `e2e_` and removed first.
+ * Tralked's own accounts: sign-up, login, wrong password, forgot/reset password. Connecting
+ * Steam (and claiming an account of the old Steam login) is in connections.spec.ts. Runs in both
+ * modes: nothing here needs the demo login. Accounts created here are prefixed `e2e_` and removed
+ * first.
  */
 
 const RUN = Date.now().toString(36);
@@ -15,8 +15,6 @@ const PASSWORD = "senha-e2e-1234";
 
 test.beforeAll(async () => {
   await sql(`delete from "User" where handle like 'e2e\\_%'`);
-  // Morrigan77 is a seeded account of the old Steam login (no credentials): a previous run may have recovered it.
-  await sql(`update "User" set email = null, "passwordHash" = null, "googleSub" = null where handle = 'Morrigan77'`);
 });
 
 async function signup(page: Page, suffix: string) {
@@ -56,19 +54,6 @@ async function logout(page: Page, handle: string) {
   await expect(page.getByRole("banner").getByRole("link", { name: "Entrar" })).toBeVisible();
 }
 
-async function userIdOf(handle: string) {
-  const [row] = await sql<{ id: string }>(`select id from "User" where handle = $1`, [handle]);
-  return row.id;
-}
-
-/** Simulates pasting a fixture code: the pending Steam link gets the code the fixture profile shows. */
-async function pasteSteamCode(userId: string, code: string) {
-  await sql(
-    `update "LinkedAccount" set "verifyCode" = $2, "lastSyncAttemptAt" = null where "userId" = $1 and platform = 'steam'`,
-    [userId, code],
-  );
-}
-
 test.describe("Tralked account", () => {
   test("a visitor's Personagem goes to /entrar, never to Steam", async ({ page }) => {
     await page.goto("/jogador/me");
@@ -82,7 +67,7 @@ test.describe("Tralked account", () => {
   test("sign up lands on Conexões; logout; wrong password is generic; login comes back", async ({ page }) => {
     const { handle, email } = await signup(page, "conta");
     await expect(page.getByRole("status").filter({ hasText: "Conta criada." })).toBeVisible();
-    await expect(page.getByRole("region", { name: "Steam" })).toContainText("Não conectada");
+    await expect(page.getByRole("form", { name: "Serviços" }).getByLabel("Steam", { exact: true })).toHaveValue("");
 
     await logout(page, handle);
 
@@ -145,70 +130,5 @@ test.describe("Tralked account", () => {
     await expectWrongCredentials(page);
     await login(page, email, "nova-senha-e2e-1");
     await expect(page).toHaveURL(new RegExp(`/jogador/${handle}$`));
-  });
-
-  test("connect Steam: code missing, expired, already linked, then valid", async ({ page }) => {
-    const { handle } = await signup(page, "steam");
-    const id = await userIdOf(handle);
-    const card = page.getByRole("region", { name: "Steam" });
-
-    // Missing: the fixture profile's Resumo shows another code.
-    await card.getByRole("textbox").fill("https://steamcommunity.com/id/tralked-teste/");
-    await card.getByRole("button", { name: "Gerar código" }).click();
-    await expect(card.locator("code")).toHaveText(/^TRK-[A-Z2-9]{6}$/);
-    await card.getByRole("button", { name: "Já colei o código" }).click();
-    await expect(card.getByRole("alert")).toContainText('Não encontramos o código no campo "Resumo"');
-
-    // Expired.
-    await sql(`update "LinkedAccount" set "verifyExpiresAt" = $2 where "userId" = $1 and platform = 'steam'`, [
-      id,
-      new Date(Date.now() - 60_000),
-    ]);
-    await page.reload();
-    await expect(card).toContainText("Código expirado");
-    await expect(card.getByRole("textbox")).toHaveValue("tralked-teste");
-
-    // Already linked: lucas's Steam (lucas has e-mail and password).
-    await card.getByRole("textbox").fill("jogador-demo");
-    await card.getByRole("button", { name: "Gerar código" }).click();
-    await expect(card).toContainText("Aguardando código");
-    await pasteSteamCode(id, "TRK-LUCAS2");
-    await card.getByRole("button", { name: "Já colei o código" }).click();
-    await expect(card.getByRole("alert")).toContainText("Essa conta Steam já está vinculada a outro usuário do Tralked.");
-
-    // Valid.
-    await card.getByRole("button", { name: "Cancelar" }).click();
-    await expect(card).toContainText("Não conectada");
-    await card.getByRole("textbox").fill("76561198000000042");
-    await card.getByRole("button", { name: "Gerar código" }).click();
-    await expect(card).toContainText("Aguardando código");
-    await pasteSteamCode(id, "TRK-STEAM2");
-    await card.getByRole("button", { name: "Já colei o código" }).click();
-    await expect(card).toContainText("Tralked Teste conectada");
-    await expect(card).toContainText("Conectada");
-    const [user] = await sql<{ steamId: string | null }>(`select "steamId" from "User" where id = $1`, [id]);
-    expect(user.steamId).toBe("76561198000000042");
-  });
-
-  test("connecting the Steam of an old Steam-login account recovers its history", async ({ page }) => {
-    const { email } = await signup(page, "volta");
-    const newId = await userIdOf(email.split("@")[0]);
-    const card = page.getByRole("region", { name: "Steam" });
-    await card.getByRole("textbox").fill("morrigan77");
-    await card.getByRole("button", { name: "Gerar código" }).click();
-    await expect(card).toContainText("Aguardando código");
-    await pasteSteamCode(newId, "TRK-HERDA2");
-    await card.getByRole("button", { name: "Já colei o código" }).click();
-
-    await expect(page).toHaveURL(/\/conta\/conexoes\?historico=1$/);
-    await expect(page.getByRole("status").filter({ hasText: "Encontramos o seu histórico do Tralked." })).toContainText(
-      "@Morrigan77",
-    );
-    // The new (empty) account is gone; its e-mail and password now open Morrigan77.
-    expect(await sql(`select id from "User" where id = $1`, [newId])).toHaveLength(0);
-    await logout(page, "Morrigan77");
-    await page.goto("/entrar?returnTo=%2Fjogador%2Fme");
-    await login(page, email, PASSWORD);
-    await expect(page).toHaveURL(/\/jogador\/Morrigan77$/);
   });
 });

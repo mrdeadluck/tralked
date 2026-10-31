@@ -96,8 +96,10 @@ describe.skipIf(!reachable)("character sheet v2", () => {
     await prisma.linkedAccount.createMany({
       data: [
         { userId: user.id, platform: "xbox", externalId: `xbox-${user.id}`, handle: "gt", verifiedAt: new Date() },
-        // Pending: not a connected platform.
-        { userId: user.id, platform: "psn", externalId: `pending:${user.id}`, handle: "psn", verifyCode: "TRK-AAAAAA" },
+        // Typed in without proof: connected, shown as not verified.
+        { userId: user.id, platform: "retro", externalId: `retro-${user.id}`, handle: "ra" },
+        // Pending claim: not a connected platform.
+        { userId: user.id, platform: "psn", externalId: `pending:${user.id}`, handle: "psn", verifyCode: "TRK-AAAAAA", linkedAt: null },
       ],
     });
     const achievement = await prisma.achievement.findFirstOrThrow({
@@ -124,7 +126,10 @@ describe.skipIf(!reachable)("character sheet v2", () => {
     ]);
     expect(extras.attributes[0]).toMatchObject({ level: 3, points: 138, current: 38, span: 125, source: "horas jogadas" });
     expect(extras.attributes[1]).toMatchObject({ level: 1, points: 0 });
-    expect(extras.platforms).toEqual([{ platform: "xbox", handle: "gt" }]);
+    expect(extras.platforms).toEqual([
+      { platform: "xbox", handle: "gt", verified: true },
+      { platform: "retro", handle: "ra", verified: false },
+    ]);
     expect(extras.trophies.tiers).toEqual({ platinum: 0, gold: 1, silver: 0, bronze: 0 });
     expect(extras.trophies.byPlatform).toEqual([{ platform: "psn", unlocks: 1 }]);
     expect(extras.photos.total).toBe(1);

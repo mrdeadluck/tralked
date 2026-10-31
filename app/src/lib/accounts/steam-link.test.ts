@@ -15,8 +15,8 @@ vi.mock("@/lib/integrations/steam/profile-lookup", async (importOriginal) => {
 });
 
 const { prisma } = await import("@/lib/db");
-const { startLink, unlink } = await import("./link");
-const { confirmSteamLink } = await import("./steam-link");
+const { startClaim, unlink } = await import("./link");
+const { confirmSteamClaim } = await import("./steam-link");
 
 const MARK = "tsteam_";
 const T0 = new Date("2026-10-31T12:00:00Z");
@@ -53,9 +53,9 @@ const newAccount = (data: { passwordHash?: string | null; googleSub?: string; st
     },
   });
 
-/** Starts the link and simulates the user pasting the code in the profile "Resumo". */
+/** Starts the claim and simulates the user pasting the code in the profile "Resumo". */
 async function startWithCode(userId: string, input: string) {
-  const started = await startLink(userId, "steam", input, T0);
+  const started = await startClaim(userId, "steam", input, T0);
   expect(started.ok).toBe(true);
   await prisma.linkedAccount.update({
     where: { userId_platform: { userId, platform: "steam" } },
@@ -63,13 +63,13 @@ async function startWithCode(userId: string, input: string) {
   });
 }
 
-describe("confirmSteamLink (database)", () => {
+describe("confirmSteamClaim (database)", () => {
   it("links the Steam whose Resumo shows the code: User.steamId + verified LinkedAccount", async () => {
     profile(STEAM_NEW, "novo-perfil", `Oi! ${CODE.toLowerCase()}`);
     const user = await newAccount();
     await startWithCode(user.id, "https://steamcommunity.com/id/novo-perfil/");
 
-    expect(await confirmSteamLink(user.id, later(1000))).toEqual({ ok: true, handle: "Persona novo-perfil", claimed: null });
+    expect(await confirmSteamClaim(user.id, later(1000))).toEqual({ ok: true, handle: "Persona novo-perfil", recovered: null });
     expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).steamId).toBe(STEAM_NEW);
     expect(
       await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: user.id, platform: "steam" } } }),
@@ -80,38 +80,60 @@ describe("confirmSteamLink (database)", () => {
     profile(STEAM_NEW, "novo-perfil", "sem código aqui");
     const user = await newAccount();
     await startWithCode(user.id, STEAM_NEW);
-    expect(await confirmSteamLink(user.id, later(1000))).toEqual({ ok: false, reason: "code_missing" });
+    expect(await confirmSteamClaim(user.id, later(1000))).toEqual({ ok: false, reason: "code_missing" });
 
     await prisma.linkedAccount.update({
       where: { userId_platform: { userId: user.id, platform: "steam" } },
       data: { verifyExpiresAt: later(-1) },
     });
-    expect(await confirmSteamLink(user.id, later(60_000))).toEqual({ ok: false, reason: "expired" });
+    expect(await confirmSteamClaim(user.id, later(60_000))).toEqual({ ok: false, reason: "expired" });
 
     profile(STEAM_OLD, "fechado", "", false);
     const other = await newAccount();
     await startWithCode(other.id, "fechado");
-    expect(await confirmSteamLink(other.id, later(1000))).toEqual({ ok: false, reason: "private" });
+    expect(await confirmSteamClaim(other.id, later(1000))).toEqual({ ok: false, reason: "private" });
     expect((await prisma.user.findUniqueOrThrow({ where: { id: other.id } })).steamId).toBeNull();
   });
 
-  it("refuses a Steam that already belongs to an account with credentials", async () => {
+  it("a proven claim takes a Steam from an account with credentials: steamId moves, its Steam XP is voided, it is notified", async () => {
     profile(STEAM_OLD, "dono", CODE);
-    await newAccount({ steamId: STEAM_OLD }); // e-mail + password
-    await newAccount({ steamId: undefined, passwordHash: null, googleSub: `${MARK}g` }).then((g) =>
-      prisma.linkedAccount.create({
-        data: { userId: g.id, platform: "steam", externalId: STEAM_NEW, handle: "G", verifiedAt: T0 },
-      }),
-    );
-    profile(STEAM_NEW, "google", CODE);
+    const owner = await newAccount({ steamId: STEAM_OLD }); // e-mail + password
+    await prisma.linkedAccount.create({
+      data: { userId: owner.id, platform: "steam", externalId: STEAM_OLD, handle: "Dono", verifiedAt: T0, linkedAt: T0 },
+    });
+    await prisma.xpLedgerEntry.create({
+      data: { userId: owner.id, source: "achievement", sourceKey: "s1", xp: 100, skills: [], platform: "steam" },
+    });
 
     const user = await newAccount();
     await startWithCode(user.id, "dono");
-    expect(await confirmSteamLink(user.id, later(1000))).toEqual({ ok: false, reason: "taken" });
+    expect(await confirmSteamClaim(user.id, later(1000))).toEqual({ ok: true, handle: "Persona dono", recovered: null });
 
-    const another = await newAccount();
-    await startWithCode(another.id, STEAM_NEW);
-    expect(await confirmSteamLink(another.id, later(1000))).toEqual({ ok: false, reason: "taken" });
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).steamId).toBe(STEAM_OLD);
+    expect(
+      await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: user.id, platform: "steam" } } }),
+    ).toMatchObject({ externalId: STEAM_OLD, verifiedAt: later(1000), linkedAt: later(1000) });
+    // The previous owner keeps its account (it has credentials), without this Steam.
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).steamId).toBeNull();
+    expect(
+      await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: owner.id, platform: "steam" } } }),
+    ).toMatchObject({ linkedAt: null, verifiedAt: null });
+    const entry = await prisma.xpLedgerEntry.findFirstOrThrow({ where: { userId: owner.id, sourceKey: "s1" } });
+    expect(entry.voidedAt).toEqual(later(1000));
+    expect(await prisma.notification.count({ where: { userId: owner.id, title: "Sua conexão Steam foi reivindicada" } })).toBe(1);
+  });
+
+  it("a Google-only account loses its Steam to a proven claim too (no recovery: it has credentials)", async () => {
+    profile(STEAM_NEW, "google", CODE);
+    const google = await newAccount({ passwordHash: null, googleSub: `${MARK}g`, steamId: STEAM_NEW });
+    await prisma.linkedAccount.create({
+      data: { userId: google.id, platform: "steam", externalId: STEAM_NEW, handle: "G", verifiedAt: T0 },
+    });
+    const user = await newAccount();
+    await startWithCode(user.id, STEAM_NEW);
+    expect(await confirmSteamClaim(user.id, later(1000))).toMatchObject({ ok: true, recovered: null });
+    expect(await prisma.user.findUnique({ where: { id: google.id } })).not.toBeNull();
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: google.id } })).steamId).toBeNull();
   });
 
   it("recovers an account of the old Steam login: credentials move to it, the new account goes away", async () => {
@@ -127,10 +149,10 @@ describe("confirmSteamLink (database)", () => {
     const fresh = await newAccount({ email: `${MARK}novo@steam.test`, passwordHash: "scrypt$novo" });
     await startWithCode(fresh.id, "veterano");
 
-    expect(await confirmSteamLink(fresh.id, later(1000))).toEqual({
+    expect(await confirmSteamClaim(fresh.id, later(1000))).toEqual({
       ok: true,
       handle: "Persona veterano",
-      claimed: { userId: legacy.id, handle: `${MARK}veterano` },
+      recovered: { userId: legacy.id, handle: `${MARK}veterano` },
     });
     expect(await prisma.user.findUnique({ where: { id: fresh.id } })).toBeNull();
     const recovered = await prisma.user.findUniqueOrThrow({ where: { id: legacy.id } });
@@ -152,7 +174,7 @@ describe("confirmSteamLink (database)", () => {
     });
     const fresh = await newAccount();
     await startWithCode(fresh.id, STEAM_OLD);
-    expect(await confirmSteamLink(fresh.id, later(1000))).toMatchObject({ ok: true, claimed: { userId: legacy.id } });
+    expect(await confirmSteamClaim(fresh.id, later(1000))).toMatchObject({ ok: true, recovered: { userId: legacy.id } });
     expect(
       await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: legacy.id, platform: "steam" } } }),
     ).toMatchObject({ externalId: STEAM_OLD, verifiedAt: later(1000) });
@@ -164,7 +186,7 @@ describe("confirmSteamLink (database)", () => {
     const busy = await newAccount();
     await prisma.xpLedgerEntry.create({ data: { userId: busy.id, source: "mission", sourceKey: "m1", xp: 10, skills: [] } });
     await startWithCode(busy.id, "veterano");
-    expect(await confirmSteamLink(busy.id, later(1000))).toEqual({ ok: false, reason: "has_activity" });
+    expect(await confirmSteamClaim(busy.id, later(1000))).toEqual({ ok: false, reason: "has_activity" });
     expect(await prisma.user.findUnique({ where: { id: busy.id } })).not.toBeNull();
     expect((await prisma.user.findUniqueOrThrow({ where: { id: legacy.id } })).passwordHash).toBeNull();
   });
@@ -175,7 +197,7 @@ describe("unlink Steam (database)", () => {
     profile(STEAM_NEW, "novo-perfil", CODE);
     const user = await newAccount();
     await startWithCode(user.id, "novo-perfil");
-    expect((await confirmSteamLink(user.id, later(1000))).ok).toBe(true);
+    expect((await confirmSteamClaim(user.id, later(1000))).ok).toBe(true);
     await prisma.xpLedgerEntry.create({
       data: { userId: user.id, source: "achievement", sourceKey: "a1", xp: 100, skills: [], platform: "steam" },
     });
@@ -187,6 +209,6 @@ describe("unlink Steam (database)", () => {
     // The Steam account is free again: someone else who proves it can link it.
     const other = await newAccount();
     await startWithCode(other.id, "novo-perfil");
-    expect((await confirmSteamLink(other.id, later(60_000))).ok).toBe(true);
+    expect((await confirmSteamClaim(other.id, later(60_000))).ok).toBe(true);
   });
 });

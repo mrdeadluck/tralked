@@ -164,7 +164,7 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
   if (key.platform !== "steam") {
     // An unlinked platform account no longer pays (its entries were voided on unlink).
     const linked = await prisma.linkedAccount.findFirst({
-      where: { userId: key.userId, platform: key.platform, verifiedAt: { not: null } },
+      where: { userId: key.userId, platform: key.platform, linkedAt: { not: null } },
       select: { id: true },
     });
     if (!linked) return { ok: false, error: "A conta dessa plataforma foi desvinculada: não há o que liberar." };

@@ -1,6 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { findBursts, isSpeedPlatinum } from "@/lib/engine/fraud";
+import { platformAvailable } from "@/lib/integrations/availability";
 import { xpForPlatformAchievement } from "@/lib/engine/trophies";
 import { platinumBonus } from "@/lib/engine/xp";
 import { platinumSourceKey, recomputeUser } from "@/lib/progression/recompute";
@@ -15,7 +16,8 @@ import {
 } from "./platform-library";
 
 export type SyncPlatformResult = {
-  status: "ok" | "private" | "unverified";
+  /** `unlinked`: no active connection on that platform (never linked, unlinked or a pending claim). */
+  status: "ok" | "private" | "unlinked";
   newUnlocks: number;
   levelBefore: number;
   levelAfter: number;
@@ -39,7 +41,7 @@ const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 /** The linked account a run started with: every title transaction re-checks it is still linked. */
 type AccountSnapshot = { userId: string; platform: CodePlatform; externalId: string };
 
-/** The account was unlinked (or relinked to another platform account) while the sync ran. */
+/** The account was unlinked (or claimed by another profile) while the sync ran. */
 class AccountChangedError extends Error {
   constructor() {
     super("The linked account changed during the sync");
@@ -48,14 +50,15 @@ class AccountChangedError extends Error {
 
 /**
  * Locks the account row FOR SHARE until the title transaction ends and checks it is still the
- * verified account the run started with. `unlink` takes the same row FOR UPDATE, so an unlink
+ * active connection the run started with (verified or not). Unlinking or a claim by another
+ * profile takes the same row FOR UPDATE (lib/accounts/link.ts releaseAccount), so an unlink
  * either waits for this title (and then removes it) or has already committed (and this aborts).
  */
 async function assertStillLinked(tx: Prisma.TransactionClient, account: AccountSnapshot): Promise<void> {
   const rows = await tx.$queryRaw<{ id: string }[]>`
     SELECT id FROM "LinkedAccount"
     WHERE "userId" = ${account.userId} AND platform = ${account.platform}
-      AND "externalId" = ${account.externalId} AND "verifiedAt" IS NOT NULL
+      AND "externalId" = ${account.externalId} AND "linkedAt" IS NOT NULL
     FOR SHARE`;
   if (rows.length === 0) throw new AccountChangedError();
 }
@@ -267,8 +270,8 @@ async function currentLevel(userId: string): Promise<number> {
 /**
  * Imports the user's progress on one linked platform (PSN, Xbox or RetroAchievements): maps
  * every title to a catalog game, records unlocks with the anti-fraud rules, appends XP to the
- * ledger and recomputes level, skills, attributes, missions and streak. Only verified accounts
- * are read. Incremental and resumable: titles whose stored unlock counts already match the
+ * ledger and recomputes level, skills, attributes, missions and streak. Every active connection
+ * is read, verified (claimed with a code) or not (linked by typing the profile). Incremental and resumable: titles whose stored unlock counts already match the
  * platform's list are skipped, the rest is read oldest first, so a run cut short by the budget
  * continues where it stopped. `lastSyncedAt` moves when a run reaches the end of the list.
  * Idempotent: running it again changes nothing unless the platform has new unlocks.
@@ -291,7 +294,7 @@ export async function syncPlatformAccount(
   const account = await prisma.linkedAccount.findUnique({
     where: { userId_platform: { userId, platform } },
   });
-  if (!account?.verifiedAt) return unchanged("unverified");
+  if (!account?.linkedAt) return unchanged("unlinked");
   // Recorded first so an account that keeps failing still rotates to the back of the cron queue.
   await prisma.linkedAccount.update({
     where: { id: account.id },
@@ -362,7 +365,7 @@ export async function syncPlatformAccount(
     } catch (error) {
       // Unlinked while this run was reading: stop. Unlink already removed what was recorded and
       // recomputed; nothing more is written for this account.
-      if (error instanceof AccountChangedError) return unchanged("unverified");
+      if (error instanceof AccountChangedError) return unchanged("unlinked");
       throw error;
     }
   }
@@ -370,7 +373,7 @@ export async function syncPlatformAccount(
   await recomputeUser(userId);
   // Guarded like the titles: an account unlinked meanwhile is not marked synced.
   await prisma.linkedAccount.updateMany({
-    where: { id: account.id, externalId: account.externalId, verifiedAt: { not: null } },
+    where: { id: account.id, externalId: account.externalId, linkedAt: { not: null } },
     data: {
       // The run reached the end of the list. Failing titles are retried by later runs (they are
       // not up to date) but do not hold this back.
@@ -397,9 +400,10 @@ export type StaleSyncOptions = {
 };
 
 /**
- * Cron job: syncs at most `limit` verified PSN/Xbox/RA accounts, stalest attempt first (never
+ * Cron job: syncs at most `limit` active PSN/Xbox/RA connections, stalest attempt first (never
  * attempted first, so failing accounts cannot starve the batch), incrementally, and stops
- * starting accounts or titles once `budgetMs` is spent.
+ * starting accounts or titles once `budgetMs` is spent. Platforms that cannot be read (no
+ * credential in production, see lib/integrations/availability.ts) are left out.
  */
 export async function syncStalePlatformAccounts({
   limit = 5,
@@ -409,7 +413,7 @@ export async function syncStalePlatformAccounts({
 }: StaleSyncOptions = {}): Promise<{ processed: number; failed: number }> {
   const deadline = now() + budgetMs;
   const accounts = await prisma.linkedAccount.findMany({
-    where: { AND: [{ platform: { in: [...CODE_PLATFORMS] }, verifiedAt: { not: null } }, where] },
+    where: { AND: [{ platform: { in: CODE_PLATFORMS.filter(platformAvailable) }, linkedAt: { not: null } }, where] },
     orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     take: limit,
     select: { userId: true, platform: true },
