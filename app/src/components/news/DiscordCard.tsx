@@ -7,13 +7,13 @@ export function DiscordCard() {
     >
       <span
         aria-hidden="true"
-        className="grid size-11 place-items-center rounded-[4px] bg-white/[.18] font-mono text-[11px] font-bold"
+        className="grid size-11 place-items-center rounded-[4px] bg-black/20 font-mono text-[11px] font-bold"
       >
         DC
       </span>
       <span className="flex-1">
         <b className="block text-[17px] font-extrabold">Comunidade no Discord</b>
-        <small className="text-[13.5px] opacity-90">
+        <small className="text-[13.5px]">
           Monte grupos para conquistas co-op
         </small>
       </span>

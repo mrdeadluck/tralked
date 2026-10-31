@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
- * Identidade GAMELOG. Tema único escuro (fonte: preview/index.html).
+ * Identidade Tralked. Tema único escuro (fonte: preview/index.html).
  * Os tokens vivem como CSS variables em :root (usáveis em style={{ "--c": "var(--ps)" }})
  * e são expostos ao Tailwind via @theme inline (bg-bg, text-acc, border-line...).
  */
@@ -21,7 +21,7 @@
   --text-3: #b9bbc2;
   --muted: #9ea1a9;
   --dim: #7c7f88;
-  --dim-2: #6e717a;
+  --dim-2: #7c7f88;
   --ph: #5d6068;
   --acc: #c6f432;
   --discord: #5865f2;

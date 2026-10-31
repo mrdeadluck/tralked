@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PlatformChips } from "@/components/ui/PlatformChips";
+import type { AccountLink } from "./AccountMenu";
 import { LogoutForm } from "./LogoutForm";
 
 export type DrawerItem = { href: string; label: string; current: boolean };
@@ -8,13 +9,23 @@ type MobileDrawerProps = {
   id: string;
   open: boolean;
   items: DrawerItem[];
-  /** Mostra o "Sair" para quem está logado. */
+  /** Links da conta (Conexões, Admin...) e o "Sair" para quem está logado. */
+  accountItems?: AccountLink[];
   loggedIn?: boolean;
   /** Chamado ao navegar por um link, para o Header fechar a gaveta. */
   onNavigate: () => void;
 };
 
-export function MobileDrawer({ id, open, items, loggedIn = false, onNavigate }: MobileDrawerProps) {
+const LINK_CLASS = "flex min-h-11 items-center border-b border-divider py-3.5";
+
+export function MobileDrawer({
+  id,
+  open,
+  items,
+  accountItems = [],
+  loggedIn = false,
+  onNavigate,
+}: MobileDrawerProps) {
   return (
     <nav
       id={id}
@@ -28,9 +39,17 @@ export function MobileDrawer({ id, open, items, loggedIn = false, onNavigate }: 
           href={item.href}
           onClick={onNavigate}
           aria-current={item.current ? "page" : undefined}
-          className={`flex min-h-11 items-center border-b border-divider py-3.5 ${
-            item.current ? "text-acc" : ""
-          }`}
+          className={`${LINK_CLASS} ${item.current ? "text-acc" : ""}`}
+        >
+          {item.label}
+        </Link>
+      ))}
+      {accountItems.map((item) => (
+        <Link
+          key={item.href}
+          href={item.href}
+          onClick={onNavigate}
+          className={`${LINK_CLASS} text-text-3 hover:text-acc`}
         >
           {item.label}
         </Link>

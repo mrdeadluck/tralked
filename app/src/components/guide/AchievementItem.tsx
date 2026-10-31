@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { Chip } from "@/components/ui/Chip";
 import type { GuideAchievementView } from "@/lib/queries/games";
 import { CATEGORY_NAME, fmt, pctText, RARITY_UI } from "./format";
@@ -20,24 +20,19 @@ function Spoiler({
 
   if (!blurred) return <div className={className}>{children}</div>;
 
-  const reveal = () => setRevealed(true);
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      reveal();
-    }
-  };
+  // The blurred copy is decoration; a real button on top owns the name and the keyboard.
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      title="Spoiler: clique para revelar"
-      aria-label="Spoiler escondido. Pressione Enter para revelar."
-      onClick={reveal}
-      onKeyDown={onKeyDown}
-      className={`cursor-pointer blur-[6px] transition-[filter] duration-200 select-none ${className}`}
-    >
-      <div aria-hidden="true">{children}</div>
+    <div className={`relative ${className}`}>
+      <div aria-hidden="true" className="blur-[6px] select-none">
+        {children}
+      </div>
+      <button
+        type="button"
+        title="Spoiler: clique para revelar"
+        aria-label="Spoiler escondido. Pressione Enter para revelar."
+        onClick={() => setRevealed(true)}
+        className="absolute inset-0 cursor-pointer"
+      />
     </div>
   );
 }

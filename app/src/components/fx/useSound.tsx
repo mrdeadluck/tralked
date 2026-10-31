@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
-const STORAGE_KEY = "gamelog:sound-muted";
+const STORAGE_KEY = "tralked:sound-muted";
 
 // Mute preference lives in localStorage; the module-level copy keeps the toggle working
 // when storage is unavailable (private mode, blocked cookies).

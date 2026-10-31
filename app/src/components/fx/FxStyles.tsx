@@ -30,7 +30,7 @@ const CSS = `
 
 export function FxStyles() {
   return (
-    <style href="gamelog-fx" precedence="default">
+    <style href="tralked-fx" precedence="default">
       {CSS}
     </style>
   );

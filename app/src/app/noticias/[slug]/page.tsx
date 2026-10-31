@@ -31,7 +31,7 @@ export async function generateMetadata({
   const article = await loadArticle(slug);
   if (!article) return { title: "Notícia não encontrada" };
   return {
-    title: `${article.title} | GAMELOG`,
+    title: `${article.title} | Tralked`,
     description: article.subtitle ?? undefined,
   };
 }

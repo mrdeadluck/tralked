@@ -62,7 +62,7 @@ export function Footer() {
 
         <div className="flex flex-wrap justify-between gap-3 border-t border-divider pt-5 font-mono text-[11px] text-dim-2">
           <div className="flex flex-col gap-1">
-            <span>© 2026 GAMELOG</span>
+            <span>© 2026 Tralked</span>
             <span>Dados de jogos: IGDB, RAWG. Arte: SteamGridDB.</span>
           </div>
           <div className="flex gap-4">

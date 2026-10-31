@@ -37,7 +37,7 @@ export function Logo({ size = 44 }: LogoProps) {
             full ? "text-[25px]" : "text-[22px]"
           }`}
         >
-          GAME<i className="text-acc not-italic">LOG</i>
+          TRAL<i className="text-acc not-italic">K</i>ED
         </b>
         {full ? (
           <span className="font-mono text-[9.5px] tracking-[0.18em] text-dim uppercase">

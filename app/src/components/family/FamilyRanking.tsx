@@ -48,7 +48,7 @@ export function FamilyRanking({ rankings, meHandle }: FamilyRankingProps) {
       {rows.length === 0 ? (
         <p className="py-4 text-muted">Ninguém com perfil público na família ainda.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div role="region" tabIndex={0} aria-label="Tabela de ranking da família" className="overflow-x-auto">
           <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr className="font-mono text-[10.5px] tracking-[0.14em] text-dim-2 uppercase">
@@ -82,13 +82,13 @@ export function FamilyRanking({ rankings, meHandle }: FamilyRankingProps) {
                       @{row.handle}
                       {me ? " (você)" : ""}
                     </td>
-                    <td className="px-3 py-3.5 font-mono text-xs whitespace-nowrap text-dim">
+                    <td className="px-3 py-3.5 font-mono text-xs whitespace-nowrap text-muted">
                       {row.vocation ?? "Recruta"}
                     </td>
                     <td className="px-3 py-3.5 text-xl font-black font-stretch-[125%] whitespace-nowrap">
                       {row.level}
                     </td>
-                    <td className="px-3 py-3.5 font-mono text-xs whitespace-nowrap text-dim">
+                    <td className="px-3 py-3.5 font-mono text-xs whitespace-nowrap text-muted">
                       {nf.format(row.points)}
                     </td>
                   </tr>
