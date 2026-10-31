@@ -360,10 +360,17 @@ export default function DesenvolvedoresPage() {
           <h3 className={h3}>Atualizar</h3>
           <p className={prose}>
             <C>PATCH /api/v1/guides/&#123;id&#125;</C> aceita qualquer campo do guia menos <C>game</C>. Cada campo
-            enviado substitui o atual por inteiro. As etapas são regravadas por posição, então o progresso que os
-            leitores marcaram continua nas mesmas posições. Toda criação e toda atualização salvam uma versão
-            completa do guia, que a redação pode comparar e restaurar; a resposta traz o número em{" "}
-            <C>revision</C>.
+            enviado substitui o atual por inteiro. Toda criação e toda atualização salvam uma versão completa do
+            guia, que a redação pode comparar e restaurar; a resposta traz o número em <C>revision</C>.
+          </p>
+          <p className={prose}>
+            Etapas e progresso dos leitores: dê a cada etapa uma <C>key</C> estável (letras minúsculas, números e
+            hífens, como <C>chefe-final</C>), em todas ou em nenhuma. Com <C>key</C>, as etapas são casadas pela{" "}
+            <C>key</C>: dá para reordenar, incluir e remover etapas, e a marca de cada leitor continua na etapa
+            certa; uma etapa removida perde só as marcas dela. Um guia cujas etapas ainda não têm <C>key</C> as
+            adota por posição no primeiro envio com o mesmo número de etapas. Sem <C>key</C>, as etapas são casadas
+            por posição, e só quando o número de etapas não muda; se mudar, a resposta é <C>422</C> em{" "}
+            <C>/steps</C>.
           </p>
           <Code label="Atualizar o guia" code={CURL_PATCH} />
         </Section>

@@ -21,7 +21,8 @@ vi.mock("next/server", async (importOriginal) => ({ ...(await importOriginal<typ
 const lib = {
   saveArticle: vi.fn(async () => ({ ok: true, id: "a1", slug: "s", previousSlug: null, gameSlugs: [] })),
   setArticleStatus: vi.fn(async () => ({ ok: true, slug: "s" })),
-  saveGuide: vi.fn(async () => ({ ok: true, gameSlug: "g", revision: 2 })),
+  saveGuide: vi.fn(async () => ({ ok: true, gameSlug: "g", revision: 2, stepIds: ["s1"] })),
+  createGuideForGame: vi.fn(async () => ({ ok: true, id: "g2" })),
   setGuideStatus: vi.fn(async () => ({ ok: true, gameSlug: "g" })),
   moderateContent: vi.fn(async () => ({ ok: true, tags: ["photo:p1"], recompute: [], voided: 0 })),
   decideReport: vi.fn(async () => ({ ok: true })),
@@ -40,7 +41,9 @@ const partial = (path: string, names: (keyof typeof lib)[]) =>
     ...Object.fromEntries(names.map((n) => [n, lib[n]])),
   }));
 partial("@/lib/admin/articles", ["saveArticle", "setArticleStatus"]);
-partial("@/lib/admin/guides", ["saveGuide", "setGuideStatus"]);
+partial("@/lib/admin/guides", ["saveGuide", "setGuideStatus", "createGuideForGame"]);
+const redirect = vi.fn();
+vi.mock("next/navigation", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/navigation")>()), redirect }));
 partial("@/lib/admin/moderation", ["moderateContent", "decideReport"]);
 partial("@/lib/admin/fraud", ["confirmFraud", "releaseFraud"]);
 partial("@/lib/admin/catalog", ["updateGameOverrides", "saveFeed", "deleteFeed"]);
@@ -82,6 +85,9 @@ const guide = {
   warnings: [],
   body: [],
   steps: [{ title: "Etapa", hours: "2 h", body: [{ type: "paragraph", text: "Faça." }], achievements: [] }],
+  notes: [],
+  collectibles: [],
+  sources: [],
 };
 const fraudCase = { userId: "u2", gameId: "g1", platform: "steam" };
 
@@ -92,6 +98,11 @@ const STAFF_ACTIONS: Call[] = [
   { name: "setArticleStatus", run: () => noticias.setArticleStatusAction({ id: "a1", status: "published" }), reaches: ["setArticleStatus"] },
   { name: "saveGuide", run: () => guias.saveGuideAction(guide), reaches: ["saveGuide"] },
   { name: "setGuideStatus", run: () => guias.setGuideStatusAction({ id: "g1", status: "published" }), reaches: ["setGuideStatus"] },
+  {
+    name: "createGuide",
+    run: async () => (await guias.createGuideAction({ gameId: "g9" })) ?? { ok: true },
+    reaches: ["createGuideForGame"],
+  },
   { name: "moderate", run: () => moderacao.moderateAction({ targetType: "photo", targetId: "p1", action: "remove" }), reaches: ["moderateContent"] },
   { name: "decideReport", run: () => moderacao.decideReportAction({ reportId: "r1", decision: "dismissed" }), reaches: ["decideReport"] },
 ];
@@ -178,6 +189,9 @@ describe("admin actions validate their input", () => {
     ["http image", () => noticias.saveArticleAction({ ...article, blocks: [{ type: "image", url: "http://x.com/a.png", alt: "a", credit: "b" }] })],
     ["unknown moderation action", () => moderacao.moderateAction({ targetType: "photo", targetId: "p1", action: "delete" })],
     ["guide without steps", () => guias.saveGuideAction({ ...guide, steps: [] })],
+    ["guide note with HTML tip", () => guias.saveGuideAction({ ...guide, notes: [{ apiName: "A", category: "dlc", tip: [{ type: "paragraph", text: "<i>x</i>" }] }] })],
+    ["guide source with a javascript: url", () => guias.saveGuideAction({ ...guide, sources: [{ title: "x", url: "javascript:alert(1)" }] })],
+    ["guide step id repeated", () => guias.saveGuideAction({ ...guide, steps: [{ ...guide.steps[0], id: "s1" }, { ...guide.steps[0], id: "s1" }] })],
     ["http feed", () => feeds.saveFeedAction({ name: "Feed", url: "http://exemplo.com/rss", active: true })],
     ["javascript feed", () => feeds.saveFeedAction({ name: "Feed", url: "javascript:alert(1)", active: true })],
     ["unknown scope", () => robos.createKeyAction({ name: "x", scopes: ["admin"] })],

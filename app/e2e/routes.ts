@@ -48,6 +48,7 @@ export const ROUTES: E2ERoute[] = [
   { path: "/admin/noticias", name: "admin-noticias", auth: true },
   { path: "/admin/noticias/nova", name: "admin-noticia-nova", auth: true },
   { path: "/admin/guias", name: "admin-guias", auth: true },
+  { path: "/admin/guias/novo", name: "admin-guia-novo", auth: true },
   { path: "/admin/moderacao", name: "admin-moderacao", auth: true },
   { path: "/admin/moderacao?aba=fotos", name: "admin-moderacao-fotos", auth: true },
   { path: "/admin/fraude", name: "admin-fraude", auth: true },

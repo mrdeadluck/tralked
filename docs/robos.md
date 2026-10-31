@@ -387,7 +387,9 @@ A resposta é `201` com `id`, `status`, `url` e `revision: 1`. Se o jogo já tiv
 `PATCH /api/v1/guides/{id}` aceita qualquer campo do guia, menos `game`.
 
 - Cada campo enviado substitui o atual por inteiro.
-- As etapas são regravadas por posição. Assim, o progresso que os leitores marcaram continua nas mesmas posições.
+- As etapas e o progresso dos leitores (a marca de "feita" em cada etapa):
+  - Dê a cada etapa uma `key` estável (letras minúsculas, números e hífens, por exemplo `"chefe-final"`), em todas as etapas ou em nenhuma. Com `key`, as etapas são casadas pela `key`: você pode reordenar, incluir e remover etapas, e a marca de cada leitor continua na etapa certa. Uma etapa removida perde só as marcas dela. Um guia antigo, cujas etapas ainda não têm `key`, adota as `key` por posição no primeiro envio com o mesmo número de etapas.
+  - Sem `key`, as etapas são casadas por posição, e só quando o número de etapas não muda. Se o número mudar, a resposta é `422` em `/steps`: mande `key` em cada etapa para incluir, remover ou reordenar.
 - Toda criação e toda atualização salvam uma versão completa do guia, que a redação pode comparar e restaurar. A resposta traz o número dessa versão em `revision`.
 
 ```bash

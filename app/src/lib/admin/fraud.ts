@@ -13,7 +13,8 @@ import { platinumSourceKey, recomputeUser, voidFraudEntries } from "@/lib/progre
  *   recomputed. The decision is recorded (`fraudReview = confirmed`).
  * - "Liberar": the unlocks are no longer suspicious, they are paid as the sync would have paid
  *   them (plus the platinum when the game is now a clean 100%), and the rules never flag them
- *   again (`fraudReview = cleared`, honored by the syncs).
+ *   again (`fraudReview = cleared`, honored by the syncs). Entries voided before are restored,
+ *   never duplicated; a second release finds nothing pending.
  */
 
 export const fraudCaseSchema = z.strictObject({
@@ -160,7 +161,17 @@ export async function confirmFraud(key: FraudCaseKey, now: Date = new Date()): P
 export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): Promise<FraudDecisionResult> {
   const ids = await pendingIds(key);
   if (ids.length === 0) return NO_CASE;
+  if (key.platform !== "steam") {
+    // An unlinked platform account no longer pays (its entries were voided on unlink).
+    const linked = await prisma.linkedAccount.findFirst({
+      where: { userId: key.userId, platform: key.platform, verifiedAt: { not: null } },
+      select: { id: true },
+    });
+    if (!linked) return { ok: false, error: "A conta dessa plataforma foi desvinculada: não há o que liberar." };
+  }
   const levelBefore = await levelOf(key.userId);
+  // Same value the syncs write: Steam entries carry no platform, the others carry theirs.
+  const ledgerPlatform = key.platform === "steam" ? null : key.platform;
 
   const game = await prisma.game.findUniqueOrThrow({
     where: { id: key.gameId },
@@ -202,7 +213,7 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
               userId: key.userId,
               source: "achievement",
               sourceKey: u.achievementId,
-              platform: key.platform,
+              platform: ledgerPlatform,
               xp: xpOf(a, u.hardcore),
               skills,
               createdAt: u.unlockedAt,
@@ -223,14 +234,24 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
         userId: key.userId,
         source: "platinum",
         sourceKey: platinumSourceKey(key.platform, key.gameId),
-        platform: key.platform,
+        platform: ledgerPlatform,
         xp: platinumBonus(game.achievements.map((a) => xpOf(a, false))),
         skills,
         createdAt: completedAt,
       });
     }
+    // An entry voided earlier (e.g. by a past decision) is restored instead of being skipped by
+    // the unique key, so the released unlock really pays; then the missing ones are created.
+    const restored = await tx.xpLedgerEntry.updateMany({
+      where: {
+        userId: key.userId,
+        voidedAt: { not: null },
+        OR: ledger.map((e) => ({ source: e.source, sourceKey: e.sourceKey })),
+      },
+      data: { voidedAt: null },
+    });
     const { count } = await tx.xpLedgerEntry.createMany({ data: ledger, skipDuplicates: true });
-    return count;
+    return restored.count + count;
   });
 
   await recomputeUser(key.userId, now);

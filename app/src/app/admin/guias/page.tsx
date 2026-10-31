@@ -18,7 +18,18 @@ export default async function AdminGuidesPage({ searchParams }: PageProps<"/admi
 
   return (
     <>
-      <AdminHead title="Guias" lede="Um guia por jogo. Cada salvamento guarda uma versão completa para consulta." />
+      <AdminHead
+        title="Guias"
+        lede="Um guia por jogo. Cada salvamento guarda uma versão completa para consulta."
+        actions={
+          <Link
+            href="/admin/guias/novo"
+            className="inline-flex h-11 items-center rounded-[2px] border border-acc bg-acc px-[18px] font-mono text-xs font-bold tracking-[0.1em] text-bg uppercase hover:brightness-[1.08]"
+          >
+            Novo guia
+          </Link>
+        }
+      />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <FilterLinks
           label="Filtrar por status"
@@ -43,7 +54,7 @@ export default async function AdminGuidesPage({ searchParams }: PageProps<"/admi
         </form>
       </div>
       {guides.length === 0 ? (
-        <Empty title="Nenhum guia aqui.">Guias novos chegam pelos robôs (API) ou pelo seed.</Empty>
+        <Empty title="Nenhum guia aqui.">Crie um em “Novo guia” ou receba pela API dos robôs.</Empty>
       ) : (
         <TableRegion label="Guias">
           <table className={TABLE}>

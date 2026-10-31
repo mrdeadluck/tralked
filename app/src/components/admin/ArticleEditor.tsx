@@ -43,7 +43,7 @@ export function ArticleEditor({ article, games }: { article: ArticleForEdit | nu
   const [saving, startSave] = useTransition();
   const check = useMemo(() => validateDrafts(drafts), [drafts]);
 
-  const slugLocked = article ? article.status === "published" || article.status === "archived" : false;
+  const slugLocked = article?.slugLocked ?? false;
   const invalid = (field: string) => (notice && !notice.ok && notice.field?.startsWith(field)) || undefined;
 
   function onTitle(value: string) {
@@ -187,7 +187,7 @@ export function ArticleEditor({ article, games }: { article: ArticleForEdit | nu
             />
           </div>
           <span id={`${id}-slug-hint`} className={HINT}>
-            {slugLocked ? "Já publicada: o endereço não muda mais." : "Letras minúsculas, números e hífens."}
+            {slugLocked ? "Já foi publicada: o endereço não muda mais." : "Letras minúsculas, números e hífens."}
           </span>
         </div>
 

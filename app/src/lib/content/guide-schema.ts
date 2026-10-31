@@ -73,7 +73,16 @@ export const guideFactsSchema = z
     }
   });
 
+/** Stable step key: lowercase letters, numbers and hyphens ("chefe-final"). */
+export const STEP_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 export const guideStepSchema = z.strictObject({
+  /**
+   * Optional stable key of the step. An update matches steps by key, so steps can be reordered,
+   * inserted and removed while readers' checkmarks stay on the right step. Send it on every step
+   * or on none.
+   */
+  key: z.string().trim().max(80).regex(STEP_KEY_PATTERN, "Use letras minúsculas, números e hífens").optional(),
   title: plainText(160),
   /** Estimated time of the step: "35 a 45 h". */
   hours: plainText(40),
@@ -126,9 +135,25 @@ const guideFields = {
   sources: z.array(guideSourceSchema).max(30),
 };
 
-function checkUniqueNotes(
+/** Step keys: all steps or none, and never repeated. */
+export function checkStepKeys(steps: { key?: string }[] | undefined, ctx: z.RefinementCtx, path = "steps") {
+  if (!steps) return;
+  const keyed = steps.filter((s) => s.key !== undefined).length;
+  if (keyed > 0 && keyed < steps.length) {
+    ctx.addIssue({ code: "custom", path: [path], message: "Mande key em todas as etapas ou em nenhuma" });
+  }
+  const seen = new Set<string>();
+  steps.forEach((step, i) => {
+    if (step.key === undefined) return;
+    if (seen.has(step.key)) ctx.addIssue({ code: "custom", path: [path, i, "key"], message: `key repetida: ${step.key}` });
+    seen.add(step.key);
+  });
+}
+
+export function checkUniqueNotes(
   notes: { apiName: string; platform: string }[] | undefined,
   ctx: z.RefinementCtx,
+  path = "achievementNotes",
 ) {
   const seen = new Set<string>();
   notes?.forEach((note, i) => {
@@ -136,7 +161,7 @@ function checkUniqueNotes(
     if (seen.has(key)) {
       ctx.addIssue({
         code: "custom",
-        path: ["achievementNotes", i, "apiName"],
+        path: [path, i, "apiName"],
         message: `Conquista repetida: ${note.apiName}`,
       });
     }
@@ -155,7 +180,10 @@ export const guidePayloadSchema = z
     collectibles: guideFields.collectibles.default([]),
     sources: guideFields.sources.default([]),
   })
-  .superRefine((guide, ctx) => checkUniqueNotes(guide.achievementNotes, ctx));
+  .superRefine((guide, ctx) => {
+    checkUniqueNotes(guide.achievementNotes, ctx);
+    checkStepKeys(guide.steps, ctx);
+  });
 
 export const guidePatchSchema = z
   .strictObject(guideFields)
@@ -165,6 +193,7 @@ export const guidePatchSchema = z
       ctx.addIssue({ code: "custom", message: "Envie ao menos um campo para alterar" });
     }
     checkUniqueNotes(patch.achievementNotes, ctx);
+    checkStepKeys(patch.steps, ctx);
   });
 
 export type GuidePayload = z.output<typeof guidePayloadSchema>;

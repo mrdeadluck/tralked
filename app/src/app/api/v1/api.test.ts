@@ -481,7 +481,7 @@ describe("guides", () => {
     ]);
   });
 
-  it("PATCH replaces the fields sent, keeps step ids by position and saves version 2", async () => {
+  it("PATCH replaces the fields sent; without keys, steps keep their ids by position and version 2 is saved", async () => {
     const before = await prisma.guideStep.findMany({ where: { guideId }, orderBy: { order: "asc" } });
     const response = await guideById.PATCH(
       call("PATCH", `/api/v1/guides/${guideId}`, {
@@ -489,7 +489,7 @@ describe("guides", () => {
         body: {
           version: "1.1",
           warnings: ["Novo aviso."],
-          steps: [EXAMPLE_GUIDE.steps[1]],
+          steps: [EXAMPLE_GUIDE.steps[1], EXAMPLE_GUIDE.steps[0]],
         },
       }),
       params(guideId),
@@ -498,22 +498,73 @@ describe("guides", () => {
     expect(await json(response)).toMatchObject({ id: guideId, revision: 2, status: "review" });
     const guide = await prisma.guide.findUniqueOrThrow({
       where: { id: guideId },
-      include: { steps: true, notes: true, versions: { orderBy: { version: "asc" } } },
+      include: { steps: { orderBy: { order: "asc" } }, notes: true, versions: { orderBy: { version: "asc" } } },
     });
     expect(guide.version).toBe("v1.1");
     expect(guide.warnings).toEqual(["Novo aviso."]);
     expect(guide.overview).toEqual(EXAMPLE_GUIDE.overview);
-    expect(guide.steps).toHaveLength(1);
-    expect(guide.steps[0].id).toBe(before[0].id);
+    expect(guide.steps.map((s) => s.id)).toEqual(before.map((s) => s.id));
     expect(guide.steps[0].title).toBe(EXAMPLE_GUIDE.steps[1].title);
     expect(guide.notes).toHaveLength(1);
     expect(guide.versions.map((v) => v.version)).toEqual([1, 2]);
     expect(guide.versions[1].snapshot).toMatchObject({ version: "v1.1", warnings: ["Novo aviso."] });
 
     const status = await guideById.GET(call("GET", `/api/v1/guides/${guideId}`, { key: keys.guides }), params(guideId));
-    expect(await json(status)).toMatchObject({ id: guideId, revision: 2, steps: 1, game: { slug: "hades" } });
+    expect(await json(status)).toMatchObject({ id: guideId, revision: 2, steps: 2, game: { slug: "hades" } });
     const foreign = await guideById.GET(call("GET", `/api/v1/guides/${guideId}`, { key: keys.publisher }), params(guideId));
     expect(foreign.status).toBe(404);
+  });
+
+  it("422 when the number of steps changes without keys, or keys are mixed (nothing is written)", async () => {
+    const patch = async (steps: unknown[]) =>
+      guideById.PATCH(call("PATCH", `/api/v1/guides/${guideId}`, { key: keys.guides, body: { steps } }), params(guideId));
+    const fewer = await patch([EXAMPLE_GUIDE.steps[0]]);
+    expect(fewer.status).toBe(422);
+    expect((await json(fewer)).error?.issues).toEqual([{ path: "/steps", message: expect.stringContaining("key") }]);
+    const mixed = await patch([{ ...EXAMPLE_GUIDE.steps[0], key: "a" }, EXAMPLE_GUIDE.steps[1]]);
+    expect(mixed.status).toBe(422);
+    expect(await prisma.guideStep.count({ where: { guideId } })).toBe(2);
+    expect(await prisma.guideVersion.count({ where: { guideId } })).toBe(2);
+  });
+
+  it("with keys, reordering, inserting and removing steps keep readers' checkmarks on their steps", async () => {
+    const reader = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
+    const [first, second] = await prisma.guideStep.findMany({ where: { guideId }, orderBy: { order: "asc" } });
+    await prisma.guideStepProgress.createMany({
+      data: [
+        { userId: reader.id, stepId: first.id },
+        { userId: reader.id, stepId: second.id },
+      ],
+    });
+    const step = (key: string, title: string) => ({ ...EXAMPLE_GUIDE.steps[0], key, title });
+    const patch = async (steps: unknown[]) =>
+      guideById.PATCH(call("PATCH", `/api/v1/guides/${guideId}`, { key: keys.guides, body: { steps } }), params(guideId));
+
+    // First keyed update with the same count: the stored steps adopt the keys by position.
+    expect((await patch([step("um", "Um"), step("dois", "Dois")])).status).toBe(200);
+    let rows = await prisma.guideStep.findMany({ where: { guideId }, orderBy: { order: "asc" } });
+    expect(rows.map((r) => [r.id, r.key])).toEqual([
+      [first.id, "um"],
+      [second.id, "dois"],
+    ]);
+
+    // Reorder and insert in the middle.
+    expect((await patch([step("dois", "Dois"), step("novo", "Novo"), step("um", "Um")])).status).toBe(200);
+    rows = await prisma.guideStep.findMany({ where: { guideId }, orderBy: { order: "asc" } });
+    expect(rows.map((r) => r.key)).toEqual(["dois", "novo", "um"]);
+    expect(rows[0].id).toBe(second.id);
+    expect(rows[2].id).toBe(first.id);
+    const marked = async () =>
+      (await prisma.guideStepProgress.findMany({ where: { userId: reader.id, step: { guideId } }, select: { step: { select: { key: true } } } }))
+        .map((p) => p.step.key)
+        .sort();
+    expect(await marked()).toEqual(["dois", "um"]);
+
+    // Remove "dois": only its checkmark goes.
+    expect((await patch([step("novo", "Novo"), step("um", "Um")])).status).toBe(200);
+    expect(await marked()).toEqual(["um"]);
+    const snapshot = (await prisma.guideVersion.findFirstOrThrow({ where: { guideId }, orderBy: { version: "desc" } })).snapshot;
+    expect(snapshot).toMatchObject({ steps: [{ key: "novo" }, { key: "um" }] });
   });
 
   it("PATCH of a published guide needs the publish scope", async () => {

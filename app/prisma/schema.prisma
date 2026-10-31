@@ -436,11 +436,15 @@ model GuideStep {
   /// Rich body as ContentBlock[] (bot API). Null for steps written as plain text.
   blocks              Json?
   achievementApiNames String[]
+  /// Stable key a bot gives the step (bot API `steps[].key`): updates match steps by it, so
+  /// reordering, inserting or removing steps keeps readers' checkmarks on the right step.
+  key                 String?
   guide               Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
 
   progress GuideStepProgress[]
 
   @@unique([guideId, order])
+  @@unique([guideId, key])
 }
 
 model GuideAchievementNote {
@@ -554,6 +558,8 @@ model Article {
   reviewedAt    DateTime?
   /// Publication time. For drafts it holds the creation time until the article is published.
   publishedAt   DateTime      @default(now())
+  /// First time the article went live. Never cleared: once set, the slug (its public URL) is frozen.
+  firstPublishedAt DateTime?
   /// Publish automatically at this time (status moves to published).
   scheduledAt   DateTime?
   createdAt     DateTime      @default(now())
