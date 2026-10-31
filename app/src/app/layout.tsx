@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
 import { Footer } from "@/components/layout/Footer";
 import { LoginNotice } from "@/components/layout/LoginNotice";
+import { PageBackdrop } from "@/components/layout/PageBackdrop";
 import { SessionHeader } from "@/components/layout/SessionHeader";
 import { CookieConsent } from "@/components/layout/CookieConsent";
 import { env } from "@/lib/env";
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${archivo.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
+        <PageBackdrop />
         {/* Keyboard users skip the header (sections, search, account) in one Tab. */}
         <a
           href="#principal"
