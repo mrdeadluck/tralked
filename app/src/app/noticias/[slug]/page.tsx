@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { cacheLife } from "next/cache";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Suspense } from "react";
 import { ArticleBody } from "@/components/news/ArticleBody";
 import { ArticleTags } from "@/components/news/ArticleTags";
 import { Card } from "@/components/ui/Card";
@@ -35,14 +34,6 @@ export async function generateMetadata({
     title: `${article.title} | GAMELOG`,
     description: article.subtitle ?? undefined,
   };
-}
-
-async function ArticleContent({ params }: Pick<PageProps<"/noticias/[slug]">, "params">) {
-  const { slug } = await params;
-  const article = await loadArticle(slug);
-  if (!article) notFound();
-
-  return <ArticleLayout article={article} />;
 }
 
 function ArticleLayout({ article }: { article: ArticleFull }) {
@@ -101,10 +92,11 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
   );
 }
 
-export default function NoticiaPage(props: PageProps<"/noticias/[slug]">) {
-  return (
-    <Suspense fallback={<div className="min-h-[60vh]" aria-hidden="true" />}>
-      <ArticleContent params={props.params} />
-    </Suspense>
-  );
+export default async function NoticiaPage({ params }: PageProps<"/noticias/[slug]">) {
+  // The article comes from cache, so an unknown slug is a real 404 before anything streams.
+  const { slug } = await params;
+  const article = await loadArticle(slug);
+  if (!article) notFound();
+
+  return <ArticleLayout article={article} />;
 }
