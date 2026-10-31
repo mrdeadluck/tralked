@@ -327,5 +327,6 @@ export type GameOption = { id: string; name: string; slug: string };
 
 /** Every catalog game, for the related-games picker. */
 export async function gameOptions(): Promise<GameOption[]> {
-  return prisma.game.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } });
+  // Name-only stubs of the full Steam catalog stay out of the picker.
+  return prisma.game.findMany({ where: { stub: false }, orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } });
 }

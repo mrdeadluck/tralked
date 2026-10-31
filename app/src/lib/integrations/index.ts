@@ -14,7 +14,7 @@ export { getPsn } from "./psn";
 export { getXbox } from "./xbox";
 export { getRetro } from "./retro";
 export { mapToSkills } from "./genre-map";
-export type { SteamApi } from "./steam/types";
+export type { SteamApi, SteamOwnedGame } from "./steam/types";
 export type { IgdbApi, IgdbGame, IgdbMedia } from "./igdb/types";
 export type { RawgApi, RawgGame } from "./rawg/types";
 export type { SgdbApi, SgdbArt } from "./sgdb/types";

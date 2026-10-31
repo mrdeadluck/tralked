@@ -2,6 +2,7 @@ import { Prisma, type Game } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getIgdb, getRawg, getSgdb, getSteam, mapToSkills } from "@/lib/integrations";
 import { IgdbRateLimitError } from "@/lib/integrations/igdb/client";
+import { isPlaceholderName, placeholderSteamName, slugAfterPlaceholder } from "./steam-games";
 
 const IGDB_COVER_URL = "https://images.igdb.com/igdb/image/upload/t_cover_big";
 const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
@@ -52,7 +53,7 @@ export async function syncGame(appId: number): Promise<Game | null> {
     bestEffort("SteamGridDB", appId, () => getSgdb().getArt(appId), {}),
     prisma.game.findUnique({ where: { steamAppId: appId }, select: { name: true } }),
   ]);
-  const name = igdb?.name ?? existing?.name ?? `Steam App ${appId}`;
+  const name = igdb?.name ?? existing?.name ?? placeholderSteamName(appId);
   const rawg = await bestEffort("RAWG", appId, () => getRawg().findBySteamAppId(appId, name), null);
 
   const metadata = {
@@ -75,6 +76,9 @@ export async function syncGame(appId: number): Promise<Game | null> {
         ? Math.round(igdb.timeToBeatCompleteSec / 60)
         : undefined,
     achievementCount: schema.length,
+    // A name-only stub of the full Steam catalog becomes a listed game once it has achievements,
+    // unless Steam still knows it only by appid (placeholder name): it waits for its details.
+    stub: isPlaceholderName(name, appId),
   };
   const skills = igdb ? mapToSkills(igdb) : [];
 
@@ -86,7 +90,14 @@ export async function syncGame(appId: number): Promise<Game | null> {
       });
       let game: Game;
       if (current) {
-        game = await tx.game.update({ where: { id: current.id }, data: metadata });
+        game = await tx.game.update({
+          where: { id: current.id },
+          data: {
+            ...metadata,
+            // A real name replacing the placeholder also replaces the placeholder slug.
+            ...(isPlaceholderName(current.name, appId) ? await slugAfterPlaceholder(tx, current, name, appId) : {}),
+          },
+        });
       } else {
         const base = slugify(name) || `app-${appId}`;
         const taken = await tx.game.findUnique({ where: { slug: base }, select: { id: true } });
@@ -145,8 +156,9 @@ export async function syncGame(appId: number): Promise<Game | null> {
  */
 async function staleGames(limit: number, where: Prisma.GameWhereInput) {
   // Only games on Steam: these jobs refresh from the Steam/IGDB/RAWG/SGDB-by-appid pipeline.
+  // Name-only stubs of the full Steam catalog are left to the details job (lib/sync/steam-catalog.ts).
   const rows = await prisma.game.findMany({
-    where: { AND: [{ steamAppId: { not: null } }, where] },
+    where: { AND: [{ steamAppId: { not: null }, stub: false }, where] },
     orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     take: limit,
     select: { id: true, steamAppId: true },

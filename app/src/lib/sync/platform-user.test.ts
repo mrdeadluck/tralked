@@ -25,6 +25,8 @@ const FAKE_TITLE_PREFIX = "TESTRESUME_";
 // Titles the fixtures have that the seeded catalog does not: the sync creates these games.
 const CREATED_TITLES = [
   { platform: "psn", externalId: "NPWR90004_00" },
+  { platform: "psn", externalId: "PPSA90005_00" },
+  { platform: "xbox", externalId: "90000005" },
   { platform: "retro", externalId: "990001" },
 ];
 
@@ -150,7 +152,7 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
     expect(stats.totalXp).toBe(ledger.reduce((sum, e) => sum + e.xp, 0));
     const attributes = await prisma.attributeProgress.findMany({ where: { userId: user.id } });
-    expect(attributes).toHaveLength(7);
+    expect(attributes).toHaveLength(9);
     const gloria = attributes.find((a) => a.attribute === "gloria")!;
     // Native tiers: HK platinum 15 + 2 gold 10 + 2 silver 4 + 3 bronze 3 = 32;
     // Hades 1 silver + 3 bronze = 5; Astro Bot 2 bronze = 2 -> 39 glory points x 10.
@@ -160,6 +162,210 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
       where: { userId_platform: { userId: user.id, platform: "psn" } },
     });
     expect(account.lastSyncedAt).not.toBeNull();
+  });
+
+  it("records PSN play time of every played game (with or without trophies) and pays its hours once", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { playtimeXp } = await import("@/lib/engine/playtime");
+    const user = await userWith("psn", "9000000000000000002", "Tralked-Teste");
+    await syncPlatformAccount(user.id, "psn");
+
+    const hk = await prisma.game.findUniqueOrThrow({ where: { slug: "hollow-knight" } });
+    const re4 = await prisma.game.findUniqueOrThrow({ where: { slug: "resident-evil-4" } });
+    const library = await prisma.userGame.findMany({ where: { userId: user.id, platform: "psn" }, include: { game: true } });
+    const byName = new Map(library.map((g) => [g.game.name, g]));
+    expect(byName.get("Hollow Knight")).toMatchObject({ playtimeMin: 1500, unlockedCount: 8, lastPlayedAt: expect.any(Date) });
+    // Played without a trophy, and a game the trophy list does not have at all.
+    expect(byName.get("Resident Evil 4")).toMatchObject({ playtimeMin: 200, unlockedCount: 0 });
+    expect(byName.get("Jornada Submersa")).toMatchObject({ playtimeMin: 75, unlockedCount: 0 });
+
+    const hours = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, source: "playtime" } });
+    expect(hours.every((e) => e.platform === "psn")).toBe(true);
+    expect(hours.filter((e) => e.sourceKey.startsWith(`psn:${hk.id}:`))).toHaveLength(3); // 5, 10, 25 h
+    // Under 5 h pays nothing (3 h 20 min).
+    expect(hours.filter((e) => e.sourceKey.startsWith(`psn:${re4.id}:`))).toEqual([]);
+    expect(hours.reduce((s, e) => s + e.xp, 0)).toBe([1500, 905, 200, 610, 75].reduce((s, m) => s + playtimeXp(m), 0));
+
+    // A second sync pays nothing new; unlinking voids the hours with the rest of the platform's XP.
+    await syncPlatformAccount(user.id, "psn");
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "playtime" } })).toBe(hours.length);
+    const { unlink } = await import("@/lib/accounts/link");
+    await unlink(user.id, "psn");
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "playtime", voidedAt: null } })).toBe(0);
+    expect(await prisma.userGame.count({ where: { userId: user.id } })).toBe(0);
+  });
+
+  it("records Xbox minutes played, also of titles without achievements", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    await syncPlatformAccount(user.id, "xbox");
+    const library = await prisma.userGame.findMany({ where: { userId: user.id, platform: "xbox" }, include: { game: true } });
+    const byName = new Map(library.map((g) => [g.game.name, g]));
+    expect(byName.get("Hollow Knight")).toMatchObject({ playtimeMin: 720, unlockedCount: 3 });
+    expect(byName.get("Resident Evil 4")).toMatchObject({ playtimeMin: 1830 });
+    expect(byName.get("Forja Abissal")).toMatchObject({ playtimeMin: 140, unlockedCount: 0 });
+    const hours = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, source: "playtime" } });
+    expect(hours.length).toBe(2 + 3 + 0); // 12 h, 30.5 h, 2.3 h
+    expect(hours.every((e) => e.platform === "xbox")).toBe(true);
+
+    // Nothing played since: the minutes are not asked again.
+    const { getXbox } = await import("@/lib/integrations");
+    const spy = vi.spyOn(getXbox(), "getMinutesPlayed");
+    await syncPlatformAccount(user.id, "xbox");
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("play time respects the deadline (resumes next run) and never asks IGDB for play-time-only titles", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getIgdb } = await import("@/lib/integrations");
+    const findByName = vi.spyOn(getIgdb(), "findByName");
+    const user = await userWith("psn", "9000000000000000002", "Tralked-Teste");
+
+    // Out of time from the start: nothing read, the run is partial and not marked synced.
+    const cut = await syncPlatformAccount(user.id, "psn", { deadline: 0 });
+    expect(cut).toMatchObject({ status: "ok", partial: true });
+    expect(await prisma.userGame.count({ where: { userId: user.id } })).toBe(0);
+    expect((await prisma.linkedAccount.findFirstOrThrow({ where: { userId: user.id, platform: "psn" } })).lastSyncedAt).toBeNull();
+
+    // The next run finishes it.
+    expect(await syncPlatformAccount(user.id, "psn")).toMatchObject({ partial: false });
+    expect(await prisma.userGame.count({ where: { userId: user.id, game: { name: "Jornada Submersa" } } })).toBe(1);
+    // "Jornada Submersa" only has play time: created from the platform's name, IGDB never asked.
+    expect(findByName.mock.calls.map(([name]) => name)).not.toContain("Jornada Submersa");
+    findByName.mockRestore();
+  });
+
+  it("a play-time title named exactly like a catalog stub links to the stub, no duplicate game", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getPsn } = await import("@/lib/integrations");
+    const stub = await prisma.game.findUniqueOrThrow({ where: { slug: "lanterna-do-farol" } });
+    expect(stub.stub).toBe(true);
+    // The indexed lookup (lower(name) on stubs) ignores case and trademark signs, nothing else.
+    const { findStubByName } = await import("./platform-games");
+    expect(await findStubByName("lanterna DO farol™")).toBe(stub.id);
+    expect(await findStubByName("Lanterna")).toBeNull();
+    expect(await findStubByName("Hollow Knight")).toBeNull(); // a listed game, not a stub
+    const played = vi.spyOn(getPsn(), "getPlayedGames").mockResolvedValue([
+      {
+        titleId: "PPSATEST9_00",
+        name: "LANTERNA DO FAROL",
+        category: "ps5_native_game",
+        playtimeMin: 400,
+        firstPlayedAt: null,
+        lastPlayedAt: new Date("2026-09-20T20:00:00Z"),
+      },
+    ]);
+    try {
+      const user = await userWith("psn", "9000000000000000002", "Tralked-Teste");
+      await syncPlatformAccount(user.id, "psn");
+      expect(await prisma.game.count({ where: { name: { equals: "Lanterna do Farol", mode: "insensitive" } } })).toBe(1);
+      expect(
+        await prisma.userGame.findUniqueOrThrow({
+          where: { userId_gameId_platform: { userId: user.id, gameId: stub.id, platform: "psn" } },
+        }),
+      ).toMatchObject({ playtimeMin: 400 });
+    } finally {
+      played.mockRestore();
+      await prisma.gamePlatformLink.deleteMany({ where: { platform: "psn", externalId: "PPSATEST9_00" } });
+    }
+  });
+
+  it("Xbox titles without minutes are remembered and not asked again until played again", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const xbox = getXbox();
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    // Xbox has no number for any title (0 or missing).
+    const minutes = vi.spyOn(xbox, "getMinutesPlayed").mockResolvedValue(new Map([["90000005", 0]]));
+    try {
+      await syncPlatformAccount(user.id, "xbox");
+      expect(minutes).toHaveBeenCalledTimes(1);
+      expect(await prisma.userGame.count({ where: { userId: user.id, game: { name: "Forja Abissal" } } })).toBe(0);
+      await syncPlatformAccount(user.id, "xbox");
+      expect(minutes).toHaveBeenCalledTimes(1);
+
+      // Played again (later last play): asked again, for that title only.
+      const titles = await xbox.getTitles("2535400000000002");
+      if (titles === "private") throw new Error("public fixture");
+      const later = vi.spyOn(xbox, "getTitles").mockResolvedValue(
+        titles.map((t) => (t.titleId === "90000005" ? { ...t, lastPlayed: new Date("2026-10-30T20:00:00Z") } : t)),
+      );
+      await syncPlatformAccount(user.id, "xbox");
+      expect(minutes).toHaveBeenCalledTimes(2);
+      expect(minutes.mock.calls[1][1]).toEqual(["90000005"]);
+      later.mockRestore();
+    } finally {
+      minutes.mockRestore();
+    }
+  });
+
+  it("Xbox titles with minutes left unwritten by the deadline are asked again next run", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const xbox = getXbox();
+    const real = xbox.getMinutesPlayed.bind(xbox);
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    // The minutes arrive after the run's deadline: nothing can be written this run.
+    const minutes = vi.spyOn(xbox, "getMinutesPlayed").mockImplementation(async (xuid, ids) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return real(xuid, ids);
+    });
+    try {
+      const cut = await syncPlatformAccount(user.id, "xbox", { deadline: Date.now() + 250 });
+      expect(cut.partial).toBe(true);
+      expect(await prisma.userGame.count({ where: { userId: user.id, playtimeMin: { gt: 0 } } })).toBe(0);
+      const row = await prisma.linkedAccount.findFirstOrThrow({ where: { userId: user.id, platform: "xbox" } });
+      // Every fixture title had minutes, none was written: none is remembered.
+      expect(Object.keys((row.minutesChecked ?? {}) as object)).toEqual([]);
+
+      await syncPlatformAccount(user.id, "xbox");
+      expect(minutes).toHaveBeenCalledTimes(2);
+      expect([...minutes.mock.calls[1][1]].sort()).toEqual(["90000001", "90000003", "90000005"]);
+      expect(await prisma.userGame.count({ where: { userId: user.id, playtimeMin: { gt: 0 } } })).toBe(3);
+    } finally {
+      minutes.mockRestore();
+    }
+  });
+
+  it("unlinking Xbox clears the titles already asked (a relink asks them again); deleting the account removes them", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { unlink } = await import("@/lib/accounts/link");
+    const { exportUserData } = await import("@/lib/accounts/export");
+    const { getXbox } = await import("@/lib/integrations");
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    await syncPlatformAccount(user.id, "xbox");
+    const linked = await prisma.linkedAccount.findFirstOrThrow({ where: { userId: user.id, platform: "xbox" } });
+    expect(Object.keys((linked.minutesChecked ?? {}) as object).sort()).toEqual(["90000001", "90000003", "90000005"]);
+    // LGPD export carries it with the connection.
+    const exported = await exportUserData(user.id);
+    expect(JSON.stringify(exported)).toContain("90000005");
+
+    expect(await unlink(user.id, "xbox")).toBe(true);
+    expect((await prisma.linkedAccount.findFirstOrThrow({ where: { userId: user.id, platform: "xbox" } })).minutesChecked).toBeNull();
+
+    // Linked again: every title is asked again (its hours come back).
+    await prisma.linkedAccount.update({
+      where: { id: linked.id },
+      data: { externalId: "2535400000000002", linkedAt: new Date(), handle: "Tralked Teste" },
+    });
+    const spy = vi.spyOn(getXbox(), "getMinutesPlayed");
+    try {
+      await syncPlatformAccount(user.id, "xbox");
+      expect([...spy.mock.calls[0][1]].sort()).toEqual(["90000001", "90000003", "90000005"]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    await prisma.user.delete({ where: { id: user.id } });
+    expect(await prisma.linkedAccount.count({ where: { id: linked.id } })).toBe(0);
   });
 
   it("is idempotent: a second sync adds nothing", async () => {

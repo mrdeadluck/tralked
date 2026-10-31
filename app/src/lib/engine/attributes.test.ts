@@ -10,10 +10,12 @@ import {
   precisaoPoints,
   sabedoriaPoints,
   vigorPoints,
+  resistenciaPoints,
+  acervoPoints,
 } from "./attributes";
 
 describe("ATTRIBUTES", () => {
-  it("has the 7 attributes in order with pt-BR names and descriptions", () => {
+  it("has the 9 attributes in order with pt-BR names and descriptions", () => {
     expect(ATTRIBUTES.map((a) => a.id)).toEqual([
       "vigor",
       "precisao",
@@ -22,6 +24,8 @@ describe("ATTRIBUTES", () => {
       "exploracao",
       "constancia",
       "sabedoria",
+      "resistencia",
+      "acervo",
     ]);
     expect(ATTRIBUTES.map((a) => a.name)).toEqual([
       "Vigor",
@@ -31,6 +35,8 @@ describe("ATTRIBUTES", () => {
       "Exploração",
       "Constância",
       "Sabedoria",
+      "Resistência",
+      "Acervo",
     ]);
     for (const a of ATTRIBUTES) expect(a.description.length).toBeGreaterThan(10);
   });
@@ -84,6 +90,19 @@ describe("per-source formulas", () => {
 
   it("sabedoria: sabio skill points + 40 per solved answer + 100 per guide", () => {
     expect(sabedoriaPoints(310, 3, 2)).toBe(630);
+  });
+
+  it("resistencia: round(10 * hours^0.7) of the total playtime", () => {
+    expect(resistenciaPoints(0)).toBe(0);
+    expect(resistenciaPoints(-10)).toBe(0);
+    expect(resistenciaPoints(60)).toBe(10);
+    expect(resistenciaPoints(100 * 60)).toBe(251);
+    expect(resistenciaPoints(3000 * 60)).toBe(2716);
+  });
+
+  it("acervo: 10 per game played + 5 per game owned and never played", () => {
+    expect(acervoPoints(12, 7)).toBe(155);
+    expect(acervoPoints(0, 0)).toBe(0);
   });
 });
 
@@ -142,7 +161,22 @@ describe("computeAttributes", () => {
       exploracao: { points: 360, level: 4 }, // 3 games * 20 + 5 genres * 60 (sabio is not a genre)
       constancia: { points: 675, level: 6 },
       sabedoria: { points: 630, level: 6 },
+      resistencia: { points: 181, level: 3 }, // 3750 min = 62.5 h
+      acervo: { points: 40, level: 2 }, // 4 played games
     });
+  });
+
+  it("acervo counts owned-but-never-played games at half; they add nothing elsewhere", () => {
+    const base = { activeDays: 0, bestStreak: 0, sabioPoints: 0, solvedAnswers: 0, publishedGuides: 0 };
+    const unplayed = { playtimeMin: 0, unlocked: [], completed: false, skills: [] };
+    const result = computeAttributes({
+      ...base,
+      games: [{ playtimeMin: 600, unlocked: [], completed: false, skills: [] }, unplayed, unplayed],
+    });
+    expect(result.acervo.points).toBe(10 + 5 + 5);
+    expect(result.resistencia.points).toBe(resistenciaPoints(600));
+    expect(result.vigor.points).toBe(vigorPoints([600]));
+    expect(result.exploracao.points).toBe(0);
   });
 
   it("returns level 1 with 0 points for an empty profile", () => {

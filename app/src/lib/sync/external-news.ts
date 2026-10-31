@@ -68,7 +68,8 @@ export async function syncExternalNews(
 ): Promise<ExternalNewsResult> {
   const [feeds, games] = await Promise.all([
     prisma.newsFeed.findMany({ where: { active: true } }),
-    prisma.game.findMany({ select: { id: true, name: true, aliases: true } }),
+    // Stubs of the full Steam catalog are left out: 150k bare names would match headlines by chance.
+    prisma.game.findMany({ where: { stub: false }, select: { id: true, name: true, aliases: true } }),
   ]);
   const gameOf = loadMatcher(games);
 

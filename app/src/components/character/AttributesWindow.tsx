@@ -6,7 +6,7 @@ import { formatNumber } from "./format";
 type AttributesWindowProps = { attributes: CharacterAttribute[] };
 
 /**
- * Second Tibia-style window: the 7 attributes with level, bar to the next level and where the
+ * Second Tibia-style window: the 9 attributes with level, bar to the next level and where the
  * points come from. Same anatomy and grid as the skills window.
  */
 export function AttributesWindow({ attributes }: AttributesWindowProps) {

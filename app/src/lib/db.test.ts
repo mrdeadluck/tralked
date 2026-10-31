@@ -29,9 +29,23 @@ describe.skipIf(!reachable)("seeded database", () => {
     await prisma.$disconnect();
   });
 
-  it("has the 14 preview games", async () => {
+  it("has the 14 preview games plus 5 name-only stubs of the full Steam catalog", async () => {
     const { prisma } = await import("@/lib/db");
-    expect(await prisma.game.count()).toBe(14);
+    expect(await prisma.game.count({ where: { stub: false } })).toBe(14);
+    expect(await prisma.game.count({ where: { stub: true } })).toBe(5);
+  });
+
+  it("gives lucas never-played games, Steam playtime details and a wishlist", async () => {
+    const { prisma } = await import("@/lib/db");
+    const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
+    const unplayed = await prisma.userGame.findMany({
+      where: { userId: lucas.id, platform: "steam", playtimeMin: 0, unlockedCount: 0 },
+      include: { game: true },
+    });
+    expect(unplayed.map((u) => u.game.name).sort()).toEqual(["Ecos de Ferro", "Lanterna do Farol", "Pomar Estelar"]);
+    const hk = await prisma.userGame.findFirstOrThrow({ where: { userId: lucas.id, platform: "steam", game: { slug: "hollow-knight" } } });
+    expect(hk).toMatchObject({ playtimeMin: 3120, playtime2WeeksMin: 95, lastPlayedAt: expect.any(Date) });
+    expect(await prisma.wishlistItem.count({ where: { userId: lucas.id } })).toBe(3);
   });
 
   it("has the complete Hollow Knight guide with 7 steps", async () => {
@@ -61,7 +75,7 @@ describe.skipIf(!reachable)("seeded database", () => {
     });
     expect(users).toHaveLength(handles.length);
     for (const user of users) {
-      expect(user._count.attributes, user.handle).toBe(7);
+      expect(user._count.attributes, user.handle).toBe(9);
       // The seed user never triggers the first-sync "Despertar" sequence.
       expect(user.despertarShownAt, user.handle).not.toBeNull();
     }
@@ -202,7 +216,7 @@ describe.skipIf(!reachable)("seeded database", () => {
 
   it("has fixture media for every game and the example editorial and community data", async () => {
     const { prisma } = await import("@/lib/db");
-    const games = await prisma.game.count();
+    const games = await prisma.game.count({ where: { stub: false } });
     expect(await prisma.gameMedia.count({ where: { source: "fixture", url: null } })).toBe(games * 11);
     expect(await prisma.gamePlatformLink.count({ where: { platform: "steam" } })).toBe(games);
     expect(await prisma.externalNews.count({ where: { game: { slug: "hollow-knight" } } })).toBe(6);
@@ -301,6 +315,7 @@ describe.skipIf(!reachable)("seeded database", () => {
       gameSkills: await prisma.gameSkill.count(),
       achievements: await prisma.achievement.count(),
       userGames: await prisma.userGame.count(),
+      wishlist: await prisma.wishlistItem.count(),
       userAchievements: await prisma.userAchievement.count(),
       ledger: await prisma.xpLedgerEntry.count(),
       skillProgress: await prisma.skillProgress.count(),

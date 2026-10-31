@@ -47,6 +47,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     skills,
     attributes,
     games,
+    wishlist,
     achievements,
     ledger,
     missions,
@@ -69,7 +70,17 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
   ] = await Promise.all([
     prisma.linkedAccount.findMany({
       where: { ...mine, linkedAt: { not: null } },
-      select: { platform: true, externalId: true, handle: true, linkedAt: true, verifiedAt: true, lastSyncedAt: true, createdAt: true },
+      select: {
+        platform: true,
+        externalId: true,
+        handle: true,
+        linkedAt: true,
+        verifiedAt: true,
+        lastSyncedAt: true,
+        createdAt: true,
+        // Xbox titles whose minutes were asked, with their last play time.
+        minutesChecked: true,
+      },
       orderBy: { platform: "asc" },
     }),
     prisma.userStats.findUnique({
@@ -83,11 +94,18 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
       select: {
         platform: true,
         playtimeMin: true,
+        playtime2WeeksMin: true,
+        lastPlayedAt: true,
         unlockedCount: true,
         completedAt: true,
         game: { select: { slug: true, name: true } },
       },
       orderBy: [{ gameId: "asc" }, { platform: "asc" }],
+    }),
+    prisma.wishlistItem.findMany({
+      where: mine,
+      select: { platform: true, priority: true, addedAt: true, game: { select: { slug: true, name: true } } },
+      orderBy: [{ platform: "asc" }, { priority: "asc" }],
     }),
     prisma.userAchievement.findMany({
       where: mine,
@@ -193,7 +211,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     format: "tralked-user-export/1",
     user,
     linkedAccounts,
-    progress: { stats, skills, attributes, games, achievements, ledger, missions, gameOpens },
+    progress: { stats, skills, attributes, games, wishlist, achievements, ledger, missions, gameOpens },
     guides: {
       written: guides,
       versions: guideVersions,

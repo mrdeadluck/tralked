@@ -5,7 +5,8 @@
 //   Platform        steam | psn | xbox | retro
 //   User.role       admin | editor | author | user
 //   TrophyTier      bronze | silver | gold | platinum            (PSN only)
-//   Attribute       vigor | precisao | gloria | colecao | exploracao | constancia | sabedoria
+//   Attribute       vigor | precisao | gloria | colecao | exploracao | constancia | sabedoria |
+//                   resistencia | acervo
 //   GameMedia.kind  video | screenshot | artwork | cover | hero | logo
 //   GameMedia.source igdb | sgdb | steam | rawg | fixture
 //   Article.status  draft | review | published | archived
@@ -100,6 +101,7 @@ model User {
   apiKeys        ApiKey[]
   notifications  Notification[]
   passwordResets PasswordResetToken[]
+  wishlist       WishlistItem[]
 }
 
 /// A "set a new password" link (forgot password, or `pnpm user:invite`). Only the SHA-256 of the
@@ -142,6 +144,9 @@ model LinkedAccount {
   verifyExpiresAt   DateTime?
   lastSyncAttemptAt DateTime?
   lastSyncedAt      DateTime?
+  /// Xbox: titles whose minutes played were asked, `{ titleId: last play then (ms) }`, so titles
+  /// without minutes are not asked every sync (lib/sync/platform-user.ts). Cleared on unlink.
+  minutesChecked    Json?
   createdAt         DateTime  @default(now())
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -177,6 +182,15 @@ model Game {
   achievementCount      Int
   /// Last catalog/rarity refresh attempt (success or failure); cron rotates on this.
   lastSyncAttemptAt     DateTime?
+  /// Name-only entry of the full Steam catalog (lib/sync/steam-catalog.ts): it has a page but stays
+  /// out of listings, the sitemap and pickers until its store details are fetched (then false).
+  stub                  Boolean   @default(false)
+  /// When the Steam store details (and art, achievement schema) were last written.
+  detailsSyncedAt       DateTime?
+  /// Someone needs this game's details (a player opened its page): the details job takes it first.
+  detailsRequestedAt    DateTime?
+  /// Popularity rank for the details job (SteamSpy owners lower bound); 0 = unknown.
+  popularity            Int       @default(0)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -193,6 +207,11 @@ model Game {
   externalNews  ExternalNews[]
   forumThreads  ForumThread[]
   photos        Photo[]
+  wishlistedBy  WishlistItem[]
+
+  // The details job's queue has a partial index written in SQL (migration
+  // 20261101130000_full_sync_playtime): ("lastSyncAttemptAt", popularity DESC) WHERE
+  // "detailsSyncedAt" IS NULL AND "steamAppId" IS NOT NULL. Prisma cannot declare it here.
 }
 
 /// The game's id on a platform (PSN npCommunicationId, Xbox titleId, RA game id, Steam appid).
@@ -263,20 +282,57 @@ model Achievement {
   @@unique([gameId, platform, apiName])
 }
 
-/// A game in a user's library on one platform (the same game may be owned on several).
+/// A game in a user's library on one platform (the same game may be owned on several). Rows with
+/// `playtimeMin` 0 and no unlocks are owned but never played (Steam lists them).
 model UserGame {
-  userId        String
-  gameId        String
+  userId             String
+  gameId             String
   /// steam | psn | xbox | retro
-  platform      String    @default("steam")
-  playtimeMin   Int
-  unlockedCount Int
-  completedAt   DateTime?
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  game          Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  platform           String    @default("steam")
+  /// Playtime the platform reports (minutes). 0 when never played or not reported.
+  playtimeMin        Int
+  unlockedCount      Int
+  completedAt        DateTime?
+  /// Steam `playtime_2weeks` (minutes); null when the platform does not say.
+  playtime2WeeksMin  Int?
+  /// Last time played, when the platform says (Steam rtime_last_played, PSN, Xbox).
+  lastPlayedAt       DateTime?
+  /// When `playtimeMin` was last written from the platform (null: rows older than Plano 4).
+  playtimeUpdatedAt  DateTime?
+  /// Steam: `playtimeMin` at the last successful read of the player's achievements of this game,
+  /// so a re-sync only reads games played since (null: never read).
+  checkedPlaytimeMin Int?
+  /// `playtimeMin` whose hours milestones were all offered to the ledger (lib/sync/playtime.ts);
+  /// a game held back by the per-user caps keeps the old value and is offered again later.
+  playtimePaidMin    Int?
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game               Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   @@id([userId, gameId, platform])
   @@index([gameId])
+}
+
+/// A game on a user's platform wishlist (Steam IWishlistService). Replaced on every sync.
+model WishlistItem {
+  userId   String
+  gameId   String
+  /// steam
+  platform String    @default("steam")
+  /// The user's order on the platform (0 = top); null when not set.
+  priority Int?
+  addedAt  DateTime?
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game     Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@id([userId, gameId, platform])
+  @@index([gameId])
+}
+
+/// Resumable position of a long-running import (e.g. `steam-applist`: the Steam app list cursor).
+model SyncCursor {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
 }
 
 model UserAchievement {
@@ -322,14 +378,18 @@ model GameOpen {
 ///   guide_vote     -> `${tipId}:${voterUserId}` (Sábio XP for the author of a voted tip)
 ///   photo_approved -> photoId (gallery upload XP, daily-limited; voided when moderation removes it)
 ///   forum_solved   -> forumPostId (answer marked "Resolveu"; voided when the answer is removed)
+///   playtime       -> `${platform}:${gameId}:${hours}` (hours milestone of real platform playtime,
+///                     5 h and up, within per-user caps, dated at payment: lib/engine/playtime.ts,
+///                     lib/sync/playtime.ts; platform steam | psn | xbox | retro)
 ///   seed           -> 'baseline' (synthetic entry, development seed data only)
 /// Fraud release (admin "Liberar") writes `achievement` / `platinum` entries exactly as the syncs
 /// do, and restores entries voided earlier instead of creating new ones.
 ///
 /// `platform`: psn | xbox | retro on entries written by those syncs (and their fraud release);
 /// NULL for Steam entries (Plan 1 convention, kept: Steam sync, seed and Steam fraud release write
-/// NULL, and readers treat NULL achievement/platinum entries as Steam) and for entries not tied to
-/// a platform (mission, guide_vote, photo_approved, forum_solved, seed).
+/// NULL, and readers treat NULL achievement/platinum entries as Steam; Steam `playtime` entries are
+/// NULL too and carry `steam:` in their sourceKey) and for entries not tied to a platform (mission,
+/// guide_vote, photo_approved, forum_solved, seed).
 ///
 /// Skill points: `skillPoints` holds explicit per-skill points ({"soulslike": 123}): seed,
 /// photo_approved and forum_solved set them. When null, each skill in `skills` receives
@@ -368,7 +428,8 @@ model SkillProgress {
   @@index([skill, level, points])
 }
 
-/// Character attributes: vigor | precisao | gloria | colecao | exploracao | constancia | sabedoria
+/// Character attributes: vigor | precisao | gloria | colecao | exploracao | constancia | sabedoria |
+/// resistencia | acervo
 model AttributeProgress {
   userId    String
   attribute String

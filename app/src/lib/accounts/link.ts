@@ -412,6 +412,8 @@ export async function releaseAccount(
         verifyCode: null,
         verifyExpiresAt: null,
         lastSyncedAt: null,
+        // Sync bookkeeping of that account (Xbox titles already asked): the next link starts fresh.
+        minutesChecked: Prisma.DbNull,
       },
     });
   }
@@ -434,10 +436,14 @@ export async function releaseAccount(
         OR: [
           { source: "achievement", sourceKey: { in: unlocks.map((u) => u.achievementId) } },
           { source: "platinum", sourceKey: { in: games.map((g) => g.gameId) } },
+          // Hours milestones of Steam games (lib/engine/playtime.ts): `steam:<gameId>:<hours>`.
+          { source: "playtime", sourceKey: { startsWith: "steam:" } },
         ],
       },
       data: { voidedAt: now },
     });
+    // The wishlist came from that Steam account too.
+    await tx.wishlistItem.deleteMany({ where: { userId, platform: "steam" } });
   }
   // Days of the unlocks that go away: the missions of those days and weeks are re-checked.
   const gone = await tx.userAchievement.findMany({

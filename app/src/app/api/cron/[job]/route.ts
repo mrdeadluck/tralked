@@ -7,6 +7,7 @@ import { refreshRarity, syncCatalog } from "@/lib/sync/catalog";
 import { syncExternalNews } from "@/lib/sync/external-news";
 import { syncStaleMedia } from "@/lib/sync/media";
 import { syncStalePlatformAccounts } from "@/lib/sync/platform-user";
+import { runSteamCatalogJob } from "@/lib/sync/steam-catalog";
 import { syncStaleUsers } from "@/lib/sync/user";
 
 /**
@@ -16,7 +17,8 @@ import { syncStaleUsers } from "@/lib/sync/user";
  *   notifications: one delete;
  * - users: at most 50 Steam users and 50 s in all (STALE_USERS_BUDGET_MS; each user's catalog
  *   probing gets what is left, at most 45 s);
- * - platforms: at most 5 PSN/Xbox/RA accounts and 50 s in all.
+ * - platforms: at most 5 PSN/Xbox/RA accounts and 50 s in all;
+ * - steam-catalog: 50 s in all (app list ≤ 40%, one SteamSpy page, store details with the rest).
  * Work left over goes first in the next run. Schedules: CRON_SCHEDULES in @/lib/cron/schedules
  * (and the README).
  */
@@ -31,6 +33,8 @@ const JOBS: Record<CronJob, () => Promise<{ processed: number; failed?: number }
   news: () => syncExternalNews(),
   // Daily: notifications older than 90 days (they may quote people who left).
   notifications: () => deleteOldNotifications(),
+  // Hourly: full Steam catalog (app list, popularity, details), 50 s in all.
+  "steam-catalog": () => runSteamCatalogJob(),
 };
 
 function isAuthorized(request: NextRequest): boolean {

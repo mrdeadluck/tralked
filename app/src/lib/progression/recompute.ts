@@ -10,6 +10,7 @@ import { computeStreak, toLocalDay } from "@/lib/engine/streak";
 import { trophyTierFromRarity, type TrophyTier } from "@/lib/engine/trophies";
 import { SKILLS, type SkillId, type SkillState } from "@/lib/engine/types";
 import { vocationFor } from "@/lib/engine/vocation";
+import { playtimeGameId } from "@/lib/engine/playtime";
 import { levelFromXp } from "@/lib/engine/xp";
 import { dailyPeriodKey, isoWeekKey, weeklyPeriodKey } from "./periods";
 import { skillPointTotals, skillsFromLedger, type LedgerSkillEntry } from "./skills-from-ledger";
@@ -33,8 +34,9 @@ export const platinumSourceKey = (platform: string, gameId: string) =>
 export const platinumGameId = (sourceKey: string) => sourceKey.slice(sourceKey.indexOf(":") + 1);
 
 /**
- * Current skills of the games behind `achievement` (sourceKey = achievementId) and `platinum`
- * (see `platinumGameId`) ledger entries, keyed by `${source}:${sourceKey}`.
+ * Current skills of the games behind `achievement` (sourceKey = achievementId), `platinum`
+ * (see `platinumGameId`) and `playtime` (see `playtimeGameId`) ledger entries, keyed by
+ * `${source}:${sourceKey}`.
  */
 async function currentGameSkills(
   rows: { source: string; sourceKey: string }[],
@@ -43,14 +45,22 @@ async function currentGameSkills(
   const achievementIds = keysOf("achievement");
   const platinumKeys = keysOf("platinum");
   const platinumGameIds = platinumKeys.map(platinumGameId);
-  if (achievementIds.length === 0 && platinumGameIds.length === 0) return new Map();
+  const playtimeKeys = keysOf("playtime");
+  const playtimeGameIds = playtimeKeys.map(playtimeGameId);
+  if (achievementIds.length === 0 && platinumGameIds.length === 0 && playtimeGameIds.length === 0) {
+    return new Map();
+  }
 
-  const achievements = await prisma.achievement.findMany({
-    where: { id: { in: achievementIds } },
-    select: { id: true, gameId: true },
-  });
+  const achievements = achievementIds.length
+    ? await prisma.achievement.findMany({
+        where: { id: { in: achievementIds } },
+        select: { id: true, gameId: true },
+      })
+    : [];
   const games = await prisma.game.findMany({
-    where: { id: { in: [...new Set([...platinumGameIds, ...achievements.map((a) => a.gameId)])] } },
+    where: {
+      id: { in: [...new Set([...platinumGameIds, ...playtimeGameIds, ...achievements.map((a) => a.gameId)])] },
+    },
     select: { id: true, skills: { select: { skill: true } } },
   });
   const skillsByGame = new Map(games.map((g) => [g.id, g.skills.map((s) => s.skill)]));
@@ -65,12 +75,16 @@ async function currentGameSkills(
     const skills = skillsByGame.get(platinumGameId(key));
     if (skills) result.set(`platinum:${key}`, skills);
   }
+  for (const key of playtimeKeys) {
+    const skills = skillsByGame.get(playtimeGameId(key));
+    if (skills) result.set(`playtime:${key}`, skills);
+  }
   return result;
 }
 
 /**
  * Loads the ledger for the skill rebuild. XP is frozen at record time, but the genre mapping is
- * not: `achievement` and `platinum` entries without explicit `skillPoints` take the skills their
+ * not: `achievement`, `platinum` and `playtime` entries without explicit `skillPoints` take the skills their
  * game has now (so a game that only later got skills, from the catalog job or an admin override,
  * also counts for past unlocks). Entries with explicit `skillPoints` (seed, photo_approved, forum_solved) and
  * sources without a game keep their own `skills`. The `skills` column stays as an audit copy.

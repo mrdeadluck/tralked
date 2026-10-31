@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
+import { requestGameDetails } from "@/lib/sync/steam-catalog";
 
 export type MarkOpenedResult =
   | { status: "ok" }
@@ -28,5 +29,8 @@ export async function markOpened(gameId: unknown): Promise<MarkOpenedResult> {
   if (!game) return { status: "not_found" };
 
   await prisma.gameOpen.createMany({ data: [{ userId: user.id, gameId: game.id }], skipDuplicates: true });
+  // A game of the full Steam catalog still without store details goes first in the details job
+  // (lib/sync/steam-catalog.ts): one cheap write, never a call to Steam from here.
+  await requestGameDetails(game.id);
   return { status: "ok" };
 }

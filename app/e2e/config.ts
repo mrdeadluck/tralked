@@ -92,8 +92,10 @@ export function createConfig(mode: E2EMode) {
         APP_URL: BASE_URL,
         // Blank keys keep every integration on its local fixtures (and demo login enabled in dev).
         STEAM_API_KEY: "",
-        // Without a key Steam would use its public community pages; e2e stays offline.
+        // Without a key Steam would use its public community pages; e2e stays offline. The
+        // production build only honors STEAM_MODE=fixture with this explicit test flag.
         STEAM_MODE: "fixture",
+        STEAM_FIXTURES: "1",
         IGDB_CLIENT_ID: "",
         IGDB_CLIENT_SECRET: "",
         RAWG_API_KEY: "",

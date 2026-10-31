@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>Example Games</title>
+    <link>https://example.com/</link>
+    <description>News</description>
+    <item>
+      <title>Hollow Knight: Silksong gets a release date</title>
+      <link>https://example.com/news/silksong-release-date</link>
+      <pubDate>Fri, 30 Oct 2026 14:30:00 GMT</pubDate>
+      <dc:creator><![CDATA[Jane Doe]]></dc:creator>
+      <description><![CDATA[<p>Team Cherry has <strong>finally</strong> confirmed the date.</p><p>Read &amp; enjoy <a href="https://example.com/x">more</a>.</p><img src="https://example.com/i.png"/>]]></description>
+    </item>
+    <item>
+      <title><![CDATA[Studio &amp; Co. announces layoffs]]></title>
+      <link>https://example.com/news/studio-layoffs</link>
+      <pubDate>Thu, 29 Oct 2026 09:00:00 +0000</pubDate>
+      <description>Plain &lt;em&gt;escaped&lt;/em&gt; text with an entity: caf&amp;eacute;.</description>
+      <content:encoded><![CDATA[<div>Long body that should not be preferred over description.</div>]]></content:encoded>
+    </item>
+    <item>
+      <title>Very long summary</title>
+      <link>https://example.com/news/long-summary</link>
+      <pubDate>Wed, 28 Oct 2026 08:00:00 GMT</pubDate>
+      <description><![CDATA[<p>LONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONGLONG</p>]]></description>
+    </item>
+    <item>
+      <title>No link here</title>
+      <description>Items without a link are skipped.</description>
+    </item>
+    <item>
+      <title>Undated item</title>
+      <link>https://example.com/news/undated</link>
+    </item>
+  </channel>
+</rss>

@@ -1,4 +1,5 @@
 import { env, hasKey } from "@/lib/env";
+import { fixturesAllowed } from "../availability";
 import { createSteamClient } from "./client";
 import { createSteamCommunity } from "./community";
 import { createSteamFixture } from "./fixture";
@@ -16,7 +17,16 @@ export type SteamMode = "api" | "community" | "fixture";
  */
 export function steamMode(): SteamMode {
   if (hasKey("STEAM_API_KEY")) return "api";
-  return process.env.STEAM_MODE?.trim() === "fixture" ? "fixture" : "community";
+  return process.env.STEAM_MODE?.trim() === "fixture" && steamFixturesAllowed() ? "fixture" : "community";
+}
+
+/**
+ * The Steam fixture is never used by a real deployment: only outside production, or in a
+ * production build with an explicit test flag (`PLATFORM_FIXTURES=1`, or `STEAM_FIXTURES=1` to
+ * keep the production e2e offline while PSN/Xbox/RA stay "Em breve" there).
+ */
+export function steamFixturesAllowed(): boolean {
+  return fixturesAllowed() || process.env.STEAM_FIXTURES?.trim() === "1";
 }
 
 let instance: SteamApi | undefined;
