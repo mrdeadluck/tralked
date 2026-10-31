@@ -4,7 +4,7 @@ import { contentBlocksSchema, plainText } from "@/lib/content/schema";
 
 /** News article payload of the bot API. Strict: unknown fields are errors, no raw HTML anywhere. */
 
-export const ARTICLE_CATEGORIES = ["GAMES", "GUIAS", "COMUNIDADE"] as const;
+export const ARTICLE_CATEGORIES = ["GAMES", "GUIAS", "COMUNIDADE", "MERCADO", "ENTRETENIMENTO", "TECNOLOGIA"] as const;
 export const ARTICLE_PLATFORMS = ["PC", "PLAYSTATION", "XBOX", "NINTENDO"] as const;
 export const ARTICLE_STATUSES = ["review", "published"] as const;
 

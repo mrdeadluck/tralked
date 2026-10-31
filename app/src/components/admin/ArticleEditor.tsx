@@ -19,7 +19,14 @@ const STATUS_OPTIONS: { value: ArticleStatus; label: string; hint: string }[] = 
   { value: "published", label: "Publicada", hint: "No ar em /noticias." },
   { value: "archived", label: "Arquivada", hint: "Fora do ar, guardada." },
 ];
-const CATEGORY_LABEL = { GAMES: "Games", GUIAS: "Guias", COMUNIDADE: "Comunidade" } as const;
+const CATEGORY_LABEL = {
+  GAMES: "Games",
+  GUIAS: "Guias",
+  COMUNIDADE: "Comunidade",
+  MERCADO: "Mercado",
+  ENTRETENIMENTO: "Entretenimento",
+  TECNOLOGIA: "Tecnologia",
+} as const;
 const PLATFORM_LABEL = { PC: "PC", PLAYSTATION: "PlayStation", XBOX: "Xbox", NINTENDO: "Nintendo" } as const;
 const FEATURED_LABEL = ["Lista", "Destaque lateral", "Destaque principal"];
 

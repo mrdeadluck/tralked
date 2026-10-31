@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
+import type { ArticleCategory } from "./news";
 
 // Needs Postgres up and seeded (`pnpm db:up && pnpm db:migrate && pnpm db:seed`);
 // skipped when the database is not reachable.
@@ -227,7 +228,7 @@ describe.skipIf(!reachable)("news queries (seeded database)", () => {
 
 describe("wire and tab view models", () => {
   const now = new Date("2026-10-31T12:00:00Z");
-  const card = (slug: string, category: "GAMES" | "GUIAS" | "COMUNIDADE", hoursAgo: number) => ({
+  const card = (slug: string, category: ArticleCategory, hoursAgo: number) => ({
     id: slug,
     slug,
     title: `Título ${slug}`,
@@ -315,7 +316,20 @@ describe("wire and tab view models", () => {
       ["games", 0, "/noticias?categoria=games#arquivo"],
       ["guias", 1, "/noticias?categoria=guias#arquivo"],
       ["comunidade", 1, "/noticias?categoria=comunidade#arquivo"],
+      ["mercado", 0, "/noticias?categoria=mercado#arquivo"],
+      ["entretenimento", 0, "/noticias?categoria=entretenimento#arquivo"],
+      ["tecnologia", 0, "/noticias?categoria=tecnologia#arquivo"],
     ]);
+  });
+
+  it("maps the new category slugs and labels", async () => {
+    const { categoryFromSlug, categoryLabel } = await import("./news");
+    expect(categoryFromSlug("mercado")).toBe("MERCADO");
+    expect(categoryFromSlug("entretenimento")).toBe("ENTRETENIMENTO");
+    expect(categoryFromSlug("tecnologia")).toBe("TECNOLOGIA");
+    expect(categoryLabel("MERCADO")).toBe("Mercado");
+    expect(categoryLabel("ENTRETENIMENTO")).toBe("Entretenimento");
+    expect(categoryLabel("TECNOLOGIA")).toBe("Tecnologia");
   });
 
   it("signs robots as 'Equipe Tralked' (no '@'), on tabs and on the wire", async () => {

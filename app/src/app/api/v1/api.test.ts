@@ -162,6 +162,16 @@ describe("POST /api/v1/articles", () => {
     expect(log).toMatchObject({ kind: "article", status: "created", requestHash: expect.stringMatching(/^[0-9a-f]{64}$/) });
   });
 
+  it.each(["MERCADO", "ENTRETENIMENTO", "TECNOLOGIA"])("201 accepts the %s category", async (category) => {
+    const response = await articles.POST(
+      call("POST", "/api/v1/articles", { key: keys.writer, body: article({ category }) }),
+    );
+    expect(response.status).toBe(201);
+    const { id } = await json(response);
+    const row = await prisma.article.findUniqueOrThrow({ where: { id: id as string } });
+    expect(row.category).toBe(category);
+  });
+
   it("201 published directly with the publish scope, generating the slug and invalidating the news cache", async () => {
     const response = await articles.POST(
       call("POST", "/api/v1/articles", { key: keys.publisher, body: article({ title: "Ação: Ótimo título t9" }) }),

@@ -19,13 +19,16 @@ import { timeAgo } from "@/lib/time-ago";
 export const NEWS_TAG = "news";
 export const articleTag = (slug: string) => `article:${slug}`;
 
-export type ArticleCategory = "GAMES" | "GUIAS" | "COMUNIDADE";
+export type ArticleCategory = "GAMES" | "GUIAS" | "COMUNIDADE" | "MERCADO" | "ENTRETENIMENTO" | "TECNOLOGIA";
 export type ArticlePlatform = "PC" | "PLAYSTATION" | "XBOX" | "NINTENDO";
 
 export const CATEGORIES: { id: ArticleCategory; slug: string; label: string }[] = [
   { id: "GAMES", slug: "games", label: "Games" },
   { id: "GUIAS", slug: "guias", label: "Guias" },
   { id: "COMUNIDADE", slug: "comunidade", label: "Comunidade" },
+  { id: "MERCADO", slug: "mercado", label: "Mercado" },
+  { id: "ENTRETENIMENTO", slug: "entretenimento", label: "Entretenimento" },
+  { id: "TECNOLOGIA", slug: "tecnologia", label: "Tecnologia" },
 ];
 
 export const categoryLabel = (id: ArticleCategory) => CATEGORIES.find((c) => c.id === id)?.label ?? id;
@@ -514,6 +517,9 @@ const NEWP_WORDS: Record<ArticleCategory | "EXTERNAL", string> = {
   GAMES: "nova////\nnotícia",
   GUIAS: "novo////\nguia",
   COMUNIDADE: "da////\ncomunidade",
+  MERCADO: "do////\nmercado",
+  ENTRETENIMENTO: "de////\nentretenimento",
+  TECNOLOGIA: "de////\ntecnologia",
   EXTERNAL: "na////\nimprensa",
 };
 

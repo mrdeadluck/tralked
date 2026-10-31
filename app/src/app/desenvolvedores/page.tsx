@@ -291,7 +291,8 @@ export default function DesenvolvedoresPage() {
 
         <Section id="noticias" title="Criar uma notícia">
           <p className={prose}>
-            Campos obrigatórios: <C>title</C>, <C>category</C> (<C>GAMES</C>, <C>GUIAS</C> ou <C>COMUNIDADE</C>) e{" "}
+            Campos obrigatórios: <C>title</C>, <C>category</C> (<C>GAMES</C>, <C>GUIAS</C>, <C>COMUNIDADE</C>, <C>MERCADO</C>,{" "}
+            <C>ENTRETENIMENTO</C> ou <C>TECNOLOGIA</C>) e{" "}
             <C>blocks</C> com ao menos um bloco. Os opcionais são <C>subtitle</C>, <C>excerpt</C> (resumo dos
             cartões), <C>slug</C> (gerado do título se faltar), <C>platforms</C> (<C>PC</C>, <C>PLAYSTATION</C>,{" "}
             <C>XBOX</C>, <C>NINTENDO</C>), <C>games</C>, <C>imageLabel</C> e <C>status</C>.
