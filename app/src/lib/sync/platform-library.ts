@@ -72,8 +72,16 @@ export type ReadOptions = {
   deadline?: number;
   /** At most this many titles are read per run. */
   maxTitles?: number;
+  /**
+   * Xbox: titles whose minutes were already asked, with their last play then (ms, 0 unknown).
+   * They are not asked again until played again, even when Xbox had no number (or 0) for them.
+   */
+  checkedTitles?: Map<string, number>;
   now?: () => number;
 };
+
+/** Titles whose minutes one Xbox sync asks at most (10 batched requests); the rest wait. */
+export const MAX_MINUTES_TITLES = 250;
 
 export type LibraryResult = {
   titles: LibraryTitle[];
@@ -87,6 +95,8 @@ export type LibraryResult = {
   handle?: string;
   /** Play time of the games played (PSN, Xbox); RA play time comes with each title instead. */
   playtime: PlaytimeTitle[];
+  /** Xbox: titles whose minutes were asked this run → their last play (ms, 0 unknown). */
+  checkedTitles?: Map<string, number>;
 };
 
 type Listed<T> = {
@@ -230,18 +240,33 @@ async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<
   });
   if (result === "private") return result;
   // Minutes played of every title in the history (achievements or not), asked only for titles
-  // played since the stored time (or never stored), in batches. Best effort, like PSN's.
+  // played since they were last asked (or since the stored row), at most MAX_MINUTES_TITLES per
+  // run, in batches, and not after the deadline. Best effort, like PSN's.
   const stored = options.stored;
-  const due = titles.filter((t) => {
-    const before = stored?.get(t.titleId);
-    if (!before || !before.playtimeSynced) return true;
-    return t.lastPlayed !== null && (!before.lastPlayedAt || t.lastPlayed > before.lastPlayedAt);
-  });
-  if (due.length > 0) {
+  const checked = options.checkedTitles;
+  const due = titles
+    .filter((t) => {
+      const lastMs = t.lastPlayed?.getTime() ?? 0;
+      const before = stored?.get(t.titleId);
+      if (before?.playtimeSynced && (lastMs === 0 || (before.lastPlayedAt && lastMs <= before.lastPlayedAt.getTime()))) {
+        return false;
+      }
+      const askedAt = checked?.get(t.titleId);
+      return askedAt === undefined || lastMs > askedAt;
+    })
+    // Most recently played first: those are the ones that changed.
+    .sort((a, b) => (b.lastPlayed?.getTime() ?? 0) - (a.lastPlayed?.getTime() ?? 0));
+  const now = options.now ?? Date.now;
+  const asked = due.slice(0, MAX_MINUTES_TITLES);
+  if (due.length > asked.length) result.partial = true;
+  if (asked.length > 0 && options.deadline !== undefined && now() >= options.deadline) {
+    result.partial = true;
+  } else if (asked.length > 0) {
     try {
-      const minutes = await xbox.getMinutesPlayed(account.externalId, due.map((t) => t.titleId));
+      const minutes = await xbox.getMinutesPlayed(account.externalId, asked.map((t) => t.titleId));
       if (minutes !== "private") {
-        result.playtime = due.flatMap((t) => {
+        result.checkedTitles = new Map(asked.map((t) => [t.titleId, t.lastPlayed?.getTime() ?? 0]));
+        result.playtime = asked.flatMap((t) => {
           const value = minutes.get(t.titleId);
           return value !== undefined && value > 0
             ? [{ externalId: t.titleId, name: t.name, platformLabel: "Xbox", playtimeMin: value, lastPlayedAt: t.lastPlayed }]

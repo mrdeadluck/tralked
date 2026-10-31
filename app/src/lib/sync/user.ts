@@ -8,7 +8,7 @@ import { platinumBonus, xpForAchievement } from "@/lib/engine/xp";
 import { getSteam, type SteamOwnedGame } from "@/lib/integrations";
 import { recomputeUser } from "@/lib/progression/recompute";
 import { syncGame } from "./catalog";
-import { playtimeLedgerRows } from "./playtime";
+import { settlePlaytime } from "./playtime";
 import { ensureSteamGames } from "./steam-games";
 
 export type SyncUserResult = {
@@ -281,10 +281,10 @@ type LibraryEntry = { gameId: string; checkedPlaytimeMin: number | null };
 /**
  * Records the whole Steam library (keyed adapter: GetOwnedGames), never-played games included:
  * games unknown to the catalog become name-only stubs, every owned game gets its UserGame row
- * with Steam's playtime, last-2-weeks playtime and last play time, and the playtime milestones
- * reached pay XP (`playtime` ledger entries, once each). One transaction, guarded like the games'
- * (an unlink meanwhile aborts it). Only rows whose playtime changed are rewritten, and only their
- * milestones are offered to the ledger. Returns appid → what the achievements pass needs.
+ * with Steam's playtime, last-2-weeks playtime and last play time, and the hours milestones due
+ * pay XP within the per-user caps (lib/sync/playtime.ts settlePlaytime). One transaction, guarded
+ * like the games' (an unlink meanwhile aborts it). Only rows whose playtime changed are rewritten.
+ * Returns appid → what the achievements pass needs.
  */
 async function recordLibrary(
   userId: string,
@@ -314,7 +314,6 @@ async function recordLibrary(
   const result = new Map<number, LibraryEntry>();
   const created: Prisma.UserGameCreateManyInput[] = [];
   const updated: { gameId: string; data: Prisma.UserGameUpdateInput }[] = [];
-  const paying: { gameId: string; game: SteamOwnedGame }[] = [];
   for (const game of owned) {
     const gameId = ids.get(game.appId);
     if (!gameId) continue;
@@ -328,7 +327,6 @@ async function recordLibrary(
     };
     if (!before) {
       created.push({ userId, gameId, platform: "steam", unlockedCount: 0, ...fields });
-      paying.push({ gameId, game });
       continue;
     }
     if (!playtimeKnown) continue;
@@ -337,45 +335,21 @@ async function recordLibrary(
       before.playtimeMin !== fields.playtimeMin ||
       before.playtime2WeeksMin !== fields.playtime2WeeksMin ||
       (before.lastPlayedAt?.getTime() ?? null) !== (fields.lastPlayedAt?.getTime() ?? null);
-    if (!changed) continue;
-    updated.push({ gameId, data: fields });
-    // Rows written before playtime paid XP (no playtimeUpdatedAt) are offered their milestones too.
-    if (before.playtimeUpdatedAt === null || fields.playtimeMin > before.playtimeMin) paying.push({ gameId, game });
+    if (changed) updated.push({ gameId, data: fields });
   }
 
-  const skillRows = paying.length
-    ? await prisma.gameSkill.findMany({
-        where: { gameId: { in: paying.map((p) => p.gameId) } },
-        select: { gameId: true, skill: true },
-      })
-    : [];
-  const skillsOf = new Map<string, string[]>();
-  for (const s of skillRows) skillsOf.set(s.gameId, [...(skillsOf.get(s.gameId) ?? []), s.skill]);
-  const ledger = paying.flatMap(({ gameId, game }) =>
-    playtimeLedgerRows({
-      userId,
-      platform: "steam",
-      gameId,
-      playtimeMin: game.playtimeMin,
-      skills: skillsOf.get(gameId) ?? [],
-      lastPlayedAt: game.lastPlayedAt,
-      now,
-    }),
-  );
-
-  if (created.length > 0 || updated.length > 0 || ledger.length > 0) {
-    await prisma.$transaction(async (tx) => {
-      await assertSteamStillLinked(tx, userId, link);
-      if (created.length > 0) await tx.userGame.createMany({ data: created, skipDuplicates: true });
-      for (const { gameId, data } of updated) {
-        await tx.userGame.update({
-          where: { userId_gameId_platform: { userId, gameId, platform: "steam" } },
-          data,
-        });
-      }
-      if (ledger.length > 0) await tx.xpLedgerEntry.createMany({ data: ledger, skipDuplicates: true });
-    }, TRANSACTION_OPTIONS);
-  }
+  await prisma.$transaction(async (tx) => {
+    await assertSteamStillLinked(tx, userId, link);
+    if (created.length > 0) await tx.userGame.createMany({ data: created, skipDuplicates: true });
+    for (const { gameId, data } of updated) {
+      await tx.userGame.update({
+        where: { userId_gameId_platform: { userId, gameId, platform: "steam" } },
+        data,
+      });
+    }
+    // Hours milestones due (new hours, or games the caps held back on an earlier day).
+    await settlePlaytime(tx, userId, "steam", now);
+  }, TRANSACTION_OPTIONS);
   return result;
 }
 

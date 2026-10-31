@@ -203,7 +203,9 @@ model Game {
   photos        Photo[]
   wishlistedBy  WishlistItem[]
 
-  @@index([stub, detailsSyncedAt, popularity])
+  // The details job's queue has a partial index written in SQL (migration
+  // 20261101130000_full_sync_playtime): ("lastSyncAttemptAt", popularity DESC) WHERE
+  // "detailsSyncedAt" IS NULL AND "steamAppId" IS NOT NULL. Prisma cannot declare it here.
 }
 
 /// The game's id on a platform (PSN npCommunicationId, Xbox titleId, RA game id, Steam appid).
@@ -294,6 +296,9 @@ model UserGame {
   /// Steam: `playtimeMin` at the last successful read of the player's achievements of this game,
   /// so a re-sync only reads games played since (null: never read).
   checkedPlaytimeMin Int?
+  /// `playtimeMin` whose hours milestones were all offered to the ledger (lib/sync/playtime.ts);
+  /// a game held back by the per-user caps keeps the old value and is offered again later.
+  playtimePaidMin    Int?
   user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   game               Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
@@ -368,7 +373,8 @@ model GameOpen {
 ///   photo_approved -> photoId (gallery upload XP, daily-limited; voided when moderation removes it)
 ///   forum_solved   -> forumPostId (answer marked "Resolveu"; voided when the answer is removed)
 ///   playtime       -> `${platform}:${gameId}:${hours}` (hours milestone of real platform playtime,
-///                     lib/engine/playtime.ts; platform steam | psn | xbox | retro)
+///                     5 h and up, within per-user caps, dated at payment: lib/engine/playtime.ts,
+///                     lib/sync/playtime.ts; platform steam | psn | xbox | retro)
 ///   seed           -> 'baseline' (synthetic entry, development seed data only)
 /// Fraud release (admin "Liberar") writes `achievement` / `platinum` entries exactly as the syncs
 /// do, and restores entries voided earlier instead of creating new ones.

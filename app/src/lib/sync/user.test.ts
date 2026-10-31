@@ -56,6 +56,8 @@ type FakeGame = {
   /** apiName -> unlock time (null/absent = locked) */
   unlocks: Record<string, Date | null>;
   playtimeMin?: number;
+  /** Library name (default `Jogo de Teste <appid>`; null: none). */
+  name?: string | null;
 };
 
 type FakeSteam = {
@@ -89,6 +91,8 @@ function fakeSteam(games: Record<number, FakeGame>): FakeSteam {
       if (state.ownedUnsupported) return "unsupported";
       return [...state.games.entries()].map(([appId, g]) => ({
         appId,
+        // Steam's include_appinfo name; `null` plays an app Steam lists without one.
+        ...(g.name !== null && { name: g.name ?? `Jogo de Teste ${appId}` }),
         playtimeMin: g.playtimeMin ?? 600,
       }));
     },
@@ -865,44 +869,67 @@ describe.skipIf(!reachable)("syncUser", () => {
     const { playtimeXp } = await import("@/lib/engine/playtime");
     const longGame = newAppId();
     const noAch = newAppId();
+    const idle = newAppId();
     const steam = fakeSteam({
       [longGame]: { pcts: pctsOf(2), playtimeMin: 3000 * 60, unlocks: {} },
-      [noAch]: { pcts: {}, playtimeMin: 90, unlocks: {} },
+      [noAch]: { pcts: {}, playtimeMin: 330, unlocks: {} },
+      // Under 5 h: no XP at all.
+      [idle]: { pcts: {}, playtimeMin: 299, unlocks: {} },
     });
     steamState.api = steam.api;
     const user = await newUser();
 
     await syncUser(user.id);
     const entries = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, source: "playtime" } });
-    const games = await prisma.game.findMany({ where: { steamAppId: { in: [longGame, noAch] } } });
+    const games = await prisma.game.findMany({ where: { steamAppId: { in: [longGame, noAch, idle] } } });
     const long = games.find((g) => g.steamAppId === longGame)!;
     const short = games.find((g) => g.steamAppId === noAch)!;
-    expect(entries.filter((e) => e.sourceKey.startsWith(`steam:${long.id}:`))).toHaveLength(11);
+    const idleGame = games.find((g) => g.steamAppId === idle)!;
+    expect(entries.filter((e) => e.sourceKey.startsWith(`steam:${long.id}:`))).toHaveLength(9); // 5 h … 2500 h
     expect(entries.filter((e) => e.sourceKey.startsWith(`steam:${short.id}:`)).map((e) => e.sourceKey)).toEqual([
-      `steam:${short.id}:1`,
+      `steam:${short.id}:5`,
     ]);
+    expect(entries.filter((e) => e.sourceKey.startsWith(`steam:${idleGame.id}:`))).toEqual([]);
     // Steam entries keep the Plan 1 convention: no platform column.
     expect(entries.every((e) => e.platform === null)).toBe(true);
     const paid = entries.reduce((sum, e) => sum + e.xp, 0);
-    expect(paid).toBe(playtimeXp(3000 * 60) + playtimeXp(90));
+    expect(paid).toBe(playtimeXp(3000 * 60) + playtimeXp(330));
     const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
     expect(stats.totalXp).toBe(paid);
 
     // Same hours again: nothing new. More hours: only the milestones crossed since.
     await syncUser(user.id);
-    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "playtime" } })).toBe(12);
-    steam.games.get(noAch)!.playtimeMin = 130;
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "playtime" } })).toBe(10);
+    steam.games.get(noAch)!.playtimeMin = 610;
     await syncUser(user.id);
     expect(
       (await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, source: "playtime", sourceKey: { startsWith: `steam:${short.id}:` } } }))
         .map((e) => e.sourceKey)
         .sort(),
-    ).toEqual([`steam:${short.id}:1`, `steam:${short.id}:2`]);
+    ).toEqual([`steam:${short.id}:10`, `steam:${short.id}:5`]);
 
     // Resistência and Acervo come from the library.
     const attrs = await prisma.attributeProgress.findMany({ where: { userId: user.id, attribute: { in: ["resistencia", "acervo"] } } });
-    expect(attrs.find((a) => a.attribute === "acervo")?.points).toBe(20);
+    expect(attrs.find((a) => a.attribute === "acervo")?.points).toBe(30);
     expect(attrs.find((a) => a.attribute === "resistencia")?.points).toBeGreaterThan(2000);
+  });
+
+  it("a game Steam lists without a name keeps its placeholder as an unlisted stub, even with achievements", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const app = newAppId();
+    steamState.api = fakeSteam({
+      [app]: { pcts: pctsOf(2), name: null, unlocks: { A0: new Date("2024-01-01T10:00:00Z") } },
+    }).api;
+    const user = await newUser();
+    expect(await syncUser(user.id)).toMatchObject({ newUnlocks: 1 });
+    // IGDB knows nothing either: the name is still the placeholder, so the game stays a stub.
+    expect(await prisma.game.findUniqueOrThrow({ where: { steamAppId: app } })).toMatchObject({
+      name: `Jogo ${app} da Steam`,
+      slug: `jogo-${app}-da-steam`,
+      stub: true,
+      achievementCount: 2,
+    });
   });
 
   it("a re-sync reads achievements only of games played since the last read", async () => {
@@ -989,7 +1016,7 @@ describe.skipIf(!reachable)("syncUser", () => {
     const steamId = user.steamId!;
 
     await syncUser(user.id);
-    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "playtime", voidedAt: null } })).toBe(4);
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "playtime", voidedAt: null } })).toBe(2);
     expect(await unlink(user.id, "steam")).toBe(true);
     expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "playtime", voidedAt: null } })).toBe(0);
     expect(await prisma.wishlistItem.count({ where: { userId: user.id } })).toBe(0);

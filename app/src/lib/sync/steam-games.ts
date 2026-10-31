@@ -13,6 +13,33 @@ export const placeholderSteamName = (appId: number) => `Jogo ${appId} da Steam`;
 export const steamSlugBase = (name: string, appId: number) =>
   slugify(cleanName(name).replace(/['’]/g, "")) || `app-${appId}`;
 
+/** A name still the placeholder of an app known only by its appid. */
+export const isPlaceholderName = (name: string, appId: number | null) =>
+  appId !== null && name === placeholderSteamName(appId);
+
+/**
+ * The slug a game with a placeholder slug (`jogo-<appid>-da-steam`, given while Steam knew it only
+ * by appid) takes once its real name is known: the real name's slug, or `<slug>-<appid>` when
+ * taken. Safe to change: a placeholder game is a stub, never listed, prerendered or in the sitemap,
+ * and pages link to it by its current slug; an old bookmark of the placeholder URL gets a 404.
+ * Games with a real slug keep it (`{}`), so a published URL never changes.
+ */
+export async function slugAfterPlaceholder(
+  tx: Prisma.TransactionClient,
+  game: { id: string; slug: string },
+  realName: string,
+  appId: number,
+): Promise<{ slug?: string }> {
+  if (!game.slug.startsWith(steamSlugBase(placeholderSteamName(appId), appId))) return {};
+  if (isPlaceholderName(realName, appId)) return {};
+  const base = steamSlugBase(realName, appId);
+  for (const slug of [base, `${base}-${appId}`]) {
+    const taken = await tx.game.findUnique({ where: { slug }, select: { id: true } });
+    if (!taken || taken.id === game.id) return { slug };
+  }
+  return {};
+}
+
 function chunks<T>(items: T[], size = CHUNK): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));

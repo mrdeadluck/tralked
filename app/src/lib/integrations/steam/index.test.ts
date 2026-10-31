@@ -38,6 +38,19 @@ describe("steamMode / getSteam", () => {
     expect(steamMode()).toBe("community");
   });
 
+  it("a production build ignores STEAM_MODE=fixture unless an explicit test flag is set", () => {
+    vi.stubEnv("STEAM_MODE", "fixture");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PLATFORM_FIXTURES", "");
+    vi.stubEnv("STEAM_FIXTURES", "");
+    expect(steamMode()).toBe("community");
+    vi.stubEnv("STEAM_FIXTURES", "1");
+    expect(steamMode()).toBe("fixture");
+    vi.stubEnv("STEAM_FIXTURES", "");
+    vi.stubEnv("PLATFORM_FIXTURES", "1");
+    expect(steamMode()).toBe("fixture");
+  });
+
   it("the test suites run on the fixture (vitest sets STEAM_MODE=fixture)", async () => {
     expect(steamMode()).toBe("fixture");
     // The fixture lists owned games; the community adapter cannot.

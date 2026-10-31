@@ -192,6 +192,8 @@ describe.skipIf(!reachable)("steam catalog", () => {
     });
     expect(game).toMatchObject({
       name: "Farol Distante",
+      // The placeholder slug (never listed) follows the real name.
+      slug: "farol-distante",
       stub: false,
       summary: "Um jogo de exploração.",
       developer: "Estúdio Exemplo",
@@ -210,6 +212,25 @@ describe.skipIf(!reachable)("steam catalog", () => {
     // Art was checked with HEAD before it was written; the store was read in pt-BR.
     expect(calls).toContain(`HEAD ${CDN}/${appId}/library_hero.jpg`);
     expect(calls.some((c) => c.includes("l=brazilian"))).toBe(true);
+  });
+
+  it("a failed or empty achievement schema keeps the count the game had; a real name keeps its slug", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { ensureSteamGames } = await import("./steam-games");
+    const { syncSteamDetails } = await import("./steam-catalog");
+    const appId = APP_BASE + 4;
+    await ensureSteamGames([{ appId, name: "Nome Real" }]);
+    await prisma.game.update({ where: { steamAppId: appId }, data: { achievementCount: 5 } });
+    const broken: SteamApi = {
+      ...fakeSteam(),
+      getSchemaForGame: async () => {
+        throw new Error("Steam is down");
+      },
+    };
+    const deps = { steam: broken, politeFetch: fakeNetwork(appId).politeFetch, igdb: noIgdb, sgdb: noSgdb, now: Date.now };
+    expect(await syncSteamDetails(appId, deps)).toBe(true);
+    const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+    expect(game).toMatchObject({ achievementCount: 5, name: "Farol Distante", slug: "nome-real", stub: false });
   });
 
   it("an app the store does not know is marked done and stays a stub", async () => {

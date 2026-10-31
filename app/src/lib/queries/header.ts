@@ -2,7 +2,11 @@ import { cacheLife } from "next/cache";
 import { prisma } from "@/lib/db";
 import type { SearchSuggestion } from "@/components/layout/SearchBox";
 
-/** "EM ALTA" in the header search: the most-played games by number of UserGame rows. */
+/**
+ * "EM ALTA" in the header search: the most-played games by number of players (Steam libraries
+ * where the game was actually played: playtime or an unlock; owned-but-never-played rows and
+ * name-only catalog stubs do not count).
+ */
 export async function getTrendingSuggestions(
   limit = 4,
 ): Promise<SearchSuggestion[]> {
@@ -11,7 +15,11 @@ export async function getTrendingSuggestions(
 
   const popular = await prisma.userGame.groupBy({
     by: ["gameId"],
-    where: { platform: "steam" },
+    where: {
+      platform: "steam",
+      OR: [{ playtimeMin: { gt: 0 } }, { unlockedCount: { gt: 0 } }],
+      game: { stub: false },
+    },
     _count: { gameId: true },
     orderBy: [{ _count: { gameId: "desc" } }, { gameId: "asc" }],
     take: limit,

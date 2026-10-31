@@ -8,6 +8,7 @@ import {
   precisaoPoints,
   vigorPoints,
 } from "@/lib/engine/attributes";
+import { PLAYTIME_MILESTONES_H, playtimeSourceKey } from "@/lib/engine/playtime";
 import { applySkillPoints, skillNeed } from "@/lib/engine/skills";
 import { trophyTierFromRarity, type PlatformId, type TrophyTier } from "@/lib/engine/trophies";
 import { SKILLS, type SkillId } from "@/lib/engine/types";
@@ -515,6 +516,13 @@ export async function getGameProfileForUser(slug: string, userId: string): Promi
       OR: [
         { source: "achievement", sourceKey: { in: unlocks.map((u) => u.achievementId) } },
         { source: "platinum", sourceKey: { in: PLATFORM_ORDER.map((p) => platinumSourceKey(p, gameId)) } },
+        // Hours milestones of this game on every platform.
+        {
+          source: "playtime",
+          sourceKey: {
+            in: PLATFORM_ORDER.flatMap((p) => PLAYTIME_MILESTONES_H.map((h) => playtimeSourceKey(p, gameId, h))),
+          },
+        },
       ],
     },
     select: { xp: true, skills: true, skillPoints: true },
