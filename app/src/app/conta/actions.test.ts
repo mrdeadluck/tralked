@@ -12,10 +12,23 @@ const changeEmail = vi.fn();
 const changePassword = vi.fn();
 const visibilityTags = vi.fn();
 
+const refresh = vi.fn();
+const sendEmailConfirmation = vi.fn();
+const afterTasks: (() => Promise<void>)[] = [];
+
 vi.mock("@/lib/auth/session", () => ({ getSessionUser, destroySession }));
 vi.mock("next/cache", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/cache")>()),
   updateTag,
+  refresh,
+}));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => Promise<void>) => afterTasks.push(task),
+}));
+vi.mock("@/lib/auth/email-verification", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/email-verification")>()),
+  sendEmailConfirmation,
 }));
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("@/lib/accounts/delete", () => ({ deleteAccount }));
@@ -31,11 +44,23 @@ vi.mock("@/lib/auth/credentials", async (importOriginal) => ({
   changePassword,
 }));
 
-const userUpdate = vi.fn(async () => ({}));
-vi.mock("@/lib/db", () => ({ prisma: { user: { update: userUpdate } } }));
+const userUpdate = vi.fn<(args: unknown) => Promise<object>>(async () => ({}));
+// Only prisma.user.update is replaced (the case intro switch); everything else stays real.
+vi.mock("@/lib/db", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/lib/db")>();
+  const user = new Proxy(mod.prisma.user, { get: (target, key) => (key === "update" ? userUpdate : Reflect.get(target, key)) });
+  return { ...mod, prisma: new Proxy(mod.prisma, { get: (target, key) => (key === "user" ? user : Reflect.get(target, key)) }) };
+});
 
-const { changeEmailAction, changePasswordAction, deleteAccountAction, setCaseIntroAction, updateProfileAction } =
-  await import("./actions");
+const {
+  changeEmailAction,
+  changePasswordAction,
+  deleteAccountAction,
+  resendEmailConfirmationAction,
+  setCaseIntroAction,
+  updateProfileAction,
+} = await import("./actions");
+const { resetAuthLimits } = await import("@/lib/auth/rate-limit");
 
 function form(fields: Record<string, string>) {
   const data = new FormData();
@@ -45,6 +70,8 @@ function form(fields: Record<string, string>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  afterTasks.length = 0;
+  resetAuthLimits();
   getSessionUser.mockResolvedValue({ id: "u1", handle: "eu" });
   updateProfileSettings.mockResolvedValue({ visibilityChanged: false });
   visibilityTags.mockResolvedValue(["gallery", "forum", "photo:p1", "player:eu"]);
@@ -169,5 +196,73 @@ describe("changeEmailAction / changePasswordAction", () => {
     expect(await changeEmailAction({}, form({ email: "dele@exemplo.com" }))).toMatchObject({
       errors: { email: "Esse e-mail já é usado por outra conta." },
     });
+  });
+
+  it("a new e-mail refreshes the page and sends its confirmation after the response", async () => {
+    changeEmail.mockResolvedValueOnce({ ok: true, changed: true });
+    expect(await changeEmailAction({}, form({ email: "novo@exemplo.com" }))).toMatchObject({
+      done: true,
+      message: expect.stringContaining("confirmar o endereço novo"),
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(afterTasks).toHaveLength(1);
+    expect(sendEmailConfirmation).not.toHaveBeenCalled();
+    await afterTasks[0]();
+    expect(sendEmailConfirmation).toHaveBeenCalledWith("u1");
+  });
+
+  it("toggling the e-mail saves it but stops mailing past the per-account limit", async () => {
+    changeEmail.mockResolvedValue({ ok: true, changed: true });
+    for (let i = 0; i < 3; i++) {
+      const address = i % 2 ? "a@exemplo.com" : "b@exemplo.com";
+      expect(await changeEmailAction({}, form({ email: address }))).toMatchObject({ done: true });
+    }
+    expect(afterTasks).toHaveLength(3);
+    expect(await changeEmailAction({}, form({ email: "a@exemplo.com" }))).toMatchObject({
+      done: true,
+      message: expect.stringContaining("não foi enviado agora"),
+    });
+    expect(changeEmail).toHaveBeenCalledTimes(4); // saved anyway
+    expect(afterTasks).toHaveLength(3);
+  });
+
+  it("stops mailing one recipient past its daily limit, whatever the account", async () => {
+    changeEmail.mockResolvedValue({ ok: true, changed: true });
+    for (let i = 0; i < 4; i++) {
+      getSessionUser.mockResolvedValueOnce({ id: `conta-${i}`, handle: `h${i}` });
+      await changeEmailAction({}, form({ email: "alvo@exemplo.com" }));
+    }
+    expect(afterTasks).toHaveLength(3);
+  });
+});
+
+describe("resendEmailConfirmationAction", () => {
+  it("needs a session and an unconfirmed e-mail", async () => {
+    getSessionUser.mockResolvedValueOnce(null);
+    expect(await resendEmailConfirmationAction()).toMatchObject({ ok: false });
+    getSessionUser.mockResolvedValueOnce({ id: "u1", email: null, emailVerifiedAt: null });
+    expect(await resendEmailConfirmationAction()).toMatchObject({ ok: false, error: expect.stringContaining("Salve um e-mail") });
+    getSessionUser.mockResolvedValueOnce({ id: "u1", email: "eu@exemplo.com", emailVerifiedAt: new Date() });
+    expect(await resendEmailConfirmationAction()).toEqual({ ok: true, message: "Este e-mail já está confirmado." });
+    expect(sendEmailConfirmation).not.toHaveBeenCalled();
+  });
+
+  it("sends at most 3 per hour per account, and says when e-mail is off", async () => {
+    getSessionUser.mockResolvedValue({ id: "u-resend", email: "eu@exemplo.com", emailVerifiedAt: null });
+    sendEmailConfirmation.mockResolvedValue("logged");
+    for (let i = 0; i < 3; i++) {
+      expect(await resendEmailConfirmationAction()).toMatchObject({ ok: true, message: expect.stringContaining("eu@exemplo.com") });
+    }
+    expect(await resendEmailConfirmationAction()).toMatchObject({ ok: false, error: expect.stringContaining("Tente de novo") });
+    expect(sendEmailConfirmation).toHaveBeenCalledTimes(3);
+
+    getSessionUser.mockResolvedValue({ id: "u-off", email: "eu@exemplo.com", emailVerifiedAt: null });
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      expect(await resendEmailConfirmationAction()).toMatchObject({ ok: false, error: expect.stringContaining("desativado") });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(sendEmailConfirmation).toHaveBeenCalledTimes(3);
   });
 });

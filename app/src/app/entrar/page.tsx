@@ -69,7 +69,9 @@ async function EntrarContent({ searchParams }: { searchParams: PageProps<"/entra
       <LoginForm returnTo={returnTo} />
       {googleLoginEnabled() ? (
         <div className="flex flex-col gap-3 border-t border-line pt-5">
-          <p className="text-[13.5px] text-muted">Ou, se você conectou o Google à sua conta:</p>
+          <p className="text-[13.5px] text-muted">
+            Ou entre com o Google. Sem conta ainda? Ela é criada na hora, sem senha.
+          </p>
           <div>
             <GoogleButton returnTo={returnTo} label="Entrar com o Google" />
           </div>

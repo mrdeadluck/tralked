@@ -6,9 +6,11 @@ import { AccountNav } from "@/components/account/AccountNav";
 import { CaseIntroSetting } from "@/components/account/CaseIntroSetting";
 import { CredentialsForms } from "@/components/account/CredentialsForms";
 import { DeleteAccountForm } from "@/components/account/DeleteAccountForm";
+import { EmailStatus } from "@/components/account/EmailStatus";
 import { ProfileForm } from "@/components/account/ProfileForm";
 import { PageHead } from "@/components/community/PageHead";
 import { getSessionUser } from "@/lib/auth/session";
+import { mailAvailable } from "@/lib/mail/mailer";
 
 export const metadata: Metadata = {
   title: "Conta · Tralked",
@@ -57,7 +59,10 @@ async function ContaContent() {
       </Section>
 
       <Section title="E-mail e senha" lede="Com eles você entra no Tralked. A senha é só do Tralked.">
-        <CredentialsForms email={user.email} hasPassword={user.passwordHash !== null} />
+        <div className="flex flex-col gap-8">
+          <EmailStatus email={user.email} verified={user.emailVerifiedAt !== null} mailOn={mailAvailable()} />
+          <CredentialsForms email={user.email} hasPassword={user.passwordHash !== null} />
+        </div>
       </Section>
 
       <Section title="Seus dados" lede="Uma cópia de tudo o que o Tralked guarda sobre você, em JSON.">

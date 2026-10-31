@@ -63,6 +63,27 @@ describe("signupAction", () => {
     expect(await signup()).toEqual({ redirectedTo: "/conta/conexoes?bemvindo=1" });
     const user = await prisma.user.findUniqueOrThrow({ where: { handle: `${MARK}bia` } });
     expect(createSession).toHaveBeenCalledWith(user.id);
+    expect(user.emailVerifiedAt).toBeNull();
+  });
+
+  it("sends the welcome e-mail (with the confirmation link) after the response", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      await signup();
+      expect(afterTasks).toHaveLength(1);
+      expect(info).not.toHaveBeenCalled();
+      for (const task of afterTasks) await task();
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(String(info.mock.calls[0][0])).toMatch(/^\[e-mail\] welcome para bia@.*\/confirmar-email\?token=/);    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("skips the welcome when that address already got too many confirmation e-mails", async () => {
+    const { takeConfirmationSlot } = await import("./rate-limit");
+    for (let i = 0; i < 3; i++) expect(takeConfirmationSlot(null, `bia${DOMAIN}`).ok).toBe(true);
+    expect(await signup()).toEqual({ redirectedTo: "/conta/conexoes?bemvindo=1" });
+    expect(afterTasks).toHaveLength(0);
   });
 
   it("explains invalid fields, keeps what was typed (never the password) and creates nothing", async () => {
@@ -126,6 +147,7 @@ describe("loginAction", () => {
 describe("forgotPasswordAction / resetPasswordAction", () => {
   it("answers the same for any e-mail; only a registered one gets a link", async () => {
     await signup();
+    afterTasks.length = 0; // the sign-up's welcome e-mail
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
       const known = await run(forgotPasswordAction({}, form({ email: `bia${DOMAIN}` })));
@@ -136,8 +158,23 @@ describe("forgotPasswordAction / resetPasswordAction", () => {
       const user = await prisma.user.findUniqueOrThrow({ where: { handle: `${MARK}bia` } });
       expect(await prisma.passwordResetToken.count({ where: { userId: user.id } })).toBe(1);
       expect(info).toHaveBeenCalledTimes(1);
+      expect(String(info.mock.calls[0][0])).toContain("/redefinir-senha?token=");
     } finally {
       info.mockRestore();
+    }
+  });
+
+  it("in production without RESEND_API_KEY says e-mail is off and creates no link", async () => {
+    await signup();
+    afterTasks.length = 0;
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      const state = await run(forgotPasswordAction({}, form({ email: `bia${DOMAIN}` })));
+      expect(state).toMatchObject({ message: expect.stringContaining("envio de e-mails do Tralked está desativado") });
+      expect(state).not.toHaveProperty("done");
+      expect(afterTasks).toHaveLength(0);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 

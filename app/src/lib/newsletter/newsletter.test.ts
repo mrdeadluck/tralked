@@ -10,6 +10,14 @@ const redirect = vi.hoisted(() =>
   }),
 );
 vi.mock("next/navigation", () => ({ redirect }));
+const afterTasks = vi.hoisted(() => [] as (() => Promise<void>)[]);
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => Promise<void>) => afterTasks.push(task),
+}));
+const runAfterTasks = async () => {
+  for (const task of afterTasks.splice(0)) await task();
+};
 
 const { prisma } = await import("@/lib/db");
 const { checkToken, confirmSubscription, newsletterToken, RESEND_WINDOW_MS, subscribe, TOKEN_TTL_DAYS } = await import(
@@ -28,6 +36,7 @@ async function cleanup() {
 
 beforeEach(async () => {
   await cleanup();
+  afterTasks.length = 0;
   ip.value = `203.0.113.${++ipSeq}`;
   vi.restoreAllMocks();
   vi.spyOn(console, "info").mockImplementation(() => {});
@@ -40,6 +49,10 @@ describe("newsletter sign-up", () => {
     expect(result).toEqual({ ok: true, email: EMAIL, delivery: "sent" });
     const row = await prisma.newsletterSubscriber.findUniqueOrThrow({ where: { email: EMAIL } });
     expect(row.confirmedAt).toBeNull();
+    // Sent after the response: the answer never waits on (or reveals) the e-mail.
+    expect(console.info).not.toHaveBeenCalled();
+    expect(afterTasks).toHaveLength(1);
+    await runAfterTasks();
     const logged = String(vi.mocked(console.info).mock.calls[0][0]);
     expect(logged).toContain("/newsletter/confirmar?");
     const token = new URL(logged.slice(logged.indexOf("http"))).searchParams.get("token");
@@ -50,6 +63,7 @@ describe("newsletter sign-up", () => {
     vi.stubEnv("NODE_ENV", "production");
     try {
       expect(await subscribeNewsletterAction({ email: EMAIL })).toEqual({ ok: true, email: EMAIL, delivery: "registered" });
+      expect(afterTasks).toHaveLength(0);
       expect(console.info).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllEnvs();

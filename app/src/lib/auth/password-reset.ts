@@ -1,7 +1,8 @@
-import { appendFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
+import { mailAvailable, sendMail } from "@/lib/mail/mailer";
+import { passwordResetEmail } from "@/lib/mail/templates";
 import { normalizeEmail } from "./credentials";
 import { hashPassword } from "./password";
 
@@ -10,9 +11,6 @@ import { hashPassword } from "./password";
  * is 32 random bytes (base64url); the database keeps only its SHA-256, so a leaked table cannot be
  * used to reset anyone's password. A link is single-use, lasts RESET_TTL_MS, and using one voids
  * the account's other links.
- *
- * There is no e-mail provider yet (Plano 4): like the newsletter confirmation, the link goes to
- * the server log outside production.
  */
 
 export const RESET_TTL_MS = 60 * 60_000;
@@ -35,30 +33,18 @@ export function passwordResetLink(token: string): string {
 }
 
 /**
- * Where an e-mail would go. Outside production the link is printed in the server log; when
- * DEV_MAIL_LOG_FILE is set (e2e) it is also appended there, so a test can follow it. Production
- * prints nothing that could be used to take over an account.
- */
-function deliver(email: string, link: string) {
-  if (process.env.NODE_ENV === "production") {
-    console.info("[senha] Pedido de redefinição registrado; sem provedor de e-mail, o link não é enviado (use pnpm user:invite).");
-    return;
-  }
-  console.info(`[senha] Link para definir a senha de ${email} (vale 1 h): ${link}`);
-  const file = process.env.DEV_MAIL_LOG_FILE?.trim();
-  if (file) appendFileSync(file, `${JSON.stringify({ to: email, link })}\n`);
-}
-
-/**
- * Forgot password: creates and sends a link when the e-mail has an account. The caller answers
- * the same either way, so the form never reveals whether an e-mail is registered.
+ * Forgot password: creates and e-mails a link when the e-mail has an account (lib/mail: Resend
+ * with RESEND_API_KEY, the server log outside production without it). The caller answers the
+ * same either way, so the form never reveals whether an e-mail is registered. In production
+ * without a key no link is created (the form says e-mail is off; `pnpm user:invite` still works).
  */
 export async function requestPasswordReset(email: string, now: Date = new Date()): Promise<void> {
+  if (!mailAvailable()) return;
   const normalized = normalizeEmail(email);
   const user = await prisma.user.findUnique({ where: { email: normalized }, select: { id: true } });
   if (!user) return;
   const token = await createPasswordResetToken(user.id, now);
-  deliver(normalized, passwordResetLink(token));
+  await sendMail(passwordResetEmail(normalized, passwordResetLink(token)));
 }
 
 const usable = (token: string, now: Date) => ({ tokenHash: hashToken(token), usedAt: null, expiresAt: { gt: now } });

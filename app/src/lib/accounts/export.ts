@@ -14,6 +14,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
       handle: true,
       displayName: true,
       email: true,
+      emailVerifiedAt: true,
       bio: true,
       avatarUrl: true,
       profilePublic: true,

@@ -79,4 +79,18 @@ describe("password reset tokens (database)", () => {
       info.mockRestore();
     }
   });
+
+  it("in production without RESEND_API_KEY creates no link and prints none", async () => {
+    const user = await newUser("semchave");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      await requestPasswordReset(`semchave${DOMAIN}`, T0);
+      expect(await prisma.passwordResetToken.count({ where: { userId: user.id } })).toBe(0);
+      expect(info).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+      info.mockRestore();
+    }
+  });
 });

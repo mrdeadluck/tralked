@@ -42,7 +42,7 @@ export function Newsletter() {
         <p role="status" className="flex-[1_1_360px] text-lg font-extrabold">
           {subscribed.delivery === "sent"
             ? `Quase lá! Enviamos um link de confirmação para ${subscribed.email}. A inscrição só vale depois que você confirmar por ele.`
-            : `Inscrição registrada para ${subscribed.email}. Assim que o envio de e-mails estiver ativo, você recebe um link para confirmar.`}
+            : `O envio de e-mails do Tralked está desativado no momento, então não deu para mandar o link de confirmação para ${subscribed.email}. O endereço ficou registrado; inscreva-se de novo mais tarde para receber o link.`}
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-[1_1_360px] flex-col gap-2">

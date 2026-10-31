@@ -85,6 +85,13 @@ describe("exchangeGoogleCode", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it('accepts email_verified as the string "true" (as in Google\'s docs)', async () => {
+    const { config } = client(idToken({ nonce: "n1", email: "ana@example.com", email_verified: "true" }));
+    await expect(exchangeGoogleCode(config, "c", { nonce: "n1", verifier: "v" })).resolves.toMatchObject({ emailVerified: true });
+    const { config: no } = client(idToken({ nonce: "n1", email: "ana@example.com", email_verified: "false" }));
+    await expect(exchangeGoogleCode(no, "c", { nonce: "n1", verifier: "v" })).resolves.toMatchObject({ emailVerified: false });
+  });
+
   it("rejects a replayed token (nonce), another audience or another issuer", async () => {
     await expect(
       exchangeGoogleCode(client(idToken({ nonce: "other" })).config, "c", { nonce: "n1", verifier: "v" }),
@@ -153,8 +160,27 @@ describe.skipIf(!reachable)("upsertUserFromGoogle", () => {
       handle: "test_google_leitora",
       avatarUrl: null, // only https pictures are kept
     });
+    // Google verified the e-mail: the new account is "e-mail confirmado" and gets the welcome.
+    expect(created.created).toBe(true);
+    expect(created.user.emailVerifiedAt).toBeInstanceOf(Date);
     const again = await upsertUserFromGoogle(claims, null);
     expect(again).toMatchObject({ ok: true, user: { id: created.user.id } });
+    expect(again.ok && again.created).toBeFalsy();
+  });
+
+  it("linking Google confirms the account's e-mail only when it is the same verified address", async () => {
+    const { prisma } = await import("@/lib/db");
+    const same = await prisma.user.create({
+      data: { handle: "test_google_mesmo", displayName: "Mesmo", email: "mesmo@example.com", passwordHash: "scrypt$x" },
+    });
+    const linked = await upsertUserFromGoogle({ sub: `${SUB_PREFIX}7`, email: "Mesmo@Example.com", emailVerified: true }, same.id);
+    expect(linked.ok && linked.user.emailVerifiedAt).toBeInstanceOf(Date);
+
+    const differ = await prisma.user.create({
+      data: { handle: "test_google_outro_mail", displayName: "Outro", email: "outro@example.com", passwordHash: "scrypt$x" },
+    });
+    const kept = await upsertUserFromGoogle({ sub: `${SUB_PREFIX}8`, email: "google@example.com", emailVerified: true }, differ.id);
+    expect(kept).toMatchObject({ ok: true, user: { email: "outro@example.com", emailVerifiedAt: null } });
   });
 
   it("does not store an unverified email", async () => {
