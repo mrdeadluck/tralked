@@ -26,6 +26,23 @@ Em desenvolvimento, abra `http://localhost:3000/api/auth/demo`. A rota cria uma 
 
 A rota só existe fora de produção (`NODE_ENV !== "production"`) e responde 404 quando `STEAM_API_KEY` está configurada, caso em que o login real é feito pela Steam (`/api/auth/steam`).
 
+## Contas e papéis
+
+- **Login**: Steam (OpenID, com `STEAM_API_KEY`) e Google (com `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`). Sem chaves, só o login de demonstração acima. O Tralked nunca pede senha nem token de sessão de ninguém.
+- **Contas vinculadas** (`/conta/conexoes`): PSN, Xbox e RetroAchievements pelo modelo Exophase. O jogador digita o ID, recebe um código `TRK-XXXXXX` (vale 30 min), cola no "Sobre mim"/bio/lema do perfil e confirma; o Tralked lê o perfil público com a conta de serviço. Código ausente, expirado ou conta já vinculada a outra pessoa são recusados com mensagem clara. Em desenvolvimento os perfis vêm das fixtures (`src/lib/integrations/{psn,xbox,retro}/fixture.ts`).
+- **Papéis**: `user`, `author`, `editor` (notícias, guias, revisão e moderação) e `admin` (também fraude, jogos, robôs, feeds e usuários). No seed, `lucas` é admin, `Fuyushiro` é editor e `Nyx_Vortex` é autor. Quem não tem o papel recebe 404 em `/admin` (no `src/proxy.ts`, antes de renderizar) e as Server Actions conferem o papel de novo.
+- **Conta e LGPD** (`/conta`): perfil, privacidade, exportação dos dados (`/conta/exportar`) e exclusão da conta.
+
+## Robôs (API de conteúdo)
+
+Robôs criam notícias e guias pela API `/api/v1` (documentação em `/desenvolvedores` e `../docs/robos.md`, OpenAPI em `/api/v1/openapi.json`).
+
+1. Um admin cria a chave em `/admin/robos` (nome + escopos `articles:write`, `guides:write`, `publish`). O segredo `tk_live_…` aparece uma vez só; o banco guarda apenas o hash.
+2. O robô envia `Authorization: Bearer tk_live_…` e um `Idempotency-Key` por conteúdo. Repetir a mesma chave com o mesmo corpo devolve a mesma resposta sem duplicar; com outro corpo, 409.
+3. Sem o escopo `publish`, o conteúdo entra em `/admin/revisao`; um editor revisa e publica, e a notícia passa a mostrar "Gerado por robô · revisado pela redação".
+
+Corpo malformado, HTML, imagem `http:`/`javascript:`, jogo inexistente ou campo desconhecido voltam 4xx com o caminho do campo em JSON Pointer (`/blocks/1/url`). Limite: 60 requisições por minuto por chave.
+
 ## Variáveis de ambiente
 
 Copie `.env.example` para `.env`. Em desenvolvimento todas as obrigatórias têm valor padrão. Em produção, `SESSION_SECRET` e `CRON_SECRET` precisam estar definidas (o app não sobe sem elas); defina também `DATABASE_URL` e `APP_URL`, que têm padrões apontando para o ambiente local.
@@ -187,6 +204,23 @@ Dois modos, porque o login de demonstração (`/api/auth/demo`) não existe em p
 
 `e2e/routes.ts` exporta `ROUTES`, a lista central validada por smoke (status 200), screenshots e axe (sem violações `serious`/`critical`). Toda página nova deve ser acrescentada ali.
 
+`e2e/flows.spec.ts` cobre os fluxos críticos nos dois modos: robô cria notícia com chave feita em `/admin/robos` e um editor publica; payloads malformados e repetição de `Idempotency-Key`; foto com tipo falso, visitante e outra origem recusados; comentário, curtida, resposta no fórum e "Resolveu"; vinculação PSN (código ausente, expirado, cancelar); fraude confirmada anula XP e recalcula o nível; 404 em `/admin` e Server Actions recusadas para quem não tem o papel; newsletter com confirmação dupla. `loginAs(page, handle)` (em `e2e/helpers.ts`) assina um cookie de sessão com o segredo do servidor de e2e, então esses fluxos agem como qualquer usuário do seed também no build de produção. A configuração recusa `E2E_DATABASE_URL` apontando para `gamelog` ou `gamelog_dev`.
+
+## Validação completa
+
+Antes de entregar, rode na pasta `app/` (com um banco de teste próprio):
+
+```bash
+pnpm lint
+pnpm exec next typegen && pnpm exec tsc --noEmit   # typegen gera os tipos PageProps/LayoutProps das rotas
+DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_test pnpm test
+pnpm build
+E2E_DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_e2e pnpm e2e       # build de produção
+E2E_DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_e2e pnpm e2e:dev   # inclui rotas logadas e screenshots
+```
+
+Revisão visual: as screenshots ficam em `e2e/__screens__/` (1440×900 e 390×844). O detector do skill `impeccable` roda nos arquivos (`DO_NOT_TRACK=1 npx impeccable detect src`) e nas páginas de um servidor no ar (`npx impeccable detect http://localhost:PORTA/`). Os rótulos mono de 10–10,5 px (chips de plataforma, categorias) e a etiqueta do selo do jogo são da identidade aprovada (handoff + `../preview/`) e ficam como estão.
+
 ## Estrutura
 
 ```
@@ -228,3 +262,5 @@ src/proxy.ts          /admin responde 404 de verdade a quem não é da redação
 - As suítes de teste que usam o banco (`pnpm test`) também precisam do Postgres no ar e das migrations aplicadas.
 - Admin: entre como `lucas` (`/api/auth/demo`, só em desenvolvimento; o seed dá papel admin) e abra `/admin`. Papéis: `editor` cuida de notícias, guias, revisão e moderação; `admin` também de fraude, jogos, robôs, feeds e usuários. Ninguém muda o próprio papel.
 - O projeto usa Next.js 16 com Cache Components; veja `AGENTS.md` antes de alterar convenções do framework.
+- Emulador web (SNES/PS1 no navegador): planejado (`../docs/superpowers/specs/2026-10-31-emulador-web-plano-lucas.pdf`), ainda não implementado. Nenhuma rota `/jogar` existe nesta versão.
+- E-mail: não há provedor ainda. Em desenvolvimento o link de confirmação da newsletter sai no console do servidor; em produção o endereço só é registrado e o formulário avisa isso.
