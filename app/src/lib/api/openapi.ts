@@ -109,7 +109,8 @@ export function openApiDocument(): JsonSchema {
         post: {
           tags: ["Notícias"],
           summary: "Criar notícia",
-          description: "Escopo articles:write (publicar direto: publish).",
+          description:
+            "Escopo articles:write (publicar direto: publish). Com publish, publishedAt (ISO 8601 com fuso) data a notícia entre 120 dias atrás e 5 minutos à frente; só vale com status published.",
           parameters: [idempotencyParam],
           requestBody: { required: true, content: json(ref("ArticlePayload")) },
           responses: {
@@ -133,6 +134,7 @@ export function openApiDocument(): JsonSchema {
         patch: {
           tags: ["Notícias"],
           summary: "Alterar notícia criada por esta chave",
+          description: 'Com o escopo publish, status "archived" tira a notícia do site.',
           parameters: [idParam, idempotencyParam],
           requestBody: { required: true, content: json(ref("ArticlePatch")) },
           responses: {

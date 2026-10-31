@@ -354,6 +354,67 @@ describe("POST /api/v1/articles", () => {
   });
 });
 
+describe("backdated publishedAt", () => {
+  const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const post = (key: Key, body: Record<string, unknown>) =>
+    articles.POST(call("POST", "/api/v1/articles", { key, body: article(body) }));
+
+  it("201: a publish key backdates the article, which shows that date and is listed by it", async () => {
+    const when = daysAgo(30);
+    const response = await post(keys.publisher, { publishedAt: when, status: "published" });
+    expect(response.status).toBe(201);
+    const { id } = (await json(response)) as { id: string };
+    const status = await json(await articleById.GET(call("GET", `/api/v1/articles/${id}`, { key: keys.publisher }), params(id)));
+    expect(status.publishedAt).toBe(when);
+    const row = await prisma.article.findUniqueOrThrow({ where: { id } });
+    expect(row.publishedAt.toISOString()).toBe(when);
+    expect(row.firstPublishedAt?.toISOString()).toBe(when);
+
+    const { getNewsIndex } = await import("@/lib/queries/news");
+    const { articles: list } = await getNewsIndex({ category: null, page: 1, pageSize: 100 });
+    const dates = list.map((a) => a.publishedAt.getTime());
+    expect(dates).toEqual([...dates].sort((a, b) => b - a));
+    expect(list.find((a) => a.slug === row.slug)?.publishedAt.toISOString()).toBe(when);
+  });
+
+  it("accepts an offset other than Z and a time up to 5 minutes ahead", async () => {
+    const instant = Date.now() - 10 * 24 * 60 * 60 * 1000;
+    const local = `${new Date(instant - 3 * 60 * 60 * 1000).toISOString().slice(0, 19)}-03:00`;
+    const { id } = (await json(await post(keys.publisher, { publishedAt: local }))) as { id: string };
+    expect((await prisma.article.findUniqueOrThrow({ where: { id } })).publishedAt.getTime()).toBe(Math.floor(instant / 1000) * 1000);
+    const soon = await post(keys.publisher, { publishedAt: new Date(Date.now() + 2 * 60 * 1000).toISOString() });
+    expect(soon.status).toBe(201);
+  });
+
+  it("defaults to published with the publish scope when only publishedAt is sent", async () => {
+    const { id } = (await json(await post(keys.publisher, { publishedAt: daysAgo(3) }))) as { id: string };
+    expect((await prisma.article.findUniqueOrThrow({ where: { id } })).status).toBe("published");
+  });
+
+  it("403 on /publishedAt for a key without the publish scope", async () => {
+    const response = await post(keys.writer, { publishedAt: daysAgo(30) });
+    expect(response.status).toBe(403);
+    expect((await json(response)).error?.issues).toEqual([{ path: "/publishedAt", message: expect.any(String) }]);
+  });
+
+  it.each([
+    ["200 days ago", () => daysAgo(200)],
+    ["1 hour ahead", () => new Date(Date.now() + 60 * 60 * 1000).toISOString()],
+    ["not a date", () => "ontem"],
+    ["a date without offset", () => "2026-10-01T10:00:00"],
+  ])("422 on /publishedAt for %s", async (_name, when) => {
+    const response = await post(keys.publisher, { publishedAt: when() });
+    expect(response.status).toBe(422);
+    expect((await json(response)).error?.issues.map((i) => i.path)).toEqual(["/publishedAt"]);
+  });
+
+  it("422 on /publishedAt together with status review", async () => {
+    const response = await post(keys.publisher, { publishedAt: daysAgo(2), status: "review" });
+    expect(response.status).toBe(422);
+    expect((await json(response)).error?.issues.map((i) => i.path)).toEqual(["/publishedAt"]);
+  });
+});
+
 describe("idempotency", () => {
   it("same key and same body: the same answer, and only one article", async () => {
     const body = article({ slug: "t9-idempotente" });
@@ -485,6 +546,46 @@ describe("GET and PATCH /api/v1/articles/{id}", () => {
     );
     expect(await json(response)).toMatchObject({ status: "published" });
     expect(revalidateTag).toHaveBeenCalledWith("news", { expire: 0 });
+  });
+});
+
+describe("archiving with PATCH", () => {
+  it("a publish key archives its published article, which leaves the public list", async () => {
+    const created = await articles.POST(call("POST", "/api/v1/articles", { key: keys.publisher, body: article() }));
+    const { id } = (await json(created)) as { id: string };
+    const row = await prisma.article.findUniqueOrThrow({ where: { id } });
+    const { getNewsIndex } = await import("@/lib/queries/news");
+    const listed = async () =>
+      (await getNewsIndex({ category: null, page: 1, pageSize: 100 })).articles.some((a) => a.slug === row.slug);
+    expect(await listed()).toBe(true);
+
+    revalidateTag.mockClear();
+    const response = await articleById.PATCH(
+      call("PATCH", `/api/v1/articles/${id}`, { key: keys.publisher, body: { status: "archived" } }),
+      params(id),
+    );
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({ id, status: "archived" });
+    expect(await listed()).toBe(false);
+    expect(revalidateTag).toHaveBeenCalledWith("news", { expire: 0 });
+    expect(revalidateTag).toHaveBeenCalledWith(`article:${row.slug}`, { expire: 0 });
+    const archived = await prisma.article.findUniqueOrThrow({ where: { id } });
+    expect(archived.publishedAt.getTime()).toBe(row.publishedAt.getTime());
+  });
+
+  it("403 for a key without the publish scope, and POST still refuses archived", async () => {
+    const created = await articles.POST(call("POST", "/api/v1/articles", { key: keys.writer, body: article() }));
+    const { id } = (await json(created)) as { id: string };
+    const response = await articleById.PATCH(
+      call("PATCH", `/api/v1/articles/${id}`, { key: keys.writer, body: { status: "archived" } }),
+      params(id),
+    );
+    expect(response.status).toBe(403);
+    expect((await json(response)).error?.issues).toEqual([{ path: "/status", message: expect.any(String) }]);
+    expect((await prisma.article.findUniqueOrThrow({ where: { id } })).status).toBe("review");
+
+    const post = await articles.POST(call("POST", "/api/v1/articles", { key: keys.publisher, body: article({ status: "archived" }) }));
+    expect(post.status).toBe(422);
   });
 });
 

@@ -20,6 +20,32 @@ export const botAuthorHandle = (key: Pick<ApiKeyRecord, "name">) => `Robô ${key
 
 const canPublish = (key: ApiKeyRecord) => key.scopes.includes("publish");
 
+/** How far back a bot may date an article, and how much clock skew it may run ahead. */
+export const MAX_BACKDATE_DAYS = 120;
+const FUTURE_SKEW_MS = 5 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const publishedAtIssue = (code: "validation_failed" | "forbidden", message: string): WriteFailure =>
+  fail(code, message, [{ path: "/publishedAt", message }]);
+
+/** The validated backdate, or the failure that explains why this request may not carry one. */
+function backdate(key: ApiKeyRecord, raw: string, status: string, now: Date): Date | WriteFailure {
+  if (!canPublish(key)) {
+    return publishedAtIssue("forbidden", "Datar a notícia exige o escopo publish.");
+  }
+  if (status !== "published") {
+    return publishedAtIssue("validation_failed", 'publishedAt só vale para notícias publicadas (status "published").');
+  }
+  const at = new Date(raw);
+  if (at.getTime() > now.getTime() + FUTURE_SKEW_MS) {
+    return publishedAtIssue("validation_failed", "publishedAt não pode estar no futuro (tolerância de 5 minutos).");
+  }
+  if (at.getTime() < now.getTime() - MAX_BACKDATE_DAYS * DAY_MS) {
+    return publishedAtIssue("validation_failed", `publishedAt não pode ser anterior a ${MAX_BACKDATE_DAYS} dias.`);
+  }
+  return at;
+}
+
 const publishForbidden = (): WriteFailure =>
   fail(
     "forbidden",
@@ -45,6 +71,11 @@ async function botAuthorId(key: ApiKeyRecord): Promise<string> {
   }
 }
 
+const archiveForbidden = (): WriteFailure =>
+  fail("forbidden", "Arquivar exige o escopo publish.", [
+    { path: "/status", message: "Esta chave não tem o escopo publish" },
+  ]);
+
 const slugTaken = (slug: string, chosen: boolean): WriteFailure =>
   fail(
     "slug_conflict",
@@ -60,6 +91,13 @@ export async function createArticle(ctx: WriteContext): Promise<WriteSuccess | W
   const payload = parsed.data;
   if (payload.status === "published" && !canPublish(ctx.key)) return publishForbidden();
   const status = payload.status ?? (canPublish(ctx.key) ? "published" : "review");
+  const now = new Date();
+  let publishedAt = now;
+  if (payload.publishedAt !== undefined) {
+    const dated = backdate(ctx.key, payload.publishedAt, status, now);
+    if (!(dated instanceof Date)) return dated;
+    publishedAt = dated;
+  }
 
   const { games, issues } = await resolveGames(payload.games, ["games"]);
   if (issues.length > 0) return fail("validation_failed", "Há jogos que não existem no catálogo.", issues);
@@ -70,7 +108,6 @@ export async function createArticle(ctx: WriteContext): Promise<WriteSuccess | W
   }
 
   const authorId = await botAuthorId(ctx.key);
-  const now = new Date();
   try {
     return await prisma.$transaction(async (tx) => {
       const article = await tx.article.create({
@@ -89,8 +126,8 @@ export async function createArticle(ctx: WriteContext): Promise<WriteSuccess | W
           source: "bot",
           botKeyId: ctx.key.id,
           humanAuthored: false,
-          publishedAt: now,
-          firstPublishedAt: status === "published" ? now : null,
+          publishedAt,
+          firstPublishedAt: status === "published" ? publishedAt : null,
           games: { create: games.map((g) => ({ gameId: g.id })) },
         },
         select: { id: true },
@@ -143,6 +180,8 @@ export async function updateArticle(ctx: WriteContext, id: string): Promise<Writ
   const parsed = parseBody(articlePatchSchema, ctx.body);
   if (!parsed.ok) return { ...parsed, resultId: id };
   const patch = parsed.data;
+
+  if (patch.status === "archived" && !canPublish(ctx.key)) return { ...archiveForbidden(), resultId: id };
 
   const live = article.status === "published" || article.status === "archived";
   if (live && !canPublish(ctx.key)) {

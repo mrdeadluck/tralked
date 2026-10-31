@@ -7,6 +7,8 @@ import { contentBlocksSchema, plainText } from "@/lib/content/schema";
 export const ARTICLE_CATEGORIES = ["GAMES", "GUIAS", "COMUNIDADE", "MERCADO", "ENTRETENIMENTO", "TECNOLOGIA"] as const;
 export const ARTICLE_PLATFORMS = ["PC", "PLAYSTATION", "XBOX", "NINTENDO"] as const;
 export const ARTICLE_STATUSES = ["review", "published"] as const;
+/** PATCH also archives (publish scope only). */
+export const ARTICLE_PATCH_STATUSES = ["review", "published", "archived"] as const;
 
 const articleFields = {
   title: plainText(200),
@@ -34,11 +36,16 @@ export const articlePayloadSchema = z.strictObject({
   games: articleFields.games.default([]),
   imageLabel: articleFields.imageLabel.optional(),
   status: articleFields.status.optional(),
+  /**
+   * Backdated publication time (ISO 8601 with an offset). Needs the `publish` scope and a
+   * `published` result; at most 120 days in the past and 5 minutes in the future.
+   */
+  publishedAt: z.iso.datetime({ offset: true }).optional(),
 });
 
 /** PATCH: any subset of the fields (the slug cannot change: it is the article's URL). */
 export const articlePatchSchema = z
-  .strictObject(articleFields)
+  .strictObject({ ...articleFields, status: z.enum(ARTICLE_PATCH_STATUSES) })
   .partial()
   .superRefine((patch, ctx) => {
     if (Object.keys(patch).length === 0) {

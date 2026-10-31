@@ -302,6 +302,13 @@ export default function DesenvolvedoresPage() {
             <C>igdbId</C>, e precisa existir no catálogo. <C>status</C> aceita <C>review</C> ou <C>published</C>;
             sem ele, a notícia vai para revisão, ou é publicada direto se a chave tiver <C>publish</C>.
           </p>
+          <p className={prose}>
+            Chaves com <C>publish</C> também podem datar a notícia com <C>publishedAt</C>, um horário ISO 8601 com
+            fuso (por exemplo <C>2026-10-01T14:30:00-03:00</C>). Ele define quando a notícia aparece como publicada
+            e a posição dela nas listas. Aceita de 120 dias atrás até 5 minutos à frente, e só combina com{" "}
+            <C>status</C> <C>published</C>; fora disso a resposta é <C>422</C> (ou <C>403</C> sem o escopo{" "}
+            <C>publish</C>), com <C>/publishedAt</C> em <C>issues</C>.
+          </p>
           <p className={prose}>Este exemplo usa todos os tipos de bloco:</p>
           <Code label="noticia.json" code={pretty(EXAMPLE_ARTICLE)} tall />
           <Code label="Enviar a notícia" code={CURL_ARTICLE} />
@@ -314,7 +321,9 @@ export default function DesenvolvedoresPage() {
             <C>GET /api/v1/articles/&#123;id&#125;</C> devolve <C>status</C>, <C>reviewed</C> (aprovada por um
             editor) e as datas. <C>PATCH</C> no mesmo caminho troca só os campos enviados; <C>blocks</C> e{" "}
             <C>games</C> são substituídos inteiros e o <C>slug</C> não muda. Depois que a redação publica, só uma
-            chave com <C>publish</C> pode alterar a notícia (senão, <C>409 published_locked</C>).
+            chave com <C>publish</C> pode alterar a notícia (senão, <C>409 published_locked</C>). No <C>PATCH</C>,{" "}
+            <C>status</C> também aceita <C>archived</C>, que tira a notícia do site; é exclusivo de quem tem{" "}
+            <C>publish</C> (senão, <C>403</C>).
           </p>
           <Code label="Consultar o status" code={CURL_STATUS} />
         </Section>

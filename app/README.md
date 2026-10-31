@@ -45,7 +45,7 @@ Robôs criam notícias e guias pela API `/api/v1` (documentação em `/desenvolv
 
 1. Um admin cria a chave em `/admin/robos` (nome + escopos `articles:write`, `guides:write`, `publish`). O segredo `tk_live_…` aparece uma vez só; o banco guarda apenas o hash.
 2. O robô envia `Authorization: Bearer tk_live_…` e um `Idempotency-Key` por conteúdo. Repetir a mesma chave com o mesmo corpo devolve a mesma resposta sem duplicar; com outro corpo, 409.
-3. Sem o escopo `publish`, o conteúdo entra em `/admin/revisao`; um editor revisa e publica, e a notícia passa a mostrar "Gerado por robô · revisado pela redação".
+3. Sem o escopo `publish`, o conteúdo entra em `/admin/revisao`; um editor revisa e publica, e a notícia é publicada. O público vê a assinatura "Equipe Tralked" (sem selo de robô); o admin mostra a origem robô.
 
 Corpo malformado, HTML, imagem `http:`/`javascript:`, jogo inexistente ou campo desconhecido voltam 4xx com o caminho do campo em JSON Pointer (`/blocks/1/url`). Limite: 60 requisições por minuto por chave.
 

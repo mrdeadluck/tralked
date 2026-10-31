@@ -1,3 +1,4 @@
+import type { ArticleCategory } from "../../src/lib/queries/news";
 import type { GAME_SLUG_BY_PREVIEW_ID } from "./games";
 
 type PreviewGameId = keyof typeof GAME_SLUG_BY_PREVIEW_ID;
@@ -7,7 +8,7 @@ export type SeedArticle = {
   title: string;
   subtitle: string | null;
   body: string;
-  category: "GAMES" | "GUIAS" | "COMUNIDADE";
+  category: ArticleCategory;
   platforms: ("PC" | "PLAYSTATION" | "XBOX" | "NINTENDO")[];
   imageLabel: string;
   authorHandle: string;

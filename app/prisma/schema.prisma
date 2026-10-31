@@ -578,7 +578,7 @@ model Article {
   blocks        Json          @default("[]")
   /// draft | review | published | archived
   status        String        @default("draft")
-  /// GAMES | GUIAS | COMUNIDADE
+  /// GAMES | GUIAS | COMUNIDADE | MERCADO | ENTRETENIMENTO | TECNOLOGIA
   category      String
   platforms     String[]
   imageLabel    String
@@ -594,9 +594,9 @@ model Article {
   likes         Int           @default(0)
   comments      Int           @default(0)
   humanAuthored Boolean       @default(true)
-  /// When an editor approved the article. For bot articles (source = bot) this turns on the
-  /// "Gerado por robô · revisado pela redação" badge; bots publishing with the `publish` scope
-  /// leave it null ("Gerado por robô").
+  /// When an editor approved the article. For bot articles (source = bot) it marks the ones an
+  /// editor reviewed in the admin; bots publishing with the `publish` scope leave it null. The
+  /// public byline is "Equipe Tralked" either way (no robot badge).
   reviewedAt    DateTime?
   /// Publication time. For drafts it holds the creation time until the article is published.
   publishedAt   DateTime      @default(now())

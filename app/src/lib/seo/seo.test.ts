@@ -8,7 +8,7 @@ const article = {
   slug: "noticia-x",
   title: "Título </script><script>alert(1)</script>",
   excerpt: "Resumo & mais",
-  authorLabel: "Robô Patch Notes",
+  authorLabel: "Equipe Tralked",
   bot: true,
   publishedAt: new Date("2026-10-30T12:00:00Z"),
   imageUrl: "javascript:alert(1)",
@@ -33,7 +33,7 @@ describe("JSON-LD", () => {
       url: new URL("/noticias/noticia-x", env.APP_URL).toString(),
       datePublished: "2026-10-30T12:00:00.000Z",
       image: ["https://cdn.example.com/hero.jpg"],
-      author: { "@type": "Organization", name: "Robô Patch Notes" },
+      author: { "@type": "Organization", name: "Equipe Tralked" },
       about: [{ "@type": "VideoGame", name: "Hades" }],
     });
     const human = newsArticleJsonLd({ ...article, bot: false, authorLabel: "@Arauto_Leopoldo", imageUrl: null, heroUrl: null });
