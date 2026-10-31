@@ -52,6 +52,28 @@ describe("vocationFor", () => {
     expect(v).toBe("Andarilho de FPS");
   });
 
+  it("returns Recruta when no skill is trained", () => {
+    expect(vocationFor(skillsWith({}))).toBe("Recruta");
+    expect(
+      vocationFor(skillsWith({ sabio: { level: 50, points: 0 } })),
+    ).toBe("Recruta");
+  });
+
+  it("returns Andarilho when only one skill is trained", () => {
+    expect(
+      vocationFor(skillsWith({ fps: { level: 5, points: 0 } })),
+    ).toBe("Andarilho de FPS");
+    expect(
+      vocationFor(skillsWith({ horror: { level: 1, points: 3 } })),
+    ).toBe("Andarilho de Survival Horror");
+  });
+
+  it("does not pair a trained skill with an untrained one", () => {
+    expect(
+      vocationFor(skillsWith({ fps: { level: 10, points: 0 } })),
+    ).not.toBe("Caçador");
+  });
+
   it("breaks level ties by points", () => {
     const v = vocationFor(
       skillsWith({
