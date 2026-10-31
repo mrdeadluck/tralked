@@ -33,6 +33,7 @@ Uma chave revogada para de funcionar na hora e passa a receber `401`. Cada chave
 
 | Método | Caminho | Escopo | O que faz |
 | --- | --- | --- | --- |
+| GET | `/api/v1/articles` | qualquer chave | Lista as notícias publicadas recentemente, de qualquer autor. |
 | POST | `/api/v1/articles` | `articles:write` | Cria uma notícia e responde 201. |
 | GET | `/api/v1/articles/{id}` | `articles:write` | Mostra o status de uma notícia desta chave. |
 | PATCH | `/api/v1/articles/{id}` | `articles:write` | Altera campos de uma notícia desta chave. |
@@ -40,6 +41,8 @@ Uma chave revogada para de funcionar na hora e passa a receber `401`. Cada chave
 | GET | `/api/v1/guides/{id}` | `guides:write` | Mostra o status e a versão de um guia desta chave. |
 | PATCH | `/api/v1/guides/{id}` | `guides:write` | Atualiza um guia desta chave e salva uma nova versão. |
 | GET | `/api/v1/games` | qualquer chave | Procura jogos por nome, slug, `steamAppId` ou `igdbId`. |
+| GET | `/api/v1/games/{slug}/insights` | qualquer chave | Dados agregados do jogo entre os jogadores do Tralked. |
+| GET | `/api/v1/games/{slug}/dossie` | qualquer chave | Dossiê do jogo: ficha, números do Tralked e todas as conquistas visíveis. |
 | GET | `/api/v1/openapi.json` | pública | Descrição OpenAPI 3.1 da API inteira. |
 | GET | `/api/v1/schemas/article.json` | pública | JSON Schema do corpo de uma notícia. |
 | GET | `/api/v1/schemas/guide.json` | pública | JSON Schema do corpo de um guia. |
@@ -61,10 +64,17 @@ Campos opcionais:
 - `games`
 - `imageLabel`
 - `status`
+- `publishedAt`
 
 Cada item de `games` indica o jogo por exatamente um destes campos: `slug`, `steamAppId` ou `igdbId`. O jogo precisa existir no catálogo.
 
 `status` aceita `review` ou `published`. Sem ele, a notícia vai para a revisão, ou é publicada direto se a chave tiver o escopo `publish`. Pedir `published` sem esse escopo dá `403`.
+
+`publishedAt` data a notícia para trás, por exemplo para uma pauta atemporal que não deve aparecer como a mais nova do site. Regras:
+
+- Exige o escopo `publish` (sem ele, `403` em `/publishedAt`) e uma notícia publicada: com `status: "review"`, a resposta é `422`.
+- É um horário ISO 8601 com fuso, como `2026-10-01T12:00:00-03:00`. Não pode estar mais de 5 minutos no futuro nem mais de 120 dias no passado; fora disso, `422` em `/publishedAt`.
+- Sem `status`, uma chave com `publish` publica a notícia com essa data.
 
 O exemplo abaixo usa todos os tipos de bloco:
 
@@ -218,10 +228,42 @@ A resposta é `201`. A URL só abre no site depois que a notícia é publicada:
 - `blocks` e `games` são substituídos por inteiro.
 - O `slug` não muda.
 - Depois que a redação publica a notícia, só uma chave com o escopo `publish` pode alterá-la. Sem ele, a resposta é `409 published_locked`.
+- `status` aceita `review`, `published` e `archived`. Arquivar exige o escopo `publish`: a notícia sai do site e das listas, e o POST continua recusando `archived`. Publicar de novo uma notícia arquivada devolve a notícia ao site com a data que ela já tinha (inclusive uma `publishedAt` do POST); só a primeira publicação usa o horário do momento.
 
 ```bash
 curl "$TRALKED_URL/api/v1/articles/ID_DA_NOTICIA" \
   -H "Authorization: Bearer $TRALKED_KEY"
+```
+
+### Evitar repetição
+
+`GET /api/v1/articles` lista as notícias publicadas, da mais nova para a mais antiga, de qualquer autor: da redação e de qualquer robô. Use antes de escrever, para não repetir o que o site já cobriu. Parâmetros:
+
+- `since`: horário ISO 8601 com fuso. Devolve as notícias publicadas a partir dele. O padrão é 7 dias atrás. Codifique o `+` de um fuso como `%2B`.
+- `limit`: de 1 a 200. O padrão é 100.
+
+Rascunhos, notícias na fila de revisão e notícias arquivadas não aparecem. Um parâmetro inválido dá `400 bad_request`, com o nome dele em `issues[].path` (`?since` ou `?limit`).
+
+```bash
+curl "$TRALKED_URL/api/v1/articles?since=2026-10-01T00:00:00Z&limit=50"   -H "Authorization: Bearer $TRALKED_KEY"
+```
+
+Cada item traz `id`, `slug`, `title`, `category`, `publishedAt`, `source` (`editorial` ou `bot`) e `games` (os slugs dos jogos da notícia):
+
+```json
+{
+  "articles": [
+    {
+      "id": "cmh1x9q0k0001qz8f3v2b7d4e",
+      "slug": "hades-recebe-atualizacao-com-novo-modo-de-desafio",
+      "title": "Hades recebe atualização com novo modo de desafio",
+      "category": "GAMES",
+      "publishedAt": "2026-10-28T14:00:00.000Z",
+      "source": "bot",
+      "games": ["hades"]
+    }
+  ]
+}
 ```
 
 ## Blocos de conteúdo
@@ -432,6 +474,28 @@ curl "$TRALKED_URL/api/v1/games?q=hades" \
 }
 ```
 
+## Dados de um jogo
+
+Dois endpoints dão ao robô material para escrever sobre um jogo famoso. Os dois aceitam qualquer chave ativa, devolvem `404 not_found` para um slug que não existe no catálogo e trazem só números agregados, nunca usuários.
+
+`GET /api/v1/games/{slug}/insights` é o resumo curto:
+
+- `game`: `slug`, `name`, `releaseDate`, `platforms`, `achievementCount` e `timeToBeatCompleteMin`;
+- `tralked`: `players` (usuários com o jogo na biblioteca) e `avgPlaytimeMin`;
+- `rarest`: as 5 conquistas visíveis com a menor raridade global, da mais rara para a menos (`platform`, `apiName`, `name`, `globalPct`).
+
+`GET /api/v1/games/{slug}/dossie` é o dossiê completo, para uma pauta atemporal:
+
+- `game`: `slug`, `name`, `steamAppId`, `summary`, `developer`, `publisher`, `releaseDate`, `platforms`, `criticScore`, `timeToBeatCompleteMin` e `achievementCount`. Os campos sem dado vêm `null`.
+- `tralked`: `players`, `avgPlaytimeMin` e `completedPlayers` (usuários que zeraram o jogo).
+- `achievements`: todas as conquistas visíveis, com `platform`, `apiName`, `name`, `description` e `globalPct`, da mais rara para a menos. As sem raridade vêm no fim. A lista tem no máximo 500 itens.
+
+Conquistas ocultas nunca aparecem. Para proteger os jogadores, `avgPlaytimeMin` só vem preenchido quando 3 ou mais jogadores jogaram o jogo; com menos, vem `null`.
+
+```bash
+curl "$TRALKED_URL/api/v1/games/hades/dossie"   -H "Authorization: Bearer $TRALKED_KEY"
+```
+
 ## Respostas e erros
 
 Em caso de sucesso, a API responde `201` ao criar e `200` ao alterar ou consultar.
@@ -455,12 +519,12 @@ Todo erro tem o mesmo formato. Em `issues`, `path` é um JSON Pointer para o cam
 
 | HTTP | code | Quando acontece |
 | --- | --- | --- |
-| 400 | `bad_request` | Um parâmetro de busca de `GET /api/v1/games` é inválido. |
+| 400 | `bad_request` | Um parâmetro de busca de `GET /api/v1/games` ou `GET /api/v1/articles` é inválido. |
 | 400 | `invalid_json` | O corpo não é JSON. |
 | 400 | `idempotency_key_required` | Falta o cabeçalho `Idempotency-Key` em POST ou PATCH. |
 | 401 | `unauthorized` | A chave está ausente, é inválida ou foi revogada. |
 | 403 | `forbidden` | A chave não tem o escopo do endpoint, ou pediu `published` sem o escopo `publish`. |
-| 404 | `not_found` | O id não existe, ou o conteúdo foi criado por outra chave. |
+| 404 | `not_found` | O id não existe, ou o conteúdo foi criado por outra chave. Em `/insights` e `/dossie`, o jogo não existe no catálogo. |
 | 409 | `slug_conflict` | Já existe uma notícia com esse slug (enviado ou gerado do título). |
 | 409 | `guide_exists` | O jogo já tem guia. A mensagem traz o id; se o guia for desta chave, use PATCH. |
 | 409 | `published_locked` | A redação já publicou o conteúdo, e só uma chave com `publish` pode alterá-lo. |
@@ -487,7 +551,7 @@ Gere um `Idempotency-Key` para cada conteúdo, com 1 a 255 caracteres ASCII vis�
 
 ## Checklist do robô
 
-1. Procure o jogo em `GET /api/v1/games`.
+1. Procure o jogo em `GET /api/v1/games` e confira em `GET /api/v1/articles` se o site já cobriu o assunto.
 2. Monte o payload e valide com o JSON Schema.
 3. Gere um `Idempotency-Key` e envie.
 4. Em caso de timeout ou erro 5xx, reenvie com a mesma chave.

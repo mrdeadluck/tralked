@@ -242,6 +242,21 @@ export function openApiDocument(): JsonSchema {
           },
         },
       },
+      "/api/v1/games/{slug}/dossie": {
+        get: {
+          tags: ["Catálogo"],
+          summary: "Dossiê de um jogo: ficha, números do Tralked e conquistas",
+          description:
+            "Qualquer chave ativa. Para pautas atemporais: a ficha do jogo, agregados dos jogadores do Tralked e todas as conquistas visíveis (até 500), da mais rara para a menos. Só agregados, sem usuários: a média de tempo de jogo só aparece com 3 ou mais jogadores que jogaram.",
+          parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": { description: "Dossiê do jogo.", content: json(ref("GameDossier")) },
+            "401": writeErrors["401"],
+            "404": errorResponse("Jogo não encontrado."),
+            "429": writeErrors["429"],
+          },
+        },
+      },
     },
     components: {
       securitySchemes: {
@@ -346,6 +361,49 @@ export function openApiDocument(): JsonSchema {
                   apiName: { type: "string" },
                   name: { type: "string" },
                   globalPct: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+        GameDossier: {
+          type: "object",
+          properties: {
+            game: {
+              type: "object",
+              properties: {
+                slug: { type: "string" },
+                name: { type: "string" },
+                steamAppId: { type: ["integer", "null"] },
+                summary: { type: ["string", "null"] },
+                developer: { type: ["string", "null"] },
+                publisher: { type: ["string", "null"] },
+                releaseDate: { type: ["string", "null"], format: "date-time" },
+                platforms: { type: "array", items: { type: "string" } },
+                criticScore: { type: ["integer", "null"] },
+                timeToBeatCompleteMin: { type: ["integer", "null"] },
+                achievementCount: { type: "integer" },
+              },
+            },
+            tralked: {
+              type: "object",
+              properties: {
+                players: { type: "integer", description: "Usuários com o jogo na biblioteca." },
+                avgPlaytimeMin: { type: ["integer", "null"], description: "Nulo com menos de 3 jogadores que jogaram." },
+                completedPlayers: { type: "integer", description: "Usuários que zeraram o jogo." },
+              },
+            },
+            achievements: {
+              type: "array",
+              description: "Conquistas visíveis, da menor para a maior raridade global (sem raridade no fim); até 500.",
+              items: {
+                type: "object",
+                properties: {
+                  platform: { type: "string" },
+                  apiName: { type: "string" },
+                  name: { type: "string" },
+                  description: { type: ["string", "null"] },
+                  globalPct: { type: ["number", "null"] },
                 },
               },
             },

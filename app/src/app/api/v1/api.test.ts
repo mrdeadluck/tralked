@@ -16,6 +16,7 @@ const guides = await import("./guides/route");
 const guideById = await import("./guides/[id]/route");
 const games = await import("./games/route");
 const insights = await import("./games/[slug]/insights/route");
+const dossier = await import("./games/[slug]/dossie/route");
 const openapi = await import("./openapi.json/route");
 const articleSchema = await import("./schemas/article.json/route");
 const guideSchema = await import("./schemas/guide.json/route");
@@ -574,6 +575,39 @@ describe("archiving with PATCH", () => {
     expect(archived.publishedAt.getTime()).toBe(row.publishedAt.getTime());
   });
 
+  it("republishing an archived article keeps its backdated publishedAt", async () => {
+    const when = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const created = await articles.POST(
+      call("POST", "/api/v1/articles", { key: keys.publisher, body: article({ publishedAt: when }) }),
+    );
+    const { id } = (await json(created)) as { id: string };
+    const patch = (status: string) =>
+      articleById.PATCH(call("PATCH", `/api/v1/articles/${id}`, { key: keys.publisher, body: { status } }), params(id));
+
+    expect((await patch("archived")).status).toBe(200);
+    expect((await patch("published")).status).toBe(200);
+    const row = await prisma.article.findUniqueOrThrow({ where: { id } });
+    expect(row.status).toBe("published");
+    expect(row.publishedAt.toISOString()).toBe(when);
+    expect(row.firstPublishedAt?.toISOString()).toBe(when);
+  });
+
+  it("a review article published by PATCH still gets the current time", async () => {
+    const created = await articles.POST(
+      call("POST", "/api/v1/articles", { key: keys.publisher, body: article({ status: "review" }) }),
+    );
+    const { id } = (await json(created)) as { id: string };
+    const before = Date.now();
+    const response = await articleById.PATCH(
+      call("PATCH", `/api/v1/articles/${id}`, { key: keys.publisher, body: { status: "published" } }),
+      params(id),
+    );
+    expect(response.status).toBe(200);
+    const row = await prisma.article.findUniqueOrThrow({ where: { id } });
+    expect(row.publishedAt.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(row.firstPublishedAt?.getTime()).toBe(row.publishedAt.getTime());
+  });
+
   it("403 for a key without the publish scope, and POST still refuses archived", async () => {
     const created = await articles.POST(call("POST", "/api/v1/articles", { key: keys.writer, body: article() }));
     const { id } = (await json(created)) as { id: string };
@@ -922,6 +956,13 @@ describe("GET /api/v1/games/{slug}/insights", () => {
     expect((await json(await ask(`/api/v1/games/${slug}/insights`))).tralked).toEqual({ players: 3, avgPlaytimeMin: null });
   });
 
+  it("counts a user once even when they own the game on two platforms", async () => {
+    const { id } = await prisma.game.findUniqueOrThrow({ where: { slug } });
+    await play(id, [[0, 100], [1, 300]]);
+    await prisma.userGame.create({ data: { userId: userIds[0], gameId: id, platform: "psn", playtimeMin: 50, unlockedCount: 0 } });
+    expect((await json(await ask(`/api/v1/games/${slug}/insights`))).tralked).toEqual({ players: 2, avgPlaytimeMin: null });
+  });
+
   it("describes the game and lists the 5 rarest visible achievements, ascending, with no user data", async () => {
     const { id } = await prisma.game.findUniqueOrThrow({ where: { slug } });
     await play(id, [[0, 100], [1, 300], [2, 500]]);
@@ -967,6 +1008,160 @@ describe("GET /api/v1/games/{slug}/insights", () => {
     expect(missing.status).toBe(404);
     expect((await json(missing)).error?.code).toBe("not_found");
     expect((await ask(`/api/v1/games/${slug}/insights`, null)).status).toBe(401);
+  });
+});
+
+describe("GET /api/v1/games/{slug}/dossie", () => {
+  const slug = "t16-dossier-game";
+  const ask = (path: string, key: Key | null = keys.reader) =>
+    dossier.GET(call("GET", path, { key }), { params: Promise.resolve({ slug: path.split("/")[4] }) });
+  let userIds: string[] = [];
+  let gameId = "";
+
+  beforeAll(async () => {
+    userIds = (await prisma.user.findMany({ take: 3, orderBy: { handle: "asc" }, select: { id: true } })).map((u) => u.id);
+    const game = await prisma.game.create({
+      data: {
+        slug,
+        name: "T16 Dossier",
+        steamAppId: 1600016,
+        summary: "Um jogo de teste.",
+        developer: "Estúdio T16",
+        publisher: "Editora T16",
+        criticScore: 88,
+        platforms: ["PC", "PlayStation"],
+        achievementCount: 5,
+        timeToBeatCompleteMin: 900,
+        releaseDate: new Date("2023-03-04T00:00:00Z"),
+        achievements: {
+          create: [
+            { apiName: "D_COMMON", name: "Comum", description: "Faça o básico.", globalPct: 80 },
+            { apiName: "D_RARE", name: "Rara", description: "Faça o difícil.", globalPct: 1.5 },
+            { apiName: "D_HIDDEN", name: "Escondida", description: "Segredo.", globalPct: 0.1, hidden: true },
+            { apiName: "D_NULL", name: "Sem dado", description: null, globalPct: null },
+            { apiName: "D_MID", name: "Meio", description: "No meio.", globalPct: 20 },
+            { platform: "psn", apiName: "D_PSN", name: "Troféu", description: "Troféu PSN.", globalPct: 5 },
+          ],
+        },
+      },
+    });
+    gameId = game.id;
+  });
+
+  afterAll(async () => {
+    await prisma.game.deleteMany({ where: { slug } });
+  });
+
+  const play = async (rows: [number, number, boolean?][]) => {
+    await prisma.userGame.deleteMany({ where: { gameId } });
+    await prisma.userGame.createMany({
+      data: rows.map(([i, playtimeMin, done]) => ({
+        userId: userIds[i],
+        gameId,
+        platform: "steam",
+        playtimeMin,
+        unlockedCount: 0,
+        completedAt: done ? new Date("2025-01-01T00:00:00Z") : null,
+      })),
+    });
+  };
+
+  it("lists every visible achievement with its description, rarest first and unknown rarity last", async () => {
+    const response = await ask(`/api/v1/games/${slug}/dossie`);
+    expect(response.status).toBe(200);
+    const body = await json(response);
+    expect(body.achievements).toEqual([
+      { platform: "steam", apiName: "D_RARE", name: "Rara", description: "Faça o difícil.", globalPct: 1.5 },
+      { platform: "psn", apiName: "D_PSN", name: "Troféu", description: "Troféu PSN.", globalPct: 5 },
+      { platform: "steam", apiName: "D_MID", name: "Meio", description: "No meio.", globalPct: 20 },
+      { platform: "steam", apiName: "D_COMMON", name: "Comum", description: "Faça o básico.", globalPct: 80 },
+      { platform: "steam", apiName: "D_NULL", name: "Sem dado", description: null, globalPct: null },
+    ]);
+    expect(JSON.stringify(body)).not.toContain("D_HIDDEN");
+  });
+
+  it("describes the game", async () => {
+    const body = await json(await ask(`/api/v1/games/${slug}/dossie`));
+    expect(body.game).toEqual({
+      slug,
+      name: "T16 Dossier",
+      steamAppId: 1600016,
+      summary: "Um jogo de teste.",
+      developer: "Estúdio T16",
+      publisher: "Editora T16",
+      releaseDate: "2023-03-04T00:00:00.000Z",
+      platforms: ["PC", "PlayStation"],
+      criticScore: 88,
+      timeToBeatCompleteMin: 900,
+      achievementCount: 5,
+    });
+    expect(Object.keys(body).sort()).toEqual(["achievements", "game", "tralked"]);
+  });
+
+  it("with 2 players the average playtime stays hidden but completions are counted", async () => {
+    await play([[0, 100, true], [1, 300]]);
+    expect((await json(await ask(`/api/v1/games/${slug}/dossie`))).tralked).toEqual({
+      players: 2,
+      avgPlaytimeMin: null,
+      completedPlayers: 1,
+    });
+  });
+
+  it("with 3 players it is their average, with no user data in the response", async () => {
+    await play([[0, 100, true], [1, 300, true], [2, 500]]);
+    const body = await json(await ask(`/api/v1/games/${slug}/dossie`));
+    expect(body.tralked).toEqual({ players: 3, avgPlaytimeMin: 300, completedPlayers: 2 });
+    const text = JSON.stringify(body);
+    const handles = (await prisma.user.findMany({ where: { id: { in: userIds } }, select: { handle: true } })).map((u) => u.handle);
+    for (const forbidden of [...userIds, ...handles]) expect(text).not.toContain(forbidden);
+  });
+
+  it("a game with no data has nulls, no achievements and zero players", async () => {
+    const bare = await prisma.game.create({ data: { slug: "t16-dossier-bare", name: "T16 Bare", platforms: [], achievementCount: 0 } });
+    try {
+      expect(await json(await ask("/api/v1/games/t16-dossier-bare/dossie"))).toEqual({
+        game: {
+          slug: "t16-dossier-bare",
+          name: "T16 Bare",
+          steamAppId: null,
+          summary: null,
+          developer: null,
+          publisher: null,
+          releaseDate: null,
+          platforms: [],
+          criticScore: null,
+          timeToBeatCompleteMin: null,
+          achievementCount: 0,
+        },
+        tralked: { players: 0, avgPlaytimeMin: null, completedPlayers: 0 },
+        achievements: [],
+      });
+    } finally {
+      await prisma.game.delete({ where: { id: bare.id } });
+    }
+  });
+
+  it("caps the achievements at 500, keeping the rarest", async () => {
+    const big = await prisma.game.create({ data: { slug: "t16-dossier-big", name: "T16 Big", platforms: ["PC"], achievementCount: 501 } });
+    try {
+      await prisma.achievement.createMany({
+        data: Array.from({ length: 501 }, (_, i) => ({ gameId: big.id, apiName: `BIG_${i}`, name: `Big ${i}`, globalPct: i / 10 })),
+      });
+      const { achievements } = (await json(await ask("/api/v1/games/t16-dossier-big/dossie"))) as { achievements: { apiName: string }[] };
+      expect(achievements).toHaveLength(500);
+      expect(achievements[0].apiName).toBe("BIG_0");
+      expect(achievements.some((a) => a.apiName === "BIG_500")).toBe(false);
+    } finally {
+      await prisma.game.delete({ where: { id: big.id } });
+    }
+  });
+
+  it("404 for an unknown or malformed slug, 401 without a key", async () => {
+    const missing = await ask("/api/v1/games/jogo-que-nao-existe/dossie");
+    expect(missing.status).toBe(404);
+    expect((await json(missing)).error?.code).toBe("not_found");
+    expect((await ask("/api/v1/games/Slug%20Invalido!/dossie")).status).toBe(404);
+    expect((await ask(`/api/v1/games/${slug}/dossie`, null)).status).toBe(401);
   });
 });
 

@@ -203,6 +203,9 @@ export async function updateArticle(ctx: WriteContext, id: string): Promise<Writ
 
   const status = patch.status ?? article.status;
   const publishing = status === "published" && article.status !== "published";
+  // Un-archiving keeps the date the article already had (possibly backdated); only a first publication takes "now".
+  const firstPublication = publishing && !article.firstPublishedAt;
+  const now = new Date();
 
   try {
     return await prisma.$transaction(async (tx) => {
@@ -217,8 +220,7 @@ export async function updateArticle(ctx: WriteContext, id: string): Promise<Writ
           platforms: patch.platforms,
           imageLabel: patch.imageLabel === undefined ? undefined : clip(patch.imageLabel.toLowerCase(), 60),
           status,
-          ...(publishing ? { publishedAt: new Date() } : {}),
-          ...(publishing && !article.firstPublishedAt ? { firstPublishedAt: new Date() } : {}),
+          ...(firstPublication ? { publishedAt: now, firstPublishedAt: now } : {}),
           ...(gameIds
             ? { games: { deleteMany: {}, create: gameIds.map((gameId) => ({ gameId })) } }
             : {}),
