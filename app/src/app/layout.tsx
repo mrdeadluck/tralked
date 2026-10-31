@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
 import { Footer } from "@/components/layout/Footer";
+import { LoginNotice } from "@/components/layout/LoginNotice";
 import { SessionHeader } from "@/components/layout/SessionHeader";
 import { CookieConsent } from "@/components/layout/CookieConsent";
 import { env } from "@/lib/env";
@@ -43,6 +45,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           Pular para o conteúdo
         </a>
         <SessionHeader />
+        {/* Reads the query string, so it streams outside the static shell. */}
+        <Suspense fallback={null}>
+          <LoginNotice />
+        </Suspense>
         <main id="principal" tabIndex={-1} className="mx-auto w-full max-w-[1320px] flex-1 px-5 pt-6 pb-[72px] outline-none">
           {children}
         </main>

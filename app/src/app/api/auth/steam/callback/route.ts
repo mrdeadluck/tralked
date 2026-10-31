@@ -10,7 +10,16 @@ import { claimSyncSlot } from "@/lib/sync/claim";
 import { syncUser } from "@/lib/sync/user";
 
 const redirectTo = (path: string) => NextResponse.redirect(new URL(path, env.APP_URL));
-const fail = () => redirectTo("/?login=erro");
+/**
+ * A failed login goes home with a reason the page explains (`LoginNotice`) and the server logs:
+ * `estado` = the browser lost or replaced the login cookie (expired, another tab, cookies blocked);
+ * `steam` = Steam did not confirm the assertion; `conta` = the account could not be loaded/created.
+ */
+type FailReason = "estado" | "steam" | "conta";
+const fail = (reason: FailReason, detail: string) => {
+  console.warn(`Steam login failed (${reason}): ${detail}`);
+  return redirectTo(`/?login=erro&motivo=${reason}`);
+};
 
 /** The signed `openid.return_to` must be exactly our callback (origin + path), never a prefix match. */
 function parseOwnReturnTo(value: string | null): URL | null {
@@ -33,12 +42,13 @@ export async function GET(request: NextRequest) {
 
   // The assertion must be answering a login this browser started, for this site.
   const returnToUrl = parseOwnReturnTo(params.get("openid.return_to"));
-  if (!stateOk || !returnToUrl) return fail();
+  if (!stateOk) return fail("estado", "state cookie missing or different from the callback's state");
+  if (!returnToUrl) return fail("estado", `openid.return_to is not this site's callback (${params.get("openid.return_to")})`);
   // `state` and `returnTo` also have to match what Steam signed, not just the unsigned query string.
-  if (returnToUrl.searchParams.get("state") !== params.get("state")) return fail();
+  if (returnToUrl.searchParams.get("state") !== params.get("state")) return fail("estado", "signed return_to state differs");
 
   const steamId = await verifySteamAssertion(params);
-  if (!steamId) return fail();
+  if (!steamId) return fail("steam", "assertion rejected (mode, endpoint, claimed_id, signed fields, nonce or check_authentication)");
 
   // Logged in without Steam (e.g. a Google-only account): link Steam to that account instead of
   // creating a second one. Anyone else (logged out, or already with Steam) gets a normal login.
@@ -58,7 +68,7 @@ export async function GET(request: NextRequest) {
     }
   } catch (error) {
     console.error("Steam login: could not load or create the user", error);
-    return fail();
+    return fail("conta", "upsert/link threw");
   }
 
   if (!linking) await createSession(user.id);
