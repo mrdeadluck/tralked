@@ -16,6 +16,9 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
+          // DB-backed test files share one Postgres (db.test.ts snapshots whole tables),
+          // so files must not run concurrently.
+          fileParallelism: false,
           include: ["src/**/*.test.ts"],
         },
       },

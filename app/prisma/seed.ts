@@ -209,7 +209,6 @@ export async function runSeed() {
         mustFind(GAMES.find((g) => g.slug === slug), `game ${slug}`).skills;
 
       type Unlock = {
-        key: string;
         gameSlug: string;
         apiName: string;
         globalPct: number | null;
@@ -219,7 +218,6 @@ export async function runSeed() {
         ...hollowKnight.playerUnlocks
           .filter((u) => u.unlockTime > 0)
           .map((u) => ({
-            key: `${hollowKnight.appId}:${u.apiName}`,
             gameSlug: "hollow-knight",
             apiName: u.apiName,
             globalPct:
@@ -227,7 +225,6 @@ export async function runSeed() {
             unlockedAt: new Date(u.unlockTime * 1000),
           })),
         ...FEED_ACHIEVEMENTS.map((f) => ({
-          key: `${mustFind(GAMES.find((g) => g.slug === f.gameSlug), f.gameSlug).steamAppId}:${f.apiName}`,
           gameSlug: f.gameSlug,
           apiName: f.apiName,
           globalPct: f.globalPct,
@@ -253,7 +250,11 @@ export async function runSeed() {
       const achievementEntries = unlocks.map((u) => ({
         userId: lucasId,
         source: "achievement",
-        sourceKey: u.key,
+        // Same key as the sync pipeline (achievementId), so a later sync never double-counts.
+        sourceKey: mustFind(
+          achievementIds.get(`${u.gameSlug}:${u.apiName}`),
+          `achievement ${u.gameSlug}:${u.apiName}`,
+        ),
         xp: xpForAchievement(u.globalPct),
         skills: skillsOfGame(u.gameSlug),
         createdAt: u.unlockedAt,
