@@ -106,8 +106,11 @@ export type GameProfile = {
 /** Only https URLs (or same-site paths) reach `src`/`href`: no mixed content, no other schemes. */
 export function safeMediaUrl(url: string | null | undefined): string | null {
   if (!url) return null;
-  // A same-site path; "//host" and "/\host" are read by browsers as another host.
-  if (url.startsWith("/")) return url[1] === "/" || url[1] === "\\" ? null : url;
+  // Browsers strip tabs/newlines and read "\" as "/": refuse them anywhere rather than guess.
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000- \u007f\\]/.test(url)) return null;
+  // A same-site path; "//host" is read by browsers as another host.
+  if (url.startsWith("/")) return url[1] === "/" ? null : url;
   try {
     const parsed = new URL(url);
     return parsed.protocol === "https:" ? parsed.href : null;

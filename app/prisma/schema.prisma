@@ -12,7 +12,7 @@
 //   Content source  editorial | bot                            (Article.source, Guide.source)
 //   Guide.status    draft | review | published
 //   Comment target  article | guide | photo | thread
-//   Comment.status  visible | hidden | removed
+//   Comment.status  visible | hidden | removed | deleted (by its author: body cleared, placeholder kept)
 //   Report target   article | guide | photo | thread | comment | post | user
 //   Report.status   open | resolved | dismissed
 //   Thread.status   open | locked | hidden | removed
@@ -618,7 +618,7 @@ model Comment {
   targetType String
   targetId   String
   body       String
-  /// visible | hidden | removed
+  /// visible | hidden | removed | deleted
   status     String    @default("visible")
   createdAt  DateTime  @default(now())
   editedAt   DateTime?

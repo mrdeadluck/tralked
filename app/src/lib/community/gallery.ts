@@ -116,10 +116,10 @@ export async function listPhotosByAuthor(
   return { photos: await withCommentCounts(rows), total };
 }
 
-/** Recent visible photos, for generateStaticParams. */
+/** Recent listed photos (never a private profile's), for generateStaticParams. */
 export async function recentPhotoIds(limit: number): Promise<string[]> {
   const rows = await prisma.photo.findMany({
-    where: { status: "visible" },
+    where: LISTED,
     orderBy: { createdAt: "desc" },
     take: limit,
     select: { id: true },

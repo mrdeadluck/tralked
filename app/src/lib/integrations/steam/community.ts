@@ -19,8 +19,12 @@ export type SteamCommunityConfig = {
 
 // ---------- Minimal XML reading (Steam's community XML is flat and CDATA-wrapped) ----------
 
-/** A SteamID64 of an individual account (what profile URLs and vanity lookups must give). */
-export const STEAM_ID64 = /^7656119\d{10}$/;
+/**
+ * A SteamID64 of an individual account (what profile URLs and vanity lookups must give):
+ * 76561197960265728 + a 32-bit account number, so 76561197960265729..76561202255233023. New ids
+ * will soon roll past 76561199999999999 into 765612…, which a fixed 7656119 prefix would refuse.
+ */
+export const STEAM_ID64 = /^76561(?:19[7-9]|20[0-2])\d{9}$/;
 
 /** Text of the first `<name>` element in `xml` (CDATA or escaped text), or undefined. */
 export function xmlTag(xml: string, name: string): string | undefined {

@@ -552,6 +552,11 @@ describe("guides", () => {
     expect((await json(fewer)).error?.issues).toEqual([{ path: "/steps", message: expect.stringContaining("key") }]);
     const mixed = await patch([{ ...EXAMPLE_GUIDE.steps[0], key: "a" }, EXAMPLE_GUIDE.steps[1]]);
     expect(mixed.status).toBe(422);
+    // Keyed, but the stored steps have no keys yet and the count differs: adopting by position is
+    // impossible, and matching nothing would delete every step (and every reader's checkmarks).
+    const keyedOther = await patch([{ ...EXAMPLE_GUIDE.steps[0], key: "so-um" }]);
+    expect(keyedOther.status).toBe(422);
+    expect((await json(keyedOther)).error?.issues).toEqual([{ path: "/steps", message: expect.stringContaining("key") }]);
     expect(await prisma.guideStep.count({ where: { guideId } })).toBe(2);
     expect(await prisma.guideVersion.count({ where: { guideId } })).toBe(2);
   });

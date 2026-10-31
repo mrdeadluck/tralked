@@ -295,15 +295,18 @@ export async function writeSteps(tx: Tx, guideId: string, steps: StepWrite[]): P
 /**
  * How a bot update maps its steps onto the stored ones (documented in /desenvolvedores):
  * - every step has a `key`: steps match by key (reorder, insert and remove keep checkmarks);
- *   a guide whose steps have no keys yet adopts them by position when the count is the same;
+ *   a guide whose steps have no keys yet adopts them by position, which needs the same count
+ *   (otherwise 422: matching nothing would delete every step and every reader's checkmarks);
  * - no step has a key: steps match by position, only when the number of steps is unchanged;
  *   otherwise 422 (send keys to insert, remove or reorder steps).
+ * Runs inside the write transaction, so the plan matches the steps it rewrites.
  */
 async function planBotSteps(
+  tx: Tx,
   guideId: string,
   steps: GuidePatch["steps"] & object,
 ): Promise<{ ok: true; plan: StepWrite[] } | { ok: false; issue: ApiIssue }> {
-  const existing = await prisma.guideStep.findMany({
+  const existing = await tx.guideStep.findMany({
     where: { guideId },
     orderBy: { order: "asc" },
     select: { id: true, key: true },
@@ -311,7 +314,16 @@ async function planBotSteps(
   const keyed = steps.length > 0 && steps.every((s) => s.key !== undefined);
   if (keyed) {
     const byKey = new Map(existing.flatMap((e) => (e.key ? [[e.key, e.id] as const] : [])));
-    const adopt = byKey.size === 0 && existing.length === steps.length;
+    const adopt = byKey.size === 0 && existing.length > 0;
+    if (adopt && existing.length !== steps.length) {
+      return {
+        ok: false,
+        issue: {
+          path: "/steps",
+          message: `As ${existing.length} etapas do guia ainda não têm key e o envio tem ${steps.length}. Na primeira atualização com key, mande o mesmo número de etapas (elas recebem as keys pela posição); depois inclua, tire ou reordene à vontade.`,
+        },
+      };
+    }
     return {
       ok: true,
       plan: steps.map((step, i) => ({ id: adopt ? existing[i].id : byKey.get(step.key as string), data: stepData(step) })),
@@ -354,18 +366,18 @@ export async function updateGuide(ctx: WriteContext, id: string): Promise<WriteS
   const { noteIds, issues } = await resolveAchievements(guide.gameId, patch.steps, patch.achievementNotes);
   if (issues.length > 0) return fail("validation_failed", "Há conquistas que não existem neste jogo.", issues, id);
 
-  let stepPlan: StepWrite[] | null = null;
-  if (patch.steps) {
-    const planned = await planBotSteps(id, patch.steps);
-    if (!planned.ok) return fail("validation_failed", "As etapas não batem com as do guia.", [planned.issue], id);
-    stepPlan = planned.plan;
-  }
-
   const status = patch.status ?? guide.status;
   const publishing = status === "published" && guide.status !== "published";
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx): Promise<WriteSuccess | WriteFailure> => {
+      let stepPlan: StepWrite[] | null = null;
+      if (patch.steps) {
+        // Planned before any write: a refusal leaves the guide untouched.
+        const planned = await planBotSteps(tx, id, patch.steps);
+        if (!planned.ok) return fail("validation_failed", "As etapas não batem com as do guia.", [planned.issue], id);
+        stepPlan = planned.plan;
+      }
       await tx.guide.update({
         where: { id },
         data: {
@@ -410,6 +422,10 @@ export async function updateGuide(ctx: WriteContext, id: string): Promise<WriteS
     });
   } catch (error) {
     if (isUniqueViolation(error)) return concurrentWrite(id);
+    // A planned step vanished under a concurrent update of the same guide.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return fail("idempotency_conflict", "Outra atualização deste guia terminou antes. Consulte o guia e envie de novo.", [], id);
+    }
     throw error;
   }
 }

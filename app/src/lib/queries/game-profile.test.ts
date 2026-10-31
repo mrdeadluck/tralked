@@ -31,6 +31,12 @@ describe("game profile helpers", () => {
     expect(safeMediaUrl("//evil.example.com/x.js")).toBeNull();
     expect(safeMediaUrl("/\\evil.example.com/x.js")).toBeNull();
     expect(safeMediaUrl("http://cdn.example.com/a.jpg")).toBeNull();
+    // Control characters and backslashes anywhere (browsers strip or rewrite them).
+    expect(safeMediaUrl("/\t/evil.example.com/x.js")).toBeNull();
+    expect(safeMediaUrl("/uploads/a\nb.webp")).toBeNull();
+    expect(safeMediaUrl("/uploads/..\\..\\x.webp")).toBeNull();
+    expect(safeMediaUrl("https://cdn.example.com/a b.jpg")).toBeNull();
+    expect(safeMediaUrl("https://cdn.example.com/a\u0000.jpg")).toBeNull();
     expect(safeMediaUrl(null)).toBeNull();
   });
 

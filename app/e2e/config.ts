@@ -19,6 +19,26 @@ export const BASE_URL = `http://localhost:${PORT}`;
 
 const DEFAULT_DATABASE_URL = "postgresql://gamelog:gamelog@localhost:5433/gamelog_e2e";
 
+/** The development servers' databases: e2e writes (comments, keys, intros), so never these. */
+const FORBIDDEN_DATABASES = new Set(["gamelog", "gamelog_dev"]);
+
+function e2eDatabaseUrl(): string {
+  const url = process.env.E2E_DATABASE_URL ?? DEFAULT_DATABASE_URL;
+  let name = "";
+  try {
+    name = decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
+  } catch {
+    // Reported below.
+  }
+  if (!name || FORBIDDEN_DATABASES.has(name)) {
+    throw new Error(
+      `E2E_DATABASE_URL must name a dedicated test database (got "${name || url}"). ` +
+        "gamelog and gamelog_dev belong to the development servers.",
+    );
+  }
+  return url;
+}
+
 export function createConfig(mode: E2EMode) {
   // Workers re-import the config, so helpers can read the mode from the environment.
   process.env.E2E_MODE = mode;
@@ -55,7 +75,7 @@ export function createConfig(mode: E2EMode) {
       stdout: "ignore",
       stderr: "pipe",
       env: {
-        DATABASE_URL: process.env.E2E_DATABASE_URL ?? DEFAULT_DATABASE_URL,
+        DATABASE_URL: e2eDatabaseUrl(),
         SESSION_SECRET: "e2e-session-secret-with-at-least-32-chars",
         CRON_SECRET: "e2e-cron-secret",
         APP_URL: BASE_URL,

@@ -101,6 +101,8 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
       return;
     }
     setNotice(null);
+    // The editor stays usable while saving: remember which local step each sent position was.
+    const sentKeys = steps.map((s) => s.key);
     startSave(async () => {
       const result = await saveGuideAction({
         id: guide.id,
@@ -142,7 +144,9 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
       }
       setSummary("");
       // New steps now exist: keep their ids so the next save updates them instead of recreating them.
-      setSteps((list) => list.map((s, i) => ({ ...s, id: result.stepIds[i] ?? s.id })));
+      // Matched by the local key, not the position: steps may have moved while the save ran.
+      const savedId = new Map(sentKeys.map((key, i) => [key, result.stepIds[i]]));
+      setSteps((list) => list.map((s) => ({ ...s, id: savedId.get(s.key) ?? s.id })));
       setNotice({ ok: true, text: `Salvo como revisão ${result.revision}.` });
       router.refresh();
     });

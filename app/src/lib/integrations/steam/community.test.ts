@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { createSteamCommunity, parseAchievementPage, parseProfile, xmlTag } from "./community";
+import { createSteamCommunity, parseAchievementPage, parseProfile, STEAM_ID64, xmlTag } from "./community";
+
+describe("STEAM_ID64", () => {
+  it("accepts today's ids and the next ranges, refuses anything else", () => {
+    expect(STEAM_ID64.test("76561197960287930")).toBe(true);
+    expect(STEAM_ID64.test("76561199999999999")).toBe(true);
+    // Ids roll past 7656119… soon, up to 76561197960265728 + 2^32 - 1.
+    expect(STEAM_ID64.test("76561200000000001")).toBe(true);
+    expect(STEAM_ID64.test("76561202255233023")).toBe(true);
+    expect(STEAM_ID64.test("76561203000000000")).toBe(false);
+    expect(STEAM_ID64.test("76561100000000000")).toBe(false);
+    expect(STEAM_ID64.test("7656119796028793")).toBe(false);
+    expect(STEAM_ID64.test("765611979602879300")).toBe(false);
+    expect(STEAM_ID64.test("12345678901234567")).toBe(false);
+    expect(STEAM_ID64.test("7656119796028793a")).toBe(false);
+  });
+});
 
 const REF = "76561198012210783";
 const USER = "76561197993315263";
