@@ -57,9 +57,16 @@ const PROBE_SLOT_MS = 2 * 60_000;
 const PROBE_WINDOW = 30;
 
 export type SyncUserOptions = {
-  /** Probe mode: stop taking new catalog games after this long (default 45 s; Infinity = no limit). */
+  /**
+   * Stop taking new games to read achievements of after this long (default 45 s; Infinity = no
+   * limit): catalog probing without a key, and library games played since their last read with
+   * one (they stay due, so the next sync continues).
+   */
   probeBudgetMs?: number;
-  /** Probe mode: probe every catalog game, library games included even when not due (imports). */
+  /**
+   * Read every game: probe mode probes the whole catalog (library games included even when not
+   * due); keyed mode re-reads every played game of the library (imports).
+   */
   probeAll?: boolean;
   now?: () => number;
 };
@@ -450,9 +457,12 @@ async function currentProgress(userId: string) {
 }
 
 /**
- * Imports the user's Steam achievements (history included), applies the anti-fraud rules,
- * appends XP to the ledger and recomputes level, skills, missions and streak.
- * Idempotent: running it again changes nothing unless Steam has new unlocks.
+ * Imports the user's Steam account: with a key, the whole library (never-played games included,
+ * playtime, hours milestones XP) and the wishlist, then the achievements (history included) of
+ * the games played since their last read; without a key, achievements by probing the catalog.
+ * Applies the anti-fraud rules, appends XP to the ledger and recomputes level, skills, attributes,
+ * missions and streak. Idempotent: running it again changes nothing unless Steam has new unlocks
+ * or more playtime.
  */
 export async function syncUser(userId: string, options: SyncUserOptions = {}): Promise<SyncUserResult> {
   const now = options.now ?? Date.now;
