@@ -76,9 +76,15 @@ Pedido: "não ficar tudo mostrando numa lista infinita, até uns 80 por página,
 - `/familia`: resumo dos integrantes no topo; **biblioteca da família** em grade paginada com o mesmo seletor; filtro por integrante, "todos têm"/"só alguém tem"; seções organizadas em vez de uma lista única.
 - O mesmo componente de paginação serve à lista de jogos do perfil (F3).
 
+### F12 — Do guia e da notícia para a página do jogo
+Pedido: "se eu abrir o guia do jogo ou uma notícia referente ao jogo, consiga ir para a página do game também".
+- **Notícia**: logo abaixo do título, chips com capa real (arte do catálogo) e nome de cada jogo ligado, com "Ver jogo" (página do jogo) e "Guia 100%" quando existir; o bloco do fim ("Jogo desta notícia") passa a ter os dois links (hoje só leva ao guia quando há guia). Stubs aparecem com nome, sem capa quebrada.
+- **Guia**: cabeçalho com capa + nome do jogo e link "Página do jogo"; trilha `Jogos › <Jogo> › Guia`.
+- Depende da Parte A do Robô de Notícias (mexe em `noticias/[slug]/page.tsx`): implementar depois que ela entrar, só acrescentando.
+
 ## Ordem (controller)
 - Onda 1 (paralela, áreas separadas): **F1+F2** (sync + RPG), **F4** (e-mail + Google), **F5** (marca/nav/capinha/nomes).
-- Onda 2: **F3** (perfil) + **F11** (paginação Jogos/Família), **F6** (highscores), **F7+F8+F10** (notícias + calendário + lançamentos).
+- Onda 2: **F3** (perfil) + **F11** (paginação Jogos/Família) + **F12** (links para a página do jogo), **F6** (highscores), **F7+F8+F10** (notícias + calendário + lançamentos).
 - Onda 3: **F9** (social).
 - Depois: emulador (Plano 3) e hospedagem definitiva.
 
