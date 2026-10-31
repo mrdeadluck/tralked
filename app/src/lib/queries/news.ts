@@ -46,6 +46,10 @@ export type ArticleCard = {
   imageUrl: string | null;
   /** Without the leading "@". */
   authorHandle: string;
+  /** How the byline reads: "@handle" for people, the bare "Robô <nome>" for bot articles. */
+  authorLabel: string;
+  /** Written by a robot through the API (Article.source = "bot"). */
+  bot: boolean;
   /** 0 = list, 1 = side highlight, 2 = main highlight */
   featured: number;
   likes: number;
@@ -129,6 +133,7 @@ const cardSelect = {
   comments: true,
   humanAuthored: true,
   publishedAt: true,
+  source: true,
   author: { select: { handle: true } },
   game: { select: gameSelect },
   games: { select: { game: { select: gameSelect } }, orderBy: { gameId: "asc" } },
@@ -152,6 +157,7 @@ type CardRow = {
   comments: number;
   humanAuthored: boolean;
   publishedAt: Date;
+  source: string | null;
   author: { handle: string };
   game: GameRow | null;
   games: { game: GameRow }[];
@@ -162,6 +168,11 @@ function relatedGames(row: Pick<CardRow, "game" | "games">): GameRow[] {
   const games = row.games.map((g) => g.game);
   if (row.game && !games.some((g) => g.slug === row.game!.slug)) games.push(row.game);
   return games;
+}
+
+/** Byline: bot authors are already "Robô <key name>" and never get the "@" of a user handle. */
+export function authorLabel(source: string | null, handle: string): string {
+  return source === "bot" ? handle : `@${handle}`;
 }
 
 /** First paragraph of a Markdown body, without markup. */
@@ -191,6 +202,8 @@ function toCard(row: CardRow): ArticleCard {
       games.map((g) => g.heroUrl ?? g.coverUrl).find((url) => url) ??
       null,
     authorHandle: row.author.handle,
+    authorLabel: authorLabel(row.source, row.author.handle),
+    bot: row.source === "bot",
     featured: row.featured,
     likes: row.likes,
     comments: row.comments,
@@ -505,7 +518,7 @@ export function articleStory(article: ArticleCard, now: Date): StoryCard {
     kicker: categoryLabel(article.category),
     title: article.title,
     excerpt: article.excerpt,
-    source: `@${article.authorHandle}`,
+    source: article.authorLabel,
     when: timeAgo(article.publishedAt, now),
     imageUrl: article.imageUrl,
     seed: hashSeed(article.slug),
@@ -545,7 +558,8 @@ export function buildWireItems(
         variant,
         kicker: categoryLabel(a.category),
         title: a.title,
-        source: EDITORIAL_SOURCE,
+        // A robot's article is credited to the robot, never to the newsroom.
+        source: a.bot ? a.authorLabel : EDITORIAL_SOURCE,
         when: timeAgo(a.publishedAt, now),
         imageUrl: a.imageUrl,
         seed: hashSeed(a.slug),

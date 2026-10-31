@@ -12,6 +12,7 @@ import {
   type IngestionKind,
   type LogEntry,
 } from "./idempotency";
+import { jsonDepthExceeds, MAX_JSON_DEPTH } from "./json-depth";
 import type { ApiKeyRecord, ApiScope } from "./keys";
 
 /** Largest JSON body accepted (bytes). */
@@ -77,6 +78,14 @@ async function readJson(request: Request): Promise<{ ok: true; body: unknown } |
   const text = await request.text();
   if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) {
     return { ok: false, code: "payload_too_large", message: "O corpo passa de 1 MiB." };
+  }
+  // Checked on the raw text, before anything recursive touches the value.
+  if (jsonDepthExceeds(text)) {
+    return {
+      ok: false,
+      code: "validation_failed",
+      message: `O JSON tem mais de ${MAX_JSON_DEPTH} níveis de listas e objetos aninhados.`,
+    };
   }
   try {
     return { ok: true, body: normalizeLineEndings(JSON.parse(text)) };

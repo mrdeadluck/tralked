@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import type { CronJob } from "@/lib/cron/schedules";
 import { env } from "@/lib/env";
 import { deleteOldNotifications } from "@/lib/notifications/retention";
 import { refreshRarity, syncCatalog } from "@/lib/sync/catalog";
@@ -9,7 +10,8 @@ import { syncStalePlatformAccounts } from "@/lib/sync/platform-user";
 import { syncStaleUsers } from "@/lib/sync/user";
 
 // Each job is bounded (a fixed number of games/users per run) so it fits in one invocation.
-const JOBS: Record<string, () => Promise<{ processed: number; failed?: number }>> = {
+// Schedules: CRON_SCHEDULES in @/lib/cron/schedules (and the README).
+const JOBS: Record<CronJob, () => Promise<{ processed: number; failed?: number }>> = {
   catalog: () => syncCatalog(),
   rarity: () => refreshRarity(),
   users: () => syncStaleUsers(),
@@ -34,7 +36,7 @@ export async function GET(
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const { job } = await params;
-  const run = Object.hasOwn(JOBS, job) ? JOBS[job] : undefined;
+  const run = Object.hasOwn(JOBS, job) ? JOBS[job as CronJob] : undefined;
   if (!run) return NextResponse.json({ error: "unknown job" }, { status: 404 });
 
   const result = await run();

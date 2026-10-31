@@ -51,6 +51,24 @@ describe.skipIf(!reachable)("seeded database", () => {
     expect(stats?.level).toBe(47);
   });
 
+  it("recomputes every seeded user (attributes exist) and keeps the preview's level and streak", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { LUCAS, PLAYERS } = await import("../../prisma/seed-data/users");
+    const handles = [LUCAS.handle, ...PLAYERS.map((p) => p.handle)];
+    const users = await prisma.user.findMany({
+      where: { handle: { in: handles } },
+      select: { handle: true, despertarShownAt: true, stats: true, _count: { select: { attributes: true } } },
+    });
+    expect(users).toHaveLength(handles.length);
+    for (const user of users) {
+      expect(user._count.attributes, user.handle).toBe(7);
+      // The seed user never triggers the first-sync "Despertar" sequence.
+      expect(user.despertarShownAt, user.handle).not.toBeNull();
+    }
+    const lucas = users.find((u) => u.handle === "lucas");
+    expect(lucas?.stats).toMatchObject({ level: 47, streakCurrent: 12, streakBest: 19, shields: 1 });
+  });
+
   it("rebuilds lucas's SkillProgress and level from his XP ledger", async () => {
     const { prisma } = await import("@/lib/db");
     const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });

@@ -286,6 +286,35 @@ describe("POST /api/v1/articles", () => {
     );
     expect(huge.status).toBe(413);
   });
+
+  it("422 without a stack overflow for JSON nested 3,000+ levels deep (articles and guides, POST and PATCH)", async () => {
+    const deep = (levels: number) => `{"title":"fundo","blocks":${"[".repeat(levels)}${"]".repeat(levels)}}`;
+    const created = await articles.POST(call("POST", "/api/v1/articles", { key: keys.publisher, body: article() }));
+    const { id } = await json(created);
+    const attempt = async (send: () => Promise<Response>) => {
+      try {
+        const response = await send();
+        return { status: response.status, error: (await json(response)).error };
+      } catch (error) {
+        return { status: "threw", error: String(error) };
+      }
+    };
+    const results = [
+      await attempt(() => articles.POST(call("POST", "/api/v1/articles", { key: keys.writer, raw: deep(3000) }))),
+      await attempt(() => articles.POST(call("POST", "/api/v1/articles", { key: keys.writer, raw: deep(50_000) }))),
+      await attempt(() => guides.POST(call("POST", "/api/v1/guides", { key: keys.publisher, raw: deep(3000) }))),
+      await attempt(() =>
+        articleById.PATCH(call("PATCH", `/api/v1/articles/${id}`, { key: keys.publisher, raw: deep(3000) }), params(String(id))),
+      ),
+    ];
+    const refused = { status: 422, error: { code: "validation_failed", message: expect.stringContaining("64 níveis"), issues: [] } };
+    expect(results).toEqual([refused, refused, refused, refused]);
+    // 64 levels is still fine (the body is then refused by the schema with a field path, not by depth).
+    const atLimit = `{"title":"raso","blocks":${"[".repeat(63)}${"]".repeat(63)}}`;
+    const shallow = await articles.POST(call("POST", "/api/v1/articles", { key: keys.writer, raw: atLimit }));
+    expect(shallow.status).toBe(422);
+    expect((await json(shallow)).error?.issues.length).toBeGreaterThan(0);
+  });
 });
 
 describe("idempotency", () => {
@@ -406,7 +435,7 @@ describe("GET and PATCH /api/v1/articles/{id}", () => {
     // The article page reads it as a reviewed bot article by "Robô <key name>".
     const { getArticle } = await import("@/lib/queries/news");
     const page = await getArticle(status.slug as string);
-    expect(page).toMatchObject({ source: "bot", reviewed: true, humanAuthored: false, authorHandle: "Robô t9 redator" });
+    expect(page).toMatchObject({ source: "bot", reviewed: true, humanAuthored: false, authorHandle: "Robô t9 redator", authorLabel: "Robô t9 redator", bot: true });
   });
 
   it("a publish key can publish its review article with PATCH", async () => {

@@ -23,8 +23,19 @@ const COLUMNS = [
   {
     title: "Comunidade",
     links: [
+      { href: "/forum", label: "Fórum" },
+      { href: "/galeria", label: "Galeria" },
       { href: "/highscores", label: "Highscores" },
       { href: "/familia", label: "Família" },
+    ],
+  },
+  {
+    title: "Tralked",
+    links: [
+      { href: "/desenvolvedores", label: "Desenvolvedores" },
+      { href: "/privacidade", label: "Privacidade" },
+      { href: "/termos", label: "Termos" },
+      { href: "/licencas", label: "Licenças" },
     ],
   },
 ];
@@ -63,14 +74,11 @@ export function Footer() {
         <div className="flex flex-wrap justify-between gap-3 border-t border-divider pt-5 font-mono text-[11px] text-dim-2">
           <div className="flex flex-col gap-1">
             <span>© 2026 Tralked</span>
-            <span>Dados de jogos: IGDB, RAWG. Arte: SteamGridDB.</span>
+            <span>Dados de jogos: Steam, IGDB, RAWG. Arte: Steam, SteamGridDB.</span>
           </div>
           <div className="flex gap-4">
-            <Link href="/termos" className="hover:text-acc">
-              Termos
-            </Link>
-            <Link href="/privacidade" className="hover:text-acc">
-              Privacidade
+            <Link href="/privacidade#cookies" className="hover:text-acc">
+              Cookies
             </Link>
           </div>
         </div>

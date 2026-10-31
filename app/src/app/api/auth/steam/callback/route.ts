@@ -2,7 +2,8 @@ import { after, type NextRequest, NextResponse } from "next/server";
 import { consumeOidState } from "@/lib/auth/oid-state";
 import { verifySteamAssertion } from "@/lib/auth/openid";
 import { DEFAULT_RETURN_TO, sanitizeReturnTo } from "@/lib/auth/return-to";
-import { createSession } from "@/lib/auth/session";
+import { linkSteamToUser } from "@/lib/auth/link-steam";
+import { createSession, getSessionUser } from "@/lib/auth/session";
 import { upsertUserFromSteam } from "@/lib/auth/upsert-user";
 import { env } from "@/lib/env";
 import { syncUser } from "@/lib/sync/user";
@@ -38,15 +39,28 @@ export async function GET(request: NextRequest) {
   const steamId = await verifySteamAssertion(params);
   if (!steamId) return fail();
 
+  // Logged in without Steam (e.g. a Google-only account): link Steam to that account instead of
+  // creating a second one. Anyone else (logged out, or already with Steam) gets a normal login.
+  const sessionUser = await getSessionUser();
+  const linking = sessionUser !== null && sessionUser.steamId === null;
+
   let user;
   try {
-    user = await upsertUserFromSteam(steamId);
+    if (linking) {
+      const result = await linkSteamToUser(sessionUser.id, steamId);
+      if (!result.ok) {
+        return redirectTo(`/conta/conexoes?erro=${result.reason === "in_use" ? "steam_em_uso" : "steam_diferente"}`);
+      }
+      user = result.user;
+    } else {
+      user = await upsertUserFromSteam(steamId);
+    }
   } catch (error) {
     console.error("Steam login: could not load or create the user", error);
     return fail();
   }
 
-  await createSession(user.id);
+  if (!linking) await createSession(user.id);
 
   // The first sync can take minutes (whole library, new games cataloged), so it runs after the
   // response: the session cookie and redirect go out right away, and the character page shows

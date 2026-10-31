@@ -101,28 +101,28 @@ async function QuestSection() {
 
 const sidebarFallback = <Card className="h-40" aria-hidden="true" />;
 
+/*
+ * The wire and the news are cached, so they render in the static shell itself, outside any
+ * <Suspense>: a boundary that resolves after the shell is streamed as a hidden <div> that only a
+ * script reveals, which would leave the home empty without JavaScript (and for crawlers that do
+ * not run it). Only the per-visitor sidebar cards stream behind their own boundaries.
+ */
 export default function Home() {
   return (
     <div className="flex flex-col gap-12">
-      <Suspense fallback={null}>
-        <WireSection />
-      </Suspense>
-      <Suspense fallback={null}>
-        <NewsSection
-          aside={
-            <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
-              <DiscordCard key="discord" />
-              <Suspense key="quest" fallback={sidebarFallback}>
-                <QuestSection />
-              </Suspense>
-              <Suspense key="ranking" fallback={sidebarFallback}>
-                <RankingSection />
-              </Suspense>
-              <EditorialCard key="editorial" />
-            </aside>
-          }
-        />
-      </Suspense>
+      <WireSection />
+      <NewsSection
+        aside={
+          <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
+            <DiscordCard key="discord" />
+            <Suspense key="quest" fallback={sidebarFallback}>
+              <QuestSection />
+            </Suspense>
+            <RankingSection key="ranking" />
+            <EditorialCard key="editorial" />
+          </aside>
+        }
+      />
     </div>
   );
 }

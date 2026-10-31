@@ -9,6 +9,12 @@ vi.mock("next/navigation", () => ({
   usePathname: () => pathnameMock.value,
 }));
 
+const actions = vi.hoisted(() => ({
+  markAllReadAction: vi.fn(async () => ({ ok: true as const })),
+  markReadAction: vi.fn(async () => ({ ok: true as const })),
+}));
+vi.mock("@/lib/notifications/actions", () => actions);
+
 afterEach(() => {
   cleanup();
   pathnameMock.value = "/";
@@ -114,9 +120,10 @@ describe("Header", () => {
       expect(trigger).toHaveAttribute("aria-expanded", "false");
     });
 
-    it("lists Conexões and Sair for a regular user, without Admin", () => {
+    it("lists Conta, Conexões and Sair for a regular user, without Admin", () => {
       render(<Header user={USER} />);
       openMenu();
+      expect(accountMenu().getByRole("link", { name: "Conta" })).toHaveAttribute("href", "/conta");
       expect(accountMenu().getByRole("link", { name: "Conexões" })).toHaveAttribute(
         "href",
         "/conta/conexoes",
@@ -134,6 +141,66 @@ describe("Header", () => {
     it("has no account menu without a user", () => {
       render(<Header />);
       expect(screen.queryByRole("group", { name: "Conta" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("notification bell", () => {
+    const BELL = {
+      unread: 2,
+      items: [
+        { id: "n1", title: "@ana respondeu seu tópico", body: "Valeu!", href: "/forum/t/1", read: false, when: "há 2 horas" },
+        { id: "n2", title: "Você subiu para o nível 48", body: null, href: null, read: false, when: "ontem" },
+        { id: "n3", title: "Foto aprovada", body: null, href: "/galeria/x", read: true, when: "há 3 dias" },
+      ],
+    };
+
+    afterEach(() => {
+      actions.markAllReadAction.mockClear();
+      actions.markReadAction.mockClear();
+    });
+
+    it("is absent without a user", () => {
+      render(<Header notifications={BELL} />);
+      expect(screen.queryByRole("button", { name: /Notificações/ })).not.toBeInTheDocument();
+    });
+
+    it("shows the unread count and lists the notifications, linking to /notificacoes", () => {
+      render(<Header user={USER} notifications={BELL} />);
+      const trigger = screen.getByRole("button", { name: "Notificações, 2 não lidas" });
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(trigger);
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      const panel = within(screen.getByRole("region", { name: "Notificações" }));
+      expect(panel.getByRole("link", { name: /@ana respondeu seu tópico/ })).toHaveAttribute("href", "/forum/t/1");
+      expect(panel.getByText("Você subiu para o nível 48")).toBeInTheDocument();
+      expect(panel.getByRole("link", { name: "Ver todas" })).toHaveAttribute("href", "/notificacoes");
+    });
+
+    it("marks all as read and clears the count", async () => {
+      render(<Header user={USER} notifications={BELL} />);
+      fireEvent.click(screen.getByRole("button", { name: /Notificações/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Marcar todas como lidas" }));
+      expect(await screen.findByRole("button", { name: "Notificações" })).toBeInTheDocument();
+      expect(actions.markAllReadAction).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("button", { name: "Marcar todas como lidas" })).not.toBeInTheDocument();
+    });
+
+    it("marks one as read when it is opened", () => {
+      render(<Header user={USER} notifications={BELL} />);
+      fireEvent.click(screen.getByRole("button", { name: /Notificações/ }));
+      // jsdom cannot navigate; the link's own click handler still runs.
+      const stop = (event: Event) => event.preventDefault();
+      document.addEventListener("click", stop, { capture: true });
+      fireEvent.click(screen.getByRole("link", { name: /@ana respondeu/ }));
+      document.removeEventListener("click", stop, { capture: true });
+      expect(actions.markReadAction).toHaveBeenCalledWith("n1");
+      expect(screen.getByRole("button", { name: "Notificações, 1 não lida" })).toBeInTheDocument();
+    });
+
+    it("has an empty state", () => {
+      render(<Header user={USER} notifications={{ unread: 0, items: [] }} />);
+      fireEvent.click(screen.getByRole("button", { name: "Notificações" }));
+      expect(screen.getByText(/Nada por aqui ainda/)).toBeInTheDocument();
     });
   });
 });

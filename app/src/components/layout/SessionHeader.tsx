@@ -1,7 +1,9 @@
 import { Suspense } from "react";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
+import { getBell } from "@/lib/notifications/inbox";
 import { getTrendingSuggestions } from "@/lib/queries/header";
+import { timeAgo } from "@/lib/time-ago";
 import { Header } from "./Header";
 
 /** Header with the logged-in user's handle and level. Reads cookies, so it must sit in <Suspense>. */
@@ -10,12 +12,16 @@ async function HeaderWithUser() {
     getSessionUser(),
     getTrendingSuggestions(),
   ]);
-  const stats = user
-    ? await prisma.userStats.findUnique({
-        where: { userId: user.id },
-        select: { level: true },
-      })
-    : null;
+  const [stats, bell] = user
+    ? await Promise.all([
+        prisma.userStats.findUnique({
+          where: { userId: user.id },
+          select: { level: true },
+        }),
+        getBell(user.id),
+      ])
+    : [null, null];
+  const now = new Date();
   return (
     <Header
       user={
@@ -24,6 +30,21 @@ async function HeaderWithUser() {
           : undefined
       }
       suggestions={suggestions}
+      notifications={
+        bell
+          ? {
+              unread: bell.unread,
+              items: bell.items.map(({ id, title, body, href, read, createdAt }) => ({
+                id,
+                title,
+                body,
+                href,
+                read,
+                when: timeAgo(createdAt, now),
+              })),
+            }
+          : undefined
+      }
     />
   );
 }
