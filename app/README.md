@@ -129,7 +129,8 @@ A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste 
 - `/privacidade`, `/termos` e `/licencas`. O e-mail de contato `contato@tralked.example` é **provisório** (`src/lib/legal/contact.ts`); troque antes do lançamento.
 - Banner de cookies: só cookies necessários por padrão; a escolha fica no cookie `tk_consent` (1 ano) e pode ser trocada em `/privacidade#cookies`. Qualquer cookie opcional futuro (medição, anúncios) deve checar `optionalAllowed()` de `src/lib/consent.ts`.
 - `AdSlot` (`src/components/ui/AdSlot.tsx`): reserva o espaço do anúncio, marcado "Publicidade", sem script de terceiros. Fica na página de notícia.
-- Newsletter com confirmação dupla: o formulário grava `NewsletterSubscriber` sem confirmação e, sem provedor de e-mail, **fora de produção o link de confirmação sai no console do servidor** (`[newsletter] Link de confirmação ...`). Abrir o link (`/newsletter/confirmar?email=&token=`) confirma. O token é um HMAC do e-mail com `SESSION_SECRET`.
+- Newsletter com confirmação dupla: o formulário grava `NewsletterSubscriber` sem confirmação. Ainda não há provedor de e-mail: **fora de produção o link de confirmação sai no console do servidor** (`[newsletter] Link de confirmação ...`); em produção o endereço só fica registrado e o formulário diz "Inscrição registrada". O link (`/newsletter/confirmar?email=&token=`) vale 7 dias (token = validade + HMAC do e-mail com `SESSION_SECRET`) e só abre a página: a confirmação é um POST pelo botão "Confirmar inscrição", então leitores de e-mail que pré-abrem links não confirmam nada. Limites em memória por instância: 5 inscrições por IP a cada 10 min e 1 e-mail por endereço a cada 10 min. Futuro: provedor por env (`EMAIL_PROVIDER_API_KEY`, `EMAIL_FROM`), ligado em `deliver()` de `src/lib/newsletter/subscribe.ts`.
+- `Article.comments` (contagem nos cards e no topo da notícia) é recontado a cada comentário criado, apagado pelo autor ou ocultado/removido/restaurado pela moderação. Para consertar contadores antigos: `DATABASE_URL=... pnpm comments:recount` (só atualiza os que divergem; o seed também reconta).
 - Notificações: sino no topo (não lidas + as 8 últimas, "marcar todas como lidas") e `/notificacoes` com paginação. Cada notificação vive 90 dias (cron `notifications`).
 
 ## Scripts
@@ -146,6 +147,7 @@ A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste 
 | `pnpm db:seed` | Popula o banco com dados de exemplo. |
 | `pnpm db:generate` | `prisma generate` (também roda no `postinstall`). |
 | `pnpm catalog:bootstrap` | Catálogo real da Steam (`--limit N` jogos populares, `--concurrency N`, `--only-top`). Exige `DATABASE_URL`. |
+| `pnpm comments:recount` | Reconta `Article.comments` pelos comentários visíveis. Exige `DATABASE_URL`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
 | `pnpm e2e` | Playwright + axe contra o build de produção (`pnpm build && pnpm start -p 3200`): rotas públicas. |
 | `pnpm e2e:dev` | Playwright + axe contra `next dev -p 3200`: inclui as rotas que exigem login de demonstração. |

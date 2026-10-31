@@ -29,6 +29,7 @@ import { toggleLike } from "./gallery";
 import { RATE_LIMIT_MESSAGES, takeLikeToggle } from "./limits";
 import { createReport, reportSchema } from "./reports";
 import { recomputeQuietly } from "./xp";
+import { articleTag, NEWS_TAG } from "@/lib/queries/news";
 
 /** Common failure shapes; `message` is pt-BR and ready to show. */
 export type Failure =
@@ -75,7 +76,14 @@ export async function postComment(raw: unknown): Promise<{ status: "ok"; comment
   if (result.status === "not_found") return NOT_FOUND;
   if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.comment };
   if (ready.data.targetType === "photo") updateTag(photoTag(ready.data.targetId));
+  if (result.articleSlug) refreshArticleCount(result.articleSlug);
   return result;
+}
+
+/** The article page and the news cards show Article.comments. */
+function refreshArticleCount(slug: string) {
+  updateTag(articleTag(slug));
+  updateTag(NEWS_TAG);
 }
 
 export async function updateComment(raw: unknown): Promise<{ status: "ok"; comment: CommentView } | Failure> {
@@ -95,7 +103,8 @@ export async function removeComment(raw: unknown): Promise<{ status: "ok" } | Fa
   const result = await deleteComment(prisma, ready.user.id, ready.data.id);
   if (result.status === "not_found") return NOT_FOUND;
   if (result.status === "forbidden") return FORBIDDEN;
-  return result;
+  if (result.articleSlug) refreshArticleCount(result.articleSlug);
+  return { status: "ok" };
 }
 
 // ---------- Reports ----------

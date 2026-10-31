@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
   partialPrefetching: false,
   // The dev badge overlaps the page in e2e screenshots and trips axe in dev mode.
   devIndicators: false,
+  // The default social image reads its fonts from disk at request time: ship them with that route.
+  outputFileTracingIncludes: {
+    "/opengraph-image": ["./assets/fonts/*.ttf"],
+  },
   // Steam art is hotlinked from Steam's CDNs (never stored): store/library art, achievement icons
   // and avatars. Query strings stay allowed because Steam versions its files with `?t=`.
   images: {

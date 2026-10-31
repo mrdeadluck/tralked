@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { markAllReadAction, markReadAction } from "@/lib/notifications/actions";
 
@@ -32,10 +33,19 @@ const countLabel = (n: number) => (n > 99 ? "99+" : String(n));
  * Header bell (dynamic island: rendered with the session): unread count, a disclosure panel with
  * the latest notifications, "marcar todas como lidas" and a link to /notificacoes.
  */
-export function NotificationBell({ unread: initialUnread, items: initialItems }: BellProps) {
+export function NotificationBell({ unread: serverUnread, items: serverItems }: BellProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState(initialItems);
-  const [unread, setUnread] = useState(initialUnread);
+  const [items, setItems] = useState(serverItems);
+  const [unread, setUnread] = useState(serverUnread);
+  // Fresh server data (navigation, router.refresh() after "marcar todas" on /notificacoes)
+  // replaces the local copy; the local copy only carries optimistic marks in between.
+  const [server, setServer] = useState({ unread: serverUnread, items: serverItems });
+  if (server.unread !== serverUnread || server.items !== serverItems) {
+    setServer({ unread: serverUnread, items: serverItems });
+    setItems(serverItems);
+    setUnread(serverUnread);
+  }
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -62,6 +72,8 @@ export function NotificationBell({ unread: initialUnread, items: initialItems }:
       }
       setItems((list) => list.map((n) => ({ ...n, read: true })));
       setUnread(0);
+      // Other views of the same data (/notificacoes) re-render from the server.
+      router.refresh();
     });
   }
 

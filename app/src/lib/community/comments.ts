@@ -141,8 +141,41 @@ export async function listComments(
   };
 }
 
+/**
+ * Article.comments (shown on news cards and the article header) mirrors the article's visible
+ * comments. It is recounted rather than incremented, so a create, a delete or a moderation step
+ * can never make it drift. Returns the article slug (to invalidate its cache), or null when the
+ * article no longer exists.
+ */
+export async function syncArticleComments(db: Db, articleId: string): Promise<string | null> {
+  const count = await db.comment.count({ where: { targetType: "article", targetId: articleId, status: "visible" } });
+  const rows = await db.article.updateManyAndReturn({
+    where: { id: articleId },
+    data: { comments: count },
+    select: { slug: true },
+  });
+  return rows[0]?.slug ?? null;
+}
+
+/** Every article's counter from its visible comments (seed and the recount script). Returns how many changed. */
+export async function recountAllArticleComments(db: Db): Promise<number> {
+  const [articles, counts] = await Promise.all([
+    db.article.findMany({ select: { id: true, comments: true } }),
+    db.comment.groupBy({ by: ["targetId"], where: { targetType: "article", status: "visible" }, _count: { _all: true } }),
+  ]);
+  const visible = new Map(counts.map((c) => [c.targetId, c._count._all]));
+  let changed = 0;
+  for (const article of articles) {
+    const count = visible.get(article.id) ?? 0;
+    if (count === article.comments) continue;
+    await db.article.update({ where: { id: article.id }, data: { comments: count } });
+    changed++;
+  }
+  return changed;
+}
+
 export type CreateCommentResult =
-  | { status: "ok"; comment: CommentView }
+  | { status: "ok"; comment: CommentView; articleSlug?: string }
   | { status: "not_found" }
   | { status: "rate_limited" };
 
@@ -170,10 +203,14 @@ export async function createComment(
       href: target.href,
     });
   }
+  if (input.targetType === "article") {
+    const articleSlug = await syncArticleComments(db, input.targetId);
+    if (articleSlug) return { status: "ok", comment: toView(comment), articleSlug };
+  }
   return { status: "ok", comment: toView(comment) };
 }
 
-export type OwnCommentResult = { status: "ok" } | { status: "not_found" } | { status: "forbidden" };
+export type OwnCommentResult = { status: "ok"; articleSlug?: string } | { status: "not_found" } | { status: "forbidden" };
 
 async function ownComment(db: Db, userId: string, id: string) {
   const comment = await db.comment.findUnique({ where: { id }, select: { authorId: true, status: true } });
@@ -205,6 +242,14 @@ export async function editComment(
 export async function deleteComment(db: Db, userId: string, id: string): Promise<OwnCommentResult> {
   const check = await ownComment(db, userId, id);
   if (check !== "ok") return { status: check };
-  await db.comment.update({ where: { id }, data: { status: DELETED_STATUS, body: "" } });
+  const deleted = await db.comment.update({
+    where: { id },
+    data: { status: DELETED_STATUS, body: "" },
+    select: { targetType: true, targetId: true },
+  });
+  if (deleted.targetType === "article") {
+    const articleSlug = await syncArticleComments(db, deleted.targetId);
+    if (articleSlug) return { status: "ok", articleSlug };
+  }
   return { status: "ok" };
 }

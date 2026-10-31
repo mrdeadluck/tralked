@@ -5,7 +5,7 @@ import { subscribeNewsletterAction } from "@/lib/newsletter/actions";
 
 export function Newsletter() {
   const [email, setEmail] = useState("");
-  const [subscribedEmail, setSubscribedEmail] = useState<string | null>(null);
+  const [subscribed, setSubscribed] = useState<{ email: string; delivery: "sent" | "registered" } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const errorId = useId();
@@ -16,7 +16,7 @@ export function Newsletter() {
     setError(null);
     try {
       const result = await subscribeNewsletterAction({ email });
-      if (result.ok) setSubscribedEmail(result.email);
+      if (result.ok) setSubscribed({ email: result.email, delivery: result.delivery });
       else setError(result.error);
     } catch {
       setError("Não deu para inscrever agora. Tente de novo em alguns minutos.");
@@ -41,10 +41,11 @@ export function Newsletter() {
           As principais notícias e guias da semana no seu e-mail
         </h2>
       </div>
-      {subscribedEmail !== null ? (
+      {subscribed !== null ? (
         <p role="status" className="flex-[1_1_360px] text-lg font-extrabold">
-          Quase lá! Enviamos um link de confirmação para {subscribedEmail}. A inscrição só vale depois
-          que você clicar nele.
+          {subscribed.delivery === "sent"
+            ? `Quase lá! Enviamos um link de confirmação para ${subscribed.email}. A inscrição só vale depois que você confirmar por ele.`
+            : `Inscrição registrada para ${subscribed.email}. Assim que o envio de e-mails estiver ativo, você recebe um link para confirmar.`}
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-[1_1_360px] flex-col gap-2">

@@ -4,11 +4,18 @@ import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 
 /*
- * Newsletter with double opt-in. The confirmation token is an HMAC of the e-mail (keyed by
- * SESSION_SECRET), so no extra column is needed and a token cannot be forged for another address.
- * There is no mail provider yet: outside production the confirmation link is printed to the
- * server console (simulated e-mail).
+ * Newsletter with double opt-in. The confirmation token is `<expiry>.<HMAC(email, expiry)>` keyed by
+ * SESSION_SECRET: no extra column, it cannot be forged for another address and it stops working
+ * after TOKEN_TTL_DAYS. The link only opens a page; confirming takes a POST (a button), so mail
+ * scanners that prefetch links never confirm anything.
+ *
+ * There is no e-mail provider yet. Outside production the confirmation link is printed to the
+ * server console (simulated e-mail); in production the address is only registered, and the form
+ * says so. A provider (planned env: EMAIL_PROVIDER_API_KEY + EMAIL_FROM) plugs into `deliver`.
  */
+
+export const TOKEN_TTL_DAYS = 7;
+const DAY_MS = 86_400_000;
 
 export const newsletterEmailSchema = z
   .string({ error: "Digite seu e-mail." })
@@ -16,25 +23,34 @@ export const newsletterEmailSchema = z
   .toLowerCase()
   .pipe(z.email({ error: "Esse e-mail não parece válido." }).max(254, { error: "Esse e-mail é longo demais." }));
 
-export function newsletterToken(email: string): string {
-  return createHmac("sha256", env.SESSION_SECRET).update(`newsletter:${email}`).digest("base64url");
+const sign = (email: string, expiresAt: number) =>
+  createHmac("sha256", env.SESSION_SECRET).update(`newsletter:${email}:${expiresAt}`).digest("base64url");
+
+/** Token valid until `now + TOKEN_TTL_DAYS`. */
+export function newsletterToken(email: string, now: number = Date.now()): string {
+  const expiresAt = Math.floor((now + TOKEN_TTL_DAYS * DAY_MS) / 1000);
+  return `${expiresAt}.${sign(email, expiresAt)}`;
 }
 
-export function confirmationUrl(email: string): string {
+export function confirmationUrl(email: string, now: number = Date.now()): string {
   const url = new URL("/newsletter/confirmar", env.APP_URL);
   url.searchParams.set("email", email);
-  url.searchParams.set("token", newsletterToken(email));
+  url.searchParams.set("token", newsletterToken(email, now));
   return url.toString();
+}
+
+/** Whether a confirmation e-mail actually goes out (today: only the simulated one, outside production). */
+export function confirmationDelivered(): boolean {
+  return process.env.NODE_ENV !== "production";
 }
 
 /** At most one confirmation e-mail per address in this window (in memory, per instance). */
 export const RESEND_WINDOW_MS = 10 * 60_000;
 const lastSent = new Map<string, number>();
 
-/** Simulated delivery of the confirmation e-mail (no provider configured). */
-function deliverConfirmation(email: string) {
-  if (process.env.NODE_ENV === "production") return;
-  console.info(`[newsletter] Link de confirmação para ${email}: ${confirmationUrl(email)}`);
+function deliver(email: string, now: number) {
+  if (!confirmationDelivered()) return;
+  console.info(`[newsletter] Link de confirmação para ${email}: ${confirmationUrl(email, now)}`);
 }
 
 /**
@@ -54,28 +70,41 @@ export async function subscribe(email: string, now: number = Date.now()): Promis
   if (previous !== undefined && now - previous < RESEND_WINDOW_MS) return false;
   if (lastSent.size > 10_000) lastSent.clear();
   lastSent.set(email, now);
-  deliverConfirmation(email);
-  return true;
+  deliver(email, now);
+  return confirmationDelivered();
 }
 
-export type ConfirmResult = "confirmed" | "already" | "invalid";
+export type TokenCheck = { status: "valid"; email: string } | { status: "invalid" } | { status: "expired" };
 
-/** Confirms a subscription from the e-mailed link (`?email=&token=`). */
-export async function confirmSubscription(
-  rawEmail: unknown,
-  token: unknown,
-  now: Date = new Date(),
-): Promise<ConfirmResult> {
+/** Checks a confirmation link without changing anything (GET of the confirmation page). */
+export function checkToken(rawEmail: unknown, token: unknown, now: number = Date.now()): TokenCheck {
   const parsed = newsletterEmailSchema.safeParse(rawEmail);
-  if (!parsed.success || typeof token !== "string") return "invalid";
-  const email = parsed.data;
-  const expected = Buffer.from(newsletterToken(email));
-  const given = Buffer.from(token);
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return "invalid";
+  if (!parsed.success || typeof token !== "string") return { status: "invalid" };
+  const match = /^(\d{1,12})\.([A-Za-z0-9_-]{43})$/.exec(token);
+  if (!match) return { status: "invalid" };
+  const expiresAt = Number(match[1]);
+  const expected = Buffer.from(sign(parsed.data, expiresAt));
+  const given = Buffer.from(match[2]);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return { status: "invalid" };
+  if (expiresAt * 1000 < now) return { status: "expired" };
+  return { status: "valid", email: parsed.data };
+}
 
-  const row = await prisma.newsletterSubscriber.findUnique({ where: { email } });
+export type ConfirmResult = "confirmed" | "already" | "invalid" | "expired";
+
+/** Confirms a subscription (POST from the confirmation page). */
+export async function confirmSubscription(rawEmail: unknown, token: unknown, now: number = Date.now()): Promise<ConfirmResult> {
+  const check = checkToken(rawEmail, token, now);
+  if (check.status !== "valid") return check.status;
+  const row = await prisma.newsletterSubscriber.findUnique({ where: { email: check.email } });
   if (!row) return "invalid";
   if (row.confirmedAt) return "already";
-  await prisma.newsletterSubscriber.update({ where: { email }, data: { confirmedAt: now } });
+  await prisma.newsletterSubscriber.update({ where: { email: check.email }, data: { confirmedAt: new Date(now) } });
   return "confirmed";
+}
+
+/** Subscription state for the confirmation page (null: no such address). */
+export async function subscriberConfirmed(email: string): Promise<boolean | null> {
+  const row = await prisma.newsletterSubscriber.findUnique({ where: { email }, select: { confirmedAt: true } });
+  return row ? row.confirmedAt !== null : null;
 }

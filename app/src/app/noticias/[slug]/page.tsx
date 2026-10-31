@@ -142,9 +142,8 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
           <span className="text-text-2">{article.authorLabel}</span>
           <time dateTime={article.publishedAt.toISOString()}>{DATE_FORMAT.format(article.publishedAt)}</time>
           <span>▲ {article.likes}</span>
-          {/* The comment section below shows the live count (Article.comments is not kept in sync). */}
           <a href="#comentarios" className="hover:text-text">
-            ◼ Comentários
+            ◼ {article.comments} {article.comments === 1 ? "comentário" : "comentários"}
           </a>
           {article.source === "bot" ? (
             <span className="text-text-3">

@@ -50,7 +50,10 @@ export async function deleteAccount(userId: string): Promise<DeletedAccount | nu
         data: { votes: { decrement: 1 } },
       });
     }
-    if (user.email) await tx.newsletterSubscriber.deleteMany({ where: { email: user.email } });
+    // Newsletter addresses are stored lowercased and trimmed (newsletterEmailSchema).
+    if (user.email) {
+      await tx.newsletterSubscriber.deleteMany({ where: { email: user.email.trim().toLowerCase() } });
+    }
     await tx.user.delete({ where: { id: userId } });
     return liked;
   });

@@ -22,6 +22,7 @@ import {
   type GameProfile,
 } from "@/lib/queries/game-profile";
 import { listGameSlugs } from "@/lib/queries/games";
+import { JsonLd, videoGameJsonLd } from "@/lib/seo/json-ld";
 import { gameMetadata } from "./metadata";
 
 export async function generateStaticParams() {
@@ -171,6 +172,16 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
 
   return (
     <div id="gp-root" className="gp" suppressHydrationWarning>
+      {/* Public, from the cached profile: part of the static shell. */}
+      <JsonLd
+        data={videoGameJsonLd({
+          slug: profile.slug,
+          name: profile.name,
+          summary: profile.summary,
+          coverUrl: profile.art.cover,
+          platforms: profile.platforms,
+        })}
+      />
       <IntroVeil slug={profile.slug} />
       <style href="tralked-game-page" precedence="default">
         {CSS}

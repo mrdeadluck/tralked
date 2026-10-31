@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
-import { DELETED_STATUS } from "@/lib/community/comments";
+import { DELETED_STATUS, syncArticleComments } from "@/lib/community/comments";
+import { articleTag, NEWS_TAG } from "@/lib/queries/news";
 import { FORUM_TAG, GALLERY_TAG, photoTag, threadTag } from "@/lib/community/cached";
 import { REPORT_TARGETS } from "@/lib/community/reports";
 import { prisma } from "@/lib/db";
@@ -101,6 +102,8 @@ export async function moderateContent(
     let earned: [string | null, string, string] | null = null;
     /** Thread whose "Resolveu" mark goes away with the removed answer. */
     let unsolveThreadId: string | null = null;
+    /** Article whose comment count follows this comment's status. */
+    let articleCommentOf: string | null = null;
 
     switch (targetType) {
       case "comment": {
@@ -109,6 +112,7 @@ export async function moderateContent(
         current = comment.status;
         if (comment.targetType === "photo") tags.push(photoTag(comment.targetId), GALLERY_TAG);
         if (comment.targetType === "thread") tags.push(threadTag(comment.targetId));
+        if (comment.targetType === "article") articleCommentOf = comment.targetId;
         break;
       }
       case "photo": {
@@ -163,6 +167,12 @@ export async function moderateContent(
       case "thread":
         await tx.forumThread.update({ where: { id: targetId }, data });
         break;
+    }
+
+    // Hiding, removing or restoring an article comment changes the article's visible count.
+    if (articleCommentOf) {
+      const slug = await syncArticleComments(tx, articleCommentOf);
+      if (slug) tags.push(articleTag(slug), NEWS_TAG);
     }
 
     const recompute: string[] = [];

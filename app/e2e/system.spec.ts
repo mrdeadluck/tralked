@@ -54,6 +54,14 @@ test.describe("SEO files", () => {
     await expect(page.locator('meta[property="og:image"]').first()).toHaveAttribute("content", /opengraph-image/);
   });
 
+  test("game page carries VideoGame structured data", async ({ page }) => {
+    await page.goto("/jogos/hollow-knight");
+    const blocks = await page.locator('script[type="application/ld+json"]').allTextContents();
+    expect(blocks.map((b) => JSON.parse(b))).toContainEqual(
+      expect.objectContaining({ "@type": "VideoGame", name: "Hollow Knight" }),
+    );
+  });
+
   test("guide page carries HowTo structured data", async ({ page }) => {
     await page.goto("/jogos/hollow-knight/guia");
     const blocks = await page.locator('script[type="application/ld+json"]').allTextContents();

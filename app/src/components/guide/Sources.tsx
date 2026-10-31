@@ -11,8 +11,9 @@ export function Sources({ sources }: { sources: GuideSource[] }) {
     <section id="g-fontes" data-sec className="scroll-mt-24">
       <SectionHead title="Fontes" />
       <ol className="m-0 list-none p-0">
-        {safe.map((source) => (
-          <li key={source.url} className="border-b border-divider">
+        {safe.map((source, i) => (
+          // A guide may cite the same URL twice (two sections of one page).
+          <li key={`${i}:${source.url}`} className="border-b border-divider">
             <a
               href={source.url}
               target="_blank"

@@ -31,6 +31,7 @@ import { SKILLS, type SkillId, type SkillState } from "../src/lib/engine/types";
 import { vocationFor } from "../src/lib/engine/vocation";
 import { dailyPeriodKey, weeklyPeriodKey } from "../src/lib/progression/periods";
 import { recomputeUser } from "../src/lib/progression/recompute";
+import { recountAllArticleComments } from "../src/lib/community/comments";
 import { skillsFromLedger } from "../src/lib/progression/skills-from-ledger";
 import { markdownToBlocks } from "./seed-data/blocks";
 import {
@@ -835,6 +836,9 @@ export async function runSeed() {
     await recomputeUser(id, now);
     await prisma.userStats.update({ where: { userId: id }, data: mustFind(streaks.get(handle), `streak ${handle}`) });
   }
+
+  // Article.comments follows the visible comments (the preview's numbers were decoration).
+  await recountAllArticleComments(prisma);
 
   const [games, articles, users] = await Promise.all([
     prisma.game.count(),
