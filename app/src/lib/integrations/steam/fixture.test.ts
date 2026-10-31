@@ -14,6 +14,7 @@ describe("steam fixture", () => {
 
   it("owned games include Hollow Knight with playtime", async () => {
     const games = await steam.getOwnedGames("any");
+    if (games === "private") throw new Error("the fixture library is public");
     expect(games.length).toBeGreaterThanOrEqual(10);
     const hk = games.find((g) => g.appId === HK);
     expect(hk?.playtimeMin).toBeGreaterThan(0);

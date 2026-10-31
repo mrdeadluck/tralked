@@ -22,6 +22,8 @@ type CatalogGame = Game & { achievements: Achievement[]; skills: GameSkill[] };
 type FetchedGame = {
   game: CatalogGame;
   playtimeMin: number;
+  /** False when Steam hides the user's playtime (every game reports 0). */
+  playtimeKnown: boolean;
   unlocks: { achievementId: string; unlockedAt: Date }[];
 };
 
@@ -61,6 +63,7 @@ async function mapPool<T, R>(
 async function fetchGame(
   steamId: string,
   owned: { appId: number; playtimeMin: number },
+  playtimeKnown: boolean,
 ): Promise<FetchedGame | "private" | null> {
   const steam = getSteam();
   const achievements = await steam.getPlayerAchievements(steamId, owned.appId);
@@ -80,7 +83,7 @@ async function fetchGame(
     const achievementId = idByApiName.get(a.apiName);
     return achievementId && a.unlockedAt ? [{ achievementId, unlockedAt: a.unlockedAt }] : [];
   });
-  return { game, playtimeMin: owned.playtimeMin, unlocks };
+  return { game, playtimeMin: owned.playtimeMin, playtimeKnown, unlocks };
 }
 
 type KnownUnlock = { unlockedAt: Date; suspicious: boolean };
@@ -98,11 +101,13 @@ async function recordGame(
   known: Map<string, KnownUnlock>,
   bursts: Set<string>,
 ): Promise<number> {
-  const { game, playtimeMin, unlocks } = fetched;
+  const { game, playtimeMin, playtimeKnown, unlocks } = fetched;
   const gameSkills = game.skills.map((s) => s.skill);
   const total = Math.max(game.achievementCount, game.achievements.length);
   const complete = unlocks.length >= total;
-  const speedRun = complete && isSpeedPlatinum(playtimeMin, game.timeToBeatCompleteMin);
+  // Without playtime there is no evidence of a speed run, so the rule cannot apply.
+  const speedRun =
+    complete && playtimeKnown && isSpeedPlatinum(playtimeMin, game.timeToBeatCompleteMin);
   const completedAt = complete
     ? new Date(Math.max(...unlocks.map((u) => u.unlockedAt.getTime())))
     : null;
@@ -208,14 +213,18 @@ export async function syncUser(userId: string): Promise<SyncUserResult> {
   });
   if (!summary.profilePublic) return privateResult();
 
+  const library = await steam.getOwnedGames(user.steamId);
+  if (library === "private") return privateResult();
   // Games never played have no unlocks; skipping them saves most of a big library's API calls.
-  const owned = (await steam.getOwnedGames(user.steamId)).filter((g) => g.playtimeMin > 0);
+  // When Steam hides playtime every game reports 0, so then every owned game is a candidate.
+  const playtimeKnown = library.some((g) => g.playtimeMin > 0);
+  const owned = playtimeKnown ? library.filter((g) => g.playtimeMin > 0) : library;
   let sawPrivate = false;
   let failures = 0;
   let firstError: unknown;
   const results = await mapPool(owned, STEAM_CONCURRENCY, () => sawPrivate, async (game) => {
     try {
-      const fetched = await fetchGame(user.steamId, game);
+      const fetched = await fetchGame(user.steamId, game, playtimeKnown);
       if (fetched === "private") sawPrivate = true;
       return fetched;
     } catch (error) {

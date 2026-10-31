@@ -52,6 +52,8 @@ type FakeSteam = {
   api: SteamApi;
   games: Map<number, FakeGame>;
   profilePublic: boolean;
+  /** Public profile with "Game details" private: GetOwnedGames answers `{"response":{}}`. */
+  ownedPrivate: boolean;
   privateGames: Set<number>;
 };
 
@@ -59,6 +61,7 @@ function fakeSteam(games: Record<number, FakeGame>): FakeSteam {
   const state: FakeSteam = {
     games: new Map(Object.entries(games).map(([id, g]) => [Number(id), g])),
     profilePublic: true,
+    ownedPrivate: false,
     privateGames: new Set(),
     api: undefined as unknown as SteamApi,
   };
@@ -67,6 +70,7 @@ function fakeSteam(games: Record<number, FakeGame>): FakeSteam {
       return { steamId, personaName: "Test", avatarUrl: "", profilePublic: state.profilePublic };
     },
     async getOwnedGames() {
+      if (state.ownedPrivate) return "private";
       return [...state.games.entries()].map(([appId, g]) => ({
         appId,
         playtimeMin: g.playtimeMin ?? 600,
@@ -478,6 +482,79 @@ describe.skipIf(!reachable)("syncUser", () => {
     const row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(row.profilePublic).toBe(false);
     expect(row.lastSyncedAt).toBeNull();
+  });
+
+  it("marks the user private when Steam hides the owned games list (game details private)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const appId = newAppId();
+    const steam = fakeSteam({
+      [appId]: { pcts: pctsOf(2), unlocks: { A0: new Date("2024-01-01T10:00:00Z") } },
+    });
+    steam.ownedPrivate = true;
+    steamState.api = steam.api;
+    const user = await newUser(); // created public
+
+    expect(await syncUser(user.id)).toMatchObject({ status: "private", newUnlocks: 0 });
+
+    const row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(row.profilePublic).toBe(false);
+    expect(row.lastSyncedAt).toBeNull();
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(0);
+  });
+
+  it("imports every owned game when Steam hides playtime (all zero), without the speed-platinum flag", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const partial = newAppId();
+    const complete = newAppId();
+    // Known time to beat: with playtime 0 the speed-platinum rule would flag a real completion.
+    await prisma.game.create({
+      data: {
+        slug: `test-sync-hidden-${complete}`,
+        name: "Hidden playtime game",
+        steamAppId: complete,
+        achievementCount: 2,
+        platforms: ["PC"],
+        timeToBeatCompleteMin: 6000,
+        achievements: {
+          create: ["A0", "A1"].map((apiName) => ({ apiName, name: apiName, globalPct: 10 })),
+        },
+      },
+    });
+    steamState.api = fakeSteam({
+      [partial]: { pcts: pctsOf(3), playtimeMin: 0, unlocks: { A0: new Date("2024-01-01T10:00:00Z") } },
+      [complete]: {
+        pcts: pctsOf(2),
+        playtimeMin: 0,
+        unlocks: { A0: new Date("2024-02-01T10:00:00Z"), A1: new Date("2024-02-09T10:00:00Z") },
+      },
+    }).api;
+    const user = await newUser();
+
+    const result = await syncUser(user.id);
+
+    expect(result).toMatchObject({ status: "ok", newUnlocks: 3 });
+    const rows = await prisma.userAchievement.findMany({ where: { userId: user.id } });
+    expect(rows.every((r) => !r.suspicious)).toBe(true);
+    const ledger = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id } });
+    expect(ledger.filter((e) => e.source === "achievement")).toHaveLength(3);
+    expect(ledger.filter((e) => e.source === "platinum")).toHaveLength(1);
+  });
+
+  it("still skips never-played games when at least one game reports playtime", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const played = newAppId();
+    const unplayed = newAppId();
+    steamState.api = fakeSteam({
+      [played]: { pcts: pctsOf(2), playtimeMin: 300, unlocks: { A0: new Date("2024-01-01T10:00:00Z") } },
+      [unplayed]: { pcts: pctsOf(2), playtimeMin: 0, unlocks: { A0: new Date("2024-01-02T10:00:00Z") } },
+    }).api;
+    const user = await newUser();
+
+    expect(await syncUser(user.id)).toMatchObject({ status: "ok", newUnlocks: 1 });
+    expect(await prisma.game.count({ where: { steamAppId: unplayed } })).toBe(0);
   });
 
   it("does not let a failing user starve the cron batch", async () => {

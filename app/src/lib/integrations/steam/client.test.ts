@@ -80,9 +80,23 @@ describe("steam client", () => {
     expect(url.searchParams.get("key")).toBe("KEY");
   });
 
-  it("getOwnedGames returns [] when the library is hidden (no games key)", async () => {
+  it("getOwnedGames returns 'private' when game details are hidden ({response:{}})", async () => {
     const { client } = setup({ response: {} });
+    await expect(client.getOwnedGames("765")).resolves.toBe("private");
+  });
+
+  it("getOwnedGames returns [] for a real empty library (game_count 0)", async () => {
+    const { client } = setup({ response: { game_count: 0 } });
     await expect(client.getOwnedGames("765")).resolves.toEqual([]);
+  });
+
+  it("passes a timeout signal to every request", async () => {
+    const { client, fetchMock } = setup({ response: { game_count: 0 } });
+    await client.getOwnedGames("765");
+    await client.getPlayerAchievements("765", 1);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+    }
   });
 
   it("getSchemaForGame maps achievements", async () => {

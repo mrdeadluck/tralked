@@ -1,3 +1,4 @@
+import { timeoutSignal } from "../http";
 import type { SteamApi } from "./types";
 
 const BASE = "https://api.steampowered.com";
@@ -19,7 +20,7 @@ type PlayerSummariesResponse = {
 };
 
 type OwnedGamesResponse = {
-  response?: { games?: { appid: number; playtime_forever?: number }[] };
+  response?: { game_count?: number; games?: { appid: number; playtime_forever?: number }[] };
 };
 
 type SchemaResponse = {
@@ -63,7 +64,7 @@ export function createSteamClient({
     for (const [name, value] of Object.entries(params)) {
       url.searchParams.set(name, String(value));
     }
-    return fetchImpl(url.toString());
+    return fetchImpl(url.toString(), { signal: timeoutSignal() });
   }
 
   async function getJson<T>(
@@ -96,6 +97,9 @@ export function createSteamClient({
         "/IPlayerService/GetOwnedGames/v1/",
         { steamid: steamId, include_appinfo: 1, format: "json" },
       );
+      // A public profile with "Game details" private answers `{"response":{}}`: neither
+      // `games` nor `game_count`. A real empty library still carries `game_count: 0`.
+      if (!data.response?.games && data.response?.game_count === undefined) return "private";
       return (data.response?.games ?? []).map((g) => ({
         appId: g.appid,
         playtimeMin: g.playtime_forever ?? 0,
