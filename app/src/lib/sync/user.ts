@@ -114,7 +114,9 @@ async function recordGame(
 
   const rows = unlocks.map((u) => ({
     ...u,
-    // Once flagged, an unlock stays flagged until a reviewer clears it.
+    // Sticky: the stored flag is OR-ed in, so no sync ever clears it. Bursts (over all of the
+    // user's unlocks) and the speed-platinum rule are re-evaluated on every sync, so clearing the
+    // flag by hand does not last while either rule still matches: the next sync sets it again.
     suspicious: known.get(u.achievementId)?.suspicious || bursts.has(u.achievementId) || speedRun,
   }));
   const pctById = new Map(game.achievements.map((a) => [a.id, a.globalPct]));
