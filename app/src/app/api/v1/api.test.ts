@@ -574,6 +574,39 @@ describe("archiving with PATCH", () => {
     expect(archived.publishedAt.getTime()).toBe(row.publishedAt.getTime());
   });
 
+  it("republishing an archived article keeps its backdated publishedAt", async () => {
+    const when = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const created = await articles.POST(
+      call("POST", "/api/v1/articles", { key: keys.publisher, body: article({ publishedAt: when }) }),
+    );
+    const { id } = (await json(created)) as { id: string };
+    const patch = (status: string) =>
+      articleById.PATCH(call("PATCH", `/api/v1/articles/${id}`, { key: keys.publisher, body: { status } }), params(id));
+
+    expect((await patch("archived")).status).toBe(200);
+    expect((await patch("published")).status).toBe(200);
+    const row = await prisma.article.findUniqueOrThrow({ where: { id } });
+    expect(row.status).toBe("published");
+    expect(row.publishedAt.toISOString()).toBe(when);
+    expect(row.firstPublishedAt?.toISOString()).toBe(when);
+  });
+
+  it("a review article published by PATCH still gets the current time", async () => {
+    const created = await articles.POST(
+      call("POST", "/api/v1/articles", { key: keys.publisher, body: article({ status: "review" }) }),
+    );
+    const { id } = (await json(created)) as { id: string };
+    const before = Date.now();
+    const response = await articleById.PATCH(
+      call("PATCH", `/api/v1/articles/${id}`, { key: keys.publisher, body: { status: "published" } }),
+      params(id),
+    );
+    expect(response.status).toBe(200);
+    const row = await prisma.article.findUniqueOrThrow({ where: { id } });
+    expect(row.publishedAt.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(row.firstPublishedAt?.getTime()).toBe(row.publishedAt.getTime());
+  });
+
   it("403 for a key without the publish scope, and POST still refuses archived", async () => {
     const created = await articles.POST(call("POST", "/api/v1/articles", { key: keys.writer, body: article() }));
     const { id } = (await json(created)) as { id: string };
@@ -920,6 +953,13 @@ describe("GET /api/v1/games/{slug}/insights", () => {
     expect((await json(await ask(`/api/v1/games/${slug}/insights`))).tralked).toEqual({ players: 3, avgPlaytimeMin: 300 });
     await play(id, [[0, 100], [1, 300], [2, 0]]);
     expect((await json(await ask(`/api/v1/games/${slug}/insights`))).tralked).toEqual({ players: 3, avgPlaytimeMin: null });
+  });
+
+  it("counts a user once even when they own the game on two platforms", async () => {
+    const { id } = await prisma.game.findUniqueOrThrow({ where: { slug } });
+    await play(id, [[0, 100], [1, 300]]);
+    await prisma.userGame.create({ data: { userId: userIds[0], gameId: id, platform: "psn", playtimeMin: 50, unlockedCount: 0 } });
+    expect((await json(await ask(`/api/v1/games/${slug}/insights`))).tralked).toEqual({ players: 2, avgPlaytimeMin: null });
   });
 
   it("describes the game and lists the 5 rarest visible achievements, ascending, with no user data", async () => {

@@ -45,7 +45,7 @@ Robôs criam notícias e guias pela API `/api/v1` (documentação em `/desenvolv
 
 1. Um admin cria a chave em `/admin/robos` (nome + escopos `articles:write`, `guides:write`, `publish`). O segredo `tk_live_…` aparece uma vez só; o banco guarda apenas o hash.
 2. O robô envia `Authorization: Bearer tk_live_…` e um `Idempotency-Key` por conteúdo. Repetir a mesma chave com o mesmo corpo devolve a mesma resposta sem duplicar; com outro corpo, 409.
-3. Sem o escopo `publish`, o conteúdo entra em `/admin/revisao`; um editor revisa e publica, e a notícia é publicada. O público vê a assinatura "Equipe Tralked" (sem selo de robô); o admin mostra a origem robô.
+3. Sem o escopo `publish`, o conteúdo entra em `/admin/revisao`; um editor revisa e aprova a publicação. O público vê a assinatura "Equipe Tralked" (sem selo de robô); o admin mostra a origem robô.
 
 Sem acesso ao admin (por exemplo, para a chave de um robô em produção), crie a chave pelo terminal: `DATABASE_URL=… pnpm api:key "<nome>" articles:write publish` (escopos: `articles:write`, `guides:write`, `publish`, `media:write`; escopo desconhecido sai com código 2). O segredo `tk_live_…` é impresso uma vez, só no terminal, e nunca vai para `scripts/.logs`.
 

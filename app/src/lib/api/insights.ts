@@ -1,3 +1,4 @@
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { slugSchema } from "@/lib/content/guide-schema";
 
@@ -9,6 +10,14 @@ import { slugSchema } from "@/lib/content/guide-schema";
 
 const MIN_PLAYTIME_SAMPLE = 3;
 const RAREST_COUNT = 5;
+
+/**
+ * Distinct users with a library row for the game (one user can own it on several platforms),
+ * counted in the database instead of loading one row per user.
+ */
+function countPlayers(gameId: string, row: Prisma.UserGameWhereInput = {}) {
+  return prisma.user.count({ where: { games: { some: { gameId, ...row } } } });
+}
 
 export type GameInsights = {
   game: {
@@ -42,8 +51,8 @@ export async function gameInsights(slug: string): Promise<GameInsights | null> {
   if (!game) return null;
 
   const [owners, played, playedRows, rarest] = await Promise.all([
-    prisma.userGame.groupBy({ by: ["userId"], where: { gameId: game.id } }),
-    prisma.userGame.groupBy({ by: ["userId"], where: { gameId: game.id, playtimeMin: { gt: 0 } } }),
+    countPlayers(game.id),
+    countPlayers(game.id, { playtimeMin: { gt: 0 } }),
     prisma.userGame.aggregate({ where: { gameId: game.id, playtimeMin: { gt: 0 } }, _avg: { playtimeMin: true } }),
     prisma.achievement.findMany({
       where: { gameId: game.id, hidden: false, globalPct: { not: null } },
@@ -64,8 +73,8 @@ export async function gameInsights(slug: string): Promise<GameInsights | null> {
       timeToBeatCompleteMin: game.timeToBeatCompleteMin,
     },
     tralked: {
-      players: owners.length,
-      avgPlaytimeMin: played.length >= MIN_PLAYTIME_SAMPLE && average !== null ? Math.round(average) : null,
+      players: owners,
+      avgPlaytimeMin: played >= MIN_PLAYTIME_SAMPLE && average !== null ? Math.round(average) : null,
     },
     rarest: rarest.map((a) => ({ platform: a.platform, apiName: a.apiName, name: a.name, globalPct: a.globalPct as number })),
   };
