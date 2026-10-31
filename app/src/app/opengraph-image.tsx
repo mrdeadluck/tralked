@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
+import { EMBLEM, WORDMARK } from "@/components/brand/marks";
 
 // Default social card of every page that has no image of its own.
 export const alt = "Tralked: notícias de games, guias de conquistas 100% e progressão de quem joga";
@@ -34,15 +35,13 @@ export default async function Image() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 36 }}>
-          <svg width="150" height="150" viewBox="0 0 44 44">
-            <path d="M0 0H44V31.68L31.68 44H0Z" fill={ACC} />
-            <path d="M11.5 22.5 L19 30 L32.5 14.5" fill="none" stroke={BG} strokeWidth="7" strokeLinecap="square" />
+          <svg width={Math.round((170 * EMBLEM.width) / EMBLEM.height)} height="170" viewBox={`0 0 ${EMBLEM.width} ${EMBLEM.height}`}>
+            <path d={EMBLEM.d} fill={ACC} />
           </svg>
-          <div style={{ display: "flex", fontSize: 132, fontWeight: 900, letterSpacing: "-0.03em", lineHeight: 1 }}>
-            <span>TRAL</span>
-            <span style={{ color: ACC }}>K</span>
-            <span>ED</span>
-          </div>
+          <svg width={Math.round((96 * WORDMARK.width) / WORDMARK.height)} height="96" viewBox={`0 0 ${WORDMARK.width} ${WORDMARK.height}`}>
+            <path d={WORDMARK.d} fill={TEXT} fillRule="evenodd" />
+            <path d={WORDMARK.k} fill={ACC} />
+          </svg>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           <div style={{ display: "flex", fontSize: 46, fontWeight: 900, letterSpacing: "-0.02em", lineHeight: 1.1, maxWidth: 980 }}>
