@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { NavLink } from "@/components/layout/NavLink";
 import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import type { TodayMission } from "@/lib/queries/news";
@@ -20,12 +20,12 @@ export function DailyQuestCard({
           Missão de hoje
         </h2>
         {loggedIn ? (
-          <Link
+          <NavLink
             href="/jogador/me"
             className="font-mono text-[11px] tracking-[0.08em] text-acc uppercase"
           >
             Ver todas →
-          </Link>
+          </NavLink>
         ) : null}
       </div>
       <div className="flex flex-col gap-2.5 pt-3">
@@ -52,12 +52,12 @@ export function DailyQuestCard({
             <p className="text-[15px] text-muted">
               Missões diárias rendem XP extra.
             </p>
-            <Link
+            <NavLink
               href="/api/auth/steam"
               className="font-mono text-[11px] font-bold tracking-[0.1em] text-acc uppercase"
             >
               Entre com a Steam para receber missões →
-            </Link>
+            </NavLink>
           </>
         )}
       </div>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Logo } from "@/components/brand/Logo";
+import { NavLink } from "./NavLink";
 import { Newsletter } from "./Newsletter";
 
 const COLUMNS = [
@@ -59,13 +60,13 @@ export function Footer() {
                 {column.title}
               </span>
               {column.links.map((link) => (
-                <Link
+                <NavLink
                   key={link.href}
                   href={link.href}
                   className="text-[14.5px] text-text-2 hover:text-acc"
                 >
                   {link.label}
-                </Link>
+                </NavLink>
               ))}
             </div>
           ))}

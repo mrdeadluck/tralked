@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PlatformChips } from "@/components/ui/PlatformChips";
 import type { AccountLink } from "./AccountMenu";
 import { LogoutForm } from "./LogoutForm";
+import { NavLink } from "./NavLink";
 
 export type DrawerItem = { href: string; label: string; current: boolean };
 
@@ -34,7 +35,7 @@ export function MobileDrawer({
       className="flex flex-col border-t border-line px-5 pt-2 pb-5 text-[22px] font-extrabold font-stretch-[115%] tracking-[-0.02em] nav:hidden"
     >
       {items.map((item) => (
-        <Link
+        <NavLink
           key={item.href}
           href={item.href}
           onClick={onNavigate}
@@ -42,7 +43,7 @@ export function MobileDrawer({
           className={`${LINK_CLASS} ${item.current ? "text-acc" : ""}`}
         >
           {item.label}
-        </Link>
+        </NavLink>
       ))}
       {accountItems.map((item) => (
         <Link

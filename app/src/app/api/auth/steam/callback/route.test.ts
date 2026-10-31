@@ -133,7 +133,7 @@ describe("steam callback", () => {
   it("rejects a state that does not match the cookie, before calling Steam", async () => {
     consumeOidState.mockResolvedValue(false);
     const response = await GET(callbackRequest());
-    expect(location(response).search).toBe("?login=erro");
+    expect(location(response).search).toBe("?login=erro&motivo=estado");
     expect(verifySteamAssertion).not.toHaveBeenCalled();
     expect(createSession).not.toHaveBeenCalled();
   });
@@ -142,7 +142,7 @@ describe("steam callback", () => {
     const other = new URL(CALLBACK);
     other.searchParams.set("state", "attacker");
     const response = await GET(callbackRequest({ openidReturnTo: other.toString() }));
-    expect(location(response).search).toBe("?login=erro");
+    expect(location(response).search).toBe("?login=erro&motivo=estado");
     expect(verifySteamAssertion).not.toHaveBeenCalled();
   });
 
@@ -153,14 +153,14 @@ describe("steam callback", () => {
     ["garbage", "not a url"],
   ])("rejects return_to with %s", async (_name, openidReturnTo) => {
     const response = await GET(callbackRequest({ openidReturnTo }));
-    expect(location(response).search).toBe("?login=erro");
+    expect(location(response).search).toBe("?login=erro&motivo=estado");
     expect(verifySteamAssertion).not.toHaveBeenCalled();
   });
 
   it("redirects to the error page when Steam does not validate (or times out)", async () => {
     verifySteamAssertion.mockResolvedValue(null);
     const response = await GET(callbackRequest());
-    expect(location(response).search).toBe("?login=erro");
+    expect(location(response).search).toBe("?login=erro&motivo=steam");
     expect(createSession).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { AccountMenu, accountLinks, type AccountUser } from "./AccountMenu";
 import { MobileDrawer } from "./MobileDrawer";
+import { NavLink } from "./NavLink";
 import { NotificationBell, type BellProps } from "./NotificationBell";
 import { SearchBox, type SearchSuggestion } from "./SearchBox";
 
@@ -37,10 +38,11 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const items = NAV_ITEMS.map((item) => ({
-    ...item,
-    current: isCurrent(pathname, item.href),
-  }));
+  // Logged in, "Personagem" points straight at the player's own sheet (no redirect hop).
+  const items = NAV_ITEMS.map((item) => {
+    const href = item.href === "/jogador/me" && user ? `/jogador/${encodeURIComponent(user.handle)}` : item.href;
+    return { ...item, href, current: isCurrent(pathname, href) };
+  });
 
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-bg/[.94] backdrop-blur-[10px]">
@@ -54,7 +56,7 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
           className="flex gap-1 font-mono text-xs font-medium tracking-[0.08em] uppercase max-nav:hidden"
         >
           {items.map((item) => (
-            <Link
+            <NavLink
               key={item.href}
               href={item.href}
               aria-current={item.current ? "page" : undefined}
@@ -65,7 +67,7 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
               }`}
             >
               {item.label}
-            </Link>
+            </NavLink>
           ))}
         </nav>
 
@@ -76,7 +78,7 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
           {user ? (
             <AccountMenu user={user} />
           ) : (
-            <Link
+            <NavLink
               href="/jogador/me"
               className="flex items-center gap-2.5"
             >
@@ -91,7 +93,7 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
                 aria-hidden="true"
                 className="size-10 flex-none rounded-full border-2 border-acc bg-[repeating-linear-gradient(135deg,#1a1c22_0_5px,#22242b_5px_10px)]"
               />
-            </Link>
+            </NavLink>
           )}
           <button
             type="button"
