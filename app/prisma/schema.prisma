@@ -93,6 +93,9 @@ model User {
 /// A gaming account linked to a user. Ownership is proven by pasting `verifyCode` in the
 /// platform profile (PSN/Xbox "about me", RA motto) before `verifyExpiresAt`; `verifiedAt` set
 /// means verified. Steam accounts come from OpenID and are verified on creation.
+/// A pending (unverified) link stores `pending:<userId>` as externalId, so it never reserves the
+/// platform account; the real id is written on confirmation. While pending, `lastSyncAttemptAt`
+/// holds the last confirmation attempt (cooldown).
 model LinkedAccount {
   id                String    @id @default(cuid())
   userId            String
@@ -275,8 +278,10 @@ model GameOpen {
 /// Immutable XP ledger; level, skills and attributes are derived from it.
 ///
 /// `source` / `sourceKey` conventions (sourceKey makes the entry idempotent per user):
-///   achievement -> achievementId
-///   platinum    -> gameId
+///   achievement -> achievementId (unique across platforms: Achievement rows are per platform;
+///                  `platform` says which one)
+///   platinum    -> gameId for Steam, `${platform}:${gameId}` for psn | xbox | retro
+///                  (a game can be completed once per platform)
 ///   mission     -> missionId
 ///   guide_vote  -> `${tipId}:${voterUserId}`
 ///   seed        -> 'baseline' (synthetic entry, development seed data only)
@@ -284,8 +289,9 @@ model GameOpen {
 /// Skill points: `skillPoints` holds explicit per-skill points ({"soulslike": 123}).
 /// When null, each skill in `skills` receives skillPointsFor(xp, skills.length).
 ///
-/// Entries are never deleted or edited: confirmed fraud sets `voidedAt`, and voided entries
-/// are left out of every derived value.
+/// Entries are never edited: confirmed fraud sets `voidedAt`, and voided entries are left out
+/// of every derived value. The only deletion is unlinking a PSN/Xbox/RA account, which removes
+/// that platform's non-voided entries along with the imported progress (voided ones are kept).
 model XpLedgerEntry {
   id          String    @id @default(cuid())
   userId      String

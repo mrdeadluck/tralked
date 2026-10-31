@@ -9,13 +9,10 @@ export type LedgerSkillEntry = {
 };
 
 /**
- * Rebuilds every skill's level/points from the XP ledger, starting at level 1 with 0 points.
- * Entries with explicit `skillPoints` use them; the rest give each skill in `skills`
- * `skillPointsFor(xp, skills.length)`. Order does not matter: points are summed first.
+ * Total skill points each skill earned over the ledger. Entries with explicit `skillPoints` use
+ * them; the rest give each skill in `skills` `skillPointsFor(xp, skills.length)`.
  */
-export function skillsFromLedger(
-  entries: LedgerSkillEntry[],
-): Record<SkillId, SkillState> {
+export function skillPointTotals(entries: LedgerSkillEntry[]): Record<SkillId, number> {
   const totals = Object.fromEntries(SKILLS.map((s) => [s.id, 0])) as Record<SkillId, number>;
   const known = new Set<string>(SKILLS.map((s) => s.id));
 
@@ -31,7 +28,17 @@ export function skillsFromLedger(
       }
     }
   }
+  return totals;
+}
 
+/**
+ * Rebuilds every skill's level/points from the XP ledger, starting at level 1 with 0 points.
+ * Order does not matter: points are summed first (see `skillPointTotals`).
+ */
+export function skillsFromLedger(
+  entries: LedgerSkillEntry[],
+): Record<SkillId, SkillState> {
+  const totals = skillPointTotals(entries);
   return Object.fromEntries(
     SKILLS.map((s) => [
       s.id,

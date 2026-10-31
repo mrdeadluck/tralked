@@ -48,18 +48,40 @@ export async function generateHandle(
   }
 }
 
-/** Creates the user on first login; refreshes Steam profile data afterwards. */
-export async function upsertUserFromSteam(steamId: string): Promise<User> {
+/**
+ * Creates the user on first login; refreshes Steam profile data afterwards. The Steam account
+ * is mirrored in a verified LinkedAccount (OpenID already proved ownership), kept in sync with
+ * the persona name on every login.
+ */
+export async function upsertUserFromSteam(steamId: string, now: Date = new Date()): Promise<User> {
   const summary = await getSteam().getPlayerSummary(steamId);
   const profile = {
     displayName: summary.personaName,
     avatarUrl: summary.avatarUrl,
     profilePublic: summary.profilePublic,
   };
+  const steamAccount = {
+    platform: "steam",
+    externalId: steamId,
+    handle: summary.personaName,
+    verifiedAt: now,
+  };
 
   const existing = await prisma.user.findUnique({ where: { steamId } });
   if (existing) {
-    return prisma.user.update({ where: { steamId }, data: profile });
+    return prisma.user.update({
+      where: { steamId },
+      data: {
+        ...profile,
+        linkedAccounts: {
+          upsert: {
+            where: { userId_platform: { userId: existing.id, platform: "steam" } },
+            create: steamAccount,
+            update: { externalId: steamId, handle: summary.personaName },
+          },
+        },
+      },
+    });
   }
 
   const handle = await generateHandle(
@@ -67,5 +89,7 @@ export async function upsertUserFromSteam(steamId: string): Promise<User> {
     steamId,
     async (candidate) => (await prisma.user.findUnique({ where: { handle: candidate } })) !== null,
   );
-  return prisma.user.create({ data: { steamId, handle, ...profile } });
+  return prisma.user.create({
+    data: { steamId, handle, ...profile, linkedAccounts: { create: steamAccount } },
+  });
 }

@@ -11,6 +11,7 @@ vi.mock("@/lib/integrations", () => ({ getSteam: () => ({ getPlayerSummary }) })
 const { generateHandle, slugifyPersonaName, upsertUserFromSteam } = await import("./upsert-user");
 
 const STEAM_ID = "76561198000001234";
+const NOW = new Date("2026-10-31T12:00:00Z");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -74,7 +75,7 @@ describe("upsertUserFromSteam", () => {
     findUnique.mockResolvedValue(null);
     create.mockImplementation(async ({ data }) => ({ id: "u1", ...data }));
 
-    const user = await upsertUserFromSteam(STEAM_ID);
+    const user = await upsertUserFromSteam(STEAM_ID, NOW);
 
     expect(getPlayerSummary).toHaveBeenCalledWith(STEAM_ID);
     expect(create).toHaveBeenCalledWith({
@@ -84,21 +85,36 @@ describe("upsertUserFromSteam", () => {
         displayName: "Lucas Épico!",
         avatarUrl: "https://img/a.jpg",
         profilePublic: true,
+        // OpenID proved ownership: the Steam account is linked and verified right away.
+        linkedAccounts: {
+          create: { platform: "steam", externalId: STEAM_ID, handle: "Lucas Épico!", verifiedAt: NOW },
+        },
       },
     });
     expect(user.handle).toBe("lucas_epico");
   });
 
-  it("updates profile fields for an existing user but never the handle", async () => {
+  it("updates profile fields for an existing user but never the handle, and keeps the Steam link", async () => {
     findUnique.mockResolvedValue({ id: "u1", steamId: STEAM_ID, handle: "old_handle" });
     update.mockImplementation(async ({ data }) => ({ id: "u1", handle: "old_handle", ...data }));
 
-    await upsertUserFromSteam(STEAM_ID);
+    await upsertUserFromSteam(STEAM_ID, NOW);
 
     expect(create).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledWith({
       where: { steamId: STEAM_ID },
-      data: { displayName: "Lucas Épico!", avatarUrl: "https://img/a.jpg", profilePublic: true },
+      data: {
+        displayName: "Lucas Épico!",
+        avatarUrl: "https://img/a.jpg",
+        profilePublic: true,
+        linkedAccounts: {
+          upsert: {
+            where: { userId_platform: { userId: "u1", platform: "steam" } },
+            create: { platform: "steam", externalId: STEAM_ID, handle: "Lucas Épico!", verifiedAt: NOW },
+            update: { externalId: STEAM_ID, handle: "Lucas Épico!" },
+          },
+        },
+      },
     });
   });
 });

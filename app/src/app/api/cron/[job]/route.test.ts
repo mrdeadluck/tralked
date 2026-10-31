@@ -5,12 +5,18 @@ const jobs = vi.hoisted(() => ({
   syncCatalog: vi.fn(async () => ({ processed: 3 })),
   refreshRarity: vi.fn(async () => ({ processed: 2 })),
   syncStaleUsers: vi.fn(async () => ({ processed: 1, failed: 0 })),
+  syncStalePlatformAccounts: vi.fn(async () => ({ processed: 4, failed: 0 })),
+  syncStaleMedia: vi.fn(async () => ({ processed: 5, failed: 0 })),
+  syncExternalNews: vi.fn(async () => ({ processed: 2, failed: 0, created: 7 })),
 }));
 vi.mock("@/lib/sync/catalog", () => ({
   syncCatalog: jobs.syncCatalog,
   refreshRarity: jobs.refreshRarity,
 }));
 vi.mock("@/lib/sync/user", () => ({ syncStaleUsers: jobs.syncStaleUsers }));
+vi.mock("@/lib/sync/platform-user", () => ({ syncStalePlatformAccounts: jobs.syncStalePlatformAccounts }));
+vi.mock("@/lib/sync/media", () => ({ syncStaleMedia: jobs.syncStaleMedia }));
+vi.mock("@/lib/sync/external-news", () => ({ syncExternalNews: jobs.syncExternalNews }));
 
 import { GET } from "./route";
 
@@ -44,6 +50,9 @@ describe("GET /api/cron/[job]", () => {
     ["catalog", "syncCatalog"],
     ["rarity", "refreshRarity"],
     ["users", "syncStaleUsers"],
+    ["platforms", "syncStalePlatformAccounts"],
+    ["media", "syncStaleMedia"],
+    ["news", "syncExternalNews"],
   ] as const)("runs the %s job with a valid token", async (job, fn) => {
     const res = await call(job, `Bearer ${env.CRON_SECRET}`);
     expect(res.status).toBe(200);

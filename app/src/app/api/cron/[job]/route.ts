@@ -2,6 +2,9 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
 import { refreshRarity, syncCatalog } from "@/lib/sync/catalog";
+import { syncExternalNews } from "@/lib/sync/external-news";
+import { syncStaleMedia } from "@/lib/sync/media";
+import { syncStalePlatformAccounts } from "@/lib/sync/platform-user";
 import { syncStaleUsers } from "@/lib/sync/user";
 
 // Each job is bounded (a fixed number of games/users per run) so it fits in one invocation.
@@ -9,6 +12,9 @@ const JOBS: Record<string, () => Promise<{ processed: number; failed?: number }>
   catalog: () => syncCatalog(),
   rarity: () => refreshRarity(),
   users: () => syncStaleUsers(),
+  platforms: () => syncStalePlatformAccounts(),
+  media: () => syncStaleMedia(),
+  news: () => syncExternalNews(),
 };
 
 function isAuthorized(request: NextRequest): boolean {
