@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+} from "react";
 
 export type SearchSuggestion = { text: string; href: string };
 
@@ -14,11 +21,15 @@ const NO_SUGGESTIONS: SearchSuggestion[] = [];
 
 export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const optionRefs = useRef<(HTMLAnchorElement | null)[]>([]);
+  // Evita reabrir o painel quando o Escape devolve o foco ao input.
+  const skipNextOpen = useRef(false);
+  const listboxId = useId();
   const [value, setValue] = useState("");
-  const [focused, setFocused] = useState(false);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
+    function onKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) {
         return;
       }
@@ -34,10 +45,74 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const showPanel = focused && suggestions.length > 0;
+  const expanded = open && suggestions.length > 0;
+
+  function handleFocus() {
+    if (skipNextOpen.current) {
+      skipNextOpen.current = false;
+      return;
+    }
+    setOpen(true);
+  }
+
+  // O painel fica aberto enquanto o foco estiver dentro do container.
+  function handleBlur(event: FocusEvent<HTMLDivElement>) {
+    if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+  }
+
+  function focusOption(index: number) {
+    optionRefs.current[index]?.focus();
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    const optionIndex = optionRefs.current.indexOf(
+      target as HTMLAnchorElement,
+    );
+
+    if (event.key === "Escape") {
+      if (expanded) {
+        event.preventDefault();
+        setOpen(false);
+        if (target !== inputRef.current) {
+          skipNextOpen.current = true;
+          inputRef.current?.focus();
+        }
+      } else {
+        inputRef.current?.blur();
+      }
+      return;
+    }
+
+    if (!expanded) {
+      if (event.key === "ArrowDown" && target === inputRef.current) {
+        event.preventDefault();
+        setOpen(true);
+      }
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (target === inputRef.current) focusOption(0);
+      else if (optionIndex >= 0) {
+        focusOption(Math.min(optionIndex + 1, suggestions.length - 1));
+      }
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (optionIndex === 0) inputRef.current?.focus();
+      else if (optionIndex > 0) focusOption(optionIndex - 1);
+    }
+  }
 
   return (
-    <div role="search" className="relative min-w-0 flex-[1_1_160px] max-nav:order-5 max-nav:basis-full">
+    <div
+      role="search"
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      className="relative min-w-0 flex-[1_1_160px] max-nav:order-5 max-nav:basis-full"
+    >
       <label className="flex h-[42px] items-center gap-2.5 rounded-[2px] border border-[#23252c] bg-surface-2 px-3.5 text-dim-2 focus-within:border-acc">
         <span aria-hidden="true" className="font-mono">
           ⌕
@@ -45,12 +120,15 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
         <input
           ref={inputRef}
           type="search"
+          role="combobox"
+          aria-expanded={expanded}
+          aria-controls={expanded ? listboxId : undefined}
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
           value={value}
-          onChange={(event) => setValue(event.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") event.currentTarget.blur();
+          onChange={(event) => {
+            setValue(event.target.value);
+            setOpen(true);
           }}
           autoComplete="off"
           placeholder="Buscar notícias, jogos, autores"
@@ -64,29 +142,43 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
           /
         </span>
       </label>
-      {showPanel ? (
-        // mousedown não pode tirar o foco do input, senão o painel some antes do clique.
+      {expanded ? (
+        // Safari não foca links ao clicar: sem isso o blur do input fecharia o painel antes do clique.
         <div
           onMouseDown={(event) => event.preventDefault()}
-          className="absolute top-[calc(100%+6px)] right-0 left-0 z-30 flex flex-col gap-3 rounded-[4px] border border-[#2a2c33] bg-surface-2 p-2.5 shadow-[0_20px_40px_rgba(0,0,0,.5)]"
-        >
+          className="absolute top-[calc(100%+6px)] right-0 left-0 z-30 flex flex-col gap-3 rounded-[4px] border border-[#2a2c33] bg-surface-2 p-2.5 shadow-[0_20px_40px_rgba(0,0,0,.5)]">
           <div className="flex flex-col gap-0.5">
-            <div className="px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-dim-2">
+            <div
+              id={`${listboxId}-label`}
+              className="px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-dim-2"
+            >
               EM ALTA
             </div>
-            {suggestions.map((item) => (
-              <Link
-                key={item.href + item.text}
-                href={item.href}
-                onClick={() => {
-                  setValue(item.text);
-                  inputRef.current?.blur();
-                }}
-                className="rounded-[2px] px-2 py-[9px] text-sm hover:bg-hover-2 hover:text-acc"
-              >
-                {item.text}
-              </Link>
-            ))}
+            <div
+              id={listboxId}
+              role="listbox"
+              aria-labelledby={`${listboxId}-label`}
+              className="flex flex-col gap-0.5"
+            >
+              {suggestions.map((item, index) => (
+                <Link
+                  key={item.href + item.text}
+                  ref={(node) => {
+                    optionRefs.current[index] = node;
+                  }}
+                  href={item.href}
+                  role="option"
+                  aria-selected={false}
+                  onClick={() => {
+                    setValue(item.text);
+                    setOpen(false);
+                  }}
+                  className="rounded-[2px] px-2 py-[9px] text-sm hover:bg-hover-2 hover:text-acc focus-visible:bg-hover-2 focus-visible:text-acc"
+                >
+                  {item.text}
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
       ) : null}
