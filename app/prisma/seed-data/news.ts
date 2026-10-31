@@ -1,3 +1,4 @@
+import type { ArticleCategory } from "../../src/lib/queries/news";
 import type { GAME_SLUG_BY_PREVIEW_ID } from "./games";
 
 type PreviewGameId = keyof typeof GAME_SLUG_BY_PREVIEW_ID;
@@ -7,7 +8,7 @@ export type SeedArticle = {
   title: string;
   subtitle: string | null;
   body: string;
-  category: "GAMES" | "GUIAS" | "COMUNIDADE";
+  category: ArticleCategory;
   platforms: ("PC" | "PLAYSTATION" | "XBOX" | "NINTENDO")[];
   imageLabel: string;
   authorHandle: string;
@@ -24,7 +25,7 @@ const FOOTER =
   "*Texto de exemplo para o ambiente de desenvolvimento do Tralked. O conteúdo editorial real substitui este corpo.*";
 
 /** Authors of the preview's news (`AUTHORS`). Only some of them are also players. */
-export const AUTHOR_HANDLES = ["Fuyushiro", "Rivia", "Al1enado", "NascimentoRE", "Nyx_Vortex"] as const;
+export const AUTHOR_HANDLES = ["Cronista_Iolanda", "Arauto_Leopoldo", "Bardo_Quiteria", "Vigia_Custodio", "Escriba_Odete"] as const;
 
 export const ARTICLES: SeedArticle[] = [
   // Main highlight (preview HERO)
@@ -43,7 +44,7 @@ export const ARTICLES: SeedArticle[] = [
     category: "GUIAS",
     platforms: ["PC"],
     imageLabel: "imagem: conquistas raras",
-    authorHandle: "Fuyushiro",
+    authorHandle: "Cronista_Iolanda",
     featured: 2,
     likes: 356,
     comments: 120,
@@ -64,7 +65,7 @@ export const ARTICLES: SeedArticle[] = [
     category: "GUIAS",
     platforms: ["PC"],
     imageLabel: "hollow knight",
-    authorHandle: "Nyx_Vortex",
+    authorHandle: "Escriba_Odete",
     previewGameId: "hollow-knight",
     featured: 1,
     likes: 129,
@@ -84,7 +85,7 @@ export const ARTICLES: SeedArticle[] = [
     category: "COMUNIDADE",
     platforms: [],
     imageLabel: "evento halloween",
-    authorHandle: "Rivia",
+    authorHandle: "Arauto_Leopoldo",
     featured: 1,
     likes: 87,
     comments: 52,
@@ -103,7 +104,7 @@ export const ARTICLES: SeedArticle[] = [
     category: "GAMES",
     platforms: ["PLAYSTATION", "XBOX", "PC"],
     imageLabel: "hades",
-    authorHandle: "Al1enado",
+    authorHandle: "Bardo_Quiteria",
     previewGameId: "hades",
     featured: 1,
     likes: 64,
@@ -123,7 +124,7 @@ export const ARTICLES: SeedArticle[] = [
     category: "GAMES",
     platforms: ["PC"],
     imageLabel: "civilization vi",
-    authorHandle: "NascimentoRE",
+    authorHandle: "Vigia_Custodio",
     previewGameId: "civ6",
     featured: 1,
     likes: 53,
@@ -146,7 +147,7 @@ export const ARTICLES: SeedArticle[] = [
     category: "GUIAS",
     platforms: ["PC", "PLAYSTATION", "XBOX"],
     imageLabel: "baldurs gate 3",
-    authorHandle: "Rivia",
+    authorHandle: "Arauto_Leopoldo",
     previewGameId: "bg3",
     featured: 0,
     likes: 48,
@@ -167,7 +168,7 @@ export const ARTICLES: SeedArticle[] = [
     category: "COMUNIDADE",
     platforms: ["PLAYSTATION", "XBOX"],
     imageLabel: "perfil multiplataforma",
-    authorHandle: "Fuyushiro",
+    authorHandle: "Cronista_Iolanda",
     featured: 0,
     likes: 212,
     comments: 94,
@@ -187,7 +188,7 @@ export const ARTICLES: SeedArticle[] = [
     category: "GAMES",
     platforms: ["NINTENDO", "PC"],
     imageLabel: "celeste",
-    authorHandle: "Al1enado",
+    authorHandle: "Bardo_Quiteria",
     previewGameId: "celeste",
     featured: 0,
     likes: 31,
@@ -209,7 +210,7 @@ export const ARTICLES: SeedArticle[] = [
     category: "GUIAS",
     platforms: ["PC", "PLAYSTATION", "XBOX"],
     imageLabel: "resident evil 4",
-    authorHandle: "NascimentoRE",
+    authorHandle: "Vigia_Custodio",
     previewGameId: "re4",
     featured: 0,
     likes: 77,
@@ -230,7 +231,7 @@ export const ARTICLES: SeedArticle[] = [
     category: "COMUNIDADE",
     platforms: ["PC"],
     imageLabel: "phasmophobia",
-    authorHandle: "Rivia",
+    authorHandle: "Arauto_Leopoldo",
     previewGameId: "phasmophobia",
     featured: 0,
     likes: 22,

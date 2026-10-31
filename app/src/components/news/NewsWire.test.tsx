@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NewsTab, WireItem } from "@/lib/queries/news";
 import { NewsTabs } from "./NewsTabs";
-import { NewsWire } from "./NewsWire";
+import { copiesNeeded, NewsWire } from "./NewsWire";
 
 let reduceMotion = false;
 
@@ -123,6 +123,42 @@ describe("NewsWire", () => {
     expect(screen.queryByText(/Inseguro/)).toBeNull();
   });
 
+  it("needs more copies only when a short list would leave the stage edge uncovered", () => {
+    // 1440 px stage, 300 px cards, a list 5 cards long (5 × 318 px): one copy per side is enough.
+    expect(copiesNeeded(1440, 300, 1590)).toBe(1);
+    // Three cards on a 1920 px screen: one copy ends before the right edge, so two per side.
+    expect(copiesNeeded(1920, 300, 954)).toBe(2);
+    expect(copiesNeeded(3840, 300, 954)).toBe(3);
+    expect(copiesNeeded(0, 300, 0)).toBe(1);
+  });
+
+  it("adds loop copies on a wide stage, keeping one focusable card per story", () => {
+    const geometry = (name: string, get: (el: HTMLElement) => number) => {
+      vi.spyOn(HTMLElement.prototype, name as "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+        return get(this);
+      });
+    };
+    geometry("clientWidth", () => 1920);
+    geometry("offsetWidth", () => 300);
+    geometry("offsetLeft", (el) => Array.from(el.parentElement?.children ?? []).indexOf(el) * 318);
+    geometry("scrollWidth", (el) => el.children.length * 318 - 18);
+    // The observer reports the real size as soon as it observes (as browsers do).
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private cb: () => void) {}
+        observe() {
+          this.cb();
+        }
+        disconnect() {}
+      },
+    );
+    const three = items.slice(0, 3);
+    const { container } = render(<NewsWire items={three} />);
+    expect(container.querySelectorAll("a")).toHaveLength(three.length * 5);
+    expect(screen.getAllByRole("link")).toHaveLength(three.length);
+  });
+
   it("renders nothing without items", () => {
     const { container } = render(<NewsWire items={[]} />);
     expect(container).toBeEmptyDOMElement();
@@ -135,7 +171,7 @@ const story = (id: string, title: string) => ({
   kicker: "Guias",
   title,
   excerpt: `Resumo de ${title}`,
-  source: "@Rivia",
+  source: "@Arauto_Leopoldo",
   when: "ontem",
   seed: 1,
 });

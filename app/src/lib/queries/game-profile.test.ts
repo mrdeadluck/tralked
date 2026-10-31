@@ -1,12 +1,15 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
 import {
+  backdropVideo,
   bestProgress,
   buildGameNewsTabs,
+  discLabelArt,
   platformProgress,
   playableVideos,
   rankSimilar,
   safeMediaUrl,
+  steamMovieId,
 } from "./game-profile";
 
 async function databaseReachable(): Promise<boolean> {
@@ -51,12 +54,76 @@ describe("game profile helpers", () => {
         { ...row, id: "e", url: null, youtubeId: null, source: "fixture" },
         { ...row, id: "f", kind: "screenshot", url: "https://x.example.com/s.jpg", youtubeId: null },
       ],
-      "https://img.example.com/hero.jpg",
+      ["https://img.example.com/s9.jpg"],
     );
     expect(videos).toEqual([
-      { id: "a", kind: "file", url: "https://video.example.com/t.webm", poster: "https://img.example.com/hero.jpg", title: "Trailer", source: "Steam" },
-      { id: "b", kind: "youtube", youtubeId: "dQw4w9WgXcQ", title: "Vídeo 2", source: "YouTube via IGDB" },
+      { id: "a", kind: "file", url: "https://video.example.com/t.webm", thumbnail: "https://img.example.com/s9.jpg", title: "Trailer", source: "Steam" },
+      {
+        id: "b",
+        kind: "youtube",
+        youtubeId: "dQw4w9WgXcQ",
+        thumbnail: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+        title: "Vídeo 2",
+        source: "YouTube via IGDB",
+      },
     ]);
+  });
+
+  it("gives every video its own thumbnail: Steam's still of that trailer, never one shared picture", () => {
+    const row = { kind: "video", source: "steam", youtubeId: null };
+    const videos = playableVideos(
+      [
+        { ...row, id: "a", order: 0, url: "https://video.akamai.steamstatic.com/store_trailers/256889456/movie_max.mp4" },
+        { ...row, id: "b", order: 1, url: "https://cdn.akamai.steamstatic.com/steam/apps/256679401/movie480.mp4?t=1" },
+        { ...row, id: "c", order: 2, url: "https://video.example.com/one.mp4" },
+        { ...row, id: "d", order: 3, url: "https://video.example.com/two.mp4" },
+        { ...row, id: "e", order: 4, url: "https://video.example.com/three.mp4" },
+      ],
+      ["https://img.example.com/s3.jpg", "https://img.example.com/s2.jpg"],
+    );
+    expect(videos.map((v) => v.thumbnail)).toEqual([
+      "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/256889456/movie.293x165.jpg",
+      "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/256679401/movie.293x165.jpg",
+      "https://img.example.com/s3.jpg",
+      "https://img.example.com/s2.jpg",
+      null, // no picture of its own left: the tile draws its own generated art
+    ]);
+  });
+
+  it("disc label: a screenshot, else the logo over the art's colour, else generated; never the cover or hero", () => {
+    const art = { cover: "https://c.example.com/cover.jpg", hero: "https://c.example.com/hero.jpg", logo: "https://c.example.com/logo.png" };
+    const media = (kind: string, url: string | null, order = 0) => ({ id: `${kind}${order}`, kind, url, youtubeId: null, source: "steam", order });
+    expect(discLabelArt([media("screenshot", "https://c.example.com/s2.jpg", 2), media("screenshot", "https://c.example.com/s1.jpg", 1)], art)).toEqual({
+      kind: "shot",
+      url: "https://c.example.com/s1.jpg",
+    });
+    // A "screenshot" that is the cover or the hero is skipped; generated fixtures (url null) too.
+    expect(discLabelArt([media("screenshot", art.cover), media("screenshot", art.hero, 1), media("screenshot", null, 2)], art)).toEqual({
+      kind: "logo",
+      url: art.logo,
+      tintFrom: art.cover,
+    });
+    expect(discLabelArt([media("cover", art.cover), media("hero", art.hero)], { ...art, logo: null })).toEqual({ kind: "generated" });
+  });
+
+  it("background loop: Steam's lighter 480p file first (full size as fallback), else YouTube, else none", () => {
+    const row = { kind: "video", source: "steam", youtubeId: null };
+    expect(
+      backdropVideo([
+        { ...row, id: "y", order: 0, url: null, youtubeId: "dQw4w9WgXcQ", source: "igdb" },
+        { ...row, id: "s", order: 1, url: "https://video.akamai.steamstatic.com/store_trailers/256889456/movie_max.mp4" },
+      ]),
+    ).toEqual({
+      kind: "file",
+      sources: [
+        "https://video.akamai.steamstatic.com/store_trailers/256889456/movie480.mp4",
+        "https://video.akamai.steamstatic.com/store_trailers/256889456/movie_max.mp4",
+      ],
+      poster: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/256889456/movie.293x165.jpg",
+    });
+    expect(backdropVideo([{ ...row, id: "y", order: 0, url: null, youtubeId: "dQw4w9WgXcQ" }])).toEqual({ kind: "youtube", youtubeId: "dQw4w9WgXcQ" });
+    expect(backdropVideo([{ ...row, id: "x", order: 0, url: "javascript:alert(1)" }, { ...row, id: "f", order: 1, url: null, source: "fixture" }])).toBeNull();
+    expect(steamMovieId("https://evil.example.com/store_trailers/1/movie_max.mp4")).toBeNull();
   });
 
   it("platform progress: 100% only when complete, best platform prefers a completed one", () => {
@@ -231,13 +298,13 @@ describe.skipIf(!reachable)("game profile (seeded database)", () => {
 
     // Family: lucas first, then the other public members who played it.
     expect(me!.family?.[0]).toMatchObject({ handle: "lucas", me: true, pct: 100 });
-    expect(me!.family?.map((f) => f.handle)).toContain("LunaDeFerro");
+    expect(me!.family?.map((f) => f.handle)).toContain("Herbalista_Rosa");
   });
 
   it("a user without the game gets no progress but still the opened flag and family", async () => {
     const { prisma } = await import("@/lib/db");
     const { getGameProfileForUser } = await import("./game-profile");
-    const kairo = await prisma.user.findUniqueOrThrow({ where: { handle: "KairoBR" } });
+    const kairo = await prisma.user.findUniqueOrThrow({ where: { handle: "Cacador_Joaquim" } });
     const me = await getGameProfileForUser("hollow-knight", kairo.id);
     expect(me).toMatchObject({ opened: false, progress: null, trophies: null, attributes: null });
     expect(me!.family?.some((f) => f.handle === "lucas")).toBe(true);

@@ -1,11 +1,12 @@
 "use client";
 
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { INTRO_OFF_KEY, readIntroOff } from "./case-intro-pref";
 import { openedKey } from "./opened-key";
 
 /*
  * Veils the game page before its first paint when this is likely the visitor's first time with
- * the game (no "opened" flag in this browser, motion allowed), so the case intro drops onto a
+ * the game (no "opened" flag in this browser, the intro not turned off here, motion allowed), so the case intro drops onto a
  * clean stage instead of after a flash of the page. The account check comes later, in the intro
  * island; if the intro never takes over, page CSS unveils after a few seconds.
  *
@@ -22,12 +23,13 @@ const subscribeNothing = () => () => undefined;
 
 function inlineScript(slug: string) {
   const key = JSON.stringify(openedKey(slug)).replace(/</g, "\\u003c");
-  return `(function(){try{var r=document.getElementById(${JSON.stringify(ROOT_ID)});if(!r||matchMedia(${JSON.stringify(REDUCE)}).matches||localStorage.getItem(${key})==="1")return;r.setAttribute("data-intro","pending")}catch(e){}})();`;
+  const off = JSON.stringify(INTRO_OFF_KEY);
+  return `(function(){try{var r=document.getElementById(${JSON.stringify(ROOT_ID)});if(!r||matchMedia(${JSON.stringify(REDUCE)}).matches||localStorage.getItem(${key})==="1"||localStorage.getItem(${off})==="1")return;r.setAttribute("data-intro","pending")}catch(e){}})();`;
 }
 
 function veilIfFirstVisit(slug: string) {
   try {
-    if (window.matchMedia(REDUCE).matches || localStorage.getItem(openedKey(slug)) === "1") return;
+    if (window.matchMedia(REDUCE).matches || localStorage.getItem(openedKey(slug)) === "1" || readIntroOff()) return;
     document.getElementById(ROOT_ID)?.setAttribute("data-intro", "pending");
   } catch {
     // sem armazenamento local: a página aparece sem véu

@@ -20,7 +20,7 @@ describe("contentBlocksSchema", () => {
       { type: "heading", level: 2, text: "Rota" },
       { type: "paragraph", text: "Texto **forte**, *leve* e [fonte](https://example.com/a)." },
       { type: "list", ordered: true, items: ["Um", "Dois"] },
-      { type: "quote", text: "Vale cada tentativa.", author: "@KairoBR" },
+      { type: "quote", text: "Vale cada tentativa.", author: "@Cacador_Joaquim" },
       { type: "image", url: "https://cdn.example.com/a.webp", alt: "Mapa", credit: "Team Cherry" },
       { type: "video", youtubeId: "dQw4w9WgXcQ" },
       { type: "callout", tone: "spoiler", text: "O chefe final volta." },

@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { Fragment, type CSSProperties } from "react";
 import { PlatformChips } from "@/components/ui/PlatformChips";
 import type { AccountLink } from "./AccountMenu";
+import { GAME_MENU_OPTIONS } from "./game-menu";
 import { LogoutForm } from "./LogoutForm";
 import { NavLink } from "./NavLink";
 
@@ -35,15 +37,34 @@ export function MobileDrawer({
       className="flex flex-col border-t border-line px-5 pt-2 pb-5 text-[22px] font-extrabold font-stretch-[115%] tracking-[-0.02em] nav:hidden"
     >
       {items.map((item) => (
-        <NavLink
-          key={item.href}
-          href={item.href}
-          onClick={onNavigate}
-          aria-current={item.current ? "page" : undefined}
-          className={`${LINK_CLASS} ${item.current ? "text-acc" : ""}`}
-        >
-          {item.label}
-        </NavLink>
+        <Fragment key={item.href}>
+          <NavLink
+            href={item.href}
+            onClick={onNavigate}
+            aria-current={item.current ? "page" : undefined}
+            className={`${LINK_CLASS} ${item.current ? "text-acc" : ""}`}
+          >
+            {item.label}
+          </NavLink>
+          {item.href === "/jogos" ? (
+            // The header's "Jogos" menu, as a sub-list: the catalog by platform, Steam / PC first.
+            <ul aria-label="Jogos por plataforma" className="m-0 flex list-none flex-col border-b border-divider py-1 pl-4">
+              {GAME_MENU_OPTIONS.map((option) => (
+                <li key={option.href}>
+                  <Link
+                    href={option.href}
+                    onClick={onNavigate}
+                    className="flex min-h-11 items-center gap-3 text-[16px] font-semibold font-stretch-[100%] tracking-normal text-text-2 hover:text-acc"
+                    style={{ "--c": option.color } as CSSProperties}
+                  >
+                    <span className="size-2 flex-none bg-(--c)" aria-hidden="true" />
+                    {option.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </Fragment>
       ))}
       {accountItems.map((item) => (
         <Link

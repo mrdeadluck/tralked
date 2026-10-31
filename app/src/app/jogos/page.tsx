@@ -7,14 +7,16 @@ import { loginHref } from "@/components/guide/format";
 import { SectionHead } from "@/components/ui/SectionHead";
 import { getSessionUser } from "@/lib/auth/session";
 import { SKILLS, type SkillId } from "@/lib/engine/types";
-import { countGames, listGames, type GameFilter } from "@/lib/queries/games";
+import { GAME_MENU_OPTIONS } from "@/components/layout/game-menu";
+import { CATALOG_PLATFORMS, countGames, listGames, type GameFilter } from "@/lib/queries/games";
 
 export const metadata: Metadata = {
   title: "Jogos e guias | Tralked",
   description: "Catálogo de jogos com conquistas, guias 100% e o seu progresso em cada um.",
 };
 
-const PLATFORMS = new Set(["PLAYSTATION", "XBOX", "NINTENDO", "PC"]);
+const PLATFORMS = new Set<string>(CATALOG_PLATFORMS);
+const PLATFORM_LABEL = new Map(GAME_MENU_OPTIONS.map((o) => [new URL(o.href, "http://x").searchParams.get("plataforma"), o.label]));
 const CATALOG_SKILLS = SKILLS.filter((s) => s.id !== "sabio");
 
 const FILTER_OPTIONS = [
@@ -64,12 +66,18 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
         title="Jogos e guias"
         aside={
           <span className="tracking-normal text-dim normal-case">
-            {total} jogos de exemplo. A versão completa lista todo o catálogo Steam com conquistas.
+            {total.toLocaleString("pt-BR")} {total === 1 ? "jogo" : "jogos"} no catálogo
           </span>
         }
       />
       <div className="pt-4 pb-5">
-        <CatalogFilters current={current} options={FILTER_OPTIONS} q={q} platform={platform} />
+        <CatalogFilters
+          current={current}
+          options={FILTER_OPTIONS}
+          q={q}
+          platform={platform}
+          platformLabel={platform ? PLATFORM_LABEL.get(platform) : undefined}
+        />
       </div>
       <p className="mb-3.5 font-mono text-[11px] tracking-[0.06em] text-dim" aria-live="polite">
         {games.length} {games.length === 1 ? "JOGO" : "JOGOS"}

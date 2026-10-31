@@ -159,3 +159,22 @@ Valem as restrições de sempre do site (pt-BR, zod, axe sem erros sérios, migr
 
 ## Deixado para o builder
 Biblioteca de RSS/extração de texto, formato exato do prompt de estilo, critérios finos de relevância, URLs exatas das fontes (verificar cada uma), estrutura interna do SQLite, como resolver jogos ausentes no catálogo e se o retroativo e o ciclo normal rodam em paralelo.
+
+## Adendo — Pautas Tralked (matérias especiais sobre jogos famosos)
+
+Pedido do Lucas (2026-10-31): o robô também cria matérias sobre jogos famosos, "iguais às de exemplo" do site (Hollow Knight, Hades, Civilization VI, Baldur's Gate 3), "para ter insumos no site". Ele aprovou a proposta abaixo ("ok").
+
+- **O que são:** matérias especiais atemporais sobre jogos famosos, com olhar de caçador de conquistas e de jogador casual. Não são notícias do dia.
+- **Escolha do jogo:** lista curada de ~150 jogos famosos em `ROBO NOTICIAS/config/jogos-famosos.json`, com nome, `steamAppId` quando houver e URL da wiki. O robô sorteia um jogo que não ganhou pauta nos últimos **60 dias**, e só se o jogo existir no catálogo do Tralked (e não for stub).
+- **Formatos:**
+  1. "*Jogo* tem N conquistas: vale a pena caçar o 100%?"
+  2. "As 5 conquistas mais raras de *jogo* e o que cada uma pede"
+  3. "Conquistas perdíveis de *jogo*: o que saber antes de começar"
+  4. "*Jogo* para iniciantes: por onde começar"
+- **Fontes, para não inventar nada:** os dados do Tralked (lista completa de conquistas com descrição e raridade, tempo para zerar e completar, horas médias), a página do jogo na Steam e a wiki do jogo. Todas são citadas em "Fontes". Sem material suficiente para um formato, o robô troca de formato, e se nenhum servir pula o jogo. Ele nunca chuta.
+- **Cara:** a mesma das notícias. Assinatura "Equipe Tralked", "Em 3 pontos", "No Tralked", pergunta no fim. Categoria **GAMES**, ou **GUIAS** para os formatos 3 e 4.
+- **Quantidade (Lucas aprovou):**
+  - **Retroativo:** +90 pautas, uma por dia nos 3 meses, além das ~750 notícias, com horário entre 06h e 00h.
+  - **Dia a dia:** até **2 por dia, dentro do limite de 15**. A pauta ocupa um horário em que a melhor notícia da fila tem pontuação menor que 60. Se até o horário das 20h nenhuma pauta saiu no dia, o horário das 20h é de pauta. Notícia bomba sempre tem prioridade.
+- **Custo extra:** ~US$ 6 no retroativo e ~US$ 7 por mês.
+- **No site:** um endpoint de leitura com o dossiê do jogo (todas as conquistas visíveis, com descrição e raridade, resumo, datas, tempos, `steamAppId`), só com dados agregados.

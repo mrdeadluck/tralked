@@ -5,11 +5,12 @@
  * the rest of the wordmark the text colour.
  */
 
-/** Shield emblem with the T monogram and the chevron. */
+/** Shield emblem with the T monogram (`d`, accent) and the inner chevron (`chevron`, brand purple). */
 export const EMBLEM = {
   width: 373,
   height: 378,
-  d: "M102 153 102 200 180 279 261 201 261 154 181 231ZM363 38 284 113 284 226 189 315 189 377 333 243 333 135 363 106ZM8 38 8 106 37 136 37 244 175 377 175 315 86 227 86 113ZM0 1 59 62 149 62 149 172 179 202 211 173 211 62 311 62 372 1Z",
+  d: "M363 38 284 113 284 226 189 315 189 377 333 243 333 135 363 106ZM8 38 8 106 37 136 37 244 175 377 175 315 86 227 86 113ZM0 1 59 62 149 62 149 172 179 202 211 173 211 62 311 62 372 1Z",
+  chevron: "M102 153 102 200 180 279 261 201 261 154 181 231Z",
 } as const;
 
 /** "TRALKED" wordmark: `d` draws T R A L E D (even-odd, for the counters), `k` the accent K. */

@@ -555,8 +555,8 @@ footer div { max-width: 1320px; margin: 0 auto; padding: 26px 20px; display: fle
         <div class="side-card"><h3>Na sua família</h3>
           <div class="fam">
             <div><span class="av me"></span><span><b>@lucas</b><small>Steam · 87 h</small></span><span class="pc" style="color:var(--acc)">92%</span></div>
-            <div><span class="av"></span><span><b>@KairoBR</b><small>PSN · 120 h</small></span><span class="pc">100%</span></div>
-            <div><span class="av"></span><span><b>@LunaDeFerro</b><small>Xbox · 14 h</small></span><span class="pc">31%</span></div>
+            <div><span class="av"></span><span><b>@Cacador_Joaquim</b><small>PSN · 120 h</small></span><span class="pc">100%</span></div>
+            <div><span class="av"></span><span><b>@Herbalista_Rosa</b><small>Xbox · 14 h</small></span><span class="pc">31%</span></div>
           </div>
         </div>
       </div>
@@ -640,7 +640,7 @@ function paintDisc(cv, hues, seed, plat) {
 const VIDEOS = [['Trailer de lançamento', '2:14'], ['Godmaster: trailer', '1:42'], ['Rota do 100% em 7 etapas', '18:30'], ['Panteão de Hallownest sem dano', '42:07'], ['Speedrun abaixo de 5 h', '4:51:20']];
 const NEWS = [['Guia de 100% ganha rota em 7 etapas', 'Redação Tralked', 'ontem', true], ['Comunidade elege os 5 chefes mais difíceis', 'Redação Tralked', 'há 3 dias', true], ['Atualização corrige conquista do Panteão', 'Fonte externa', 'há 1 semana', false], ['Speedrunner brasileiro bate recorde mundial', 'Fonte externa', 'há 2 semanas', false]];
 const SIMILAR = [['Celeste', 'celeste', 'Plataforma'], ['Ori and the Will of the Wisps', 'ori', 'Plataforma'], ['Dead Cells', 'cells', 'Roguelike'], ['Hades', 'hades', 'Roguelike'], ['Elden Ring', 'elden', 'Soulslike'], ['Blasphemous', 'blasph', 'Soulslike']];
-const HANDLES = ['nyx_vortex', 'kairobr', 'lunadeferro', 'b0ltz', 'pixelmancer', 'morrigan77', 'zedocombo', 'ironveil', 'valkyriezero'];
+const HANDLES = ['nyx_vortex', 'kairobr', 'lunadeferro', 'Barqueiro_Tobias', 'pixelmancer', 'taverneira-gerta', 'zedocombo', 'ironveil', 'valkyriezero'];
 const mk = (tag, cls, html = '') => { const e = document.createElement(tag); if (cls) e.className = cls; e.innerHTML = html; return e; };
 function canvasEl(w, h, hues, seed, opts) { const c = document.createElement('canvas'); c.width = w; c.height = h; paint(c, hues, seed, opts); return c; }
 
@@ -737,15 +737,15 @@ wStage.addEventListener('keydown', e => { if (e.key === 'ArrowRight') { e.preven
 const STORIES = [
   { cat: 'guias', k: 'Guias', t: 'Rota do 100% ganha 7 etapas e checklist automático', d: 'A rota foi refeita com os tempos reais da comunidade e agora marca sozinha as etapas que você já fechou.', src: 'Redação Tralked', when: 'ontem', seed: 501 },
   { cat: 'guias', k: 'Guias', t: 'Os 5 chefes que mais travam o 100%', src: 'Redação Tralked', when: 'há 5 dias', seed: 502 },
-  { cat: 'guias', k: 'Guias', t: 'Panteão de Hallownest: amuletos que salvam a tentativa', src: '@Nyx_Vortex', when: 'há 1 semana', seed: 503 },
+  { cat: 'guias', k: 'Guias', t: 'Panteão de Hallownest: amuletos que salvam a tentativa', src: '@Escriba_Odete', when: 'há 1 semana', seed: 503 },
   { cat: 'atualizacoes', k: 'Atualização', t: 'Patch 1.5.78 corrige conquista do Panteão do Cavaleiro', d: 'A conquista Soul and Shade deixava de registrar em alguns saves. Quem já tinha completado recebe na próxima sincronização.', src: 'Fonte externa', when: 'há 3 dias', seed: 504 },
   { cat: 'atualizacoes', k: 'Atualização', t: 'Modo de acessibilidade chega ao jogo', src: 'Fonte externa', when: 'há 2 semanas', seed: 505 },
-  { cat: 'comunidade', k: 'Comunidade', t: 'Quem fez 112% em 9 horas, e como', d: 'Conversamos com @KairoBR sobre a rota, os amuletos e as 300 tentativas no Panteão.', src: 'Redação Tralked', when: 'há 4 dias', seed: 506 },
+  { cat: 'comunidade', k: 'Comunidade', t: 'Quem fez 112% em 9 horas, e como', d: 'Conversamos com @Cacador_Joaquim sobre a rota, os amuletos e as 300 tentativas no Panteão.', src: 'Redação Tralked', when: 'há 4 dias', seed: 506 },
   { cat: 'comunidade', k: 'Galeria', t: 'Foto da semana: Cidade das Lágrimas', src: '@lunadeferro', when: 'há 6 dias', seed: 507 },
   { cat: 'comunidade', k: 'Evento', t: 'Semana Soulslike: XP em dobro até domingo', src: 'Tralked', when: 'hoje', seed: 508 },
   { cat: 'videos', k: 'Vídeo', t: 'Speedrun abaixo de 5 horas, comentado', d: 'O recorde brasileiro explicado trecho a trecho, com os atalhos que economizam mais tempo.', src: 'YouTube via IGDB', when: 'há 2 dias', seed: 509 },
   { cat: 'videos', k: 'Vídeo', t: 'Trailer do Godmaster remasterizado', src: 'YouTube via IGDB', when: 'há 3 semanas', seed: 510 },
-  { cat: 'guias', k: 'Guias', t: 'Todas as 46 larvas em ordem de rota', src: '@b0ltz', when: 'há 2 semanas', seed: 511 }
+  { cat: 'guias', k: 'Guias', t: 'Todas as 46 larvas em ordem de rota', src: '@Barqueiro_Tobias', when: 'há 2 semanas', seed: 511 }
 ];
 const TABS = [['ultimas', 'Últimas'], ['guias', 'Guias'], ['atualizacoes', 'Atualizações'], ['comunidade', 'Comunidade'], ['videos', 'Vídeos']];
 const tablist = document.getElementById('tablist'), panel = document.getElementById('panel'), ink = document.getElementById('tabInk');

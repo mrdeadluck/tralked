@@ -19,13 +19,16 @@ import { timeAgo } from "@/lib/time-ago";
 export const NEWS_TAG = "news";
 export const articleTag = (slug: string) => `article:${slug}`;
 
-export type ArticleCategory = "GAMES" | "GUIAS" | "COMUNIDADE";
+export type ArticleCategory = "GAMES" | "GUIAS" | "COMUNIDADE" | "MERCADO" | "ENTRETENIMENTO" | "TECNOLOGIA";
 export type ArticlePlatform = "PC" | "PLAYSTATION" | "XBOX" | "NINTENDO";
 
 export const CATEGORIES: { id: ArticleCategory; slug: string; label: string }[] = [
   { id: "GAMES", slug: "games", label: "Games" },
   { id: "GUIAS", slug: "guias", label: "Guias" },
   { id: "COMUNIDADE", slug: "comunidade", label: "Comunidade" },
+  { id: "MERCADO", slug: "mercado", label: "Mercado" },
+  { id: "ENTRETENIMENTO", slug: "entretenimento", label: "Entretenimento" },
+  { id: "TECNOLOGIA", slug: "tecnologia", label: "Tecnologia" },
 ];
 
 export const categoryLabel = (id: ArticleCategory) => CATEGORIES.find((c) => c.id === id)?.label ?? id;
@@ -46,7 +49,7 @@ export type ArticleCard = {
   imageUrl: string | null;
   /** Without the leading "@". */
   authorHandle: string;
-  /** How the byline reads: "@handle" for people, the bare "Robô <nome>" for bot articles. */
+  /** How the byline reads: "@handle" for people, "Equipe Tralked" for bot articles. */
   authorLabel: string;
   /** Written by a robot through the API (Article.source = "bot"). */
   bot: boolean;
@@ -171,9 +174,12 @@ function relatedGames(row: Pick<CardRow, "game" | "games">): GameRow[] {
   return games;
 }
 
-/** Byline: bot authors are already "Robô <key name>" and never get the "@" of a user handle. */
+/** Public byline of robot articles. The internal author handle stays "Robô <key name>". */
+export const BOT_BYLINE = "Equipe Tralked";
+
+/** Byline: robot articles are signed by the newsroom team; people get the "@" of their handle. */
 export function authorLabel(source: string | null, handle: string): string {
-  return source === "bot" ? handle : `@${handle}`;
+  return source === "bot" ? BOT_BYLINE : `@${handle}`;
 }
 
 /** First paragraph of a Markdown body, without markup. */
@@ -511,6 +517,9 @@ const NEWP_WORDS: Record<ArticleCategory | "EXTERNAL", string> = {
   GAMES: "nova////\nnotícia",
   GUIAS: "novo////\nguia",
   COMUNIDADE: "da////\ncomunidade",
+  MERCADO: "do////\nmercado",
+  ENTRETENIMENTO: "de////\nentretenimento",
+  TECNOLOGIA: "de////\ntecnologia",
   EXTERNAL: "na////\nimprensa",
 };
 

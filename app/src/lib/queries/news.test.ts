@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
+import type { ArticleCategory } from "./news";
 
 // Needs Postgres up and seeded (`pnpm db:up && pnpm db:migrate && pnpm db:seed`);
 // skipped when the database is not reachable.
@@ -56,7 +57,7 @@ describe.skipIf(!reachable)("news queries (seeded database)", () => {
   it("getArticle returns the article with author, or null for an unknown slug", async () => {
     const { getArticle } = await import("./news");
     const article = await getArticle("25-conquistas-mais-raras-da-steam-em-2026");
-    expect(article?.authorHandle).toBe("Fuyushiro");
+    expect(article?.authorHandle).toBe("Cronista_Iolanda");
     expect(article?.body.length).toBeGreaterThan(0);
     expect(await getArticle("nao-existe")).toBeNull();
   });
@@ -227,7 +228,7 @@ describe.skipIf(!reachable)("news queries (seeded database)", () => {
 
 describe("wire and tab view models", () => {
   const now = new Date("2026-10-31T12:00:00Z");
-  const card = (slug: string, category: "GAMES" | "GUIAS" | "COMUNIDADE", hoursAgo: number) => ({
+  const card = (slug: string, category: ArticleCategory, hoursAgo: number) => ({
     id: slug,
     slug,
     title: `Título ${slug}`,
@@ -237,8 +238,8 @@ describe("wire and tab view models", () => {
     platforms: [],
     imageLabel: slug,
     imageUrl: null,
-    authorHandle: "Rivia",
-    authorLabel: "@Rivia",
+    authorHandle: "Arauto_Leopoldo",
+    authorLabel: "@Arauto_Leopoldo",
     bot: false,
     featured: 0,
     likes: 0,
@@ -315,20 +316,36 @@ describe("wire and tab view models", () => {
       ["games", 0, "/noticias?categoria=games#arquivo"],
       ["guias", 1, "/noticias?categoria=guias#arquivo"],
       ["comunidade", 1, "/noticias?categoria=comunidade#arquivo"],
+      ["mercado", 0, "/noticias?categoria=mercado#arquivo"],
+      ["entretenimento", 0, "/noticias?categoria=entretenimento#arquivo"],
+      ["tecnologia", 0, "/noticias?categoria=tecnologia#arquivo"],
     ]);
   });
 
-  it("credits robots without the '@' of a user handle, on tabs and on the wire", async () => {
-    const { articleStory, authorLabel, buildWireItems } = await import("./news");
-    expect(authorLabel("bot", "Robô Patch Notes")).toBe("Robô Patch Notes");
-    expect(authorLabel("editorial", "Rivia")).toBe("@Rivia");
-    expect(authorLabel(null, "Rivia")).toBe("@Rivia");
+  it("maps the new category slugs and labels", async () => {
+    const { categoryFromSlug, categoryLabel } = await import("./news");
+    expect(categoryFromSlug("mercado")).toBe("MERCADO");
+    expect(categoryFromSlug("entretenimento")).toBe("ENTRETENIMENTO");
+    expect(categoryFromSlug("tecnologia")).toBe("TECNOLOGIA");
+    expect(categoryLabel("MERCADO")).toBe("Mercado");
+    expect(categoryLabel("ENTRETENIMENTO")).toBe("Entretenimento");
+    expect(categoryLabel("TECNOLOGIA")).toBe("Tecnologia");
+  });
 
-    const bot = { ...card("r", "GAMES", 1), authorHandle: "Robô Patch Notes", authorLabel: "Robô Patch Notes", bot: true };
-    expect(articleStory(bot, now).source).toBe("Robô Patch Notes");
-    expect(articleStory(card("h", "GAMES", 1), now).source).toBe("@Rivia");
+  it("signs robots as 'Equipe Tralked' (no '@'), on tabs and on the wire", async () => {
+    const { BOT_BYLINE, articleStory, authorLabel, buildWireItems } = await import("./news");
+    expect(BOT_BYLINE).toBe("Equipe Tralked");
+    expect(authorLabel("bot", "Robô Notícias")).toBe("Equipe Tralked");
+    expect(authorLabel("editorial", "mrdead")).toBe("@mrdead");
+    expect(authorLabel(null, "Arauto_Leopoldo")).toBe("@Arauto_Leopoldo");
+
+    const bot = { ...card("r", "GAMES", 1), authorHandle: "Robô Patch Notes", authorLabel: authorLabel("bot", "Robô Patch Notes"), bot: true, humanAuthored: false };
+    expect(bot.authorLabel).toBe("Equipe Tralked");
+    expect(bot.humanAuthored).toBe(false);
+    expect(articleStory(bot, now).source).toBe("Equipe Tralked");
+    expect(articleStory(card("h", "GAMES", 1), now).source).toBe("@Arauto_Leopoldo");
     const [wireBot, wireHuman] = buildWireItems([bot, card("h", "GAMES", 2)], [], now);
-    expect(wireBot.source).toBe("Robô Patch Notes");
+    expect(wireBot.source).toBe("Equipe Tralked");
     expect(wireHuman.source).toBe("Redação Tralked");
   });
 });

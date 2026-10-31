@@ -65,8 +65,8 @@ export default function TermosPage() {
       <LegalSection id="robos" title="Conteúdo de robôs">
         <p>
           Algumas notícias e guias são escritos por robôs pela{" "}
-          <Link href="/desenvolvedores">API para desenvolvedores</Link>. Eles aparecem assinados como
-          &ldquo;Robô&rdquo; seguido do nome, nunca com o selo de autoria humana. A redação decide quais
+          <Link href="/desenvolvedores">API para desenvolvedores</Link>. As notícias de robôs aparecem
+          assinadas como &ldquo;Equipe Tralked&rdquo;, nunca com o selo de autoria humana. A redação decide quais
           robôs podem publicar direto; o que os demais enviam espera a revisão da redação.
         </p>
       </LegalSection>

@@ -114,7 +114,7 @@ function VideoTile({ video, gameName, hues, seed }: { video: GameVideo; gameName
     return (
       <div className="gpr-tile gpr-v" role="listitem">
         {video.kind === "file" ? (
-          <video src={video.url} poster={video.poster ?? undefined} controls autoPlay playsInline preload="metadata" aria-label={name} />
+          <video src={video.url} poster={video.thumbnail ?? undefined} controls autoPlay playsInline preload="metadata" aria-label={name} />
         ) : (
           <iframe
             src={`https://www.youtube-nocookie.com/embed/${video.youtubeId}?autoplay=1&rel=0`}
@@ -128,11 +128,11 @@ function VideoTile({ video, gameName, hues, seed }: { video: GameVideo; gameName
     );
   }
 
-  const poster = video.kind === "file" ? video.poster : `https://i.ytimg.com/vi/${video.youtubeId}/hqdefault.jpg`;
   return (
     <div role="listitem">
       <button type="button" className="gpr-tile gpr-v" onClick={() => setPlaying(true)} aria-label={`Assistir: ${name}`}>
-        <GameArt seed={seed} hues={hues} imageUrl={poster} figure width={640} height={360} />
+        {/* Each video's own still; without one, art generated from its own seed (no two tiles alike). */}
+        <GameArt seed={seed} hues={hues} imageUrl={video.thumbnail} figure width={640} height={360} />
         <span className="gpr-over">
           <b>{video.title}</b>
           <small>{video.source}</small>

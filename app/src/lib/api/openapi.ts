@@ -106,10 +106,38 @@ export function openApiDocument(): JsonSchema {
     tags: [{ name: "Notícias" }, { name: "Guias" }, { name: "Catálogo" }],
     paths: {
       "/api/v1/articles": {
+        get: {
+          tags: ["Notícias"],
+          summary: "Notícias publicadas recentemente (de qualquer autor)",
+          description:
+            "Qualquer chave ativa. Só notícias publicadas, da mais nova para a mais antiga. Serve para o robô não repetir o que o site já cobriu.",
+          parameters: [
+            {
+              name: "since",
+              in: "query",
+              required: false,
+              description: "Horário ISO 8601 com fuso; devolve notícias publicadas a partir dele. Padrão: 7 dias atrás.",
+              schema: { type: "string", format: "date-time" },
+            },
+            {
+              name: "limit",
+              in: "query",
+              required: false,
+              schema: { type: "integer", minimum: 1, maximum: 200, default: 100 },
+            },
+          ],
+          responses: {
+            "200": { description: "Notícias publicadas.", content: json(ref("ArticleFeed")) },
+            "400": writeErrors["400"],
+            "401": writeErrors["401"],
+            "429": writeErrors["429"],
+          },
+        },
         post: {
           tags: ["Notícias"],
           summary: "Criar notícia",
-          description: "Escopo articles:write (publicar direto: publish).",
+          description:
+            "Escopo articles:write (publicar direto: publish). Com publish, publishedAt (ISO 8601 com fuso) data a notícia entre 120 dias atrás e 5 minutos à frente; só vale com status published.",
           parameters: [idempotencyParam],
           requestBody: { required: true, content: json(ref("ArticlePayload")) },
           responses: {
@@ -133,6 +161,7 @@ export function openApiDocument(): JsonSchema {
         patch: {
           tags: ["Notícias"],
           summary: "Alterar notícia criada por esta chave",
+          description: 'Com o escopo publish, status "archived" tira a notícia do site.',
           parameters: [idParam, idempotencyParam],
           requestBody: { required: true, content: json(ref("ArticlePatch")) },
           responses: {
@@ -198,6 +227,21 @@ export function openApiDocument(): JsonSchema {
           },
         },
       },
+      "/api/v1/games/{slug}/insights": {
+        get: {
+          tags: ["Catálogo"],
+          summary: "Dados agregados de um jogo no Tralked",
+          description:
+            "Qualquer chave ativa. Só agregados, sem usuários: a média de tempo de jogo só aparece com 3 ou mais jogadores que jogaram.",
+          parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": { description: "Dados do jogo.", content: json(ref("GameInsights")) },
+            "401": writeErrors["401"],
+            "404": errorResponse("Jogo não encontrado."),
+            "429": writeErrors["429"],
+          },
+        },
+      },
     },
     components: {
       securitySchemes: {
@@ -249,6 +293,62 @@ export function openApiDocument(): JsonSchema {
             publishedAt: { type: ["string", "null"], format: "date-time" },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        ArticleFeed: {
+          type: "object",
+          properties: {
+            articles: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  slug: { type: "string" },
+                  title: { type: "string" },
+                  category: { type: "string" },
+                  publishedAt: { type: "string", format: "date-time" },
+                  source: { type: "string", enum: ["editorial", "bot"] },
+                  games: { type: "array", items: { type: "string" }, description: "Slugs dos jogos da notícia." },
+                },
+              },
+            },
+          },
+        },
+        GameInsights: {
+          type: "object",
+          properties: {
+            game: {
+              type: "object",
+              properties: {
+                slug: { type: "string" },
+                name: { type: "string" },
+                releaseDate: { type: ["string", "null"], format: "date-time" },
+                platforms: { type: "array", items: { type: "string" } },
+                achievementCount: { type: "integer" },
+                timeToBeatCompleteMin: { type: ["integer", "null"] },
+              },
+            },
+            tralked: {
+              type: "object",
+              properties: {
+                players: { type: "integer", description: "Usuários com o jogo na biblioteca." },
+                avgPlaytimeMin: { type: ["integer", "null"], description: "Nulo com menos de 3 jogadores que jogaram." },
+              },
+            },
+            rarest: {
+              type: "array",
+              description: "Até 5 conquistas visíveis com a menor raridade global, da mais rara para a menos.",
+              items: {
+                type: "object",
+                properties: {
+                  platform: { type: "string" },
+                  apiName: { type: "string" },
+                  name: { type: "string" },
+                  globalPct: { type: "number" },
+                },
+              },
+            },
           },
         },
         GameSearch: {

@@ -13,6 +13,8 @@ type CatalogFiltersProps = {
   /** Extra URL filters that stay while the chip changes. */
   q?: string;
   platform?: string;
+  /** Human name of `platform` ("Steam / PC"). */
+  platformLabel?: string;
 };
 
 function hrefFor(id: CatalogFilterId, q?: string, platform?: string): string {
@@ -27,7 +29,7 @@ function hrefFor(id: CatalogFilterId, q?: string, platform?: string): string {
 }
 
 /** Filters live in the URL so a filtered catalog can be linked and bookmarked. */
-export function CatalogFilters({ current, options, q, platform }: CatalogFiltersProps) {
+export function CatalogFilters({ current, options, q, platform, platformLabel }: CatalogFiltersProps) {
   const router = useRouter();
   const pill =
     "inline-flex h-[34px] items-center gap-2 rounded-[2px] border border-acc px-3 font-mono text-[11px] tracking-[0.08em] text-acc uppercase hover:bg-acc hover:text-bg";
@@ -44,7 +46,7 @@ export function CatalogFilters({ current, options, q, platform }: CatalogFilters
         <div className="flex flex-wrap gap-1.5">
           {platform ? (
             <Link href={hrefFor(current, q, undefined)} className={pill}>
-              Plataforma: {platform} ✕
+              Plataforma: {platformLabel ?? platform} ✕
             </Link>
           ) : null}
           {q ? (

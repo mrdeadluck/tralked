@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
+import { SLOGAN } from "@/components/brand/slogan";
 import { Footer } from "@/components/layout/Footer";
 import { LoginNotice } from "@/components/layout/LoginNotice";
 import { PageBackdrop } from "@/components/layout/PageBackdrop";
@@ -25,9 +26,9 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   // Makes Open Graph / canonical URLs absolute (the public origin).
   metadataBase: new URL(env.APP_URL),
-  title: "Tralked",
+  title: SLOGAN,
   description:
-    "Notícias de games e guias de conquistas, feitos por pessoas que amam jogar.",
+    "Seu ecossistema gamer: notícias de games, guias de conquistas 100%, a sua biblioteca e a sua ficha de personagem.",
   openGraph: { siteName: "Tralked", locale: "pt_BR", type: "website" },
 };
 

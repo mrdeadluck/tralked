@@ -108,6 +108,7 @@ const SCOPES: { scope: string; allows: string }[] = [
 ];
 
 const ENDPOINTS: { method: string; path: string; scope: string; does: string }[] = [
+  { method: "GET", path: "/api/v1/articles", scope: "qualquer chave", does: "Notícias publicadas (de qualquer autor), da mais nova para a mais antiga. Filtros: since, limit." },
   { method: "POST", path: "/api/v1/articles", scope: "articles:write", does: "Cria uma notícia. Responde 201." },
   { method: "GET", path: "/api/v1/articles/{id}", scope: "articles:write", does: "Status de uma notícia desta chave." },
   { method: "PATCH", path: "/api/v1/articles/{id}", scope: "articles:write", does: "Altera campos de uma notícia desta chave." },
@@ -115,6 +116,7 @@ const ENDPOINTS: { method: string; path: string; scope: string; does: string }[]
   { method: "GET", path: "/api/v1/guides/{id}", scope: "guides:write", does: "Status e versão de um guia desta chave." },
   { method: "PATCH", path: "/api/v1/guides/{id}", scope: "guides:write", does: "Atualiza um guia desta chave e salva uma nova versão." },
   { method: "GET", path: "/api/v1/games", scope: "qualquer chave", does: "Procura jogos por nome, slug, steamAppId ou igdbId." },
+  { method: "GET", path: "/api/v1/games/{slug}/insights", scope: "qualquer chave", does: "Dados agregados do jogo no Tralked: jogadores, tempo médio e conquistas mais raras. Sem dados de usuários." },
   { method: "GET", path: "/api/v1/openapi.json", scope: "pública", does: "Descrição OpenAPI 3.1 de toda a API." },
   { method: "GET", path: "/api/v1/schemas/article.json", scope: "pública", does: "JSON Schema do corpo de uma notícia." },
   { method: "GET", path: "/api/v1/schemas/guide.json", scope: "pública", does: "JSON Schema do corpo de um guia." },
@@ -248,9 +250,8 @@ export default function DesenvolvedoresPage() {
               revisão do admin. Um editor publica.
             </li>
             <li>
-              Notícias de robô são assinadas como <C>Robô &lt;nome da chave&gt;</C>, nunca recebem o selo
-              &ldquo;Autoria humana&rdquo; e, depois que um editor aprova, mostram &ldquo;Gerado por robô · revisado
-              pela redação&rdquo;.
+              Notícias de robô são assinadas como <C>Equipe Tralked</C> e nunca recebem o selo &ldquo;Autoria
+              humana&rdquo;. O nome da chave aparece só no admin.
             </li>
           </ul>
         </Section>
@@ -292,7 +293,8 @@ export default function DesenvolvedoresPage() {
 
         <Section id="noticias" title="Criar uma notícia">
           <p className={prose}>
-            Campos obrigatórios: <C>title</C>, <C>category</C> (<C>GAMES</C>, <C>GUIAS</C> ou <C>COMUNIDADE</C>) e{" "}
+            Campos obrigatórios: <C>title</C>, <C>category</C> (<C>GAMES</C>, <C>GUIAS</C>, <C>COMUNIDADE</C>, <C>MERCADO</C>,{" "}
+            <C>ENTRETENIMENTO</C> ou <C>TECNOLOGIA</C>) e{" "}
             <C>blocks</C> com ao menos um bloco. Os opcionais são <C>subtitle</C>, <C>excerpt</C> (resumo dos
             cartões), <C>slug</C> (gerado do título se faltar), <C>platforms</C> (<C>PC</C>, <C>PLAYSTATION</C>,{" "}
             <C>XBOX</C>, <C>NINTENDO</C>), <C>games</C>, <C>imageLabel</C> e <C>status</C>.
@@ -301,6 +303,13 @@ export default function DesenvolvedoresPage() {
             Cada jogo em <C>games</C> é indicado por exatamente um entre <C>slug</C>, <C>steamAppId</C> e{" "}
             <C>igdbId</C>, e precisa existir no catálogo. <C>status</C> aceita <C>review</C> ou <C>published</C>;
             sem ele, a notícia vai para revisão, ou é publicada direto se a chave tiver <C>publish</C>.
+          </p>
+          <p className={prose}>
+            Chaves com <C>publish</C> também podem datar a notícia com <C>publishedAt</C>, um horário ISO 8601 com
+            fuso (por exemplo <C>2026-10-01T14:30:00-03:00</C>). Ele define quando a notícia aparece como publicada
+            e a posição dela nas listas. Aceita de 120 dias atrás até 5 minutos à frente, e só combina com{" "}
+            <C>status</C> <C>published</C>; fora disso a resposta é <C>422</C> (ou <C>403</C> sem o escopo{" "}
+            <C>publish</C>), com <C>/publishedAt</C> em <C>issues</C>.
           </p>
           <p className={prose}>Este exemplo usa todos os tipos de bloco:</p>
           <Code label="noticia.json" code={pretty(EXAMPLE_ARTICLE)} tall />
@@ -314,7 +323,9 @@ export default function DesenvolvedoresPage() {
             <C>GET /api/v1/articles/&#123;id&#125;</C> devolve <C>status</C>, <C>reviewed</C> (aprovada por um
             editor) e as datas. <C>PATCH</C> no mesmo caminho troca só os campos enviados; <C>blocks</C> e{" "}
             <C>games</C> são substituídos inteiros e o <C>slug</C> não muda. Depois que a redação publica, só uma
-            chave com <C>publish</C> pode alterar a notícia (senão, <C>409 published_locked</C>).
+            chave com <C>publish</C> pode alterar a notícia (senão, <C>409 published_locked</C>). No <C>PATCH</C>,{" "}
+            <C>status</C> também aceita <C>archived</C>, que tira a notícia do site; é exclusivo de quem tem{" "}
+            <C>publish</C> (senão, <C>403</C>).
           </p>
           <Code label="Consultar o status" code={CURL_STATUS} />
         </Section>

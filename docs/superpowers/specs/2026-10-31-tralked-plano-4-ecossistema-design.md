@@ -69,10 +69,24 @@ Pedido: "conectar com alguma fonte que mostrasse os próximos lançamentos e os 
 - Fontes (controller): **Steam Store** para PC (listas públicas de novos lançamentos e "em breve", ex. `store.steampowered.com/api/featuredcategories` — verificar o formato atual; sem chave), e **IGDB** `release_dates` por plataforma (PS5/PS4, Xbox Series/One, Switch, PC) quando `IGDB_CLIENT_ID/SECRET` existirem. Cron a cada 6 h; jogos desconhecidos entram no catálogo (`syncGame`).
 - **Card "Lançamentos" na home**: abas **Últimos** (últimos 30 dias) e **Próximos** (próximos 90 dias), PC primeiro, filtro por plataforma; capa, data (ou "a definir"), plataformas; link para a página do jogo.
 - Página `/lancamentos` com a lista completa e os mesmos filtros; os lançamentos alimentam o calendário (F8).
+- **Catálogo completo de consoles** (Lucas: "não esqueça de escanear todos os jogos possíveis"): com as chaves IGDB, importar todos os jogos das plataformas PlayStation (PS1–PS5), Xbox (todas), Nintendo (Switch e anteriores) e PC que não estejam no catálogo, como stubs (nome, plataformas, IGDB id, data), paginado e retomável (cursor em `SyncCursor`), respeitando o limite da IGDB; casar com jogos já existentes (Steam appid/IGDB id/nome normalizado) para não duplicar; detalhes e arte pela mesma fila de prioridade. Somado ao catálogo Steam completo (F1), a busca de `/jogos` encontra "todos os jogos possíveis".
+
+### F11 — Jogos e Família organizados (paginação)
+Pedido: "não ficar tudo mostrando numa lista infinita, até uns 80 por página, escolha de no mínimo 10 por página, ou algo que deixe mais bonito".
+- `/jogos`: grade de capas com **paginação numerada** (anterior/próxima, primeira/última, reticências), seletor **10 / 20 / 40 / 80 por página** (padrão 40), filtros e ordenação no topo (plataforma, gênero, popular, nome, lançamento, "quase lá"); estado na URL (`?pagina=&por=&…`), funciona sem JS; contagem "X jogos no catálogo"; stubs fora.
+- `/familia`: resumo dos integrantes no topo; **biblioteca da família** em grade paginada com o mesmo seletor; filtro por integrante, "todos têm"/"só alguém tem"; seções organizadas em vez de uma lista única.
+- **Buscador por nome** nas duas páginas (Lucas): campo no topo, resultado enquanto digita (debounce) e também por envio sem JS; ignora acentos e maiúsculas; mantém filtros e volta à página 1. Em `/jogos` a busca **inclui os jogos do catálogo completo ainda sem detalhes** (stubs), marcados "detalhes em breve" (controller: achar qualquer jogo da Steam pelo nome é o que torna a biblioteca "completíssima"); exige índice de busca adequado para ~150k nomes (ex. `pg_trgm` + `unaccent`, ou coluna normalizada indexada). Na Família, busca dentro da biblioteca da família.
+- O mesmo componente de paginação (e o buscador) serve à lista de jogos do perfil (F3).
+
+### F12 — Do guia e da notícia para a página do jogo
+Pedido: "se eu abrir o guia do jogo ou uma notícia referente ao jogo, consiga ir para a página do game também".
+- **Notícia**: logo abaixo do título, chips com capa real (arte do catálogo) e nome de cada jogo ligado, com "Ver jogo" (página do jogo) e "Guia 100%" quando existir; o bloco do fim ("Jogo desta notícia") passa a ter os dois links (hoje só leva ao guia quando há guia). Stubs aparecem com nome, sem capa quebrada.
+- **Guia**: cabeçalho com capa + nome do jogo e link "Página do jogo"; trilha `Jogos › <Jogo> › Guia`.
+- Depende da Parte A do Robô de Notícias (mexe em `noticias/[slug]/page.tsx`): implementar depois que ela entrar, só acrescentando.
 
 ## Ordem (controller)
 - Onda 1 (paralela, áreas separadas): **F1+F2** (sync + RPG), **F4** (e-mail + Google), **F5** (marca/nav/capinha/nomes).
-- Onda 2: **F3** (perfil), **F6** (highscores), **F7+F8+F10** (notícias + calendário + lançamentos).
+- Onda 2: **F3** (perfil) + **F11** (paginação Jogos/Família) + **F12** (links para a página do jogo), **F6** (highscores), **F7+F8+F10** (notícias + calendário + lançamentos).
 - Onda 3: **F9** (social).
 - Depois: emulador (Plano 3) e hospedagem definitiva.
 

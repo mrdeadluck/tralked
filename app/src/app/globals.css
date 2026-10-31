@@ -24,6 +24,8 @@
   --dim-2: #7c7f88;
   --ph: #5d6068;
   --acc: #c6f432;
+  /* Brand purple: the chevron inside the logo emblem. */
+  --brand-2: #a368fa;
   --discord: #5865f2;
   --ps: oklch(0.74 0.14 255);
   --xbox: oklch(0.74 0.14 145);

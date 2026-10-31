@@ -8,7 +8,7 @@ export type GuideCategory = "historia" | "chefes" | "coletaveis" | "desafio" | "
 
 export const HK_GUIDE = {
   gameSlug: "hollow-knight",
-  authorHandle: "Nyx_Vortex",
+  authorHandle: "Escriba_Odete",
   status: "published" as const,
   version: "v3.2",
   difficulty: 8,
@@ -119,16 +119,16 @@ export const HK_GUIDE = {
     steps?: string[];
   }[],
   tips: [
-    { handle: "KairoBR", votes: 342, body: "Para o Panteão de Hallownest, treinar só os últimos cinco chefes em sequência me poupou umas 10 horas." },
-    { handle: "LunaDeFerro", votes: 198, body: "Na Alma de Aço, salve o banco antes de cada área nova. Parece óbvio, mas é onde mais gente perde o save." },
-    { handle: "b0ltz", votes: 87, body: "Dá para fazer Banishment e Speedrun 2 no mesmo save sem perder tempo: Brumm fica no caminho." },
+    { handle: "Cacador_Joaquim", votes: 342, body: "Para o Panteão de Hallownest, treinar só os últimos cinco chefes em sequência me poupou umas 10 horas." },
+    { handle: "Herbalista_Rosa", votes: 198, body: "Na Alma de Aço, salve o banco antes de cada área nova. Parece óbvio, mas é onde mais gente perde o save." },
+    { handle: "Barqueiro_Tobias", votes: 87, body: "Dá para fazer Banishment e Speedrun 2 no mesmo save sem perder tempo: Brumm fica no caminho." },
   ],
   /** Newest first; `agoDays` is days before the seed run. */
   revisions: [
-    { version: "v3.2", summary: "Rota de speedrun revisada e dicas do Panteão de Hallownest ampliadas.", handle: "Nyx_Vortex", agoDays: 3 },
-    { version: "v3.0", summary: "Guia reorganizado em 7 etapas e lista de coletáveis adicionada.", handle: "KairoBR", agoDays: 60 },
-    { version: "v2.1", summary: "Correção sobre Ritual e Banishment serem excludentes.", handle: "b0ltz", agoDays: 150 },
-    { version: "v1.0", summary: "Primeira versão publicada.", handle: "Nyx_Vortex", agoDays: 365 },
+    { version: "v3.2", summary: "Rota de speedrun revisada e dicas do Panteão de Hallownest ampliadas.", handle: "Escriba_Odete", agoDays: 3 },
+    { version: "v3.0", summary: "Guia reorganizado em 7 etapas e lista de coletáveis adicionada.", handle: "Cacador_Joaquim", agoDays: 60 },
+    { version: "v2.1", summary: "Correção sobre Ritual e Banishment serem excludentes.", handle: "Barqueiro_Tobias", agoDays: 150 },
+    { version: "v1.0", summary: "Primeira versão publicada.", handle: "Escriba_Odete", agoDays: 365 },
   ],
   /** Steps lucas has ticked in the preview (`S.stepsDone`): the first four. */
   lucasStepsDone: [0, 1, 2, 3],

@@ -11,7 +11,7 @@ const fromUnix = (seconds: number | undefined) => (seconds ? new Date(seconds * 
  * Offline public profiles read when a Steam is connected, and by a claim's code check (code in the
  * "Resumo"). Each code is fixed, so a test sets the pending claim's code to it (as if the user had
  * pasted it). They mirror the seed: `jogador-demo` is lucas's Steam (seeded with a password),
- * `morrigan77` is Morrigan77's (an account of the old Steam login, without credentials);
+ * `taverneira-gerta` is Taverneira_Gerta's (an account of the old Steam login, without credentials);
  * `tralked-teste` and `tralked-dois` belong to nobody.
  */
 export const STEAM_FIXTURE_PROFILES = [
@@ -45,8 +45,8 @@ export const STEAM_FIXTURE_PROFILES = [
   },
   {
     steamId: "76561198000001011",
-    vanity: "morrigan77",
-    personaName: "Morrigan77",
+    vanity: "taverneira-gerta",
+    personaName: "Taverneira_Gerta",
     summary: "Jogando desde sempre. TRK-HERDA2",
     profilePublic: true,
   },

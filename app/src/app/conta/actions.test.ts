@@ -44,8 +44,22 @@ vi.mock("@/lib/auth/credentials", async (importOriginal) => ({
   changePassword,
 }));
 
-const { changeEmailAction, changePasswordAction, deleteAccountAction, resendEmailConfirmationAction, updateProfileAction } =
-  await import("./actions");
+const userUpdate = vi.fn<(args: unknown) => Promise<object>>(async () => ({}));
+// Only prisma.user.update is replaced (the case intro switch); everything else stays real.
+vi.mock("@/lib/db", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/lib/db")>();
+  const user = new Proxy(mod.prisma.user, { get: (target, key) => (key === "update" ? userUpdate : Reflect.get(target, key)) });
+  return { ...mod, prisma: new Proxy(mod.prisma, { get: (target, key) => (key === "user" ? user : Reflect.get(target, key)) }) };
+});
+
+const {
+  changeEmailAction,
+  changePasswordAction,
+  deleteAccountAction,
+  resendEmailConfirmationAction,
+  setCaseIntroAction,
+  updateProfileAction,
+} = await import("./actions");
 const { resetAuthLimits } = await import("@/lib/auth/rate-limit");
 
 function form(fields: Record<string, string>) {
@@ -61,6 +75,28 @@ beforeEach(() => {
   getSessionUser.mockResolvedValue({ id: "u1", handle: "eu" });
   updateProfileSettings.mockResolvedValue({ visibilityChanged: false });
   visibilityTags.mockResolvedValue(["gallery", "forum", "photo:p1", "player:eu"]);
+});
+
+describe("setCaseIntroAction", () => {
+  it("needs a session", async () => {
+    getSessionUser.mockResolvedValue(null);
+    expect(await setCaseIntroAction({ off: true })).toMatchObject({ ok: false });
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
+
+  it("saves the choice on the account", async () => {
+    expect(await setCaseIntroAction({ off: true })).toEqual({ ok: true });
+    expect(userUpdate).toHaveBeenCalledWith({ where: { id: "u1" }, data: { caseIntroOff: true } });
+    expect(await setCaseIntroAction({ off: false })).toEqual({ ok: true });
+    expect(userUpdate).toHaveBeenLastCalledWith({ where: { id: "u1" }, data: { caseIntroOff: false } });
+  });
+
+  it("refuses anything but a boolean", async () => {
+    for (const input of [{ off: "true" }, { off: 1 }, null, { off: true, extra: 1 }]) {
+      expect(await setCaseIntroAction(input)).toMatchObject({ ok: false });
+    }
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
 });
 
 describe("updateProfileAction", () => {

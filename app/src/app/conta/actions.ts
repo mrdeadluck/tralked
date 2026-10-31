@@ -14,6 +14,7 @@ import { PASSWORD_MAX } from "@/lib/auth/limits";
 import { takeConfirmationSlot } from "@/lib/auth/rate-limit";
 import { destroySession, getSessionUser } from "@/lib/auth/session";
 import { FORUM_TAG, GALLERY_TAG, photoTag, threadTag } from "@/lib/community/cached";
+import { prisma } from "@/lib/db";
 import { mailAvailable } from "@/lib/mail/mailer";
 import { MAIL_OFF_MESSAGE } from "@/lib/mail/messages";
 import { gameTag } from "@/lib/queries/games-cached";
@@ -143,6 +144,22 @@ export async function changePasswordAction(_previous: AuthFormState, formData: F
   const result = await changePassword(user.id, parsed.data.current, parsed.data.password);
   if (!result.ok) return { errors: WRONG_CURRENT };
   return { done: true, message: user.passwordHash ? "Senha trocada." : "Senha criada. Agora você entra com e-mail e senha." };
+}
+
+const caseIntroSchema = z.object({ off: z.boolean() }).strict();
+
+/**
+ * "Não mostrar a animação nos próximos jogos" on the account (every device), from the case intro
+ * itself or the switch in /conta. The intro's state lives only in per-user islands: no public
+ * cache to update.
+ */
+export async function setCaseIntroAction(input: unknown): Promise<AccountActionResult> {
+  const user = await getSessionUser();
+  if (!user) return NOT_LOGGED_IN;
+  const parsed = caseIntroSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Dados inválidos." };
+  await prisma.user.update({ where: { id: user.id }, data: { caseIntroOff: parsed.data.off } });
+  return { ok: true };
 }
 
 const deleteSchema = z.object({ confirmation: z.literal(DELETE_CONFIRMATION) });

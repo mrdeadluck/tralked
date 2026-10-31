@@ -23,6 +23,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
       googleSub: true,
       lastSyncedAt: true,
       despertarShownAt: true,
+      caseIntroOff: true,
       createdAt: true,
       updatedAt: true,
     },
