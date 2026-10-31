@@ -33,7 +33,7 @@ describe("processImage", () => {
     expect(await rejection(gif)).toBe("invalid_type");
   });
 
-  it("rejects files over 8 MB before decoding", async () => {
+  it("rejects files over 4 MB before decoding", async () => {
     expect(await rejection(Buffer.alloc(MAX_UPLOAD_BYTES + 1))).toBe("too_large");
   });
 

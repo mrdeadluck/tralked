@@ -7,9 +7,13 @@ import { loginHref } from "@/components/guide/format";
 import type { UploadResponse } from "@/app/galeria/enviar/route";
 import { PHOTO_XP } from "@/lib/community/rewards";
 import { CAPTION_MAX } from "@/lib/community/text";
+import { MAX_UPLOAD_BYTES, TOO_LARGE_MESSAGE } from "@/lib/community/upload-limits";
+import { compressForUpload } from "./compress-image";
 import { UploadIcon } from "./icons";
 
-const MAX_BYTES = 8 * 1024 * 1024;
+/** Files above this are refused before the browser even tries to decode them. */
+const MAX_SOURCE_BYTES = 40 * 1024 * 1024;
+const SOURCE_TOO_LARGE = "Essa imagem é grande demais. Escolha uma de até 40 MB.";
 const ACCEPT = "image/jpeg,image/png,image/webp";
 
 type UploadPhotoProps = {
@@ -52,8 +56,8 @@ export function UploadPhoto({ games, loggedIn, returnTo, defaultGame, pending = 
     const file = event.target.files?.[0];
     setOutcome(null);
     setPreview(file ? URL.createObjectURL(file) : null);
-    if (file && file.size > MAX_BYTES) {
-      setOutcome({ kind: "error", field: "foto", message: "A foto pode ter no máximo 8 MB." });
+    if (file && file.size > MAX_SOURCE_BYTES) {
+      setOutcome({ kind: "error", field: "foto", message: SOURCE_TOO_LARGE });
     }
   }
 
@@ -66,11 +70,24 @@ export function UploadPhoto({ games, loggedIn, returnTo, defaultGame, pending = 
       setOutcome({ kind: "error", field: "foto", message: "Escolha uma foto para enviar." });
       return;
     }
-    if (file.size > MAX_BYTES) {
-      setOutcome({ kind: "error", field: "foto", message: "A foto pode ter no máximo 8 MB." });
+    if (file.size > MAX_SOURCE_BYTES) {
+      setOutcome({ kind: "error", field: "foto", message: SOURCE_TOO_LARGE });
       return;
     }
     startTransition(async () => {
+      // Resize and re-encode here, so the request fits the platform's body limit.
+      const compressed = await compressForUpload(file);
+      const upload = compressed ?? file;
+      if (upload.size > MAX_UPLOAD_BYTES) {
+        setOutcome({
+          kind: "error",
+          field: "foto",
+          message: compressed ? TOO_LARGE_MESSAGE : "Envie uma imagem JPEG, PNG ou WebP de verdade.",
+        });
+        return;
+      }
+      data.set("foto", upload, upload.name);
+
       let body: UploadResponse;
       try {
         const response = await fetch("/galeria/enviar", {
@@ -112,7 +129,7 @@ export function UploadPhoto({ games, loggedIn, returnTo, defaultGame, pending = 
             <>
               <UploadIcon width={22} height={22} className="text-acc" />
               <span className="text-[14px] font-bold">Escolher foto</span>
-              <span className="font-mono text-[10.5px] text-dim">JPEG, PNG ou WebP · até 8 MB</span>
+              <span className="font-mono text-[10.5px] text-dim">JPEG, PNG ou WebP · reduzimos para 2048 px antes de enviar</span>
             </>
           )}
           <input

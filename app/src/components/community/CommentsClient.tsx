@@ -80,7 +80,11 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
               returnTo={returnTo}
               onChanged={(updated) => setComments((list) => list.map((c) => (c.id === updated.id ? updated : c)))}
               onDeleted={() => {
-                setComments((list) => list.filter((c) => c.id !== comment.id));
+                setComments((list) =>
+                  list.map((c) =>
+                    c.id === comment.id ? { ...c, deleted: true, body: "", author: null, editedAt: null } : c,
+                  ),
+                );
                 setTotal((n) => Math.max(0, n - 1));
               }}
             />
@@ -135,6 +139,14 @@ function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted }: Commen
       if (result.status === "ok" || result.status === "not_found") onDeleted();
       else setError(result.message);
     });
+  }
+
+  if (comment.deleted) {
+    return (
+      <li id={`comentario-${comment.id}`} className="border-b border-divider py-4 first:pt-0">
+        <p className="font-mono text-[12px] text-dim italic">Comentário apagado</p>
+      </li>
+    );
   }
 
   return (

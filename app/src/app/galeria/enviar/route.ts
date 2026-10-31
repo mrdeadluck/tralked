@@ -2,7 +2,7 @@ import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { GALLERY_TAG } from "@/lib/community/cached";
-import { MAX_UPLOAD_BYTES } from "@/lib/community/images";
+import { MAX_UPLOAD_BYTES, TOO_LARGE_MESSAGE } from "@/lib/community/upload-limits";
 import { uploadPhoto, type UploadResult } from "@/lib/community/upload";
 
 // Multipart overhead (boundaries, part headers, the text fields) on top of the image itself.
@@ -25,7 +25,7 @@ const STATUS_CODE: Record<UploadResponse["status"], number> = {
 
 const reply = (body: UploadResponse) => NextResponse.json(body, { status: STATUS_CODE[body.status] });
 
-const TOO_LARGE: UploadResponse = { status: "too_large", message: "A foto pode ter no máximo 8 MB." };
+const TOO_LARGE: UploadResponse = { status: "too_large", message: TOO_LARGE_MESSAGE };
 
 /** Same-origin check: the browser's Origin header must match the host this request came to. */
 function sameOrigin(request: Request): boolean {
@@ -66,7 +66,8 @@ async function readCapped(request: Request, limit: number): Promise<Uint8Array<A
 
 /**
  * Gallery upload (multipart: `foto`, `jogo`, `legenda`). A route handler instead of a Server
- * Action because Server Action bodies are capped at 1 MB and photos may have up to 8 MB.
+ * Action because Server Action bodies are capped at 1 MB. The browser compresses photos first
+ * (WebP, 2048 px); the body stays under the 4.5 MB Vercel Functions request limit.
  */
 export async function POST(request: Request) {
   if (!sameOrigin(request)) {

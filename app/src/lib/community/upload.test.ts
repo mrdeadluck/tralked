@@ -91,9 +91,10 @@ describe.skipIf(!reachable)("uploadPhoto", () => {
         await uploadPhoto({ userId, file: real, gameSlug: "hollow-knight", caption: "<b>oi</b>" }, deps),
       ).toMatchObject({ status: "invalid", field: "legenda" });
 
-      const big = asFile(Buffer.alloc(8 * 1024 * 1024 + 1), "foto.jpg", "image/jpeg");
+      const big = asFile(Buffer.alloc(4 * 1024 * 1024 + 1), "foto.jpg", "image/jpeg");
       expect(await uploadPhoto({ userId, file: big, gameSlug: "hollow-knight", caption: "" }, deps)).toMatchObject({
         status: "too_large",
+        message: "A foto passou de 4 MB mesmo depois de comprimida. Tente uma imagem menor.",
       });
 
       expect(files.size).toBe(0);

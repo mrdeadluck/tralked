@@ -1,7 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { authorSelect, type AuthorView } from "./comments";
-import type { Db } from "./limits";
+import { withinRateLimit, type Db } from "./limits";
 import { notify } from "./notify";
 
 /** Photos per gallery page (a multiple of 3 keeps the grid rows full). */
@@ -111,10 +111,22 @@ export async function galleryGames(): Promise<GameOption[]> {
   return games.map((g) => ({ slug: g.slug, name: g.name, photoCount: g._count.photos }));
 }
 
-export type LikeResult = { status: "ok"; liked: boolean; likeCount: number } | { status: "not_found" };
+export type LikeResult =
+  | { status: "ok"; liked: boolean; likeCount: number }
+  | { status: "not_found" }
+  | { status: "rate_limited" };
 
-/** Likes the photo, or removes the like when it already exists. Run inside a transaction. */
-export async function toggleLike(db: Db, userId: string, photoId: string): Promise<LikeResult> {
+/**
+ * Likes the photo, or removes the like when it already exists. Run inside a transaction.
+ * At most 30 new likes per user per minute. The photo author is notified once per liker and
+ * photo, ever: unliking and liking again does not notify a second time.
+ */
+export async function toggleLike(
+  db: Db,
+  userId: string,
+  photoId: string,
+  now: Date = new Date(),
+): Promise<LikeResult> {
   const photo = await db.photo.findFirst({
     where: { id: photoId, status: "visible" },
     select: { authorId: true },
@@ -131,22 +143,29 @@ export async function toggleLike(db: Db, userId: string, photoId: string): Promi
     return { status: "ok", liked: false, likeCount: updated.likeCount };
   }
 
+  if (!(await withinRateLimit(db, "like", userId, now))) return { status: "rate_limited" };
+
   // skipDuplicates keeps a concurrent double click from counting twice.
-  const created = await db.photoLike.createMany({ data: [{ userId, photoId }], skipDuplicates: true });
+  const created = await db.photoLike.createMany({
+    data: [{ userId, photoId, createdAt: now }],
+    skipDuplicates: true,
+  });
   const updated = await db.photo.update({
     where: { id: photoId },
     data: { likeCount: { increment: created.count } },
     select: { likeCount: true },
   });
-  if (created.count > 0) {
+  if (created.count > 0 && photo.authorId && photo.authorId !== userId) {
     const liker = await db.user.findUnique({ where: { id: userId }, select: { handle: true } });
-    await notify(db, {
-      userId: photo.authorId,
-      actorId: userId,
-      kind: "photo_like",
-      title: `@${liker?.handle ?? "alguém"} curtiu sua foto`,
-      href: `/galeria/${photoId}`,
+    const title = `@${liker?.handle ?? "alguém"} curtiu sua foto`;
+    const href = `/galeria/${photoId}`;
+    const already = await db.notification.findFirst({
+      where: { userId: photo.authorId, kind: "photo_like", href, title },
+      select: { id: true },
     });
+    if (!already) {
+      await notify(db, { userId: photo.authorId, actorId: userId, kind: "photo_like", title, href });
+    }
   }
   return { status: "ok", liked: true, likeCount: updated.likeCount };
 }

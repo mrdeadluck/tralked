@@ -49,13 +49,27 @@ describe("POST /galeria/enviar", () => {
     expect(uploadPhoto).not.toHaveBeenCalled();
   });
 
-  it("refuses bodies over the limit without parsing them", async () => {
-    const big = new Uint8Array(8 * 1024 * 1024 + 100 * 1024);
+  it("refuses bodies over 4 MB (+ multipart overhead) without parsing them", async () => {
+    // Just over the cap, and still under Vercel's 4.5 MB request limit.
+    const big = new Uint8Array(4 * 1024 * 1024 + 65 * 1024);
     const response = await POST(
       request({ body: big, headers: { "content-type": "multipart/form-data; boundary=x" } }),
     );
     expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({
+      status: "too_large",
+      message: "A foto passou de 4 MB mesmo depois de comprimida. Tente uma imagem menor.",
+    });
     expect(uploadPhoto).not.toHaveBeenCalled();
+  });
+
+  it("accepts a photo of exactly 4 MB and passes it on", async () => {
+    const data = new FormData();
+    data.set("foto", new File([new Uint8Array(4 * 1024 * 1024)], "f.webp", { type: "image/webp" }));
+    data.set("jogo", "hades");
+    const response = await POST(request({ body: data }));
+    expect(response.status).toBe(201);
+    expect((uploadPhoto.mock.calls[0][0].file as File).size).toBe(4 * 1024 * 1024);
   });
 
   it("passes the form fields on and answers 201 with the photo link", async () => {

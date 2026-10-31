@@ -89,7 +89,22 @@ describe.skipIf(!reachable)("community (database)", () => {
       const edited = await editComment(tx, me.id, { id: first.comment.id, body: "Editado" });
       expect(edited.status === "ok" && edited.comment.editedAt).toBeTruthy();
       expect((await deleteComment(tx, me.id, first.comment.id)).status).toBe("ok");
-      expect(await tx.comment.count({ where: { id: first.comment.id } })).toBe(0);
+      // Soft delete: the row stays (rate limits keep counting it) with its text cleared.
+      expect(await tx.comment.findUniqueOrThrow({ where: { id: first.comment.id } })).toMatchObject({
+        status: "deleted",
+        body: "",
+        authorId: me.id,
+      });
+      const afterDelete = await listComments(tx, "photo", photo.id);
+      expect(afterDelete.total).toBe(1);
+      expect(afterDelete.comments.find((c) => c.id === first.comment.id)).toMatchObject({
+        deleted: true,
+        body: "",
+        author: null,
+      });
+      // A deleted comment can't be edited or deleted again.
+      expect((await editComment(tx, me.id, { id: first.comment.id, body: "volta" })).status).toBe("not_found");
+      expect((await deleteComment(tx, me.id, first.comment.id)).status).toBe("not_found");
 
       // The photo author (MotocaGamer) was notified about both comments.
       expect(
@@ -99,7 +114,7 @@ describe.skipIf(!reachable)("community (database)", () => {
 
   it("comments: unknown or hidden targets are refused, and 10 per minute is the limit", () =>
     inRollback(async (tx) => {
-      const { createComment } = await import("./comments");
+      const { createComment, deleteComment } = await import("./comments");
       const [me] = await users(tx, 1);
       expect((await createComment(tx, me.id, { targetType: "photo", targetId: "nope", body: "x" })).status).toBe(
         "not_found",
@@ -113,6 +128,8 @@ describe.skipIf(!reachable)("community (database)", () => {
       for (let i = 0; i < 10; i++) {
         const r = await createComment(tx, me.id, { targetType: "article", targetId: article.id, body: `c${i}` });
         expect(r.status).toBe("ok");
+        // Deleting right away does not free a slot (post + delete used to reset the limit).
+        if (r.status === "ok") expect((await deleteComment(tx, me.id, r.comment.id)).status).toBe("ok");
       }
       const eleventh = await createComment(tx, me.id, { targetType: "article", targetId: article.id, body: "c10" });
       expect(eleventh.status).toBe("rate_limited");
@@ -150,6 +167,41 @@ describe.skipIf(!reachable)("community (database)", () => {
       expect(unliked).toEqual({ status: "ok", liked: false, likeCount: before.likeCount });
       expect(await toggleLike(tx, me.id, "missing")).toEqual({ status: "not_found" });
       expect(await tx.photoLike.count({ where: { photoId: before.id } })).toBe(before.likeCount);
+    }));
+
+  it("like, unlike, like again notifies the photo author only once", () =>
+    inRollback(async (tx) => {
+      const { toggleLike } = await import("./gallery");
+      const [author, fan] = await users(tx, 2);
+      const photo = await tx.photo.create({ data: { authorId: author.id, width: 1, height: 1 } });
+
+      for (let i = 0; i < 3; i++) {
+        expect(await toggleLike(tx, fan.id, photo.id)).toMatchObject({ status: "ok", liked: true });
+        expect(await toggleLike(tx, fan.id, photo.id)).toMatchObject({ status: "ok", liked: false });
+      }
+      expect(await toggleLike(tx, fan.id, photo.id)).toMatchObject({ status: "ok", liked: true, likeCount: 1 });
+      expect(await tx.notification.count({ where: { userId: author.id, kind: "photo_like" } })).toBe(1);
+
+      // Liking your own photo never notifies.
+      await toggleLike(tx, author.id, photo.id);
+      expect(await tx.notification.count({ where: { userId: author.id, kind: "photo_like" } })).toBe(1);
+    }));
+
+  it("at most 30 new likes per minute per user", () =>
+    inRollback(async (tx) => {
+      const { toggleLike } = await import("./gallery");
+      const [author, fan] = await users(tx, 2);
+      const now = new Date();
+      await tx.photo.createMany({
+        data: Array.from({ length: 31 }, (_, i) => ({ id: `likecap-${fan.id}-${i}`, authorId: author.id, width: 1, height: 1 })),
+      });
+      for (let i = 0; i < 30; i++) {
+        expect((await toggleLike(tx, fan.id, `likecap-${fan.id}-${i}`, now)).status).toBe("ok");
+      }
+      expect(await toggleLike(tx, fan.id, `likecap-${fan.id}-30`, now)).toEqual({ status: "rate_limited" });
+      // A minute later there is room again.
+      const later = new Date(now.getTime() + 61_000);
+      expect((await toggleLike(tx, fan.id, `likecap-${fan.id}-30`, later)).status).toBe("ok");
     }));
 
   it("photo XP: 50 per photo, at most 3 photos a day, idempotent per photo", () =>
