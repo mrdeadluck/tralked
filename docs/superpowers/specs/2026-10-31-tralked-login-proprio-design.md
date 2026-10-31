@@ -49,3 +49,15 @@ Hoje a conta nasce do login OpenID da Steam (redireciona para steamcommunity.com
 ## Fica com quem implementar
 
 Layout exato das telas, mensagens finas, estrutura de arquivos, forma do rate limit, testes (unidade + db + e2e dos fluxos: cadastro, login, erro de senha, esqueci/redefinir, conectar Steam com código válido/ausente/expirado/já usado, recuperar histórico de conta antiga, anônimo em `/jogador/me`).
+
+## Adendo (2026-10-31, tarde) — conexões "igual Exophase"
+
+Pedido do Lucas: não gostou do código no perfil; quer o modelo do Exophase (print do formulário "Service details": um campo por serviço, "Save changes", lembrete de privacidade, "manual profile scan"). Decisões (controller), aprovadas pelo Lucas ao mandar o print em resposta à proposta:
+
+- **Formulário "Serviços"** em `/conta/conexoes`: uma linha por plataforma suportada — Steam (aceita link do perfil, nome da URL personalizada ou SteamID64), PSN (ID online), Xbox (gamertag), RetroAchievements (usuário). Um botão "Salvar alterações" aplica todos os campos alterados de uma vez, com resultado por campo. Abaixo: "Confira as suas configurações de privacidade se nenhum jogo aparecer" (link para uma seção de ajuda em pt-BR explicando como deixar cada perfil público) e "Precisa sincronizar agora? Sincronizar" (respeitando o limite de sincronização existente).
+- **Conectar na hora, sem código**: ao salvar, o Tralked confirma que o perfil existe e é público (Steam: perfil e detalhes de jogos públicos; PSN/Xbox/RA: perfil encontrado), grava a conexão como **não verificada** e dispara a sincronização. Contas não verificadas sincronizam e pagam XP normalmente; o perfil e a tela de conexões mostram "não verificada" na conexão.
+- **Esvaziar um campo** = desconectar, com confirmação explícita antes ("o XP vindo dessa conta é anulado") — mesma regra de desvínculo atual (anula no ledger, não apaga).
+- **Unicidade**: uma conta de plataforma (plataforma + id externo) só pode estar em um perfil do Tralked. Se já estiver em outro: recusa com "Essa conta já está conectada a outro perfil" e o botão "É sua? Reivindicar".
+- **Reivindicar** (único lugar onde há prova de posse): reaproveita o fluxo de código no perfil que já existe (código `TRK-…`, 30 min). Provado: a conexão passa para quem reivindicou (como **verificada**), o XP que ela tinha gerado no perfil anterior é anulado pelo caminho de desvínculo e o perfil anterior recebe uma notificação. A recuperação de histórico de conta antiga sem credenciais (regra já existente) só acontece por esse caminho — nunca só digitando o ID.
+- **Produção sem credencial da plataforma**: PSN (`PSN_NPSSO`), Xbox (`XBOX_OPENXBL_KEY`) e RetroAchievements (`RA_USERNAME`/`RA_API_KEY`) ausentes em `NODE_ENV=production` → a linha aparece como "Em breve" (campo desabilitado) e os clientes **nunca** caem nas fixtures. Fixtures só fora de produção (ou com o modo de teste explícito). Steam continua funcionando sem chave (páginas públicas).
+- Plataformas do print que o Tralked não lê (GOG, EA, Google Play, Ubisoft, Stadia, Epic, Nintendo, Apple) ficam fora.
