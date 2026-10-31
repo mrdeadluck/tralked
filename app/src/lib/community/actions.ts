@@ -4,7 +4,7 @@ import { updateTag } from "next/cache";
 import { z } from "zod";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
-import { FORUM_TAG, GALLERY_TAG, photoTag, threadTag } from "./cached";
+import { FORUM_TAG, photoTag, threadTag } from "./cached";
 import {
   commentTargetSchema,
   createComment,
@@ -26,7 +26,7 @@ import {
   type PostView,
 } from "./forum";
 import { toggleLike } from "./gallery";
-import { RATE_LIMIT_MESSAGES } from "./limits";
+import { RATE_LIMIT_MESSAGES, takeLikeToggle } from "./limits";
 import { createReport, reportSchema } from "./reports";
 import { recomputeQuietly } from "./xp";
 
@@ -115,10 +115,12 @@ const photoIdSchema = z.object({ photoId: z.string().min(1).max(64) });
 export async function likePhoto(raw: unknown): Promise<{ status: "ok"; liked: boolean; likeCount: number } | Failure> {
   const ready = await prepare(photoIdSchema, raw);
   if (!ready.ok) return ready.failure;
+  if (!takeLikeToggle(ready.user.id)) return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.like };
   const result = await prisma.$transaction((tx) => toggleLike(tx, ready.user.id, ready.data.photoId));
   if (result.status === "not_found") return NOT_FOUND;
+  if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.like };
+  // Only the photo's own page: gallery listings catch up on their short cacheLife.
   updateTag(photoTag(ready.data.photoId));
-  updateTag(GALLERY_TAG);
   return result;
 }
 

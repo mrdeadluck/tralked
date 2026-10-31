@@ -1,9 +1,8 @@
 import sharp from "sharp";
+import { MAX_DIMENSION, MAX_UPLOAD_BYTES } from "./upload-limits";
 
-/** Largest accepted upload, in bytes. */
-export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
-/** Longest side of the stored image, in pixels. */
-export const MAX_DIMENSION = 2048;
+export { MAX_DIMENSION, MAX_UPLOAD_BYTES };
+
 /** Decoding guard against "pixel bombs": a small file that claims a huge canvas. */
 const MAX_INPUT_PIXELS = 50_000_000;
 const ACCEPTED_FORMATS = new Set(["jpeg", "png", "webp"]);
@@ -14,7 +13,7 @@ export type ImageRejection = "too_large" | "invalid_type";
 
 export class ImageRejectedError extends Error {
   constructor(readonly reason: ImageRejection) {
-    super(reason === "too_large" ? "Image is larger than 8 MB" : "Not a JPEG, PNG or WebP image");
+    super(reason === "too_large" ? "Image is larger than 4 MB" : "Not a JPEG, PNG or WebP image");
   }
 }
 

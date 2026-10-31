@@ -14,11 +14,46 @@ export type AuthorView = { id: string; handle: string; displayName: string; avat
 
 export type CommentView = {
   id: string;
+  /** Empty when `deleted`. */
   body: string;
   createdAt: Date;
   editedAt: Date | null;
+  /** Null when the account was removed, and always null for `deleted` comments. */
   author: AuthorView;
+  /** Deleted by its author: the row stays (rate limits keep counting it) and shows "Comentário apagado". */
+  deleted: boolean;
 };
+
+/** Status of a comment its author deleted (the others are visible | hidden | removed). */
+export const DELETED_STATUS = "deleted";
+
+const commentSelect = {
+  id: true,
+  body: true,
+  status: true,
+  createdAt: true,
+  editedAt: true,
+  author: { select: { id: true, handle: true, displayName: true, avatarUrl: true } },
+} as const;
+
+function toView(row: {
+  id: string;
+  body: string;
+  status: string;
+  createdAt: Date;
+  editedAt: Date | null;
+  author: AuthorView;
+}): CommentView {
+  const deleted = row.status === DELETED_STATUS;
+  return {
+    id: row.id,
+    body: deleted ? "" : row.body,
+    createdAt: row.createdAt,
+    editedAt: deleted ? null : row.editedAt,
+    author: deleted ? null : row.author,
+    deleted,
+  };
+}
 
 export type CommentPage = { comments: CommentView[]; nextCursor: string | null; total: number };
 
@@ -76,7 +111,11 @@ export async function findCommentTarget(
   }
 }
 
-/** One page of visible comments, newest first. `cursor` is the id of the last comment already shown. */
+/**
+ * One page of comments, newest first: visible ones plus "Comentário apagado" placeholders for
+ * those their authors deleted. `total` counts only visible comments.
+ * `cursor` is the id of the last comment already shown.
+ */
 export async function listComments(
   db: Db,
   targetType: CommentTargetType,
@@ -84,20 +123,19 @@ export async function listComments(
   cursor?: string | null,
   take: number = COMMENTS_PAGE_SIZE,
 ): Promise<CommentPage> {
-  const where = { targetType, targetId, status: "visible" };
   const [rows, total] = await Promise.all([
     db.comment.findMany({
-      where,
+      where: { targetType, targetId, status: { in: ["visible", DELETED_STATUS] } },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: take + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      select: { id: true, body: true, createdAt: true, editedAt: true, author: authorSelect },
+      select: commentSelect,
     }),
-    db.comment.count({ where }),
+    db.comment.count({ where: { targetType, targetId, status: "visible" } }),
   ]);
   const page = rows.slice(0, take);
   return {
-    comments: page,
+    comments: page.map(toView),
     nextCursor: rows.length > take ? page[page.length - 1].id : null,
     total,
   };
@@ -120,7 +158,7 @@ export async function createComment(
 
   const comment = await db.comment.create({
     data: { authorId: userId, targetType: input.targetType, targetId: input.targetId, body: input.body },
-    select: { id: true, body: true, createdAt: true, editedAt: true, author: authorSelect },
+    select: commentSelect,
   });
   if (input.targetType === "photo") {
     await notify(db, {
@@ -132,7 +170,7 @@ export async function createComment(
       href: target.href,
     });
   }
-  return { status: "ok", comment };
+  return { status: "ok", comment: toView(comment) };
 }
 
 export type OwnCommentResult = { status: "ok" } | { status: "not_found" } | { status: "forbidden" };
@@ -155,15 +193,18 @@ export async function editComment(
   const comment = await db.comment.update({
     where: { id: input.id },
     data: { body: input.body, editedAt: new Date() },
-    select: { id: true, body: true, createdAt: true, editedAt: true, author: authorSelect },
+    select: commentSelect,
   });
-  return { status: "ok", comment };
+  return { status: "ok", comment: toView(comment) };
 }
 
-/** Deletes the user's own visible comment for good. */
+/**
+ * Deletes the user's own visible comment: the text is cleared and the row is kept with status
+ * `deleted` (shown as "Comentário apagado"), so deleting does not reset the comment rate limit.
+ */
 export async function deleteComment(db: Db, userId: string, id: string): Promise<OwnCommentResult> {
   const check = await ownComment(db, userId, id);
   if (check !== "ok") return { status: check };
-  await db.comment.delete({ where: { id } });
+  await db.comment.update({ where: { id }, data: { status: DELETED_STATUS, body: "" } });
   return { status: "ok" };
 }

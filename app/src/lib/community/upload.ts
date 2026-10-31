@@ -5,6 +5,7 @@ import { getStorage, uploadKey, type Storage } from "@/lib/storage";
 import { ImageRejectedError, MAX_UPLOAD_BYTES, processImage } from "./images";
 import { RATE_LIMIT_MESSAGES, withinRateLimit } from "./limits";
 import { captionSchema } from "./text";
+import { TOO_LARGE_MESSAGE } from "./upload-limits";
 import { awardPhotoXp, recomputeQuietly } from "./xp";
 
 export const uploadFieldsSchema = z.object({
@@ -27,7 +28,7 @@ export type UploadInput = {
 };
 
 const INVALID_IMAGE = "Envie uma imagem JPEG, PNG ou WebP de verdade.";
-const TOO_LARGE = "A foto pode ter no máximo 8 MB.";
+const TOO_LARGE = TOO_LARGE_MESSAGE;
 
 /**
  * Gallery upload: validates the fields, checks the daily upload limit, decodes and re-encodes the
