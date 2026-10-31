@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
+import { delivered, mailAvailable, sendMail } from "@/lib/mail/mailer";
+import { newsletterConfirmationEmail } from "@/lib/mail/templates";
 
 /*
  * Newsletter with double opt-in. The confirmation token is `<expiry>.<HMAC(email, expiry)>` keyed by
@@ -9,9 +11,9 @@ import { env } from "@/lib/env";
  * after TOKEN_TTL_DAYS. The link only opens a page; confirming takes a POST (a button), so mail
  * scanners that prefetch links never confirm anything.
  *
- * There is no e-mail provider yet. Outside production the confirmation link is printed to the
- * server console (simulated e-mail); in production the address is only registered, and the form
- * says so. A provider (planned env: EMAIL_PROVIDER_API_KEY + EMAIL_FROM) plugs into `deliver`.
+ * The confirmation goes through lib/mail (Resend with RESEND_API_KEY; the server log outside
+ * production without it). In production without a key the address is only registered, and the
+ * form says so.
  */
 
 export const TOKEN_TTL_DAYS = 7;
@@ -39,18 +41,18 @@ export function confirmationUrl(email: string, now: number = Date.now()): string
   return url.toString();
 }
 
-/** Whether a confirmation e-mail actually goes out (today: only the simulated one, outside production). */
+/** Whether a confirmation e-mail goes out (Resend, or the dev log); false in production without RESEND_API_KEY. */
 export function confirmationDelivered(): boolean {
-  return process.env.NODE_ENV !== "production";
+  return mailAvailable();
 }
 
 /** At most one confirmation e-mail per address in this window (in memory, per instance). */
 export const RESEND_WINDOW_MS = 10 * 60_000;
 const lastSent = new Map<string, number>();
 
-function deliver(email: string, now: number) {
-  if (!confirmationDelivered()) return;
-  console.info(`[newsletter] Link de confirmação para ${email}: ${confirmationUrl(email, now)}`);
+async function deliver(email: string, now: number): Promise<boolean> {
+  if (!confirmationDelivered()) return false;
+  return delivered(await sendMail(newsletterConfirmationEmail(email, confirmationUrl(email, now))));
 }
 
 /**
@@ -70,8 +72,7 @@ export async function subscribe(email: string, now: number = Date.now()): Promis
   if (previous !== undefined && now - previous < RESEND_WINDOW_MS) return false;
   if (lastSent.size > 10_000) lastSent.clear();
   lastSent.set(email, now);
-  deliver(email, now);
-  return confirmationDelivered();
+  return deliver(email, now);
 }
 
 export type TokenCheck = { status: "valid"; email: string } | { status: "invalid" } | { status: "expired" };

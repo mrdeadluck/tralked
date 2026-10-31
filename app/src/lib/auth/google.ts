@@ -155,14 +155,16 @@ export async function exchangeGoogleCode(
   return {
     sub: payload.sub,
     email: str(payload.email),
-    emailVerified: payload.email_verified === true,
+    // Google's docs show it both as a boolean and as the string "true".
+    emailVerified: payload.email_verified === true || payload.email_verified === "true",
     name: str(payload.name),
     picture: str(payload.picture),
   };
 }
 
 export type GoogleUpsertResult =
-  | { ok: true; user: User }
+  /** created: a new account (gets the welcome e-mail). */
+  | { ok: true; user: User; created?: boolean }
   /** taken: this Google account belongs to another user; different: the logged-in account is
    * already linked to another Google account (never replaced silently); email_taken: logged
    * out, and the Google e-mail is already the login of another Tralked account (it is never
@@ -196,12 +198,15 @@ export async function upsertUserFromGoogle(
     const current = await prisma.user.findUniqueOrThrow({ where: { id: sessionUserId } });
     if (current.googleSub && current.googleSub !== claims.sub) return { ok: false, reason: "different" };
     if (current.googleSub === claims.sub) return { ok: true, user: current };
+    const adopted = current.email ?? (emailOwner ? undefined : email);
+    // Google verified this address: it confirms the account's e-mail when they are the same.
+    const confirms = email !== undefined && adopted === email && !current.emailVerifiedAt;
     try {
       // The `googleSub: null` guard makes a concurrent link of another Google account fail
       // instead of replacing it.
       const { count } = await prisma.user.updateMany({
         where: { id: sessionUserId, googleSub: null },
-        data: { googleSub: claims.sub, email: current.email ?? (emailOwner ? undefined : email) },
+        data: { googleSub: claims.sub, email: adopted, ...(confirms ? { emailVerifiedAt: new Date() } : {}) },
       });
       if (count === 0) return { ok: false, reason: "different" };
     } catch (error) {
@@ -225,12 +230,14 @@ export async function upsertUserFromGoogle(
       data: {
         googleSub: claims.sub,
         email,
+        // Only a Google-verified e-mail is ever stored (see `email` above).
+        emailVerifiedAt: email ? new Date() : undefined,
         handle,
         displayName,
         avatarUrl: httpsOrUndefined(claims.picture),
       },
     });
-    return { ok: true, user };
+    return { ok: true, user, created: true };
   } catch (error) {
     // The same Google account finished a second login at the same moment.
     if (!isUniqueViolation(error)) throw error;

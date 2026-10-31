@@ -69,4 +69,6 @@ export const ROUTES: E2ERoute[] = [
   { path: "/termos", name: "termos" },
   { path: "/licencas", name: "licencas" },
   { path: "/newsletter/confirmar?email=x%40exemplo.com&token=nope", name: "newsletter-confirmar" },
+  { path: "/confirmar-email?token=nope", name: "confirmar-email-invalido" },
+  { path: "/confirmar-email?resultado=confirmed", name: "confirmar-email-confirmado" },
 ];

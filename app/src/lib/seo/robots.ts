@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 /** Private areas (admin, account, API, notifications, newsletter links) stay out of search engines. */
-export const DISALLOWED_PATHS = ["/admin", "/conta", "/api", "/notificacoes", "/newsletter"];
+export const DISALLOWED_PATHS = ["/admin", "/conta", "/api", "/notificacoes", "/newsletter", "/confirmar-email"];
 
 export function buildRobots(base: string): MetadataRoute.Robots {
   return {

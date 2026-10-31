@@ -94,7 +94,7 @@ describe("changePassword / changeEmail (database)", () => {
     expect(await authenticate(`troca${EMAIL_DOMAIN}`, "senha antiga")).toBeNull();
 
     expect(await changeEmail(user.id, `nova${EMAIL_DOMAIN}`, "errada!!")).toEqual({ ok: false, reason: "wrong_password" });
-    expect(await changeEmail(user.id, `nova${EMAIL_DOMAIN}`, "senha nova 1")).toEqual({ ok: true });
+    expect(await changeEmail(user.id, `nova${EMAIL_DOMAIN}`, "senha nova 1")).toEqual({ ok: true, changed: true });
     expect(await authenticate(`nova${EMAIL_DOMAIN}`, "senha nova 1")).not.toBeNull();
   });
 
@@ -102,8 +102,19 @@ describe("changePassword / changeEmail (database)", () => {
     await prisma.user.create({ data: { handle: `${MARK}dono`, displayName: "Dono", email: `dono${EMAIL_DOMAIN}` } });
     const user = await prisma.user.create({ data: { handle: `${MARK}semsenha`, displayName: "Sem senha" } });
     expect(await changeEmail(user.id, `DONO${EMAIL_DOMAIN}`, undefined)).toEqual({ ok: false, reason: "email_taken" });
-    expect(await changeEmail(user.id, `semsenha${EMAIL_DOMAIN}`, undefined)).toEqual({ ok: true });
+    expect(await changeEmail(user.id, `semsenha${EMAIL_DOMAIN}`, undefined)).toEqual({ ok: true, changed: true });
     expect(await changePassword(user.id, undefined, "primeira senha")).toEqual({ ok: true });
     expect(await authenticate(`semsenha${EMAIL_DOMAIN}`, "primeira senha")).not.toBeNull();
+  });
+
+  it("a new e-mail starts unconfirmed; saving the same one keeps the confirmation", async () => {
+    const verifiedAt = new Date("2026-10-30T12:00:00Z");
+    const user = await prisma.user.create({
+      data: { handle: `${MARK}conf`, displayName: "Conf", email: `conf${EMAIL_DOMAIN}`, emailVerifiedAt: verifiedAt },
+    });
+    expect(await changeEmail(user.id, ` CONF${EMAIL_DOMAIN} `, undefined)).toEqual({ ok: true, changed: false });
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toEqual(verifiedAt);
+    expect(await changeEmail(user.id, `conf2${EMAIL_DOMAIN}`, undefined)).toEqual({ ok: true, changed: true });
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toBeNull();
   });
 });

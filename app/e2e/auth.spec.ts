@@ -31,6 +31,21 @@ async function signup(page: Page, suffix: string) {
   return { handle, email };
 }
 
+type LoggedMail = { kind: string; to: string; subject: string; link: string | null };
+
+/** The e-mails the dev e2e server wrote since `offset` (characters of MAIL_LOG_FILE). */
+function mailsSince(offset: number): LoggedMail[] {
+  if (!existsSync(MAIL_LOG_FILE)) return [];
+  return readFileSync(MAIL_LOG_FILE, "utf8")
+    .slice(offset)
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as LoggedMail);
+}
+
+const mailLogSize = () => (existsSync(MAIL_LOG_FILE) ? readFileSync(MAIL_LOG_FILE, "utf8").length : 0);
+
 async function login(page: Page, email: string, password: string) {
   await page.getByLabel("E-mail", { exact: true }).fill(email);
   await page.getByLabel("Senha", { exact: true }).fill(password);
@@ -86,11 +101,11 @@ test.describe("Tralked account", () => {
   });
 
   test("forgot password: same answer for any e-mail, and the link sets a new password once", async ({ page }) => {
-    // A production build never prints or writes the link (no e-mail provider yet).
+    // A production build without RESEND_API_KEY never prints or writes the link (test below).
     test.skip(!CAN_LOGIN, "the reset link is only written outside production (dev server)");
     const { handle, email } = await signup(page, "senha");
     await logout(page, handle);
-    const before = existsSync(MAIL_LOG_FILE) ? readFileSync(MAIL_LOG_FILE, "utf8").length : 0;
+    const before = mailLogSize();
 
     await page.goto("/esqueci-senha");
     await page.getByLabel("E-mail da conta").fill(`nao-existe-${RUN}@e2e.tralked.dev`);
@@ -103,13 +118,12 @@ test.describe("Tralked account", () => {
     await page.getByRole("button", { name: "Enviar link" }).click();
     await expect(answer).toHaveText(unknownAnswer ?? "");
 
-    // The server prints the link (no e-mail provider yet); the e2e server also writes it to a file.
+    // Without RESEND_API_KEY the dev server logs the e-mail; the e2e server also writes it to a file.
     let link = "";
     await expect(async () => {
-      const lines = readFileSync(MAIL_LOG_FILE, "utf8").slice(before).trim().split("\n").filter(Boolean);
-      const mails = lines.map((line) => JSON.parse(line) as { to: string; link: string });
+      const mails = mailsSince(before);
       expect(mails.filter((m) => m.to.startsWith("nao-existe-"))).toHaveLength(0);
-      link = mails.findLast((m) => m.to === email)?.link ?? "";
+      link = mails.findLast((m) => m.to === email && m.kind === "password-reset")?.link ?? "";
       expect(link).toContain("/redefinir-senha?token=");
     }).toPass({ timeout: 10_000 });
 
@@ -130,5 +144,45 @@ test.describe("Tralked account", () => {
     await expectWrongCredentials(page);
     await login(page, email, "nova-senha-e2e-1");
     await expect(page).toHaveURL(new RegExp(`/jogador/${handle}$`));
+  });
+
+  test("sign-up sends the welcome e-mail; its link confirms the e-mail and /conta shows the badge", async ({ page }) => {
+    test.skip(!CAN_LOGIN, "e-mails are only written outside production (dev server)");
+    const before = mailLogSize();
+    const { email } = await signup(page, "conf");
+
+    await page.goto("/conta");
+    await expect(page.getByText("E-mail não confirmado")).toBeVisible();
+    // Asking again works (limited per account).
+    await page.getByRole("button", { name: "Reenviar e-mail de confirmação" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Enviamos um novo link de confirmação" })).toBeVisible();
+
+    let link = "";
+    await expect(async () => {
+      const mails = mailsSince(before).filter((m) => m.to === email);
+      expect(mails.map((m) => m.kind).sort()).toEqual(["email-confirmation", "welcome"]);
+      link = mails.find((m) => m.kind === "welcome")?.link ?? "";
+      expect(link).toContain("/confirmar-email?token=");
+    }).toPass({ timeout: 10_000 });
+
+    // Opening the link (GET) confirms nothing: the button does.
+    const url = new URL(link);
+    await page.goto(url.pathname + url.search);
+    await expect(page.getByRole("heading", { level: 1, name: "Confirmar e-mail" })).toBeVisible();
+    await page.getByRole("button", { name: "Confirmar e-mail" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "E-mail confirmado" })).toBeVisible();
+
+    await page.goto("/conta");
+    await expect(page.getByText("E-mail confirmado")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reenviar e-mail de confirmação" })).toHaveCount(0);
+  });
+
+  test("production without RESEND_API_KEY: forgot password says e-mail is off", async ({ page }) => {
+    test.skip(CAN_LOGIN, "only the production build has e-mail off");
+    await page.goto("/esqueci-senha");
+    await expect(page.getByText("O envio de e-mails do Tralked está desativado no momento").first()).toBeVisible();
+    await page.getByLabel("E-mail da conta").fill(`alguem-${RUN}@e2e.tralked.dev`);
+    await page.getByRole("button", { name: "Enviar link" }).click();
+    await expect(page.getByRole("main").getByText(/não conseguimos mandar o link agora/)).toBeVisible();
   });
 });

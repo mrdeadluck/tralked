@@ -100,7 +100,10 @@ export async function authenticate(email: string, password: string): Promise<Use
   return (await verifyPassword(password, user.passwordHash)) ? user : null;
 }
 
-export type CredentialChangeResult = { ok: true } | { ok: false; reason: "wrong_password" | "email_taken" };
+/** `changed`: the e-mail is a new one (it starts unconfirmed). */
+export type CredentialChangeResult =
+  | { ok: true; changed?: boolean }
+  | { ok: false; reason: "wrong_password" | "email_taken" };
 
 /** The current password is required when the account has one. */
 async function currentPasswordMatches(user: Pick<User, "passwordHash">, current: string | undefined) {
@@ -128,12 +131,14 @@ export async function changeEmail(
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   if (!(await currentPasswordMatches(user, currentPassword))) return { ok: false, reason: "wrong_password" };
   const normalized = normalizeEmail(email);
+  if (user.email === normalized) return { ok: true, changed: false };
   if (await emailTaken(normalized, userId)) return { ok: false, reason: "email_taken" };
   try {
-    await prisma.user.update({ where: { id: userId }, data: { email: normalized } });
+    // A new e-mail is not confirmed yet ("e-mail confirmado" belongs to the old one).
+    await prisma.user.update({ where: { id: userId }, data: { email: normalized, emailVerifiedAt: null } });
   } catch (error) {
     if (isUniqueViolation(error)) return { ok: false, reason: "email_taken" };
     throw error;
   }
-  return { ok: true };
+  return { ok: true, changed: true };
 }
