@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: gamelog-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gamelog
+      POSTGRES_PASSWORD: gamelog
+      POSTGRES_DB: gamelog
+    ports:
+      - "5433:5432"
+    volumes:
+      - gamelog-pgdata:/var/lib/postgresql/data
+
+volumes:
+  gamelog-pgdata:
