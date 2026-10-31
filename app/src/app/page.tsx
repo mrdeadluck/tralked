@@ -68,14 +68,14 @@ export default function Home() {
       <NewsSection
         aside={
           <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
-            <DiscordCard />
-            <Suspense fallback={sidebarFallback}>
+            <DiscordCard key="discord" />
+            <Suspense key="quest" fallback={sidebarFallback}>
               <QuestSection />
             </Suspense>
-            <Suspense fallback={sidebarFallback}>
+            <Suspense key="ranking" fallback={sidebarFallback}>
               <RankingSection />
             </Suspense>
-            <EditorialCard />
+            <EditorialCard key="editorial" />
           </aside>
         }
       />
