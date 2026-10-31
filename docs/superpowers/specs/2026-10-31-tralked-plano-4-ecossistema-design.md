@@ -74,7 +74,8 @@ Pedido: "conectar com alguma fonte que mostrasse os próximos lançamentos e os 
 Pedido: "não ficar tudo mostrando numa lista infinita, até uns 80 por página, escolha de no mínimo 10 por página, ou algo que deixe mais bonito".
 - `/jogos`: grade de capas com **paginação numerada** (anterior/próxima, primeira/última, reticências), seletor **10 / 20 / 40 / 80 por página** (padrão 40), filtros e ordenação no topo (plataforma, gênero, popular, nome, lançamento, "quase lá"); estado na URL (`?pagina=&por=&…`), funciona sem JS; contagem "X jogos no catálogo"; stubs fora.
 - `/familia`: resumo dos integrantes no topo; **biblioteca da família** em grade paginada com o mesmo seletor; filtro por integrante, "todos têm"/"só alguém tem"; seções organizadas em vez de uma lista única.
-- O mesmo componente de paginação serve à lista de jogos do perfil (F3).
+- **Buscador por nome** nas duas páginas (Lucas): campo no topo, resultado enquanto digita (debounce) e também por envio sem JS; ignora acentos e maiúsculas; mantém filtros e volta à página 1. Em `/jogos` a busca **inclui os jogos do catálogo completo ainda sem detalhes** (stubs), marcados "detalhes em breve" (controller: achar qualquer jogo da Steam pelo nome é o que torna a biblioteca "completíssima"); exige índice de busca adequado para ~150k nomes (ex. `pg_trgm` + `unaccent`, ou coluna normalizada indexada). Na Família, busca dentro da biblioteca da família.
+- O mesmo componente de paginação (e o buscador) serve à lista de jogos do perfil (F3).
 
 ### F12 — Do guia e da notícia para a página do jogo
 Pedido: "se eu abrir o guia do jogo ou uma notícia referente ao jogo, consiga ir para a página do game também".
