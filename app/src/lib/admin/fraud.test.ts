@@ -155,6 +155,25 @@ describe("fraud queue", () => {
     expect((await stats(userId)).totalXp).toBe(full);
   });
 
+  it("Liberar counts only upstream achievements for the 100%: an orphan catalog row does not block the platinum", async () => {
+    const userId = await playerWithBurst("orfa", 0);
+    // A row Steam no longer lists (old seed / removed achievement): the catalog keeps it, but
+    // achievementCount (Steam's count today) stays 3, as the sync sees it.
+    const orphan = await prisma.achievement.create({
+      data: { gameId, platform: "steam", apiName: "F_REMOVED", name: "Removida", globalPct: 1 },
+    });
+    try {
+      const result = await releaseFraud(key(userId), NOW);
+      expect(result).toMatchObject({ ok: true, entries: 4 }); // 3 achievements + platinum
+      const xps = PCTS.map(xpForAchievement);
+      const platinum = await prisma.xpLedgerEntry.findFirstOrThrow({ where: { userId, source: "platinum" } });
+      expect(platinum.xp).toBe(platinumBonus(xps));
+      expect((await prisma.userGame.findFirstOrThrow({ where: { userId, gameId } })).completedAt).not.toBeNull();
+    } finally {
+      await prisma.achievement.delete({ where: { id: orphan.id } });
+    }
+  });
+
   it("does not release unlocks of a platform account that was unlinked", async () => {
     const userId = await playerWithBurst("desvinculado", 0);
     const psnAchievement = await prisma.achievement.create({

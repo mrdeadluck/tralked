@@ -8,6 +8,7 @@ const getSessionUser = vi.fn();
 const upsertUserFromSteam = vi.fn();
 const linkSteamToUser = vi.fn();
 const syncUser = vi.fn();
+const claimSyncSlot = vi.fn();
 // Runs the deferred task right away without awaiting it, like the response being sent first.
 const { after, afterTasks } = vi.hoisted(() => {
   const afterTasks: Promise<unknown>[] = [];
@@ -23,6 +24,7 @@ vi.mock("@/lib/auth/session", () => ({ createSession, getSessionUser }));
 vi.mock("@/lib/auth/upsert-user", () => ({ upsertUserFromSteam }));
 vi.mock("@/lib/auth/link-steam", () => ({ linkSteamToUser }));
 vi.mock("@/lib/sync/user", () => ({ syncUser }));
+vi.mock("@/lib/sync/claim", () => ({ claimSyncSlot }));
 vi.mock("next/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/server")>()),
   after,
@@ -58,6 +60,7 @@ beforeEach(() => {
   upsertUserFromSteam.mockResolvedValue({ id: "u1", handle: "lucas" });
   getSessionUser.mockResolvedValue(null);
   syncUser.mockResolvedValue({ status: "ok" });
+  claimSyncSlot.mockResolvedValue(true);
 });
 
 describe("steam callback while logged in", () => {
@@ -70,7 +73,7 @@ describe("steam callback while logged in", () => {
     expect(linkSteamToUser).toHaveBeenCalledWith("g1", "76561198000000000");
     expect(upsertUserFromSteam).not.toHaveBeenCalled();
     expect(createSession).not.toHaveBeenCalled();
-    expect(syncUser).toHaveBeenCalledWith("g1");
+    await vi.waitFor(() => expect(syncUser).toHaveBeenCalledWith("g1"));
     expect(location(response).pathname).toBe("/conta/conexoes");
   });
 
@@ -101,8 +104,17 @@ describe("steam callback", () => {
     const response = await GET(callbackRequest());
     expect(consumeOidState).toHaveBeenCalledWith("s1");
     expect(createSession).toHaveBeenCalledWith("u1");
-    expect(syncUser).toHaveBeenCalledWith("u1");
+    await vi.waitFor(() => expect(syncUser).toHaveBeenCalledWith("u1"));
     expect(location(response).pathname).toBe("/jogador/lucas");
+  });
+
+  it("claims the sync slot first: logging in again within the interval does not stack a sync", async () => {
+    claimSyncSlot.mockResolvedValue(false);
+    const response = await GET(callbackRequest());
+    expect(location(response).pathname).toBe("/jogador/lucas");
+    await Promise.all(afterTasks);
+    expect(claimSyncSlot).toHaveBeenCalledWith("u1");
+    expect(syncUser).not.toHaveBeenCalled();
   });
 
   it("honours a valid returnTo", async () => {
@@ -127,7 +139,7 @@ describe("steam callback", () => {
     expect(location(response).pathname).toBe("/jogador/lucas");
     expect(createSession).toHaveBeenCalledWith("u1");
     expect(after).toHaveBeenCalledTimes(1);
-    expect(syncUser).toHaveBeenCalledWith("u1");
+    await vi.waitFor(() => expect(syncUser).toHaveBeenCalledWith("u1"));
   });
 
   it("rejects a state that does not match the cookie, before calling Steam", async () => {

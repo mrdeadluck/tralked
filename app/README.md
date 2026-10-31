@@ -61,6 +61,7 @@ Copie `.env.example` para `.env`. Em desenvolvimento todas as obrigatórias têm
 | `XBOX_OPENXBL_KEY` | opcional | Chave da OpenXBL (xbl.io) da conta de serviço Xbox do Tralked. API não oficial. |
 | `RA_USERNAME` / `RA_API_KEY` | opcional | Usuário e chave da Web API oficial do RetroAchievements (conta de serviço). |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | opcional | Login com Google (OAuth, código + PKCE). URI de redirecionamento: `$APP_URL/api/auth/google/callback`. Sem as duas, `/api/auth/google` responde 404 e o botão some. |
+| `BLOB_READ_WRITE_TOKEN` | obrigatória para fotos | Token do Vercel Blob, onde ficam as fotos da galeria (cache de 1 dia; a foto removida pela moderação é apagada do Blob). Sem ele, em produção o envio de fotos responde 503 "O envio de fotos está indisponível no momento"; em desenvolvimento as fotos vão para `public/uploads`. |
 | `STEAM_MODE` | opcional | Só vale sem `STEAM_API_KEY`: `fixture` usa os dados offline em vez das páginas públicas da Steam (testes e e2e usam). |
 
 Sem uma chave, a integração correspondente usa fixtures locais (`src/lib/integrations/*/__fixtures__`), então o app funciona offline com os dados do seed. Para ligar dados reais, basta preencher a chave no `.env` e reiniciar; as integrações são escolhidas por `hasKey()` em `src/lib/env.ts`.
@@ -96,7 +97,7 @@ Sete jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame
 | --- | --- |
 | `/api/cron/catalog` | Sincroniza o catálogo de jogos e metadados. |
 | `/api/cron/rarity` | Atualiza a raridade global das conquistas. |
-| `/api/cron/users` | Ressincroniza usuários com dados desatualizados. |
+| `/api/cron/users` | Ressincroniza até 50 usuários Steam por execução (os mais antigos primeiro), com limite de 50 s para a execução toda: ninguém começa depois do prazo e a sondagem do catálogo de cada usuário usa só o tempo que sobra (no máximo 45 s). |
 | `/api/cron/platforms` | Ressincroniza até 5 contas PSN, Xbox e RetroAchievements verificadas por execução (as mais antigas primeiro), lendo só os jogos com conquistas novas e retomando de onde parou (limite de 50 s). |
 | `/api/cron/media` | Busca vídeos, screenshots e artworks (IGDB) e capa/hero/logo (SteamGridDB) de jogos ainda sem mídia oficial. |
 | `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte e data das notícias que citam um jogo do catálogo. |
@@ -107,6 +108,8 @@ curl -H "Authorization: Bearer $CRON_SECRET" https://seu-dominio/api/cron/catalo
 ```
 
 Resposta: `{ "job": "catalog", "processed": N }`. Token inválido retorna 401, job desconhecido retorna 404.
+
+A rota exporta `maxDuration = 300` (o teto da Vercel sem Fluid compute). Cada job cabe com folga: `catalog` 25 jogos, `rarity` 50, `media` 20, `news` os feeds ativos, `notifications` uma exclusão; `users` e `platforms` param em 50 s. O que sobra vai primeiro na execução seguinte.
 
 ### Agendamento (pronto para o `vercel.json`)
 

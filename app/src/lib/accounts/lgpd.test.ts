@@ -38,7 +38,7 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
     await prisma.photo.deleteMany({ where: { caption: { contains: MARK } } });
     await prisma.guideTip.deleteMany({ where: { body: { contains: MARK } } });
     await prisma.family.deleteMany({ where: { name: { contains: MARK } } });
-    await prisma.newsletterSubscriber.deleteMany({ where: { email: { endsWith: "@lgpd.test" } } });
+    await prisma.newsletterSubscriber.deleteMany({ where: { email: { endsWith: "@lgpd.test", mode: "insensitive" } } });
     await prisma.user.deleteMany({ where: { handle: { startsWith: PREFIX } } });
   }
 
@@ -117,6 +117,10 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
       await postComment({ targetType: "article", targetId: article.id, body: `comentário de a ${MARK}` }),
     ).toMatchObject({ status: "ok" });
     session.user = null;
+    // Both subscribe to the newsletter (A with different capitalization): only A's is exported.
+    const confirmedAt = new Date("2026-10-30T12:00:00Z");
+    await prisma.newsletterSubscriber.create({ data: { email: a.email!.toUpperCase(), confirmedAt } });
+    await prisma.newsletterSubscriber.create({ data: { email: b.email! } });
     await prisma.linkedAccount.create({
       data: {
         userId: a.id,
@@ -143,6 +147,7 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
     expect(data!.community.comments.map((c) => c.body)).toEqual([`comentário de a ${MARK}`]);
     expect(data!.community.forumPosts.map((p) => p.body)).toEqual([`post de a ${MARK}`]);
     expect(data!.community.photoLikes).toEqual([]);
+    expect(data!.newsletter).toMatchObject({ email: a.email!.toUpperCase(), confirmedAt });
     // Notifications keep only kind, link and dates: their texts quote other people.
     expect(data!.notifications.length).toBe(inbox.length + 1);
     for (const n of data!.notifications) expect(Object.keys(n).sort()).toEqual(["createdAt", "href", "kind", "readAt"]);

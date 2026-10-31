@@ -88,7 +88,8 @@ describe.skipIf(!reachable)("community (database)", () => {
       expect((await deleteComment(tx, someone.id, first.comment.id)).status).toBe("forbidden");
       const edited = await editComment(tx, me.id, { id: first.comment.id, body: "Editado" });
       expect(edited.status === "ok" && edited.comment.editedAt).toBeTruthy();
-      expect((await deleteComment(tx, me.id, first.comment.id)).status).toBe("ok");
+      // The photo id comes back so the action can refresh the photo page's cached count.
+      expect(await deleteComment(tx, me.id, first.comment.id)).toEqual({ status: "ok", photoId: photo.id });
       // Soft delete: the row stays (rate limits keep counting it) with its text cleared.
       expect(await tx.comment.findUniqueOrThrow({ where: { id: first.comment.id } })).toMatchObject({
         status: "deleted",

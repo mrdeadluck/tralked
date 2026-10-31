@@ -21,9 +21,15 @@ export const profileSettingsSchema = z.object({
 
 export type ProfileSettings = z.output<typeof profileSettingsSchema>;
 
-export async function updateProfileSettings(userId: string, settings: ProfileSettings): Promise<void> {
+/** Saves the settings; returns whether the profile visibility changed (cached pages must follow). */
+export async function updateProfileSettings(
+  userId: string,
+  settings: ProfileSettings,
+): Promise<{ visibilityChanged: boolean }> {
+  const before = await prisma.user.findUnique({ where: { id: userId }, select: { profilePublic: true } });
   await prisma.user.update({
     where: { id: userId },
     data: { bio: settings.bio === "" ? null : settings.bio, profilePublic: settings.profilePublic },
   });
+  return { visibilityChanged: before !== null && before.profilePublic !== settings.profilePublic };
 }

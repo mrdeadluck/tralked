@@ -394,6 +394,44 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     }
   });
 
+  it("unlinking during a running sync: titles after the unlink are not recorded, nothing is paid", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { unlink } = await import("@/lib/accounts/link");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const fake = await fakePsnLibrary(3);
+    // The run reads the library first, then records title by title: unlink once the first title
+    // is recorded (each title loads its game right before its transaction).
+    const loadGame = prisma.game.findUniqueOrThrow.bind(prisma.game);
+    let titles = 0;
+    let unlinked: Promise<boolean> | null = null;
+    const user = await userWith("psn", "test-unlink-during-sync", "Desvincula-Teste");
+    const spy = vi.spyOn(prisma.game, "findUniqueOrThrow").mockImplementation(((args: Parameters<typeof loadGame>[0]) => {
+      titles++;
+      if (titles === 2) unlinked = unlink(user.id, "psn");
+      return unlinked ? unlinked.then(() => loadGame(args)) : loadGame(args);
+    }) as unknown as typeof prisma.game.findUniqueOrThrow);
+    try {
+      const result = await syncPlatformAccount(user.id, "psn");
+      expect(result).toMatchObject({ status: "unverified", newUnlocks: 0 });
+      expect(titles).toBe(2); // the second title saw the account gone and the run stopped
+      expect(await unlinked).toBe(true);
+
+      // Unlink removed the first title; the second and third were never written.
+      expect(await prisma.userGame.count({ where: { userId: user.id } })).toBe(0);
+      expect(await prisma.userAchievement.count({ where: { userId: user.id } })).toBe(0);
+      expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, voidedAt: null } })).toBe(0);
+      const stats = await prisma.userStats.findUnique({ where: { userId: user.id } });
+      expect(stats?.totalXp ?? 0).toBe(0);
+      const account = await prisma.linkedAccount.findUniqueOrThrow({
+        where: { userId_platform: { userId: user.id, platform: "psn" } },
+      });
+      expect(account).toMatchObject({ verifiedAt: null, lastSyncedAt: null });
+    } finally {
+      spy.mockRestore();
+      fake.restore();
+    }
+  });
+
   it("stops at the time budget and does not mark the account synced", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncPlatformAccount } = await import("./platform-user");

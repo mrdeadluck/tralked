@@ -210,7 +210,10 @@ export async function createComment(
   return { status: "ok", comment: toView(comment) };
 }
 
-export type OwnCommentResult = { status: "ok"; articleSlug?: string } | { status: "not_found" } | { status: "forbidden" };
+export type OwnCommentResult =
+  | { status: "ok"; articleSlug?: string; photoId?: string }
+  | { status: "not_found" }
+  | { status: "forbidden" };
 
 async function ownComment(db: Db, userId: string, id: string) {
   const comment = await db.comment.findUnique({ where: { id }, select: { authorId: true, status: true } });
@@ -251,5 +254,7 @@ export async function deleteComment(db: Db, userId: string, id: string): Promise
     const articleSlug = await syncArticleComments(db, deleted.targetId);
     if (articleSlug) return { status: "ok", articleSlug };
   }
+  // The photo page caches its comment count (photo:<id>).
+  if (deleted.targetType === "photo") return { status: "ok", photoId: deleted.targetId };
   return { status: "ok" };
 }

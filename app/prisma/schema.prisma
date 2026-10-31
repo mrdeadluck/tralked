@@ -283,20 +283,30 @@ model GameOpen {
 /// Immutable XP ledger; level, skills and attributes are derived from it.
 ///
 /// `source` / `sourceKey` conventions (sourceKey makes the entry idempotent per user):
-///   achievement -> achievementId (unique across platforms: Achievement rows are per platform;
-///                  `platform` says which one)
-///   platinum    -> gameId for Steam, `${platform}:${gameId}` for psn | xbox | retro
-///                  (a game can be completed once per platform)
-///   mission     -> missionId
-///   guide_vote  -> `${tipId}:${voterUserId}`
-///   seed        -> 'baseline' (synthetic entry, development seed data only)
+///   achievement    -> achievementId (unique across platforms: Achievement rows are per platform)
+///   platinum       -> gameId for Steam, `${platform}:${gameId}` for psn | xbox | retro
+///                     (a game can be completed once per platform)
+///   mission        -> missionId (reward of a completed daily/weekly mission)
+///   guide_vote     -> `${tipId}:${voterUserId}` (Sábio XP for the author of a voted tip)
+///   photo_approved -> photoId (gallery upload XP, daily-limited; voided when moderation removes it)
+///   forum_solved   -> forumPostId (answer marked "Resolveu"; voided when the answer is removed)
+///   seed           -> 'baseline' (synthetic entry, development seed data only)
+/// Fraud release (admin "Liberar") writes `achievement` / `platinum` entries exactly as the syncs
+/// do, and restores entries voided earlier instead of creating new ones.
 ///
-/// Skill points: `skillPoints` holds explicit per-skill points ({"soulslike": 123}).
-/// When null, each skill in `skills` receives skillPointsFor(xp, skills.length).
+/// `platform`: psn | xbox | retro on entries written by those syncs (and their fraud release);
+/// NULL for Steam entries (Plan 1 convention, kept: Steam sync, seed and Steam fraud release write
+/// NULL, and readers treat NULL achievement/platinum entries as Steam) and for entries not tied to
+/// a platform (mission, guide_vote, photo_approved, forum_solved, seed).
 ///
-/// Entries are never deleted or edited: confirmed fraud sets `voidedAt`, and voided entries
-/// are left out of every derived value. Unlinking a PSN/Xbox/RA account also voids that
-/// platform's entries (relinking the same account does not pay them again).
+/// Skill points: `skillPoints` holds explicit per-skill points ({"soulslike": 123}): seed,
+/// photo_approved and forum_solved set them. When null, each skill in `skills` receives
+/// skillPointsFor(xp, skills.length); achievement/platinum entries take their game's current skills.
+///
+/// Entries are never deleted or edited: confirmed fraud and moderation removals set `voidedAt`,
+/// and voided entries are left out of every derived value. Unlinking a PSN/Xbox/RA account also
+/// voids that platform's entries and the mission rewards they completed (relinking the same
+/// account does not pay them again).
 model XpLedgerEntry {
   id          String    @id @default(cuid())
   userId      String
@@ -305,7 +315,7 @@ model XpLedgerEntry {
   xp          Int
   skills      String[]
   skillPoints Json?
-  /// steam | psn | xbox | retro; null for entries not tied to a platform (missions, votes, seed).
+  /// psn | xbox | retro; NULL for Steam entries and for entries not tied to a platform (see above).
   platform    String?
   voidedAt    DateTime?
   createdAt   DateTime  @default(now())

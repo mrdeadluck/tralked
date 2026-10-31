@@ -72,7 +72,7 @@ async function currentGameSkills(
  * Loads the ledger for the skill rebuild. XP is frozen at record time, but the genre mapping is
  * not: `achievement` and `platinum` entries without explicit `skillPoints` take the skills their
  * game has now (so a game that only later got skills, from the catalog job or an admin override,
- * also counts for past unlocks). Entries with explicit `skillPoints` (seed, guide votes) and
+ * also counts for past unlocks). Entries with explicit `skillPoints` (seed, photo_approved, forum_solved) and
  * sources without a game keep their own `skills`. The `skills` column stays as an audit copy.
  * Voided entries (confirmed fraud) are left out.
  */
@@ -392,9 +392,10 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
  * against the non-suspicious unlocks of those periods. A mission that is no longer complete gets
  * its reward voided, its completion cleared and its progress lowered. Returns how many mission
  * rewards were voided. Known limit: if later valid unlocks complete it again in the same period,
- * the reward is not paid a second time (the voided entry keeps its unique key).
+ * the reward is not paid a second time (the voided entry keeps its unique key). Used by confirmed
+ * fraud (`voidFraudEntries`) and by unlinking a platform (`unlink` in accounts/link.ts).
  */
-async function revalidateMissions(userId: string, days: string[], now: Date): Promise<number> {
+export async function revalidateMissions(userId: string, days: string[], now: Date): Promise<number> {
   if (days.length === 0) return 0;
   const weeks = [...new Set(days.map(isoWeekKey))];
   const missions = await prisma.mission.findMany({

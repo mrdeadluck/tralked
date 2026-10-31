@@ -9,8 +9,19 @@ import { syncStaleMedia } from "@/lib/sync/media";
 import { syncStalePlatformAccounts } from "@/lib/sync/platform-user";
 import { syncStaleUsers } from "@/lib/sync/user";
 
-// Each job is bounded (a fixed number of games/users per run) so it fits in one invocation.
-// Schedules: CRON_SCHEDULES in @/lib/cron/schedules (and the README).
+/**
+ * Ceiling of one cron invocation (seconds): Vercel's limit without Fluid compute. Every job is
+ * bounded well under it, by item count and, for the slow per-user syncs, by a shared deadline:
+ * - catalog: 25 stalest games; rarity: 50 games; media: 20 games; news: the active feeds;
+ *   notifications: one delete;
+ * - users: at most 50 Steam users and 50 s in all (STALE_USERS_BUDGET_MS; each user's catalog
+ *   probing gets what is left, at most 45 s);
+ * - platforms: at most 5 PSN/Xbox/RA accounts and 50 s in all.
+ * Work left over goes first in the next run. Schedules: CRON_SCHEDULES in @/lib/cron/schedules
+ * (and the README).
+ */
+export const maxDuration = 300;
+
 const JOBS: Record<CronJob, () => Promise<{ processed: number; failed?: number }>> = {
   catalog: () => syncCatalog(),
   rarity: () => refreshRarity(),

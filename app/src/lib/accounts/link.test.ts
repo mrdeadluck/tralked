@@ -264,4 +264,54 @@ describe.skipIf(!reachable)("account linking", () => {
     await expect(getLinkedAccounts(user.id)).resolves.toEqual([]);
     await expect(unlink(user.id, "xbox")).resolves.toBe(false);
   });
+
+  it("unlink also voids the reward of a mission that the platform's unlocks completed", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { unlink } = await import("./link");
+    const { recomputeUser } = await import("@/lib/progression/recompute");
+    const user = await newUser();
+    await prisma.linkedAccount.create({
+      data: { userId: user.id, platform: "xbox", externalId: "xuid-mission", handle: "Missao", verifiedAt: T0 },
+    });
+    const game = await prisma.game.create({
+      data: {
+        slug: `${HANDLE_PREFIX}mission-game`,
+        name: "Jogo da missão",
+        achievementCount: 0,
+        platforms: ["XBOX"],
+        achievements: {
+          create: [0, 1, 2].map((i) => ({ platform: "xbox", apiName: `X${i}`, name: `Rara ${i}`, globalPct: 5 })),
+        },
+      },
+      include: { achievements: true },
+    });
+    try {
+      // Three rare Xbox unlocks today complete the daily "Desbloqueie 3 conquistas raras".
+      await prisma.userAchievement.createMany({
+        data: game.achievements.map((a, i) => ({ userId: user.id, achievementId: a.id, unlockedAt: later(-(i + 1) * 3_600_000) })),
+      });
+      await recomputeUser(user.id, T0);
+      const rare = await prisma.mission.findFirstOrThrow({
+        where: { userId: user.id, kind: "daily", title: "Desbloqueie 3 conquistas raras" },
+      });
+      expect(rare.completedAt).not.toBeNull();
+      const paid = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
+      expect(paid.totalXp).toBe(rare.rewardXp);
+
+      await expect(unlink(user.id, "xbox", T0)).resolves.toBe(true);
+
+      const reward = await prisma.xpLedgerEntry.findUniqueOrThrow({
+        where: { userId_source_sourceKey: { userId: user.id, source: "mission", sourceKey: rare.id } },
+      });
+      expect(reward.voidedAt).toEqual(T0);
+      expect(await prisma.mission.findUniqueOrThrow({ where: { id: rare.id } })).toMatchObject({
+        completedAt: null,
+        progress: 0,
+      });
+      const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
+      expect(stats.totalXp).toBe(0);
+    } finally {
+      await prisma.game.delete({ where: { id: game.id } });
+    }
+  });
 });

@@ -5,6 +5,7 @@ import { toLocalDay } from "@/lib/engine/streak";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
 import { levelFromXp, rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import type { MissionCondition } from "@/lib/engine/missions";
+import { validCompletions } from "@/lib/progression/completions";
 import { dailyPeriodKey, weeklyPeriodKey } from "@/lib/progression/periods";
 
 /** Any Prisma client; tests pass a transaction client to see uncommitted fixtures. */
@@ -81,8 +82,12 @@ export type Character = {
   xpCurrent: number;
   xpNext: number;
   vocation: string;
+  /** All platforms, valid (non-suspicious) unlocks only, like the Troféus card. */
   stats: {
     achievements: number;
+    /** Suspicious unlocks still waiting for review ("+N em análise"); confirmed fraud is left out. */
+    pendingReview: number;
+    /** Distinct games with a valid 100% on any platform. */
     perfectGames: number;
     legendary: number;
     /** Rank among public profiles; null when the profile is private. */
@@ -256,28 +261,25 @@ export async function getCharacter(
   const totalXp = user.stats?.totalXp ?? 0;
   const progress = levelFromXp(totalXp);
 
+  // Every platform counts, and only valid unlocks (as the Troféus card and the attributes):
+  // suspicious unlocks waiting for review show as "+N em análise"; confirmed fraud never shows.
   const [
-    unlockedAgg,
-    perfectGames,
+    achievements,
+    pendingReview,
+    completions,
     legendary,
     rankRow,
     missions,
     recent,
     recentDays,
     libraryRows,
+    validByGame,
   ] = await Promise.all([
-    // Plan 1 profile counts are Steam-only (other platforms' libraries come with Plan 2 views).
-    db.userGame.aggregate({
-      where: { userId: user.id, platform: "steam" },
-      _sum: { unlockedCount: true },
-    }),
-    db.userGame.count({ where: { userId: user.id, platform: "steam", completedAt: { not: null } } }),
+    db.userAchievement.count({ where: { userId: user.id, suspicious: false } }),
+    db.userAchievement.count({ where: { userId: user.id, suspicious: true, fraudReview: null } }),
+    validCompletions(user.id, db),
     db.userAchievement.count({
-      where: {
-        userId: user.id,
-        suspicious: false,
-        achievement: { platform: "steam", globalPct: { lte: 3 } },
-      },
+      where: { userId: user.id, suspicious: false, achievement: { globalPct: { lte: 3 } } },
     }),
     user.profilePublic ? getUserRank(user.id, "geral", db) : Promise.resolve(null),
     db.mission.findMany({
@@ -307,10 +309,12 @@ export async function getCharacter(
       select: { unlockedAt: true },
     }),
     db.userGame.findMany({
-      where: { userId: user.id, platform: "steam", unlockedCount: { gt: 0 }, completedAt: null },
-      include: {
+      where: { userId: user.id, unlockedCount: { gt: 0 } },
+      select: {
+        platform: true,
         game: {
           select: {
+            id: true,
             slug: true,
             name: true,
             coverUrl: true,
@@ -321,6 +325,16 @@ export async function getCharacter(
         },
       },
     }),
+    // Valid unlocks and catalog size per game and platform of the library ("Quase lá").
+    db.$queryRaw<{ gameId: string; platform: string; unlocked: number; total: number }[]>`
+      SELECT ug."gameId", ug.platform,
+        (SELECT count(*)::int FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId"
+          WHERE ua."userId" = ug."userId" AND ua.suspicious = false
+            AND a."gameId" = ug."gameId" AND a.platform = ug.platform) AS unlocked,
+        (SELECT count(*)::int FROM "Achievement" a
+          WHERE a."gameId" = ug."gameId" AND a.platform = ug.platform) AS total
+      FROM "UserGame" ug
+      WHERE ug."userId" = ${user.id} AND ug."unlockedCount" > 0`,
   ]);
 
   const byId = new Map(user.skills.map((s) => [s.skill, s]));
@@ -335,19 +349,32 @@ export async function getCharacter(
   const sabio = skillRows.filter((s) => s.id === "sabio");
 
   const skillName = new Map(SKILLS.map((s) => [s.id as string, s.name]));
-  const almostThere = libraryRows
-    .filter((row) => row.game.achievementCount > 0)
-    .map((row) => ({
+  // Distinct games with a valid 100% on any platform (one game on Steam and PSN is one game).
+  const perfect = new Set(completions.map((c) => c.gameId));
+  const counts = new Map(validByGame.map((r) => [`${r.gameId}:${r.platform}`, r]));
+  // "Quase lá": the closest platform of each game not yet 100% anywhere, from valid unlocks.
+  // Steam's size is the game's upstream count; other platforms count their catalog rows.
+  const closest = new Map<string, CharacterAlmostGame>();
+  for (const row of libraryRows) {
+    if (perfect.has(row.game.id)) continue;
+    const count = counts.get(`${row.game.id}:${row.platform}`);
+    const total = row.platform === "steam" ? row.game.achievementCount : (count?.total ?? 0);
+    const unlocked = count?.unlocked ?? 0;
+    if (total <= 0 || unlocked >= total || unlocked / total < 0.7) continue;
+    const best = closest.get(row.game.slug);
+    if (best && best.unlocked / best.total >= unlocked / total) continue;
+    closest.set(row.game.slug, {
       slug: row.game.slug,
       name: row.game.name,
       coverUrl: row.game.coverUrl,
-      unlocked: row.unlockedCount,
-      total: row.game.achievementCount,
-      percent: Math.floor((row.unlockedCount / row.game.achievementCount) * 100),
+      unlocked,
+      total,
+      percent: Math.floor((unlocked / total) * 100),
       skills: row.game.skills.map((s) => skillName.get(s.skill) ?? s.skill),
       hasGuide: row.game.guide?.status === "published",
-    }))
-    .filter((g) => g.unlocked < g.total && g.unlocked / g.total >= 0.7)
+    });
+  }
+  const almostThere = [...closest.values()]
     .sort((a, b) => b.unlocked / b.total - a.unlocked / a.total)
     .slice(0, 6);
 
@@ -364,8 +391,9 @@ export async function getCharacter(
     xpNext: progress.next,
     vocation: user.stats?.vocation ?? "Recruta",
     stats: {
-      achievements: unlockedAgg._sum.unlockedCount ?? 0,
-      perfectGames,
+      achievements,
+      pendingReview,
+      perfectGames: perfect.size,
       legendary,
       rank: rankRow?.rank ?? null,
     },

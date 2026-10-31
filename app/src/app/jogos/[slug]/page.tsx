@@ -26,7 +26,10 @@ import { JsonLd, videoGameJsonLd } from "@/lib/seo/json-ld";
 import { gameMetadata } from "./metadata";
 
 export async function generateStaticParams() {
-  return (await listGameSlugs()).map((slug) => ({ slug }));
+  // The most played games (capped). Cache Components needs at least one sample: on an empty
+  // catalog the placeholder renders a real 404; unknown slugs render on demand.
+  const slugs = await listGameSlugs();
+  return (slugs.length > 0 ? slugs : ["exemplo"]).map((slug) => ({ slug }));
 }
 
 export async function generateMetadata({ params }: PageProps<"/jogos/[slug]">): Promise<Metadata> {

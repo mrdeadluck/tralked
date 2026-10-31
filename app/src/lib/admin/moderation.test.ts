@@ -1,6 +1,10 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { recomputeUser } from "@/lib/progression/recompute";
+import { localStorage } from "@/lib/storage/local";
 import { decideReport, listContent, listReports, moderateContent } from "./moderation";
 
 // Test database only (vitest.db-guard.ts). Fixtures use the `test-admin-m` prefix and are removed.
@@ -77,6 +81,24 @@ describe("photos", () => {
 
     for (const action of ["restore", "hide", "remove"] as const) {
       expect(await moderateContent({ targetType: "photo", targetId: photoId, action }, moderator, NOW)).toMatchObject({ ok: false });
+    }
+  });
+
+  it("removing deletes the stored image file; hiding keeps it (local adapter)", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "tralked-moderation-"));
+    try {
+      const storage = localStorage(root);
+      const { url } = await storage.put("2026/10/moderada.webp", Buffer.from("webp"), "image/webp");
+      const file = path.join(root, "public", "uploads", "2026", "10", "moderada.webp");
+      const photo = await prisma.photo.create({ data: { authorId: author, width: 800, height: 600, url } });
+
+      await moderateContent({ targetType: "photo", targetId: photo.id, action: "hide" }, moderator, NOW, storage);
+      expect((await readFile(file)).toString()).toBe("webp");
+
+      expect((await moderateContent({ targetType: "photo", targetId: photo.id, action: "remove" }, moderator, NOW, storage)).ok).toBe(true);
+      await expect(readFile(file)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

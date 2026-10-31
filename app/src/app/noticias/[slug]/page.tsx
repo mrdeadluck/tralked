@@ -33,8 +33,10 @@ async function loadArticle(slug: string): Promise<ArticleFull | null> {
 }
 
 export async function generateStaticParams() {
+  // The most recent articles (capped). Cache Components needs at least one sample: with no
+  // articles the placeholder renders a real 404; other slugs render on demand.
   const slugs = await getAllArticleSlugs();
-  return slugs.map((slug) => ({ slug }));
+  return (slugs.length > 0 ? slugs : ["exemplo"]).map((slug) => ({ slug }));
 }
 
 export async function generateMetadata({

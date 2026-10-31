@@ -5,6 +5,7 @@ import { articleTag, NEWS_TAG } from "@/lib/queries/news";
 import { FORUM_TAG, GALLERY_TAG, photoTag, threadTag } from "@/lib/community/cached";
 import { REPORT_TARGETS } from "@/lib/community/reports";
 import { prisma } from "@/lib/db";
+import { getStorage, type Storage } from "@/lib/storage";
 
 /**
  * Moderation of community content (comments, forum posts and threads, gallery photos) and the
@@ -13,7 +14,8 @@ import { prisma } from "@/lib/db";
  * - "Ocultar" (hide) is reversible ("Restaurar") and keeps any XP the content earned.
  * - "Remover" (remove) is final: the content never comes back, and the XP it earned is voided in
  *   the ledger (gallery photo XP, and the "Resolveu" XP of a forum answer), then the author is
- *   recomputed. Voided entries are kept, so the decision stays auditable.
+ *   recomputed. Voided entries are kept, so the decision stays auditable. A removed photo's image
+ *   file is deleted from storage too (hiding keeps it: a hidden photo can come back).
  * - Hiding or removing resolves the target's open reports.
  * - Targets that no longer exist are reported as such (reports may outlive their target).
  */
@@ -89,13 +91,21 @@ async function resolveReportsOf(tx: Tx, targetType: string, targetId: string, mo
   });
 }
 
+/**
+ * Applies a moderation action. A removed photo's file is deleted from `storage` (default: the
+ * configured adapter) after the transaction commits; that deletion is best-effort (logged).
+ */
 export async function moderateContent(
   input: ModerationInput,
   moderatorId: string,
   now: Date = new Date(),
+  storage?: Storage,
 ): Promise<ModerationResult> {
   const { targetType, targetId, action } = input;
-  return prisma.$transaction(async (tx): Promise<ModerationResult> => {
+  /** Stored image of the photo this action removes. */
+  let removedFile = null as string | null;
+  const result = await prisma.$transaction(async (tx): Promise<ModerationResult> => {
+    let photoUrl: string | null = null;
     const tags: string[] = [];
     let current: string;
     /** XP to void when the content is removed: [author, ledger source, sourceKey]. */
@@ -116,9 +126,10 @@ export async function moderateContent(
         break;
       }
       case "photo": {
-        const photo = await tx.photo.findUnique({ where: { id: targetId }, select: { status: true, authorId: true } });
+        const photo = await tx.photo.findUnique({ where: { id: targetId }, select: { status: true, authorId: true, url: true } });
         if (!photo) return NOT_FOUND;
         current = photo.status;
+        photoUrl = photo.url;
         tags.push(photoTag(targetId), GALLERY_TAG);
         earned = [photo.authorId, "photo_approved", targetId];
         break;
@@ -186,10 +197,24 @@ export async function moderateContent(
       if (unsolveThreadId) {
         await tx.forumThread.update({ where: { id: unsolveThreadId }, data: { solvedPostId: null } });
       }
+      removedFile = photoUrl;
     }
     if (action === "hide" || action === "remove") await resolveReportsOf(tx, targetType, targetId, moderatorId, now);
     return { ok: true, tags, recompute, voided };
   });
+
+  // "Remover é definitivo" covers the bytes too: the image stops being served at its URL.
+  if (result.ok && removedFile) {
+    try {
+      await (storage ?? getStorage()).remove(removedFile);
+    } catch (error) {
+      console.error("Moderation: could not delete the removed photo's file", {
+        photoId: targetId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return result;
 }
 
 // ---------- Reports ----------

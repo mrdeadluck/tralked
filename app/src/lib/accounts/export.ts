@@ -28,6 +28,14 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
   });
   if (!user) return null;
 
+  // The newsletter is keyed by e-mail, not by account: the subscription of the account's address.
+  const newsletter = user.email
+    ? await prisma.newsletterSubscriber.findFirst({
+        where: { email: { equals: user.email, mode: "insensitive" } },
+        select: { email: true, confirmedAt: true, createdAt: true },
+      })
+    : null;
+
   const mine = { userId };
   const authored = { authorId: userId };
 
@@ -198,6 +206,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     },
     community: { comments, forumThreads, forumPosts, photos, photoLikes, reports },
     notifications,
+    newsletter,
     family: family ? { name: family.family.name, role: family.role, joinedAt: family.joinedAt } : null,
     apiKeys,
   };

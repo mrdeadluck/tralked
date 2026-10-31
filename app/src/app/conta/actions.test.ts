@@ -8,6 +8,7 @@ const redirect = vi.fn(() => {
 });
 const deleteAccount = vi.fn();
 const updateProfileSettings = vi.fn();
+const visibilityTags = vi.fn();
 
 vi.mock("@/lib/auth/session", () => ({ getSessionUser, destroySession }));
 vi.mock("next/cache", async (importOriginal) => ({
@@ -16,6 +17,7 @@ vi.mock("next/cache", async (importOriginal) => ({
 }));
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("@/lib/accounts/delete", () => ({ deleteAccount }));
+vi.mock("@/lib/accounts/privacy", () => ({ visibilityTags }));
 vi.mock("@/lib/accounts/settings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/accounts/settings")>()),
   updateProfileSettings,
@@ -26,6 +28,8 @@ const { deleteAccountAction, updateProfileAction } = await import("./actions");
 beforeEach(() => {
   vi.clearAllMocks();
   getSessionUser.mockResolvedValue({ id: "u1", handle: "eu" });
+  updateProfileSettings.mockResolvedValue({ visibilityChanged: false });
+  visibilityTags.mockResolvedValue(["gallery", "forum", "photo:p1", "player:eu"]);
 });
 
 describe("updateProfileAction", () => {
@@ -38,6 +42,14 @@ describe("updateProfileAction", () => {
   it("saves a trimmed plain-text bio and the visibility", async () => {
     expect(await updateProfileAction({ bio: "  Caçador de platinas \r\n", profilePublic: false })).toEqual({ ok: true });
     expect(updateProfileSettings).toHaveBeenCalledWith("u1", { bio: "Caçador de platinas", profilePublic: false });
+    expect(updateTag).not.toHaveBeenCalled(); // visibility did not change
+  });
+
+  it("going private (or public) refreshes the gallery, photo, forum and profile caches at once", async () => {
+    updateProfileSettings.mockResolvedValue({ visibilityChanged: true });
+    expect(await updateProfileAction({ bio: "", profilePublic: false })).toEqual({ ok: true });
+    expect(visibilityTags).toHaveBeenCalledWith("u1");
+    for (const tag of ["gallery", "forum", "photo:p1", "player:eu"]) expect(updateTag).toHaveBeenCalledWith(tag);
   });
 
   it("refuses HTML, bios over 280 characters and malformed input", async () => {
@@ -74,6 +86,7 @@ describe("deleteAccountAction", () => {
     expect(updateTag).toHaveBeenCalledWith("photo:p1");
     expect(updateTag).toHaveBeenCalledWith("thread:t1");
     expect(updateTag).toHaveBeenCalledWith("game:hollow-knight");
+    expect(updateTag).toHaveBeenCalledWith("player:eu");
     expect(redirect).toHaveBeenCalledWith("/?conta=excluida");
   });
 

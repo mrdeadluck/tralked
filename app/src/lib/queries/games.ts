@@ -95,12 +95,22 @@ export function countGames(): Promise<number> {
   return prisma.game.count();
 }
 
-/** Slugs of every game, optionally only those with a published guide (for generateStaticParams). */
-export async function listGameSlugs(opts: { withGuide?: boolean } = {}): Promise<string[]> {
+/** How many game pages (and guide pages) the build prerenders; the rest render on first request. */
+export const PRERENDER_GAMES = 200;
+
+/**
+ * Slugs to prerender (generateStaticParams): the most played games first (players on the site,
+ * then the most recently updated), capped so build time does not grow with the catalog.
+ * Optionally only games with a published guide.
+ */
+export async function listGameSlugs(
+  opts: { withGuide?: boolean; limit?: number } = {},
+): Promise<string[]> {
   const games = await prisma.game.findMany({
     where: opts.withGuide ? { guide: { is: { status: "published" } } } : {},
     select: { slug: true },
-    orderBy: { name: "asc" },
+    orderBy: [{ users: { _count: "desc" } }, { updatedAt: "desc" }, { slug: "asc" }],
+    take: opts.limit ?? PRERENDER_GAMES,
   });
   return games.map((g) => g.slug);
 }

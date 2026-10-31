@@ -6,6 +6,7 @@ import { linkSteamToUser } from "@/lib/auth/link-steam";
 import { createSession, getSessionUser } from "@/lib/auth/session";
 import { upsertUserFromSteam } from "@/lib/auth/upsert-user";
 import { env } from "@/lib/env";
+import { claimSyncSlot } from "@/lib/sync/claim";
 import { syncUser } from "@/lib/sync/user";
 
 const redirectTo = (path: string) => NextResponse.redirect(new URL(path, env.APP_URL));
@@ -65,9 +66,12 @@ export async function GET(request: NextRequest) {
   // The first sync can take minutes (whole library, new games cataloged), so it runs after the
   // response: the session cookie and redirect go out right away, and the character page shows
   // "Ainda não sincronizado" meanwhile. A failed sync never blocks the login; cron retries it.
+  // It claims the same rate-limit slot as "Sincronizar": logging in again within the interval (or
+  // while the cron or a manual sync runs) does not stack another sync.
   const userId = user.id;
   after(async () => {
     try {
+      if (!(await claimSyncSlot(userId))) return;
       await syncUser(userId);
     } catch (error) {
       console.error("Steam login: initial sync failed", error);

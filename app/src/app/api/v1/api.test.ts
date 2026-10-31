@@ -287,6 +287,33 @@ describe("POST /api/v1/articles", () => {
     expect(huge.status).toBe(413);
   });
 
+  it("413 for a chunked body (no Content-Length) as soon as it passes 1 MiB, without reading the rest", async () => {
+    const chunk = new TextEncoder().encode("x".repeat(64 * 1024));
+    let pulled = 0;
+    // An endless stream: the request only ends because the reader stops at the limit.
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(chunk);
+      },
+    });
+    const request = new Request(`${BASE}/api/v1/articles`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${keys.writer.secret}`,
+        "idempotency-key": `t9-chunked-${seq++}`,
+      },
+      body: endless,
+      duplex: "half",
+    } as RequestInit);
+    expect(request.headers.get("content-length")).toBeNull();
+    const response = await articles.POST(request);
+    expect(response.status).toBe(413);
+    expect((await json(response)).error?.code).toBe("payload_too_large");
+    expect(pulled).toBeLessThan(20); // 1 MiB is 16 chunks
+  });
+
   it("422 without a stack overflow for JSON nested 3,000+ levels deep (articles and guides, POST and PATCH)", async () => {
     const deep = (levels: number) => `{"title":"fundo","blocks":${"[".repeat(levels)}${"]".repeat(levels)}}`;
     const created = await articles.POST(call("POST", "/api/v1/articles", { key: keys.publisher, body: article() }));
