@@ -39,4 +39,5 @@ export const ROUTES: E2ERoute[] = [
   { path: "/conta", name: "conta-logado", auth: true },
   { path: "/conta/conexoes", name: "conta-conexoes-logado", auth: true },
   { path: "/jogador/lucas", name: "jogador-logado", auth: true },
+  { path: "/desenvolvedores", name: "desenvolvedores" },
 ];

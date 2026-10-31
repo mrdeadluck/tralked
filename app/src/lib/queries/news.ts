@@ -74,6 +74,8 @@ export type ArticleFull = ArticleCard & {
   blocks: ContentBlock[];
   /** editorial | bot */
   source: string | null;
+  /** An editor approved it (Article.reviewedAt): bot articles then read "revisado pela redação". */
+  reviewed: boolean;
   /** Related game's hero/cover for the article header (null: generated art). */
   heroUrl: string | null;
   game: RelatedGame | null;
@@ -294,6 +296,7 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     select: {
       ...cardSelect,
       source: true,
+      reviewedAt: true,
       game: { select: { ...gameSelect, id: true, guide: { select: { status: true } } } },
       games: {
         select: { game: { select: { ...gameSelect, id: true, guide: { select: { status: true } } } } },
@@ -321,6 +324,7 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     body: row.body,
     blocks,
     source: row.source,
+    reviewed: row.reviewedAt !== null,
     heroUrl: gameRows.map((g) => g.heroUrl ?? g.coverUrl).find((url) => url) ?? null,
     game: games[0] ?? null,
     games,
