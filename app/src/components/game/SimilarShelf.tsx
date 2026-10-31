@@ -1,5 +1,6 @@
 import { GameArt } from "@/components/art/GameArt";
 import type { SimilarGame } from "@/lib/queries/game-profile";
+import { titleFitStyle } from "./title-fit";
 
 /*
  * "Na mesma estante": games with the same skills, as small cases leaning on a shelf (they
@@ -12,7 +13,7 @@ const CSS = `
 .gpe-box { position: relative; aspect-ratio: 1 / 1.38; border-radius: 2px 6px 6px 2px; overflow: hidden; transform: rotateY(-14deg); transform-origin: left center; transition: transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s; box-shadow: -6px 0 0 #0d0e12, 0 20px 30px -10px rgba(0,0,0,.8); background: var(--surface); }
 .gpe a:hover .gpe-box, .gpe a:focus-visible .gpe-box { transform: rotateY(-2deg) translateY(-6px); box-shadow: -3px 0 0 #0d0e12, 0 26px 36px -10px rgba(0,0,0,.9), 0 0 0 1px var(--acc); }
 .gpe-top { position: absolute; top: 0; left: 0; right: 0; height: 12%; background: var(--bg); border-bottom: 2px solid var(--acc); }
-.gpe-nm { position: absolute; bottom: 8%; left: 0; right: 0; text-align: center; font-weight: 900; font-stretch: 125%; font-size: 13px; line-height: .95; text-transform: uppercase; padding: 0 8px; text-shadow: 0 2px 10px rgba(0,0,0,.8); overflow-wrap: anywhere; }
+.gpe-nm { position: absolute; bottom: 8%; left: 0; right: 0; text-align: center; font-weight: 900; font-stretch: 125%; font-size: min(13px, calc(134px / var(--longest, 1))); line-height: .95; text-transform: uppercase; padding: 0 8px; text-shadow: 0 2px 10px rgba(0,0,0,.8); overflow-wrap: normal; word-break: normal; hyphens: manual; }
 .gpe small { font-family: var(--font-jetbrains-mono), monospace; font-size: 10.5px; color: var(--muted); }
 .gpe small b { color: var(--acc); font-weight: 500; }
 .gpe-empty { color: var(--muted); }
@@ -39,7 +40,9 @@ export function SimilarShelf({ games, aside }: { games: SimilarGame[]; aside: st
                   <GameArt seed={g.seed} hues={g.hues} imageUrl={g.coverUrl} figure width={300} height={414} />
                   {g.coverUrl ? null : <span className="gpe-top" />}
                   {/* A real cover already carries the title art: the name stays for screen readers. */}
-                  <span className={g.coverUrl ? "sr-only" : "gpe-nm"}>{g.name}</span>
+                  <span className={g.coverUrl ? "sr-only" : "gpe-nm"} style={g.coverUrl ? undefined : titleFitStyle(g.name)}>
+                    {g.name}
+                  </span>
                 </span>
                 <small>
                   {g.genre} · <b>{g.match}% combina</b>

@@ -52,12 +52,13 @@ export function DailyQuestCard({
             <p className="text-[15px] text-muted">
               Missões diárias rendem XP extra.
             </p>
-            <Link
+            {/* A route handler redirect to Steam (off-site): a plain anchor, never prefetched. */}
+            <a
               href="/api/auth/steam"
               className="font-mono text-[11px] font-bold tracking-[0.1em] text-acc uppercase"
             >
               Entre com a Steam para receber missões →
-            </Link>
+            </a>
           </>
         )}
       </div>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PlatformChips } from "@/components/ui/PlatformChips";
 import type { AccountLink } from "./AccountMenu";
 import { LogoutForm } from "./LogoutForm";
+import { prefetchFor } from "./prefetch";
 
 export type DrawerItem = { href: string; label: string; current: boolean };
 
@@ -37,6 +38,7 @@ export function MobileDrawer({
         <Link
           key={item.href}
           href={item.href}
+          prefetch={prefetchFor(item.href)}
           onClick={onNavigate}
           aria-current={item.current ? "page" : undefined}
           className={`${LINK_CLASS} ${item.current ? "text-acc" : ""}`}

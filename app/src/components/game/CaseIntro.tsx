@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type SyntheticEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import { GameArt, type Hues } from "@/components/art/GameArt";
 import { useSound } from "@/components/fx/useSound";
@@ -8,6 +16,7 @@ import { markOpened } from "@/app/jogos/[slug]/actions";
 import { registerCaseReplay } from "./case-replay";
 import { Disc } from "./Disc";
 import { openedKey } from "./opened-key";
+import { titleFitStyle } from "./title-fit";
 
 /*
  * First visit to a game: the sealed case of preview/tralked-jogo.html. Seal peel with an edge
@@ -17,8 +26,10 @@ import { openedKey } from "./opened-key";
  * It is only a layer over a page that is complete without it: nothing is in the server HTML. The
  * stage is mounted (portalled into <body>) only after hydration, when this visitor has not opened
  * the game yet (account: GameOpen; logged out: localStorage) and motion is allowed, so returning
- * visitors never paint its canvases or fetch its cover. "Pular" and Esc finish at once. While it
- * is open the rest of the document is `inert` and Tab cycles inside the dialog. Sound only plays
+ * visitors never paint its canvases or fetch its cover. "Pular" and Esc finish at once. The stage
+ * is a native <dialog> opened with showModal(): the browser makes the rest of the document inert
+ * without touching its elements (setting `inert` on <header>/<main> while the layout may still be
+ * hydrating caused hydration mismatches), and Tab cycles inside the dialog. Sound only plays
  * after the visitor's own click (never on the 6 s auto-open), and the AudioContext is closed on
  * unmount.
  *
@@ -36,7 +47,9 @@ const AUTO_OPEN_MS = 6000;
 
 const CSS = `
 .gpc { --cw: min(280px, 34vw); --band: calc(var(--cw) * .18); --ch: calc(var(--cw) * 1.38); --case: #191b21; --case-2: #0e0f13; --case-rim: #24262e; --case-in: #121318;  position: fixed; inset: 0; z-index: 60; display: none; place-items: center; perspective: 1700px;
+  margin: 0; padding: 0; border: 0; width: 100%; height: 100%; max-width: none; max-height: none; overflow: hidden; color: inherit;
   background: radial-gradient(ellipse 70% 60% at 50% 42%, #1a1c23 0%, var(--bg) 55%, #050507 100%); transition: opacity .9s ease; }
+.gpc::backdrop { background: transparent; }
 .gpc.gpc-on { display: grid; }
 .gpc::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 40% 12% at 50% 84%, rgba(0,0,0,.6), transparent 70%); }
 .gpc.gpc-fade { opacity: 0; pointer-events: none; }
@@ -77,7 +90,7 @@ const CSS = `
 .gpc-top b i { font-style: normal; color: var(--acc); }
 .gpc-top span { font-family: var(--font-jetbrains-mono), monospace; font-size: calc(var(--cw) * .032); letter-spacing: .14em; color: var(--text-2); border: 1px solid var(--border-2); padding: 2px 5px; white-space: nowrap; }
 .gpc-title { position: absolute; left: 0; right: 0; bottom: 9%; text-align: center; padding: 0 8%; }
-.gpc-title b { display: block; font-weight: 900; font-stretch: 125%; font-size: calc(var(--cw) * .115); line-height: .9; letter-spacing: -0.03em; text-transform: uppercase; color: #f3f1ea; text-shadow: 0 4px 24px rgba(0,0,0,.7); overflow-wrap: anywhere; }
+.gpc-title b { display: block; font-weight: 900; font-stretch: 125%; font-size: min(calc(var(--cw) * .115), calc(var(--cw) * .84 / var(--longest, 1))); line-height: .9; letter-spacing: -0.03em; text-transform: uppercase; color: #f3f1ea; text-shadow: 0 4px 24px rgba(0,0,0,.7); overflow-wrap: normal; word-break: normal; hyphens: manual; }
 .gpc-title span { display: block; margin-top: 6px; font-family: var(--font-jetbrains-mono), monospace; font-size: calc(var(--cw) * .03); letter-spacing: .2em; text-transform: uppercase; color: #b9c3d8; }
 .gpc-sleeve { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(115deg, rgba(255,255,255,.12) 0%, rgba(255,255,255,0) 22%, rgba(255,255,255,0) 60%, rgba(255,255,255,.06) 75%, rgba(255,255,255,0) 90%); mix-blend-mode: screen; }
 .gpc-in { transform: rotateY(180deg); background: linear-gradient(200deg, #17191f, var(--case-2)); box-shadow: inset 0 0 0 2px var(--case-rim), inset 0 0 0 6px var(--case-in); display: grid; place-items: center; }
@@ -85,7 +98,7 @@ const CSS = `
 .gpc-booklet { position: relative; width: 82%; height: 86%; border-radius: 2px; background: var(--paper-2); box-shadow: 0 2px 0 #0a0b0e, 0 10px 30px rgba(0,0,0,.5); overflow: hidden; }
 .gpc-booklet > img, .gpc-booklet > canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .55; }
 .gpc-b-in { position: absolute; inset: 0; padding: 14% 10%; display: flex; flex-direction: column; justify-content: space-between; background: linear-gradient(180deg, rgba(21,22,27,.2), rgba(21,22,27,.95) 70%); }
-.gpc-b-in b { display: block; font-weight: 900; font-stretch: 125%; font-size: calc(var(--cw) * .07); line-height: .95; text-transform: uppercase; overflow-wrap: anywhere; }
+.gpc-b-in b { display: block; font-weight: 900; font-stretch: 125%; font-size: min(calc(var(--cw) * .07), calc(var(--cw) * .656 / var(--longest, 1))); line-height: .95; text-transform: uppercase; overflow-wrap: normal; word-break: normal; hyphens: manual; }
 .gpc-b-in span { font-family: var(--font-jetbrains-mono), monospace; font-size: calc(var(--cw) * .03); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
 .gpc-seal { position: absolute; inset: -2px; transform: translateZ(17px); border-radius: 4px 11px 11px 4px; pointer-events: none; overflow: hidden;
   background: linear-gradient(125deg, rgba(255,255,255,.16), rgba(255,255,255,.02) 30%, rgba(255,255,255,.1) 48%, rgba(255,255,255,0) 60%, rgba(255,255,255,.08));
@@ -134,28 +147,16 @@ const root = () => document.getElementById(ROOT_ID);
 const lockScroll = (on: boolean) => {
   document.body.style.overflow = on ? "hidden" : "";
 };
-/** Makes everything in <body> but the stage inert (and restores it with `false`). */
-let inertWatch: MutationObserver | null = null;
-const inertBackground = (stage: HTMLElement | null, on: boolean) => {
-  const makeInert = (el: Node) => {
-    if (!(el instanceof HTMLElement) || el === stage || el.classList.contains("gpc-fly")) return;
-    if (el.hasAttribute("inert")) return;
-    el.setAttribute("inert", "");
-    el.dataset.gpInert = "";
-  };
-  inertWatch?.disconnect();
-  inertWatch = null;
-  if (on) {
-    Array.from(document.body.children).forEach(makeInert);
-    // Portals and toasts opened meanwhile join the background too.
-    inertWatch = new MutationObserver((records) => records.forEach((r) => r.addedNodes.forEach(makeInert)));
-    inertWatch.observe(document.body, { childList: true });
-  } else {
-    document.body.querySelectorAll<HTMLElement>(":scope > [data-gp-inert]").forEach((el) => {
-      el.removeAttribute("inert");
-      delete el.dataset.gpInert;
-    });
-  }
+/**
+ * Modal (true): the dialog goes to the top layer and the rest of the document is inert, natively.
+ * Modeless (false, during the disc flight): it stays on screen at its z-index, under the flying
+ * clones, and the page is interactive again. `null`: closed.
+ */
+const setDialog = (dialog: HTMLDialogElement | null, mode: "modal" | "modeless" | null) => {
+  if (!dialog) return;
+  if (dialog.open) dialog.close();
+  if (mode === "modal") dialog.showModal();
+  else if (mode === "modeless") dialog.show();
 };
 /** Shows the veiled page at once (skip, returning visitor): page CSS drops the transitions meanwhile. */
 const revealNow = () => {
@@ -174,7 +175,7 @@ export function CaseIntro(props: CaseIntroProps) {
   const mutedRef = useRef(muted);
   const audio = useRef<AudioContext | null>(null);
 
-  const stage = useRef<HTMLDivElement>(null);
+  const stage = useRef<HTMLDialogElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const slot = useRef<HTMLDivElement>(null);
@@ -301,7 +302,7 @@ export function CaseIntro(props: CaseIntroProps) {
 
   const hideStage = useCallback(() => {
     stage.current?.classList.remove("gpc-on", "gpc-fade");
-    inertBackground(stage.current, false);
+    setDialog(stage.current, null);
     lockScroll(false);
   }, []);
 
@@ -330,7 +331,7 @@ export function CaseIntro(props: CaseIntroProps) {
       }
       root()?.setAttribute("data-intro", "stage");
       stage.current?.classList.add("gpc-on");
-      inertBackground(stage.current, true);
+      setDialog(stage.current, "modal");
       lockScroll(true);
       openBtn.current?.focus({ preventScroll: true });
       // The auto-open is not a gesture of the visitor: it plays silently.
@@ -400,7 +401,8 @@ export function CaseIntro(props: CaseIntroProps) {
     if (booklet.current) booklet.current.style.visibility = "hidden";
     stage.current?.classList.add("gpc-fade");
     root()?.setAttribute("data-intro", "flight");
-    inertBackground(stage.current, false);
+    // Out of the top layer for the flight: the clones fly above the fading stage, the page is live.
+    setDialog(stage.current, "modeless");
     lockScroll(false);
     const target = document.getElementById(HOLD_ID)?.getBoundingClientRect();
     requestAnimationFrame(() =>
@@ -450,20 +452,16 @@ export function CaseIntro(props: CaseIntroProps) {
     const unregister = reduce
       ? () => undefined
       : registerCaseReplay(() => setStaged((s) => ({ auto: false, n: (s?.n ?? 0) + 1 })));
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && stage.current?.classList.contains("gpc-on")) finishInstant();
-    };
-    document.addEventListener("keydown", onKey);
     const r = run.current;
     const stageEl = stage;
     return () => {
       unregister();
-      document.removeEventListener("keydown", onKey);
       r.id++;
       r.timers.forEach((t) => window.clearTimeout(t));
       window.clearTimeout(r.auto);
       r.flies.forEach((f) => f.remove());
-      inertBackground(stageEl.current, false);
+      stageEl.current?.classList.remove("gpc-on");
+      setDialog(stageEl.current, null);
       lockScroll(false);
       void audio.current?.close().catch(() => undefined);
       audio.current = null;
@@ -477,8 +475,21 @@ export function CaseIntro(props: CaseIntroProps) {
     if (staged) showStage(staged.auto);
   }, [staged, showStage]);
 
+  /** Esc on the modal dialog: finish at once (instead of the browser just closing it). */
+  const onCancel = (e: SyntheticEvent<HTMLDialogElement>) => {
+    e.preventDefault();
+    finishInstant();
+  };
+  /** The browser may close the dialog by itself (Esc without a cancelable `cancel`): finish too. */
+  const onClose = () => {
+    const dialog = stage.current;
+    // Our own close (finish, flight hand-off to modeless) leaves nothing to do.
+    if (!dialog || dialog.open || !dialog.classList.contains("gpc-on")) return;
+    finishInstant();
+  };
+
   /** Keeps Tab inside the dialog while it is open. */
-  const trapFocus = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+  const trapFocus = (e: ReactKeyboardEvent<HTMLDialogElement>) => {
     if (e.key !== "Tab" || !stage.current) return;
     const items = [...stage.current.querySelectorAll<HTMLElement>("button")].filter(
       (b) => !b.closest(".gpc-gone"),
@@ -497,15 +508,17 @@ export function CaseIntro(props: CaseIntroProps) {
 
   if (!staged) return null;
   const upper = name.toUpperCase();
+  // Titles break only between words; --longest caps their size so the longest word fits.
+  const fit = titleFitStyle(name);
   return createPortal(
-    <div
+    <dialog
       ref={stage}
       className={coverUrl ? "gpc gpc-has-cover" : "gpc"}
       style={coverUrl ? ({ "--cover-r": coverRatio } as CSSProperties) : undefined}
-      role="dialog"
-      aria-modal="true"
       aria-label={`Abrindo ${name} pela primeira vez`}
       onKeyDown={trapFocus}
+      onCancel={onCancel}
+      onClose={onClose}
       data-testid="case-intro"
     >
       <style href="tralked-game-case" precedence="default">
@@ -562,7 +575,7 @@ export function CaseIntro(props: CaseIntroProps) {
               </div>
               {coverUrl ? null : (
                 <div className="gpc-title">
-                  <b>{name}</b>
+                  <b style={fit}>{name}</b>
                   <span>Edição de colecionador</span>
                 </div>
               )}
@@ -578,7 +591,7 @@ export function CaseIntro(props: CaseIntroProps) {
                 <div className="gpc-b-in">
                   <span>Manual</span>
                   <div>
-                    <b>{name}</b>
+                    <b style={fit}>{name}</b>
                     <span>{bookletNote}</span>
                   </div>
                 </div>
@@ -599,7 +612,7 @@ export function CaseIntro(props: CaseIntroProps) {
           Abrir o lacre
         </button>
       </div>
-    </div>,
+    </dialog>,
     document.body,
   );
 }

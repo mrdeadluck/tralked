@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/brand/Logo";
 import { Newsletter } from "./Newsletter";
+import { prefetchFor } from "./prefetch";
 
 const COLUMNS = [
   {
@@ -62,6 +63,7 @@ export function Footer() {
                 <Link
                   key={link.href}
                   href={link.href}
+                  prefetch={prefetchFor(link.href)}
                   className="text-[14.5px] text-text-2 hover:text-acc"
                 >
                   {link.label}

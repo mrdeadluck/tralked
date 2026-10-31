@@ -7,6 +7,7 @@ import { Logo } from "@/components/brand/Logo";
 import { AccountMenu, accountLinks, type AccountUser } from "./AccountMenu";
 import { MobileDrawer } from "./MobileDrawer";
 import { NotificationBell, type BellProps } from "./NotificationBell";
+import { MY_SHEET_HREF, prefetchFor } from "./prefetch";
 import { SearchBox, type SearchSuggestion } from "./SearchBox";
 
 export const NAV_ITEMS = [
@@ -57,6 +58,7 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
             <Link
               key={item.href}
               href={item.href}
+              prefetch={prefetchFor(item.href)}
               aria-current={item.current ? "page" : undefined}
               className={`rounded-[2px] px-3 py-[9px] whitespace-nowrap ${
                 item.current
@@ -77,7 +79,8 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
             <AccountMenu user={user} />
           ) : (
             <Link
-              href="/jogador/me"
+              href={MY_SHEET_HREF}
+              prefetch={false}
               className="flex items-center gap-2.5"
             >
               <span className="flex flex-col items-end font-mono leading-[1.2] max-nav:hidden">
