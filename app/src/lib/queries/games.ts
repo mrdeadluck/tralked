@@ -7,7 +7,7 @@ import {
   type AchievementPlatform,
   type ContentBlock,
 } from "@/lib/content/schema";
-import { isSafeHttpUrl } from "@/lib/content/url";
+import { isSafeHttpUrl, safeImageUrl } from "@/lib/content/url";
 import { prisma } from "@/lib/db";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
@@ -167,6 +167,8 @@ export async function getGame(slug: string, userId?: string): Promise<GameDetail
       skills: true,
       // Steam progress (achievementCount is the Steam total).
       users: userId ? { where: { userId, platform: "steam" } } : false,
+      // The catalog cover art, as on the game page (Plan 4 F12: the guide header shows it).
+      media: { where: { kind: "cover", url: { not: null } }, orderBy: { order: "asc" }, take: 1, select: { url: true } },
       guide: {
         include: {
           author: { select: { handle: true } },
@@ -196,7 +198,7 @@ export async function getGame(slug: string, userId?: string): Promise<GameDetail
     slug: game.slug,
     name: game.name,
     summary: game.summary,
-    coverUrl: game.coverUrl,
+    coverUrl: safeImageUrl(game.media[0]?.url) ?? safeImageUrl(game.coverUrl),
     platforms: game.platforms,
     skills: asSkills(game.skills.map((s) => s.skill)),
     achievementCount: game.achievementCount,

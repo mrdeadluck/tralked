@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSafeHref, isSafeHttpUrl, isSiteRelativePath } from "./url";
+import { isSafeHref, isSafeHttpUrl, isSiteRelativePath, safeImageUrl } from "./url";
 
 describe("URL guards", () => {
   it("accepts only absolute http(s) URLs", () => {
@@ -32,5 +32,13 @@ describe("URL guards", () => {
     expect(isSafeHref("/noticias/a", false)).toBe(true);
     expect(isSafeHref("https://example.com", false)).toBe(false);
     expect(isSafeHref("javascript:alert(1)", undefined)).toBe(false);
+  });
+
+  it("safeImageUrl keeps https and same-site images only", () => {
+    expect(safeImageUrl("https://cdn.example.com/c.jpg")).toBe("https://cdn.example.com/c.jpg");
+    expect(safeImageUrl("/uploads/c.jpg")).toBe("/uploads/c.jpg");
+    for (const bad of [null, undefined, "", "http://cdn.example.com/c.jpg", "//evil.example.com/c.jpg", "javascript:alert(1)", "data:image/png;base64,AA", "https://x.example.com/a b.jpg", "/a\\b.jpg", "https://x.example.com/\nc.jpg"]) {
+      expect(safeImageUrl(bad)).toBeNull();
+    }
   });
 });

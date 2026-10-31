@@ -22,12 +22,37 @@ export function GameHead({ game }: { game: GameDetail }) {
 
   return (
     <>
-      <Link
-        href="/jogos"
-        className="mb-[18px] inline-flex font-mono text-[11px] tracking-[0.1em] text-dim uppercase hover:text-acc"
-      >
-        ← Jogos e guias
-      </Link>
+      {guide ? (
+        // Plan 4 F12: Jogos › <Jogo> › Guia.
+        <nav aria-label="Você está em" className="mb-[18px] font-mono text-[11px] tracking-[0.1em] text-dim uppercase">
+          <ol className="m-0 flex list-none flex-wrap items-center gap-x-2 gap-y-1 p-0">
+            <li>
+              <Link href="/jogos" className="hover:text-acc">
+                Jogos
+              </Link>
+            </li>
+            <li aria-hidden="true">›</li>
+            <li className="min-w-0">
+              <Link href={`/jogos/${game.slug}`} className="hover:text-acc">
+                {game.name}
+              </Link>
+            </li>
+            <li aria-hidden="true">›</li>
+            <li>
+              <span aria-current="page" className="text-text-2">
+                Guia
+              </span>
+            </li>
+          </ol>
+        </nav>
+      ) : (
+        <Link
+          href="/jogos"
+          className="mb-[18px] inline-flex font-mono text-[11px] tracking-[0.1em] text-dim uppercase hover:text-acc"
+        >
+          ← Jogos e guias
+        </Link>
+      )}
       <div className="grid items-center gap-7 border-b-2 border-text pb-7 grid-cols-[minmax(0,360px)_minmax(0,1fr)_auto] max-[900px]:grid-cols-[1fr_auto]">
         <div className="max-[900px]:col-span-full">
           <GameCover name={game.name} coverUrl={game.coverUrl} />
@@ -55,6 +80,12 @@ export function GameHead({ game }: { game: GameDetail }) {
                 Guia completo de conquistas: rota em {guide.stepCount} etapas, conquistas detalhadas e
                 coletáveis.
               </p>
+              <Link
+                href={`/jogos/${game.slug}`}
+                className="mb-3.5 inline-flex min-h-6 items-center gap-1.5 font-mono text-[11.5px] tracking-[0.08em] text-acc uppercase underline-offset-[3px] hover:underline"
+              >
+                Página do jogo<span className="sr-only">: {game.name}</span> →
+              </Link>
               <div className="flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[11.5px] text-dim">
                 {guide.authorHandle ? <span className="text-text-2">@{guide.authorHandle}</span> : null}
                 <span>atualizado {timeAgo(guide.updatedAt, game.generatedAt)}</span>

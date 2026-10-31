@@ -9,8 +9,9 @@ import {
   type AchievementPlatform,
   type ContentBlock,
 } from "@/lib/content/schema";
-import { isSafeHttpUrl } from "@/lib/content/url";
+import { isSafeHttpUrl, safeImageUrl } from "@/lib/content/url";
 import { toLocalDay } from "@/lib/engine/streak";
+import { NEWS_FEED_AREA_LABEL, type NewsFeedArea } from "@/lib/news/areas";
 import { timeAgo } from "@/lib/time-ago";
 
 // Plain, testable queries. Caching is applied by the calling components ("use cache").
@@ -63,7 +64,13 @@ export type ArticleCard = {
   game: { slug: string; name: string } | null;
 };
 
-export type RelatedGame = { slug: string; name: string; hasGuide: boolean };
+export type RelatedGame = {
+  slug: string;
+  name: string;
+  hasGuide: boolean;
+  /** Catalog cover (Plan 4 F12). Null for games without art (stubs): show the name only. */
+  coverUrl: string | null;
+};
 
 export type ExternalHeadline = {
   id: string;
@@ -326,6 +333,14 @@ export async function getNewsIndex(input: {
   return { articles: rows.map(toCard), category: input.category, page, pageCount, total };
 }
 
+/** The first cover image of a game's media (Plan 4 F12: chips and cards of the article page). */
+const COVER_MEDIA = {
+  where: { kind: "cover", url: { not: null } },
+  orderBy: { order: "asc" },
+  take: 1,
+  select: { url: true },
+} as const;
+
 export async function getArticle(slug: string): Promise<ArticleFull | null> {
   const row = await prisma.article.findUnique({
     // Drafts, articles in review and archived ones are not public.
@@ -334,9 +349,11 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
       ...cardSelect,
       source: true,
       reviewedAt: true,
-      game: { select: { ...gameSelect, id: true, guide: { select: { status: true } } } },
+      game: { select: { ...gameSelect, id: true, guide: { select: { status: true } }, media: COVER_MEDIA } },
       games: {
-        select: { game: { select: { ...gameSelect, id: true, guide: { select: { status: true } } } } },
+        select: {
+          game: { select: { ...gameSelect, id: true, guide: { select: { status: true } }, media: COVER_MEDIA } },
+        },
         orderBy: { gameId: "asc" },
       },
     },
@@ -344,11 +361,17 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
   if (!row) return null;
 
   const blocks = parseStoredBlocks(row.blocks) ?? [];
-  const gameRows = relatedGames(row) as (GameRow & { id: string; guide: { status: string } | null })[];
+  const gameRows = relatedGames(row) as (GameRow & {
+    id: string;
+    guide: { status: string } | null;
+    media: { url: string | null }[];
+  })[];
   const games: RelatedGame[] = gameRows.map((g) => ({
     slug: g.slug,
     name: g.name,
     hasGuide: g.guide?.status === "published",
+    // The catalog's cover art (as on the game page): media cover first, then Game.coverUrl.
+    coverUrl: safeImageUrl(g.media[0]?.url) ?? safeImageUrl(g.coverUrl),
   }));
 
   const [achievements, externalNews] = await Promise.all([
@@ -638,3 +661,77 @@ export function buildNewsTabs(articles: ArticleCard[], now: Date): NewsTab[] {
     })),
   ];
 }
+
+// ---------- External headlines per area (Plan 4 F7) ----------
+
+/** Areas whose external headlines join their category tab and archive filter. */
+export const PRESS_AREAS = ["ENTRETENIMENTO", "TECNOLOGIA"] as const satisfies readonly NewsFeedArea[];
+export type PressArea = (typeof PRESS_AREAS)[number];
+
+export const isPressArea = (category: ArticleCategory | null): category is PressArea =>
+  (PRESS_AREAS as readonly string[]).includes(category ?? "");
+
+/** Latest external headlines of one feed area, newest first. Same URL guard as getExternalHeadlines. */
+export async function getAreaHeadlines(area: NewsFeedArea, limit: number): Promise<ExternalHeadline[]> {
+  const rows = await prisma.externalNews.findMany({
+    where: {
+      area,
+      OR: [{ url: { startsWith: "https://" } }, { url: { startsWith: "http://" } }],
+    },
+    orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+    take: limit,
+    select: {
+      id: true,
+      title: true,
+      url: true,
+      source: true,
+      publishedAt: true,
+      game: { select: { slug: true, name: true } },
+    },
+  });
+  return rows.filter((row) => isSafeHttpUrl(row.url));
+}
+
+/** The latest headlines of every press area (Entretenimento, Tecnologia). */
+export async function getPressHeadlines(limit: number): Promise<Record<PressArea, ExternalHeadline[]>> {
+  const [ENTRETENIMENTO, TECNOLOGIA] = await Promise.all(PRESS_AREAS.map((area) => getAreaHeadlines(area, limit)));
+  return { ENTRETENIMENTO, TECNOLOGIA };
+}
+
+/** Story card of an external headline: opens the source in a new tab and says where it is from. */
+export function headlineStory(headline: ExternalHeadline, now: Date): StoryCard {
+  return {
+    id: `x:${headline.id}`,
+    href: headline.url,
+    external: true,
+    kicker: headline.game ? `Imprensa · ${headline.game.name}` : "Imprensa",
+    title: headline.title,
+    excerpt: null,
+    source: externalSource(headline.source),
+    when: timeAgo(headline.publishedAt, now),
+    imageUrl: null,
+    seed: hashSeed(headline.url),
+    hues: artHues(headline.game?.slug, headline.url),
+  };
+}
+
+/**
+ * Adds each press area's external headlines to its category tab, after the newsroom's own
+ * stories (Tralked's articles lead; the press fills the tab). Unsafe links are dropped.
+ */
+export function withPressHeadlines(
+  tabs: NewsTab[],
+  press: Partial<Record<PressArea, ExternalHeadline[]>>,
+  now: Date,
+): NewsTab[] {
+  return tabs.map((tab) => {
+    const area = categoryFromSlug(tab.id);
+    const headlines = area && isPressArea(area) ? (press[area] ?? []) : [];
+    if (headlines.length === 0) return tab;
+    const external = headlines.filter((h) => isSafeHttpUrl(h.url)).map((h) => headlineStory(h, now));
+    return { ...tab, stories: [...tab.stories, ...external] };
+  });
+}
+
+/** Label of a press area ("Entretenimento"), for headings. */
+export const pressAreaLabel = (area: PressArea) => NEWS_FEED_AREA_LABEL[area];

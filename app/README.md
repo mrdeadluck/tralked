@@ -164,7 +164,7 @@ Sete jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame
 | `/api/cron/users` | Ressincroniza até 50 usuários Steam por execução (os mais antigos primeiro), com limite de 50 s para a execução toda: ninguém começa depois do prazo e a sondagem do catálogo de cada usuário usa só o tempo que sobra (no máximo 45 s). |
 | `/api/cron/platforms` | Ressincroniza até 5 contas PSN, Xbox e RetroAchievements verificadas por execução (as mais antigas primeiro), lendo só os jogos com conquistas novas e retomando de onde parou (limite de 50 s). |
 | `/api/cron/media` | Busca vídeos, screenshots e artworks (IGDB) e capa/hero/logo (SteamGridDB) de jogos ainda sem mídia oficial. |
-| `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte e data das notícias que citam um jogo do catálogo. |
+| `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte, data e área das manchetes que passam na regra da área do feed (veja "Manchetes externas por área"). |
 | `/api/cron/notifications` | Diário: apaga notificações com mais de 90 dias (o texto delas pode citar outras pessoas, inclusive quem excluiu a conta). |
 
 ```bash
@@ -205,6 +205,20 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
 
 A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste falha se as duas divergirem ou se algum job ficar sem horário.
 
+## Manchetes externas por área
+
+Cada feed RSS de `/admin/feeds` tem uma **área** (`NewsFeed.area`), e cada manchete guardada leva a área do feed (`ExternalNews.area`). Só título, link, fonte e data são guardados, nunca o texto; o leitor SSRF de sempre (`src/lib/integrations/rss`) lê os feeds. A regra de cada área fica em `src/lib/news/areas.ts` (com testes) e olha só o título:
+
+| Área | Mantém | Onde aparece |
+| --- | --- | --- |
+| Games | manchetes que citam um jogo do catálogo (nome ou nome alternativo) | página do jogo, "Em circulação" |
+| Entretenimento | animes, filmes e séries **ligados a games**: termo de games no título (`jogo`, `game`, `videogame`, `PlayStation`, `Xbox`, `Nintendo`, `Steam`…), franquia de games conhecida por adaptações (`The Last of Us`, `Arcane`, `Sonic`, `Pokémon`, `Fallout`…) ou um jogo do catálogo de nome com duas palavras ou mais (nome de uma palavra só, como `Hades` ou `Control`, é ambíguo demais fora de um feed de games). Falsos amigos (`Jogos Vorazes`, `Game of Thrones`, `Round 6`, `Jogos Olímpicos`…) são tirados do título antes da busca. | aba Entretenimento (home e `/noticias`), filtro `?categoria=entretenimento` ("Na imprensa"), "Em circulação", página do jogo quando ligada a um |
+| Tecnologia | o que Entretenimento manteria, mais hardware e IA (`GPU`, `placa de vídeo`, `RTX`, `Ryzen`, `console`, `IA`, `inteligência artificial`, `ChatGPT`, `OpenAI`…; siglas curtas como `IA`/`AI`/`PC` só em maiúsculas) | aba Tecnologia, filtro `?categoria=tecnologia`, "Em circulação" |
+
+Nas abas, as matérias do Tralked vêm primeiro e as manchetes depois, sempre marcadas como externas: "Imprensa" no chapéu, "Fonte externa: <publicação>" e "abre em nova aba" (link com `target="_blank" rel="noopener noreferrer"`).
+
+Feeds sugeridos (conferidos em 31/10/2026: https, RSS válido, sem redirecionamento), em `src/lib/news/feed-catalog.ts`: Entretenimento: Legião dos Heróis, AnimeNew, IGN Movies, IGN TV, Anime News Network; Tecnologia: Tecnoblog, TecMundo, Adrenaline, Canaltech, Tom's Hardware, The Verge (IA). O **seed os cadastra pausados** (desenvolvimento e testes nunca buscam a internet) e `pnpm news:feeds` os cadastra **ativos** num banco real (`--paused` para deixar o admin ativar). Depois disso, o admin cuida deles em `/admin/feeds` (agrupados por área: pausar, editar, mudar a área, excluir).
+
 ## SEO, privacidade e páginas de sistema
 
 - `sitemap.xml` (jogos, guias publicados, notícias publicadas, tópicos visíveis do fórum e páginas fixas) e `robots.txt` (bloqueia `/admin`, `/conta`, `/api`, `/notificacoes`, `/newsletter` e `/confirmar-email`) usam `APP_URL` como origem pública: defina a URL de produção também no build, porque os dois arquivos são gerados nele.
@@ -233,6 +247,7 @@ A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste 
 | `pnpm catalog:bootstrap` | Catálogo real da Steam (`--limit N` jogos populares, `--concurrency N`, `--only-top`). Exige `DATABASE_URL`. |
 | `pnpm comments:recount` | Reconta `Article.comments` pelos comentários visíveis. Exige `DATABASE_URL`. |
 | `pnpm sample:rename [--dry-run]` | Renomeia os personagens fictícios de um banco semeado antes do Plano 4 (seed, bylines, notificações). Idempotente. Exige `DATABASE_URL`. |
+| `pnpm news:feeds [--dry-run] [--paused]` | Cadastra os feeds de manchetes de Entretenimento e Tecnologia (`src/lib/news/feed-catalog.ts`), ativos (ou pausados com `--paused`). Idempotente: feed já cadastrado (mesma URL) nunca é alterado. Exige `DATABASE_URL`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
 | `pnpm api:key` | `"<nome>" <escopo>...`: cria uma chave de robô e imprime o segredo `tk_live_…` uma vez (só no terminal). Exige `DATABASE_URL`. |
 | `pnpm user:invite` | `<handle> <email>`: grava o e-mail de login de uma conta e imprime um link de "definir senha" (1 h, uso único; só no terminal). Exige `DATABASE_URL`; o link usa `APP_URL`. |
