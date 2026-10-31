@@ -6,7 +6,7 @@ type LogoProps = {
   size?: 44 | 34;
 };
 
-/** Escudo com o monograma T, no acento. */
+/** Escudo com o monograma T no acento e o chevron interno no roxo da marca. */
 export function Emblem({ size, className = "" }: { size: number; className?: string }) {
   return (
     <svg
@@ -17,6 +17,7 @@ export function Emblem({ size, className = "" }: { size: number; className?: str
       className={`flex-none ${className}`}
     >
       <path d={EMBLEM.d} fill="var(--acc)" />
+      <path d={EMBLEM.chevron} fill="var(--brand-2)" />
     </svg>
   );
 }
