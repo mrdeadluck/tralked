@@ -266,10 +266,18 @@ export async function getCharacter(
     recentDays,
     libraryRows,
   ] = await Promise.all([
-    db.userGame.aggregate({ where: { userId: user.id }, _sum: { unlockedCount: true } }),
-    db.userGame.count({ where: { userId: user.id, completedAt: { not: null } } }),
+    // Plan 1 profile counts are Steam-only (other platforms' libraries come with Plan 2 views).
+    db.userGame.aggregate({
+      where: { userId: user.id, platform: "steam" },
+      _sum: { unlockedCount: true },
+    }),
+    db.userGame.count({ where: { userId: user.id, platform: "steam", completedAt: { not: null } } }),
     db.userAchievement.count({
-      where: { userId: user.id, suspicious: false, achievement: { globalPct: { lte: 3 } } },
+      where: {
+        userId: user.id,
+        suspicious: false,
+        achievement: { platform: "steam", globalPct: { lte: 3 } },
+      },
     }),
     user.profilePublic ? getUserRank(user.id, "geral", db) : Promise.resolve(null),
     db.mission.findMany({
@@ -299,7 +307,7 @@ export async function getCharacter(
       select: { unlockedAt: true },
     }),
     db.userGame.findMany({
-      where: { userId: user.id, unlockedCount: { gt: 0 }, completedAt: null },
+      where: { userId: user.id, platform: "steam", unlockedCount: { gt: 0 }, completedAt: null },
       include: {
         game: {
           select: {

@@ -56,7 +56,7 @@ describe.skipIf(!reachable)("listGames (seeded database)", () => {
 
     // Cross-check against the raw rows: nothing eligible is missing.
     const rows = await prisma.userGame.findMany({
-      where: { userId: lucas.id },
+      where: { userId: lucas.id, platform: "steam" },
       include: { game: true },
     });
     const expected = rows

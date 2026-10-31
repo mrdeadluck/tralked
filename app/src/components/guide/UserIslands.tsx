@@ -30,7 +30,7 @@ const gameProgress = cache(async (gameId: string) => {
   const user = await sessionUser();
   if (!user) return null;
   const owned = await prisma.userGame.findUnique({
-    where: { userId_gameId: { userId: user.id, gameId } },
+    where: { userId_gameId_platform: { userId: user.id, gameId, platform: "steam" } },
   });
   return owned ? { unlockedCount: owned.unlockedCount, playtimeMin: owned.playtimeMin } : null;
 });

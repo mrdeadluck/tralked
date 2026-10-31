@@ -21,7 +21,7 @@ export type SeedArticle = {
 };
 
 const FOOTER =
-  "*Texto de exemplo para o ambiente de desenvolvimento do GAMELOG. O conteúdo editorial real substitui este corpo.*";
+  "*Texto de exemplo para o ambiente de desenvolvimento do Tralked. O conteúdo editorial real substitui este corpo.*";
 
 /** Authors of the preview's news (`AUTHORS`). Only some of them are also players. */
 export const AUTHOR_HANDLES = ["Fuyushiro", "Rivia", "Al1enado", "NascimentoRE", "Nyx_Vortex"] as const;
@@ -37,7 +37,7 @@ export const ARTICLES: SeedArticle[] = [
       "Toda lista de conquistas raras começa com uma pergunta simples: o que torna uma conquista difícil de verdade? Neste levantamento, a redação separou dois critérios, a porcentagem global de desbloqueio e o tempo que um jogador dedicado costuma levar para chegar lá.",
       "## Como a lista foi montada\n\nCada item foi classificado pela raridade e, em caso de empate, pelo tempo estimado de conclusão. Conquistas ligadas a eventos já encerrados ficaram de fora, para que a lista sirva a quem começa a jogar hoje.",
       "## O que as mais raras têm em comum\n\nA maioria exige repetição disciplinada: partidas longas sem erro, sequências de chefes ou execução precisa de rotas. Poucas dependem de sorte, e quase todas ficam mais acessíveis com um bom guia e um save dedicado.",
-      "No GAMELOG, as conquistas lendárias, com 3% ou menos de desbloqueio global, rendem o maior XP e são o caminho mais curto para subir de nível. Acompanhe a lista completa e marque as que você já tem no seu perfil.",
+      "No Tralked, as conquistas lendárias, com 3% ou menos de desbloqueio global, rendem o maior XP e são o caminho mais curto para subir de nível. Acompanhe a lista completa e marque as que você já tem no seu perfil.",
       FOOTER,
     ].join("\n\n"),
     category: "GUIAS",
@@ -78,7 +78,7 @@ export const ARTICLES: SeedArticle[] = [
     body: [
       "Durante a semana do terror, as conquistas de jogos com a skill Survival Horror rendem o dobro de XP. O bônus vale para qualquer jogo da sua biblioteca que conte para essa skill.",
       "## Como aproveitar\n\nComece pelos jogos em que você já está perto de uma conquista rara. A missão semanal de terror também entra na promoção, então vale encaixar as duas no mesmo fim de semana.",
-      "## Para quem joga em grupo\n\nJogos cooperativos de caça a fantasmas e de sobrevivência contam para as duas skills envolvidas. Combine com a sua Família GAMELOG e divida as conquistas que exigem mais de uma pessoa.",
+      "## Para quem joga em grupo\n\nJogos cooperativos de caça a fantasmas e de sobrevivência contam para as duas skills envolvidas. Combine com a sua Família Tralked e divida as conquistas que exigem mais de uma pessoa.",
       FOOTER,
     ].join("\n\n"),
     category: "COMUNIDADE",
@@ -117,7 +117,7 @@ export const ARTICLES: SeedArticle[] = [
     body: [
       "Com 320 conquistas, Civilization VI é um dos jogos com a maior lista da biblioteca. A pergunta de quem chega agora é se vale o investimento de tempo, e a resposta depende do que você espera do jogo.",
       "## Uma maratona em fatias\n\nA lista é longa porque cobre vitórias, civilizações, cenários e conteúdos adicionais. Como cada partida é demorada, o ideal é escolher um conjunto de conquistas por partida e aceitar que o 100% é uma meta de longo prazo.",
-      "## No GAMELOG\n\nO jogo conta para a skill Estratégia. Mesmo sem chegar ao 100%, cada conquista renderá XP, e as mais raras são boas candidatas para as missões semanais.",
+      "## No Tralked\n\nO jogo conta para a skill Estratégia. Mesmo sem chegar ao 100%, cada conquista renderá XP, e as mais raras são boas candidatas para as missões semanais.",
       FOOTER,
     ].join("\n\n"),
     category: "GAMES",
@@ -159,7 +159,7 @@ export const ARTICLES: SeedArticle[] = [
     subtitle:
       "A redação explica como vai funcionar a importação e por que as skills por gênero vão somar tudo num só perfil.",
     body: [
-      "Hoje o GAMELOG importa conquistas da Steam. O próximo passo é aceitar também as de PlayStation e Xbox, para que o seu personagem reflita tudo o que você já jogou em qualquer plataforma.",
+      "Hoje o Tralked importa conquistas da Steam. O próximo passo é aceitar também as de PlayStation e Xbox, para que o seu personagem reflita tudo o que você já jogou em qualquer plataforma.",
       "## Um perfil só\n\nAs skills por gênero somam as conquistas de todas as origens. Um soulslike jogado no console conta para a mesma skill de um jogado no PC, e o nível geral acompanha.",
       "## O que ainda está em aberto\n\nOs detalhes de cada plataforma, como privacidade e frequência de sincronização, ainda estão em definição. Assine a newsletter para acompanhar as novidades quando a importação sair.",
       FOOTER,
@@ -224,7 +224,7 @@ export const ARTICLES: SeedArticle[] = [
     body: [
       "Algumas conquistas de Phasmophobia só saem com uma equipe afinada, e os pedidos de grupo se repetem toda semana. Reunimos as que mais aparecem para facilitar a sua busca por parceiros.",
       "## O que costuma pedir grupo\n\nConquistas que exigem investigar um tipo específico de fantasma, ou cumprir objetivos opcionais na mesma partida, funcionam melhor com a comunicação de voz de todos os quatro jogadores.",
-      "## Como montar a equipe\n\nUse o canal de caçadas do Discord da comunidade e combine horário, dificuldade e quem leva cada equipamento. Convidar a sua Família GAMELOG também ajuda a fechar o grupo mais rápido.",
+      "## Como montar a equipe\n\nUse o canal de caçadas do Discord da comunidade e combine horário, dificuldade e quem leva cada equipamento. Convidar a sua Família Tralked também ajuda a fechar o grupo mais rápido.",
       FOOTER,
     ].join("\n\n"),
     category: "COMUNIDADE",

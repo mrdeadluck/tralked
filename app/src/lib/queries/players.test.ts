@@ -85,6 +85,18 @@ describe.skipIf(!reachable)("player queries (seeded database)", () => {
     expect(character!.missions.map((m) => m.id).sort()).toEqual(stored.map((m) => m.id).sort());
     for (const mission of weekly) expect(mission.goal).toBeGreaterThan(0);
   });
+  it("getCharacter's sheet counts Steam libraries only (seeded PSN/Xbox rows leave it as in Plan 1)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
+    expect(await prisma.userGame.count({ where: { userId: lucas.id, platform: { not: "steam" } } })).toBeGreaterThan(0);
+    const steam = await prisma.userGame.findMany({ where: { userId: lucas.id, platform: "steam" } });
+    const character = await getCharacter("lucas");
+    expect(character?.stats.achievements).toBe(steam.reduce((sum, g) => sum + g.unlockedCount, 0));
+    expect(character?.stats.perfectGames).toBe(steam.filter((g) => g.completedAt !== null).length);
+    const slugs = character!.almostThere.map((g) => g.slug);
+    expect(new Set(slugs).size).toBe(slugs.length);
+  });
+
   it("getCharacter returns null for an unknown handle", async () => {
     expect(await getCharacter("ninguem-por-aqui")).toBeNull();
   });

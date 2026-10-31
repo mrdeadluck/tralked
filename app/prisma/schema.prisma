@@ -1,4 +1,31 @@
-// GAMELOG data model. See docs/superpowers/specs/2026-10-31-gamelog-design.md (section 7).
+// Tralked data model. See docs/superpowers/specs/2026-10-31-gamelog-design.md (section 7)
+// and docs/superpowers/specs/2026-10-31-tralked-plano-2-design.md (Plan 2 additions).
+//
+// String "enums" (validated in code, stored as text). Every set used below:
+//   Platform        steam | psn | xbox | retro
+//   User.role       admin | editor | author | user
+//   TrophyTier      bronze | silver | gold | platinum            (PSN only)
+//   Attribute       vigor | precisao | gloria | colecao | exploracao | constancia | sabedoria
+//   GameMedia.kind  video | screenshot | artwork | cover | hero | logo
+//   GameMedia.source igdb | sgdb | steam | rawg | fixture
+//   Article.status  draft | review | published | archived
+//   Content source  editorial | bot                            (Article.source, Guide.source)
+//   Guide.status    draft | review | published
+//   Comment target  article | guide | photo | thread
+//   Comment.status  visible | hidden | removed
+//   Report target   article | guide | photo | thread | comment | post | user
+//   Report.status   open | resolved | dismissed
+//   Thread.status   open | locked | hidden | removed
+//   Post.status     visible | hidden | removed
+//   Photo.status    visible | hidden | removed
+//   ApiKey scope    articles:write | guides:write | publish | media:write
+//   Ingestion kind  article | guide
+//   Ingestion status created | updated | rejected
+//   Notification.kind level_up | skill_up | attribute_up | comment_reply | forum_reply |
+//                   thread_solved | photo_like | content_published | report_resolved | system
+//
+// Deleting a User (LGPD): personal data cascades; authored content (guides, tips, revisions,
+// comments, forum threads/posts, photos, reports, API keys) is kept with its author set to null.
 
 generator client {
   provider = "prisma-client"
@@ -13,7 +40,12 @@ datasource db {
 
 model User {
   id                String    @id @default(cuid())
-  steamId           String    @unique
+  /// Steam account (also mirrored in LinkedAccount). Null for accounts created through Google.
+  steamId           String?   @unique
+  /// Google OpenID `sub` (login of readers; may be linked to an existing account).
+  googleSub         String?   @unique
+  email             String?
+  bio               String?
   handle            String    @unique
   displayName       String
   avatarUrl         String?
@@ -24,23 +56,63 @@ model User {
   lastSyncedAt      DateTime?
   /// Last sync attempt (success or failure); cron rotates on this so failing users cannot starve it.
   lastSyncAttemptAt DateTime?
+  /// When the "Despertar" level-up sequence of the first sync was shown (it is shown once).
+  despertarShownAt  DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  games         UserGame[]
-  achievements  UserAchievement[]
-  ledger        XpLedgerEntry[]
-  skills        SkillProgress[]
-  stats         UserStats?
-  missions      Mission[]
-  guidesWritten Guide[]
-  tips          GuideTip[]
-  votes         GuideVote[]
-  revisions     GuideRevision[]
-  stepProgress  GuideStepProgress[]
-  author        Author?
-  ownedFamilies Family[]
-  membership    FamilyMember?
+  linkedAccounts LinkedAccount[]
+  games          UserGame[]
+  achievements   UserAchievement[]
+  ledger         XpLedgerEntry[]
+  skills         SkillProgress[]
+  attributes     AttributeProgress[]
+  stats          UserStats?
+  missions       Mission[]
+  gameOpens      GameOpen[]
+  guidesWritten  Guide[]
+  guideVersions  GuideVersion[]
+  tips           GuideTip[]
+  votes          GuideVote[]
+  revisions      GuideRevision[]
+  stepProgress   GuideStepProgress[]
+  author         Author?
+  ownedFamilies  Family[]
+  membership     FamilyMember?
+  comments       Comment[]
+  reportsFiled   Report[]            @relation("ReportReporter")
+  reportsHandled Report[]            @relation("ReportResolver")
+  forumThreads   ForumThread[]
+  forumPosts     ForumPost[]
+  photos         Photo[]
+  photoLikes     PhotoLike[]
+  apiKeys        ApiKey[]
+  notifications  Notification[]
+}
+
+/// A gaming account linked to a user. Ownership is proven by pasting `verifyCode` in the
+/// platform profile (PSN/Xbox "about me", RA motto) before `verifyExpiresAt`; `verifiedAt` set
+/// means verified. Steam accounts come from OpenID and are verified on creation.
+model LinkedAccount {
+  id                String    @id @default(cuid())
+  userId            String
+  /// steam | psn | xbox | retro
+  platform          String
+  /// SteamID64, PSN accountId, Xbox XUID, RA username.
+  externalId        String
+  /// Display name on the platform (PSN online id, gamertag, RA user).
+  handle            String
+  verifiedAt        DateTime?
+  verifyCode        String?
+  verifyExpiresAt   DateTime?
+  lastSyncAttemptAt DateTime?
+  lastSyncedAt      DateTime?
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([platform, externalId])
+  @@unique([userId, platform])
+  @@index([platform, lastSyncAttemptAt])
 }
 
 // ---------- Catalog ----------
@@ -49,10 +121,15 @@ model Game {
   id                    String    @id @default(cuid())
   slug                  String    @unique
   name                  String
-  steamAppId            Int       @unique
+  /// Null for games without a Steam release (PSN/Xbox/retro only).
+  steamAppId            Int?      @unique
   igdbId                Int?
   rawgId                Int?
   sgdbId                Int?
+  /// Alternative names, used to match external news and platform titles to the game.
+  aliases               String[]  @default([])
+  developer             String?
+  publisher             String?
   summary               String?
   releaseDate           DateTime?
   criticScore           Int?
@@ -61,17 +138,58 @@ model Game {
   logoUrl               String?
   timeToBeatCompleteMin Int?
   platforms             String[]
+  /// Steam achievement count (other platforms count their Achievement rows).
   achievementCount      Int
   /// Last catalog/rarity refresh attempt (success or failure); cron rotates on this.
   lastSyncAttemptAt     DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  skills       GameSkill[]
-  achievements Achievement[]
-  users        UserGame[]
-  guide        Guide?
-  articles     Article[]
+  skills        GameSkill[]
+  platformLinks GamePlatformLink[]
+  media         GameMedia[]
+  achievements  Achievement[]
+  users         UserGame[]
+  opens         GameOpen[]
+  guide         Guide?
+  /// Legacy single-game link of articles (Article.gameId); new code uses `articleLinks`.
+  articles      Article[]
+  articleLinks  ArticleGame[]
+  externalNews  ExternalNews[]
+  forumThreads  ForumThread[]
+  photos        Photo[]
+}
+
+/// The game's id on a platform (PSN npCommunicationId, Xbox titleId, RA game id, Steam appid).
+/// A game may have several ids on one platform (PS4/PS5 lists, regional versions).
+model GamePlatformLink {
+  gameId     String
+  /// steam | psn | xbox | retro
+  platform   String
+  externalId String
+  game       Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@id([platform, externalId])
+  @@index([gameId])
+}
+
+/// Official media of a game. `url` null = no real asset yet (the UI draws generated art).
+model GameMedia {
+  id        String  @id @default(cuid())
+  gameId    String
+  /// video | screenshot | artwork | cover | hero | logo
+  kind      String
+  url       String?
+  /// For kind = video.
+  youtubeId String?
+  width     Int?
+  height    Int?
+  /// igdb | sgdb | steam | rawg | fixture
+  source    String
+  order     Int     @default(0)
+  game      Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([gameId, kind, order])
 }
 
 model GameSkill {
@@ -82,33 +200,47 @@ model GameSkill {
   @@id([gameId, skill])
 }
 
+/// An achievement / trophy of a game on one platform. `apiName` is the platform's own id
+/// (Steam apiname, PSN trophyId, Xbox achievement id, RA achievement id).
 model Achievement {
   id          String  @id @default(cuid())
   gameId      String
+  /// steam | psn | xbox | retro
+  platform    String  @default("steam")
   apiName     String
   name        String
   description String?
   iconUrl     String?
   globalPct   Float?
   hidden      Boolean @default(false)
+  /// PSN only: bronze | silver | gold | platinum
+  trophyTier  String?
+  /// Xbox gamerscore or RetroAchievements points.
+  points      Int?
+  /// RetroAchievements: the achievement belongs to the hardcore set. Whether a given unlock was
+  /// earned in hardcore mode is UserAchievement.hardcore.
+  hardcore    Boolean @default(false)
   game        Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   unlocks UserAchievement[]
   notes   GuideAchievementNote[]
 
-  @@unique([gameId, apiName])
+  @@unique([gameId, platform, apiName])
 }
 
+/// A game in a user's library on one platform (the same game may be owned on several).
 model UserGame {
   userId        String
   gameId        String
+  /// steam | psn | xbox | retro
+  platform      String    @default("steam")
   playtimeMin   Int
   unlockedCount Int
   completedAt   DateTime?
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   game          Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
-  @@id([userId, gameId])
+  @@id([userId, gameId, platform])
   @@index([gameId])
 }
 
@@ -117,6 +249,8 @@ model UserAchievement {
   achievementId String
   unlockedAt    DateTime
   suspicious    Boolean     @default(false)
+  /// RetroAchievements: unlocked in hardcore mode.
+  hardcore      Boolean     @default(false)
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
 
@@ -125,9 +259,20 @@ model UserAchievement {
   @@index([userId, unlockedAt])
 }
 
+/// First time a logged-in user opened a game page (the sealed-case intro plays once).
+model GameOpen {
+  userId   String
+  gameId   String
+  openedAt DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game     Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@id([userId, gameId])
+}
+
 // ---------- RPG ----------
 
-/// Immutable XP ledger; level and skills are derived from it.
+/// Immutable XP ledger; level, skills and attributes are derived from it.
 ///
 /// `source` / `sourceKey` conventions (sourceKey makes the entry idempotent per user):
 ///   achievement -> achievementId
@@ -138,16 +283,22 @@ model UserAchievement {
 ///
 /// Skill points: `skillPoints` holds explicit per-skill points ({"soulslike": 123}).
 /// When null, each skill in `skills` receives skillPointsFor(xp, skills.length).
+///
+/// Entries are never deleted or edited: confirmed fraud sets `voidedAt`, and voided entries
+/// are left out of every derived value.
 model XpLedgerEntry {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   userId      String
   source      String
   sourceKey   String
   xp          Int
   skills      String[]
   skillPoints Json?
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// steam | psn | xbox | retro; null for entries not tied to a platform (missions, votes, seed).
+  platform    String?
+  voidedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, source, sourceKey])
   @@index([userId, createdAt])
@@ -162,6 +313,18 @@ model SkillProgress {
 
   @@id([userId, skill])
   @@index([skill, level, points])
+}
+
+/// Character attributes: vigor | precisao | gloria | colecao | exploracao | constancia | sabedoria
+model AttributeProgress {
+  userId    String
+  attribute String
+  level     Int
+  points    Int
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, attribute])
+  @@index([attribute, level, points])
 }
 
 model UserStats {
@@ -213,17 +376,40 @@ model Guide {
   warnings     String[]
   /// [{ name, total, description }]
   collectibles Json      @default("[]")
+  /// Optional free-form body as ContentBlock[] (same schema as Article.blocks).
+  blocks       Json?
+  /// editorial | bot
+  source       String?
+  /// API key that created the guide (source = bot).
+  botKeyId     String?
   usefulCount  Int       @default(0)
   publishedAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   game         Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
   author       User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  botKey       ApiKey?   @relation(fields: [botKeyId], references: [id], onDelete: SetNull)
 
   steps     GuideStep[]
   notes     GuideAchievementNote[]
   tips      GuideTip[]
   revisions GuideRevision[]
+  versions  GuideVersion[]
+}
+
+/// Full snapshot of a guide (fields, steps, notes) saved on every edit, for diff and restore.
+model GuideVersion {
+  id        String   @id @default(cuid())
+  guideId   String
+  /// Sequential per guide, starting at 1.
+  version   Int
+  snapshot  Json
+  authorId  String?
+  createdAt DateTime @default(now())
+  guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@unique([guideId, version])
 }
 
 model GuideStep {
@@ -315,28 +501,270 @@ model Author {
 }
 
 model Article {
-  id            String   @id @default(cuid())
-  slug          String   @unique
+  id            String        @id @default(cuid())
+  slug          String        @unique
   title         String
   subtitle      String?
-  /// Markdown
+  /// Short summary for cards and metadata.
+  excerpt       String?
+  /// Legacy Markdown body (Plan 1 pages). New code renders `blocks`.
   body          String
+  /// ContentBlock[] (spec "Formato de conteúdo único em blocos").
+  blocks        Json          @default("[]")
+  /// draft | review | published | archived
+  status        String        @default("draft")
   /// GAMES | GUIAS | COMUNIDADE
   category      String
   platforms     String[]
   imageLabel    String
   authorId      String
+  /// Legacy single game (Plan 1 pages); new code uses `games` (ArticleGame).
   gameId        String?
+  /// editorial | bot
+  source        String?
+  /// API key that created the article (source = bot).
+  botKeyId      String?
   /// 0 = list, 1 = side highlight, 2 = main highlight
-  featured      Int      @default(0)
-  likes         Int      @default(0)
-  comments      Int      @default(0)
-  humanAuthored Boolean  @default(true)
-  publishedAt   DateTime
-  author        Author   @relation(fields: [authorId], references: [id])
-  game          Game?    @relation(fields: [gameId], references: [id])
+  featured      Int           @default(0)
+  likes         Int           @default(0)
+  comments      Int           @default(0)
+  humanAuthored Boolean       @default(true)
+  /// Publication time. For drafts it holds the creation time until the article is published.
+  publishedAt   DateTime      @default(now())
+  /// Publish automatically at this time (status moves to published).
+  scheduledAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  author        Author        @relation(fields: [authorId], references: [id])
+  game          Game?         @relation(fields: [gameId], references: [id])
+  botKey        ApiKey?       @relation(fields: [botKeyId], references: [id], onDelete: SetNull)
+  games         ArticleGame[]
 
   @@index([publishedAt])
+  @@index([status, publishedAt])
+}
+
+/// Games an article is about (n:n).
+model ArticleGame {
+  articleId String
+  gameId    String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  game      Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, gameId])
+  @@index([gameId])
+}
+
+/// Headline from an external RSS feed: only title, link, source and date are stored.
+model ExternalNews {
+  id          String   @id @default(cuid())
+  gameId      String?
+  title       String
+  url         String   @unique
+  /// Name of the publication (NewsFeed.name).
+  source      String
+  publishedAt DateTime
+  fetchedAt   DateTime @default(now())
+  game        Game?    @relation(fields: [gameId], references: [id], onDelete: SetNull)
+
+  @@index([gameId, publishedAt])
+  @@index([publishedAt])
+}
+
+/// RSS feed configured in the admin.
+model NewsFeed {
+  id     String  @id @default(cuid())
+  name   String
+  url    String  @unique
+  active Boolean @default(true)
+}
+
+// ---------- Community ----------
+
+/// Comment on an article, guide, photo or forum thread (polymorphic target, no FK).
+model Comment {
+  id         String    @id @default(cuid())
+  authorId   String?
+  /// article | guide | photo | thread
+  targetType String
+  targetId   String
+  body       String
+  /// visible | hidden | removed
+  status     String    @default("visible")
+  createdAt  DateTime  @default(now())
+  editedAt   DateTime?
+  author     User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([targetType, targetId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model Report {
+  id           String    @id @default(cuid())
+  reporterId   String?
+  /// article | guide | photo | thread | comment | post | user
+  targetType   String
+  targetId     String
+  reason       String
+  /// open | resolved | dismissed
+  status       String    @default("open")
+  createdAt    DateTime  @default(now())
+  resolvedAt   DateTime?
+  resolvedById String?
+  reporter     User?     @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  resolvedBy   User?     @relation("ReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+}
+
+model ForumCategory {
+  id          String @id @default(cuid())
+  slug        String @unique
+  name        String
+  description String
+  order       Int    @default(0)
+
+  threads ForumThread[]
+}
+
+/// Forum topic: in a general category, or a game's own topic list (gameId), or both.
+model ForumThread {
+  id           String         @id @default(cuid())
+  categoryId   String?
+  gameId       String?
+  authorId     String?
+  title        String
+  /// URL slug (not unique; routes use id + slug).
+  slug         String
+  /// open | locked | hidden | removed
+  status       String         @default("open")
+  pinned       Boolean        @default(false)
+  /// Reply marked "Resolveu" by the thread author.
+  solvedPostId String?        @unique
+  createdAt    DateTime       @default(now())
+  lastPostAt   DateTime       @default(now())
+  category     ForumCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  game         Game?          @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  author       User?          @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  solvedPost   ForumPost?     @relation("SolvedPost", fields: [solvedPostId], references: [id], onDelete: SetNull)
+
+  posts ForumPost[]
+
+  @@index([categoryId, pinned, lastPostAt])
+  @@index([gameId, lastPostAt])
+}
+
+model ForumPost {
+  id        String       @id @default(cuid())
+  threadId  String
+  authorId  String?
+  body      String
+  createdAt DateTime     @default(now())
+  editedAt  DateTime?
+  /// visible | hidden | removed
+  status    String       @default("visible")
+  thread    ForumThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author    User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  solves    ForumThread? @relation("SolvedPost")
+
+  @@index([threadId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+/// Community gallery photo. `url` null = example data (the UI draws generated art).
+model Photo {
+  id        String   @id @default(cuid())
+  authorId  String?
+  gameId    String?
+  url       String?
+  width     Int
+  height    Int
+  caption   String?
+  /// visible | hidden | removed
+  status    String   @default("visible")
+  createdAt DateTime @default(now())
+  likeCount Int      @default(0)
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  game      Game?    @relation(fields: [gameId], references: [id], onDelete: SetNull)
+
+  likes PhotoLike[]
+
+  @@index([status, createdAt])
+  @@index([authorId, createdAt])
+  @@index([gameId, createdAt])
+}
+
+model PhotoLike {
+  userId    String
+  photoId   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photo     Photo    @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  @@id([userId, photoId])
+  @@index([photoId])
+}
+
+// ---------- Bot API ----------
+
+/// Bot API key (`Bearer tk_live_…`). Only the SHA-256 `hash` is stored; the key is shown once.
+model ApiKey {
+  id          String    @id @default(cuid())
+  name        String
+  /// First characters of the key, shown in the admin to tell keys apart.
+  prefix      String
+  hash        String    @unique
+  /// articles:write | guides:write | publish | media:write
+  scopes      String[]
+  createdById String?
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  articles   Article[]
+  guides     Guide[]
+  ingestions IngestionLog[]
+}
+
+/// One bot POST. (keyId, idempotencyKey) is unique, so a repeated request returns the stored result.
+model IngestionLog {
+  id             String   @id @default(cuid())
+  keyId          String
+  idempotencyKey String
+  /// article | guide
+  kind           String
+  /// created | updated | rejected
+  status         String
+  /// Article or Guide id (created | updated).
+  resultId       String?
+  /// Validation errors (rejected), by JSON Pointer path.
+  error          Json?
+  createdAt      DateTime @default(now())
+  key            ApiKey   @relation(fields: [keyId], references: [id], onDelete: Cascade)
+
+  @@unique([keyId, idempotencyKey])
+  @@index([createdAt])
+}
+
+// ---------- Notifications ----------
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  /// level_up | skill_up | attribute_up | comment_reply | forum_reply | thread_solved |
+  /// photo_like | content_published | report_resolved | system
+  kind      String
+  title     String
+  body      String?
+  /// Relative link inside the site.
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
 }
 
 // ---------- Family ----------

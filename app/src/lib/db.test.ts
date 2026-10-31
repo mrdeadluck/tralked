@@ -148,6 +148,132 @@ describe.skipIf(!reachable)("seeded database", () => {
     expect(await prisma.user.count({ where: { handle: "lucas" } })).toBe(1);
   });
 
+  it("links lucas's Steam, PSN, Xbox and RetroAchievements accounts, all verified", async () => {
+    const { prisma } = await import("@/lib/db");
+    const accounts = await prisma.linkedAccount.findMany({
+      where: { user: { handle: "lucas" } },
+      orderBy: { platform: "asc" },
+    });
+    expect(accounts.map((a) => a.platform)).toEqual(["psn", "retro", "steam", "xbox"]);
+    expect(accounts.every((a) => a.verifiedAt !== null && a.verifyCode === null)).toBe(true);
+    const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
+    expect(accounts.find((a) => a.platform === "steam")?.externalId).toBe(lucas.steamId);
+    // Every seeded Steam user also has its Steam LinkedAccount.
+    expect(await prisma.linkedAccount.count({ where: { platform: "steam" } })).toBe(
+      await prisma.user.count({ where: { steamId: { not: null } } }),
+    );
+  });
+
+  it("has PSN trophies with tiers and Xbox achievements with gamerscore for 3 games", async () => {
+    const { prisma } = await import("@/lib/db");
+    const psn = await prisma.achievement.findMany({ where: { platform: "psn" }, include: { game: true } });
+    const xbox = await prisma.achievement.findMany({ where: { platform: "xbox" }, include: { game: true } });
+    expect(new Set(psn.map((a) => a.game.slug)).size).toBe(3);
+    expect(new Set(xbox.map((a) => a.game.slug)).size).toBe(3);
+    expect(psn.every((a) => ["bronze", "silver", "gold", "platinum"].includes(a.trophyTier ?? ""))).toBe(true);
+    expect(psn.filter((a) => a.trophyTier === "platinum")).toHaveLength(3);
+    expect(xbox.every((a) => (a.points ?? 0) > 0 && a.trophyTier === null)).toBe(true);
+    expect(await prisma.achievement.count({ where: { platform: "steam", trophyTier: { not: null } } })).toBe(0);
+    const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
+    const hk = await prisma.game.findUniqueOrThrow({ where: { slug: "hollow-knight" } });
+    const libraries = await prisma.userGame.findMany({ where: { userId: lucas.id, gameId: hk.id } });
+    expect(libraries.map((l) => l.platform).sort()).toEqual(["psn", "steam", "xbox"]);
+    // Platinum on PSN: every trophy unlocked.
+    expect(libraries.find((l) => l.platform === "psn")?.completedAt).not.toBeNull();
+  });
+
+  it("has fixture media for every game and the example editorial and community data", async () => {
+    const { prisma } = await import("@/lib/db");
+    const games = await prisma.game.count();
+    expect(await prisma.gameMedia.count({ where: { source: "fixture", url: null } })).toBe(games * 11);
+    expect(await prisma.gamePlatformLink.count({ where: { platform: "steam" } })).toBe(games);
+    expect(await prisma.externalNews.count({ where: { game: { slug: "hollow-knight" } } })).toBe(6);
+    expect(await prisma.forumCategory.count()).toBe(3);
+    expect(await prisma.forumThread.count()).toBe(6);
+    expect(await prisma.forumThread.count({ where: { solvedPostId: { not: null } } })).toBe(1);
+    expect(await prisma.photo.count({ where: { url: null } })).toBe(12);
+    const photos = await prisma.photo.findMany({ include: { _count: { select: { likes: true } } } });
+    expect(photos.every((p) => p.likeCount === p._count.likes)).toBe(true);
+    expect(await prisma.comment.count()).toBeGreaterThan(0);
+    expect(await prisma.notification.count({ where: { user: { handle: "lucas" }, readAt: null } })).toBe(2);
+    const keys = await prisma.apiKey.findMany();
+    expect(keys).toHaveLength(1);
+    expect(keys[0].hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("stores the 10 seeded articles as published ContentBlock[] with their games linked", async () => {
+    const { prisma } = await import("@/lib/db");
+    const articles = await prisma.article.findMany({ include: { games: true } });
+    expect(articles).toHaveLength(10);
+    for (const a of articles) {
+      expect(a.status).toBe("published");
+      const blocks = a.blocks as { type: string; level?: number; text?: string }[];
+      expect(blocks.length).toBeGreaterThan(1);
+      expect(blocks.some((b) => b.type === "heading" && b.level === 2)).toBe(true);
+      expect(blocks.every((b) => !b.text?.startsWith("#"))).toBe(true);
+      expect(a.games.map((g) => g.gameId)).toEqual(a.gameId ? [a.gameId] : []);
+    }
+  });
+
+  it("keeps forum, gallery and comment content when its author's account is deleted", async () => {
+    const { prisma } = await import("@/lib/db");
+    class Rollback extends Error {}
+    let seen: Record<string, unknown> | undefined;
+    await prisma
+      .$transaction(async (tx) => {
+        const user = await tx.user.findUniqueOrThrow({ where: { handle: "lucas" } });
+        await tx.user.delete({ where: { id: user.id } });
+        seen = {
+          thread: (await tx.forumThread.findUnique({ where: { id: "seed-thread-1" } }))?.authorId,
+          post: (await tx.forumPost.findUnique({ where: { id: "seed-post-4-3" } }))?.authorId,
+          photo: (await tx.photo.findUnique({ where: { id: "seed-photo-01" } }))?.authorId,
+          comment: (await tx.comment.findUnique({ where: { id: "seed-comment-07" } }))?.authorId,
+          apiKey: (await tx.apiKey.findUnique({ where: { id: "seed-api-key-1" } }))?.createdById,
+          linkedAccounts: await tx.linkedAccount.count({ where: { userId: user.id } }),
+          notifications: await tx.notification.count({ where: { userId: user.id } }),
+          photoLikes: await tx.photoLike.count({ where: { userId: user.id } }),
+          libraries: await tx.userGame.count({ where: { userId: user.id } }),
+        };
+        throw new Rollback();
+      })
+      .catch((error) => {
+        if (!(error instanceof Rollback)) throw error;
+      });
+    expect(seen).toEqual({
+      thread: null,
+      post: null,
+      photo: null,
+      comment: null,
+      apiKey: null,
+      linkedAccounts: 0,
+      notifications: 0,
+      photoLikes: 0,
+      libraries: 0,
+    });
+    // Rolled back: the content still has its author afterwards.
+    const thread = await prisma.forumThread.findUniqueOrThrow({ where: { id: "seed-thread-1" } });
+    expect(thread.authorId).not.toBeNull();
+  });
+
+  it("refuses a platform account linked twice, or two accounts of one platform per user", async () => {
+    const { prisma } = await import("@/lib/db");
+    const lucasPsn = await prisma.linkedAccount.findFirstOrThrow({
+      where: { platform: "psn", user: { handle: "lucas" } },
+    });
+    const other = await prisma.user.findUniqueOrThrow({ where: { handle: "urso" } });
+    await expect(
+      prisma.linkedAccount.create({
+        data: { userId: other.id, platform: "psn", externalId: lucasPsn.externalId, handle: "copia" },
+      }),
+    ).rejects.toMatchObject({ code: "P2002" });
+    await expect(
+      prisma.linkedAccount.create({
+        data: { userId: lucasPsn.userId, platform: "psn", externalId: "9000000000000000999", handle: "segunda" },
+      }),
+    ).rejects.toMatchObject({ code: "P2002" });
+    expect(await prisma.linkedAccount.count({ where: { platform: "psn" } })).toBe(1);
+  });
+
   it("is idempotent: seeding again keeps every row count", async () => {
     const { prisma } = await import("@/lib/db");
     const { runSeed } = await import("../../prisma/seed");
@@ -173,6 +299,21 @@ describe.skipIf(!reachable)("seeded database", () => {
       families: await prisma.family.count(),
       members: await prisma.familyMember.count(),
       invites: await prisma.familyInvite.count(),
+      linkedAccounts: await prisma.linkedAccount.count(),
+      platformLinks: await prisma.gamePlatformLink.count(),
+      media: await prisma.gameMedia.count(),
+      articleGames: await prisma.articleGame.count(),
+      externalNews: await prisma.externalNews.count(),
+      newsFeeds: await prisma.newsFeed.count(),
+      forumCategories: await prisma.forumCategory.count(),
+      forumThreads: await prisma.forumThread.count(),
+      forumPosts: await prisma.forumPost.count(),
+      photos: await prisma.photo.count(),
+      photoLikes: await prisma.photoLike.count(),
+      comments: await prisma.comment.count(),
+      reports: await prisma.report.count(),
+      notifications: await prisma.notification.count(),
+      apiKeys: await prisma.apiKey.count(),
     });
     const before = await snapshot();
     await runSeed();
