@@ -34,7 +34,7 @@ const log = createRunLog("steam-import");
 const { prisma } = await import("@/lib/db");
 const { getSteam } = await import("@/lib/integrations");
 const { steamMode } = await import("@/lib/integrations/steam");
-const { createSteamCommunity } = await import("@/lib/integrations/steam/community");
+const { createSteamCommunity, STEAM_ID64 } = await import("@/lib/integrations/steam/community");
 const { upsertUserFromSteam } = await import("@/lib/auth/upsert-user");
 const { syncUser } = await import("@/lib/sync/user");
 
@@ -47,9 +47,9 @@ if (mode === "fixture") {
 const started = Date.now();
 log.info(`Steam import of "${target}" into database "${db.name}" (Steam mode: ${mode}). Log: ${log.file}`);
 
-const steamId = /^\d{17}$/.test(target) ? target : await createSteamCommunity().resolveVanity(target);
-if (!steamId) {
-  log.error(`No Steam profile at /id/${target}`);
+const steamId = /^\d+$/.test(target) ? target : await createSteamCommunity().resolveVanity(target);
+if (!steamId || !STEAM_ID64.test(steamId)) {
+  log.error(`"${target}" is not a SteamID64 nor a custom profile URL with one`);
   process.exit(1);
 }
 
@@ -110,7 +110,8 @@ log.info(
     ? `Syncing: probing up to ${candidates} catalog games (about ${Math.ceil((candidates * 1.2) / 60)} min)…`
     : "Syncing through the Steam Web API…",
 );
-const result = await syncUser(user.id);
+// An import probes the whole catalog in one go (library games included), with no time budget.
+const result = await syncUser(user.id, { probeAll: true, probeBudgetMs: Number.POSITIVE_INFINITY });
 log.info(`Sync ${result.status}: ${result.newUnlocks} new unlocks, level ${result.levelBefore} → ${result.levelAfter}`);
 
 const [stats, skills, games, unlocks] = await Promise.all([

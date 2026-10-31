@@ -1,6 +1,7 @@
 import type { Game } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { SkillId } from "@/lib/engine/types";
+import { isSteamCdnUrl } from "@/lib/integrations/steam/polite-fetch";
 import type { StoreApp } from "@/lib/integrations/steam/store";
 import type { SteamSchemaAchievement } from "@/lib/integrations/steam/types";
 import { slugify } from "@/lib/sync/catalog";
@@ -38,10 +39,11 @@ export async function completedAppIds(): Promise<Set<number>> {
  * Creates or completes one catalog game from Steam data, in one transaction and without deleting
  * anything. Existing games keep the fields they already have (editorial text, slug, manual skills)
  * and only get the blanks filled; achievements are upserted by apiName; media rows from Steam are
- * upserted by (kind, order).
+ * upserted by (kind, order). Media and icons are hotlinked, so only https Steam CDN URLs are kept.
  */
 export async function writeCatalogGame(input: CatalogGameInput): Promise<{ game: Game; created: boolean }> {
-  const { appId, store, schema, percentages, skills, media } = input;
+  const { appId, store, schema, percentages, skills } = input;
+  const media = input.media.filter((m) => isSteamCdnUrl(m.url));
   const art = (kind: CatalogMedia["kind"]) => media.find((m) => m.kind === kind && m.order === 0)?.url;
   const fields = {
     name: store.name,
@@ -103,7 +105,7 @@ export async function writeCatalogGame(input: CatalogGameInput): Promise<{ game:
     const achievementFields = (a: SteamSchemaAchievement) => ({
       name: a.name,
       description: a.description ?? null,
-      iconUrl: a.iconUrl ?? null,
+      iconUrl: isSteamCdnUrl(a.iconUrl) ? a.iconUrl : null,
       ...(percentages[a.apiName] !== undefined && { globalPct: percentages[a.apiName] }),
     });
 

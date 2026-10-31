@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { createPoliteFetch, TRALKED_USER_AGENT } from "./polite-fetch";
+import { describe, expect, it, vi } from "vitest";
+import { createPoliteFetch, isSteamCdnUrl, readText, TRALKED_USER_AGENT } from "./polite-fetch";
 
 /** A virtual clock: `sleep` advances time instead of waiting. */
 function clock() {
@@ -97,6 +97,71 @@ describe("createPoliteFetch", () => {
     });
     await expect(offline("https://steamspy.com/api.php")).rejects.toThrow("fetch failed");
     expect(calls).toBe(2);
+  });
+
+  it("a 429 makes every queued caller of that host back off, not just the refused one", async () => {
+    vi.useFakeTimers();
+    try {
+      const t0 = Date.now();
+      const starts: Record<string, number[]> = {};
+      let refused = false;
+      const politeFetch = createPoliteFetch({
+        fetch: async (url) => {
+          const path = new URL(String(url)).pathname;
+          (starts[path] ??= []).push(Date.now() - t0);
+          if (path === "/a" && !refused) {
+            refused = true;
+            return new Response("", { status: 429, headers: { "retry-after": "30" } });
+          }
+          return new Response("ok");
+        },
+      });
+      const done = Promise.all([
+        politeFetch("https://steamcommunity.com/a"),
+        politeFetch("https://steamcommunity.com/b"),
+        politeFetch("https://steamspy.com/c"),
+      ]);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await done;
+      // /b had the 1.2 s slot, but the host was refused at 0 s for 30 s.
+      expect(starts["/b"][0]).toBeGreaterThanOrEqual(30_000);
+      expect(starts["/a"][1]).toBeGreaterThanOrEqual(30_000);
+      // Other hosts are not affected.
+      expect(starts["/c"][0]).toBeLessThan(1_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("only fetches Steam endpoints over https, and follows redirects only to them", async () => {
+    const urls: string[] = [];
+    const politeFetch = createPoliteFetch({
+      sleep: async () => undefined,
+      fetch: async (url) => {
+        urls.push(String(url));
+        const path = new URL(String(url)).pathname;
+        if (path === "/moved") return new Response(null, { status: 302, headers: { location: "https://store.steampowered.com/here" } });
+        if (path === "/away") return new Response(null, { status: 302, headers: { location: "https://evil.example/x" } });
+        return new Response("ok");
+      },
+    });
+    await expect(politeFetch("https://evil.example/")).rejects.toThrow(/Refusing/);
+    await expect(politeFetch("http://steamcommunity.com/")).rejects.toThrow(/Refusing/);
+    expect((await politeFetch("https://steamcommunity.com/moved")).status).toBe(200);
+    expect(urls.at(-1)).toBe("https://store.steampowered.com/here");
+    expect((await politeFetch("https://steamcommunity.com/away")).status).toBe(302);
+    expect(urls).not.toContain("https://evil.example/x");
+    // `redirect: "manual"` hands every redirect back to the caller.
+    expect((await politeFetch("https://steamcommunity.com/moved", { redirect: "manual" })).status).toBe(302);
+  });
+
+  it("readText refuses bodies over the cap, declared or streamed", async () => {
+    await expect(readText(new Response("x".repeat(100)), 50)).rejects.toThrow(/too large/);
+    await expect(readText(new Response("small", { headers: { "content-length": "999999999" } }))).rejects.toThrow(/too large/);
+    await expect(readText(new Response("é ok"))).resolves.toBe("é ok");
+    expect(isSteamCdnUrl("https://shared.akamai.steamstatic.com/a.jpg")).toBe(true);
+    expect(isSteamCdnUrl("https://steamstatic.com.evil.example/a.jpg")).toBe(false);
+    expect(isSteamCdnUrl("http://shared.akamai.steamstatic.com/a.jpg")).toBe(false);
   });
 
   it("does not retry client errors", async () => {

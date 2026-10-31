@@ -232,6 +232,107 @@ describe.skipIf(!reachable)("syncUser", () => {
     ]);
   });
 
+  it("completion and the platinum bonus ignore catalog rows Steam no longer lists (old seed rows)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { syncGame } = await import("./catalog");
+    const appId = newAppId();
+    const steam = fakeSteam({
+      [appId]: { pcts: pctsOf(2, 30), unlocks: { A0: new Date("2023-01-01T10:00:00Z"), A1: new Date("2023-02-01T10:00:00Z") } },
+    });
+    steamState.api = steam.api;
+    const game = await syncGame(appId);
+    // A leftover row (e.g. a seed fixture id) that Steam does not list for this game.
+    await prisma.achievement.create({ data: { gameId: game!.id, platform: "steam", apiName: "SEED_ONLY", name: "Seed", globalPct: 1 } });
+    const user = await newUser();
+
+    await syncUser(user.id);
+
+    const userGame = await prisma.userGame.findUniqueOrThrow({
+      where: { userId_gameId_platform: { userId: user.id, gameId: game!.id, platform: "steam" } },
+    });
+    expect(userGame).toMatchObject({ unlockedCount: 2, completedAt: new Date("2023-02-01T10:00:00Z") });
+    const platinum = await prisma.xpLedgerEntry.findFirstOrThrow({ where: { userId: user.id, source: "platinum" } });
+    expect(platinum.xp).toBe(platinumBonus([xpForAchievement(30), xpForAchievement(30)]));
+  });
+
+  it("probing stops at the time budget and after consecutive failures", async () => {
+    const { syncUser } = await import("./user");
+    const { syncGame } = await import("./catalog");
+    const apps = Array.from({ length: 12 }, () => newAppId());
+    const steam = fakeSteam(Object.fromEntries(apps.map((id) => [id, { pcts: pctsOf(1), unlocks: {} }])));
+    steamState.api = steam.api;
+    for (const id of apps) await syncGame(id);
+    steam.ownedUnsupported = true;
+
+    // A spent budget probes nothing (the next sync resumes).
+    const calls: number[] = [];
+    const counting = steam.api.getPlayerAchievements;
+    steam.api.getPlayerAchievements = async (steamId, appId) => {
+      calls.push(appId);
+      return counting(steamId, appId);
+    };
+    const user = await newUser();
+    await expect(syncUser(user.id, { probeBudgetMs: 0 })).resolves.toMatchObject({ status: "ok", newUnlocks: 0 });
+    expect(calls).toHaveLength(0);
+
+    // Steam keeps refusing: the breaker stops well before the whole catalog is tried.
+    steam.api.getPlayerAchievements = async (_steamId, appId) => {
+      calls.push(appId);
+      throw new Error("Steam community achievements failed with HTTP 429");
+    };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(syncUser(user.id)).rejects.toThrow(/429/);
+    } finally {
+      errors.mockRestore();
+    }
+    expect(calls.length).toBeGreaterThanOrEqual(5);
+    expect(calls.length).toBeLessThan(10);
+  });
+
+  it("probe order: library games only when due, then the rest of the catalog as a ring by time slot", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { catalogProbeCandidates } = await import("./user");
+    const { syncGame } = await import("./catalog");
+    const [owned, other] = [newAppId(), newAppId()];
+    steamState.api = fakeSteam({
+      [owned]: { pcts: pctsOf(1), unlocks: {} },
+      [other]: { pcts: pctsOf(1), unlocks: {} },
+    }).api;
+    const ownedGame = await syncGame(owned);
+    await syncGame(other);
+    const user = await newUser();
+    await prisma.userGame.create({
+      data: { userId: user.id, gameId: ownedGame!.id, platform: "steam", playtimeMin: 0, unlockedCount: 1 },
+    });
+    const ids = (list: { appId: number }[]) => list.map((c) => c.appId);
+
+    const syncedAt = new Date();
+    const now = syncedAt.getTime() + 1;
+    // Synced just now and the game did not change since: not due.
+    const quiet = await catalogProbeCandidates(user.id, syncedAt, now);
+    expect(ids(quiet)).not.toContain(owned);
+    expect(ids(quiet)).toContain(other);
+    // Never synced, forced (imports), or a new 7-day period: due, and probed first.
+    expect(ids(await catalogProbeCandidates(user.id, null, now))[0]).toBe(owned);
+    expect(ids(await catalogProbeCandidates(user.id, syncedAt, now, true))[0]).toBe(owned);
+    expect(ids(await catalogProbeCandidates(user.id, syncedAt, now + 7 * DAY))[0]).toBe(owned);
+    // Its catalog data changed after the last sync: due.
+    await prisma.game.update({ where: { id: ownedGame!.id }, data: { lastSyncAttemptAt: new Date(now + 1000) } });
+    expect(ids(await catalogProbeCandidates(user.id, syncedAt, now))[0]).toBe(owned);
+
+    // The ring covers every other game once, starting at a slot-dependent offset.
+    const a = ids(await catalogProbeCandidates(user.id, syncedAt, now));
+    const b = ids(await catalogProbeCandidates(user.id, syncedAt, now + 2 * 60_000));
+    const ringA = a.slice(1);
+    const ringB = b.slice(1);
+    expect(new Set(ringA).size).toBe(ringA.length);
+    // The next slot walks the same ring from another point.
+    const k = ringA.indexOf(ringB[0]);
+    expect([...ringA.slice(k), ...ringA.slice(0, k)]).toEqual(ringB);
+  });
+
   it("running twice does not change totalXp or the ledger", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");

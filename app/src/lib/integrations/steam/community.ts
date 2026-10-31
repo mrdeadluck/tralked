@@ -1,4 +1,5 @@
-import { createPoliteFetch, type PoliteFetch } from "./polite-fetch";
+import { createPoliteFetch, isSteamCdnUrl, readJson, readText, type PoliteFetch } from "./polite-fetch";
+import { decodeEntities } from "./text";
 import type { SteamApi, SteamPlayerAchievement, SteamSchemaAchievement } from "./types";
 
 const COMMUNITY = "https://steamcommunity.com";
@@ -18,17 +19,8 @@ export type SteamCommunityConfig = {
 
 // ---------- Minimal XML reading (Steam's community XML is flat and CDATA-wrapped) ----------
 
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
-
-function decodeEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, code: string) => {
-    if (code[0] === "#") {
-      const n = code[1].toLowerCase() === "x" ? parseInt(code.slice(2), 16) : Number(code.slice(1));
-      return Number.isFinite(n) ? String.fromCodePoint(n) : match;
-    }
-    return ENTITIES[code.toLowerCase()] ?? match;
-  });
-}
+/** A SteamID64 of an individual account (what profile URLs and vanity lookups must give). */
+export const STEAM_ID64 = /^7656119\d{10}$/;
 
 /** Text of the first `<name>` element in `xml` (CDATA or escaped text), or undefined. */
 export function xmlTag(xml: string, name: string): string | undefined {
@@ -45,6 +37,8 @@ export type CommunityAchievement = {
   iconUrl?: string;
   unlockedAt: Date | null;
 };
+
+const cdnUrl = (url: string | undefined) => (isSteamCdnUrl(url) ? url : undefined);
 
 export type ParsedAchievementPage =
   | { status: "private" }
@@ -70,8 +64,9 @@ export function parseAchievementPage(xml: string): ParsedAchievementPage {
       apiName,
       name,
       description: xmlTag(body, "description") || undefined,
-      // "Closed" is Steam's word for unlocked: the closed icon is the colored one.
-      iconUrl: xmlTag(body, "iconClosed") || undefined,
+      // "Closed" is Steam's word for unlocked: the closed icon is the colored one. Only Steam CDN
+      // URLs are kept (they are hotlinked as is).
+      iconUrl: cdnUrl(xmlTag(body, "iconClosed")),
       unlockedAt: closed && timestamp > 0 ? new Date(timestamp * 1000) : null,
     });
   }
@@ -88,11 +83,11 @@ export type ParsedProfile = {
 /** Parses `/profiles/<id64>/?xml=1` (or `/id/<vanity>/?xml=1`). Null when the profile does not exist. */
 export function parseProfile(xml: string): ParsedProfile | null {
   const steamId = xmlTag(xml, "steamID64");
-  if (!steamId || xmlTag(xml, "error") !== undefined) return null;
+  if (!steamId || !STEAM_ID64.test(steamId) || xmlTag(xml, "error") !== undefined) return null;
   return {
     steamId,
     personaName: xmlTag(xml, "steamID") ?? steamId,
-    avatarUrl: xmlTag(xml, "avatarFull") ?? "",
+    avatarUrl: cdnUrl(xmlTag(xml, "avatarFull")) ?? "",
     profilePublic: xmlTag(xml, "privacyState") === "public",
   };
 }
@@ -120,7 +115,7 @@ export function createSteamCommunity(config: SteamCommunityConfig = {}): SteamAp
   async function getText(url: string): Promise<string> {
     const res = await politeFetch(url);
     if (!res.ok) throw new Error(`Steam community ${new URL(url).pathname} failed with HTTP ${res.status}`);
-    return res.text();
+    return readText(res);
   }
 
   async function fetchPercentages(appId: number): Promise<Record<string, number>> {
@@ -129,9 +124,9 @@ export function createSteamCommunity(config: SteamCommunityConfig = {}): SteamAp
     // Apps without stats answer 403/404 (or 400 for unknown ids): no percentages.
     if (res.status === 400 || res.status === 403 || res.status === 404) return {};
     if (!res.ok) throw new Error(`Steam API global percentages failed with HTTP ${res.status}`);
-    const data = (await res.json()) as {
+    const data = await readJson<{
       achievementpercentages?: { achievements?: { name: string; percent: number | string }[] };
-    };
+    }>(res);
     const result: Record<string, number> = {};
     for (const a of data.achievementpercentages?.achievements ?? []) result[a.name] = Number(a.percent);
     return result;
@@ -163,14 +158,16 @@ export function createSteamCommunity(config: SteamCommunityConfig = {}): SteamAp
       if (res.status >= 300 && res.status < 400) {
         const location = res.headers.get("location");
         const target = location ? new URL(location, url) : null;
-        const stats = target?.pathname.match(/^(.*\/stats\/[^/]+)\/?(?:achievements\/?)?$/);
+        // Only Steam's own friendly-name redirect is followed (same host, https).
+        const pinned = target?.protocol === "https:" && target.hostname === "steamcommunity.com";
+        const stats = pinned ? target.pathname.match(/^(.*\/stats\/[^/]+)\/?(?:achievements\/?)?$/) : null;
         if (!target || !stats) return { status: "unavailable" };
         url = `${target.origin}${stats[1]}/achievements/?xml=1`;
         continue;
       }
       if (res.status === 404) return { status: "unavailable" };
       if (!res.ok) throw new Error(`Steam community achievements of app ${appId} failed with HTTP ${res.status}`);
-      return parseAchievementPage(await res.text());
+      return parseAchievementPage(await readText(res));
     }
     return { status: "unavailable" };
   }
