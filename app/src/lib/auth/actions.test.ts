@@ -99,7 +99,8 @@ describe("loginAction", () => {
   it("logs in and goes back to a same-site returnTo (never another origin)", async () => {
     expect(await login(`BIA${DOMAIN}`, "senha da bia")).toEqual({ redirectedTo: "/forum" });
     expect(createSession).toHaveBeenCalledTimes(1);
-    expect(await login(`bia${DOMAIN}`, "senha da bia", "//evil.example.com")).toEqual({ redirectedTo: "/jogador/me" });
+    // The default (and any unsafe) returnTo lands on the user's own sheet.
+    expect(await login(`bia${DOMAIN}`, "senha da bia", "//evil.example.com")).toEqual({ redirectedTo: `/jogador/${MARK}bia` });
   });
 
   it("answers a wrong password and an unknown e-mail with the same generic message", async () => {
@@ -150,7 +151,7 @@ describe("forgotPasswordAction / resetPasswordAction", () => {
       errors: { confirm: "As senhas não são iguais." },
     });
     expect(await run(resetPasswordAction({}, form({ token, password: "nova senha 1", confirm: "nova senha 1" })))).toEqual({
-      redirectedTo: "/jogador/me",
+      redirectedTo: `/jogador/${MARK}bia`,
     });
     expect(createSession).toHaveBeenCalledWith(user.id);
     expect(await run(resetPasswordAction({}, form({ token, password: "nova senha 2", confirm: "nova senha 2" })))).toMatchObject({

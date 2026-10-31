@@ -22,7 +22,7 @@ describe("inviteUser (database)", () => {
     const token = new URL(result.link).searchParams.get("token")!;
     expect(new URL(result.link).pathname).toBe("/redefinir-senha");
 
-    expect(await resetPassword(token, "senha do admin")).toEqual({ ok: true, userId: admin.id });
+    expect(await resetPassword(token, "senha do admin")).toEqual({ ok: true, userId: admin.id, handle: admin.handle });
     expect((await authenticate("mrdead@exemplo.com", "senha do admin"))?.role).toBe("admin");
   });
 

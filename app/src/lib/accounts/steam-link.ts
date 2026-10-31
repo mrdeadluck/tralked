@@ -45,6 +45,12 @@ async function hasActivity(userId: string): Promise<boolean> {
           photos: true,
           guidesWritten: true,
           tips: true,
+          revisions: true,
+          // Likes and votes feed denormalized counters that a plain delete would not lower.
+          photoLikes: true,
+          votes: true,
+          reportsFiled: true,
+          stepProgress: true,
           ownedFamilies: true,
         },
       },

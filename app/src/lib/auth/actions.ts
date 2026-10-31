@@ -16,7 +16,7 @@ import {
   signupIpLimiter,
   type LimitResult,
 } from "./rate-limit";
-import { sanitizeReturnTo } from "./return-to";
+import { DEFAULT_RETURN_TO, sanitizeReturnTo } from "./return-to";
 import { createSession } from "./session";
 
 /**
@@ -28,6 +28,13 @@ import { createSession } from "./session";
 const WRONG_CREDENTIALS = "E-mail ou senha incorretos.";
 // A "use server" module only exports async functions.
 const SIGNUP_LANDING = "/conta/conexoes?bemvindo=1";
+
+/**
+ * Where to go after logging in. `/jogador/me` is a redirecting route handler, which a Server
+ * Action redirect (a client navigation) does not follow well: go straight to the sheet.
+ */
+const landing = (returnTo: string, handle: string) =>
+  returnTo === DEFAULT_RETURN_TO ? `/jogador/${encodeURIComponent(handle)}` : returnTo;
 
 const text = (formData: FormData, name: string) => {
   const value = formData.get(name);
@@ -81,7 +88,7 @@ export async function loginAction(_previous: AuthFormState, formData: FormData):
   }
   loginEmailLimiter.reset(emailKey);
   await createSession(user.id);
-  redirect(sanitizeReturnTo(text(formData, "returnTo")));
+  redirect(landing(sanitizeReturnTo(text(formData, "returnTo")), user.handle));
 }
 
 export async function signupAction(_previous: AuthFormState, formData: FormData): Promise<AuthFormState> {
@@ -163,5 +170,5 @@ export async function resetPasswordAction(_previous: AuthFormState, formData: Fo
   const result = await resetPassword(parsed.data.token, parsed.data.password);
   if (!result.ok) return { message: "Este link expirou ou já foi usado. Peça um novo em “Esqueci a senha”." };
   await createSession(result.userId);
-  redirect("/jogador/me");
+  redirect(landing(DEFAULT_RETURN_TO, result.handle));
 }

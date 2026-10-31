@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { MAIL_LOG_FILE } from "./config";
-import { sql } from "./helpers";
+import { CAN_LOGIN, sql } from "./helpers";
 
 /**
  * Tralked's own accounts: sign-up, login, wrong password, forgot/reset password, connecting
@@ -25,7 +25,7 @@ async function signup(page: Page, suffix: string) {
   await page.goto("/cadastrar");
   await page.getByLabel("Nome de exibição").fill(`E2E ${suffix}`);
   await page.getByLabel("@ do personagem").fill(handle);
-  await page.getByLabel("E-mail").fill(email);
+  await page.getByLabel("E-mail", { exact: true }).fill(email);
   await page.getByLabel("Senha do Tralked").fill(PASSWORD);
   await page.getByLabel(/Li e aceito/).check();
   await page.getByRole("button", { name: "Criar conta" }).click();
@@ -34,9 +34,19 @@ async function signup(page: Page, suffix: string) {
 }
 
 async function login(page: Page, email: string, password: string) {
-  await page.getByLabel("E-mail").fill(email);
+  await page.getByLabel("E-mail", { exact: true }).fill(email);
   await page.getByLabel("Senha", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Entrar", exact: true }).click();
+}
+
+/**
+ * The generic login error, once this submission's answer is in: two failures show the same
+ * text, so also wait for the form to settle (button back, password cleared by React's reset).
+ */
+async function expectWrongCredentials(page: Page) {
+  await expect(page.getByRole("main").getByRole("alert")).toHaveText("E-mail ou senha incorretos.");
+  await expect(page.getByRole("button", { name: "Entrar", exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Senha", { exact: true })).toHaveValue("");
 }
 
 async function logout(page: Page, handle: string) {
@@ -78,19 +88,21 @@ test.describe("Tralked account", () => {
 
     await page.goto("/entrar?returnTo=%2Fjogador%2Fme");
     await login(page, email, "senha-errada-99");
-    await expect(page.getByRole("alert")).toHaveText("E-mail ou senha incorretos.");
+    await expectWrongCredentials(page);
     // What was typed stays (the password does not).
-    await expect(page.getByLabel("E-mail")).toHaveValue(email);
+    await expect(page.getByLabel("E-mail", { exact: true })).toHaveValue(email);
     await expect(page.getByLabel("Senha", { exact: true })).toHaveValue("");
 
     await login(page, `nao-existe-${RUN}@e2e.tralked.dev`, PASSWORD);
-    await expect(page.getByRole("alert")).toHaveText("E-mail ou senha incorretos.");
+    await expectWrongCredentials(page);
 
     await login(page, email.toUpperCase(), PASSWORD);
     await expect(page).toHaveURL(new RegExp(`/jogador/${handle}$`));
   });
 
   test("forgot password: same answer for any e-mail, and the link sets a new password once", async ({ page }) => {
+    // A production build never prints or writes the link (no e-mail provider yet).
+    test.skip(!CAN_LOGIN, "the reset link is only written outside production (dev server)");
     const { handle, email } = await signup(page, "senha");
     await logout(page, handle);
     const before = existsSync(MAIL_LOG_FILE) ? readFileSync(MAIL_LOG_FILE, "utf8").length : 0;
@@ -130,7 +142,7 @@ test.describe("Tralked account", () => {
     await logout(page, handle);
     await page.goto("/entrar");
     await login(page, email, PASSWORD);
-    await expect(page.getByRole("alert")).toHaveText("E-mail ou senha incorretos.");
+    await expectWrongCredentials(page);
     await login(page, email, "nova-senha-e2e-1");
     await expect(page).toHaveURL(new RegExp(`/jogador/${handle}$`));
   });

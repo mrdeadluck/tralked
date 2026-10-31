@@ -116,7 +116,8 @@ export const PLAYERS: SeedUser[] = HANDLES.map(({ handle, role }, i) => {
   return {
     handle,
     displayName: handle,
-    steamId: `7656119800000010${String(i).padStart(2, "0")}`,
+    // A valid 17-digit SteamID64 (76561198000001000 + i), like a real Steam account.
+    steamId: `76561198000001${String(i).padStart(3, "0")}`,
     role,
     profilePublic: true,
     level: LUCAS_LEVEL + offset,

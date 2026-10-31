@@ -73,7 +73,7 @@ export async function resetPassword(
   token: string,
   newPassword: string,
   now: Date = new Date(),
-): Promise<{ ok: true; userId: string } | { ok: false }> {
+): Promise<{ ok: true; userId: string; handle: string } | { ok: false }> {
   if (!token) return { ok: false };
   const row = await prisma.passwordResetToken.findFirst({ where: usable(token, now), select: { id: true, userId: true } });
   if (!row) return { ok: false };
@@ -83,7 +83,7 @@ export async function resetPassword(
     const { count } = await tx.passwordResetToken.updateMany({ where: { id: row.id, usedAt: null }, data: { usedAt: now } });
     if (count === 0) return { ok: false as const };
     await tx.passwordResetToken.updateMany({ where: { userId: row.userId, usedAt: null }, data: { usedAt: now } });
-    await tx.user.update({ where: { id: row.userId }, data: { passwordHash } });
-    return { ok: true as const, userId: row.userId };
+    const user = await tx.user.update({ where: { id: row.userId }, data: { passwordHash }, select: { handle: true } });
+    return { ok: true as const, userId: row.userId, handle: user.handle };
   });
 }

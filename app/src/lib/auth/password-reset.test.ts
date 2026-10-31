@@ -48,7 +48,7 @@ describe("password reset tokens (database)", () => {
     const second = await createPasswordResetToken(user.id, T0);
     expect(await isResetTokenValid(first, later(1000))).toBe(true);
 
-    expect(await resetPassword(first, "senha nova 1", later(1000))).toEqual({ ok: true, userId: user.id });
+    expect(await resetPassword(first, "senha nova 1", later(1000))).toEqual({ ok: true, userId: user.id, handle: user.handle });
     expect(await authenticate(`uso${DOMAIN}`, "senha nova 1")).not.toBeNull();
     expect(await authenticate(`uso${DOMAIN}`, "senha antiga")).toBeNull();
 
