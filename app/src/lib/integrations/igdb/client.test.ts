@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createIgdbClient } from "./client";
+import { createIgdbClient, IgdbRateLimitError } from "./client";
 import { createIgdbFixture } from "./fixture";
 
 function jsonResponse(body: unknown, status = 200) {
@@ -169,6 +169,44 @@ describe("igdb client", () => {
     // 3 API calls with a frozen clock: the 2nd and 3rd must each wait 250ms.
     const waits = sleep.mock.calls.map((c) => (c as unknown as [number])[0]);
     expect(waits).toEqual([250, 250]);
+  });
+
+  it("retries a 429 once, after a delay, and then succeeds", async () => {
+    let externalCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("twitch")) return jsonResponse({ access_token: "T", expires_in: 3600 });
+      externalCalls++;
+      return externalCalls === 1 ? jsonResponse({}, 429) : jsonResponse([]);
+    });
+    const sleep = vi.fn(async () => {});
+    const client = createIgdbClient({
+      clientId: "a",
+      clientSecret: "b",
+      fetch: fetchMock as unknown as typeof fetch,
+      now: () => 0,
+      sleep,
+    });
+    await expect(client.findBySteamAppId(1)).resolves.toBeNull();
+    expect(externalCalls).toBe(2);
+    const waits = sleep.mock.calls.map((c) => (c as unknown as [number])[0]);
+    expect(waits.reduce((sum, ms) => sum + ms, 0)).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("throws IgdbRateLimitError when the retry is rate limited too", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("twitch")
+        ? jsonResponse({ access_token: "T", expires_in: 3600 })
+        : jsonResponse({}, 429),
+    );
+    const client = createIgdbClient({
+      clientId: "a",
+      clientSecret: "b",
+      fetch: fetchMock as unknown as typeof fetch,
+      sleep: async () => {},
+    });
+    await expect(client.findBySteamAppId(1)).rejects.toBeInstanceOf(IgdbRateLimitError);
+    expect(fetchMock).toHaveBeenCalledTimes(3); // token + 2 attempts
   });
 
   it("throws on API errors", async () => {

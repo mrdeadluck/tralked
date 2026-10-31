@@ -1,15 +1,21 @@
 import { Prisma, type Game } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getIgdb, getRawg, getSgdb, getSteam, mapToSkills } from "@/lib/integrations";
+import { IgdbRateLimitError } from "@/lib/integrations/igdb/client";
 
 const IGDB_COVER_URL = "https://images.igdb.com/igdb/image/upload/t_cover_big";
 const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
-/** Best-effort metadata sources (IGDB, RAWG, SteamGridDB): a failure only leaves fields empty. */
+/**
+ * Best-effort metadata sources (IGDB, RAWG, SteamGridDB): a failure only leaves fields empty.
+ * Except an IGDB rate limit: skills come from IGDB, so the whole game sync fails and is retried
+ * later instead of creating the game without skills.
+ */
 async function bestEffort<T>(source: string, appId: number, call: () => Promise<T>, fallback: T) {
   try {
     return await call();
   } catch (error) {
+    if (error instanceof IgdbRateLimitError) throw error;
     console.warn(`Catalog: ${source} failed for Steam app ${appId}`, error);
     return fallback;
   }

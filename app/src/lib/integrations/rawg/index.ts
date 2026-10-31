@@ -5,9 +5,20 @@ import type { RawgApi } from "./types";
 
 export type * from "./types";
 
-/** Real RAWG client when RAWG_API_KEY is set, otherwise the offline fixture. */
+let instance: RawgApi | undefined;
+
+/**
+ * Real RAWG client when RAWG_API_KEY is set, otherwise the offline fixture.
+ * Memoized per process, so every caller shares one client (and its token cache / rate limiter).
+ */
 export function getRawg(): RawgApi {
-  return hasKey("RAWG_API_KEY") && env.RAWG_API_KEY
+  instance ??= hasKey("RAWG_API_KEY") && env.RAWG_API_KEY
     ? createRawgClient({ apiKey: env.RAWG_API_KEY })
     : createRawgFixture();
+  return instance;
+}
+
+/** Tests only: forgets the memoized client. */
+export function resetRawg(): void {
+  instance = undefined;
 }

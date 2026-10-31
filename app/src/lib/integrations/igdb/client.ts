@@ -6,6 +6,19 @@ const STEAM_SOURCE = 1;
 /** IGDB allows 4 requests per second. */
 const MIN_INTERVAL_MS = 250;
 const TOKEN_EXPIRY_MARGIN_MS = 60_000;
+/** Back-off before the single retry of a request IGDB answered with 429. */
+const RATE_LIMIT_RETRY_MS = 1_000;
+
+/**
+ * IGDB still answered 429 after one retry. Callers must not treat it as "no data": the game
+ * sync fails and is retried later (its `lastSyncAttemptAt` rotates it to the back of the queue).
+ */
+export class IgdbRateLimitError extends Error {
+  constructor(endpoint: string) {
+    super(`IGDB ${endpoint} is rate limited (HTTP 429)`);
+    this.name = "IgdbRateLimitError";
+  }
+}
 
 export type IgdbClientConfig = {
   clientId: string;
@@ -82,10 +95,10 @@ export function createIgdbClient({
   }
 
   function query<T>(endpoint: string, body: string): Promise<T[]> {
-    const run = async () => {
+    const send = async () => {
       const accessToken = await getToken();
       await throttle();
-      const res = await fetchImpl(`${API_BASE}/${endpoint}`, {
+      return fetchImpl(`${API_BASE}/${endpoint}`, {
         method: "POST",
         headers: {
           "Client-ID": clientId,
@@ -94,6 +107,15 @@ export function createIgdbClient({
         },
         body,
       });
+    };
+    const run = async () => {
+      let res = await send();
+      if (res.status === 429) {
+        // Still inside the queue, so the back-off also holds back every other caller.
+        await sleep(RATE_LIMIT_RETRY_MS);
+        res = await send();
+        if (res.status === 429) throw new IgdbRateLimitError(endpoint);
+      }
       if (!res.ok) throw new Error(`IGDB ${endpoint} failed with HTTP ${res.status}`);
       return (await res.json()) as T[];
     };
