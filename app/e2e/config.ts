@@ -19,10 +19,13 @@ export const BASE_URL = `http://localhost:${PORT}`;
 
 const DEFAULT_DATABASE_URL = "postgresql://gamelog:gamelog@localhost:5433/gamelog_e2e";
 
+/** Signs the e2e server's session cookies (flow tests sign their own to act as any seeded user). */
+export const E2E_SESSION_SECRET = "e2e-session-secret-with-at-least-32-chars";
+
 /** The development servers' databases: e2e writes (comments, keys, intros), so never these. */
 const FORBIDDEN_DATABASES = new Set(["gamelog", "gamelog_dev"]);
 
-function e2eDatabaseUrl(): string {
+export function e2eDatabaseUrl(): string {
   const url = process.env.E2E_DATABASE_URL ?? DEFAULT_DATABASE_URL;
   let name = "";
   try {
@@ -76,7 +79,7 @@ export function createConfig(mode: E2EMode) {
       stderr: "pipe",
       env: {
         DATABASE_URL: e2eDatabaseUrl(),
-        SESSION_SECRET: "e2e-session-secret-with-at-least-32-chars",
+        SESSION_SECRET: E2E_SESSION_SECRET,
         CRON_SECRET: "e2e-cron-secret",
         APP_URL: BASE_URL,
         // Blank keys keep every integration on its local fixtures (and demo login enabled in dev).
