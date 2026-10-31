@@ -60,6 +60,9 @@ Novas categorias **Entretenimento** (animes, filmes, séries — só o que tem r
 ### F9 — Social
 - **Mensagens privadas** entre usuários: conversa 1:1, caixa de entrada, enviar pelo perfil, notificação, limite de envio, bloquear e denunciar, texto puro (sem HTML), apagar a conversa para si.
 - **Seguir** jogadores e **feed** de atividade de quem você segue (conquistas raras, 100%, marcos de horas, matérias, fotos).
+- **Amizade** (pedido + aceite), separada de seguir e **sem unir à família**; perfil mostra seguidores, seguindo e amigos; mensagens privadas podem ser restritas a amigos/seguidos pelo próprio usuário.
+- **Comentários sociais** (Lucas: "curtir, descurtir e comentar nos comentários de outras pessoas, responder"): curtir/descurtir comentários e responder em fio (até 2 níveis) em notícias, guias, fotos e fórum; notificação de resposta/curtida.
+- **Recompensa por interação saudável** (controller): XP para quem **recebe** curtida em comentário (ledger `source='comment_liked'`, valor baixo, teto diário por usuário) e para resposta marcada como útil pelo autor do comentário original (`comment_helpful`); quem curte não ganha XP; curtida própria não conta; pares que trocam curtidas entre si param de render após 3 por dia; novo atributo **Carisma** (curtidas recebidas, respostas úteis, amigos). Descurtidas não tiram XP; comentário com saldo muito negativo fica recolhido ("ver mesmo assim"). Bloquear um usuário impede mensagens, respostas e menções dele. Denúncia/moderação existentes valem para tudo; comentário removido anula o XP que gerou.
 
 ### F10 — Lançamentos (últimos e próximos)
 Pedido: "conectar com alguma fonte que mostrasse os próximos lançamentos e os últimos… card na tela principal… principalmente do PC".
