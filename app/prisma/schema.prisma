@@ -248,18 +248,23 @@ model UserGame {
 }
 
 model UserAchievement {
-  userId        String
-  achievementId String
-  unlockedAt    DateTime
-  suspicious    Boolean     @default(false)
+  userId          String
+  achievementId   String
+  unlockedAt      DateTime
+  suspicious      Boolean     @default(false)
   /// RetroAchievements: unlocked in hardcore mode.
-  hardcore      Boolean     @default(false)
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  hardcore        Boolean     @default(false)
+  /// Admin decision on a suspicious unlock: null (pending) | confirmed (fraud, XP voided) |
+  /// cleared (released: paid, and the anti-fraud rules no longer flag it on later syncs).
+  fraudReview     String?
+  fraudReviewedAt DateTime?
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement     Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
 
   @@id([userId, achievementId])
   @@index([achievementId])
   @@index([userId, unlockedAt])
+  @@index([suspicious, fraudReview])
 }
 
 /// First time a logged-in user opened a game page (the sealed-case intro plays once).

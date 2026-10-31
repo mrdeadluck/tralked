@@ -42,4 +42,17 @@ export const ROUTES: E2ERoute[] = [
   { path: "/conta/conexoes", name: "conta-conexoes-logado", auth: true },
   { path: "/jogador/lucas", name: "jogador-logado", auth: true },
   { path: "/desenvolvedores", name: "desenvolvedores" },
+  // Admin (the demo user lucas is an admin; visitors get a 404, checked in admin.spec.ts).
+  { path: "/admin", name: "admin", auth: true },
+  { path: "/admin/revisao", name: "admin-revisao", auth: true },
+  { path: "/admin/noticias", name: "admin-noticias", auth: true },
+  { path: "/admin/noticias/nova", name: "admin-noticia-nova", auth: true },
+  { path: "/admin/guias", name: "admin-guias", auth: true },
+  { path: "/admin/moderacao", name: "admin-moderacao", auth: true },
+  { path: "/admin/moderacao?aba=fotos", name: "admin-moderacao-fotos", auth: true },
+  { path: "/admin/fraude", name: "admin-fraude", auth: true },
+  { path: "/admin/jogos", name: "admin-jogos", auth: true },
+  { path: "/admin/robos", name: "admin-robos", auth: true },
+  { path: "/admin/feeds", name: "admin-feeds", auth: true },
+  { path: "/admin/usuarios", name: "admin-usuarios", auth: true },
 ];

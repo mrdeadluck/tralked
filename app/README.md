@@ -156,6 +156,8 @@ src/app/              rotas (App Router)
   familia             modo família e convites
   noticias/[slug]     artigos
   desenvolvedores     documentação da API para robôs (também em ../docs/robos.md)
+  admin               painel da redação (editor/admin): notícias e guias em blocos, fila de revisão,
+                      moderação, fraude, jogos, chaves de robô, feeds e papéis (só admin nos 5 últimos)
   api/v1              API para robôs: notícias, guias, busca de jogos, OpenAPI e JSON Schemas
   api/auth            login Steam, Google, demo e logout
   api/cron/[job]      jobs de sincronização
@@ -172,10 +174,14 @@ src/lib/
   guide/              votos nos passos dos guias
   api/                API para robôs: chaves (hash SHA-256), escopos, limite de 60 req/min por chave
                       (em memória: com várias instâncias cada uma conta à parte), idempotência e erros
+  admin/              regras do admin: acesso por papel, CMS, moderação (anula XP ao remover), fraude
+src/proxy.ts          /admin responde 404 de verdade a quem não é da redação (as páginas e as
+                      Server Actions conferem o papel de novo)
 ```
 
 ## Notas
 
 - `next build` precisa do banco acessível: as páginas dinâmicas (`/jogos/[slug]`, `/noticias/[slug]`, `/jogador/[handle]`) usam `generateStaticParams`, que consulta o Postgres. Suba e popule o banco antes (`pnpm db:up && pnpm db:seed`).
 - As suítes de teste que usam o banco (`pnpm test`) também precisam do Postgres no ar e das migrations aplicadas.
+- Admin: entre como `lucas` (`/api/auth/demo`, só em desenvolvimento; o seed dá papel admin) e abra `/admin`. Papéis: `editor` cuida de notícias, guias, revisão e moderação; `admin` também de fraude, jogos, robôs, feeds e usuários. Ninguém muda o próprio papel.
 - O projeto usa Next.js 16 com Cache Components; veja `AGENTS.md` antes de alterar convenções do framework.
