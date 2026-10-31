@@ -1,16 +1,23 @@
 import type { ReactNode } from "react";
+import { UserText } from "@/components/community/UserText";
 import { Chip } from "@/components/ui/Chip";
+import type { CharacterPlatform } from "@/lib/character/sheet";
 import type { Character } from "@/lib/queries/players";
 import { formatNumber } from "./format";
+import { PLATFORM_LABEL, PLATFORM_TOKEN } from "./platforms";
 import { XpBar } from "./XpBar";
 
 type CharacterCardProps = {
   character: Character;
+  /** Contas verificadas, na ordem Steam, PSN, Xbox, RetroAchievements. */
+  platforms: CharacterPlatform[];
+  /** Bio em texto puro escrita pelo jogador. */
+  bio: string | null;
   /** Ações do dono do perfil (sincronizar, som). */
   actions?: ReactNode;
 };
 
-export function CharacterCard({ character, actions }: CharacterCardProps) {
+export function CharacterCard({ character, platforms, bio, actions }: CharacterCardProps) {
   const { stats } = character;
   const items: [string, string][] = [
     ["Conquistas", formatNumber(stats.achievements)],
@@ -42,8 +49,22 @@ export function CharacterCard({ character, actions }: CharacterCardProps) {
         </h1>
         <div className="mt-3 flex flex-wrap items-center gap-1.5 font-mono text-[10.5px] tracking-[0.1em] uppercase">
           <span className="mr-1.5 text-acc">{character.vocation}</span>
-          <Chip color="var(--pc)">Steam vinculada</Chip>
+          {platforms.length > 0 ? (
+            <ul aria-label="Plataformas conectadas" className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+              {platforms.map((p) => (
+                <li key={p.platform} title={`${PLATFORM_LABEL[p.platform]}: ${p.handle}`}>
+                  <Chip color={PLATFORM_TOKEN[p.platform]}>
+                    {PLATFORM_LABEL[p.platform]}
+                    <span className="sr-only">: {p.handle}</span>
+                  </Chip>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Chip>Nenhuma plataforma conectada</Chip>
+          )}
         </div>
+        {bio ? <UserText text={bio} className="mt-3 max-w-[60ch] text-[15px] text-text-2" /> : null}
       </div>
 
       <div className="flex flex-wrap items-end gap-[18px] min-[641px]:col-span-2">

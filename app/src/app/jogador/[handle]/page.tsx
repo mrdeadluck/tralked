@@ -1,15 +1,21 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { ActivityFeed } from "@/components/character/ActivityFeed";
 import { AlmostThere } from "@/components/character/AlmostThere";
+import { AttributesWindow } from "@/components/character/AttributesWindow";
 import { CharacterCard } from "@/components/character/CharacterCard";
 import { formatAgo } from "@/components/character/format";
 import { MissionsCard } from "@/components/character/MissionsCard";
+import { PlayerGallery } from "@/components/character/PlayerGallery";
 import { SkillsWindow } from "@/components/character/SkillsWindow";
 import { StreakCard } from "@/components/character/StreakCard";
 import { SyncActions } from "@/components/character/SyncActions";
+import { TrophyTiers } from "@/components/character/TrophyTiers";
 import { Card } from "@/components/ui/Card";
 import { getSessionUser } from "@/lib/auth/session";
+import { pendingDespertar } from "@/lib/character/despertar";
+import { getCharacterSheetExtras } from "@/lib/character/sheet";
 import { getCharacter, getPlayerHeader, hoursUntilDailyReset } from "@/lib/queries/players";
 
 const STEAM_PRIVACY_SETTINGS_URL = "https://steamcommunity.com/my/edit/settings";
@@ -54,6 +60,10 @@ async function PlayerSheet({ params }: { params: PageProps<"/jogador/[handle]">[
 
   const character = await getCharacter(header.handle);
   if (!character) notFound();
+  const [extras, despertar] = await Promise.all([
+    getCharacterSheetExtras(character.userId),
+    isOwner ? pendingDespertar(character.userId) : Promise.resolve(null),
+  ]);
 
   const now = new Date();
   const daily = character.missions.filter((m) => m.kind === "daily");
@@ -61,12 +71,17 @@ async function PlayerSheet({ params }: { params: PageProps<"/jogador/[handle]">[
 
   return (
     <div className="flex flex-col gap-10">
-      {isOwner && !character.profilePublic ? (
+      {isOwner && !character.profilePublic && extras.steamSyncFailing ? (
         <div
           role="alert"
-          className="rounded-[2px] border border-line-2 border-l-[3px] border-l-rarity-lendario bg-surface px-[18px] py-4 text-sm text-text-2"
+          className="rounded-[2px] border border-rarity-lendario bg-surface px-[18px] py-4 text-sm text-text-2"
         >
-          Seu perfil Steam está privado. Deixe-o público para importar suas conquistas.{" "}
+          Seu perfil Steam está privado. Deixe-o público para importar suas conquistas e depois
+          ative o perfil público em{" "}
+          <Link href="/conta" className="font-semibold text-acc underline underline-offset-2">
+            Conta
+          </Link>
+          .{" "}
           <a
             href={STEAM_PRIVACY_SETTINGS_URL}
             target="_blank"
@@ -76,17 +91,27 @@ async function PlayerSheet({ params }: { params: PageProps<"/jogador/[handle]">[
             Abrir configurações de privacidade da Steam
           </a>
         </div>
+      ) : isOwner && !character.profilePublic ? (
+        <p className="rounded-[2px] border border-line-2 bg-surface px-[18px] py-4 text-sm text-text-2">
+          Seu perfil está privado: só você vê esta ficha, e ela fica fora dos highscores.{" "}
+          <Link href="/conta" className="font-semibold text-acc underline underline-offset-2">
+            Mudar em Conta
+          </Link>
+        </p>
       ) : null}
 
       <div className="grid gap-5 min-[901px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <CharacterCard
           character={character}
+          platforms={extras.platforms}
+          bio={extras.bio}
           actions={
             isOwner ? (
               <SyncActions
                 lastSyncedLabel={
                   character.lastSyncedAt ? formatAgo(character.lastSyncedAt, now) : null
                 }
+                despertarSteps={despertar}
               />
             ) : null
           }
@@ -100,6 +125,8 @@ async function PlayerSheet({ params }: { params: PageProps<"/jogador/[handle]">[
         </div>
       </div>
 
+      <AttributesWindow attributes={extras.attributes} />
+
       <SkillsWindow skills={character.skills} />
 
       <div className="flex flex-wrap gap-x-5 gap-y-10">
@@ -107,9 +134,17 @@ async function PlayerSheet({ params }: { params: PageProps<"/jogador/[handle]">[
           <AlmostThere games={character.almostThere} />
         </div>
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
+          <TrophyTiers trophies={extras.trophies} />
           <ActivityFeed items={character.recent} now={now} />
         </aside>
       </div>
+
+      <PlayerGallery
+        photos={extras.photos.items}
+        total={extras.photos.total}
+        displayName={character.displayName}
+        isOwner={isOwner}
+      />
     </div>
   );
 }

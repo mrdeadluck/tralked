@@ -8,6 +8,8 @@ export type LinkedAccountView = {
   pendingCode: string | null;
   codeExpiresAt: Date | null;
   lastSyncedAt: Date | null;
+  /** Last import attempt of a verified account (later than lastSyncedAt: running or failed). */
+  lastSyncAttemptAt: Date | null;
 };
 
 /** The user's connected and pending accounts, for the account-connections page. */
@@ -25,6 +27,8 @@ export async function getLinkedAccounts(userId: string, now: Date = new Date()):
       pendingCode: pending ? r.verifyCode : null,
       codeExpiresAt: pending ? r.verifyExpiresAt : null,
       lastSyncedAt: r.lastSyncedAt,
+      // While pending, lastSyncAttemptAt holds the confirmation cooldown, not an import.
+      lastSyncAttemptAt: r.verifiedAt ? r.lastSyncAttemptAt : null,
     };
   });
 }

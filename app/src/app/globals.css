@@ -34,6 +34,11 @@
   --r-raro: oklch(0.74 0.14 255);
   --r-epico: oklch(0.72 0.16 305);
   --r-lendario: oklch(0.8 0.15 75);
+  /* Trophy tiers (source: preview/tralked-jogo.html). */
+  --plat: oklch(0.86 0.06 230);
+  --gold: oklch(0.82 0.13 85);
+  --silver: #c9cdd6;
+  --bronze: oklch(0.68 0.11 50);
   --stripes: repeating-linear-gradient(
     135deg,
     #16181d 0 10px,
@@ -71,6 +76,10 @@
   --color-rarity-raro: var(--r-raro);
   --color-rarity-epico: var(--r-epico);
   --color-rarity-lendario: var(--r-lendario);
+  --color-tier-plat: var(--plat);
+  --color-tier-gold: var(--gold);
+  --color-tier-silver: var(--silver);
+  --color-tier-bronze: var(--bronze);
 
   --font-sans: var(--font-archivo), "Segoe UI", system-ui, sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, Consolas, monospace;
