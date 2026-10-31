@@ -93,6 +93,8 @@ describe("game profile helpers", () => {
       imageLabel: "",
       imageUrl: null,
       authorHandle: "lucas",
+      authorLabel: "@lucas",
+      bot: false,
       featured: 0,
       likes: 0,
       comments: 0,
