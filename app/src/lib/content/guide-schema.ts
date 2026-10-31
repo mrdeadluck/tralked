@@ -103,7 +103,8 @@ export const guideSourceSchema = z.strictObject({
   url: z.url({ protocol: /^https?$/, error: "A fonte precisa de uma URL http(s)://" }).max(2048),
 });
 
-const versionSchema = z
+/** Guide version label: v1.0, 2.3.1… (stored with a leading "v"). */
+export const versionSchema = z
   .string()
   .trim()
   .regex(/^v?\d{1,3}(?:\.\d{1,3}){0,2}$/, "Use uma versão como v1.0 ou 2.3.1");

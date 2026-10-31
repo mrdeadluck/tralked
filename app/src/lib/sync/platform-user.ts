@@ -36,7 +36,8 @@ export type SyncPlatformOptions = {
 
 const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
-type KnownUnlock = { unlockedAt: Date; suspicious: boolean; hardcore: boolean };
+/** `fraudReview` "cleared": an admin released the unlock, so the rules no longer flag it. */
+type KnownUnlock = { unlockedAt: Date; suspicious: boolean; hardcore: boolean; fraudReview: string | null };
 
 const xpOf = (platform: CodePlatform, a: LibraryAchievement, hardcore: boolean) =>
   xpForPlatformAchievement({
@@ -116,8 +117,12 @@ async function recordTitle(
       const before = known.get(u.achievementId);
       return {
         ...u,
-        // Sticky like the Steam sync: once suspicious (rule or admin), always suspicious.
-        suspicious: before?.suspicious || bursts.has(u.achievementId) || speedRun,
+        // Sticky like the Steam sync: once suspicious (rule or admin), always suspicious. An unlock
+        // an admin released keeps its stored flag: the rules are not re-applied to it.
+        suspicious:
+          before?.fraudReview === "cleared"
+            ? before.suspicious
+            : before?.suspicious || bursts.has(u.achievementId) || speedRun,
         // A softcore unlock later redone in hardcore is upgraded, never downgraded.
         hardcore: u.a.hardcore || (before?.hardcore ?? false),
       };
@@ -300,7 +305,7 @@ export async function syncPlatformAccount(
     (
       await prisma.userAchievement.findMany({
         where: { userId, achievement: { platform } },
-        select: { achievementId: true, unlockedAt: true, suspicious: true, hardcore: true },
+        select: { achievementId: true, unlockedAt: true, suspicious: true, hardcore: true, fraudReview: true },
       })
     ).map((r) => [r.achievementId, r]),
   );

@@ -36,7 +36,7 @@ const publishForbidden = (id?: string): WriteFailure =>
 const concurrentWrite = (id?: string): WriteFailure =>
   fail("idempotency_conflict", "Outra requisição com o mesmo Idempotency-Key foi concluída antes.", [], id);
 
-const normalizeVersion = (version: string) => (version.startsWith("v") ? version : `v${version}`);
+export const normalizeVersion = (version: string) => (version.startsWith("v") ? version : `v${version}`);
 
 const invalidateGuide = (gameSlug: string) => revalidateTag(gameTag(gameSlug), { expire: 0 });
 
@@ -155,12 +155,20 @@ async function snapshot(tx: Tx, guideId: string): Promise<Prisma.InputJsonValue>
   } as Prisma.InputJsonValue;
 }
 
-async function saveVersion(tx: Tx, guideId: string): Promise<number> {
+/**
+ * Saves the next GuideVersion (format 1 snapshot) of a guide. Shared with the admin editor, which
+ * passes the editor as `authorId`; bot writes have none.
+ */
+export async function saveGuideVersion(tx: Tx, guideId: string, authorId: string | null = null): Promise<number> {
   const last = await tx.guideVersion.aggregate({ where: { guideId }, _max: { version: true } });
   const version = (last._max.version ?? 0) + 1;
-  await tx.guideVersion.create({ data: { guideId, version, snapshot: await snapshot(tx, guideId) } });
+  await tx.guideVersion.create({
+    data: { guideId, version, authorId, snapshot: await snapshot(tx, guideId) },
+  });
   return version;
 }
+
+const saveVersion = (tx: Tx, guideId: string) => saveGuideVersion(tx, guideId);
 
 export async function createGuide(ctx: WriteContext): Promise<WriteSuccess | WriteFailure> {
   const parsed = parseBody(guidePayloadSchema, ctx.body);
@@ -258,7 +266,7 @@ function ownGuide(key: ApiKeyRecord, id: string) {
 }
 
 /** Replaces the steps keeping ids by position, so readers' step checkmarks survive an update. */
-async function replaceSteps(tx: Tx, guideId: string, steps: GuideStepPayload[], oldCount: number) {
+export async function replaceSteps(tx: Tx, guideId: string, steps: GuideStepPayload[], oldCount: number) {
   for (const [order, step] of steps.entries()) {
     if (order < oldCount) {
       await tx.guideStep.update({ where: { guideId_order: { guideId, order } }, data: stepData(step) });

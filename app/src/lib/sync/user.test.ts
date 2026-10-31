@@ -304,6 +304,27 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(ledger[0].xp).toBe(xpForAchievement(10));
   });
 
+  it("an unlock the admin released (fraudReview cleared) is not flagged again by the next sync", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { releaseFraud } = await import("@/lib/admin/fraud");
+    const appId = newAppId();
+    const burstAt = new Date("2024-06-06T20:00:00Z");
+    const unlocks: Record<string, Date> = {};
+    for (let i = 0; i < 10; i++) unlocks[`A${i}`] = new Date(burstAt.getTime() + i * 3000);
+    steamState.api = fakeSteam({ [appId]: { pcts: pctsOf(12, 10), unlocks } }).api;
+    const user = await newUser();
+    await syncUser(user.id);
+    const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+    expect(await prisma.userAchievement.count({ where: { userId: user.id, suspicious: true } })).toBe(10);
+
+    expect(await releaseFraud({ userId: user.id, gameId: game.id, platform: "steam" })).toMatchObject({ ok: true, entries: 10 });
+    await syncUser(user.id);
+
+    expect(await prisma.userAchievement.count({ where: { userId: user.id, suspicious: true } })).toBe(0);
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "achievement", voidedAt: null } })).toBe(10);
+  });
+
   it("returns { status: 'private' } without throwing for private profiles", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");
