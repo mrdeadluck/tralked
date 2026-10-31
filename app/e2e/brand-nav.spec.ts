@@ -20,8 +20,9 @@ const SKIP_LABEL = "Não mostrar a animação nos próximos jogos";
 test.describe("brand and navigation", () => {
   test("the slogan is in the header, the footer and the page title", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("header")).toContainText("Tralked — Seu ecossistema gamer");
-    await expect(page.locator("footer")).toContainText("Tralked — Seu ecossistema gamer");
+    // The site's own banner and footer (articles on the page may have their own <header>).
+    await expect(page.locator("body > header")).toContainText("Tralked — Seu ecossistema gamer");
+    await expect(page.locator("body > footer")).toContainText("Tralked — Seu ecossistema gamer");
     await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /ecossistema gamer/);
   });
 
