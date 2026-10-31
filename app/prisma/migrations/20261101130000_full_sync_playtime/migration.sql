@@ -58,3 +58,10 @@ WHERE g."steamAppId" IS NOT NULL AND EXISTS (SELECT 1 FROM "GameMedia" m WHERE m
 -- holds seconds: convert them once.
 UPDATE "UserGame" SET "playtimeMin" = round("playtimeMin" / 60.0)
 WHERE platform = 'retro' AND "playtimeUpdatedAt" IS NULL;
+
+-- Xbox titles whose minutes were asked, on the connection row (cleared on unlink, removed with it).
+ALTER TABLE "LinkedAccount" ADD COLUMN "minutesChecked" JSONB;
+
+-- PSN/Xbox/RA titles are matched to stubs of the full Steam catalog by exact name, ignoring case
+-- (lib/sync/platform-games.ts findStubByName: lower(name) = lower($1) on stubs).
+CREATE INDEX "Game_stub_name_lower_idx" ON "Game"(lower(name)) WHERE stub;

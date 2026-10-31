@@ -242,7 +242,8 @@ async function recordTitle(
  * (created when the game has no trophies yet). Then, for every platform (RetroAchievements too,
  * whose play time came with its titles), the hours milestones due are paid within the per-user
  * caps (settlePlaytime). One transaction guarded like the titles'. Stops taking titles at
- * `deadline` (returns true: partial, the next run continues; the list is read whole every time).
+ * `deadline` (`partial`: the next run continues; the list is read whole every time) and returns
+ * the titles it recorded.
  */
 async function recordPlaytime(
   account: AccountSnapshot,
@@ -251,9 +252,11 @@ async function recordPlaytime(
   now: Date,
   deadline?: number,
   clock: () => number = Date.now,
-): Promise<boolean> {
+): Promise<{ partial: boolean; written: Set<string> }> {
   const { userId, platform } = account;
   const perGame = new Map<string, { playtimeMin: number; lastPlayedAt: Date | null }>();
+  /** Titles (platform ids) recorded by this call. */
+  const written = new Set<string>();
   let partial = false;
   for (const title of titles) {
     if (!Number.isFinite(title.playtimeMin) || title.playtimeMin <= 0) continue;
@@ -261,6 +264,7 @@ async function recordPlaytime(
       partial = true;
       break;
     }
+    written.add(title.externalId);
     const gameId = await resolvePlatformGame(platform, title, names, { igdb: false });
     const acc = perGame.get(gameId) ?? { playtimeMin: 0, lastPlayedAt: null };
     acc.playtimeMin += Math.floor(title.playtimeMin);
@@ -301,41 +305,41 @@ async function recordPlaytime(
     }
     await settlePlaytime(tx, userId, platform, now);
   }, TRANSACTION_OPTIONS);
-  return partial;
+  return { partial, written };
 }
 
 /**
- * SyncCursor key of the titles whose minutes were asked, per platform account and holder (an
- * account claimed by another profile starts from scratch there).
+ * Titles whose minutes were asked (LinkedAccount.minutesChecked: titleId → last play then, ms).
+ * It lives on the connection row, so unlinking clears it (releaseAccount), a claim by another
+ * profile starts from scratch, and deleting the account removes it with the row.
  */
-const checkedKey = (platform: CodePlatform, externalId: string, userId: string) =>
-  `minutes-checked:${platform}:${externalId}:${userId}`;
-
-async function loadCheckedTitles(
-  platform: CodePlatform,
-  externalId: string,
-  userId: string,
-): Promise<Map<string, number>> {
-  const row = await prisma.syncCursor.findUnique({ where: { key: checkedKey(platform, externalId, userId) } });
-  const value = (row?.value ?? {}) as Record<string, unknown>;
+function checkedTitlesOf(value: unknown): Map<string, number> {
+  const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   return new Map(
-    Object.entries(value).flatMap(([id, ms]) => (typeof ms === "number" && Number.isFinite(ms) ? [[id, ms]] : [])),
+    Object.entries(record).flatMap(([id, ms]) => (typeof ms === "number" && Number.isFinite(ms) ? [[id, ms]] : [])),
   );
 }
 
-/** Remembers (merging) the titles asked this run, so 0-minute titles are not asked every sync. */
+/**
+ * Remembers (merging) the titles asked this run, so titles without minutes are not asked every
+ * sync. Guarded like the titles: nothing is written on a connection unlinked (or replaced) meanwhile.
+ */
 async function rememberCheckedTitles(
-  platform: CodePlatform,
-  externalId: string,
-  userId: string,
+  account: AccountSnapshot,
+  accountId: string,
   checked: Map<string, number>,
 ): Promise<void> {
   if (checked.size === 0) return;
-  const merged = await loadCheckedTitles(platform, externalId, userId);
-  for (const [id, ms] of checked) merged.set(id, ms);
-  const key = checkedKey(platform, externalId, userId);
-  const value = Object.fromEntries(merged);
-  await prisma.syncCursor.upsert({ where: { key }, create: { key, value }, update: { value } });
+  await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ minutesChecked: unknown }[]>`
+      SELECT "minutesChecked" FROM "LinkedAccount"
+      WHERE id = ${accountId} AND "externalId" = ${account.externalId} AND "linkedAt" = ${account.linkedAt}
+      FOR UPDATE`;
+    if (rows.length === 0) return;
+    const merged = checkedTitlesOf(rows[0].minutesChecked);
+    for (const [id, ms] of checked) merged.set(id, ms);
+    await tx.linkedAccount.update({ where: { id: accountId }, data: { minutesChecked: Object.fromEntries(merged) } });
+  }, TRANSACTION_OPTIONS);
 }
 
 /**
@@ -429,7 +433,7 @@ export async function syncPlatformAccount(
     { externalId: account.externalId, handle: account.handle },
     {
       stored: options.full ? undefined : await storedProgress(userId, platform),
-      checkedTitles: options.full || platform !== "xbox" ? undefined : await loadCheckedTitles(platform, account.externalId, userId),
+      checkedTitles: options.full || platform !== "xbox" ? undefined : checkedTitlesOf(account.minutesChecked),
       deadline: options.deadline,
       maxTitles: options.maxTitles,
     },
@@ -448,7 +452,14 @@ export async function syncPlatformAccount(
 
   const names = await loadNameIndex();
   const resolved: { gameId: string; title: LibraryTitle }[] = [];
+  let titlesPartial = false;
   for (const title of library.titles) {
+    // Resolving an unknown title may ask IGDB: no new title after the deadline. The titles left
+    // are not recorded, so they are still not up to date and the next run reads them again.
+    if (options.deadline !== undefined && Date.now() >= options.deadline) {
+      titlesPartial = true;
+      break;
+    }
     resolved.push({ gameId: await resolvePlatformGame(platform, title, names), title });
   }
 
@@ -493,19 +504,27 @@ export async function syncPlatformAccount(
       throw error;
     }
   }
-  let playtimePartial = false;
+  let playtime: { partial: boolean; written: Set<string> };
   try {
-    playtimePartial = await recordPlaytime(snapshot, library.playtime, names, startedAt, options.deadline);
+    playtime = await recordPlaytime(snapshot, library.playtime, names, startedAt, options.deadline);
   } catch (error) {
     if (error instanceof AccountChangedError) return unchanged("unlinked");
     throw error;
   }
 
-  // Xbox: titles whose minutes were asked are remembered (even 0 or none), per account.
-  if (library.checkedTitles) await rememberCheckedTitles(platform, account.externalId, userId, library.checkedTitles);
+  // Xbox: titles whose minutes were asked are remembered, so they are not asked again until
+  // played again: those Xbox had no minutes for, and those written. A title with minutes the
+  // deadline left unwritten is not remembered (the next run asks it again).
+  if (library.checkedTitles) {
+    const withMinutes = new Set(library.playtime.map((t) => t.externalId));
+    const remembered = new Map(
+      [...library.checkedTitles].filter(([id]) => !withMinutes.has(id) || playtime.written.has(id)),
+    );
+    await rememberCheckedTitles(snapshot, account.id, remembered);
+  }
 
   await recomputeUser(userId);
-  const partial = library.partial || playtimePartial;
+  const partial = library.partial || titlesPartial || playtime.partial;
   // Guarded like the titles: an account unlinked meanwhile is not marked synced.
   await prisma.linkedAccount.updateMany({
     where: { id: account.id, externalId: account.externalId, linkedAt: account.linkedAt },

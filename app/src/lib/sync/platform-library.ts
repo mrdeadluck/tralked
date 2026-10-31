@@ -189,8 +189,13 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
     };
   });
   if (result === "private") return result;
-  // Play time is a separate list (one request per 200 games), read on every sync. Hidden gaming
-  // history or an outage only leaves play time out: trophies still import.
+  // Play time is a separate list (one request per 200 games), read on every sync unless the run is
+  // out of time (the next one reads it). Hidden gaming history or an outage only leaves play time
+  // out: trophies still import.
+  if (options.deadline !== undefined && (options.now ?? Date.now)() >= options.deadline) {
+    result.partial = true;
+    return result;
+  }
   try {
     const games = await psn.getPlayedGames(account.externalId);
     if (games !== "private") {

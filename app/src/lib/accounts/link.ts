@@ -412,6 +412,8 @@ export async function releaseAccount(
         verifyCode: null,
         verifyExpiresAt: null,
         lastSyncedAt: null,
+        // Sync bookkeeping of that account (Xbox titles already asked): the next link starts fresh.
+        minutesChecked: Prisma.DbNull,
       },
     });
   }

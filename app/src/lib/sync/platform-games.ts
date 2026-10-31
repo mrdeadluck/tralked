@@ -25,15 +25,16 @@ export async function loadNameIndex(): Promise<NameIndex> {
   return index;
 }
 
-/** The one stub whose name is exactly `name` (ignoring case), or null (none, or ambiguous). */
-async function findStubByName(name: string): Promise<string | null> {
+/**
+ * The one stub whose name is exactly `name` (ignoring case), or null (none, or ambiguous). Written
+ * as `lower(name) = lower($1)` on stubs so it uses the partial expression index
+ * `Game_stub_name_lower_idx` (migration 20261101130000_full_sync_playtime), not a scan of ~150k rows.
+ */
+export async function findStubByName(name: string): Promise<string | null> {
   const trimmed = name.replace(/[™®©]/g, "").trim();
   if (!trimmed) return null;
-  const rows = await prisma.game.findMany({
-    where: { stub: true, name: { equals: trimmed, mode: "insensitive" } },
-    select: { id: true },
-    take: 2,
-  });
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "Game" WHERE stub AND lower(name) = lower(${trimmed}) LIMIT 2`;
   return rows.length === 1 ? rows[0].id : null;
 }
 

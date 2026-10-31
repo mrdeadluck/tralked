@@ -144,6 +144,9 @@ model LinkedAccount {
   verifyExpiresAt   DateTime?
   lastSyncAttemptAt DateTime?
   lastSyncedAt      DateTime?
+  /// Xbox: titles whose minutes played were asked, `{ titleId: last play then (ms) }`, so titles
+  /// without minutes are not asked every sync (lib/sync/platform-user.ts). Cleared on unlink.
+  minutesChecked    Json?
   createdAt         DateTime  @default(now())
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 

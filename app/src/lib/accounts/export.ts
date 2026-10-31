@@ -70,7 +70,17 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
   ] = await Promise.all([
     prisma.linkedAccount.findMany({
       where: { ...mine, linkedAt: { not: null } },
-      select: { platform: true, externalId: true, handle: true, linkedAt: true, verifiedAt: true, lastSyncedAt: true, createdAt: true },
+      select: {
+        platform: true,
+        externalId: true,
+        handle: true,
+        linkedAt: true,
+        verifiedAt: true,
+        lastSyncedAt: true,
+        createdAt: true,
+        // Xbox titles whose minutes were asked, with their last play time.
+        minutesChecked: true,
+      },
       orderBy: { platform: "asc" },
     }),
     prisma.userStats.findUnique({

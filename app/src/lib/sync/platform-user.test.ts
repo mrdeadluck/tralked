@@ -36,7 +36,6 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
   async function cleanup() {
     const { prisma } = await import("@/lib/db");
     await prisma.user.deleteMany({ where: { handle: { startsWith: HANDLE_PREFIX } } });
-    await prisma.syncCursor.deleteMany({ where: { key: { startsWith: "minutes-checked:" } } });
     await prisma.game.deleteMany({ where: { platformLinks: { some: { OR: CREATED_TITLES } } } });
     await prisma.game.deleteMany({
       where: { platformLinks: { some: { platform: "psn", externalId: { startsWith: FAKE_TITLE_PREFIX } } } },
@@ -246,6 +245,11 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     const { getPsn } = await import("@/lib/integrations");
     const stub = await prisma.game.findUniqueOrThrow({ where: { slug: "lanterna-do-farol" } });
     expect(stub.stub).toBe(true);
+    // The indexed lookup (lower(name) on stubs) ignores case and trademark signs, nothing else.
+    const { findStubByName } = await import("./platform-games");
+    expect(await findStubByName("lanterna DO farol™")).toBe(stub.id);
+    expect(await findStubByName("Lanterna")).toBeNull();
+    expect(await findStubByName("Hollow Knight")).toBeNull(); // a listed game, not a stub
     const played = vi.spyOn(getPsn(), "getPlayedGames").mockResolvedValue([
       {
         titleId: "PPSATEST9_00",
@@ -277,7 +281,6 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     const { getXbox } = await import("@/lib/integrations");
     const xbox = getXbox();
     const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
-    await prisma.syncCursor.deleteMany({ where: { key: `minutes-checked:xbox:2535400000000002:${user.id}` } });
     // Xbox has no number for any title (0 or missing).
     const minutes = vi.spyOn(xbox, "getMinutesPlayed").mockResolvedValue(new Map([["90000005", 0]]));
     try {
@@ -299,8 +302,70 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
       later.mockRestore();
     } finally {
       minutes.mockRestore();
-      await prisma.syncCursor.deleteMany({ where: { key: `minutes-checked:xbox:2535400000000002:${user.id}` } });
     }
+  });
+
+  it("Xbox titles with minutes left unwritten by the deadline are asked again next run", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const xbox = getXbox();
+    const real = xbox.getMinutesPlayed.bind(xbox);
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    // The minutes arrive after the run's deadline: nothing can be written this run.
+    const minutes = vi.spyOn(xbox, "getMinutesPlayed").mockImplementation(async (xuid, ids) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return real(xuid, ids);
+    });
+    try {
+      const cut = await syncPlatformAccount(user.id, "xbox", { deadline: Date.now() + 250 });
+      expect(cut.partial).toBe(true);
+      expect(await prisma.userGame.count({ where: { userId: user.id, playtimeMin: { gt: 0 } } })).toBe(0);
+      const row = await prisma.linkedAccount.findFirstOrThrow({ where: { userId: user.id, platform: "xbox" } });
+      // Every fixture title had minutes, none was written: none is remembered.
+      expect(Object.keys((row.minutesChecked ?? {}) as object)).toEqual([]);
+
+      await syncPlatformAccount(user.id, "xbox");
+      expect(minutes).toHaveBeenCalledTimes(2);
+      expect([...minutes.mock.calls[1][1]].sort()).toEqual(["90000001", "90000003", "90000005"]);
+      expect(await prisma.userGame.count({ where: { userId: user.id, playtimeMin: { gt: 0 } } })).toBe(3);
+    } finally {
+      minutes.mockRestore();
+    }
+  });
+
+  it("unlinking Xbox clears the titles already asked (a relink asks them again); deleting the account removes them", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { unlink } = await import("@/lib/accounts/link");
+    const { exportUserData } = await import("@/lib/accounts/export");
+    const { getXbox } = await import("@/lib/integrations");
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    await syncPlatformAccount(user.id, "xbox");
+    const linked = await prisma.linkedAccount.findFirstOrThrow({ where: { userId: user.id, platform: "xbox" } });
+    expect(Object.keys((linked.minutesChecked ?? {}) as object).sort()).toEqual(["90000001", "90000003", "90000005"]);
+    // LGPD export carries it with the connection.
+    const exported = await exportUserData(user.id);
+    expect(JSON.stringify(exported)).toContain("90000005");
+
+    expect(await unlink(user.id, "xbox")).toBe(true);
+    expect((await prisma.linkedAccount.findFirstOrThrow({ where: { userId: user.id, platform: "xbox" } })).minutesChecked).toBeNull();
+
+    // Linked again: every title is asked again (its hours come back).
+    await prisma.linkedAccount.update({
+      where: { id: linked.id },
+      data: { externalId: "2535400000000002", linkedAt: new Date(), handle: "Tralked Teste" },
+    });
+    const spy = vi.spyOn(getXbox(), "getMinutesPlayed");
+    try {
+      await syncPlatformAccount(user.id, "xbox");
+      expect([...spy.mock.calls[0][1]].sort()).toEqual(["90000001", "90000003", "90000005"]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    await prisma.user.delete({ where: { id: user.id } });
+    expect(await prisma.linkedAccount.count({ where: { id: linked.id } })).toBe(0);
   });
 
   it("is idempotent: a second sync adds nothing", async () => {
