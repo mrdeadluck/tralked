@@ -119,13 +119,17 @@ export function passwordResetEmail(to: string, link: string): MailMessage {
   });
 }
 
-export function emailConfirmationEmail(to: string, displayName: string, link: string): MailMessage {
+/**
+ * Sent to an address nobody has confirmed yet, so it carries nothing typed by the account (no
+ * display name: it is free text and could be used to phish whoever owns that inbox).
+ */
+export function emailConfirmationEmail(to: string, link: string): MailMessage {
   return message("email-confirmation", to, {
     subject: "Confirme o seu e-mail no Tralked",
     preheader: "Um clique para confirmar que este e-mail é seu.",
     heading: "Confirme o seu e-mail",
     paragraphs: [
-      `Oi, ${displayName}! Confirme que ${to} é o seu e-mail no Tralked. Assim a sua conta ganha o selo "e-mail confirmado" e você consegue recuperar a senha por ele.`,
+      `Oi! Confirme que ${to} é o seu e-mail no Tralked. Assim a sua conta ganha o selo "e-mail confirmado" e você consegue recuperar a senha por ele.`,
       "O link vale 7 dias.",
     ],
     action: { label: "Confirmar e-mail", url: link },
@@ -134,19 +138,23 @@ export function emailConfirmationEmail(to: string, displayName: string, link: st
 }
 
 /**
- * Welcome after signing up. With `confirmLink` (e-mail + password sign-up) it also carries the
- * e-mail confirmation, so a new account gets a single e-mail; a Google sign-up (e-mail already
- * verified by Google) gets it without.
+ * Welcome after signing up. An unconfirmed address (e-mail + password sign-up) gets the
+ * confirmation button and a neutral greeting: nothing typed by the account goes to an inbox that
+ * may belong to someone else. A Google sign-up (address verified by Google) is greeted by name.
  */
-export function welcomeEmail(to: string, displayName: string, confirmLink?: string): MailMessage {
+export function welcomeEmail(
+  to: string,
+  greeting: { confirmLink: string; displayName?: never } | { displayName: string; confirmLink?: never },
+): MailMessage {
   const connections = new URL("/conta/conexoes", env.APP_URL).toString();
+  const { confirmLink, displayName } = greeting;
   return message(
     "welcome",
     to,
     {
       subject: "Bem-vindo ao Tralked",
       preheader: "Conecte as suas plataformas e veja o seu personagem subir de nível.",
-      heading: `Bem-vindo, ${displayName}!`,
+      heading: displayName ? `Bem-vindo, ${displayName}!` : "Bem-vindo ao Tralked!",
       paragraphs: [
         "A sua conta do Tralked está pronta. Em Conexões, informe o seu perfil da Steam, PlayStation, Xbox ou RetroAchievements: o Tralked importa jogos, horas e conquistas e transforma tudo em XP no mesmo personagem.",
         `Conexões: ${connections}`,
@@ -175,4 +183,3 @@ export function newsletterConfirmationEmail(to: string, link: string): MailMessa
     footnote: "Não pediu? Ignore este e-mail: sem a confirmação, você não recebe nada.",
   });
 }
-

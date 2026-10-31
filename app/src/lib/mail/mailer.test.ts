@@ -102,22 +102,32 @@ describe("sendMail", () => {
 describe("templates", () => {
   it("escapes what comes from users and keeps html and text in pt-BR with the link", () => {
     const evil = `<script>alert("x")</script>`;
-    const mail = emailConfirmationEmail("a@b.com", evil, "http://localhost:3000/confirmar-email?token=a.1.b&x=<y>");
-    expect(mail.html).not.toContain("<script>");
-    expect(mail.html).toContain(escapeHtml(evil));
+    // Only a verified (Google) address is greeted by name.
+    const named = welcomeEmail("a@b.com", { displayName: evil });
+    expect(named.html).not.toContain("<script>");
+    expect(named.html).toContain(escapeHtml(evil));
+    expect(named.text).toContain(evil); // plain text is not HTML
+
+    const mail = emailConfirmationEmail("a@b.com", "http://localhost:3000/confirmar-email?token=a.1.b&x=<y>");
     expect(mail.html).toContain("token=a.1.b&amp;x=&lt;y&gt;");
     expect(mail.html).toContain('lang="pt-BR"');
     expect(mail.html).not.toMatch(/<img\b/);
-    expect(mail.text).toContain(evil); // plain text is not HTML
     expect(mail.text).toContain("Confirmar e-mail: http://localhost:3000/confirmar-email?token=a.1.b&x=<y>");
+  });
+
+  it("e-mails to an unconfirmed address greet neutrally (no display name)", () => {
+    const welcome = welcomeEmail("a@b.com", { confirmLink: LINK });
+    expect(welcome.text).toContain("Bem-vindo ao Tralked!");
+    expect(welcome.html).toContain("Bem-vindo ao Tralked!");
+    expect(emailConfirmationEmail("a@b.com", LINK).text).toContain("Oi! Confirme que a@b.com");
   });
 
   it("covers every transactional e-mail", () => {
     const all = [
       passwordResetEmail("a@b.com", LINK),
-      emailConfirmationEmail("a@b.com", "Ana", LINK),
-      welcomeEmail("a@b.com", "Ana", LINK),
-      welcomeEmail("a@b.com", "Ana"),
+      emailConfirmationEmail("a@b.com", LINK),
+      welcomeEmail("a@b.com", { confirmLink: LINK }),
+      welcomeEmail("a@b.com", { displayName: "Ana" }),
       newsletterConfirmationEmail("a@b.com", LINK),
     ];
     for (const mail of all) {

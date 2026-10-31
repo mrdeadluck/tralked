@@ -8,9 +8,10 @@ import { deleteAccount } from "@/lib/accounts/delete";
 import { visibilityTags } from "@/lib/accounts/privacy";
 import { DELETE_CONFIRMATION, profileSettingsSchema, updateProfileSettings } from "@/lib/accounts/settings";
 import { changeEmail, changePassword, emailSchema, passwordSchema } from "@/lib/auth/credentials";
-import { confirmationResendLimiter, sendEmailConfirmation } from "@/lib/auth/email-verification";
+import { sendEmailConfirmation } from "@/lib/auth/email-verification";
 import type { AuthFormState } from "@/lib/auth/form-state";
 import { PASSWORD_MAX } from "@/lib/auth/limits";
+import { takeConfirmationSlot } from "@/lib/auth/rate-limit";
 import { destroySession, getSessionUser } from "@/lib/auth/session";
 import { FORUM_TAG, GALLERY_TAG, photoTag, threadTag } from "@/lib/community/cached";
 import { mailAvailable } from "@/lib/mail/mailer";
@@ -73,8 +74,9 @@ export async function changeEmailAction(_previous: AuthFormState, formData: Form
   }
   // The page shows "e-mail não confirmado" for the new address.
   refresh();
-  // The new e-mail starts unconfirmed: send its confirmation link after the response.
-  const sending = mailAvailable();
+  // The new e-mail starts unconfirmed: send its confirmation link after the response, within
+  // the per-account and per-recipient limits (over them the e-mail is saved, nothing is sent).
+  const sending = mailAvailable() && takeConfirmationSlot(user.id, parsed.data.email).ok;
   if (sending) {
     const userId = user.id;
     after(async () => {
@@ -89,21 +91,23 @@ export async function changeEmailAction(_previous: AuthFormState, formData: Form
     done: true,
     message: sending
       ? "E-mail salvo. Use-o para entrar no Tralked. Enviamos um link para confirmar o endereço novo."
-      : "E-mail salvo. Use-o para entrar no Tralked.",
+      : mailAvailable()
+        ? "E-mail salvo. Use-o para entrar no Tralked. O link de confirmação não foi enviado agora (muitos pedidos seguidos); peça outro mais tarde."
+        : "E-mail salvo. Use-o para entrar no Tralked.",
     values: { email: parsed.data.email },
   };
 }
 
 export type ResendConfirmationResult = { ok: true; message: string } | { ok: false; error: string };
 
-/** "Reenviar e-mail de confirmação" (/conta). Limited per account; never sends to a confirmed e-mail. */
+/** "Reenviar e-mail de confirmação" (/conta). Limited per account and per recipient; never sends to a confirmed e-mail. */
 export async function resendEmailConfirmationAction(): Promise<ResendConfirmationResult> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "Entre na sua conta para continuar." };
   if (!user.email) return { ok: false, error: "Salve um e-mail de login primeiro." };
   if (user.emailVerifiedAt) return { ok: true, message: "Este e-mail já está confirmado." };
   if (!mailAvailable()) return { ok: false, error: MAIL_OFF_MESSAGE };
-  const limit = confirmationResendLimiter.hit(user.id);
+  const limit = takeConfirmationSlot(user.id, user.email);
   if (!limit.ok) {
     return {
       ok: false,

@@ -74,10 +74,16 @@ describe("signupAction", () => {
       expect(info).not.toHaveBeenCalled();
       for (const task of afterTasks) await task();
       expect(info).toHaveBeenCalledTimes(1);
-      expect(String(info.mock.calls[0][0])).toMatch(/^\[e-mail\] welcome para bia@.*\/confirmar-email\?token=/);
-    } finally {
+      expect(String(info.mock.calls[0][0])).toMatch(/^\[e-mail\] welcome para bia@.*\/confirmar-email\?token=/);    } finally {
       info.mockRestore();
     }
+  });
+
+  it("skips the welcome when that address already got too many confirmation e-mails", async () => {
+    const { takeConfirmationSlot } = await import("./rate-limit");
+    for (let i = 0; i < 3; i++) expect(takeConfirmationSlot(null, `bia${DOMAIN}`).ok).toBe(true);
+    expect(await signup()).toEqual({ redirectedTo: "/conta/conexoes?bemvindo=1" });
+    expect(afterTasks).toHaveLength(0);
   });
 
   it("explains invalid fields, keeps what was typed (never the password) and creates nothing", async () => {

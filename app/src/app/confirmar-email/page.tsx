@@ -3,7 +3,12 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { PageHead } from "@/components/community/PageHead";
 import { confirmEmailAction } from "@/lib/auth/email-actions";
-import { checkEmailVerificationToken, VERIFY_TTL_DAYS, type ConfirmEmailResult } from "@/lib/auth/email-verification";
+import {
+  checkEmailVerificationToken,
+  readConfirmResult,
+  VERIFY_TTL_DAYS,
+  type ConfirmEmailResult,
+} from "@/lib/auth/email-verification";
 
 export const metadata: Metadata = {
   title: "Confirmar e-mail · Tralked",
@@ -58,15 +63,30 @@ function Outcome({ result }: { result: ConfirmEmailResult }) {
   );
 }
 
-const isResult = (value: unknown): value is ConfirmEmailResult => typeof value === "string" && value in MESSAGES;
+/** `?resultado=` that is not the fresh, signed one from the POST: no claim either way. */
+function NeutralOutcome() {
+  return (
+    <>
+      <PageHead title="Confirmação de e-mail" />
+      <p role="status" className="max-w-[60ch] text-[16px] text-text-2">
+        Veja em Conta → E-mail e senha se o seu e-mail está confirmado. Se não estiver, peça um link novo por lá.
+      </p>
+      {BACK}
+    </>
+  );
+}
 
 /**
  * GET never confirms (mail scanners prefetch links): it checks the link and shows a button that
- * POSTs the confirmation. After the POST the action redirects here with `?resultado=`.
+ * POSTs the confirmation. After the POST the action redirects here with a signed, short-lived
+ * `?resultado=`.
  */
 async function Confirmation({ searchParams }: { searchParams: PageProps<"/confirmar-email">["searchParams"] }) {
   const { token, resultado } = await searchParams;
-  if (isResult(resultado)) return <Outcome result={resultado} />;
+  if (resultado !== undefined) {
+    const result = readConfirmResult(resultado);
+    return result ? <Outcome result={result} /> : <NeutralOutcome />;
+  }
 
   const check = await checkEmailVerificationToken(token);
   if (check.status !== "valid") return <Outcome result={check.status} />;
@@ -75,8 +95,7 @@ async function Confirmation({ searchParams }: { searchParams: PageProps<"/confir
     <>
       <PageHead title="Confirmar e-mail" />
       <p className="max-w-[60ch] text-[16px] text-text-2">
-        Confirme que <strong className="text-text">{check.email}</strong> é o e-mail da conta de{" "}
-        <strong className="text-text">{check.displayName}</strong> no Tralked.
+        Confirme que <strong className="text-text">{check.email}</strong> é o e-mail da sua conta no Tralked.
       </p>
       <form action={confirmEmailAction} className="flex flex-wrap items-center gap-3">
         <input type="hidden" name="token" value={String(token)} />

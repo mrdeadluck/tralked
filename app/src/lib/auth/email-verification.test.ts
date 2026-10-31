@@ -11,7 +11,9 @@ const { prisma } = await import("@/lib/db");
 const {
   checkEmailVerificationToken,
   confirmEmail,
+  confirmResultToken,
   emailVerificationLink,
+  readConfirmResult,
   emailVerificationToken,
   sendEmailConfirmation,
   sendWelcomeEmail,
@@ -69,12 +71,28 @@ describe("e-mail confirmation link", () => {
     expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toBeNull();
   });
 
-  it("the page's POST action confirms and redirects with the result", async () => {
+  it("the page's POST action confirms and redirects with a signed, short-lived result", async () => {
     const user = await newUser("acao");
     const form = new FormData();
     form.set("token", emailVerificationToken(user.id, user.email!));
-    await expect(confirmEmailAction(form)).rejects.toThrow("NEXT_REDIRECT /confirmar-email?resultado=confirmed");
-    await expect(confirmEmailAction(new FormData())).rejects.toThrow("resultado=invalid");
+    const resultOf = async (data: FormData) => {
+      const error = (await confirmEmailAction(data).catch((e: Error) => e)) as Error;
+      const url = new URL(error.message.replace("NEXT_REDIRECT ", ""), "http://x");
+      expect(url.pathname).toBe("/confirmar-email");
+      return readConfirmResult(url.searchParams.get("resultado"));
+    };
+    expect(await resultOf(form)).toBe("confirmed");
+    expect(await resultOf(new FormData())).toBe("invalid");
+  });
+
+  it("a hand-made, tampered or stale result shows nothing", () => {
+    const now = Date.now();
+    const token = confirmResultToken("confirmed", now);
+    expect(readConfirmResult(token, now)).toBe("confirmed");
+    expect(readConfirmResult("confirmed", now)).toBeNull();
+    expect(readConfirmResult(token.replace("confirmed", "already"), now)).toBeNull();
+    expect(readConfirmResult(token, now + 10 * 60_000)).toBeNull();
+    expect(readConfirmResult(undefined, now)).toBeNull();
   });
 });
 
@@ -99,6 +117,31 @@ describe("confirmation and welcome e-mails", () => {
     await prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } });
     expect(await sendWelcomeEmail(user.id)).toBe("logged");
     expect(String(vi.mocked(console.info).mock.calls[1][0])).toMatch(/welcome para .*\/conta\/conexoes$/);
+  });
+
+  it("never puts the display name in e-mails to an unconfirmed address (phishing)", async () => {
+    // With a (fake) key the real mailer posts to Resend: the bodies are checked in the requests.
+    const bodies: string[] = [];
+    const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return new Response("{}", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const env = (await import("@/lib/env")).env as { RESEND_API_KEY?: string };
+    const previous = env.RESEND_API_KEY;
+    env.RESEND_API_KEY = "re_test";
+    try {
+      const user = await prisma.user.create({
+        data: { handle: `${MARK}phish`, displayName: "Ganhe 1000 reais em http://golpe.example", email: "vitima@verify.test" },
+      });
+      expect(await sendWelcomeEmail(user.id)).toBe("sent");
+      expect(await sendEmailConfirmation(user.id)).toBe("sent");
+      expect(bodies).toHaveLength(2);
+      for (const body of bodies) expect(body).not.toContain("golpe.example");
+    } finally {
+      env.RESEND_API_KEY = previous;
+      vi.unstubAllGlobals();
+    }
   });
 
   it("in production without RESEND_API_KEY nothing is sent", async () => {

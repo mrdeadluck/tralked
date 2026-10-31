@@ -84,9 +84,40 @@ export const signupIpLimiter = createLimiter({ limit: 5, windowMs: 60 * MINUTE }
 export const resetIpLimiter = createLimiter({ limit: 10, windowMs: 15 * MINUTE });
 export const resetEmailLimiter = createLimiter({ limit: 3, windowMs: 60 * MINUTE });
 
+/**
+ * E-mail confirmation links (sign-up welcome, e-mail change, "Reenviar"): per account, and per
+ * recipient address, so toggling the e-mail between two addresses cannot mail strangers without
+ * end nor burn the provider's daily quota (which would stop password resets).
+ */
+export const confirmationAccountLimiter = createLimiter({ limit: 3, windowMs: 60 * MINUTE });
+export const confirmationRecipientLimiter = createLimiter({ limit: 3, windowMs: 24 * 60 * MINUTE });
+
+/**
+ * Takes one confirmation e-mail slot for the account and the recipient. Nothing is counted
+ * when either is over its limit (the refusal says how long to wait).
+ */
+export function takeConfirmationSlot(userId: string | null, recipient: string, now: number = Date.now()): LimitResult {
+  const byRecipient = confirmationRecipientLimiter.check(recipient, now);
+  if (!byRecipient.ok) return byRecipient;
+  if (userId) {
+    const byAccount = confirmationAccountLimiter.check(userId, now);
+    if (!byAccount.ok) return byAccount;
+    confirmationAccountLimiter.hit(userId, now);
+  }
+  return confirmationRecipientLimiter.hit(recipient, now);
+}
+
 /** Tests only: forgets every counter. */
 export function resetAuthLimits(): void {
-  for (const limiter of [loginIpLimiter, loginEmailLimiter, signupIpLimiter, resetIpLimiter, resetEmailLimiter]) {
+  for (const limiter of [
+    loginIpLimiter,
+    loginEmailLimiter,
+    signupIpLimiter,
+    resetIpLimiter,
+    resetEmailLimiter,
+    confirmationAccountLimiter,
+    confirmationRecipientLimiter,
+  ]) {
     limiter.clear();
   }
 }

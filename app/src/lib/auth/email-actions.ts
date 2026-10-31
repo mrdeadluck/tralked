@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { confirmEmail } from "./email-verification";
+import { confirmEmail, confirmResultToken } from "./email-verification";
 
 const confirmSchema = z.strictObject({ token: z.string().max(200) });
 
@@ -13,5 +13,6 @@ const confirmSchema = z.strictObject({ token: z.string().max(200) });
 export async function confirmEmailAction(formData: FormData): Promise<void> {
   const parsed = confirmSchema.safeParse({ token: formData.get("token") });
   const result = parsed.success ? await confirmEmail(parsed.data.token) : "invalid";
-  redirect(`/confirmar-email?resultado=${result}`);
+  // Signed and short-lived, so the success page only shows right after this POST.
+  redirect(`/confirmar-email?resultado=${encodeURIComponent(confirmResultToken(result))}`);
 }

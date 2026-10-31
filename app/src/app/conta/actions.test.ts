@@ -46,6 +46,7 @@ vi.mock("@/lib/auth/credentials", async (importOriginal) => ({
 
 const { changeEmailAction, changePasswordAction, deleteAccountAction, resendEmailConfirmationAction, updateProfileAction } =
   await import("./actions");
+const { resetAuthLimits } = await import("@/lib/auth/rate-limit");
 
 function form(fields: Record<string, string>) {
   const data = new FormData();
@@ -56,6 +57,7 @@ function form(fields: Record<string, string>) {
 beforeEach(() => {
   vi.clearAllMocks();
   afterTasks.length = 0;
+  resetAuthLimits();
   getSessionUser.mockResolvedValue({ id: "u1", handle: "eu" });
   updateProfileSettings.mockResolvedValue({ visibilityChanged: false });
   visibilityTags.mockResolvedValue(["gallery", "forum", "photo:p1", "player:eu"]);
@@ -171,6 +173,30 @@ describe("changeEmailAction / changePasswordAction", () => {
     expect(sendEmailConfirmation).not.toHaveBeenCalled();
     await afterTasks[0]();
     expect(sendEmailConfirmation).toHaveBeenCalledWith("u1");
+  });
+
+  it("toggling the e-mail saves it but stops mailing past the per-account limit", async () => {
+    changeEmail.mockResolvedValue({ ok: true, changed: true });
+    for (let i = 0; i < 3; i++) {
+      const address = i % 2 ? "a@exemplo.com" : "b@exemplo.com";
+      expect(await changeEmailAction({}, form({ email: address }))).toMatchObject({ done: true });
+    }
+    expect(afterTasks).toHaveLength(3);
+    expect(await changeEmailAction({}, form({ email: "a@exemplo.com" }))).toMatchObject({
+      done: true,
+      message: expect.stringContaining("não foi enviado agora"),
+    });
+    expect(changeEmail).toHaveBeenCalledTimes(4); // saved anyway
+    expect(afterTasks).toHaveLength(3);
+  });
+
+  it("stops mailing one recipient past its daily limit, whatever the account", async () => {
+    changeEmail.mockResolvedValue({ ok: true, changed: true });
+    for (let i = 0; i < 4; i++) {
+      getSessionUser.mockResolvedValueOnce({ id: `conta-${i}`, handle: `h${i}` });
+      await changeEmailAction({}, form({ email: "alvo@exemplo.com" }));
+    }
+    expect(afterTasks).toHaveLength(3);
   });
 });
 

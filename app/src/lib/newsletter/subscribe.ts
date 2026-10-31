@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { after } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -50,18 +51,28 @@ export function confirmationDelivered(): boolean {
 export const RESEND_WINDOW_MS = 10 * 60_000;
 const lastSent = new Map<string, number>();
 
-async function deliver(email: string, now: number): Promise<boolean> {
-  if (!confirmationDelivered()) return false;
-  return delivered(await sendMail(newsletterConfirmationEmail(email, confirmationUrl(email, now))));
+async function deliver(email: string, now: number): Promise<void> {
+  try {
+    const status = await sendMail(newsletterConfirmationEmail(email, confirmationUrl(email, now)));
+    if (!delivered(status)) console.error(`Newsletter: confirmation e-mail not sent (${status})`);
+  } catch (error) {
+    console.error("Newsletter: confirmation e-mail failed", error instanceof Error ? error.message : String(error));
+  }
 }
 
 /**
- * Registers the address (unconfirmed) and sends the confirmation link. An address that is already
- * confirmed is left as is, and a repeated request within RESEND_WINDOW_MS sends nothing (no mail
- * bombing someone else's inbox). The caller answers the same way in every case, so the form never
- * tells whether an address is subscribed. Returns whether a confirmation was sent.
+ * Registers the address (unconfirmed) and schedules the confirmation e-mail after the response
+ * (`after`), so answering takes the same time whether or not the address was already confirmed
+ * and never waits on the e-mail provider. An address that is already confirmed is left as is,
+ * and a repeated request within RESEND_WINDOW_MS sends nothing (no mail bombing someone else's
+ * inbox). The caller answers the same way in every case, so the form never tells whether an
+ * address is subscribed. Returns whether a confirmation was scheduled.
  */
-export async function subscribe(email: string, now: number = Date.now()): Promise<boolean> {
+export async function subscribe(
+  email: string,
+  now: number = Date.now(),
+  schedule: (task: () => Promise<void>) => void = after,
+): Promise<boolean> {
   const row = await prisma.newsletterSubscriber.upsert({
     where: { email },
     create: { email },
@@ -71,8 +82,10 @@ export async function subscribe(email: string, now: number = Date.now()): Promis
   const previous = lastSent.get(email);
   if (previous !== undefined && now - previous < RESEND_WINDOW_MS) return false;
   if (lastSent.size > 10_000) lastSent.clear();
+  if (!confirmationDelivered()) return false;
   lastSent.set(email, now);
-  return deliver(email, now);
+  schedule(() => deliver(email, now));
+  return true;
 }
 
 export type TokenCheck = { status: "valid"; email: string } | { status: "invalid" } | { status: "expired" };

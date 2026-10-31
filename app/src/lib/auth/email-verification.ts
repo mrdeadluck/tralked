@@ -3,7 +3,6 @@ import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { sendMail, type MailStatus } from "@/lib/mail/mailer";
 import { emailConfirmationEmail, welcomeEmail } from "@/lib/mail/templates";
-import { createLimiter } from "./rate-limit";
 
 /**
  * "Confirme o seu e-mail": never required to use the Tralked, it only gives the account the
@@ -32,7 +31,7 @@ export function emailVerificationLink(userId: string, email: string, now: number
 }
 
 export type VerifyCheck =
-  | { status: "valid"; userId: string; email: string; displayName: string }
+  | { status: "valid"; userId: string; email: string }
   | { status: "already"; email: string }
   | { status: "invalid" }
   | { status: "expired" };
@@ -45,7 +44,7 @@ export async function checkEmailVerificationToken(token: unknown, now: number = 
   const [, userId, rawExpiry, mac] = match;
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { email: true, emailVerifiedAt: true, displayName: true },
+    select: { email: true, emailVerifiedAt: true },
   });
   if (!user?.email) return { status: "invalid" };
   const expiresAt = Number(rawExpiry);
@@ -55,7 +54,7 @@ export async function checkEmailVerificationToken(token: unknown, now: number = 
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return { status: "invalid" };
   if (user.emailVerifiedAt) return { status: "already", email: user.email };
   if (expiresAt * 1000 < now) return { status: "expired" };
-  return { status: "valid", userId, email: user.email, displayName: user.displayName };
+  return { status: "valid", userId, email: user.email };
 }
 
 export type ConfirmEmailResult = "confirmed" | "already" | "invalid" | "expired";
@@ -72,8 +71,32 @@ export async function confirmEmail(token: unknown, now: number = Date.now()): Pr
   return count === 1 ? "confirmed" : "already";
 }
 
-/** "Reenviar e-mail de confirmação" in /conta: per account (in memory, per instance, like the other limiters). */
-export const confirmationResendLimiter = createLimiter({ limit: 3, windowMs: 60 * 60_000 });
+/**
+ * The result shown after the POST travels in the redirect as `<result>.<expiry>.<HMAC>`, valid
+ * for a few minutes: a hand-made `/confirmar-email?resultado=confirmed` shows nothing.
+ */
+const RESULT_TTL_MS = 5 * 60_000;
+const RESULTS: readonly ConfirmEmailResult[] = ["confirmed", "already", "invalid", "expired"];
+const signResult = (result: string, expiresAt: number) =>
+  createHmac("sha256", env.SESSION_SECRET).update(`email-verify-result:${result}:${expiresAt}`).digest("base64url");
+
+export function confirmResultToken(result: ConfirmEmailResult, now: number = Date.now()): string {
+  const expiresAt = Math.floor((now + RESULT_TTL_MS) / 1000);
+  return `${result}.${expiresAt}.${signResult(result, expiresAt)}`;
+}
+
+/** The result of a confirmation that just happened, or null (forged, stale or missing). */
+export function readConfirmResult(raw: unknown, now: number = Date.now()): ConfirmEmailResult | null {
+  if (typeof raw !== "string") return null;
+  const match = /^([a-z]{1,12})\.(\d{1,12})\.([A-Za-z0-9_-]{43})$/.exec(raw);
+  if (!match || !RESULTS.includes(match[1] as ConfirmEmailResult)) return null;
+  const expiresAt = Number(match[2]);
+  const expected = Buffer.from(signResult(match[1], expiresAt));
+  const given = Buffer.from(match[3]);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  if (expiresAt * 1000 < now) return null;
+  return match[1] as ConfirmEmailResult;
+}
 
 export type SendConfirmationResult = MailStatus | "no_email" | "already";
 
@@ -81,16 +104,16 @@ export type SendConfirmationResult = MailStatus | "no_email" | "already";
 export async function sendEmailConfirmation(userId: string, now: number = Date.now()): Promise<SendConfirmationResult> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { email: true, emailVerifiedAt: true, displayName: true },
+    select: { email: true, emailVerifiedAt: true },
   });
   if (!user?.email) return "no_email";
   if (user.emailVerifiedAt) return "already";
-  return sendMail(emailConfirmationEmail(user.email, user.displayName, emailVerificationLink(userId, user.email, now)));
+  return sendMail(emailConfirmationEmail(user.email, emailVerificationLink(userId, user.email, now)));
 }
 
 /**
  * Welcome e-mail of a new account; while the e-mail is unconfirmed it carries the confirmation
- * link too (one e-mail per sign-up). Idempotent per account at Resend.
+ * link too (one e-mail per sign-up) and no display name. Idempotent per account at Resend.
  */
 export async function sendWelcomeEmail(userId: string, now: number = Date.now()): Promise<SendConfirmationResult> {
   const user = await prisma.user.findUnique({
@@ -98,6 +121,8 @@ export async function sendWelcomeEmail(userId: string, now: number = Date.now())
     select: { email: true, emailVerifiedAt: true, displayName: true },
   });
   if (!user?.email) return "no_email";
-  const link = user.emailVerifiedAt ? undefined : emailVerificationLink(userId, user.email, now);
-  return sendMail({ ...welcomeEmail(user.email, user.displayName, link), idempotencyKey: `welcome/${userId}` });
+  const greeting = user.emailVerifiedAt
+    ? { displayName: user.displayName }
+    : { confirmLink: emailVerificationLink(userId, user.email, now) };
+  return sendMail({ ...welcomeEmail(user.email, greeting), idempotencyKey: `welcome/${userId}` });
 }

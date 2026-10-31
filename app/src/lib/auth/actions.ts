@@ -17,6 +17,7 @@ import {
   resetEmailLimiter,
   resetIpLimiter,
   signupIpLimiter,
+  takeConfirmationSlot,
   type LimitResult,
 } from "./rate-limit";
 import { DEFAULT_RETURN_TO, sanitizeReturnTo } from "./return-to";
@@ -123,15 +124,18 @@ export async function signupAction(_previous: AuthFormState, formData: FormData)
     };
   }
   await createSession(created.user.id);
-  // Welcome + "confirme o seu e-mail", after the response (never blocks or fails the sign-up).
+  // Welcome + "confirme o seu e-mail", after the response (never blocks or fails the sign-up),
+  // within the per-recipient limit of confirmation e-mails.
   const userId = created.user.id;
-  after(async () => {
-    try {
-      await sendWelcomeEmail(userId);
-    } catch (error) {
-      console.error("Welcome e-mail failed", error instanceof Error ? error.message : String(error));
-    }
-  });
+  if (takeConfirmationSlot(null, created.user.email ?? parsed.data.email).ok) {
+    after(async () => {
+      try {
+        await sendWelcomeEmail(userId);
+      } catch (error) {
+        console.error("Welcome e-mail failed", error instanceof Error ? error.message : String(error));
+      }
+    });
+  }
   redirect(SIGNUP_LANDING);
 }
 
