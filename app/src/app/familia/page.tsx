@@ -23,7 +23,7 @@ import {
 } from "@/lib/family/service";
 
 export const metadata: Metadata = {
-  title: "Família GAMELOG",
+  title: "Família Tralked",
   description:
     "Junte as bibliotecas Steam de quem joga com você: veja quem tem cada jogo, o ranking da família e o que está perto do 100%.",
 };
@@ -40,7 +40,7 @@ function Intro({ children }: { children?: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-3">
       <SectionHead
-        title="Família GAMELOG"
+        title="Família Tralked"
         aside="Até 6 pessoas · por convite"
       />
       {children}
@@ -57,7 +57,7 @@ async function FamiliaContent() {
         <Card className="mt-5 flex max-w-[640px] flex-col items-start gap-4">
           <h3 className="text-[19px] font-extrabold font-stretch-[105%]">Jogue em família, sem compartilhar senha</h3>
           <p className="text-muted">
-            A Família GAMELOG junta as bibliotecas Steam de quem você convidar: veja quem tem cada jogo, o
+            A Família Tralked junta as bibliotecas Steam de quem você convidar: veja quem tem cada jogo, o
             ranking do grupo e o que está perto do 100%. Funciona por link de convite, sem mexer na Família
             Steam e sem pedir senha da Steam.
           </p>

@@ -10,7 +10,7 @@ import { SKILLS, type SkillId } from "@/lib/engine/types";
 import { countGames, listGames, type GameFilter } from "@/lib/queries/games";
 
 export const metadata: Metadata = {
-  title: "Jogos e guias | GAMELOG",
+  title: "Jogos e guias | Tralked",
   description: "Catálogo de jogos com conquistas, guias 100% e o seu progresso em cada um.",
 };
 

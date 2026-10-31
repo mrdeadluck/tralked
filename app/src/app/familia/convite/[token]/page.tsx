@@ -15,7 +15,7 @@ import {
 } from "@/lib/family/service";
 
 export const metadata: Metadata = {
-  title: "Convite para a Família GAMELOG",
+  title: "Convite para a Família Tralked",
   // Invite links are private: keep them out of search indexes.
   robots: { index: false, follow: false },
 };
@@ -35,7 +35,7 @@ function Message({ children }: { children: React.ReactNode }) {
         {children}
       </p>
       <Link href="/familia" className="font-mono text-xs tracking-[0.08em] text-acc uppercase">
-        Ir para a Família GAMELOG →
+        Ir para a Família Tralked →
       </Link>
     </Card>
   );
@@ -44,7 +44,7 @@ function Message({ children }: { children: React.ReactNode }) {
 async function ConviteContent({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const [user, preview] = await Promise.all([getSessionUser(), getInvitePreview(token)]);
-  const head = <SectionHead title="Convite para a família" aside="Família GAMELOG" />;
+  const head = <SectionHead title="Convite para a família" aside="Família Tralked" />;
 
   if (preview.status !== "ok") {
     return (
@@ -66,7 +66,7 @@ async function ConviteContent({ params }: { params: Promise<{ token: string }> }
             Você foi convidado para a família &quot;{family.name}&quot;
           </h3>
           <p className="text-muted">
-            A Família GAMELOG junta as bibliotecas Steam dos membros: quem tem cada jogo, ranking do grupo e
+            A Família Tralked junta as bibliotecas Steam dos membros: quem tem cada jogo, ranking do grupo e
             o que está perto do 100%. Entre com a Steam para aceitar o convite. Não pedimos senha da Steam.
           </p>
           <SteamLoginLink returnTo={`/familia/convite/${token}`} />

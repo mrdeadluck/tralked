@@ -82,7 +82,7 @@ async function Ranking({ searchParams }: { searchParams: PageProps<"/highscores"
       {rows.length === 0 ? (
         <p className="py-10 text-center text-muted">Ninguém no ranking desta skill ainda.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div role="region" tabIndex={0} aria-label="Tabela de ranking" className="overflow-x-auto">
           <table className="w-full border-collapse tabular-nums">
             <caption className="sr-only">Ranking de jogadores: {skill === "geral" ? "nível geral" : skillName}</caption>
             <thead>

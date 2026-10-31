@@ -16,7 +16,7 @@ import {
 export type FormState = { error?: string };
 export type InviteState = { url?: string; expiresAt?: string; error?: string };
 
-const NOT_LOGGED_IN = "Entre com a Steam para usar a Família GAMELOG.";
+const NOT_LOGGED_IN = "Entre com a Steam para usar a Família Tralked.";
 
 export async function createFamilyAction(
   _prev: FormState,

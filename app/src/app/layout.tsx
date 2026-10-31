@@ -18,7 +18,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GAMELOG",
+  title: "Tralked",
   description:
     "Notícias de games e guias de conquistas, feitos por pessoas que amam jogar.",
 };

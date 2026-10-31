@@ -18,7 +18,11 @@ async function HeaderWithUser() {
     : null;
   return (
     <Header
-      user={user ? { handle: user.handle, level: stats?.level ?? 1 } : undefined}
+      user={
+        user
+          ? { handle: user.handle, level: stats?.level ?? 1, role: user.role }
+          : undefined
+      }
       suggestions={suggestions}
     />
   );

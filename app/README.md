@@ -1,6 +1,6 @@
-# GAMELOG
+# Tralked
 
-GAMELOG é uma plataforma de notícias, guias e progressão para quem joga: catálogo de jogos, guias 100% votados pela comunidade, conquistas e raridade vindas da Steam, ranking de highscores por habilidade, missões diárias e um modo família.
+Tralked é uma plataforma de notícias, guias e progressão para quem joga: catálogo de jogos, guias 100% votados pela comunidade, conquistas e raridade vindas da Steam, ranking de highscores por habilidade, missões diárias e um modo família.
 O app lê a biblioteca Steam do jogador, calcula XP, vocação e streak, e mostra tudo isso em um perfil público.
 
 ## Requisitos
@@ -35,7 +35,7 @@ Copie `.env.example` para `.env`. Em desenvolvimento todas as obrigatórias têm
 | `DATABASE_URL` | obrigatória | Conexão Postgres. Padrão local: `postgresql://gamelog:gamelog@localhost:5433/gamelog`. |
 | `SESSION_SECRET` | obrigatória | Segredo (>= 32 caracteres) que assina o cookie de sessão. |
 | `CRON_SECRET` | obrigatória | Token Bearer exigido pelos endpoints de cron. |
-| `APP_URL` | obrigatória | URL pública do app (ex.: `https://gamelog.exemplo.com`). Usada em redirects e no retorno do login Steam. |
+| `APP_URL` | obrigatória | URL pública do app (ex.: `https://tralked.exemplo.com`). Usada em redirects e no retorno do login Steam. |
 | `STEAM_API_KEY` | opcional | Login Steam, biblioteca, conquistas e raridade global. Também desativa o login de demonstração. |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | opcional | Metadados de jogos (IGDB / Twitch): capa, descrição, gêneros, datas. |
 | `RAWG_API_KEY` | opcional | Metadados complementares de jogos (RAWG). |
@@ -72,6 +72,30 @@ Resposta: `{ "job": "catalog", "processed": N }`. Token inválido retorna 401, j
 | `pnpm db:migrate` | `prisma migrate dev`. |
 | `pnpm db:seed` | Popula o banco com dados de exemplo. |
 | `pnpm db:generate` | `prisma generate` (também roda no `postinstall`). |
+| `pnpm e2e` | Playwright + axe contra o build de produção (`pnpm build && pnpm start -p 3200`): rotas públicas. |
+| `pnpm e2e:dev` | Playwright + axe contra `next dev -p 3200`: inclui as rotas que exigem login de demonstração. |
+| `pnpm e2e:screens` | Screenshots de todas as rotas (1440×900 e 390×844) em `e2e/__screens__/` (ignorado pelo controle de versão). |
+
+## Testes e2e (Playwright + axe)
+
+Instale o navegador uma vez: `pnpm exec playwright install chromium`.
+
+Os testes sobem o próprio servidor na porta **3200** e usam um banco só deles, nunca o do servidor de desenvolvimento. Crie e popule o banco e, se quiser outro nome, exporte a URL:
+
+```bash
+docker exec gamelog-db psql -U gamelog -d postgres -c "CREATE DATABASE gamelog_e2e"
+DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_e2e pnpm exec prisma migrate deploy
+DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_e2e pnpm db:seed
+export E2E_DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_e2e   # padrão se omitido
+pnpm e2e
+```
+
+Dois modos, porque o login de demonstração (`/api/auth/demo`) não existe em produção e isso não é afrouxado:
+
+- `pnpm e2e`: `pnpm build && pnpm start -p 3200`. Valida o que vai para produção; rotas marcadas `auth` são puladas.
+- `pnpm e2e:dev` e `pnpm e2e:screens`: `next dev -p 3200`. `loginAsDemo(page)` (em `e2e/helpers.ts`) funciona e as rotas com login rodam.
+
+`e2e/routes.ts` exporta `ROUTES`, a lista central validada por smoke (status 200), screenshots e axe (sem violações `serious`/`critical`). Toda página nova deve ser acrescentada ali.
 
 ## Estrutura
 
