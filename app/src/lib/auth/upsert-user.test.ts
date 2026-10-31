@@ -106,7 +106,7 @@ describe("upsertUserFromSteam", () => {
       data: {
         displayName: "Lucas Épico!",
         avatarUrl: "https://img/a.jpg",
-        profilePublic: true,
+        // A public Steam profile leaves the user's own visibility choice alone.
         linkedAccounts: {
           upsert: {
             where: { userId_platform: { userId: "u1", platform: "steam" } },

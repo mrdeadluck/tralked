@@ -89,6 +89,24 @@ export async function getPhoto(id: string): Promise<PhotoDetail | null> {
   return { ...card, authorPhotoCount };
 }
 
+/** A player's newest visible photos (character sheet gallery) and how many they have in all. */
+export async function listPhotosByAuthor(
+  authorId: string,
+  limit: number,
+): Promise<{ photos: PhotoCardView[]; total: number }> {
+  const where: Prisma.PhotoWhereInput = { authorId, status: "visible" };
+  const [total, rows] = await Promise.all([
+    prisma.photo.count({ where }),
+    prisma.photo.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit,
+      select: photoSelect,
+    }),
+  ]);
+  return { photos: await withCommentCounts(rows), total };
+}
+
 /** Recent visible photos, for generateStaticParams. */
 export async function recentPhotoIds(limit: number): Promise<string[]> {
   const rows = await prisma.photo.findMany({

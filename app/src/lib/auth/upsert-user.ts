@@ -72,7 +72,11 @@ export async function upsertUserFromSteam(steamId: string, now: Date = new Date(
     return prisma.user.update({
       where: { steamId },
       data: {
-        ...profile,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+        // Visibility is the user's choice after sign-up (/conta); a private Steam profile still
+        // hides the sheet, since nothing can be imported from it.
+        ...(profile.profilePublic ? {} : { profilePublic: false }),
         linkedAccounts: {
           upsert: {
             where: { userId_platform: { userId: existing.id, platform: "steam" } },

@@ -214,10 +214,11 @@ export async function syncUser(userId: string): Promise<SyncUserResult> {
   }
 
   const summary = await steam.getPlayerSummary(steamId);
+  // Tralked visibility is the user's choice (/conta): a private Steam profile turns it off
+  // (privateResult), but a public one never turns it back on by itself.
   await prisma.user.update({
     where: { id: userId },
     data: {
-      profilePublic: summary.profilePublic,
       displayName: summary.personaName,
       avatarUrl: summary.avatarUrl,
     },

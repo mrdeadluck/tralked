@@ -34,4 +34,9 @@ export const ROUTES: E2ERoute[] = [
   { path: "/galeria", name: "galeria-logado", auth: true },
   { path: "/galeria/seed-photo-01", name: "galeria-foto-logado", auth: true },
   { path: "/forum/t/seed-thread-3", name: "forum-topico-logado", auth: true },
+  { path: "/conta", name: "conta" },
+  { path: "/conta/conexoes", name: "conta-conexoes" },
+  { path: "/conta", name: "conta-logado", auth: true },
+  { path: "/conta/conexoes", name: "conta-conexoes-logado", auth: true },
+  { path: "/jogador/lucas", name: "jogador-logado", auth: true },
 ];

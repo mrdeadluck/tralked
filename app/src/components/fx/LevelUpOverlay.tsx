@@ -8,10 +8,14 @@ type LevelUpOverlayProps = {
   from: number;
   to: number;
   onClose: () => void;
+  /** Rótulo acima do número (padrão "Level up"). */
+  label?: string;
+  /** Frase lida pelo leitor de tela (padrão: "Você avançou do nível X para o nível Y."). */
+  message?: string;
 };
 
 /** Modal de level up. Renderize só enquanto estiver aberto. */
-export function LevelUpOverlay({ from, to, onClose }: LevelUpOverlayProps) {
+export function LevelUpOverlay({ from, to, onClose, label = "Level up", message }: LevelUpOverlayProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
@@ -51,7 +55,7 @@ export function LevelUpOverlay({ from, to, onClose }: LevelUpOverlayProps) {
       <FxStyles />
       <div className="gl-lu-box relative px-6 py-10 text-center">
         <span className="font-mono text-[10.5px] tracking-[0.14em] text-acc uppercase">
-          Level up
+          {label}
         </span>
         <strong
           aria-hidden="true"
@@ -63,7 +67,7 @@ export function LevelUpOverlay({ from, to, onClose }: LevelUpOverlayProps) {
           id="level-up-title"
           className="mb-6 text-xl font-extrabold font-stretch-[112%] tracking-[-0.01em]"
         >
-          Você avançou do nível {from} para o nível {to}.
+          {message ?? `Você avançou do nível ${from} para o nível ${to}.`}
         </p>
         <Button variant="primary" onClick={onClose}>
           Continuar caçando

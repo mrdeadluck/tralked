@@ -480,7 +480,7 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(stats.totalXp).toBe(ledger.reduce((sum, e) => sum + e.xp, 0));
   });
 
-  it("stores the private verdict and picks the profile up again when it turns public", async () => {
+  it("stores the private verdict and imports again when Steam turns public, keeping the user's visibility", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncStaleUsers } = await import("./user");
     const appId = newAppId();
@@ -501,7 +501,8 @@ describe.skipIf(!reachable)("syncUser", () => {
     steam.profilePublic = true;
     expect(await syncStaleUsers(10, only)).toEqual({ processed: 1, failed: 0 });
     row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-    expect(row.profilePublic).toBe(true);
+    // Tralked visibility is the user's choice (/conta): a public Steam profile never flips it on.
+    expect(row.profilePublic).toBe(false);
     expect(row.lastSyncedAt).not.toBeNull();
     expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(1);
   });
