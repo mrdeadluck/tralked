@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import { plainText } from "@/lib/content/schema";
+import { assertPublicHost, resolveHost, type ResolveHost } from "@/lib/integrations/rss";
 import { prisma } from "@/lib/db";
 import { SKILLS, type SkillId } from "@/lib/engine/types";
 
@@ -155,7 +156,19 @@ export const feedIdSchema = z.strictObject({ id: FEED_ID });
 
 const isUniqueViolation = (error: unknown) => (error as { code?: unknown })?.code === "P2002";
 
-export async function saveFeed(input: FeedInput): Promise<{ ok: true } | { ok: false; error: string; field?: string }> {
+/**
+ * Creates or edits a feed. The host must resolve to public internet addresses only (the fetcher
+ * checks again on every read and on every redirect), so a feed can't point at internal services.
+ */
+export async function saveFeed(
+  input: FeedInput,
+  resolve: ResolveHost = resolveHost,
+): Promise<{ ok: true } | { ok: false; error: string; field?: string }> {
+  try {
+    await assertPublicHost(new URL(input.url).hostname, resolve);
+  } catch {
+    return { ok: false, error: "Esse endereço não leva a um site público (rede interna ou domínio inexistente).", field: "url" };
+  }
   const data = { name: input.name, url: input.url, active: input.active };
   try {
     if (input.id) {

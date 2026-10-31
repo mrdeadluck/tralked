@@ -19,6 +19,8 @@ const FEED_URL = "https://feeds.test-news.example/rss";
 const BROKEN_URL = "https://feeds.test-news.example/broken";
 const INACTIVE_URL = "https://feeds.test-news.example/off";
 const ITEM_BASE = "https://news.test-news.example/";
+/** Test DNS: every feed host is a public address (no network). */
+const publicDns = async () => ["93.184.216.34"];
 
 const item = (title: string, slug: string) => `<item>
   <title>${title}</title>
@@ -72,7 +74,7 @@ describe.skipIf(!reachable)("syncExternalNews", () => {
     });
 
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const first = await syncExternalNews(fetchMock as unknown as typeof fetch);
+    const first = await syncExternalNews(fetchMock as unknown as typeof fetch, publicDns);
     expect(first).toMatchObject({ processed: 1, failed: 1, created: 4 });
     // The broken feed is logged by name only, without its URL.
     expect(logged).toHaveBeenCalledWith("News: could not read feed Teste Quebrado", "Feed request failed with HTTP 500");
@@ -96,7 +98,7 @@ describe.skipIf(!reachable)("syncExternalNews", () => {
       publishedAt: new Date("2026-10-29T10:00:00Z"),
     });
 
-    const again = await syncExternalNews(fetchMock as unknown as typeof fetch);
+    const again = await syncExternalNews(fetchMock as unknown as typeof fetch, publicDns);
     expect(again.created).toBe(0);
     logged.mockRestore();
   });

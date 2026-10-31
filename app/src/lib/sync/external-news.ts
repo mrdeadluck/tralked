@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { normalizeTitle } from "@/lib/integrations/title-match";
-import { fetchFeed, type FeedItem } from "@/lib/integrations/rss";
+import { fetchFeed, resolveHost, type FeedItem, type ResolveHost } from "@/lib/integrations/rss";
 
 /** Names shorter than this (normalized) only match with their exact case: "HK", "RE4". */
 const SHORT_NAME = 4;
@@ -61,6 +61,7 @@ export type ExternalNewsResult = { processed: number; failed: number; created: n
  */
 export async function syncExternalNews(
   fetchImpl: typeof fetch = globalThis.fetch,
+  resolve: ResolveHost = resolveHost,
 ): Promise<ExternalNewsResult> {
   const [feeds, games] = await Promise.all([
     prisma.newsFeed.findMany({ where: { active: true } }),
@@ -74,7 +75,7 @@ export async function syncExternalNews(
   for (const feed of feeds) {
     let items: FeedItem[];
     try {
-      items = await fetchFeed(feed.url, fetchImpl);
+      items = await fetchFeed(feed.url, fetchImpl, resolve);
     } catch (error) {
       failed++;
       console.error(`News: could not read feed ${feed.name}`, error instanceof Error ? error.message : error);

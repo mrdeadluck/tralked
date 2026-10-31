@@ -85,15 +85,17 @@ async function resolveAchievements(
   return { noteIds, issues };
 }
 
-const stepData = (step: GuideStepPayload) => ({
+/** Columns of a step from its payload. The key is written only when the payload has one. */
+export const stepData = (step: Omit<GuideStepPayload, "key"> & { key?: string }) => ({
   title: step.title,
   hours: step.hours,
   body: blocksToPlainText(step.body),
   blocks: step.body as Prisma.InputJsonValue,
   achievementApiNames: step.achievements,
+  ...(step.key !== undefined ? { key: step.key } : {}),
 });
 
-const noteData = (note: GuideNotePayload, achievementId: string) => ({
+export const noteData = (note: GuideNotePayload, achievementId: string) => ({
   achievementId,
   category: note.category,
   spoiler: note.spoiler,
@@ -102,7 +104,7 @@ const noteData = (note: GuideNotePayload, achievementId: string) => ({
   steps: note.steps,
 });
 
-const collectiblesData = (collectibles: NonNullable<GuidePatch["collectibles"]>) =>
+export const collectiblesData = (collectibles: NonNullable<GuidePatch["collectibles"]>) =>
   collectibles.map((c) => ({ name: c.name, total: c.total, description: c.description ?? "" }));
 
 /** Full snapshot of a guide as stored now (fields, steps, notes), for GuideVersion. */
@@ -137,6 +139,7 @@ async function snapshot(tx: Tx, guideId: string): Promise<Prisma.InputJsonValue>
     warnings: guide.warnings,
     body: guide.blocks ?? null,
     steps: steps.map((s) => ({
+      key: s.key,
       title: s.title,
       hours: s.hours,
       body: s.blocks ?? s.body,
@@ -265,18 +268,69 @@ function ownGuide(key: ApiKeyRecord, id: string) {
   });
 }
 
-/** Replaces the steps keeping ids by position, so readers' step checkmarks survive an update. */
-export async function replaceSteps(tx: Tx, guideId: string, steps: GuideStepPayload[], oldCount: number) {
+/** One step to write, in order: update the existing step `id`, or create a new one. */
+export type StepWrite = { id?: string; data: Omit<ReturnType<typeof stepData>, "key"> & { key?: string | null } };
+
+/**
+ * Writes a guide's steps in the given order. Steps listed by id keep their id, so readers'
+ * checkmarks (GuideStepProgress) follow the step wherever it moves; steps left out are deleted
+ * with only their own checkmarks; new steps get new ids.
+ */
+export async function writeSteps(tx: Tx, guideId: string, steps: StepWrite[]): Promise<void> {
+  const existing = await tx.guideStep.findMany({ where: { guideId }, select: { id: true } });
+  const kept = steps.flatMap((s) => (s.id ? [s.id] : []));
+  const keptSet = new Set(kept);
+  const removed = existing.filter((e) => !keptSet.has(e.id)).map((e) => e.id);
+  if (removed.length > 0) await tx.guideStep.deleteMany({ where: { guideId, id: { in: removed } } });
+  // Park the kept steps on negative orders first, so no final order collides with (guideId, order).
+  for (const [i, id] of kept.entries()) {
+    await tx.guideStep.update({ where: { id, guideId }, data: { order: -(i + 1) } });
+  }
   for (const [order, step] of steps.entries()) {
-    if (order < oldCount) {
-      await tx.guideStep.update({ where: { guideId_order: { guideId, order } }, data: stepData(step) });
-    } else {
-      await tx.guideStep.create({ data: { guideId, order, ...stepData(step) } });
-    }
+    if (step.id) await tx.guideStep.update({ where: { id: step.id, guideId }, data: { ...step.data, order } });
+    else await tx.guideStep.create({ data: { guideId, order, ...step.data } });
   }
-  if (oldCount > steps.length) {
-    await tx.guideStep.deleteMany({ where: { guideId, order: { gte: steps.length } } });
+}
+
+/**
+ * How a bot update maps its steps onto the stored ones (documented in /desenvolvedores):
+ * - every step has a `key`: steps match by key (reorder, insert and remove keep checkmarks);
+ *   a guide whose steps have no keys yet adopts them by position when the count is the same;
+ * - no step has a key: steps match by position, only when the number of steps is unchanged;
+ *   otherwise 422 (send keys to insert, remove or reorder steps).
+ */
+async function planBotSteps(
+  guideId: string,
+  steps: GuidePatch["steps"] & object,
+): Promise<{ ok: true; plan: StepWrite[] } | { ok: false; issue: ApiIssue }> {
+  const existing = await prisma.guideStep.findMany({
+    where: { guideId },
+    orderBy: { order: "asc" },
+    select: { id: true, key: true },
+  });
+  const keyed = steps.length > 0 && steps.every((s) => s.key !== undefined);
+  if (keyed) {
+    const byKey = new Map(existing.flatMap((e) => (e.key ? [[e.key, e.id] as const] : [])));
+    const adopt = byKey.size === 0 && existing.length === steps.length;
+    return {
+      ok: true,
+      plan: steps.map((step, i) => ({ id: adopt ? existing[i].id : byKey.get(step.key as string), data: stepData(step) })),
+    };
   }
+  if (existing.length !== steps.length) {
+    return {
+      ok: false,
+      issue: {
+        path: "/steps",
+        message: `O guia tem ${existing.length} etapas e o envio tem ${steps.length}. Para incluir, tirar ou reordenar etapas, mande key em cada etapa.`,
+      },
+    };
+  }
+  // Same count, no keys: position i updates stored step i (stored keys are kept).
+  return {
+    ok: true,
+    plan: steps.map((step, i) => ({ id: existing[i].id, data: { ...stepData(step), key: existing[i].key } })),
+  };
 }
 
 export async function updateGuide(ctx: WriteContext, id: string): Promise<WriteSuccess | WriteFailure> {
@@ -299,6 +353,13 @@ export async function updateGuide(ctx: WriteContext, id: string): Promise<WriteS
 
   const { noteIds, issues } = await resolveAchievements(guide.gameId, patch.steps, patch.achievementNotes);
   if (issues.length > 0) return fail("validation_failed", "Há conquistas que não existem neste jogo.", issues, id);
+
+  let stepPlan: StepWrite[] | null = null;
+  if (patch.steps) {
+    const planned = await planBotSteps(id, patch.steps);
+    if (!planned.ok) return fail("validation_failed", "As etapas não batem com as do guia.", [planned.issue], id);
+    stepPlan = planned.plan;
+  }
 
   const status = patch.status ?? guide.status;
   const publishing = status === "published" && guide.status !== "published";
@@ -324,7 +385,7 @@ export async function updateGuide(ctx: WriteContext, id: string): Promise<WriteS
           ...(publishing ? { publishedAt: new Date() } : {}),
         },
       });
-      if (patch.steps) await replaceSteps(tx, id, patch.steps, guide._count.steps);
+      if (stepPlan) await writeSteps(tx, id, stepPlan);
       if (patch.achievementNotes) {
         const notes = patch.achievementNotes;
         await tx.guideAchievementNote.deleteMany({ where: { guideId: id } });

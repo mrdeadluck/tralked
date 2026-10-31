@@ -1,4 +1,7 @@
 import { timeoutSignal } from "../http";
+import { assertPublicHost, resolveHost, type ResolveHost } from "./public-host";
+
+export { assertPublicHost, BlockedHostError, isPublicAddress, resolveHost, type ResolveHost } from "./public-host";
 
 /**
  * Minimal RSS 2.0 / Atom reader for external news. Only what Tralked stores is extracted:
@@ -189,15 +192,41 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
   }
 }
 
-/** Downloads and parses one feed. Throws on HTTP errors and on oversized documents. */
+const MAX_REDIRECTS = 5;
+
+/**
+ * GET that only talks to public hosts: the host of the URL and of every redirect hop must resolve
+ * to public addresses (see public-host.ts), and redirects are followed by hand so none can lead
+ * to a private, loopback or metadata address.
+ */
+async function fetchPublic(url: string, fetchImpl: typeof fetch, resolve: ResolveHost): Promise<Response> {
+  let current = new URL(url);
+  for (let hop = 0; ; hop++) {
+    if (current.protocol !== "https:" && current.protocol !== "http:") throw new Error("Feed URL must be http(s)");
+    await assertPublicHost(current.hostname, resolve);
+    const res = await fetchImpl(current.toString(), {
+      headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml" },
+      signal: timeoutSignal(),
+      redirect: "manual",
+    });
+    const location = res.headers.get("location");
+    if (res.status < 300 || res.status >= 400 || !location) return res;
+    await res.body?.cancel().catch(() => {});
+    if (hop >= MAX_REDIRECTS) throw new Error("Feed has too many redirects");
+    current = new URL(location, current);
+  }
+}
+
+/**
+ * Downloads and parses one feed. Throws on HTTP errors, oversized documents, and hosts (or
+ * redirect targets) that are not public internet addresses.
+ */
 export async function fetchFeed(
   url: string,
   fetchImpl: typeof fetch = globalThis.fetch,
+  resolve: ResolveHost = resolveHost,
 ): Promise<FeedItem[]> {
-  const res = await fetchImpl(url, {
-    headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml" },
-    signal: timeoutSignal(),
-  });
+  const res = await fetchPublic(url, fetchImpl, resolve);
   if (!res.ok) {
     await res.body?.cancel().catch(() => {});
     throw new Error(`Feed request failed with HTTP ${res.status}`);

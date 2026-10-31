@@ -47,6 +47,26 @@ describe("admin proxy", () => {
     }
   });
 
+  it.each(["/ADMIN", "/Admin/", "/%61dmin", "/%2561dmin", "//admin//noticias/", "/admin%2Fnoticias", "/admin;x", "/admin.json"])(
+    "normalizes %s before the check (404 for a visitor)",
+    async (path) => {
+      expect((await request(path, null)).status).toBe(404);
+    },
+  );
+
+  it("normalized admin-only variants stay closed to editors", async () => {
+    for (const path of ["/ADMIN/ROBOS", "/admin/%72obos", "/admin//usuarios/", "/admin/Fraude"]) {
+      expect((await request(path, "editor")).status).toBe(404);
+    }
+  });
+
+  it("other paths pass without a lookup", async () => {
+    for (const path of ["/", "/administracao", "/noticias/admin", "/api/v1/articles"]) {
+      expect((await request(path, null)).status).toBe(200);
+    }
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+
   it("maps paths to levels without prefix accidents", () => {
     expect(requiredLevel("/admin/robos")).toBe("admin");
     expect(requiredLevel("/admin/robos/x")).toBe("admin");

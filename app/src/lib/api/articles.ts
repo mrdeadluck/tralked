@@ -90,6 +90,7 @@ export async function createArticle(ctx: WriteContext): Promise<WriteSuccess | W
           botKeyId: ctx.key.id,
           humanAuthored: false,
           publishedAt: now,
+          firstPublishedAt: status === "published" ? now : null,
           games: { create: games.map((g) => ({ gameId: g.id })) },
         },
         select: { id: true },
@@ -122,6 +123,7 @@ function ownArticle(key: ApiKeyRecord, id: string) {
       status: true,
       reviewedAt: true,
       publishedAt: true,
+      firstPublishedAt: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -177,6 +179,7 @@ export async function updateArticle(ctx: WriteContext, id: string): Promise<Writ
           imageLabel: patch.imageLabel === undefined ? undefined : clip(patch.imageLabel.toLowerCase(), 60),
           status,
           ...(publishing ? { publishedAt: new Date() } : {}),
+          ...(publishing && !article.firstPublishedAt ? { firstPublishedAt: new Date() } : {}),
           ...(gameIds
             ? { games: { deleteMany: {}, create: gameIds.map((gameId) => ({ gameId })) } }
             : {}),

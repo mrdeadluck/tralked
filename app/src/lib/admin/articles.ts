@@ -58,7 +58,9 @@ export type SaveArticleResult =
   | { ok: true; id: string; slug: string; previousSlug: string | null; gameSlugs: string[] }
   | { ok: false; error: string; field?: string };
 
-const isLocked = (status: string) => status === "published" || status === "archived";
+/** Ever went live (even if now back to draft or archived): its slug is a public URL. */
+export const wasPublished = (a: { status: string; firstPublishedAt: Date | null }) =>
+  a.firstPublishedAt !== null || a.status === "published" || a.status === "archived";
 
 /** The staff member's byline (Author row linked to the user), created on first use. */
 async function staffAuthorId(user: { id: string; handle: string }): Promise<string> {
@@ -87,11 +89,11 @@ export async function saveArticle(
   const existing = input.id
     ? await prisma.article.findUnique({
         where: { id: input.id },
-        select: { id: true, slug: true, status: true, source: true, reviewedAt: true },
+        select: { id: true, slug: true, status: true, source: true, reviewedAt: true, firstPublishedAt: true },
       })
     : null;
   if (input.id && !existing) return { ok: false, error: "Esta notícia não existe mais." };
-  if (existing && isLocked(existing.status) && existing.slug !== input.slug) {
+  if (existing && wasPublished(existing) && existing.slug !== input.slug) {
     return { ok: false, error: "O endereço de uma notícia já publicada não muda.", field: "slug" };
   }
 
@@ -120,6 +122,7 @@ export async function saveArticle(
     // Plan 1 cards still read the single legacy game.
     gameId: gameIds[0] ?? null,
     ...(publishing ? { publishedAt: now } : {}),
+    ...(publishing && !existing?.firstPublishedAt ? { firstPublishedAt: now } : {}),
     ...(publishing && existing?.source === "bot" && !existing.reviewedAt ? { reviewedAt: now } : {}),
   };
 
@@ -164,7 +167,7 @@ export async function setArticleStatus(
 ): Promise<{ ok: true; slug: string } | { ok: false; error: string }> {
   const article = await prisma.article.findUnique({
     where: { id: input.id },
-    select: { slug: true, status: true, source: true, reviewedAt: true, blocks: true, body: true },
+    select: { slug: true, status: true, source: true, reviewedAt: true, firstPublishedAt: true, blocks: true, body: true },
   });
   if (!article) return { ok: false, error: "Esta notícia não existe mais." };
   const hasContent = (parseStoredBlocks(article.blocks)?.length ?? 0) > 0 || article.body.trim() !== "";
@@ -177,6 +180,7 @@ export async function setArticleStatus(
     data: {
       status: input.status,
       ...(publishing ? { publishedAt: now } : {}),
+      ...(publishing && !article.firstPublishedAt ? { firstPublishedAt: now } : {}),
       ...(publishing && article.source === "bot" && !article.reviewedAt ? { reviewedAt: now } : {}),
     },
   });
@@ -280,6 +284,8 @@ export type ArticleForEdit = {
   author: string;
   reviewedAt: Date | null;
   publishedAt: Date;
+  /** It went live at least once: the slug can't change. */
+  slugLocked: boolean;
 };
 
 export async function getArticleForEdit(articleId: string): Promise<ArticleForEdit | null> {
@@ -313,6 +319,7 @@ export async function getArticleForEdit(articleId: string): Promise<ArticleForEd
     author: a.author.handle,
     reviewedAt: a.reviewedAt,
     publishedAt: a.publishedAt,
+    slugLocked: wasPublished(a),
   };
 }
 

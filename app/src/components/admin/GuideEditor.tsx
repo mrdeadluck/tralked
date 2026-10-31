@@ -7,10 +7,22 @@ import { Button } from "@/components/ui/Button";
 import { draftFromBlock, moveDraft, validateDrafts, type BlockDraft } from "@/lib/admin/block-draft";
 import type { GuideForEdit, GuideStatus } from "@/lib/admin/guides";
 import { BlockEditor } from "./BlockEditor";
+import {
+  CollectiblesEditor,
+  collectiblesFrom,
+  NotesEditor,
+  notesFrom,
+  SourcesEditor,
+  sourcesFrom,
+  type CollectibleDraft,
+  type NoteDraft,
+  type SourceDraft,
+} from "./GuideListsEditor";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, TrashIcon } from "./icons";
 import { AdminSection, HINT, INPUT, LABEL, SELECT, SMALL_BUTTON, TEXTAREA } from "./ui";
 
-type StepDraft = { key: string; title: string; hours: string; achievements: string; body: BlockDraft[] };
+/** `id`: the stored step (readers' checkmarks follow it); none for a step added in this session. */
+type StepDraft = { key: string; id?: string; title: string; hours: string; achievements: string; body: BlockDraft[] };
 
 const STATUS_OPTIONS: { value: GuideStatus; label: string }[] = [
   { value: "draft", label: "Rascunho" },
@@ -32,7 +44,10 @@ const FACTS: { key: keyof GuideForEdit["facts"]; label: string; numeric: boolean
   { key: "online", label: "Online", numeric: true },
 ];
 
-/** Guide editor: workflow, fact sheet, overview, warnings, introduction and steps (with blocks). */
+/**
+ * Guide editor: workflow, fact sheet, overview, warnings, introduction, steps (with blocks),
+ * achievement notes, collectibles and sources.
+ */
 export function GuideEditor({ guide }: { guide: GuideForEdit }) {
   const router = useRouter();
   const id = useId();
@@ -48,12 +63,16 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
   const [steps, setSteps] = useState<StepDraft[]>(() =>
     guide.steps.map((s) => ({
       key: stepKey(),
+      id: s.id,
       title: s.title,
       hours: s.hours,
       achievements: s.achievements.join("\n"),
       body: s.body.map(draftFromBlock),
     })),
   );
+  const [notes, setNotes] = useState<NoteDraft[]>(() => notesFrom(guide));
+  const [collectibles, setCollectibles] = useState<CollectibleDraft[]>(() => collectiblesFrom(guide));
+  const [sources, setSources] = useState<SourceDraft[]>(() => sourcesFrom(guide));
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, startSave] = useTransition();
   const bodyCheck = useMemo(() => validateDrafts(body), [body]);
@@ -65,11 +84,20 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
     event.preventDefault();
     const stepBlocks = steps.map((s) => validateDrafts(s.body).blocks);
     const badStep = stepBlocks.findIndex((b) => b === null);
-    if (!bodyCheck.blocks || badStep >= 0) {
-      setNotice({
-        ok: false,
-        text: !bodyCheck.blocks ? "A introdução tem blocos com erro." : `A etapa ${badStep + 1} tem blocos com erro.`,
-      });
+    const tipBlocks = notes.map((n) => validateDrafts(n.tip).blocks);
+    const badNote = tipBlocks.findIndex((b) => b === null);
+    const unchosen = notes.findIndex((n) => !n.achievement);
+    const problem = !bodyCheck.blocks
+      ? "A introdução tem blocos com erro."
+      : badStep >= 0
+        ? `A etapa ${badStep + 1} tem blocos com erro.`
+        : unchosen >= 0
+          ? `Escolha a conquista da nota ${unchosen + 1}.`
+          : badNote >= 0
+            ? `A dica da nota ${badNote + 1} tem blocos com erro.`
+            : null;
+    if (problem) {
+      setNotice({ ok: false, text: problem });
       return;
     }
     setNotice(null);
@@ -84,17 +112,37 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
         warnings: lines(warnings),
         body: bodyCheck.blocks,
         steps: steps.map((s, i) => ({
+          ...(s.id ? { id: s.id } : {}),
           title: s.title,
           hours: s.hours,
           body: stepBlocks[i],
           achievements: words(s.achievements),
         })),
+        notes: notes.map((n, i) => {
+          const at = n.achievement.indexOf(":");
+          return {
+            platform: n.achievement.slice(0, at),
+            apiName: n.achievement.slice(at + 1),
+            category: n.category,
+            spoiler: n.spoiler,
+            tip: tipBlocks[i],
+            steps: lines(n.steps),
+          };
+        }),
+        collectibles: collectibles.map((c) => ({
+          name: c.name,
+          total: Number(c.total),
+          ...(c.description.trim() ? { description: c.description } : {}),
+        })),
+        sources: sources.map((x) => ({ title: x.title, url: x.url.trim() })),
       });
       if (!result.ok) {
         setNotice({ ok: false, text: result.field ? `${result.error} (${fieldLabel(result.field)})` : result.error });
         return;
       }
       setSummary("");
+      // New steps now exist: keep their ids so the next save updates them instead of recreating them.
+      setSteps((list) => list.map((s, i) => ({ ...s, id: result.stepIds[i] ?? s.id })));
       setNotice({ ok: true, text: `Salvo como revisão ${result.revision}.` });
       router.refresh();
     });
@@ -199,10 +247,12 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
                   <button
                     type="button"
                     className={`${SMALL_BUTTON} hover:border-nin hover:text-nin`}
-                    disabled={steps.length === 1}
                     aria-label={`Remover etapa ${i + 1}`}
                     onClick={() => {
-                      if (window.confirm(`Remover a etapa ${i + 1}? O progresso marcado pelos leitores nela se perde.`)) {
+                      const prompt = step.id
+                        ? `Remover a etapa ${i + 1}? Ao salvar, os leitores que marcaram esta etapa perdem só essa marca; as outras etapas mantêm as delas.`
+                        : `Remover a etapa ${i + 1}? Ela ainda não foi salva.`;
+                      if (window.confirm(prompt)) {
                         setSteps((list) => list.filter((_, j) => j !== i));
                       }
                     }}
@@ -255,20 +305,23 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
           ))}
         </ol>
         <p id={`${id}-ach-hint`} className={HINT}>
-          Conquistas: apiNames Steam do jogo, separados por espaço, vírgula ou linha.
+          Conquistas: apiNames Steam do jogo, separados por espaço, vírgula ou linha. Reordenar, incluir ou
+          remover etapas mantém as marcas que os leitores fizeram em cada etapa.
         </p>
         {guide.achievementNames.length > 0 ? (
           <details className="text-[13px]">
             <summary className="cursor-pointer font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase hover:text-text">
-              Ver apiNames do jogo ({guide.achievementNames.length})
+              Ver apiNames Steam do jogo ({guide.achievementNames.filter((a) => a.platform === "steam").length})
             </summary>
             <ul className="m-0 mt-2 grid max-h-[280px] list-none gap-x-6 gap-y-1 overflow-auto p-0 sm:grid-cols-2">
-              {guide.achievementNames.map((a) => (
+              {guide.achievementNames
+                .filter((a) => a.platform === "steam")
+                .map((a) => (
                 <li key={a.apiName} className="flex justify-between gap-3 border-b border-line py-1">
                   <span className="truncate text-text-2">{a.name}</span>
                   <code className="font-mono text-[12px] text-dim">{a.apiName}</code>
                 </li>
-              ))}
+                ))}
             </ul>
           </details>
         ) : null}
@@ -285,6 +338,18 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
         </div>
       </AdminSection>
 
+      <AdminSection title="Notas de conquista" aside={`${notes.length} ${notes.length === 1 ? "nota" : "notas"}`}>
+        <NotesEditor id={`${id}-notes`} value={notes} onChange={setNotes} achievements={guide.achievementNames} />
+      </AdminSection>
+
+      <AdminSection title="Coletáveis">
+        <CollectiblesEditor id={`${id}-col`} value={collectibles} onChange={setCollectibles} />
+      </AdminSection>
+
+      <AdminSection title="Fontes">
+        <SourcesEditor id={`${id}-src`} value={sources} onChange={setSources} />
+      </AdminSection>
+
       <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-4 border-t border-line-2 bg-bg/95 py-4">
         <Button variant="primary" type="submit" disabled={saving}>
           {saving ? "Salvando…" : "Salvar guia"}
@@ -296,9 +361,6 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
             </span>
           ) : null}
         </p>
-        <span className="ml-auto text-[13px] text-dim">
-          Notas de conquista ({guide.noteCount}), coletáveis ({guide.collectibleCount}) e fontes ficam como estão.
-        </span>
       </div>
     </form>
   );
@@ -307,6 +369,9 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
 /** "steps.2.achievements" → "etapa 3, conquistas". */
 function fieldLabel(field: string): string {
   const [head, index, tail] = field.split(".");
+  if (head === "notes" && index !== undefined) return `nota ${Number(index) + 1}`;
+  if (head === "collectibles" && index !== undefined) return `coletável ${Number(index) + 1}`;
+  if (head === "sources" && index !== undefined) return `fonte ${Number(index) + 1}`;
   if (head === "steps" && index !== undefined) {
     const part = { title: "título", hours: "tempo", body: "texto", achievements: "conquistas" }[tail ?? ""] ?? "";
     return `etapa ${Number(index) + 1}${part ? `, ${part}` : ""}`;

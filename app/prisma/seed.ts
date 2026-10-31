@@ -558,6 +558,7 @@ export async function runSeed() {
           comments: a.comments,
           humanAuthored: true,
           publishedAt: hoursAgo(a.agoHours),
+          firstPublishedAt: hoursAgo(a.agoHours),
         };
         const article = await tx.article.upsert({
           where: { slug: a.slug },

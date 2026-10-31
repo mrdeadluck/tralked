@@ -128,9 +128,42 @@ describe("fraud queue", () => {
     const owned = await prisma.userGame.findFirstOrThrow({ where: { userId, gameId } });
     expect(owned.completedAt).toEqual(new Date(T0.getTime() + 2000));
     const platinum = await prisma.xpLedgerEntry.findFirstOrThrow({ where: { userId, source: "platinum" } });
-    expect(platinum).toMatchObject({ sourceKey: gameId, platform: "steam", voidedAt: null });
+    expect(platinum).toMatchObject({ sourceKey: gameId, platform: null, voidedAt: null }); // as the Steam sync writes it
 
     expect((await listFraudCases()).some((c) => c.userId === userId)).toBe(false);
     expect(await releaseFraud(key(userId), NOW)).toMatchObject({ ok: false });
+  });
+
+  it("Liberar restores entries voided earlier instead of skipping them, and is idempotent", async () => {
+    const userId = await playerWithBurst("anulado", 2);
+    await prisma.xpLedgerEntry.updateMany({ where: { userId }, data: { voidedAt: NOW } });
+    await recomputeUser(userId, NOW);
+    expect((await stats(userId)).totalXp).toBe(0);
+
+    const result = await releaseFraud(key(userId), NOW);
+    expect(result).toMatchObject({ ok: true, entries: 4 }); // 2 restored + 1 created + platinum
+
+    const xps = PCTS.map(xpForAchievement);
+    const full = xps.reduce((a, b) => a + b, 0) + platinumBonus(xps);
+    expect((await stats(userId)).totalXp).toBe(full);
+    const entries = await prisma.xpLedgerEntry.findMany({ where: { userId } });
+    expect(entries).toHaveLength(4);
+    expect(entries.every((e) => e.voidedAt === null)).toBe(true);
+
+    expect(await releaseFraud(key(userId), NOW)).toMatchObject({ ok: false });
+    expect(await prisma.xpLedgerEntry.count({ where: { userId } })).toBe(4);
+    expect((await stats(userId)).totalXp).toBe(full);
+  });
+
+  it("does not release unlocks of a platform account that was unlinked", async () => {
+    const userId = await playerWithBurst("desvinculado", 0);
+    const psnAchievement = await prisma.achievement.create({
+      data: { gameId, platform: "psn", apiName: "PSN_1", name: "PSN 1", trophyTier: "gold" },
+    });
+    await prisma.userAchievement.create({
+      data: { userId, achievementId: psnAchievement.id, unlockedAt: T0, suspicious: true },
+    });
+    expect(await releaseFraud({ userId, gameId, platform: "psn" }, NOW)).toMatchObject({ ok: false });
+    expect(await prisma.xpLedgerEntry.count({ where: { userId, platform: "psn" } })).toBe(0);
   });
 });
