@@ -47,6 +47,8 @@ Robôs criam notícias e guias pela API `/api/v1` (documentação em `/desenvolv
 2. O robô envia `Authorization: Bearer tk_live_…` e um `Idempotency-Key` por conteúdo. Repetir a mesma chave com o mesmo corpo devolve a mesma resposta sem duplicar; com outro corpo, 409.
 3. Sem o escopo `publish`, o conteúdo entra em `/admin/revisao`; um editor revisa e publica, e a notícia é publicada. O público vê a assinatura "Equipe Tralked" (sem selo de robô); o admin mostra a origem robô.
 
+Sem acesso ao admin (por exemplo, para a chave de um robô em produção), crie a chave pelo terminal: `DATABASE_URL=… pnpm api:key "<nome>" articles:write publish` (escopos: `articles:write`, `guides:write`, `publish`, `media:write`; escopo desconhecido sai com código 2). O segredo `tk_live_…` é impresso uma vez, só no terminal, e nunca vai para `scripts/.logs`.
+
 Corpo malformado, HTML, imagem `http:`/`javascript:`, jogo inexistente ou campo desconhecido voltam 4xx com o caminho do campo em JSON Pointer (`/blocks/1/url`). Limite: 60 requisições por minuto por chave.
 
 ## Variáveis de ambiente
@@ -232,6 +234,7 @@ A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste 
 | `pnpm comments:recount` | Reconta `Article.comments` pelos comentários visíveis. Exige `DATABASE_URL`. |
 | `pnpm sample:rename [--dry-run]` | Renomeia os personagens fictícios de um banco semeado antes do Plano 4 (seed, bylines, notificações). Idempotente. Exige `DATABASE_URL`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
+| `pnpm api:key` | `"<nome>" <escopo>...`: cria uma chave de robô e imprime o segredo `tk_live_…` uma vez (só no terminal). Exige `DATABASE_URL`. |
 | `pnpm user:invite` | `<handle> <email>`: grava o e-mail de login de uma conta e imprime um link de "definir senha" (1 h, uso único; só no terminal). Exige `DATABASE_URL`; o link usa `APP_URL`. |
 | `pnpm e2e` | Playwright + axe contra o build de produção (`pnpm build && pnpm start -p 3200`): rotas públicas. |
 | `pnpm e2e:dev` | Playwright + axe contra `next dev -p 3200`: inclui as rotas que exigem login de demonstração. |

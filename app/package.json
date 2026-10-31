@@ -15,6 +15,7 @@
     "catalog:bootstrap": "tsx scripts/catalog-bootstrap.ts",
     "steam:import": "tsx scripts/import-steam-profile.ts",
     "user:invite": "tsx scripts/invite-user.ts",
+    "api:key": "tsx scripts/create-api-key.ts",
     "comments:recount": "tsx scripts/recount-article-comments.ts",
     "sample:rename": "tsx scripts/rename-sample-users.ts",
     "postinstall": "prisma generate",
