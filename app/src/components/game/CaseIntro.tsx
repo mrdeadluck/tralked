@@ -211,7 +211,18 @@ export function CaseIntro(props: CaseIntroProps) {
   const toggleIntroOff = (off: boolean) => {
     setIntroOff(off);
     writeIntroOff(off);
-    if (account) void setCaseIntroAction({ off }).catch(() => undefined);
+    if (!account) return;
+    // The account could not save it (session expired, network): undo it here too, so the box shows
+    // what will really happen on the next game.
+    const undo = () => {
+      setIntroOff(!off);
+      writeIntroOff(!off);
+    };
+    void setCaseIntroAction({ off })
+      .then((result) => {
+        if (!result.ok) undo();
+      })
+      .catch(undo);
   };
 
   useEffect(() => {

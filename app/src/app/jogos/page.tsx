@@ -66,7 +66,7 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
         title="Jogos e guias"
         aside={
           <span className="tracking-normal text-dim normal-case">
-            {total} jogos de exemplo. A versão completa lista todo o catálogo Steam com conquistas.
+            {total.toLocaleString("pt-BR")} {total === 1 ? "jogo" : "jogos"} no catálogo
           </span>
         }
       />

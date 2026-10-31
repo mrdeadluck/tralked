@@ -6,20 +6,26 @@ import type { BackdropVideo } from "@/lib/queries/game-profile";
 /*
  * Netflix-style background of the game page's banner (the open booklet): a muted gameplay loop
  * from the game's own trailer, faded into the hero art with a vignette, very low contrast so the
- * text on the booklet stays the thing you read. It is decoration only, and costs nothing unless
- * it can play:
+ * text on the booklet stays the thing you read. It is decoration only, and costs little unless it
+ * can play:
  *
- * - not rendered without JS, with prefers-reduced-motion, or with Save-Data / prefers-reduced-data;
- * - not while the case intro runs (#gp-root[data-intro]): it starts once the page is revealed;
- * - the file / embed is only requested once the booklet is on screen, and it pauses off screen;
- * - absolutely positioned over the hero art (no layout shift); it fades in once frames play and
- *   simply never appears if the file fails;
+ * - not rendered without JS, with prefers-reduced-motion / prefers-reduced-data, Save-Data or a
+ *   slow connection (2g/3g), nor on screens narrower than 1000 px;
+ * - a trailer file only loads its metadata until the booklet is on screen, and a YouTube embed is
+ *   only created then; it starts once the case intro is over (#gp-root[data-intro]) and pauses
+ *   off screen; it starts 10 s in, past the rating cards;
+ * - absolutely positioned over the hero art (no layout shift); it fades in only once frames really
+ *   play (the file's `playing`, YouTube's "playing" state), and never appears if it fails;
  * - a small button pauses it (WCAG 2.2.2), remembered on this device.
  */
 
 const ROOT_ID = "gp-root";
 const PAUSED_KEY = "tralked:backdrop:paused";
-const QUIET = "(prefers-reduced-motion: reduce), (prefers-reduced-data: reduce)";
+const QUIET = "(prefers-reduced-motion: reduce), (prefers-reduced-data: reduce), (max-width: 999px)";
+const SLOW_CONNECTIONS = new Set(["slow-2g", "2g", "3g"]);
+const START_AT_S = 10;
+const YT_ORIGIN = "https://www.youtube-nocookie.com";
+const YT_PLAYING = 1;
 
 const CSS = `
 .gpb { position: absolute; inset: 0; overflow: hidden; pointer-events: none; container-type: size; opacity: 0; transition: opacity 1.6s ease;
@@ -31,8 +37,7 @@ const CSS = `
 .gpb-pause { position: absolute; top: 12px; right: 12px; z-index: 3; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--border-2); border-radius: 2px; background: rgba(11,12,15,.6); color: var(--text-2); cursor: pointer; }
 .gpb-pause:hover { border-color: var(--text); color: var(--text); }
 .gpb-pause svg { width: 12px; height: 12px; }
-@media (max-width: 1000px) { .gpb { -webkit-mask: linear-gradient(180deg, #000 0%, transparent 55%); mask: linear-gradient(180deg, #000 0%, transparent 55%); } }
-@media (prefers-reduced-motion: reduce) { .gpb { display: none; } }
+@media (prefers-reduced-motion: reduce), (max-width: 999px) { .gpb, .gpb-pause { display: none; } }
 `;
 
 const subscribeNothing = () => () => undefined;
@@ -43,10 +48,13 @@ function subscribeQuiet(onChange: () => void) {
   return () => mq.removeEventListener?.("change", onChange);
 }
 
-/** Motion and data are fine to spend on decoration. */
+type Connection = { saveData?: boolean; effectiveType?: string };
+
+/** Motion, data and screen room are fine to spend on decoration. */
 function readAllowed(): boolean {
-  const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData === true;
-  return !saveData && !window.matchMedia(QUIET).matches;
+  const connection = (navigator as Navigator & { connection?: Connection }).connection;
+  if (connection?.saveData === true || SLOW_CONNECTIONS.has(connection?.effectiveType ?? "")) return false;
+  return !window.matchMedia(QUIET).matches;
 }
 
 function readPaused(): boolean {
@@ -57,8 +65,18 @@ function readPaused(): boolean {
   }
 }
 
-const youtubeSrc = (id: string, autoplay: boolean) =>
-  `https://www.youtube-nocookie.com/embed/${id}?autoplay=${autoplay ? 1 : 0}&mute=1&controls=0&loop=1&playlist=${id}&playsinline=1&disablekb=1&rel=0&iv_load_policy=3&enablejsapi=1`;
+/** The file's MIME type from its extension (Steam serves mp4; other hosts may serve webm). */
+export function videoType(url: string): string {
+  return /\.webm(?:[?#]|$)/i.test(url) ? "video/webm" : "video/mp4";
+}
+
+const youtubeSrc = (id: string, autoplay: boolean, origin: string) =>
+  `${YT_ORIGIN}/embed/${id}?autoplay=${autoplay ? 1 : 0}&mute=1&controls=0&loop=1&playlist=${id}&playsinline=1&disablekb=1&rel=0&iv_load_policy=3&start=${START_AT_S}&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
+
+/** IFrame Player API command over postMessage (enablejsapi=1). */
+function ytCommand(frame: HTMLIFrameElement | null, play: boolean) {
+  frame?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: play ? "playVideo" : "pauseVideo", args: [] }), YT_ORIGIN);
+}
 
 export function BackdropLoop({ video, gameName }: { video: BackdropVideo; gameName: string }) {
   const hydrated = useSyncExternalStore(subscribeNothing, () => true, () => false);
@@ -73,13 +91,17 @@ function Loop({ video, gameName }: { video: NonNullable<BackdropVideo>; gameName
   const frame = useRef<HTMLIFrameElement>(null);
   /** On screen and the case intro is over. */
   const [active, setActive] = useState(false);
-  /** Requested once, the first time it becomes active (nothing is fetched before). */
+  /** Became active once: the file loads for real / the embed is created. */
   const [loaded, setLoaded] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
   const [paused, setPaused] = useState(readPaused);
   /** The embed starts on its own only when it is not paused here (later changes go by command). */
   const [autoplay] = useState(() => !readPaused());
+  const run = active && !paused;
+  const runRef = useRef(run);
+  /** The YouTube player answered: commands sent before that are lost, so they wait for it. */
+  const ytReady = useRef(false);
 
   useEffect(() => {
     const el = box.current;
@@ -104,22 +126,53 @@ function Loop({ video, gameName }: { video: NonNullable<BackdropVideo>; gameName
     };
   }, []);
 
-  const run = active && !paused;
   useEffect(() => {
+    runRef.current = run;
     if (!loaded) return;
     if (video.kind === "file") {
       const v = player.current;
       if (!v) return;
       if (run) void v.play().catch(() => undefined);
       else v.pause();
-    } else {
-      // IFrame Player API commands (enablejsapi=1); the embed autoplays muted on its own.
-      frame.current?.contentWindow?.postMessage(
-        JSON.stringify({ event: "command", func: run ? "playVideo" : "pauseVideo", args: [] }),
-        "https://www.youtube-nocookie.com",
-      );
+    } else if (ytReady.current) {
+      ytCommand(frame.current, run);
     }
   }, [run, loaded, video.kind]);
+
+  // YouTube IFrame API over postMessage: the player only talks once it hears "listening", then
+  // reports its state; the first answer means it is ready for the current command.
+  useEffect(() => {
+    if (video.kind !== "youtube" || !loaded) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== YT_ORIGIN || e.source !== frame.current?.contentWindow) return;
+      let data: { event?: string; info?: unknown } | null = null;
+      try {
+        data = typeof e.data === "string" ? JSON.parse(e.data) : null;
+      } catch {
+        return;
+      }
+      if (!data?.event) return;
+      if (!ytReady.current) {
+        ytReady.current = true;
+        ytCommand(frame.current, runRef.current);
+      }
+      const info = data.info as { playerState?: number } | number | undefined;
+      const state = typeof info === "number" ? (data.event === "onStateChange" ? info : undefined) : info?.playerState;
+      if (state === YT_PLAYING) setPlaying(true);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [video.kind, loaded]);
+
+  const listen = () => {
+    let tries = 0;
+    const hello = () => {
+      if (ytReady.current || tries++ > 40) return;
+      frame.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: 1, channel: "widget" }), YT_ORIGIN);
+      window.setTimeout(hello, 250);
+    };
+    hello();
+  };
 
   const togglePaused = () => {
     const next = !paused;
@@ -139,13 +192,14 @@ function Loop({ video, gameName }: { video: NonNullable<BackdropVideo>; gameName
         {CSS}
       </style>
       <div ref={box} className="gpb" aria-hidden="true" data-on={playing ? "" : undefined} data-testid="backdrop-loop">
-        {loaded && video.kind === "file" ? (
+        {video.kind === "file" ? (
           <video
             ref={player}
             muted
             loop
             playsInline
-            preload="auto"
+            // Only the metadata until the booklet is on screen and the intro is over.
+            preload={loaded ? "auto" : "metadata"}
             disablePictureInPicture
             tabIndex={-1}
             onPlaying={() => setPlaying(true)}
@@ -154,23 +208,22 @@ function Loop({ video, gameName }: { video: NonNullable<BackdropVideo>; gameName
             {video.sources.map((src, i) => (
               <source
                 key={src}
-                src={src}
-                type="video/mp4"
+                src={`${src}#t=${START_AT_S}`}
+                type={videoType(src)}
                 // The last source failing means none could play.
                 onError={i === video.sources.length - 1 ? () => setFailed(true) : undefined}
               />
             ))}
           </video>
-        ) : null}
-        {loaded && video.kind === "youtube" ? (
+        ) : loaded ? (
           <iframe
             ref={frame}
-            src={youtubeSrc(video.youtubeId, autoplay)}
+            src={youtubeSrc(video.youtubeId, autoplay, window.location.origin)}
             title={`Trecho de gameplay de ${gameName} (fundo decorativo)`}
             tabIndex={-1}
             allow="autoplay; encrypted-media"
             referrerPolicy="strict-origin-when-cross-origin"
-            onLoad={() => setPlaying(true)}
+            onLoad={listen}
           />
         ) : null}
       </div>

@@ -176,6 +176,46 @@ describe("Header", () => {
       expect(toggle()).toHaveAttribute("aria-expanded", "false");
     });
 
+    it("touch: a tap outside closes it (no blur on iOS), and a tap that focuses the link does not open it", () => {
+      render(
+        <>
+          <Header />
+          <p>fora</p>
+        </>,
+      );
+      fireEvent.click(toggle());
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+      fireEvent.pointerDown(screen.getByText("fora"));
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+
+      // Android: pointerdown, then the emulated focus, then the click.
+      const link = mainNav().getByRole("link", { name: "Jogos" });
+      fireEvent.pointerDown(link, { pointerType: "touch" });
+      act(() => link.focus());
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      link.addEventListener("click", (e) => e.preventDefault(), { once: true });
+      fireEvent.click(link);
+      // The press is over: keyboard focus opens it again.
+      act(() => link.blur());
+      act(() => link.focus());
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("Esc closes it from anywhere (focus stays where it was), and navigating closes it", () => {
+      const { rerender } = render(<Header />);
+      fireEvent.click(toggle());
+      act(() => (document.activeElement as HTMLElement | null)?.blur());
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      expect(toggle()).not.toHaveFocus();
+
+      fireEvent.click(toggle());
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+      pathnameMock.value = "/jogos";
+      rerender(<Header />);
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    });
+
     it("the mobile drawer lists the same platforms under Jogos", () => {
       render(<Header />);
       fireEvent.click(screen.getByRole("button", { name: "Abrir menu" }));

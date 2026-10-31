@@ -26,6 +26,8 @@ const NAMES: SampleName[] = [
   { kind: "player", index: 2, previous: "rnt_Velho_C", handle: "rnt_Novo_C", displayName: "Novo C" },
   { kind: "author", previous: "rnt_Byline", handle: "rnt_Byline_Nova", displayName: "Byline Nova" },
   { kind: "player", index: 3, previous: "diguzz", handle: "rnt_Nunca", displayName: "Nunca" },
+  { kind: "player", index: 4, previous: "rnt_Velho_D", handle: "rnt_Novo_D", displayName: "Novo D" },
+  { kind: "author", previous: "rnt_Byline2", handle: "rnt_Byline2_Nova", displayName: "Byline 2" },
 ];
 
 describe.skipIf(!reachable)("renameSampleUsers", () => {
@@ -34,7 +36,7 @@ describe.skipIf(!reachable)("renameSampleUsers", () => {
 
   const cleanup = async () => {
     await prisma.notification.deleteMany({ where: { user: { handle: { startsWith: "rnt_" } } } });
-    await prisma.author.deleteMany({ where: { handle: { startsWith: "rnt_" } } });
+    await prisma.author.deleteMany({ where: { handle: { startsWith: "rnt_", mode: "insensitive" } } });
     await prisma.user.deleteMany({ where: { handle: { startsWith: "rnt_" } } });
   };
 
@@ -51,6 +53,12 @@ describe.skipIf(!reachable)("renameSampleUsers", () => {
     // C: the seeded player, but its new handle is already someone else's: left alone.
     await prisma.user.create({ data: { handle: "rnt_Velho_C", displayName: "rnt_Velho_C", steamId: steamIdOf(2) } });
     await prisma.user.create({ data: { handle: "rnt_Novo_C", displayName: "Outra pessoa" } });
+    // D: the seeded player, but someone signed up as its new handle in another case (handles ignore case).
+    await prisma.user.create({ data: { handle: "rnt_Velho_D", displayName: "rnt_Velho_D", steamId: steamIdOf(4) } });
+    await prisma.user.create({ data: { handle: "rnt_novo_d", displayName: "Outra pessoa D" } });
+    // A byline whose new name exists in another case.
+    await prisma.author.create({ data: { handle: "rnt_Byline2" } });
+    await prisma.author.create({ data: { handle: "RNT_BYLINE2_NOVA" } });
     // A byline without an account, and a notification to a real-looking user mentioning A.
     await prisma.author.create({ data: { handle: "rnt_Byline" } });
     const reader = await prisma.user.create({ data: { handle: "rnt_leitor", displayName: "Leitor" } });
@@ -88,6 +96,11 @@ describe.skipIf(!reachable)("renameSampleUsers", () => {
     expect(await prisma.user.findUnique({ where: { handle: "rnt_Velho_C" } })).not.toBeNull();
     expect((await prisma.user.findUniqueOrThrow({ where: { handle: "rnt_Novo_C" } })).displayName).toBe("Outra pessoa");
     expect(skipped.some((s) => s.startsWith("diguzz"))).toBe(true);
+    // New handles taken in another case: nothing renamed onto them.
+    expect(await prisma.user.findUnique({ where: { handle: "rnt_Velho_D" } })).not.toBeNull();
+    expect(await prisma.user.findUnique({ where: { handle: "rnt_Novo_D" } })).toBeNull();
+    expect(await prisma.author.findUnique({ where: { handle: "rnt_Byline2" } })).not.toBeNull();
+    expect(skipped.filter((s) => /already/.test(s))).toHaveLength(3);
 
     const titles = (await prisma.notification.findMany({ where: { user: { handle: "rnt_leitor" } }, orderBy: { title: "asc" } })).map((n) => n.title);
     expect(titles).toEqual(["@rnt_Novo_A comentou na sua foto", "rnt_Novo_A curtiu sua foto", "rnt_Velho_Abc curtiu sua foto"]);

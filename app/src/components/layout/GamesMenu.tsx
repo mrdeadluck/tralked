@@ -1,15 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type PointerEvent } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useId, useRef, useState, type CSSProperties, type FocusEvent, type PointerEvent } from "react";
 import { GAME_MENU_ALL, GAME_MENU_OPTIONS } from "./game-menu";
 import { NavLink } from "./NavLink";
 
 /*
  * "Jogos" in the header: the link to the catalog plus a disclosure button that shows the catalog
  * by platform (Steam / PC first). It opens on mouse hover and when the link gets keyboard focus;
- * the button toggles it (touch, or to close it); Esc closes it and returns focus to the button;
- * tabbing out closes it. The panel follows the button in the DOM, so Tab walks into its links.
+ * the button toggles it (touch, or to close it); Esc closes it (focus back on the button if it was
+ * inside); tabbing out, a tap or click outside, and any navigation close it. The panel follows
+ * the button in the DOM, so Tab walks into its links.
  * Without JS the link still goes to the catalog.
  */
 
@@ -31,11 +33,51 @@ export function GamesMenu({
   const group = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const closeTimer = useRef(0);
-  /** A focus that follows a pointer press is a click, not keyboard navigation. */
+  /**
+   * A focus that follows a pointer press (mouse, or a tap that Android turns into focus) is not
+   * keyboard navigation. Cleared by the click that ends the press (after the focus), or a cancel.
+   */
   const pressing = useRef(false);
 
+  // A navigation (the Jogos link itself, a platform, the back button) closes it.
+  const pathname = usePathname();
+  const [seenPath, setSeenPath] = useState(pathname);
+  if (pathname !== seenPath) {
+    setSeenPath(pathname);
+    setOpen(false);
+  }
+
   const cancelClose = () => window.clearTimeout(closeTimer.current);
-  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+  useEffect(() => {
+    // A press that ended without a click (released elsewhere) must not mute keyboard focus later.
+    const keyboard = () => (pressing.current = false);
+    window.addEventListener("keydown", keyboard, true);
+    return () => {
+      window.removeEventListener("keydown", keyboard, true);
+      window.clearTimeout(closeTimer.current);
+    };
+  }, []);
+
+  // While open: a tap or click anywhere else closes it (iOS never blurs on an outside tap), and Esc
+  // closes it wherever focus is (WCAG 1.4.13), returning focus to the button when it was inside.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: Event) => {
+      if (!group.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const inside = group.current?.contains(document.activeElement) ?? false;
+      setOpen(false);
+      if (inside) button.current?.focus();
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   const onPointerEnter = (e: PointerEvent) => {
     if (e.pointerType !== "mouse") return;
@@ -50,12 +92,6 @@ export function GamesMenu({
   const onBlur = (e: FocusEvent) => {
     if (!group.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
   };
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== "Escape" || !open) return;
-    e.stopPropagation();
-    setOpen(false);
-    button.current?.focus();
-  };
   const close = () => setOpen(false);
 
   return (
@@ -66,10 +102,14 @@ export function GamesMenu({
       onPointerLeave={onPointerLeave}
       onPointerDown={() => {
         pressing.current = true;
-        window.setTimeout(() => (pressing.current = false), 0);
+      }}
+      onPointerCancel={() => {
+        pressing.current = false;
+      }}
+      onClickCapture={() => {
+        pressing.current = false;
       }}
       onBlur={onBlur}
-      onKeyDown={onKeyDown}
     >
       <NavLink
         href={href}

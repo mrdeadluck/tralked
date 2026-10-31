@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameAttributes } from "@/lib/queries/game-profile";
 import { AttributesGained } from "./AttributesGained";
@@ -160,6 +160,15 @@ describe("CaseIntro", () => {
     fireEvent.click(box);
     expect(localStorage.getItem(INTRO_OFF)).toBeNull();
     expect(setCaseIntro).toHaveBeenLastCalledWith({ off: false });
+  });
+
+  it("when the account cannot save the choice, the box and this browser go back", async () => {
+    setCaseIntro.mockResolvedValueOnce({ ok: false, error: "Entre na sua conta para continuar." } as never);
+    renderIntro({ opened: false });
+    const box = screen.getByRole("checkbox", { name: "Não mostrar a animação nos próximos jogos" });
+    fireEvent.click(box);
+    await waitFor(() => expect(box).not.toBeChecked());
+    expect(localStorage.getItem(INTRO_OFF)).toBeNull();
   });
 
   it("logged out, the choice stays on this browser only", () => {

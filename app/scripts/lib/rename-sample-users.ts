@@ -8,6 +8,8 @@ export type RenameChange = { model: string; id: string; field: string; from: str
 export type RenameReport = { changes: RenameChange[]; skipped: string[] };
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const sameHandle = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+const sameExact = (a: string, b: string) => a === b;
 
 /**
  * Renames the development data's fictional people from their old names to the new ones
@@ -41,15 +43,29 @@ export async function renameSampleUsers(
 
     if (name.kind === "player") {
       const steamId = steamIdOf(name.index);
-      const old = await db.user.findUnique({ where: { handle: name.previous } });
-      const current = old ?? (await db.user.findUnique({ where: { handle: name.handle } }));
-      if (current && current.steamId !== steamId) {
-        skipped.push(`${current.handle}: not the seeded player (SteamID ${current.steamId ?? "none"}), left alone`);
+      // Handles are unique without regard to case in the app (signup, profile URLs): compare that way.
+      const candidates = await db.user.findMany({
+        where: {
+          OR: [
+            { handle: { equals: name.previous, mode: "insensitive" } },
+            { handle: { equals: name.handle, mode: "insensitive" } },
+          ],
+        },
+      });
+      const current = candidates.find((u) => u.steamId === steamId) ?? null;
+      const other = candidates.find((u) => u.steamId !== steamId && sameHandle(u.handle, name.previous));
+      if (!current && other) {
+        skipped.push(`${other.handle}: not the seeded player (SteamID ${other.steamId ?? "none"}), left alone`);
       } else if (current) {
-        seedUserId = current.id;
-        if (old) {
-          planned.push({ model: "User", id: old.id, field: "handle", from: old.handle, to: name.handle });
+        if (!sameExact(current.handle, name.handle)) {
+          const taken = candidates.find((u) => u.id !== current.id && sameHandle(u.handle, name.handle));
+          if (taken) {
+            skipped.push(`${name.previous}: the handle ${name.handle} already belongs to another user (@${taken.handle}), nothing renamed`);
+            continue;
+          }
+          planned.push({ model: "User", id: current.id, field: "handle", from: current.handle, to: name.handle });
         }
+        seedUserId = current.id;
         if (current.displayName === name.previous) {
           planned.push({ model: "User", id: current.id, field: "displayName", from: current.displayName, to: name.displayName });
         }
@@ -68,22 +84,18 @@ export async function renameSampleUsers(
           planned.push({ model: "Notification", id: n.id, field: "title", from: n.title, to: n.title.replace(pattern, `$1${name.handle}`) });
         }
       }
-      if (old && seedUserId) {
-        const taken = await db.user.findUnique({ where: { handle: name.handle }, select: { id: true } });
-        if (taken && taken.id !== old.id) {
-          skipped.push(`${name.previous}: the handle ${name.handle} already belongs to another user, nothing renamed`);
-          continue;
-        }
-      }
     }
 
-    const author = await db.author.findUnique({ where: { handle: name.previous } });
-    if (author) {
+    const author = await db.author.findFirst({ where: { handle: { equals: name.previous, mode: "insensitive" } } });
+    if (author && !sameExact(author.handle, name.handle)) {
       if (author.userId !== null && author.userId !== seedUserId) {
         skipped.push(`author ${author.handle}: belongs to another account, left alone`);
       } else {
-        const taken = await db.author.findUnique({ where: { handle: name.handle }, select: { id: true } });
-        if (taken) skipped.push(`author ${name.previous}: the byline ${name.handle} already exists, left alone`);
+        const taken = await db.author.findFirst({
+          where: { id: { not: author.id }, handle: { equals: name.handle, mode: "insensitive" } },
+          select: { handle: true },
+        });
+        if (taken) skipped.push(`author ${name.previous}: the byline ${name.handle} already exists (${taken.handle}), left alone`);
         else planned.push({ model: "Author", id: author.id, field: "handle", from: author.handle, to: name.handle });
       }
     }
