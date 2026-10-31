@@ -122,7 +122,8 @@ export function BookletProgress({
   const best = progress?.best ?? null;
   const completed = Boolean(progress?.completed);
   const total = profile.achievements.steam || profile.achievements.byPlatform[0]?.total || 0;
-  const discArt = profile.art.hero ?? profile.art.cover;
+  // The disc label prints the cover (logo + key art); the wide hero only when there is no cover.
+  const discArt = profile.art.cover ?? profile.art.hero;
   const trophies = user?.trophies ?? null;
   const { tiers } = profile.achievements;
   // Logged out, the grid shows the game's own trophies: skip it while the catalog has none by tier.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { GameArt, type Hues } from "@/components/art/GameArt";
 import { useSound } from "@/components/fx/useSound";
@@ -35,7 +35,7 @@ const TITLE_ID = "gp-title";
 const AUTO_OPEN_MS = 6000;
 
 const CSS = `
-.gpc { --cw: min(280px, 34vw); --ch: calc(var(--cw) * 1.38); --case: #191b21; --case-2: #0e0f13; --case-rim: #24262e; --case-in: #121318;  position: fixed; inset: 0; z-index: 60; display: none; place-items: center; perspective: 1700px;
+.gpc { --cw: min(280px, 34vw); --band: calc(var(--cw) * .18); --ch: calc(var(--cw) * 1.38); --case: #191b21; --case-2: #0e0f13; --case-rim: #24262e; --case-in: #121318;  position: fixed; inset: 0; z-index: 60; display: none; place-items: center; perspective: 1700px;
   background: radial-gradient(ellipse 70% 60% at 50% 42%, #1a1c23 0%, var(--bg) 55%, #050507 100%); transition: opacity .9s ease; }
 .gpc.gpc-on { display: grid; }
 .gpc::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 40% 12% at 50% 84%, rgba(0,0,0,.6), transparent 70%); }
@@ -68,10 +68,11 @@ const CSS = `
 .gpc-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 3px 10px 10px 3px; overflow: hidden; }
 .gpc-out { background: #0d0e12; box-shadow: inset 0 0 0 2px rgba(255,255,255,.04); }
 .gpc-out > img, .gpc-out > canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-/* A real cover sits whole below the band (the band never hides the game's name); its own blurred art fills the sides. */
-.gpc-out > img.gpc-cover { top: 13%; height: 87%; object-fit: contain; }
-.gpc-out > img.gpc-cover-fill { top: 13%; height: 87%; filter: blur(14px) brightness(.55) saturate(1.2); transform: scale(1.15); }
-.gpc-top { position: absolute; left: 0; right: 0; top: 0; height: 13%; background: linear-gradient(180deg, var(--bg), #121318); display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 2px solid var(--acc); }
+/* A real cover fills the whole front below the band: the case grows to the cover's own proportion
+   (--cover-r, set from the loaded image), so the band never hides the game's name and nothing is cropped or letterboxed. */
+.gpc.gpc-has-cover { --ch: calc(var(--band) + var(--cw) * var(--cover-r, 1.5)); }
+.gpc-out > img.gpc-cover { top: var(--band); height: calc(100% - var(--band)); object-fit: cover; }
+.gpc-top { position: absolute; left: 0; right: 0; top: 0; height: var(--band); background: linear-gradient(180deg, var(--bg), #121318); display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 2px solid var(--acc); }
 .gpc-top b { font-weight: 900; font-stretch: 125%; font-size: calc(var(--cw) * .06); letter-spacing: -0.02em; }
 .gpc-top b i { font-style: normal; color: var(--acc); }
 .gpc-top span { font-family: var(--font-jetbrains-mono), monospace; font-size: calc(var(--cw) * .032); letter-spacing: .14em; color: var(--text-2); border: 1px solid var(--border-2); padding: 2px 5px; white-space: nowrap; }
@@ -188,6 +189,8 @@ export function CaseIntro(props: CaseIntroProps) {
   const soundOn = useRef(false);
   /** Null: stage not mounted. Each request to show it (first visit, replay) gets a new `n`. */
   const [staged, setStaged] = useState<{ auto: boolean; n: number } | null>(null);
+  /** Height / width of the real cover, so the case takes its proportion (clamped to a plausible box). */
+  const [coverRatio, setCoverRatio] = useState(1.5);
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -497,7 +500,8 @@ export function CaseIntro(props: CaseIntroProps) {
   return createPortal(
     <div
       ref={stage}
-      className="gpc"
+      className={coverUrl ? "gpc gpc-has-cover" : "gpc"}
+      style={coverUrl ? ({ "--cover-r": coverRatio } as CSSProperties) : undefined}
       role="dialog"
       aria-modal="true"
       aria-label={`Abrindo ${name} pela primeira vez`}
@@ -530,17 +534,23 @@ export function CaseIntro(props: CaseIntroProps) {
           </div>
           <div className="gpc-edge" />
           <div ref={slot} className="gpc-slot">
-            <Disc hues={hues} seed={seed} imageUrl={discArt} name={name} label={discLabel} plat={plat} />
+            <Disc hues={hues} seed={seed} imageUrl={coverUrl ?? discArt} name={name} label={discLabel} plat={plat} />
           </div>
           <div className="gpc-front">
             <div className="gpc-face gpc-out">
               {coverUrl ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img className="gpc-cover-fill" src={coverUrl} alt="" decoding="async" draggable={false} />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img className="gpc-cover" src={coverUrl} alt="" decoding="async" draggable={false} />
-                </>
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  className="gpc-cover"
+                  src={coverUrl}
+                  alt=""
+                  decoding="async"
+                  draggable={false}
+                  onLoad={(e) => {
+                    const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+                    if (w > 0 && h > 0) setCoverRatio(Math.min(1.6, Math.max(1.2, h / w)));
+                  }}
+                />
               ) : (
                 <GameArt seed={seed + 7} hues={hues} figure light width={560} height={772} />
               )}

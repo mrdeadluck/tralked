@@ -45,11 +45,13 @@ function paintDisc(cv: HTMLCanvasElement, art: DiscArt, image: HTMLImageElement 
   ctx.arc(c, c, R * 0.34, 0, Math.PI * 2, true);
   ctx.clip();
   if (image) {
-    // Cover-fit the real art into the square.
+    // Cover-fit the real art into the square. A portrait cover is framed from its upper part
+    // (where the logo and the character sit) instead of its middle.
     const scale = Math.max(w / image.naturalWidth, w / image.naturalHeight);
     const iw = image.naturalWidth * scale;
     const ih = image.naturalHeight * scale;
-    ctx.drawImage(image, (w - iw) / 2, (w - ih) / 2, iw, ih);
+    const y = ih > iw ? -(ih - w) * 0.2 : (w - ih) / 2;
+    ctx.drawImage(image, (w - iw) / 2, y, iw, ih);
     ctx.fillStyle = "rgba(6,6,8,.28)";
     ctx.fillRect(0, 0, w, w);
   } else {
@@ -104,7 +106,8 @@ function paintDisc(cv: HTMLCanvasElement, art: DiscArt, image: HTMLImageElement 
     size -= 2;
     ctx.font = `900 ${size}px ${sans}, sans-serif`;
   }
-  ctx.fillText(title, 0, -R * 0.52);
+  // Real art already carries the game's logo: printing the name over it would collide.
+  if (!image) ctx.fillText(title, 0, -R * 0.52);
   ctx.font = `500 ${w * 0.025}px ${mono}, monospace`;
   ctx.fillStyle = art.plat ? "rgba(255,215,140,.95)" : "rgba(198,244,50,.95)";
   ctx.fillText(art.label, 0, R * 0.58);

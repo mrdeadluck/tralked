@@ -119,7 +119,6 @@ export default function Home() {
   return (
     <div className="flex flex-col gap-12">
       <HighlightsSection />
-      <WireSection />
       <div className="flex flex-wrap items-start gap-12">
         <LatestSection />
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
@@ -131,6 +130,7 @@ export default function Home() {
           <EditorialCard />
         </aside>
       </div>
+      <WireSection />
     </div>
   );
 }
