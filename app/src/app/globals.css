@@ -78,39 +78,42 @@
   --breakpoint-nav: 900px;
 }
 
-html,
-body {
-  margin: 0;
-}
+/* Base rules live in @layer base so Tailwind utilities (mt-*, outline-*, ...) can override them. */
+@layer base {
+  html,
+  body {
+    margin: 0;
+  }
 
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: 16px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-}
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
 
-h1,
-h2,
-h3 {
-  margin: 0;
-  text-wrap: balance;
-}
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+    text-wrap: balance;
+  }
 
-p {
-  margin: 0;
-  text-wrap: pretty;
-}
+  p {
+    margin: 0;
+    text-wrap: pretty;
+  }
 
-input::placeholder {
-  color: var(--dim-2);
-}
+  input::placeholder {
+    color: var(--dim-2);
+  }
 
-:focus-visible {
-  outline: 2px solid var(--acc);
-  outline-offset: 2px;
+  :focus-visible {
+    outline: 2px solid var(--acc);
+    outline-offset: 2px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

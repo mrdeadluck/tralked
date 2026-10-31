@@ -60,7 +60,7 @@ export function Newsletter({ onSubscribe }: NewsletterProps) {
           <button
             type="submit"
             disabled={pending}
-            className="h-[52px] cursor-pointer rounded-[2px] border-0 bg-bg px-[22px] font-mono text-xs font-bold tracking-[0.1em] text-text hover:bg-[#23252c] disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-[52px] cursor-pointer rounded-[2px] border-0 bg-bg px-[22px] font-mono text-xs font-bold tracking-[0.1em] text-text hover:bg-[#23252c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bg disabled:cursor-not-allowed disabled:opacity-60"
           >
             INSCREVER →
           </button>
