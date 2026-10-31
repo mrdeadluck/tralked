@@ -1,0 +1,333 @@
+{
+  "appId": 367520,
+  "schema": [
+    {
+      "apiName": "FALSEHOOD",
+      "name": "Falsehood",
+      "description": "Derrote o False Knight.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/falsehood.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "TEST_OF_RESOLVE",
+      "name": "Test of Resolve",
+      "description": "Derrote Hornet em Greenpath.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/test_of_resolve.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "PROOF_OF_RESOLVE",
+      "name": "Proof of Resolve",
+      "description": "Derrote Hornet no Limite do Reino.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/proof_of_resolve.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "CHARMED",
+      "name": "Charmed",
+      "description": "Obtenha um amuleto.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/charmed.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "BLESSED",
+      "name": "Blessed",
+      "description": "Obtenha todos os amuletos.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/blessed.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "PROTECTED",
+      "name": "Protected",
+      "description": "Junte quatro fragmentos de máscara.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/protected.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "MASKED",
+      "name": "Masked",
+      "description": "Junte todos os fragmentos de máscara.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/masked.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "SOULFUL",
+      "name": "Soulful",
+      "description": "Junte três fragmentos de vaso.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/soulful.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "WORLDSOUL",
+      "name": "Worldsoul",
+      "description": "Junte todos os fragmentos de vaso.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/worldsoul.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "GRUBFRIEND",
+      "name": "Grubfriend",
+      "description": "Resgate metade das larvas presas.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/grubfriend.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "METAMORPHOSIS",
+      "name": "Metamorphosis",
+      "description": "Resgate todas as larvas.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/metamorphosis.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "TRUE_HUNTER",
+      "name": "True Hunter",
+      "description": "Complete o Diário do Caçador.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/true_hunter.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "COMPLETION",
+      "name": "Completion",
+      "description": "Alcance 100% de conclusão do jogo.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/completion.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "THE_HOLLOW_KNIGHT",
+      "name": "The Hollow Knight",
+      "description": "Derrote o Hollow Knight.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/the_hollow_knight.jpg",
+      "hidden": true
+    },
+    {
+      "apiName": "SEALED_SIBLINGS",
+      "name": "Sealed Siblings",
+      "description": "Alcance o final com o Coração do Vazio.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/sealed_siblings.jpg",
+      "hidden": true
+    },
+    {
+      "apiName": "DREAM_NO_MORE",
+      "name": "Dream No More",
+      "description": "Alcance o final do sonho.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/dream_no_more.jpg",
+      "hidden": true
+    },
+    {
+      "apiName": "RITUAL",
+      "name": "Ritual",
+      "description": "Complete o ritual da Trupe Grimm.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/ritual.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "BANISHMENT",
+      "name": "Banishment",
+      "description": "Bana a Trupe Grimm.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/banishment.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "BROTHERHOOD",
+      "name": "Brotherhood",
+      "description": "Complete o Panteão do Mestre.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/brotherhood.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "INSPIRATION",
+      "name": "Inspiration",
+      "description": "Complete o Panteão do Artista.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/inspiration.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "FOCUS",
+      "name": "Focus",
+      "description": "Complete o Panteão do Sábio.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/focus.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "SOUL_AND_SHADE",
+      "name": "Soul and Shade",
+      "description": "Complete o Panteão do Cavaleiro.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/soul_and_shade.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "EMBRACE_THE_VOID",
+      "name": "Embrace the Void",
+      "description": "Complete o Panteão de Hallownest.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/embrace_the_void.jpg",
+      "hidden": true
+    },
+    {
+      "apiName": "SPEEDRUN_1",
+      "name": "Speedrun 1",
+      "description": "Termine o jogo em menos de 10 horas.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/speedrun_1.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "SPEEDRUN_2",
+      "name": "Speedrun 2",
+      "description": "Termine o jogo em menos de 5 horas.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/speedrun_2.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "SPEED_COMPLETION",
+      "name": "Speed Completion",
+      "description": "Alcance 100% em menos de 20 horas.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/speed_completion.jpg",
+      "hidden": false
+    },
+    {
+      "apiName": "STEEL_SOUL",
+      "name": "Steel Soul",
+      "description": "Termine o modo Alma de Aço.",
+      "iconUrl": "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/367520/steel_soul.jpg",
+      "hidden": false
+    }
+  ],
+  "globalPercentages": {
+    "FALSEHOOD": 86.4,
+    "TEST_OF_RESOLVE": 71.2,
+    "PROOF_OF_RESOLVE": 31.5,
+    "CHARMED": 92.3,
+    "BLESSED": 8.7,
+    "PROTECTED": 74,
+    "MASKED": 10.9,
+    "SOULFUL": 62.8,
+    "WORLDSOUL": 12.6,
+    "GRUBFRIEND": 39.8,
+    "METAMORPHOSIS": 17.5,
+    "TRUE_HUNTER": 9.1,
+    "COMPLETION": 7.4,
+    "THE_HOLLOW_KNIGHT": 44.2,
+    "SEALED_SIBLINGS": 6.1,
+    "DREAM_NO_MORE": 11.3,
+    "RITUAL": 9.8,
+    "BANISHMENT": 7.9,
+    "BROTHERHOOD": 14,
+    "INSPIRATION": 9.2,
+    "FOCUS": 7.1,
+    "SOUL_AND_SHADE": 4.6,
+    "EMBRACE_THE_VOID": 2.2,
+    "SPEEDRUN_1": 6.8,
+    "SPEEDRUN_2": 2.9,
+    "SPEED_COMPLETION": 1.9,
+    "STEEL_SOUL": 3.1
+  },
+  "playerUnlocks": [
+    {
+      "apiName": "FALSEHOOD",
+      "unlockTime": 1740852000
+    },
+    {
+      "apiName": "TEST_OF_RESOLVE",
+      "unlockTime": 1741111200
+    },
+    {
+      "apiName": "PROOF_OF_RESOLVE",
+      "unlockTime": 1741370400
+    },
+    {
+      "apiName": "CHARMED",
+      "unlockTime": 1741629600
+    },
+    {
+      "apiName": "BLESSED",
+      "unlockTime": 1741888800
+    },
+    {
+      "apiName": "PROTECTED",
+      "unlockTime": 1742148000
+    },
+    {
+      "apiName": "MASKED",
+      "unlockTime": 1742407200
+    },
+    {
+      "apiName": "SOULFUL",
+      "unlockTime": 1742666400
+    },
+    {
+      "apiName": "WORLDSOUL",
+      "unlockTime": 1742925600
+    },
+    {
+      "apiName": "GRUBFRIEND",
+      "unlockTime": 1743184800
+    },
+    {
+      "apiName": "METAMORPHOSIS",
+      "unlockTime": 1743444000
+    },
+    {
+      "apiName": "TRUE_HUNTER",
+      "unlockTime": 1743703200
+    },
+    {
+      "apiName": "COMPLETION",
+      "unlockTime": 1743962400
+    },
+    {
+      "apiName": "THE_HOLLOW_KNIGHT",
+      "unlockTime": 1744221600
+    },
+    {
+      "apiName": "SEALED_SIBLINGS",
+      "unlockTime": 1744480800
+    },
+    {
+      "apiName": "DREAM_NO_MORE",
+      "unlockTime": 1744740000
+    },
+    {
+      "apiName": "RITUAL",
+      "unlockTime": 1744999200
+    },
+    {
+      "apiName": "BANISHMENT",
+      "unlockTime": 1745258400
+    },
+    {
+      "apiName": "BROTHERHOOD",
+      "unlockTime": 1745517600
+    },
+    {
+      "apiName": "INSPIRATION",
+      "unlockTime": 1745776800
+    },
+    {
+      "apiName": "FOCUS",
+      "unlockTime": 1746036000
+    },
+    {
+      "apiName": "SOUL_AND_SHADE",
+      "unlockTime": 0
+    },
+    {
+      "apiName": "EMBRACE_THE_VOID",
+      "unlockTime": 0
+    },
+    {
+      "apiName": "SPEEDRUN_1",
+      "unlockTime": 1746813600
+    },
+    {
+      "apiName": "SPEEDRUN_2",
+      "unlockTime": 0
+    },
+    {
+      "apiName": "SPEED_COMPLETION",
+      "unlockTime": 0
+    },
+    {
+      "apiName": "STEEL_SOUL",
+      "unlockTime": 0
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "steamAppId": 367520,
+  "igdbId": 14593,
+  "name": "Hollow Knight",
+  "summary": "Forge your own path in Hollow Knight! An epic action adventure through a vast ruined kingdom of insects and heroes. Explore twisting caverns, battle tainted creatures and befriend bizarre bugs, all in a classic, hand-drawn 2D style.",
+  "firstReleaseDate": 1487894400,
+  "genres": ["Platform", "Adventure", "Indie"],
+  "themes": ["Action", "Fantasy"],
+  "gameModes": ["Single player"],
+  "perspectives": ["Side view"],
+  "keywords": ["metroidvania", "soulslike", "difficult", "2d", "exploration", "boss fight"],
+  "aggregatedRating": 90.2,
+  "coverImageId": "co1rgi",
+  "timeToBeatCompleteSec": 144000
+}
