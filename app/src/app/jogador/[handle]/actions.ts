@@ -1,4 +1,4 @@
-﻿"use server";
+"use server";
 
 import { getSessionUser } from "@/lib/auth/session";
 import { claimSyncSlot } from "@/lib/sync/claim";

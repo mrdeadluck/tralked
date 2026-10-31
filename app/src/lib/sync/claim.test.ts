@@ -1,4 +1,4 @@
-﻿import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
 import { claimSyncSlot, MIN_SYNC_INTERVAL_MS } from "@/lib/sync/claim";
 

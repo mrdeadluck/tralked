@@ -1,4 +1,4 @@
-﻿import type { Prisma } from "@/generated/prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 
 export const MIN_SYNC_INTERVAL_MS = 2 * 60_000;

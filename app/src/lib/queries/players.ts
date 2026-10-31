@@ -1,4 +1,4 @@
-﻿import type { Prisma } from "@/generated/prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { skillNeed } from "@/lib/engine/skills";
 import { toLocalDay } from "@/lib/engine/streak";
