@@ -1,0 +1,102 @@
+import { NextRequest } from "next/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const consumeOidState = vi.fn();
+const verifySteamAssertion = vi.fn();
+const createSession = vi.fn();
+const upsertUserFromSteam = vi.fn();
+const syncUser = vi.fn();
+
+vi.mock("@/lib/auth/oid-state", () => ({ consumeOidState }));
+vi.mock("@/lib/auth/openid", () => ({ verifySteamAssertion }));
+vi.mock("@/lib/auth/session", () => ({ createSession }));
+vi.mock("@/lib/auth/upsert-user", () => ({ upsertUserFromSteam }));
+vi.mock("@/lib/sync/user", () => ({ syncUser }));
+
+const { GET } = await import("./route");
+const { env } = await import("@/lib/env");
+
+const CALLBACK = `${env.APP_URL}/api/auth/steam/callback`;
+
+function callbackRequest({
+  state = "s1",
+  returnTo = "/jogador/me",
+  openidReturnTo,
+}: { state?: string; returnTo?: string; openidReturnTo?: string } = {}) {
+  const own = new URL(CALLBACK);
+  own.searchParams.set("returnTo", returnTo);
+  own.searchParams.set("state", state);
+  const url = new URL(CALLBACK);
+  url.searchParams.set("returnTo", returnTo);
+  url.searchParams.set("state", state);
+  url.searchParams.set("openid.return_to", openidReturnTo ?? own.toString());
+  return new NextRequest(url);
+}
+
+const location = (response: Response) => new URL(response.headers.get("location")!);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  consumeOidState.mockResolvedValue(true);
+  verifySteamAssertion.mockResolvedValue("76561198000000000");
+  upsertUserFromSteam.mockResolvedValue({ id: "u1", handle: "lucas" });
+  syncUser.mockResolvedValue({ status: "ok" });
+});
+
+describe("steam callback", () => {
+  it("logs in and redirects to the player's page for the default returnTo", async () => {
+    const response = await GET(callbackRequest());
+    expect(consumeOidState).toHaveBeenCalledWith("s1");
+    expect(createSession).toHaveBeenCalledWith("u1");
+    expect(syncUser).toHaveBeenCalledWith("u1");
+    expect(location(response).pathname).toBe("/jogador/lucas");
+  });
+
+  it("honours a valid returnTo", async () => {
+    const response = await GET(callbackRequest({ returnTo: "/jogos/hollow-knight" }));
+    expect(location(response).pathname).toBe("/jogos/hollow-knight");
+  });
+
+  it("still logs in when the sync fails", async () => {
+    syncUser.mockRejectedValue(new Error("boom"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await GET(callbackRequest());
+    expect(location(response).pathname).toBe("/jogador/lucas");
+    expect(createSession).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("rejects a state that does not match the cookie, before calling Steam", async () => {
+    consumeOidState.mockResolvedValue(false);
+    const response = await GET(callbackRequest());
+    expect(location(response).search).toBe("?login=erro");
+    expect(verifySteamAssertion).not.toHaveBeenCalled();
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the signed return_to carries a different state", async () => {
+    const other = new URL(CALLBACK);
+    other.searchParams.set("state", "attacker");
+    const response = await GET(callbackRequest({ openidReturnTo: other.toString() }));
+    expect(location(response).search).toBe("?login=erro");
+    expect(verifySteamAssertion).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a prefix-only match on the path", `${CALLBACK}-evil`],
+    ["a longer path", `${CALLBACK}/extra`],
+    ["another origin", "https://evil.example.com/api/auth/steam/callback"],
+    ["garbage", "not a url"],
+  ])("rejects return_to with %s", async (_name, openidReturnTo) => {
+    const response = await GET(callbackRequest({ openidReturnTo }));
+    expect(location(response).search).toBe("?login=erro");
+    expect(verifySteamAssertion).not.toHaveBeenCalled();
+  });
+
+  it("redirects to the error page when Steam does not validate (or times out)", async () => {
+    verifySteamAssertion.mockResolvedValue(null);
+    const response = await GET(callbackRequest());
+    expect(location(response).search).toBe("?login=erro");
+    expect(createSession).not.toHaveBeenCalled();
+  });
+});
