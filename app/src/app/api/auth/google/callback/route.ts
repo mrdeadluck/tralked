@@ -42,7 +42,11 @@ export async function GET(request: NextRequest) {
     console.error("Google login failed", error instanceof Error ? error.message : String(error));
     return redirectTo("/?login=erro");
   }
-  if (!result.ok) return redirectTo("/?login=google_em_uso");
+  if (!result.ok) {
+    return redirectTo(
+      result.reason === "different" ? "/conta/conexoes?erro=google_diferente" : "/?login=google_em_uso",
+    );
+  }
 
   if (!sessionUser) await createSession(result.user.id);
   const returnTo = sanitizeReturnTo(auth.returnTo);

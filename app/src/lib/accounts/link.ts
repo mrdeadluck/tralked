@@ -11,15 +11,22 @@ import { lookupProfile } from "./profiles";
  * bio, RA motto) and confirms; Tralked reads the public profile with its own service account.
  * The user never hands over a password or token.
  *
- * Anti-squatting: a pending link does not reserve the platform account. While pending, the
- * user's own row (unique per user and platform) holds a placeholder externalId; the real id is
- * only written when the code is confirmed, so starting a link for someone else's account
- * blocks nobody.
+ * Anti-squatting: a pending link does not reserve the platform account. While pending (or after
+ * an unlink), the user's own row (unique per user and platform) holds a placeholder externalId
+ * `pending:<userId>[:<start times>]`; the real id is only written when the code is confirmed,
+ * so starting a link for someone else's account blocks nobody.
+ *
+ * Rate limits (each confirmation reads the platform with the service account):
+ * - confirm: once per CONFIRM_COOLDOWN_MS per user and platform (`lastSyncAttemptAt`, which
+ *   starting a link never resets);
+ * - start: at most MAX_STARTS_PER_HOUR per user over all platforms (start times are kept in the
+ *   placeholder externalId, so no schema change is needed).
  */
 
 export const LINK_CODE_TTL_MS = 30 * 60_000;
-/** Minimum time between two confirmations of the same pending link (each one reads the platform). */
-export const CONFIRM_COOLDOWN_MS = 10_000;
+export const CONFIRM_COOLDOWN_MS = 30_000;
+export const MAX_STARTS_PER_HOUR = 5;
+const HOUR_MS = 60 * 60_000;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O, 1/I
 const CODE_LENGTH = 6;
 
@@ -33,9 +40,12 @@ export const HANDLE_PATTERNS: Record<CodePlatform, RegExp> = {
   retro: /^[A-Za-z0-9_]{2,32}$/,
 };
 
+export type TooSoon = { ok: false; reason: "too_soon"; retryAfterSec: number };
+
 export type StartLinkResult =
   | { ok: true; code: string; expiresAt: Date }
-  | { ok: false; reason: "invalid_handle" | "already_linked" };
+  | { ok: false; reason: "invalid_handle" | "already_linked" }
+  | TooSoon;
 
 export type ConfirmLinkFailure =
   | "code_missing"
@@ -47,9 +57,28 @@ export type ConfirmLinkFailure =
 
 export type ConfirmLinkResult =
   | { ok: true; handle: string; externalId: string }
-  | { ok: false; reason: ConfirmLinkFailure };
+  | { ok: false; reason: Exclude<ConfirmLinkFailure, "too_soon"> }
+  | TooSoon;
 
-const pendingExternalId = (userId: string) => `pending:${userId}`;
+/** Placeholder externalId of a pending/unlinked row, carrying the recent link start times. */
+export function pendingExternalId(userId: string, starts: number[] = []): string {
+  return starts.length > 0
+    ? `pending:${userId}:${starts.map((t) => t.toString(36)).join(".")}`
+    : `pending:${userId}`;
+}
+
+/** Start times kept in a placeholder externalId (none for a verified row). */
+export function startsOf(externalId: string, userId: string): number[] {
+  const prefix = `pending:${userId}:`;
+  if (!externalId.startsWith(prefix)) return [];
+  return externalId
+    .slice(prefix.length)
+    .split(".")
+    .map((s) => parseInt(s, 36))
+    .filter((n) => Number.isFinite(n));
+}
+
+const retryAfter = (until: number, now: Date) => Math.max(1, Math.ceil((until - now.getTime()) / 1000));
 
 export function generateLinkCode(): string {
   let code = "";
@@ -65,7 +94,7 @@ export function containsCode(text: string, code: string): boolean {
 
 /**
  * Starts (or restarts, with a new code) linking `handle` on `platform`. A verified account on
- * that platform must be unlinked first.
+ * that platform must be unlinked first. Limited to MAX_STARTS_PER_HOUR per user.
  */
 export async function startLink(
   userId: string,
@@ -76,20 +105,28 @@ export async function startLink(
   const trimmed = handle.trim();
   if (!HANDLE_PATTERNS[platform].test(trimmed)) return { ok: false, reason: "invalid_handle" };
 
-  const existing = await prisma.linkedAccount.findUnique({
-    where: { userId_platform: { userId, platform } },
-  });
+  const rows = await prisma.linkedAccount.findMany({ where: { userId } });
+  const existing = rows.find((r) => r.platform === platform);
   if (existing?.verifiedAt) return { ok: false, reason: "already_linked" };
 
+  const windowStart = now.getTime() - HOUR_MS;
+  const recent = rows
+    .flatMap((r) => startsOf(r.externalId, userId))
+    .filter((t) => t > windowStart)
+    .sort((a, b) => a - b);
+  if (recent.length >= MAX_STARTS_PER_HOUR) {
+    return { ok: false, reason: "too_soon", retryAfterSec: retryAfter(recent[0] + HOUR_MS, now) };
+  }
+
+  const ownStarts = (existing ? startsOf(existing.externalId, userId) : []).filter((t) => t > windowStart);
   const code = generateLinkCode();
   const expiresAt = new Date(now.getTime() + LINK_CODE_TTL_MS);
   const pending = {
-    externalId: pendingExternalId(userId),
+    externalId: pendingExternalId(userId, [...ownStarts, now.getTime()]),
     handle: trimmed,
     verifyCode: code,
     verifyExpiresAt: expiresAt,
     verifiedAt: null,
-    lastSyncAttemptAt: null,
   };
   await prisma.linkedAccount.upsert({
     where: { userId_platform: { userId, platform } },
@@ -127,12 +164,15 @@ export async function confirmLink(
       verifiedAt: null,
       OR: [
         { lastSyncAttemptAt: null },
-        { lastSyncAttemptAt: { lt: new Date(now.getTime() - CONFIRM_COOLDOWN_MS) } },
+        { lastSyncAttemptAt: { lte: new Date(now.getTime() - CONFIRM_COOLDOWN_MS) } },
       ],
     },
     data: { lastSyncAttemptAt: now },
   });
-  if (claimed.count === 0) return { ok: false, reason: "too_soon" };
+  if (claimed.count === 0) {
+    const last = pending.lastSyncAttemptAt?.getTime() ?? now.getTime();
+    return { ok: false, reason: "too_soon", retryAfterSec: retryAfter(last + CONFIRM_COOLDOWN_MS, now) };
+  }
 
   const profile = await lookupProfile(platform, pending.handle);
   if (!profile) return { ok: false, reason: "not_found" };
@@ -154,7 +194,7 @@ export async function confirmLink(
         verifiedAt: now,
         verifyCode: null,
         verifyExpiresAt: null,
-        lastSyncAttemptAt: null,
+        // lastSyncAttemptAt stays at this attempt, so the cooldown also covers unlink + relink.
       },
     });
   } catch (error) {
@@ -170,23 +210,43 @@ export async function confirmLink(
 }
 
 /**
- * Removes the link and the progress imported from it: that platform's library rows, unlocks
- * and ledger entries are deleted, so the platform account can later be linked again (by this or
- * another user) without paying XP twice. Fraud history stays: suspicious unlocks and voided
- * ledger entries are kept, so a re-link never pays them again. Returns false when nothing was
- * linked.
+ * Disconnects the account: the row goes back to the unlinked state (placeholder externalId, so
+ * the platform account is free for anyone; the verification counts as a recent start), the
+ * platform's library rows and valid unlocks are removed, and its ledger entries are voided
+ * (never deleted): relinking the same account later does not pay those unlocks again, while
+ * another user who proves ownership is paid normally. Suspicious unlocks are kept, so fraud
+ * history survives. Returns false when the platform was not linked.
  */
-export async function unlink(userId: string, platform: CodePlatform): Promise<boolean> {
+export async function unlink(
+  userId: string,
+  platform: CodePlatform,
+  now: Date = new Date(),
+): Promise<boolean> {
   const removed = await prisma.$transaction(async (tx) => {
-    const { count } = await tx.linkedAccount.deleteMany({ where: { userId, platform } });
-    if (count === 0) return false;
-    await tx.xpLedgerEntry.deleteMany({ where: { userId, platform, voidedAt: null } });
+    const account = await tx.linkedAccount.findUnique({
+      where: { userId_platform: { userId, platform } },
+    });
+    if (!account?.verifiedAt) return false;
+    await tx.linkedAccount.update({
+      where: { id: account.id },
+      data: {
+        externalId: pendingExternalId(userId, [account.verifiedAt.getTime()]),
+        verifiedAt: null,
+        verifyCode: null,
+        verifyExpiresAt: null,
+        lastSyncedAt: null,
+      },
+    });
+    await tx.xpLedgerEntry.updateMany({
+      where: { userId, platform, voidedAt: null },
+      data: { voidedAt: now },
+    });
     await tx.userAchievement.deleteMany({
       where: { userId, suspicious: false, achievement: { platform } },
     });
     await tx.userGame.deleteMany({ where: { userId, platform } });
     return true;
   });
-  if (removed) await recomputeUser(userId);
+  if (removed) await recomputeUser(userId, now);
   return removed;
 }

@@ -30,7 +30,29 @@ const INVALID: ActionError = { ok: false, error: "Dados inválidos." };
 const PLATFORM_NAMES = { psn: "PlayStation", xbox: "Xbox", retro: "RetroAchievements" } as const;
 const PROFILE_FIELD = { psn: "Sobre mim", xbox: "bio", retro: "motto" } as const;
 
-function confirmMessage(reason: ConfirmLinkFailure, platform: z.infer<typeof platformSchema>): string {
+const waitMessage = (seconds: number) =>
+  seconds > 90
+    ? `Muitas tentativas. Tente de novo em ${Math.ceil(seconds / 60)} minutos.`
+    : `Aguarde ${seconds} segundos antes de tentar de novo.`;
+
+/** Background syncs (after a link or on demand) stop reading titles after this; cron continues. */
+const BACKGROUND_SYNC_BUDGET_MS = 50_000;
+
+function backgroundSync(userId: string, platform: z.infer<typeof platformSchema>, label: string) {
+  after(async () => {
+    try {
+      await syncPlatformAccount(userId, platform, { deadline: Date.now() + BACKGROUND_SYNC_BUDGET_MS });
+    } catch (error) {
+      console.error(`${label}: ${platform} import failed`, error instanceof Error ? error.message : String(error));
+    }
+  });
+}
+
+function confirmMessage(
+  reason: ConfirmLinkFailure,
+  platform: z.infer<typeof platformSchema>,
+  retryAfterSec = 30,
+): string {
   const name = PLATFORM_NAMES[platform];
   switch (reason) {
     case "code_missing":
@@ -44,7 +66,7 @@ function confirmMessage(reason: ConfirmLinkFailure, platform: z.infer<typeof pla
     case "not_found":
       return `Não encontramos esse perfil ${name}. Confira o nome digitado.`;
     case "too_soon":
-      return "Aguarde alguns segundos antes de verificar de novo.";
+      return waitMessage(retryAfterSec);
   }
 }
 
@@ -57,6 +79,7 @@ export async function startLinkAction(input: unknown): Promise<StartLinkActionRe
 
   const result = await startLink(user.id, parsed.data.platform, parsed.data.handle);
   if (!result.ok) {
+    if (result.reason === "too_soon") return { ok: false, error: waitMessage(result.retryAfterSec) };
     return {
       ok: false,
       error:
@@ -79,16 +102,10 @@ export async function confirmLinkAction(input: unknown): Promise<ConfirmLinkActi
   try {
     const result = await confirmLink(user.id, platform);
     if (!result.ok) {
-      return { ok: false, reason: result.reason, error: confirmMessage(result.reason, platform) };
+      const retry = result.reason === "too_soon" ? result.retryAfterSec : undefined;
+      return { ok: false, reason: result.reason, error: confirmMessage(result.reason, platform, retry) };
     }
-    const userId = user.id;
-    after(async () => {
-      try {
-        await syncPlatformAccount(userId, platform);
-      } catch (error) {
-        console.error(`Link: first ${platform} import failed`, error);
-      }
-    });
+    backgroundSync(user.id, platform, "Link");
     return { ok: true, handle: result.handle };
   } catch (error) {
     console.error("confirmLinkAction failed", {
@@ -110,10 +127,13 @@ export async function unlinkAction(input: unknown): Promise<SimpleActionResult> 
   return removed ? { ok: true } : { ok: false, error: "Essa plataforma não está conectada." };
 }
 
-/** Imports the latest progress of one linked account now. At most once per 2 minutes. */
-export async function syncLinkedAccountAction(input: unknown): Promise<
-  { ok: true; newUnlocks: number; levelBefore: number; levelAfter: number } | ActionError
-> {
+/**
+ * Starts importing the latest progress of one linked account (incremental, in the background
+ * after the response). At most once per 2 minutes.
+ */
+export async function syncLinkedAccountAction(
+  input: unknown,
+): Promise<{ ok: true; message: string } | ActionError> {
   const user = await getSessionUser();
   if (!user) return NOT_LOGGED_IN;
   const parsed = platformOnlySchema.safeParse(input);
@@ -136,23 +156,6 @@ export async function syncLinkedAccountAction(input: unknown): Promise<
   if (claimed.count === 0) {
     return { ok: false, error: "Aguarde um pouco antes de sincronizar de novo (ou conecte a conta primeiro)." };
   }
-  try {
-    const result = await syncPlatformAccount(user.id, platform);
-    if (result.status === "private") {
-      return { ok: false, error: confirmMessage("private", platform) };
-    }
-    return {
-      ok: true,
-      newUnlocks: result.newUnlocks,
-      levelBefore: result.levelBefore,
-      levelAfter: result.levelAfter,
-    };
-  } catch (error) {
-    console.error("syncLinkedAccountAction failed", {
-      userId: user.id,
-      platform,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return { ok: false, error: "Não foi possível sincronizar agora. Tente de novo em instantes." };
-  }
+  backgroundSync(user.id, platform, "Manual sync");
+  return { ok: true, message: "Sincronização iniciada" };
 }

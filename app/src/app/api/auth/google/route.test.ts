@@ -47,6 +47,29 @@ describe("/api/auth/google", () => {
     expect(stored.returnTo).toBe("/jogador/me"); // open redirect sanitized
   });
 
+  it("refuses to replace a different Google account linked to the logged-in user", async () => {
+    vi.stubEnv("GOOGLE_CLIENT_ID", "cid");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "secret");
+    const createSession = vi.fn();
+    vi.doMock("@/lib/auth/session", () => ({
+      getSessionUser: async () => ({ id: "u1", handle: "lucas" }),
+      createSession,
+    }));
+    vi.doMock("@/lib/auth/google", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/auth/google")>()),
+      consumeGoogleLogin: async () => ({ state: "s", nonce: "n", verifier: "v", returnTo: "/" }),
+      exchangeGoogleCode: async () => ({ sub: "other", emailVerified: false }),
+      upsertUserFromGoogle: async () => ({ ok: false, reason: "different" }),
+    }));
+    const { GET } = await import("./callback/route");
+    const res = await GET(new NextRequest("http://localhost:3000/api/auth/google/callback?code=c&state=s"));
+    const location = new URL(res.headers.get("location")!);
+    expect(location.pathname + location.search).toBe("/conta/conexoes?erro=google_diferente");
+    expect(createSession).not.toHaveBeenCalled();
+    vi.doUnmock("@/lib/auth/session");
+    vi.doUnmock("@/lib/auth/google");
+  });
+
   it("rejects a callback whose state does not match the cookie", async () => {
     vi.stubEnv("GOOGLE_CLIENT_ID", "cid");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "secret");

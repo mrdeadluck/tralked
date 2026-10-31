@@ -290,6 +290,54 @@ describe.skipIf(!reachable)("recomputeUser", () => {
     });
   });
 
+  it("voiding unlocks that completed a mission voids its reward; a clean completion is not touched", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { recomputeUser, voidFraudEntries } = await import("./recompute");
+    const user = await newUser();
+    // 3 rare unlocks today complete "Desbloqueie 3 conquistas raras"; 2 earlier.
+    for (let i = 0; i < 3; i++) await unlock(user.id, i, new Date(NOW.getTime() - (i + 1) * HOUR));
+    await recomputeUser(user.id, NOW);
+    const rare = await prisma.mission.findFirstOrThrow({
+      where: { userId: user.id, kind: "daily", title: "Desbloqueie 3 conquistas raras" },
+    });
+    expect(rare.completedAt).not.toBeNull();
+    const before = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
+
+    const voided = await voidFraudEntries(user.id, [achievementIds[0]], NOW);
+    expect(voided).toBe(1); // the mission reward (no achievement entries in this ledger)
+
+    const after = await prisma.mission.findUniqueOrThrow({ where: { id: rare.id } });
+    expect(after).toMatchObject({ completedAt: null, progress: 2 });
+    const reward = await prisma.xpLedgerEntry.findUniqueOrThrow({
+      where: { userId_source_sourceKey: { userId: user.id, source: "mission", sourceKey: rare.id } },
+    });
+    expect(reward.voidedAt).toEqual(NOW);
+    const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
+    expect(stats.totalXp).toBe(before.totalXp - rare.rewardXp);
+  });
+
+  it("does not count a tainted completion for Coleção nor give it a synthetic platinum", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { recomputeUser } = await import("./recompute");
+    const user = await newUser();
+    const game = await prisma.achievement.findUniqueOrThrow({ where: { id: achievementIds[0] } });
+    // Steam marks the game complete even though one unlock is suspicious.
+    await prisma.userGame.create({
+      data: { userId: user.id, gameId: game.gameId, platform: "steam", playtimeMin: 0, unlockedCount: 1, completedAt: NOW },
+    });
+    await unlock(user.id, 6, new Date(NOW.getTime() - HOUR)); // 60%: bronze
+    await unlock(user.id, 7, new Date(NOW.getTime() - HOUR), true);
+
+    await recomputeUser(user.id, NOW);
+
+    const points = async (attribute: string) =>
+      (await prisma.attributeProgress.findUniqueOrThrow({
+        where: { userId_attribute: { userId: user.id, attribute } },
+      })).points;
+    expect(await points("colecao")).toBe(0);
+    expect(await points("gloria")).toBe(10); // the bronze only, no platinum
+  });
+
   it("keeps lucas's seeded missions complete (3 daily + 2 weekly, ISO week key)", async () => {
     const { prisma } = await import("@/lib/db");
     const missions = await prisma.mission.findMany({ where: { user: { handle: "lucas" } } });

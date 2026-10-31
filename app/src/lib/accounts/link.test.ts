@@ -169,18 +169,42 @@ describe.skipIf(!reachable)("account linking", () => {
     const pending = await prisma.linkedAccount.findUniqueOrThrow({
       where: { userId_platform: { userId: squatter.id, platform: "psn" } },
     });
-    expect(pending.externalId).toBe(`pending:${squatter.id}`);
+    expect(pending.externalId.startsWith(`pending:${squatter.id}`)).toBe(true);
     expect(pending.verifiedAt).toBeNull();
   });
 
-  it("throttles confirmations of the same link", async () => {
+  it("throttles confirmations to one per 30 s, and restarting the link does not reset it", async () => {
     const { confirmLink, startLink } = await import("./link");
     const user = await newUser();
     await startLink(user.id, "retro", "Apressado", T0);
     await expect(confirmLink(user.id, "retro", later(1000))).resolves.toEqual({ ok: false, reason: "not_found" });
-    await expect(confirmLink(user.id, "retro", later(5000))).resolves.toEqual({ ok: false, reason: "too_soon" });
+    await expect(confirmLink(user.id, "retro", later(5000))).resolves.toEqual({
+      ok: false,
+      reason: "too_soon",
+      retryAfterSec: 26,
+    });
+    // Alternating start/confirm cannot bypass the cooldown.
+    await startLink(user.id, "retro", "Apressado", later(6000));
+    await expect(confirmLink(user.id, "retro", later(7000))).resolves.toMatchObject({ reason: "too_soon" });
     expect(profiles.calls).toBe(1);
-    await expect(confirmLink(user.id, "retro", later(12_000))).resolves.toEqual({ ok: false, reason: "not_found" });
+    await expect(confirmLink(user.id, "retro", later(31_000))).resolves.toEqual({ ok: false, reason: "not_found" });
+    expect(profiles.calls).toBe(2);
+  });
+
+  it("allows at most 5 link starts per hour per user, over all platforms", async () => {
+    const { startLink } = await import("./link");
+    const user = await newUser();
+    const platforms = ["psn", "xbox", "retro", "psn", "xbox"] as const;
+    for (const [i, platform] of platforms.entries()) {
+      await expect(startLink(user.id, platform, "Varios", later(i * 60_000))).resolves.toMatchObject({ ok: true });
+    }
+    // 6th start, 10 minutes after the first: wait until the first leaves the 1-hour window.
+    await expect(startLink(user.id, "retro", "Varios", later(10 * 60_000))).resolves.toEqual({
+      ok: false,
+      reason: "too_soon",
+      retryAfterSec: 50 * 60,
+    });
+    await expect(startLink(user.id, "retro", "Varios", later(60 * 60_000 + 1000))).resolves.toMatchObject({ ok: true });
   });
 
   it("rejects malformed handles before anything else", async () => {
@@ -190,9 +214,10 @@ describe.skipIf(!reachable)("account linking", () => {
     await expect(startLink(user.id, "retro", "", T0)).resolves.toEqual({ ok: false, reason: "invalid_handle" });
   });
 
-  it("unlink removes the link and the imported progress, keeping voided entries", async () => {
+  it("unlink voids the platform's ledger entries (never deletes) and frees the account", async () => {
     const { prisma } = await import("@/lib/db");
     const { unlink } = await import("./link");
+    const { getLinkedAccounts } = await import("./queries");
     const user = await newUser();
     await prisma.linkedAccount.create({
       data: { userId: user.id, platform: "xbox", externalId: "xuid-unlink", handle: "Sai", verifiedAt: T0 },
@@ -205,12 +230,19 @@ describe.skipIf(!reachable)("account linking", () => {
       ],
     });
 
-    await expect(unlink(user.id, "xbox")).resolves.toBe(true);
-    const left = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id }, orderBy: { sourceKey: "asc" } });
-    expect(left.map((e) => e.sourceKey)).toEqual(["a2", "m1"]);
+    await expect(unlink(user.id, "xbox", later(1000))).resolves.toBe(true);
+    const entries = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id }, orderBy: { sourceKey: "asc" } });
+    expect(entries.map((e) => [e.sourceKey, e.voidedAt !== null])).toEqual([
+      ["a1", true],
+      ["a2", true],
+      ["m1", false],
+    ]);
+    expect(entries[1].voidedAt).toEqual(T0); // an earlier void keeps its time
     const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
     expect(stats.totalXp).toBe(300);
-    expect(await prisma.linkedAccount.count({ where: { userId: user.id } })).toBe(0);
+    // The platform id is free again; the row only remains (unverified) for rate limiting.
+    expect(await prisma.linkedAccount.count({ where: { platform: "xbox", externalId: "xuid-unlink" } })).toBe(0);
+    await expect(getLinkedAccounts(user.id)).resolves.toEqual([]);
     await expect(unlink(user.id, "xbox")).resolves.toBe(false);
   });
 });

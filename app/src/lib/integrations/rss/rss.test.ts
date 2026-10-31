@@ -60,6 +60,23 @@ describe("parseFeed", () => {
     ]);
   });
 
+  it("stops at an unclosed <item> and stays linear on hostile input", () => {
+    const valid = `<item><title>Ok</title><link>https://example.com/ok</link><pubDate>Thu, 29 Oct 2026 10:00:00 GMT</pubDate></item>`;
+    const hostile = `<rss>${valid}<item><title>` + "<title><![CDATA[<link ".repeat(80_000) + "<itemx".repeat(50_000);
+    expect(hostile.length).toBeGreaterThan(1_500_000);
+    const started = performance.now();
+    const items = parseFeed(hostile, NOW);
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(items.map((i) => i.url)).toEqual(["https://example.com/ok"]);
+  });
+
+  it("keeps indexes aligned when the text has characters whose lowercase is longer", () => {
+    const xml = `<rss><item><title>İstanbul HOLLOW Knight</title><LINK>https://example.com/i</LINK><pubDate>Thu, 29 Oct 2026 10:00:00 GMT</pubDate></item></rss>`;
+    expect(parseFeed(xml, NOW)).toEqual([
+      { title: "İstanbul HOLLOW Knight", url: "https://example.com/i", publishedAt: new Date("2026-10-29T10:00:00Z") },
+    ]);
+  });
+
   it("reads Atom entries (alternate link) and drops unsafe ones", () => {
     expect(parseFeed(ATOM, NOW)).toEqual([
       {
@@ -78,6 +95,27 @@ describe("fetchFeed", () => {
     expect(items).toHaveLength(1);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("aborts a chunked body (no content-length) as soon as it passes 2 MB", async () => {
+    const chunk = new TextEncoder().encode("<rss>" + "x".repeat(64 * 1024));
+    let pulled = 0;
+    const total = Math.ceil((3 * 1024 * 1024) / chunk.byteLength); // ~3 MB
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled >= total) return controller.close();
+        pulled++;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const chunked = vi.fn(async () => new Response(body, { status: 200 }));
+    await expect(fetchFeed("https://x", chunked as unknown as typeof fetch)).rejects.toThrow(/too large/);
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThan(total);
   });
 
   it("fails on HTTP errors and oversized feeds", async () => {

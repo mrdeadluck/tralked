@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { xpForPlatformAchievement } from "@/lib/engine/trophies";
 import { platinumBonus } from "@/lib/engine/xp";
 import { env } from "@/lib/env";
@@ -219,13 +219,101 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     expect(after.totalXp).toBe(before.totalXp - lost.reduce((sum, e) => sum + e.xp, 0));
     expect(after.level).toBeLessThanOrEqual(before.level);
 
-    await syncPlatformAccount(user.id, "psn");
+    // The tainted 100% is no completion: no Coleção, and Glória loses the voided platinum
+    // trophy without getting a synthetic one (390 - 150).
+    const attribute = async (id: string) =>
+      (await prisma.attributeProgress.findUniqueOrThrow({
+        where: { userId_attribute: { userId: user.id, attribute: id } },
+      })).points;
+    const hkGame = () =>
+      prisma.userGame.findUniqueOrThrow({
+        where: { userId_gameId_platform: { userId: user.id, gameId: hk.id, platform: "psn" } },
+      });
+    expect((await hkGame()).completedAt).toBeNull();
+    expect(await attribute("colecao")).toBe(0);
+    expect(await attribute("gloria")).toBe(240);
+
+    // A full re-read of every title changes nothing: the verdict and the voids are sticky.
+    await syncPlatformAccount(user.id, "psn", { full: true });
     const resynced = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
     expect(resynced.totalXp).toBe(after.totalXp);
     const unlock = await prisma.userAchievement.findUniqueOrThrow({
       where: { userId_achievementId: { userId: user.id, achievementId: platinumTrophy.id } },
     });
     expect(unlock.suspicious).toBe(true);
+    expect((await hkGame()).completedAt).toBeNull();
+    expect(await attribute("colecao")).toBe(0);
+  });
+
+  it("gives undated unlocks their first-seen time once: later syncs move neither date nor active days", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const user = await userWith("psn", "9000000000000000004", "Sem-Data");
+    const t1 = new Date("2026-10-20T12:00:00Z");
+    const t2 = new Date("2026-10-22T12:00:00Z");
+
+    await syncPlatformAccount(user.id, "psn", { now: t1 });
+    const first = await prisma.userAchievement.findMany({ where: { userId: user.id } });
+    expect(first).toHaveLength(14);
+    expect(first.every((u) => u.unlockedAt.getTime() === t1.getTime())).toBe(true);
+    // 14 unlocks at one instant would be a burst, but undated unlocks are not burst evidence.
+    expect(first.every((u) => !u.suspicious)).toBe(true);
+    const constancia = () =>
+      prisma.attributeProgress.findUniqueOrThrow({
+        where: { userId_attribute: { userId: user.id, attribute: "constancia" } },
+      });
+    const before = await constancia();
+
+    await syncPlatformAccount(user.id, "psn", { now: t2 });
+    const second = await prisma.userAchievement.findMany({ where: { userId: user.id } });
+    expect(second.every((u) => u.unlockedAt.getTime() === t1.getTime())).toBe(true);
+    expect((await constancia()).points).toBe(before.points);
+  });
+
+  it("is incremental: titles without activity since the last sync are not read again", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getPsn } = await import("@/lib/integrations");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const user = await userWith("psn", "9000000000000000002", "Tralked-Teste");
+    await syncPlatformAccount(user.id, "psn");
+    const account = await prisma.linkedAccount.findUniqueOrThrow({
+      where: { userId_platform: { userId: user.id, platform: "psn" } },
+    });
+    expect(account.lastSyncedAt).not.toBeNull();
+
+    const reads = vi.spyOn(getPsn(), "getTrophies");
+    await syncPlatformAccount(user.id, "psn");
+    expect(reads).not.toHaveBeenCalled();
+    await syncPlatformAccount(user.id, "psn", { full: true });
+    expect(reads).toHaveBeenCalledTimes(3);
+    reads.mockRestore();
+  });
+
+  it("stops at the time budget and does not mark the account synced", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const user = await userWith("psn", "9000000000000000002", "Tralked-Teste");
+    const result = await syncPlatformAccount(user.id, "psn", { deadline: 0 });
+    expect(result).toMatchObject({ status: "ok", partial: true, newUnlocks: 0 });
+    const account = await prisma.linkedAccount.findUniqueOrThrow({
+      where: { userId_platform: { userId: user.id, platform: "psn" } },
+    });
+    expect(account.lastSyncedAt).toBeNull();
+    expect(account.lastSyncAttemptAt).not.toBeNull();
+  });
+
+  it("cron syncs at most 5 accounts per run, stalest first, and respects the budget", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncStalePlatformAccounts } = await import("./platform-user");
+    const where = { externalId: { startsWith: "test-cron-" } };
+    for (let i = 0; i < 6; i++) await userWith("psn", `test-cron-${i}`, `Cron-${i}`);
+
+    await expect(syncStalePlatformAccounts({ where, budgetMs: 0 })).resolves.toEqual({ processed: 0, failed: 0 });
+    await expect(syncStalePlatformAccounts({ where })).resolves.toEqual({ processed: 5, failed: 0 });
+    expect(await prisma.linkedAccount.count({ where: { ...where, lastSyncAttemptAt: null } })).toBe(1);
+    // The one left behind goes first next time.
+    await syncStalePlatformAccounts({ where, limit: 1 });
+    expect(await prisma.linkedAccount.count({ where: { ...where, lastSyncAttemptAt: null } })).toBe(0);
   });
 
   it("turns lucas's seeded PSN progress into ledger entries when his account syncs", async () => {
