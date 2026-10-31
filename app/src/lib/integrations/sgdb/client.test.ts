@@ -27,6 +27,7 @@ describe("sgdb client", () => {
     for (const call of fetchMock.mock.calls) {
       const init = (call as unknown as [unknown, RequestInit])[1];
       expect((init.headers as Record<string, string>).Authorization).toBe("Bearer KEY");
+      expect(init.signal).toBeInstanceOf(AbortSignal);
     }
   });
 

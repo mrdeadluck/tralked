@@ -1,3 +1,4 @@
+import { timeoutSignal } from "../http";
 import type { SgdbApi } from "./types";
 
 const BASE = "https://www.steamgriddb.com/api/v2";
@@ -14,6 +15,7 @@ export function createSgdbClient({
   async function firstUrl(kind: "grids" | "heroes" | "logos", appId: number) {
     const res = await fetchImpl(`${BASE}/${kind}/steam/${appId}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
+      signal: timeoutSignal(),
     });
     if (res.status === 404) return undefined; // unknown game
     if (!res.ok) throw new Error(`SteamGridDB ${kind} failed with HTTP ${res.status}`);

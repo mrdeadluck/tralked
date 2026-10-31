@@ -1,3 +1,4 @@
+import { timeoutSignal } from "../http";
 import type { IgdbApi, IgdbGame } from "./types";
 
 const API_BASE = "https://api.igdb.com/v4";
@@ -78,7 +79,7 @@ export function createIgdbClient({
     url.searchParams.set("client_id", clientId);
     url.searchParams.set("client_secret", clientSecret);
     url.searchParams.set("grant_type", "client_credentials");
-    const res = await fetchImpl(url.toString(), { method: "POST" });
+    const res = await fetchImpl(url.toString(), { method: "POST", signal: timeoutSignal() });
     if (!res.ok) throw new Error(`Twitch token request failed with HTTP ${res.status}`);
     const data = (await res.json()) as { access_token: string; expires_in: number };
     token = {
@@ -106,6 +107,7 @@ export function createIgdbClient({
           Accept: "application/json",
         },
         body,
+        signal: timeoutSignal(),
       });
     };
     const run = async () => {

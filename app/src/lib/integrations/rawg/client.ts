@@ -1,3 +1,4 @@
+import { timeoutSignal } from "../http";
 import type { RawgApi } from "./types";
 
 const BASE = "https://api.rawg.io/api/games";
@@ -28,7 +29,7 @@ export function createRawgClient({
       url.searchParams.set("key", apiKey);
       url.searchParams.set("search", name);
       url.searchParams.set("stores", STEAM_STORE_ID);
-      const res = await fetchImpl(url.toString());
+      const res = await fetchImpl(url.toString(), { signal: timeoutSignal() });
       if (!res.ok) throw new Error(`RAWG search failed with HTTP ${res.status}`);
       const data = (await res.json()) as SearchResponse;
       const wanted = name.trim().toLowerCase();

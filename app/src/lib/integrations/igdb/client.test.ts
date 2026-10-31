@@ -112,6 +112,19 @@ describe("igdb client", () => {
     expect(String(ttbCall[1]?.body)).toContain("completely");
   });
 
+  it("passes a timeout signal to the token request and to every query", async () => {
+    const { client, fetchMock } = setup({
+      external: () => [{ game: 1 }],
+      games: () => [{ id: 1, name: "G" }],
+      ttb: () => [],
+    });
+    await client.findBySteamAppId(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
   it("returns null when the Steam app is unknown to IGDB", async () => {
     const { client, fetchMock } = setup({ external: () => [] });
     await expect(client.findBySteamAppId(1)).resolves.toBeNull();

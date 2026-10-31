@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { consumeOidState } from "@/lib/auth/oid-state";
 import { verifySteamAssertion } from "@/lib/auth/openid";
 import { DEFAULT_RETURN_TO, sanitizeReturnTo } from "@/lib/auth/return-to";
@@ -48,12 +48,17 @@ export async function GET(request: NextRequest) {
 
   await createSession(user.id);
 
-  // A failed sync must never block the login itself.
-  try {
-    await syncUser(user.id);
-  } catch (error) {
-    console.error("Steam login: initial sync failed", error);
-  }
+  // The first sync can take minutes (whole library, new games cataloged), so it runs after the
+  // response: the session cookie and redirect go out right away, and the character page shows
+  // "Ainda não sincronizado" meanwhile. A failed sync never blocks the login; cron retries it.
+  const userId = user.id;
+  after(async () => {
+    try {
+      await syncUser(userId);
+    } catch (error) {
+      console.error("Steam login: initial sync failed", error);
+    }
+  });
 
   const returnTo = sanitizeReturnTo(returnToUrl.searchParams.get("returnTo"));
   return redirectTo(returnTo === DEFAULT_RETURN_TO ? `/jogador/${user.handle}` : returnTo);

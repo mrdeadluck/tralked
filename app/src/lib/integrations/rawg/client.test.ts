@@ -34,6 +34,12 @@ describe("rawg client", () => {
     expect(url.searchParams.get("stores")).toBe("1");
   });
 
+  it("passes a timeout signal to the request", async () => {
+    const { client, fetchMock } = setup({ results: [] });
+    await client.findBySteamAppId(1, "Any");
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("maps missing metacritic and zero playtime to undefined", async () => {
     const { client } = setup({
       results: [{ id: 2, name: "Indie", metacritic: null, playtime: 0 }],

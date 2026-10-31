@@ -6,12 +6,24 @@ const verifySteamAssertion = vi.fn();
 const createSession = vi.fn();
 const upsertUserFromSteam = vi.fn();
 const syncUser = vi.fn();
+// Runs the deferred task right away without awaiting it, like the response being sent first.
+const { after, afterTasks } = vi.hoisted(() => {
+  const afterTasks: Promise<unknown>[] = [];
+  const after = vi.fn((task: () => Promise<unknown>) => {
+    afterTasks.push(task());
+  });
+  return { after, afterTasks };
+});
 
 vi.mock("@/lib/auth/oid-state", () => ({ consumeOidState }));
 vi.mock("@/lib/auth/openid", () => ({ verifySteamAssertion }));
 vi.mock("@/lib/auth/session", () => ({ createSession }));
 vi.mock("@/lib/auth/upsert-user", () => ({ upsertUserFromSteam }));
 vi.mock("@/lib/sync/user", () => ({ syncUser }));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after,
+}));
 
 const { GET } = await import("./route");
 const { env } = await import("@/lib/env");
@@ -37,6 +49,7 @@ const location = (response: Response) => new URL(response.headers.get("location"
 
 beforeEach(() => {
   vi.clearAllMocks();
+  afterTasks.length = 0;
   consumeOidState.mockResolvedValue(true);
   verifySteamAssertion.mockResolvedValue("76561198000000000");
   upsertUserFromSteam.mockResolvedValue({ id: "u1", handle: "lucas" });
@@ -57,13 +70,24 @@ describe("steam callback", () => {
     expect(location(response).pathname).toBe("/jogos/hollow-knight");
   });
 
-  it("still logs in when the sync fails", async () => {
+  it("still logs in when the sync fails, and logs the failure", async () => {
     syncUser.mockRejectedValue(new Error("boom"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const response = await GET(callbackRequest());
     expect(location(response).pathname).toBe("/jogador/lucas");
     expect(createSession).toHaveBeenCalled();
+    await Promise.all(afterTasks);
+    expect(errorSpy).toHaveBeenCalledWith("Steam login: initial sync failed", expect.any(Error));
     errorSpy.mockRestore();
+  });
+
+  it("returns the session redirect without waiting for the first sync (runs after the response)", async () => {
+    syncUser.mockReturnValue(new Promise(() => {})); // never resolves
+    const response = await GET(callbackRequest());
+    expect(location(response).pathname).toBe("/jogador/lucas");
+    expect(createSession).toHaveBeenCalledWith("u1");
+    expect(after).toHaveBeenCalledTimes(1);
+    expect(syncUser).toHaveBeenCalledWith("u1");
   });
 
   it("rejects a state that does not match the cookie, before calling Steam", async () => {
