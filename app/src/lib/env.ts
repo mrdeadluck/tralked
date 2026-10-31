@@ -31,6 +31,26 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
+const SECRETS_REQUIRED_IN_PRODUCTION = ["SESSION_SECRET", "CRON_SECRET"] as const;
+
+// Dev defaults for secrets are publicly known, so a real deployment must never
+// fall back to them. `next build` is exempt: it runs without runtime secrets.
+function assertProductionSecrets(source: NodeJS.ProcessEnv) {
+  if (source.NODE_ENV !== "production") return;
+  if (source.NEXT_PHASE === "phase-production-build") return;
+
+  const missing = SECRETS_REQUIRED_IN_PRODUCTION.filter(
+    (name) => blankToUndefined(source[name]) === undefined,
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variable(s) in production: ${missing.join(", ")}`,
+    );
+  }
+}
+
+assertProductionSecrets(process.env);
+
 export const env: Env = schema.parse(process.env);
 
 export type OptionalKeyName =

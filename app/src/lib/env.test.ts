@@ -47,4 +47,48 @@ describe("env", () => {
     expect(env.SESSION_SECRET.length).toBeGreaterThanOrEqual(32);
     expect(env.CRON_SECRET).not.toBe("");
   });
+
+  describe("production secrets", () => {
+    const strongSecret = "x".repeat(40);
+
+    it("throws at runtime in production when a secret is missing", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NEXT_PHASE", undefined);
+      vi.stubEnv("SESSION_SECRET", "");
+      vi.stubEnv("CRON_SECRET", strongSecret);
+      await expect(loadEnvModule()).rejects.toThrow(/SESSION_SECRET/);
+
+      vi.stubEnv("SESSION_SECRET", strongSecret);
+      vi.stubEnv("CRON_SECRET", undefined);
+      await expect(loadEnvModule()).rejects.toThrow(/CRON_SECRET/);
+    });
+
+    it("does not throw during the production build phase", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NEXT_PHASE", "phase-production-build");
+      vi.stubEnv("SESSION_SECRET", "");
+      vi.stubEnv("CRON_SECRET", "");
+      const { env } = await loadEnvModule();
+      expect(env.SESSION_SECRET.length).toBeGreaterThanOrEqual(32);
+    });
+
+    it("accepts provided secrets in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NEXT_PHASE", undefined);
+      vi.stubEnv("SESSION_SECRET", strongSecret);
+      vi.stubEnv("CRON_SECRET", "cron-secret");
+      const { env } = await loadEnvModule();
+      expect(env.SESSION_SECRET).toBe(strongSecret);
+      expect(env.CRON_SECRET).toBe("cron-secret");
+    });
+
+    it("uses the dev defaults outside production", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("SESSION_SECRET", "");
+      vi.stubEnv("CRON_SECRET", "");
+      const { env } = await loadEnvModule();
+      expect(env.SESSION_SECRET.length).toBeGreaterThanOrEqual(32);
+      expect(env.CRON_SECRET).not.toBe("");
+    });
+  });
 });
