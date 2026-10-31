@@ -44,7 +44,6 @@ async function WireSection() {
       items={items}
       description="Da redação e da imprensa de games, atualizado a cada hora"
       label="Notícias em movimento"
-      className="-mt-6"
     />
   );
 }
@@ -119,20 +118,18 @@ const sidebarFallback = <Card className="h-40" aria-hidden="true" />;
 export default function Home() {
   return (
     <div className="flex flex-col gap-12">
+      <HighlightsSection />
       <WireSection />
-      <div className="flex flex-col gap-12">
-        <HighlightsSection />
-        <div className="flex flex-wrap items-start gap-12">
-          <LatestSection />
-          <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
-            <DiscordCard />
-            <Suspense fallback={sidebarFallback}>
-              <QuestSection />
-            </Suspense>
-            <RankingSection />
-            <EditorialCard />
-          </aside>
-        </div>
+      <div className="flex flex-wrap items-start gap-12">
+        <LatestSection />
+        <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
+          <DiscordCard />
+          <Suspense fallback={sidebarFallback}>
+            <QuestSection />
+          </Suspense>
+          <RankingSection />
+          <EditorialCard />
+        </aside>
       </div>
     </div>
   );

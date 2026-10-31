@@ -68,6 +68,9 @@ const CSS = `
 .gpc-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 3px 10px 10px 3px; overflow: hidden; }
 .gpc-out { background: #0d0e12; box-shadow: inset 0 0 0 2px rgba(255,255,255,.04); }
 .gpc-out > img, .gpc-out > canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* A real cover sits whole below the band (the band never hides the game's name); its own blurred art fills the sides. */
+.gpc-out > img.gpc-cover { top: 13%; height: 87%; object-fit: contain; }
+.gpc-out > img.gpc-cover-fill { top: 13%; height: 87%; filter: blur(14px) brightness(.55) saturate(1.2); transform: scale(1.15); }
 .gpc-top { position: absolute; left: 0; right: 0; top: 0; height: 13%; background: linear-gradient(180deg, var(--bg), #121318); display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 2px solid var(--acc); }
 .gpc-top b { font-weight: 900; font-stretch: 125%; font-size: calc(var(--cw) * .06); letter-spacing: -0.02em; }
 .gpc-top b i { font-style: normal; color: var(--acc); }
@@ -532,8 +535,12 @@ export function CaseIntro(props: CaseIntroProps) {
           <div className="gpc-front">
             <div className="gpc-face gpc-out">
               {coverUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={coverUrl} alt="" decoding="async" draggable={false} />
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img className="gpc-cover-fill" src={coverUrl} alt="" decoding="async" draggable={false} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img className="gpc-cover" src={coverUrl} alt="" decoding="async" draggable={false} />
+                </>
               ) : (
                 <GameArt seed={seed + 7} hues={hues} figure light width={560} height={772} />
               )}
