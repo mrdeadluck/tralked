@@ -562,6 +562,80 @@ ROBO NOTICIAS/
 - [ ] **Step 3:** Implement until they pass. Write the PowerShell script and the README.
 - [ ] **Step 4:** Commit `feat(robo): alerts, daily summary, bulk unpublish and Task Scheduler setup`.
 
+### Task 16: Game dossier endpoint (site, for Pautas Tralked)
+
+**Files:**
+- Create: `app/src/app/api/v1/games/[slug]/dossie/route.ts`
+- Modify: `app/src/lib/api/insights.ts` (add `gameDossier`)
+- Modify: `app/src/lib/api/openapi.ts`
+- Test: `app/src/app/api/v1/api.test.ts`
+
+**Interfaces:**
+- Produces `GET /api/v1/games/{slug}/dossie`. Any active key may call it. It returns 404 for an unknown game, and for a stub game if `Game.stub` exists. It returns:
+  ```ts
+  { game: { slug, name, steamAppId: number | null, summary: string | null, developer: string | null, publisher: string | null,
+      releaseDate: string | null, platforms: string[], criticScore: number | null, timeToBeatCompleteMin: number | null,
+      achievementCount: number },
+    tralked: { players: number, avgPlaytimeMin: number | null, completedPlayers: number },
+    achievements: { platform: string, apiName: string, name: string, description: string | null, globalPct: number | null }[] }
+  ```
+  - `achievements` holds every non-hidden achievement, sorted by `globalPct` ascending with nulls last, capped at 500.
+  - `completedPlayers` counts `UserGame` rows with `completedAt` set.
+  - The privacy floor is the same as insights: `avgPlaytimeMin` is null below 3 players.
+
+- [ ] **Step 1: Failing tests:**
+  - A seeded game returns all its non-hidden achievements, sorted, with descriptions.
+  - A hidden achievement is absent.
+  - An unknown slug returns 404.
+  - With 2 players `avgPlaytimeMin` is null.
+- [ ] **Step 2:** Run them. Expected: FAIL. **Step 3:** Implement. **Step 4:** Run lint, tsc, test and build.
+- [ ] **Step 5:** Commit `feat(api): game dossier for robot evergreen pieces`.
+
+### Task 17: Pautas Tralked in the robot
+
+**Files:**
+- Create: `ROBO NOTICIAS/config/jogos-famosos.json`
+- Create: `ROBO NOTICIAS/src/pautas.ts`
+- Create: `ROBO NOTICIAS/prompts/pautas.md`
+- Modify: `src/tralked.ts` (`dossier`), `src/db.ts` (table `pautas`), `src/pipeline.ts` (`runPublica` slot choice), `src/backfill.ts` (90 pautas), `src/commands/*` as needed
+- Test: `test/pautas.test.ts`, `test/pipeline.test.ts`, `test/backfill.test.ts`
+
+**Interfaces:**
+- `jogos-famosos.json` contains ~150 entries `{ name: string; steamAppId?: number; wiki?: string; slug?: string }`. Before committing, the implementer checks that each wiki URL resolves.
+- Produces `tralked.dossier(slug): Promise<Dossier | null>`.
+- Produces the table `pautas(id INTEGER PK, game_slug, format TEXT, status TEXT /*ready|published|failed|skipped*/, mode TEXT /*live|backfill*/, story_date TEXT, site_id, published_at)`.
+- Produces `type PautaFormat = "vale-o-100" | "mais-raras" | "perdiveis" | "iniciantes"`.
+- Produces `pickPautaGame(db, list, now, rand): Entry | null`. It picks at random among entries without a pauta in the last 60 days.
+- Produces `gatherPautaSources(entry, deps): Promise<PautaSources>`, holding:
+  - the dossier, from `findGame` → `dossier`;
+  - the Steam store text, from `https://store.steampowered.com/api/appdetails?appids=<id>&l=brazilian`, field `about_the_game` with HTML stripped;
+  - the wiki pages: the main page, plus an achievements/trophies page linked from it if present, through `extractText`.
+- Produces `chooseFormat(sources, recent: PautaFormat[], rand): PautaFormat | null`. The eligibility rules are:
+  - `vale-o-100` needs ≥ 10 achievements.
+  - `mais-raras` needs ≥ 5 achievements with `globalPct`.
+  - `perdiveis` needs wiki text containing "perd", "missable" or "miss" near the word "achievement" or "conquista".
+  - `iniciantes` needs ≥ 1,500 chars of wiki or Steam text.
+  It prefers a format not used in the last 5 pautas. It returns null when none is eligible.
+- Produces `writePauta(ai, sources, format, bucket): Promise<Draft>`, which reuses the `Draft` schema and `writeAndCheck` with `prompts/pautas.md` appended to the system prompt. The category is GAMES for `vale-o-100` and `mais-raras`, and GUIAS for the others. `games` is `[slug]`. The sources list holds the Steam page, the wiki and the Tralked game page `https://tralked.com/jogos/<slug>`.
+- In `runPublica`, the slot choice is a pauta when **both** hold:
+  - pautas today < 2;
+  - the best queued news score is below 60, or the local hour is ≥ 20 and pautas today = 0.
+  Pautas count toward `MAX_PER_DAY`. Bombs are unaffected.
+- In the backfill, `BACKFILL_PAUTAS = 90` adds one pauta per day across the 90 days, with `randomTimeOn`, written via the same Batch, and in addition to the ~750 news articles.
+
+- [ ] **Step 1: Failing tests:**
+  - `chooseFormat` follows each eligibility rule and returns null when nothing qualifies.
+  - `pickPautaGame` skips games used in the last 60 days and games missing from the catalog.
+  - `runPublica`:
+    - with a top news score of 80 it publishes news;
+    - with 55 it publishes a pauta;
+    - at 20:00 with 0 pautas it publishes a pauta, even when news scores 80;
+    - a third pauta in one day is refused;
+    - pautas count toward 15.
+  - The backfill plans exactly 90 pautas, one per day, and none on a day that would exceed 15.
+- [ ] **Step 2:** Run them. Expected: FAIL. **Step 3:** Implement and write `prompts/pautas.md`. Same editorial rules; formats 3 and 4 may only use what the wiki or Steam text says. **Step 4:** Run `pnpm exec tsc --noEmit && pnpm test`.
+- [ ] **Step 5:** Commit `feat(robo): Pautas Tralked evergreen pieces on famous games`.
+
 ### Task 15: Go live (controller, with Lucas's key)
 
 These steps touch production. The controller runs them, in this order, stopping at the first failure.
@@ -573,7 +647,7 @@ These steps touch production. The controller runs them, in this order, stopping 
 - [ ] **Step 3: Live dry run.** Run `pnpm coleta`. Check the report: sources OK or failing, items, queued stories, spend in cents.
 - [ ] **Step 4: First live article.** Run `pnpm publica`, during slot hours (skip the jitter with `--agora`). Open the article URL and check the byline "Equipe Tralked", the sections, the sources, the game links and the absence of the robot badge. If anything is off, fix it and archive the article with `despublicar`.
 - [ ] **Step 5: Backfill.** Run `pnpm retroativo` in the background, then `pnpm resumo`. Check:
-  - About 750 published articles spread over 90 days.
+  - About 750 news articles plus 90 pautas, spread over 90 days.
   - Spend at or under about US$ 50 (the cap is US$ 70).
   - No duplicates: `SELECT key, count(*) FROM stories GROUP BY key HAVING count(*) > 1` returns nothing.
 - [ ] **Step 6:** Run `scripts/instalar-tarefas.ps1` and confirm the 3 tasks in `Get-ScheduledTask "Tralked Robo*"`.
