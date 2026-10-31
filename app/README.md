@@ -28,8 +28,9 @@ Atalho: `http://localhost:3000/api/auth/demo` cria uma sessão como `lucas` e re
 
 ## Contas e papéis
 
-- **Login**: conta do Tralked, com **e-mail + senha** (`/entrar`, `/cadastrar`; sessão no cookie `gl_session`). A senha é guardada só como hash scrypt (`src/lib/auth/password.ts`); o login responde "E-mail ou senha incorretos" igual para e-mail desconhecido e senha errada, e limita tentativas por IP e por e-mail (em memória, por instância). Google é opcional (com `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`), em `/entrar` e como conexão. **Não existe mais login pela Steam**: a Steam é uma conexão. O Tralked nunca pede senha nem token de outros serviços (Steam, PSN, Xbox, Google); a única senha é a do próprio Tralked.
-- **Esqueci a senha** (`/esqueci-senha` → `/redefinir-senha?token=`): a resposta é sempre a mesma; o link vale 1 h, funciona uma vez e o banco guarda só o hash do token. Sem provedor de e-mail ainda, **fora de produção o link sai no console do servidor** (`[senha] Link para definir a senha de …`); em produção nada é impresso (use `pnpm user:invite`). Com `DEV_MAIL_LOG_FILE` definido (os e2e definem), o link também é gravado nesse arquivo, só fora de produção. E-mail e senha se trocam em `/conta`.
+- **Login**: conta do Tralked, com **e-mail + senha** (`/entrar`, `/cadastrar`; sessão no cookie `gl_session`). A senha é guardada só como hash scrypt (`src/lib/auth/password.ts`); o login responde "E-mail ou senha incorretos" igual para e-mail desconhecido e senha errada, e limita tentativas por IP e por e-mail (em memória, por instância). Google é opcional (com `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`): botões em `/entrar` e `/cadastrar` (cria a conta na hora, sem senha) e como conexão; se o e-mail do Google já é o login de outra conta, o Tralked não junta as duas e manda entrar com a senha e conectar o Google em Conexões. **Não existe mais login pela Steam**: a Steam é uma conexão. O Tralked nunca pede senha nem token de outros serviços (Steam, PSN, Xbox, Google); a única senha é a do próprio Tralked.
+- **Esqueci a senha** (`/esqueci-senha` → `/redefinir-senha?token=`): a resposta é sempre a mesma; o link vale 1 h, funciona uma vez e o banco guarda só o hash do token. O link vai **por e-mail** (Resend, com `RESEND_API_KEY`). Sem a chave, **fora de produção o e-mail sai no console do servidor** (`[e-mail] password-reset para … : <link>`) e, com `DEV_MAIL_LOG_FILE` definido (os e2e definem), também nesse arquivo; em produção sem a chave a página e o formulário dizem que o envio de e-mails está desativado e nenhum link é criado (use `pnpm user:invite`). E-mail e senha se trocam em `/conta`.
+- **E-mail confirmado** (`User.emailVerifiedAt`): nunca bloqueia nada, só dá o selo "E-mail confirmado" em `/conta`. Ao criar a conta com e-mail e senha chega um e-mail de **boas-vindas** com o botão "Confirmar e-mail"; quem entra pelo Google já chega confirmado (o Google verificou o e-mail) e recebe as boas-vindas sem o botão. O link (`/confirmar-email?token=<id>.<validade>.<HMAC>`, assinado com `SESSION_SECRET` sobre a conta e o e-mail) vale 7 dias e deixa de valer quando o e-mail da conta muda; abrir o link não confirma nada (scanners de e-mail abrem links): o botão da página faz o POST, e a página de resultado só diz "E-mail confirmado" logo depois dele (resultado assinado, vale 5 min). Trocar o e-mail em `/conta` volta para "não confirmado" e envia um link novo; "Reenviar e-mail de confirmação" fica em `/conta`. Os e-mails com link de confirmação (boas-vindas, troca de e-mail, reenviar) respeitam dois limites, em memória: 3 por hora por conta e 3 por dia por endereço; acima deles o e-mail é salvo, mas nada é enviado (alternar entre dois endereços não manda e-mail sem fim para estranhos nem gasta a cota diária da Resend, que faria faltar a redefinição de senha). E-mails para um endereço ainda não confirmado não levam o nome de exibição (texto livre, poderia virar phishing): a saudação é neutra. Conectar o Google com o mesmo e-mail (verificado) também confirma. Contas que já existiam antes desta versão, inclusive as só-Google, começam como "não confirmado" (não há migração de dados); confirmam pelo "Reenviar e-mail de confirmação" em `/conta`.
 - **Contas vinculadas** (`/conta/conexoes`): Steam, PSN, Xbox e RetroAchievements pelo modelo Exophase. Um formulário "Serviços" tem um campo por plataforma (Steam: link do perfil, nome personalizado ou SteamID64; PSN: ID online; Xbox: gamertag; RA: usuário) e um "Salvar alterações" que aplica todos os campos de uma vez, com o resultado embaixo de cada um. **Não há código para conectar**: ao salvar, o Tralked confere que o perfil existe e é público (Steam: perfil público e, com `STEAM_API_KEY`, detalhes de jogos públicos; sem a chave isso só aparece na primeira importação; PSN/Xbox/RA: perfil encontrado pela conta de serviço), grava a conexão como ativa e **não verificada** (`LinkedAccount.linkedAt`; `verifiedAt` fica para quem provou a posse) e começa a importação em segundo plano. Conexões não verificadas sincronizam e rendem XP normalmente; o perfil do jogador e a tela de conexões mostram "não verificada". Esvaziar um campo desconecta, e trocar a conta de um campo substitui a anterior: as duas coisas anulam no ledger o XP que veio da conta (sem apagar; para a Steam, cujas entradas não levam plataforma, pelas conquistas e jogos Steam do jogador) e por isso pedem confirmação antes: um diálogo, e também a etapa "Confirme antes de salvar" que o servidor devolve no próprio formulário (o servidor nunca desconecta sem a confirmação). Uma plataforma "Em breve" que já estava conectada mantém o botão "Desconectar…". Cada busca de perfil conta num limite por usuário (12 a cada 15 min, em memória). A Steam conectada preenche `User.steamId`. Abaixo do formulário: "Confira as suas configurações de privacidade se nenhum jogo aparecer" (leva à seção "Como deixar o perfil público" da própria página, com o passo a passo de cada plataforma) e "Precisa sincronizar agora? Sincronizar" (respeita o intervalo mínimo de sincronização).
 - **Unicidade e "Reivindicar"**: uma conta de plataforma (plataforma + id externo) só fica em um perfil do Tralked. Se já estiver em outro (inclusive uma Steam de conta antiga, via `User.steamId`), o salvar recusa com "Essa conta já está conectada a outro perfil" e oferece "É sua? Reivindicar". Só a reivindicação pede prova de posse: o Tralked gera um código `TRK-XXXXXX` (vale 30 min), a pessoa cola no "Resumo" (Steam), "Sobre mim" (PSN), bio (Xbox) ou lema (RA) e confirma; o Tralked lê o perfil público (Steam: `steamcommunity.com/profiles/<id>?xml=1`, campo `<summary>`). Provado, a conexão passa para quem reivindicou como **verificada**, o perfil anterior perde a conta pelo mesmo caminho do desvínculo (XP dela anulado, conquistas importadas removidas) e recebe uma notificação. Em desenvolvimento os perfis vêm das fixtures (`src/lib/integrations/steam/fixture.ts` → `STEAM_FIXTURE_PROFILES`, e `src/lib/integrations/{psn,xbox,retro}/fixture.ts`).
 - **Contas antigas (do login Steam)**: quem entrava pela Steam (ex.: `mrdead`, `diguzz`) tem conta sem e-mail e sem senha. Digitar essa Steam numa conta nova é recusado como "já conectada a outro perfil"; o histórico só é recuperado pela **reivindicação** (código no Resumo): o e-mail/senha da conta nova passam para a conta antiga (que mantém @, XP, conquistas e papel), a conta nova (ainda vazia) é apagada e a sessão muda para a antiga. Se a conta nova já tem atividade (inclusive outra plataforma conectada), as duas não são juntadas e a mensagem indica o contato. Se a conta antiga já tem senha ou Google, a reivindicação apenas move a Steam (como qualquer outra). Para dar acesso direto a uma conta antiga (ex.: o admin): `DATABASE_URL=... APP_URL=... pnpm user:invite <handle> <email>` grava o e-mail e imprime um link de "definir senha" (o mesmo de "esqueci a senha", 1 h, uso único).
@@ -63,15 +64,69 @@ Copie `.env.example` para `.env`. Em desenvolvimento todas as obrigatórias têm
 | `PSN_NPSSO` | em produção, para a PSN | Cookie NPSSO da **conta de serviço** PlayStation do Tralked (não de usuários). Trocado no servidor por tokens de acesso/refresh, guardados só em memória. API não oficial: pode quebrar. Sem ele, em produção a PSN aparece como "Em breve". |
 | `XBOX_OPENXBL_KEY` | em produção, para o Xbox | Chave da OpenXBL (xbl.io) da conta de serviço Xbox do Tralked. API não oficial. Sem ela, em produção o Xbox aparece como "Em breve". |
 | `RA_USERNAME` / `RA_API_KEY` | em produção, para o RA | Usuário e chave da Web API oficial do RetroAchievements (conta de serviço). A chave é o que liga a integração (o usuário vai junto quando definido); sem ela, em produção o RetroAchievements aparece como "Em breve". |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | opcional | Login com Google (OAuth, código + PKCE). URI de redirecionamento: `$APP_URL/api/auth/google/callback`. Sem as duas, `/api/auth/google` responde 404 e o botão some. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | opcional | Login com Google (OpenID Connect, código + PKCE). URI de redirecionamento: `$APP_URL/api/auth/google/callback` (produção: `https://tralked.com/api/auth/google/callback`). Sem as duas, `/api/auth/google` responde 404 e os botões "Entrar/Criar conta com o Google" somem de `/entrar` e `/cadastrar`. Passo a passo em "Login com Google". |
+| `RESEND_API_KEY` | em produção, para e-mail | Chave da API da Resend (`re_…`, permissão "Sending access"). Com ela o Tralked envia redefinição de senha, confirmação de e-mail, boas-vindas e confirmação da newsletter. Sem ela, fora de produção os e-mails saem no console; em produção nada é enviado e as telas dizem que o envio de e-mails está desativado. Passo a passo em "E-mail transacional (Resend)". |
+| `MAIL_FROM` | opcional | Remetente dos e-mails. Padrão: `Tralked <no-reply@tralked.com>` (o domínio precisa estar verificado na Resend). |
 | `BLOB_READ_WRITE_TOKEN` | obrigatória para fotos | Token do Vercel Blob, onde ficam as fotos da galeria (cache de 1 dia; a foto removida pela moderação é apagada do Blob). Sem ele, em produção o envio de fotos responde 503 "O envio de fotos está indisponível no momento"; em desenvolvimento as fotos vão para `public/uploads`. |
 | `STEAM_MODE` | opcional | `fixture` usa os dados offline em vez das páginas públicas da Steam (testes e e2e usam); para a biblioteca, só vale sem `STEAM_API_KEY`. |
 | `PLATFORM_FIXTURES` | só testes | `1` deixa um build de produção usar as fixtures de PSN/Xbox/RA sem as chaves. Nunca em um deploy real. |
-| `DEV_MAIL_LOG_FILE` | nunca | Só fora de produção: arquivo onde os links de "definir senha" também são gravados (os e2e leem dali). |
+| `DEV_MAIL_LOG_FILE` | nunca | Só fora de produção e sem `RESEND_API_KEY`: arquivo onde cada e-mail também é gravado, uma linha JSON `{ kind, to, subject, link }` (os e2e leem dali). |
 
 Sem uma chave, a integração correspondente usa fixtures locais (`src/lib/integrations/*/__fixtures__`) **fora de produção**, então o app funciona offline com os dados do seed. Para ligar dados reais, basta preencher a chave no `.env` e reiniciar; as integrações são escolhidas por `hasKey()` em `src/lib/env.ts`. PSN, Xbox e RetroAchievements **nunca** usam fixtures com `NODE_ENV=production` (`src/lib/integrations/availability.ts`): sem a chave, a fábrica do cliente recusa (`PlatformNotConfiguredError`), a linha da plataforma em `/conta/conexoes` aparece como "Em breve" (campo desabilitado) e o cron pula a plataforma. Só `PLATFORM_FIXTURES=1` (modo de teste explícito) libera as fixtures num build de produção.
 
 A Steam é a exceção: sem `STEAM_API_KEY` ela usa as páginas públicas da comunidade (`src/lib/integrations/steam/community.ts`): perfil e conquistas de perfis públicos em XML e a raridade global, sem chave. A lista de jogos de um perfil exige login na Steam, então a sincronização sonda os jogos do catálogo, um por um, com no máximo uma requisição a cada 1,2 s por domínio: cada sincronização sonda o que cabe em 45 s (o ponto de partida gira pelo catálogo a cada 2 minutos, então sincronizações seguidas cobrem o catálogo todo), para depois de 5 falhas seguidas, e só volta aos jogos que já estão na biblioteca uma vez por semana ou quando os dados do jogo mudam. A importação por script sonda o catálogo inteiro. Com `STEAM_MODE=fixture` tudo fica offline.
+
+## E-mail transacional (Resend)
+
+O Tralked envia quatro e-mails, em pt-BR e com a marca (HTML simples sem imagens externas + versão em texto): **redefinir senha**, **boas-vindas** (com "Confirmar e-mail"), **confirmar e-mail** (troca de e-mail e "Reenviar" em `/conta`) e **confirmar a newsletter**. O código fica em `src/lib/mail/` (`mailer.ts` chama `POST https://api.resend.com/emails` com `Authorization: Bearer`, `User-Agent` e `Idempotency-Key`; `templates.ts` tem os textos). Uma falha da Resend é registrada no log (sem link nem chave) e nunca derruba o cadastro nem o formulário.
+
+Passo a passo para ligar em produção (`tralked.com`, DNS no Cloudflare):
+
+1. Crie a conta em [resend.com](https://resend.com) (pode entrar com o Google).
+2. **Domínio**: em [Domains](https://resend.com/domains) → **Add Domain** → `tralked.com` (a região pode ser a mais próxima dos leitores; ela não muda nada no código).
+3. **DNS no Cloudflare**, de um destes jeitos:
+   - **Automático (recomendado)**: na página do domínio na Resend, clique em **Sign in to Cloudflare**, autorize o acesso ao DNS de `tralked.com` e a Resend cria os registros sozinha.
+   - **Manual**: no Cloudflare, `tralked.com` → **DNS** → **Records** → **Add record**, um para cada linha que a Resend mostrar, copiando os valores dela (no campo *Name* use só a parte antes de `.tralked.com`):
+
+     | Tipo | Nome | Conteúdo | Outros |
+     | --- | --- | --- | --- |
+     | `MX` | `send` | o *Mail Server* da Resend (ex.: `feedback-smtp.us-east-1.amazonses.com`) | Priority `10`, TTL Auto |
+     | `TXT` | `send` | o SPF da Resend (ex.: `v=spf1 include:amazonses.com ~all`) | TTL Auto |
+     | `TXT` | `resend._domainkey` | a chave DKIM da Resend (`p=…`, longa) | TTL Auto, **DNS only** |
+     | `TXT` | `_dmarc` | `v=DMARC1; p=none;` (recomendado; ainda não existe) | TTL Auto |
+
+     Registros TXT/MX não têm proxy (nuvem laranja); se aparecer a opção, deixe **DNS only**. Esses registros ficam no subdomínio `send` e em `resend._domainkey`: não mexem no MX da raiz (ex.: Email Routing do Cloudflare continua funcionando).
+4. Volte à Resend e clique em **Verify DNS Records**; em alguns minutos o domínio fica **Verified** (se demorar, `nslookup -type=TXT resend._domainkey.tralked.com` mostra se o DKIM já está publicado).
+   Na mesma página do domínio, em **Configuration**, deixe **Click Tracking** e **Open Tracking** **desligados** (é o padrão): com o rastreamento de cliques, a Resend reescreve os links por um redirecionador dela, e os tokens de "criar nova senha" e "confirmar e-mail" passariam por um terceiro; o rastreamento de aberturas insere uma imagem externa.
+5. **Chave**: em [API Keys](https://resend.com/api-keys) → **Create API Key** → nome `tralked-producao`, permissão **Sending access**, domínio `tralked.com` → **Add**. Copie a chave (`re_…`): ela aparece uma vez só.
+6. Em `app/.env.production.local`:
+
+   ```bash
+   RESEND_API_KEY=re_...
+   # opcional; este já é o padrão:
+   MAIL_FROM="Tralked <no-reply@tralked.com>"
+   ```
+
+   e reinicie o servidor. Confira em `/esqueci-senha` com o seu e-mail: o link chega e o aviso "envio de e-mails desativado" some de `/esqueci-senha` e de `/conta`. Na Resend, **Emails** mostra cada envio (com a etiqueta `category`: `password-reset`, `welcome`, `email-confirmation`, `newsletter-confirmation`).
+
+Limites da Resend: 10 requisições por segundo por conta (o Tralked manda um e-mail por ação, bem abaixo); o plano gratuito tem cota diária/mensal (veja o painel).
+
+## Login com Google
+
+O fluxo já está pronto (`src/lib/auth/google.ts`, `/api/auth/google` e `/api/auth/google/callback`): OpenID Connect com código + PKCE (S256), `state` e `nonce` num cookie httpOnly de 10 min, troca do código no servidor e validação do ID token (assinatura pelas chaves públicas do Google, `iss`, `aud`, validade e `nonce`). Escopos: só `openid email profile` (não sensíveis: não precisam da verificação do Google). Só um e-mail que o Google marca como verificado é gravado, e ele já chega como "e-mail confirmado".
+
+Para ativar:
+
+1. Abra o [Google Cloud Console](https://console.cloud.google.com/) e crie um projeto `Tralked` (ou use um existente).
+2. **Google Auth Platform → Branding** (a antiga "tela de consentimento OAuth"): nome do app `Tralked`, e-mail de suporte, logo (opcional; aparece depois da verificação da marca), página inicial `https://tralked.com`, política de privacidade `https://tralked.com/privacidade`, termos `https://tralked.com/termos`, domínio autorizado `tralked.com`, e-mail de contato do desenvolvedor → **Save**.
+3. **Audience**: tipo de usuário **External**. Enquanto estiver em **Testing**, só os usuários de teste listados entram; clique em **Publish app** para ficar **In production** (com só esses escopos básicos não há revisão).
+4. **Data access**: adicione `openid`, `.../auth/userinfo.email` e `.../auth/userinfo.profile` (nada além disso).
+5. **Clients → Create client** → tipo **Web application**, nome `Tralked web`:
+   - **Authorized redirect URIs**: `https://tralked.com/api/auth/google/callback` (exatamente assim: `https`, sem barra no fim). Para testar localmente, adicione também `http://localhost:3000/api/auth/google/callback`.
+   - **Authorized JavaScript origins**: não precisa (o login é todo no servidor).
+   - **Create**. Copie o **Client ID** e o **Client secret** (o segredo só aparece inteiro agora).
+6. Em `app/.env.production.local`: `GOOGLE_CLIENT_ID=…apps.googleusercontent.com` e `GOOGLE_CLIENT_SECRET=…`, com `APP_URL=https://tralked.com` (o redirect é montado a partir de `APP_URL` e precisa ser idêntico ao cadastrado). Reinicie: os botões aparecem em `/entrar` e `/cadastrar`.
+7. Mudanças nos redirect URIs podem levar de 5 minutos a algumas horas para valer. Um `redirect_uri_mismatch` do Google quase sempre é `APP_URL` diferente do URI cadastrado (http × https, `www`, barra no fim).
 
 ## Dados reais da Steam (sem chave)
 
@@ -151,7 +206,7 @@ A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste 
 
 ## SEO, privacidade e páginas de sistema
 
-- `sitemap.xml` (jogos, guias publicados, notícias publicadas, tópicos visíveis do fórum e páginas fixas) e `robots.txt` (bloqueia `/admin`, `/conta`, `/api`, `/notificacoes` e `/newsletter`) usam `APP_URL` como origem pública: defina a URL de produção também no build, porque os dois arquivos são gerados nele.
+- `sitemap.xml` (jogos, guias publicados, notícias publicadas, tópicos visíveis do fórum e páginas fixas) e `robots.txt` (bloqueia `/admin`, `/conta`, `/api`, `/notificacoes`, `/newsletter` e `/confirmar-email`) usam `APP_URL` como origem pública: defina a URL de produção também no build, porque os dois arquivos são gerados nele.
 - JSON-LD com `src/lib/seo/json-ld.tsx`: `NewsArticle` nas notícias, `HowTo` nos guias e o helper `videoGameJsonLd()` para a página do jogo (`<JsonLd data={videoGameJsonLd(game)} />`). O texto vai escapado (`<`, `>`, `&`), então título de usuário ou robô nunca fecha o `<script>`.
 - Imagem padrão de compartilhamento: `src/app/opengraph-image.tsx`, com a fonte Archivo Expanded em `assets/fonts` (licença OFL em `assets/fonts/OFL.txt`).
 - `/privacidade`, `/termos` e `/licencas`. O e-mail de contato `contato@tralked.example` é **provisório** (`src/lib/legal/contact.ts`); troque antes do lançamento.
@@ -252,7 +307,7 @@ src/app/              rotas (App Router)
   admin               painel da redação (editor/admin): notícias e guias em blocos, fila de revisão,
                       moderação, fraude, jogos, chaves de robô, feeds e papéis (só admin nos 5 últimos)
   api/v1              API para robôs: notícias, guias, busca de jogos, OpenAPI e JSON Schemas
-  entrar, cadastrar   login e cadastro com e-mail + senha; esqueci-senha e redefinir-senha
+  entrar, cadastrar   login e cadastro com e-mail + senha; esqueci-senha, redefinir-senha e confirmar-email
   api/auth            login Google, demo e logout
   api/cron/[job]      jobs de sincronização
 src/components/       componentes de UI
@@ -265,7 +320,8 @@ src/lib/
   progression/       recálculo de XP/habilidades a partir do ledger e chaves de período
   queries/            consultas ao banco usadas pelas páginas
   auth/               sessão (jose), e-mail + senha (scrypt), limites de tentativas, links de definir senha,
-                      login Google (OAuth + PKCE)
+                      login Google (OAuth + PKCE), confirmação de e-mail (link assinado)
+  mail/               e-mail transacional: Resend (ou log no dev), modelos pt-BR com a marca
   family/             regras do modo família
   guide/              votos nos passos dos guias
   api/                API para robôs: chaves (hash SHA-256), escopos, limite de 60 req/min por chave
@@ -282,4 +338,4 @@ src/proxy.ts          /admin responde 404 de verdade a quem não é da redação
 - Admin: entre como `lucas` (`/entrar` com as credenciais de desenvolvimento do seed, ou `/api/auth/demo`; o seed dá papel admin) e abra `/admin`. Papéis: `editor` cuida de notícias, guias, revisão e moderação; `admin` também de fraude, jogos, robôs, feeds e usuários. Ninguém muda o próprio papel.
 - O projeto usa Next.js 16 com Cache Components; veja `AGENTS.md` antes de alterar convenções do framework.
 - Emulador web (SNES/PS1 no navegador): planejado (`../docs/superpowers/specs/2026-10-31-emulador-web-plano-lucas.pdf`), ainda não implementado. Nenhuma rota `/jogar` existe nesta versão.
-- E-mail: não há provedor ainda. Em desenvolvimento os links de confirmação da newsletter e de "definir senha" saem no console do servidor; em produção o endereço só é registrado (newsletter) e o link de senha não é enviado: use `pnpm user:invite`.
+- E-mail: pela Resend com `RESEND_API_KEY` (veja "E-mail transacional (Resend)"). Sem a chave, em desenvolvimento os e-mails saem no console do servidor; em produção nada é enviado e as telas avisam (esqueci a senha, newsletter, confirmação em `/conta`). `pnpm user:invite` continua imprimindo o link no terminal.

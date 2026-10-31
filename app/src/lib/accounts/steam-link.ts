@@ -109,6 +109,8 @@ export async function confirmSteamClaim(userId: string, now: Date = new Date()):
         where: { id: owner.id, passwordHash: null, googleSub: null },
         data: {
           email: me.email ?? undefined,
+          // The e-mail's confirmation goes with it.
+          ...(me.email ? { emailVerifiedAt: me.emailVerifiedAt } : {}),
           passwordHash: me.passwordHash,
           googleSub: me.googleSub,
           steamId,

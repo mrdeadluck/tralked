@@ -6,6 +6,9 @@ import { after } from "next/server";
 import { z } from "zod";
 import { authenticate, createAccount, emailSchema, normalizeEmail, passwordSchema, signupSchema } from "./credentials";
 import type { AuthFormState } from "./form-state";
+import { mailAvailable } from "@/lib/mail/mailer";
+import { MAIL_OFF_MESSAGE } from "@/lib/mail/messages";
+import { sendWelcomeEmail } from "./email-verification";
 import { PASSWORD_MAX } from "./limits";
 import { requestPasswordReset, resetPassword } from "./password-reset";
 import {
@@ -14,6 +17,7 @@ import {
   resetEmailLimiter,
   resetIpLimiter,
   signupIpLimiter,
+  takeConfirmationSlot,
   type LimitResult,
 } from "./rate-limit";
 import { DEFAULT_RETURN_TO, sanitizeReturnTo } from "./return-to";
@@ -120,6 +124,18 @@ export async function signupAction(_previous: AuthFormState, formData: FormData)
     };
   }
   await createSession(created.user.id);
+  // Welcome + "confirme o seu e-mail", after the response (never blocks or fails the sign-up),
+  // within the per-recipient limit of confirmation e-mails.
+  const userId = created.user.id;
+  if (takeConfirmationSlot(null, created.user.email ?? parsed.data.email).ok) {
+    after(async () => {
+      try {
+        await sendWelcomeEmail(userId);
+      } catch (error) {
+        console.error("Welcome e-mail failed", error instanceof Error ? error.message : String(error));
+      }
+    });
+  }
   redirect(SIGNUP_LANDING);
 }
 
@@ -127,6 +143,8 @@ export async function forgotPasswordAction(_previous: AuthFormState, formData: F
   const values = { email: text(formData, "email")?.trim() ?? "" };
   const parsed = z.object({ email: emailSchema }).safeParse({ email: text(formData, "email") });
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
+  // Production without RESEND_API_KEY: say so instead of promising an e-mail that never comes.
+  if (!mailAvailable()) return { message: MAIL_OFF_MESSAGE, values };
 
   const byIp = resetIpLimiter.hit(`ip:${await clientIp()}`);
   if (!byIp.ok) return { message: tooMany(byIp), values };

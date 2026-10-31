@@ -1,16 +1,21 @@
 "use server";
 
-import { updateTag } from "next/cache";
+import { refresh, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import { deleteAccount } from "@/lib/accounts/delete";
 import { visibilityTags } from "@/lib/accounts/privacy";
 import { DELETE_CONFIRMATION, profileSettingsSchema, updateProfileSettings } from "@/lib/accounts/settings";
 import { changeEmail, changePassword, emailSchema, passwordSchema } from "@/lib/auth/credentials";
+import { sendEmailConfirmation } from "@/lib/auth/email-verification";
 import type { AuthFormState } from "@/lib/auth/form-state";
 import { PASSWORD_MAX } from "@/lib/auth/limits";
+import { takeConfirmationSlot } from "@/lib/auth/rate-limit";
 import { destroySession, getSessionUser } from "@/lib/auth/session";
 import { FORUM_TAG, GALLERY_TAG, photoTag, threadTag } from "@/lib/community/cached";
+import { mailAvailable } from "@/lib/mail/mailer";
+import { MAIL_OFF_MESSAGE } from "@/lib/mail/messages";
 import { gameTag } from "@/lib/queries/games-cached";
 import { playerTag } from "@/lib/queries/players-cached";
 
@@ -64,7 +69,57 @@ export async function changeEmailAction(_previous: AuthFormState, formData: Form
       values,
     };
   }
-  return { done: true, message: "E-mail salvo. Use-o para entrar no Tralked.", values: { email: parsed.data.email } };
+  if (!result.changed) {
+    return { done: true, message: "E-mail salvo. Use-o para entrar no Tralked.", values: { email: parsed.data.email } };
+  }
+  // The page shows "e-mail não confirmado" for the new address.
+  refresh();
+  // The new e-mail starts unconfirmed: send its confirmation link after the response, within
+  // the per-account and per-recipient limits (over them the e-mail is saved, nothing is sent).
+  const sending = mailAvailable() && takeConfirmationSlot(user.id, parsed.data.email).ok;
+  if (sending) {
+    const userId = user.id;
+    after(async () => {
+      try {
+        await sendEmailConfirmation(userId);
+      } catch (error) {
+        console.error("E-mail confirmation failed", error instanceof Error ? error.message : String(error));
+      }
+    });
+  }
+  return {
+    done: true,
+    message: sending
+      ? "E-mail salvo. Use-o para entrar no Tralked. Enviamos um link para confirmar o endereço novo."
+      : mailAvailable()
+        ? "E-mail salvo. Use-o para entrar no Tralked. O link de confirmação não foi enviado agora (muitos pedidos seguidos); peça outro mais tarde."
+        : "E-mail salvo. Use-o para entrar no Tralked.",
+    values: { email: parsed.data.email },
+  };
+}
+
+export type ResendConfirmationResult = { ok: true; message: string } | { ok: false; error: string };
+
+/** "Reenviar e-mail de confirmação" (/conta). Limited per account and per recipient; never sends to a confirmed e-mail. */
+export async function resendEmailConfirmationAction(): Promise<ResendConfirmationResult> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, error: "Entre na sua conta para continuar." };
+  if (!user.email) return { ok: false, error: "Salve um e-mail de login primeiro." };
+  if (user.emailVerifiedAt) return { ok: true, message: "Este e-mail já está confirmado." };
+  if (!mailAvailable()) return { ok: false, error: MAIL_OFF_MESSAGE };
+  const limit = takeConfirmationSlot(user.id, user.email);
+  if (!limit.ok) {
+    return {
+      ok: false,
+      error: `Você já pediu vários e-mails de confirmação. Tente de novo em ${Math.max(1, Math.ceil(limit.retryAfterSec / 60))} minuto(s).`,
+    };
+  }
+  const status = await sendEmailConfirmation(user.id);
+  if (status === "already") return { ok: true, message: "Este e-mail já está confirmado." };
+  if (status === "sent" || status === "logged") {
+    return { ok: true, message: `Enviamos um novo link de confirmação para ${user.email}. Ele vale 7 dias.` };
+  }
+  return { ok: false, error: "Não deu para enviar o e-mail agora. Tente de novo em alguns minutos." };
 }
 
 /** Sets a new password for the logged-in user (asks the current one when there is one). */

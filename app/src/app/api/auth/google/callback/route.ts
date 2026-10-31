@@ -1,4 +1,5 @@
-import { connection, type NextRequest, NextResponse } from "next/server";
+import { after, connection, type NextRequest, NextResponse } from "next/server";
+import { sendWelcomeEmail } from "@/lib/auth/email-verification";
 import {
   consumeGoogleLogin,
   exchangeGoogleCode,
@@ -53,6 +54,16 @@ export async function GET(request: NextRequest) {
   }
 
   if (!sessionUser) await createSession(result.user.id);
+  if (result.created && result.user.email) {
+    const userId = result.user.id;
+    after(async () => {
+      try {
+        await sendWelcomeEmail(userId);
+      } catch (error) {
+        console.error("Welcome e-mail failed", error instanceof Error ? error.message : String(error));
+      }
+    });
+  }
   const returnTo = sanitizeReturnTo(auth.returnTo);
   return redirectTo(returnTo === DEFAULT_RETURN_TO ? `/jogador/${result.user.handle}` : returnTo);
 }

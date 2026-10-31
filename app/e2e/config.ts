@@ -25,8 +25,8 @@ const DEFAULT_DATABASE_URL = "postgresql://gamelog:gamelog@localhost:5433/gamelo
 export const E2E_SESSION_SECRET = "e2e-session-secret-with-at-least-32-chars";
 
 /**
- * Where the e2e server also writes its "set your password" links (DEV_MAIL_LOG_FILE, honored only
- * outside production), so the password-reset flow can follow the link it printed.
+ * Where the e2e server also writes its e-mails as JSON lines `{ kind, to, subject, link }`
+ * (DEV_MAIL_LOG_FILE, honored only outside production), so the flows can follow the links.
  */
 export const MAIL_LOG_FILE = path.join(os.tmpdir(), `tralked-e2e-mail-${PORT}.log`);
 
@@ -98,6 +98,9 @@ export function createConfig(mode: E2EMode) {
         IGDB_CLIENT_SECRET: "",
         RAWG_API_KEY: "",
         SGDB_API_KEY: "",
+        // No real e-mail: the dev server logs them (and writes them to MAIL_LOG_FILE); the
+        // production build has e-mail off, as a deploy without the key would.
+        RESEND_API_KEY: "",
         DEV_MAIL_LOG_FILE: MAIL_LOG_FILE,
       },
     },

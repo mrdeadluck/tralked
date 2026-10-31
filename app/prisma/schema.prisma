@@ -48,6 +48,9 @@ model User {
   googleSub         String?   @unique
   /// Login e-mail, stored trimmed and lowercased. Unique when present (NULLs never collide).
   email             String?   @unique
+  /// When the current `email` was confirmed (link sent by e-mail, or verified by Google). Reset to
+  /// null when the e-mail changes. Never blocks anything: it only shows the "e-mail confirmado" badge.
+  emailVerifiedAt   DateTime?
   /// Tralked password: `scrypt$N$r$p$salt$hash` (lib/auth/password.ts). Null for accounts that
   /// never set one (Google-only accounts, and legacy accounts created by the old Steam login).
   passwordHash      String?

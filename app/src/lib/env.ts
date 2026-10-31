@@ -37,6 +37,10 @@ const schema = z.object({
   // Google OAuth client (login of readers). Both must be set, otherwise Google login is off.
   GOOGLE_CLIENT_ID: optional(),
   GOOGLE_CLIENT_SECRET: optional(),
+  // Transactional e-mail (Resend HTTP API). Without the key: dev logs the e-mails, production
+  // says in the UI that e-mail is unavailable.
+  RESEND_API_KEY: optional(),
+  MAIL_FROM: required(z.string().min(3), "Tralked <no-reply@tralked.com>"),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -71,7 +75,8 @@ export type OptionalKeyName =
   | "PSN_NPSSO"
   | "XBOX_OPENXBL_KEY"
   | "RA_API_KEY"
-  | "GOOGLE_CLIENT_ID";
+  | "GOOGLE_CLIENT_ID"
+  | "RESEND_API_KEY";
 
 export function hasKey(name: OptionalKeyName): boolean {
   return Boolean(env[name]);
