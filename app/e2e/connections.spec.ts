@@ -74,6 +74,26 @@ test.describe("connections (Exophase model)", () => {
     await expectNoBlockingAxe(page);
   });
 
+  test("production: a connection on an 'Em breve' platform can still be disconnected (after confirming)", async ({ page }) => {
+    test.skip(CAN_LOGIN, "production build only (the dev server uses the fixtures)");
+    const { id } = await newAccount(page, "embreve");
+    await sql(`insert into "LinkedAccount" (id, "userId", platform, "externalId", handle) values ($1, $2, 'xbox', $3, 'Antiga')`, [
+      `${id}-xbox`,
+      id,
+      `xuid-${id}`,
+    ]);
+    await page.reload();
+    await expect(field(page, "Xbox")).toBeDisabled();
+    await expect(field(page, "Xbox")).toHaveValue("Antiga");
+    await row(page, "Xbox").getByRole("button", { name: "Desconectar…" }).click();
+    const dialog = page.getByRole("dialog", { name: "Desconectar Xbox?" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Desconectar e salvar" }).click();
+    await expect(row(page, "Xbox")).toContainText("Xbox desconectada.");
+    const [link] = await sql<{ active: boolean }>(`select "linkedAt" is not null as active from "LinkedAccount" where "userId" = $1`, [id]);
+    expect(link.active).toBe(false);
+  });
+
   test("several fields at once: saved, linked without a code (not verified) and syncing", async ({ page }) => {
     test.skip(!CAN_LOGIN, "PSN/Xbox/RA fixtures only exist outside production");
     const { id } = await newAccount(page, "varios");
@@ -232,5 +252,38 @@ test.describe("connections (Exophase model)", () => {
     await expect(row(page, "PlayStation")).toContainText("Não conectada");
     await expect(field(page, "PlayStation")).toHaveValue("");
     expect(await active()).toBe(false);
+  });
+});
+
+test.describe("the server-rendered confirmation step", () => {
+  // Rendered from the action's answer, so it also works where the dialog does not (no JavaScript,
+  // or the dialog dismissed).
+  test("a replacement asked by the server is applied by the step's own button", async ({ page }) => {
+    test.skip(!CAN_LOGIN, "PSN fixtures only exist outside production");
+    // Sem-Data (a PSN fixture account) may still be on an e2c profile from an earlier test.
+    await sql(`delete from "LinkedAccount" where platform = 'psn' and "externalId" = '9000000000000000004'`);
+    const { id } = await newAccount(page, "passo");
+    await sql(`insert into "LinkedAccount" (id, "userId", platform, "externalId", handle) values ($1, $2, 'psn', $3, 'Velha')`, [
+      `${id}-psn`,
+      id,
+      `acc-${id}`,
+    ]);
+    await page.reload();
+
+    await field(page, "PlayStation").fill("Sem-Data");
+    await save(page);
+    const dialog = page.getByRole("dialog", { name: "Confirmar as alterações?" });
+    await expect(dialog).toContainText("Trocar a conta PlayStation Velha por Sem-Data");
+    await dialog.getByRole("button", { name: "Cancelar" }).click();
+
+    const step = services(page).getByRole("group", { name: /Confirme antes de salvar/ });
+    await expect(step).toContainText("trocar a conta PlayStation");
+    const [before] = await sql<{ externalId: string }>(`select "externalId" from "LinkedAccount" where "userId" = $1`, [id]);
+    expect(before.externalId).toBe(`acc-${id}`);
+
+    await step.getByRole("button", { name: "Confirmar e salvar" }).click();
+    await expect(row(page, "PlayStation")).toContainText("Conectada como Sem-Data");
+    const [after] = await sql<{ externalId: string }>(`select "externalId" from "LinkedAccount" where "userId" = $1`, [id]);
+    expect(after.externalId).toBe("9000000000000000004");
   });
 });

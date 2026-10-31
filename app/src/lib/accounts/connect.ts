@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { createLimiter } from "@/lib/auth/rate-limit";
 import { platformAvailable } from "@/lib/integrations/availability";
 import { parseSteamProfileInput } from "@/lib/integrations/steam/profile-lookup";
-import { isKnownError, normalizeLinkHandle, Raced, unlink } from "./link";
+import { HolderChanged, isKnownError, normalizeLinkHandle, Raced, releaseAccount, settleRelease, unlink } from "./link";
 import { lookupProfile, type LinkPlatform, type PlatformProfile } from "./profiles";
 
 /**
@@ -76,9 +76,20 @@ async function heldByAnother(userId: string, platform: LinkPlatform, externalId:
   return owner !== null;
 }
 
-/** Writes the active, unverified connection. Steam also fills User.steamId (its sync reads it). */
-async function writeLink(userId: string, platform: LinkPlatform, profile: PlatformProfile, now: Date): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+/**
+ * Writes the active, unverified connection, replacing `current` (released through the unlink path)
+ * in the same transaction: if the new link fails (taken a moment earlier), nothing was undone.
+ * Steam also fills User.steamId (its sync reads it). Returns the release to settle afterwards.
+ */
+async function writeLink(
+  userId: string,
+  platform: LinkPlatform,
+  profile: PlatformProfile,
+  current: CurrentLink | null,
+  now: Date,
+): Promise<{ days: string[] } | null> {
+  return prisma.$transaction(async (tx) => {
+    const released = current ? await releaseAccount(tx, userId, platform, now, current.externalId) : null;
     await tx.$queryRaw`SELECT id FROM "LinkedAccount" WHERE "userId" = ${userId} AND platform = ${platform} FOR UPDATE`;
     const existing = await tx.linkedAccount.findUnique({ where: { userId_platform: { userId, platform } } });
     // Linked by a concurrent save: never overwritten (its XP would not be voided).
@@ -104,9 +115,9 @@ async function writeLink(userId: string, platform: LinkPlatform, profile: Platfo
     };
     if (existing) await tx.linkedAccount.update({ where: { id: existing.id }, data: active });
     else await tx.linkedAccount.create({ data: { userId, platform, ...active } });
+    return released;
   });
 }
-
 /**
  * Applies one field of the "Serviços" form: `value` empty disconnects, a new profile connects
  * (replacing the current one when there is one), the same profile changes nothing.
@@ -148,16 +159,20 @@ export async function saveConnection(
   if (await heldByAnother(userId, platform, profile.externalId)) return { status: "taken" };
   if (current && !confirmed) return { status: "needs_confirm", action: "replace" };
 
-  if (current) await unlink(userId, platform, now);
+  let released: { days: string[] } | null;
   try {
-    await writeLink(userId, platform, profile, now);
+    released = await writeLink(userId, platform, profile, current, now);
   } catch (error) {
-    // Another profile linked this account a moment earlier.
-    if (isKnownError(error, "P2002")) return { status: "taken" };
-    // This field changed in a concurrent save.
-    if (error instanceof Raced) return { status: "error" };
+    // A unique violation is either another profile that linked this account a moment earlier, or
+    // a concurrent save of this same field creating the user's own row: only the first is "taken".
+    if (isKnownError(error, "P2002")) {
+      return (await heldByAnother(userId, platform, profile.externalId)) ? { status: "taken" } : { status: "error" };
+    }
+    // This field changed in a concurrent save (all rolled back).
+    if (error instanceof Raced || error instanceof HolderChanged) return { status: "error" };
     throw error;
   }
+  if (released) await settleRelease(userId, released, now);
   return {
     status: "linked",
     handle: profile.handle,

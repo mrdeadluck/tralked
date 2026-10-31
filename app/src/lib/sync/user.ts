@@ -129,16 +129,25 @@ class SteamUnlinkedError extends Error {
   }
 }
 
+/** The Steam link a run started with (`linkedAt` null for an old-login account without a row). */
+type SteamSnapshot = { steamId: string; linkedAt: Date | null };
+
 /**
  * Locks the user row FOR SHARE until the game's transaction ends and checks it still has the
- * Steam account the run started with. Disconnecting Steam (lib/accounts/link.ts releaseAccount)
- * takes the same row FOR UPDATE, so it either waits for this game (and then removes it) or has
- * already committed (and the run stops).
+ * Steam link the run started with: same SteamID and same `linkedAt` (an unlink followed by a quick
+ * relink is another link). Disconnecting Steam (lib/accounts/link.ts releaseAccount) takes the
+ * same row FOR UPDATE, so it either waits for this game (and then removes it) or has already
+ * committed (and the run stops).
  */
-async function assertSteamStillLinked(tx: Prisma.TransactionClient, userId: string, steamId: string) {
-  const rows = await tx.$queryRaw<{ id: string }[]>`
-    SELECT id FROM "User" WHERE id = ${userId} AND "steamId" = ${steamId} FOR SHARE`;
-  if (rows.length === 0) throw new SteamUnlinkedError();
+async function assertSteamStillLinked(tx: Prisma.TransactionClient, userId: string, link: SteamSnapshot) {
+  const rows = await tx.$queryRaw<{ linkedAt: Date | null }[]>`
+    SELECT l."linkedAt" FROM "User" u
+      LEFT JOIN "LinkedAccount" l ON l."userId" = u.id AND l.platform = 'steam'
+    WHERE u.id = ${userId} AND u."steamId" = ${link.steamId}
+    FOR SHARE OF u`;
+  if (rows.length === 0 || (rows[0].linkedAt?.getTime() ?? null) !== (link.linkedAt?.getTime() ?? null)) {
+    throw new SteamUnlinkedError();
+  }
 }
 
 /** `cleared`: an admin released the unlock (fraudReview), so the rules no longer flag it. */
@@ -157,7 +166,7 @@ const suspiciousVerdict = (before: KnownUnlock | undefined, ruleMatches: boolean
  */
 async function recordGame(
   userId: string,
-  steamId: string,
+  link: SteamSnapshot,
   fetched: FetchedGame,
   known: Map<string, KnownUnlock>,
   bursts: Set<string>,
@@ -184,7 +193,7 @@ async function recordGame(
   const pctById = new Map(game.achievements.map((a) => [a.id, a.globalPct]));
 
   return prisma.$transaction(async (tx) => {
-    await assertSteamStillLinked(tx, userId, steamId);
+    await assertSteamStillLinked(tx, userId, link);
     await tx.userGame.createMany({
       data: [
         { userId, gameId: game.id, platform: "steam", playtimeMin, unlockedCount: unlocks.length, completedAt },
@@ -317,6 +326,11 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
   if (!steamId) {
     return { status: "ok", newUnlocks: 0, levelBefore: before.level, levelAfter: before.level, skillUps: [] };
   }
+  const steamRow = await prisma.linkedAccount.findUnique({
+    where: { userId_platform: { userId, platform: "steam" } },
+    select: { linkedAt: true },
+  });
+  const link: SteamSnapshot = { steamId, linkedAt: steamRow?.linkedAt ?? null };
 
   const summary = await steam.getPlayerSummary(steamId);
   // Tralked visibility is the user's choice (/conta): a private Steam profile turns it off
@@ -396,7 +410,7 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
   let newUnlocks = 0;
   for (const fetched of fetchedGames) {
     try {
-      newUnlocks += await recordGame(userId, steamId, fetched, known, bursts);
+      newUnlocks += await recordGame(userId, link, fetched, known, bursts);
     } catch (error) {
       // Disconnected while this run was reading: stop. The unlink already removed what was
       // recorded and recomputed; nothing more is written for this account.

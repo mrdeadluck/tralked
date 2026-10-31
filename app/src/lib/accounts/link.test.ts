@@ -383,4 +383,48 @@ describe.skipIf(!reachable)("account claims and unlinking", () => {
       await prisma.game.delete({ where: { id: game.id } });
     }
   });
+
+  it("a claim whose holder changed accounts meanwhile releases nothing (and is refused as taken)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { confirmClaim, startClaim } = await import("./link");
+    // The claim read "H2 has xuid-corrida", but H2 has another account by the time it commits.
+    const h2 = await newUser();
+    await prisma.linkedAccount.create({ data: { userId: h2.id, platform: "xbox", externalId: "xuid-outra", handle: "Outra" } });
+    await prisma.xpLedgerEntry.create({
+      data: { userId: h2.id, source: "achievement", sourceKey: "xbox-outra", xp: 400, skills: [], platform: "xbox" },
+    });
+    const claimant = await newUser();
+    const started = await startClaim(claimant.id, "xbox", "Corrida", T0);
+    if (!started.ok) throw new Error("unreachable");
+    profile("Corrida", "xuid-corrida", started.code);
+
+    const original = prisma.linkedAccount.findUnique.bind(prisma.linkedAccount);
+    const spy = vi.spyOn(prisma.linkedAccount, "findUnique").mockImplementation(((args: Parameters<typeof original>[0]) =>
+      "platform_externalId" in args.where && args.where.platform_externalId
+        ? Promise.resolve({ userId: h2.id })
+        : original(args)) as unknown as typeof prisma.linkedAccount.findUnique);
+    try {
+      await expect(confirmClaim(claimant.id, "xbox", later(60_000))).resolves.toEqual({ ok: false, reason: "taken" });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: h2.id, platform: "xbox" } } }))
+      .toMatchObject({ externalId: "xuid-outra" });
+    expect((await prisma.xpLedgerEntry.findFirstOrThrow({ where: { userId: h2.id, sourceKey: "xbox-outra" } })).voidedAt).toBeNull();
+    expect(await prisma.notification.count({ where: { userId: h2.id } })).toBe(0);
+    // The claim is still pending: nothing moved to the claimant.
+    expect(await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: claimant.id, platform: "xbox" } } }))
+      .toMatchObject({ linkedAt: null });
+  });
+
+  it("releaseAccount refuses to release an account other than the one expected", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { HolderChanged, releaseAccount } = await import("./link");
+    const user = await newUser();
+    await prisma.linkedAccount.create({ data: { userId: user.id, platform: "psn", externalId: "acc-atual", handle: "Atual" } });
+    await expect(prisma.$transaction((tx) => releaseAccount(tx, user.id, "psn", T0, "acc-antiga"))).rejects.toBeInstanceOf(
+      HolderChanged,
+    );
+    await expect(prisma.$transaction((tx) => releaseAccount(tx, user.id, "psn", T0, "acc-atual"))).resolves.toEqual({ days: [] });
+  });
 });

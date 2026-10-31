@@ -39,7 +39,8 @@ export type SyncPlatformOptions = {
 const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
 /** The linked account a run started with: every title transaction re-checks it is still linked. */
-type AccountSnapshot = { userId: string; platform: CodePlatform; externalId: string };
+/** `linkedAt` too: an unlink followed by a quick relink of the same account is another link. */
+type AccountSnapshot = { userId: string; platform: CodePlatform; externalId: string; linkedAt: Date };
 
 /** The account was unlinked (or claimed by another profile) while the sync ran. */
 class AccountChangedError extends Error {
@@ -52,15 +53,16 @@ class AccountChangedError extends Error {
  * Locks the account row FOR SHARE until the title transaction ends and checks it is still the
  * active connection the run started with (verified or not). Unlinking or a claim by another
  * profile takes the same row FOR UPDATE (lib/accounts/link.ts releaseAccount), so an unlink
- * either waits for this title (and then removes it) or has already committed (and this aborts).
+ * either waits for this title (and then removes it) or has already committed (and this aborts,
+ * even when the same account was linked again meanwhile: its `linkedAt` differs).
  */
 async function assertStillLinked(tx: Prisma.TransactionClient, account: AccountSnapshot): Promise<void> {
-  const rows = await tx.$queryRaw<{ id: string }[]>`
-    SELECT id FROM "LinkedAccount"
+  const rows = await tx.$queryRaw<{ linkedAt: Date | null }[]>`
+    SELECT "linkedAt" FROM "LinkedAccount"
     WHERE "userId" = ${account.userId} AND platform = ${account.platform}
       AND "externalId" = ${account.externalId} AND "linkedAt" IS NOT NULL
     FOR SHARE`;
-  if (rows.length === 0) throw new AccountChangedError();
+  if (rows[0]?.linkedAt?.getTime() !== account.linkedAt.getTime()) throw new AccountChangedError();
 }
 
 /** `fraudReview` "cleared": an admin released the unlock, so the rules no longer flag it. */
@@ -357,7 +359,7 @@ export async function syncPlatformAccount(
   }
   const bursts = findBursts([...everyUnlock.values()]);
 
-  const snapshot: AccountSnapshot = { userId, platform, externalId: account.externalId };
+  const snapshot: AccountSnapshot = { userId, platform, externalId: account.externalId, linkedAt: account.linkedAt };
   let newUnlocks = 0;
   for (const { gameId, title } of resolved) {
     try {
@@ -373,7 +375,7 @@ export async function syncPlatformAccount(
   await recomputeUser(userId);
   // Guarded like the titles: an account unlinked meanwhile is not marked synced.
   await prisma.linkedAccount.updateMany({
-    where: { id: account.id, externalId: account.externalId, linkedAt: { not: null } },
+    where: { id: account.id, externalId: account.externalId, linkedAt: account.linkedAt },
     data: {
       // The run reached the end of the list. Failing titles are retried by later runs (they are
       // not up to date) but do not hold this back.

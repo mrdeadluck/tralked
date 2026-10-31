@@ -183,6 +183,33 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).lastSyncedAt).toBeNull();
   });
 
+  it("a Steam disconnected and linked again while the sync reads also stops it (another link)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { unlink } = await import("@/lib/accounts/link");
+    const { syncUser } = await import("./user");
+    const appId = newAppId();
+    const steam = fakeSteam({ [appId]: { pcts: pctsOf(3), unlocks: { A0: new Date("2024-01-02T10:00:00Z") } } });
+    const user = await newUser();
+    const read = steam.api.getPlayerAchievements;
+    steam.api.getPlayerAchievements = async (steamId, id) => {
+      const achievements = await read(steamId, id);
+      await unlink(user.id, "steam");
+      // Linked again at once (same SteamID, a new active row).
+      await prisma.user.update({ where: { id: user.id }, data: { steamId } });
+      await prisma.linkedAccount.upsert({
+        where: { userId_platform: { userId: user.id, platform: "steam" } },
+        create: { userId: user.id, platform: "steam", externalId: steamId, handle: "Test" },
+        update: { externalId: steamId, linkedAt: new Date() },
+      });
+      return achievements;
+    };
+    steamState.api = steam.api;
+
+    expect(await syncUser(user.id)).toMatchObject({ status: "unlinked", newUnlocks: 0 });
+    expect(await prisma.userGame.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(0);
+  });
+
   it("imports history: creates the game on demand, keeps Steam unlock times and grants XP", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");

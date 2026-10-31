@@ -66,7 +66,9 @@ const savedValue = (state: ServiceRowState) => (state.kind === "connected" ? sta
  * Clearing a connected field, or typing another account in it, removes the XP that came from the
  * account, so a dialog asks first: before sending for a cleared field, and after the server found
  * the new account for a replacement (then the same submission goes again, confirmed). Without
- * JavaScript the form still posts; the server then asks in the field's message instead.
+ * JavaScript the form still posts; the server answers with a confirmation step (a submit button
+ * carrying `confirmar`) instead of disconnecting. A connected platform shown as "Em breve" keeps a
+ * "Desconectar…" button (`desconectar`), asked the same way.
  */
 export function ServicesForm({ rows }: { rows: ServiceRow[] }) {
   const router = useRouter();
@@ -88,6 +90,11 @@ export function ServicesForm({ rows }: { rows: ServiceRow[] }) {
       : [];
   });
   const risky = cleared.length > 0 ? cleared : replacements;
+  // Every change the server is waiting to see confirmed (also rendered as a step without JavaScript).
+  const toConfirm = rows.flatMap(({ platform, state: row }) => {
+    const outcome = state.fields[platform];
+    return outcome?.confirm ? [{ platform, kind: outcome.confirm, unavailable: row.kind === "unavailable" }] : [];
+  });
 
   // Imports run in the background: refresh until no row reports "importing" (the state itself
   // ends after IMPORT_GRACE_MS, so this never polls forever).
@@ -118,12 +125,21 @@ export function ServicesForm({ rows }: { rows: ServiceRow[] }) {
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const clears = rows.flatMap<RiskyChange>(({ platform, state: row }) =>
-      row.kind === "connected" && data.has(platform) && String(data.get(platform)).trim() === ""
-        ? [{ platform, kind: "unlink", from: row.handle, to: "" }]
-        : [],
-    );
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    const data = new FormData(event.currentTarget, submitter);
+    // The confirmation step's own button already carries the confirmation.
+    if (submitter?.getAttribute("name") === "confirmar") return submit(data);
+    const disconnect = new Set(data.getAll("desconectar"));
+    const clears = rows.flatMap<RiskyChange>(({ platform, state: row }) => {
+      if (row.kind === "connected" && data.has(platform) && String(data.get(platform)).trim() === "") {
+        return [{ platform, kind: "unlink", from: row.handle, to: "" }];
+      }
+      // A connected platform shown as "Em breve" (field disabled) is disconnected by its button.
+      if (row.kind === "unavailable" && row.handle && disconnect.has(platform)) {
+        return [{ platform, kind: "unlink", from: row.handle, to: "" }];
+      }
+      return [];
+    });
     if (clears.length === 0) return submit(data);
     queued.current = data;
     setCleared(clears);
@@ -185,6 +201,32 @@ export function ServicesForm({ rows }: { rows: ServiceRow[] }) {
           />
         ))}
       </ul>
+
+      {toConfirm.length > 0 && !pending ? (
+        <div
+          role="group"
+          aria-labelledby={`${id}-confirm-step`}
+          className="flex flex-col gap-3 border-t border-nin px-5 py-4"
+        >
+          <p id={`${id}-confirm-step`} className="text-[14.5px] text-text-2">
+            <b className="text-text">Confirme antes de salvar:</b>{" "}
+            {toConfirm
+              .map((c) => `${c.kind === "unlink" ? "desconectar" : "trocar a conta"} ${PLATFORM_GUIDES[c.platform].name}`)
+              .join(", ")}
+            . O XP vindo dessas contas é anulado e as conquistas importadas delas saem do seu personagem.
+          </p>
+          {toConfirm
+            .filter((c) => c.unavailable && c.kind === "unlink")
+            .map((c) => (
+              <input key={c.platform} type="hidden" name="desconectar" value={c.platform} />
+            ))}
+          <div>
+            <button type="submit" name="confirmar" value={toConfirm.map((c) => c.platform).join(",")} className={DANGER}>
+              Confirmar e salvar
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <footer className="flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-line px-5 py-4">
         <Button variant="primary" type="submit" disabled={pending}>
@@ -330,6 +372,13 @@ function ServiceField({
           {guide.hint}
         </p>
 
+        {state.kind === "unavailable" && state.handle ? (
+          <div>
+            <Button variant="ghost" type="submit" name="desconectar" value={platform}>
+              Desconectar…
+            </Button>
+          </div>
+        ) : null}
         {shown?.claimable && shown.typed ? <ClaimStart platform={platform} handle={shown.typed} onNotice={setNotice} /> : null}
         {claim ? <ClaimSteps platform={platform} claim={claim} onNotice={setNotice} /> : null}
         <p aria-live="polite" className="text-sm empty:hidden">

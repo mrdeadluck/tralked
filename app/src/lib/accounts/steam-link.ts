@@ -1,5 +1,15 @@
 import { prisma } from "@/lib/db";
-import { checkPendingCode, isKnownError, Raced, releaseAccount, takeOverAccount, type ConfirmClaimFailure, type TooSoon } from "./link";
+import {
+  checkPendingCode,
+  HolderChanged,
+  isKnownError,
+  Raced,
+  releaseForClaim,
+  settleRelease,
+  takeOverAccount,
+  type ConfirmClaimFailure,
+  type TooSoon,
+} from "./link";
 
 /**
  * Confirming a claim of a Steam account (the code is in the profile "Resumo", see ./link.ts). On
@@ -65,13 +75,15 @@ export async function confirmSteamClaim(userId: string, now: Date = new Date()):
   const me = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   if (me.steamId && me.steamId !== steamId) return { ok: false, reason: "different" };
 
-  const owner = await prisma.user.findFirst({
-    where: {
-      id: { not: userId },
-      OR: [{ steamId }, { linkedAccounts: { some: { platform: "steam", externalId: steamId, linkedAt: { not: null } } } }],
-    },
-    select: { id: true, handle: true, passwordHash: true, googleSub: true },
-  });
+  // The account whose User.steamId it is (an old Steam-login account) comes first; otherwise the
+  // profile that has it as an active link.
+  const ownerFields = { id: true, handle: true, passwordHash: true, googleSub: true } as const;
+  const owner =
+    (await prisma.user.findFirst({ where: { id: { not: userId }, steamId }, select: ownerFields })) ??
+    (await prisma.user.findFirst({
+      where: { id: { not: userId }, linkedAccounts: { some: { platform: "steam", externalId: steamId, linkedAt: { not: null } } } },
+      select: ownerFields,
+    }));
 
   if (!owner || owner.passwordHash || owner.googleSub) {
     const moved = await takeOverAccount(userId, pending, profile, now);
@@ -80,8 +92,15 @@ export async function confirmSteamClaim(userId: string, now: Date = new Date()):
 
   // An account of the old Steam login, without credentials: recover it instead of emptying it.
   if (await hasActivity(userId)) return { ok: false, reason: "has_activity" };
+  // A third profile holding this Steam as an active link loses it (the old account owns it).
+  let third: { userId: string; released: { days: string[] } | null } | null = null;
   try {
     await prisma.$transaction(async (tx) => {
+      const other = await tx.linkedAccount.findFirst({
+        where: { platform: "steam", externalId: steamId, linkedAt: { not: null }, userId: { notIn: [owner.id, userId] } },
+        select: { userId: true },
+      });
+      if (other) third = { userId: other.userId, released: await releaseForClaim(tx, other.userId, "steam", profile, now) };
       // The new account goes first, freeing its unique e-mail / Google sub for the old one
       // (its pending Steam row and reset links cascade with it).
       await tx.user.delete({ where: { id: userId } });
@@ -96,12 +115,6 @@ export async function confirmSteamClaim(userId: string, now: Date = new Date()):
         },
       });
       if (count === 0) throw new Raced();
-      // A third profile holding this Steam as an active link loses it (the old account owns it).
-      const other = await tx.linkedAccount.findFirst({
-        where: { platform: "steam", externalId: steamId, userId: { not: owner.id } },
-        select: { userId: true },
-      });
-      if (other) await releaseAccount(tx, other.userId, "steam", now);
       const existing = await tx.linkedAccount.findUnique({
         where: { userId_platform: { userId: owner.id, platform: "steam" } },
       });
@@ -121,8 +134,12 @@ export async function confirmSteamClaim(userId: string, now: Date = new Date()):
     });
   } catch (error) {
     // The old account got credentials (or this Steam another owner) at the same moment.
-    if (error instanceof Raced || isKnownError(error, "P2002")) return { ok: false, reason: "taken" };
+    if (error instanceof Raced || error instanceof HolderChanged || isKnownError(error, "P2002")) {
+      return { ok: false, reason: "taken" };
+    }
     throw error;
   }
+  const settled = third as { userId: string; released: { days: string[] } | null } | null;
+  if (settled?.released) await settleRelease(settled.userId, settled.released, now);
   return { ok: true, handle: profile.handle, recovered: { userId: owner.id, handle: owner.handle } };
 }

@@ -459,6 +459,39 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     }
   });
 
+  it("an unlink followed by a quick relink of the same account still stops the running sync", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { unlink } = await import("@/lib/accounts/link");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const fake = await fakePsnLibrary(3);
+    const loadGame = prisma.game.findUniqueOrThrow.bind(prisma.game);
+    let titles = 0;
+    let relinked: Promise<unknown> | null = null;
+    const user = await userWith("psn", "test-relink-during-sync", "Religa-Teste");
+    const spy = vi.spyOn(prisma.game, "findUniqueOrThrow").mockImplementation(((args: Parameters<typeof loadGame>[0]) => {
+      titles++;
+      if (titles === 2) {
+        relinked = unlink(user.id, "psn").then(() =>
+          prisma.linkedAccount.update({
+            where: { userId_platform: { userId: user.id, platform: "psn" } },
+            data: { externalId: "test-relink-during-sync", linkedAt: new Date(Date.now() + 1000) },
+          }),
+        );
+      }
+      return relinked ? relinked.then(() => loadGame(args)) : loadGame(args);
+    }) as unknown as typeof prisma.game.findUniqueOrThrow);
+    try {
+      expect(await syncPlatformAccount(user.id, "psn")).toMatchObject({ status: "unlinked", newUnlocks: 0 });
+      expect(titles).toBe(2);
+      // The new link starts from nothing: the old run wrote nothing into it.
+      expect(await prisma.userGame.count({ where: { userId: user.id } })).toBe(0);
+      expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, voidedAt: null } })).toBe(0);
+    } finally {
+      spy.mockRestore();
+      fake.restore();
+    }
+  });
+
   it("stops at the time budget and does not mark the account synced", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncPlatformAccount } = await import("./platform-user");

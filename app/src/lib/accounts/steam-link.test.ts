@@ -190,6 +190,42 @@ describe("confirmSteamClaim (database)", () => {
     expect(await prisma.user.findUnique({ where: { id: busy.id } })).not.toBeNull();
     expect((await prisma.user.findUniqueOrThrow({ where: { id: legacy.id } })).passwordHash).toBeNull();
   });
+
+  it("recovering an old account takes the Steam from a third profile too: notified, Steam XP voided, recomputed", async () => {
+    const { recomputeUser } = await import("@/lib/progression/recompute");
+    profile(STEAM_OLD, "veterano", CODE);
+    const legacy = await prisma.user.create({ data: { handle: `${MARK}veterano3`, displayName: "Veterano", steamId: STEAM_OLD } });
+    // A third profile (with credentials) has the same Steam as an active link, and Steam XP from it.
+    const third = await newAccount();
+    await prisma.linkedAccount.create({ data: { userId: third.id, platform: "steam", externalId: STEAM_OLD, handle: "Veterano" } });
+    const achievement = await prisma.achievement.findFirstOrThrow({ where: { platform: "steam" } });
+    await prisma.userAchievement.create({ data: { userId: third.id, achievementId: achievement.id, unlockedAt: T0 } });
+    await prisma.xpLedgerEntry.create({
+      data: { userId: third.id, source: "achievement", sourceKey: achievement.id, xp: 250, skills: [] },
+    });
+    await recomputeUser(third.id, T0);
+    const before = (await prisma.userStats.findUniqueOrThrow({ where: { userId: third.id } })).totalXp;
+    expect(before).toBeGreaterThanOrEqual(250);
+
+    const fresh = await newAccount();
+    await startWithCode(fresh.id, "veterano");
+    expect(await confirmSteamClaim(fresh.id, later(1000))).toMatchObject({ ok: true, recovered: { userId: legacy.id } });
+
+    expect(
+      await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: third.id, platform: "steam" } } }),
+    ).toMatchObject({ linkedAt: null });
+    expect(
+      await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: legacy.id, platform: "steam" } } }),
+    ).toMatchObject({ externalId: STEAM_OLD });
+    expect((await prisma.xpLedgerEntry.findFirstOrThrow({ where: { userId: third.id, sourceKey: achievement.id } })).voidedAt).toEqual(
+      later(1000),
+    );
+    // Recomputed: the Steam unlock (and any mission reward it completed) no longer counts.
+    const paid = (await prisma.xpLedgerEntry.aggregate({ where: { userId: third.id, voidedAt: null }, _sum: { xp: true } }))._sum.xp ?? 0;
+    expect((await prisma.userStats.findUniqueOrThrow({ where: { userId: third.id } })).totalXp).toBe(paid);
+    expect(paid).toBeLessThanOrEqual(before - 250);
+    expect(await prisma.notification.count({ where: { userId: third.id, title: "Sua conexão Steam foi reivindicada" } })).toBe(1);
+  });
 });
 
 describe("unlink Steam (database)", () => {

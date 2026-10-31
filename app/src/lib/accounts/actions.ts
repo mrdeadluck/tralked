@@ -30,9 +30,19 @@ const saveSchema = z.object({
   psn: fieldSchema,
   xbox: fieldSchema,
   retro: fieldSchema,
-  /** Platforms whose disconnection (or replacement) the user confirmed in the dialog. */
-  confirmar: z.array(platformSchema).max(PLATFORMS.length),
+  /**
+   * Platforms whose disconnection (or replacement) the user confirmed, in the dialog or in the
+   * server-rendered confirmation step (whose button sends them comma-separated).
+   */
+  confirmar: z.array(platformSchema).max(PLATFORMS.length * 2),
+  /** Platforms to disconnect whose field is disabled ("Em breve"), by their own button. */
+  desconectar: z.array(platformSchema).max(PLATFORMS.length * 2),
 });
+
+/** `confirmar`/`desconectar` entries, each possibly a comma-separated list. */
+const listOf = (entries: FormDataEntryValue[]) =>
+  // A file is kept as is, so the schema refuses it.
+  entries.flatMap((entry): unknown[] => (typeof entry === "string" ? entry.split(",").filter(Boolean) : [entry]));
 const claimSchema = z.object({ platform: platformSchema, handle: z.string().trim().min(1).max(200) });
 const platformOnlySchema = z.object({ platform: platformSchema });
 
@@ -178,14 +188,16 @@ export async function saveConnectionsAction(
     psn: text("psn"),
     xbox: text("xbox"),
     retro: text("retro"),
-    confirmar: formData.getAll("confirmar"),
+    confirmar: listOf(formData.getAll("confirmar")),
+    desconectar: listOf(formData.getAll("desconectar")),
   });
   if (!parsed.success) return { version, fields: {}, error: INVALID.error };
 
   const confirmed = new Set(parsed.data.confirmar);
+  const disconnect = new Set(parsed.data.desconectar);
   const fields: SaveConnectionsState["fields"] = {};
   for (const platform of PLATFORMS) {
-    const value = parsed.data[platform];
+    const value = disconnect.has(platform) ? "" : parsed.data[platform];
     if (value === undefined) continue;
     try {
       const result = await saveConnection(user.id, platform, value, { confirmed: confirmed.has(platform) });

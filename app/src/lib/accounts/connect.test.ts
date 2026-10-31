@@ -224,3 +224,110 @@ describe("saveConnection: typing the profile links it at once (Exophase model)",
     expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, voidedAt: null } })).toBeGreaterThan(0);
   });
 });
+
+describe("Steam XP from a real sync (entries without a platform) leaves with the account", () => {
+  const TESTE = "76561198000000042"; // offline fixture profiles: same library for any SteamID
+  const DOIS = "76561198000000044";
+  const paidXp = async (userId: string) =>
+    (await prisma.xpLedgerEntry.aggregate({ where: { userId, voidedAt: null }, _sum: { xp: true } }))._sum.xp ?? 0;
+  const statsXp = async (userId: string) =>
+    (await prisma.userStats.findUnique({ where: { userId } }))?.totalXp ?? 0;
+
+  async function linkedAndSynced(steamHandle: string, steamId: string) {
+    const { syncUser } = await import("@/lib/sync/user");
+    profile(steamHandle, steamId);
+    const user = await newUser();
+    expect((await saveConnection(user.id, "steam", steamHandle, { now: T0 })).status).toBe("linked");
+    expect((await syncUser(user.id)).status).toBe("ok");
+    const xp = await paidXp(user.id);
+    expect(xp).toBeGreaterThan(0);
+    // The Steam sync writes its entries without a platform.
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, platform: "steam" } })).toBe(0);
+    expect(await statsXp(user.id)).toBe(xp);
+    return { user, xp };
+  }
+
+  it("disconnecting voids it (achievements and platinum bonuses)", async () => {
+    const { user } = await linkedAndSynced("tralked-teste", TESTE);
+    expect(await saveConnection(user.id, "steam", "", { now: later(1000), confirmed: true })).toEqual({ status: "unlinked" });
+    expect(await paidXp(user.id)).toBe(0);
+    expect(await statsXp(user.id)).toBe(0);
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, voidedAt: null } })).toBe(0);
+  });
+
+  it("replacing it voids the old account's XP, and syncing again never pays the same unlocks twice", async () => {
+    const { syncUser } = await import("@/lib/sync/user");
+    const { user, xp } = await linkedAndSynced("tralked-teste", TESTE);
+    profile("tralked-dois", DOIS);
+    expect((await saveConnection(user.id, "steam", "tralked-dois", { now: later(1000), confirmed: true })).status).toBe("linked");
+    expect(await paidXp(user.id)).toBe(0);
+    // Link, sync, replace, repeat: never more than one account's worth.
+    await syncUser(user.id);
+    expect(await paidXp(user.id)).toBeLessThanOrEqual(xp);
+    expect(await statsXp(user.id)).toBe(await paidXp(user.id));
+  });
+
+  it("a claim takes it from the holder; the claimant is paid once, the holder keeps nothing", async () => {
+    const { syncUser } = await import("@/lib/sync/user");
+    const { startClaim } = await import("./link");
+    const { confirmSteamClaim } = await import("./steam-link");
+    const { user: holder, xp } = await linkedAndSynced("tralked-teste", TESTE);
+
+    const claimant = await newUser();
+    expect(await saveConnection(claimant.id, "steam", "tralked-teste", { now: T0 })).toEqual({ status: "taken" });
+    const started = await startClaim(claimant.id, "steam", "tralked-teste");
+    if (!started.ok) throw new Error("unreachable");
+    profiles.byHandle.set("tralked-teste", { externalId: TESTE, handle: "tralked-teste", text: started.code, isPrivate: false });
+    expect(await confirmSteamClaim(claimant.id)).toMatchObject({ ok: true, recovered: null });
+
+    expect(await paidXp(holder.id)).toBe(0);
+    expect(await statsXp(holder.id)).toBe(0);
+    await syncUser(claimant.id);
+    expect(await paidXp(claimant.id)).toBe(xp);
+    expect((await paidXp(holder.id)) + (await paidXp(claimant.id))).toBe(xp);
+  });
+});
+
+describe("saveConnection under concurrency", () => {
+  it("a replacement whose new account is taken at the last moment rolls back: the current one and its XP stay", async () => {
+    profile("Atual", "acc-atual");
+    profile("Corrida", "acc-corrida");
+    const user = await newUser();
+    await saveConnection(user.id, "psn", "Atual", { now: T0 });
+    await prisma.xpLedgerEntry.create({
+      data: { userId: user.id, source: "achievement", sourceKey: "psn-atual", xp: 700, skills: [], platform: "psn" },
+    });
+    // Another profile links "Corrida" right after this save checked it was free.
+    const other = await newUser();
+    await prisma.linkedAccount.create({ data: { userId: other.id, platform: "psn", externalId: "acc-corrida", handle: "Corrida" } });
+    const original = prisma.linkedAccount.findUnique.bind(prisma.linkedAccount);
+    let stale = true;
+    const spy = vi.spyOn(prisma.linkedAccount, "findUnique").mockImplementation(((args: Parameters<typeof original>[0]) => {
+      if (stale && "platform_externalId" in args.where && args.where.platform_externalId) {
+        stale = false;
+        return Promise.resolve(null);
+      }
+      return original(args);
+    }) as unknown as typeof prisma.linkedAccount.findUnique);
+    try {
+      expect(await saveConnection(user.id, "psn", "Corrida", { now: later(1000), confirmed: true })).toEqual({ status: "taken" });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await row(user.id, "psn")).toMatchObject({ externalId: "acc-atual", linkedAt: T0 });
+    const entry = await prisma.xpLedgerEntry.findFirstOrThrow({ where: { userId: user.id, sourceKey: "psn-atual" } });
+    expect(entry.voidedAt).toBeNull();
+  });
+
+  it("two saves of the same field at once: one links, the other is never reported as 'taken'", async () => {
+    profile("Duplo", "acc-duplo");
+    const user = await newUser();
+    const results = await Promise.all([
+      saveConnection(user.id, "retro", "Duplo", { now: T0 }),
+      saveConnection(user.id, "retro", "Duplo", { now: T0 }),
+    ]);
+    expect(results.map((r) => r.status)).toContain("linked");
+    expect(results.map((r) => r.status)).not.toContain("taken");
+    expect(await row(user.id, "retro")).toMatchObject({ externalId: "acc-duplo" });
+  });
+});

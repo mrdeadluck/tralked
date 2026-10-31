@@ -262,21 +262,7 @@ export async function takeOverAccount(
   let released: { days: string[] } | null = null;
   try {
     await prisma.$transaction(async (tx) => {
-      if (holderId) {
-        released = await releaseAccount(tx, holderId, platform, now);
-        if (released) {
-          const name = PLATFORM_NAMES[platform];
-          await tx.notification.create({
-            data: {
-              userId: holderId,
-              kind: "system",
-              title: `Sua conexão ${name} foi reivindicada`,
-              body: `Outra pessoa provou, com um código no perfil, ser dona da conta ${name} ${profile.handle}. Ela saiu do seu personagem e o XP que veio dela foi anulado. Se a conta é sua, conecte de novo em Conexões e use "Reivindicar".`,
-              href: "/conta/conexoes",
-            },
-          });
-        }
-      }
+      if (holderId) released = await releaseForClaim(tx, holderId, platform, profile, now);
       if (platform === "steam") {
         // The guard makes a concurrent link of another Steam account fail instead of replacing it.
         const { count } = await tx.user.updateMany({
@@ -301,18 +287,53 @@ export async function takeOverAccount(
     }, TRANSACTION_OPTIONS);
   } catch (error) {
     if (error instanceof Raced) return { ok: false, reason: "different" };
-    // Someone else linked this account a moment earlier.
-    if (isKnownError(error, "P2002")) return { ok: false, reason: "taken" };
+    // Someone else linked this account a moment earlier, or the holder changed accounts meanwhile
+    // (nothing of theirs is released then: the transaction rolls back).
+    if (error instanceof HolderChanged || isKnownError(error, "P2002")) return { ok: false, reason: "taken" };
     // The pending claim changed under us (restarted or confirmed concurrently).
     if (isKnownError(error, "P2025")) return { ok: false, reason: "expired" };
     throw error;
   }
   const done = released as { days: string[] } | null;
-  if (holderId && done) {
-    await revalidateMissions(holderId, done.days, now);
-    await recomputeUser(holderId, now);
-  }
+  if (holderId && done) await settleRelease(holderId, done, now);
   return { ok: true, handle: profile.handle, externalId, previousHolderId: done ? holderId : null };
+}
+
+/** The holder no longer has the account a claim read: the claim's transaction rolls back. */
+export class HolderChanged extends Error {}
+
+/**
+ * In a claim's transaction: `holderId` loses the claimed account (only if it is still that one,
+ * otherwise HolderChanged) through the unlink path, and is notified. Call settleRelease after the
+ * transaction commits.
+ */
+export async function releaseForClaim(
+  tx: Prisma.TransactionClient,
+  holderId: string,
+  platform: LinkPlatform,
+  profile: Pick<PlatformProfile, "externalId" | "handle">,
+  now: Date,
+): Promise<{ days: string[] } | null> {
+  const released = await releaseAccount(tx, holderId, platform, now, profile.externalId);
+  if (released) {
+    const name = PLATFORM_NAMES[platform];
+    await tx.notification.create({
+      data: {
+        userId: holderId,
+        kind: "system",
+        title: `Sua conexão ${name} foi reivindicada`,
+        body: `Outra pessoa provou, com um código no perfil, ser dona da conta ${name} ${profile.handle}. Ela saiu do seu personagem e o XP que veio dela foi anulado. Se a conta é sua, conecte de novo em Conexões e use "Reivindicar".`,
+        href: "/conta/conexoes",
+      },
+    });
+  }
+  return released;
+}
+
+/** After a release committed: re-checks the missions its unlocks completed and recomputes the user. */
+export async function settleRelease(userId: string, released: { days: string[] }, now: Date): Promise<void> {
+  await revalidateMissions(userId, released.days, now);
+  await recomputeUser(userId, now);
 }
 
 /**
@@ -364,6 +385,8 @@ export async function releaseAccount(
   userId: string,
   platform: LinkPlatform,
   now: Date,
+  /** The account the caller means to release: anything else (changed meanwhile) throws HolderChanged. */
+  expectedExternalId?: string,
 ): Promise<{ days: string[] } | null> {
   if (platform === "steam") await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
   await tx.$queryRaw`SELECT id FROM "LinkedAccount" WHERE "userId" = ${userId} AND platform = ${platform} FOR UPDATE`;
@@ -374,6 +397,10 @@ export async function releaseAccount(
     platform === "steam"
       ? (await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { steamId: true } })).steamId
       : null;
+  if (expectedExternalId !== undefined) {
+    const current = account?.linkedAt ? account.externalId : steamId;
+    if (current !== expectedExternalId) throw new HolderChanged();
+  }
   if (!account?.linkedAt && !steamId) return null;
   if (account?.linkedAt) {
     await tx.linkedAccount.update({
@@ -392,6 +419,26 @@ export async function releaseAccount(
     where: { userId, platform, voidedAt: null },
     data: { voidedAt: now },
   });
+  if (platform === "steam") {
+    // The Steam sync writes its entries without a platform (lib/sync/user.ts): they are found by
+    // their source instead, the user's Steam unlocks and Steam games (read before they go away).
+    const [unlocks, games] = await Promise.all([
+      tx.userAchievement.findMany({ where: { userId, achievement: { platform: "steam" } }, select: { achievementId: true } }),
+      tx.userGame.findMany({ where: { userId, platform: "steam" }, select: { gameId: true } }),
+    ]);
+    await tx.xpLedgerEntry.updateMany({
+      where: {
+        userId,
+        platform: null,
+        voidedAt: null,
+        OR: [
+          { source: "achievement", sourceKey: { in: unlocks.map((u) => u.achievementId) } },
+          { source: "platinum", sourceKey: { in: games.map((g) => g.gameId) } },
+        ],
+      },
+      data: { voidedAt: now },
+    });
+  }
   // Days of the unlocks that go away: the missions of those days and weeks are re-checked.
   const gone = await tx.userAchievement.findMany({
     where: { userId, suspicious: false, achievement: { platform } },
@@ -417,7 +464,6 @@ export async function unlink(
 ): Promise<boolean> {
   const removed = await prisma.$transaction((tx) => releaseAccount(tx, userId, platform, now), TRANSACTION_OPTIONS);
   if (!removed) return false;
-  await revalidateMissions(userId, removed.days, now);
-  await recomputeUser(userId, now);
+  await settleRelease(userId, removed, now);
   return true;
 }
