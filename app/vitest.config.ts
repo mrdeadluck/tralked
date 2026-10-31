@@ -10,6 +10,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Steam has a keyless public adapter that would hit the network: tests stay on fixtures.
+    env: { STEAM_MODE: "fixture" },
     projects: [
       {
         extends: true,

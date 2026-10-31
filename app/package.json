@@ -12,6 +12,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:generate": "prisma generate",
+    "catalog:bootstrap": "tsx scripts/catalog-bootstrap.ts",
+    "steam:import": "tsx scripts/import-steam-profile.ts",
     "postinstall": "prisma generate",
     "test:db": "vitest run src/lib/db.test.ts",
     "e2e": "playwright test",

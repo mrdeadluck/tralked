@@ -28,6 +28,11 @@ type FetchedGame = {
 };
 
 const STEAM_CONCURRENCY = 5;
+/**
+ * Upper bound of catalog games probed when Steam cannot list the user's library (keyless
+ * community adapter). Each probe is one throttled request (about 1.2 s), so this caps a sync.
+ */
+export const CATALOG_PROBE_LIMIT = 500;
 const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
 function loadGame(appId: number): Promise<CatalogGame | null> {
@@ -65,11 +70,14 @@ async function fetchGame(
   steamId: string,
   owned: { appId: number; playtimeMin: number },
   playtimeKnown: boolean,
+  requireUnlock: boolean,
 ): Promise<FetchedGame | "private" | null> {
   const steam = getSteam();
   const achievements = await steam.getPlayerAchievements(steamId, owned.appId);
   if (achievements === "private") return "private";
   if (achievements.length === 0) return null;
+  // A probed game is not known to be owned: only one with an unlock enters the library.
+  if (requireUnlock && !achievements.some((a) => a.unlockedAt)) return null;
 
   let game = await loadGame(owned.appId);
   // Unknown game, or Steam has achievements the catalog doesn't know yet (new DLC).
@@ -178,6 +186,17 @@ async function recordGame(
   }, TRANSACTION_OPTIONS);
 }
 
+/** The catalog's Steam games with achievements, oldest first (the bootstrap adds the most owned first). */
+async function catalogProbeCandidates(): Promise<{ appId: number; playtimeMin: number }[]> {
+  const games = await prisma.game.findMany({
+    where: { steamAppId: { not: null }, achievementCount: { gt: 0 } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: CATALOG_PROBE_LIMIT,
+    select: { steamAppId: true },
+  });
+  return games.flatMap((g) => (g.steamAppId === null ? [] : [{ appId: g.steamAppId, playtimeMin: 0 }]));
+}
+
 async function currentProgress(userId: string) {
   const [stats, skills] = await Promise.all([
     prisma.userStats.findUnique({ where: { userId } }),
@@ -226,16 +245,19 @@ export async function syncUser(userId: string): Promise<SyncUserResult> {
 
   const library = await steam.getOwnedGames(steamId);
   if (library === "private") return privateResult();
+  // Without a library list (no API key) the catalog's games are probed one by one instead.
+  const probing = library === "unsupported";
+  const candidates = probing ? await catalogProbeCandidates() : library;
   // Games never played have no unlocks; skipping them saves most of a big library's API calls.
   // When Steam hides playtime every game reports 0, so then every owned game is a candidate.
-  const playtimeKnown = library.some((g) => g.playtimeMin > 0);
-  const owned = playtimeKnown ? library.filter((g) => g.playtimeMin > 0) : library;
+  const playtimeKnown = candidates.some((g) => g.playtimeMin > 0);
+  const owned = playtimeKnown ? candidates.filter((g) => g.playtimeMin > 0) : candidates;
   let sawPrivate = false;
   let failures = 0;
   let firstError: unknown;
   const results = await mapPool(owned, STEAM_CONCURRENCY, () => sawPrivate, async (game) => {
     try {
-      const fetched = await fetchGame(steamId, game, playtimeKnown);
+      const fetched = await fetchGame(steamId, game, playtimeKnown, probing);
       if (fetched === "private") sawPrivate = true;
       return fetched;
     } catch (error) {

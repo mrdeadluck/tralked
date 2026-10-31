@@ -54,6 +54,8 @@ type FakeSteam = {
   profilePublic: boolean;
   /** Public profile with "Game details" private: GetOwnedGames answers `{"response":{}}`. */
   ownedPrivate: boolean;
+  /** Keyless community adapter: no library list, the sync probes the catalog. */
+  ownedUnsupported: boolean;
   privateGames: Set<number>;
 };
 
@@ -62,6 +64,7 @@ function fakeSteam(games: Record<number, FakeGame>): FakeSteam {
     games: new Map(Object.entries(games).map(([id, g]) => [Number(id), g])),
     profilePublic: true,
     ownedPrivate: false,
+    ownedUnsupported: false,
     privateGames: new Set(),
     api: undefined as unknown as SteamApi,
   };
@@ -71,6 +74,7 @@ function fakeSteam(games: Record<number, FakeGame>): FakeSteam {
     },
     async getOwnedGames() {
       if (state.ownedPrivate) return "private";
+      if (state.ownedUnsupported) return "unsupported";
       return [...state.games.entries()].map(([appId, g]) => ({
         appId,
         playtimeMin: g.playtimeMin ?? 600,
@@ -195,6 +199,37 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(userGame).toMatchObject({ unlockedCount: 5, completedAt: null, playtimeMin: 600 });
     const refreshed = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(refreshed.lastSyncedAt).not.toBeNull();
+  });
+
+  it("without a library list it probes the catalog and keeps only games with an unlock", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { syncGame } = await import("./catalog");
+    const [played, untouched, outside] = [newAppId(), newAppId(), newAppId()];
+    const steam = fakeSteam({
+      [played]: { pcts: pctsOf(3, 20), unlocks: { A0: new Date("2022-05-01T10:00:00Z"), A2: new Date("2022-06-01T10:00:00Z") } },
+      [untouched]: { pcts: pctsOf(2, 20), unlocks: {} },
+      // Has unlocks on Steam but is not in the catalog: a probe never finds it.
+      [outside]: { pcts: pctsOf(2, 20), unlocks: { A0: new Date("2022-05-01T10:00:00Z") } },
+    });
+    steamState.api = steam.api;
+    await syncGame(played);
+    await syncGame(untouched);
+    steam.ownedUnsupported = true;
+    const user = await newUser();
+
+    const result = await syncUser(user.id);
+
+    expect(result).toMatchObject({ status: "ok", newUnlocks: 2 });
+    const library = await prisma.userGame.findMany({ where: { userId: user.id }, include: { game: true } });
+    expect(library.map((g) => g.game.steamAppId)).toEqual([played]);
+    expect(library[0]).toMatchObject({ unlockedCount: 2, playtimeMin: 0 });
+    expect(await prisma.game.count({ where: { steamAppId: outside } })).toBe(0);
+    const unlocks = await prisma.userAchievement.findMany({ where: { userId: user.id }, include: { achievement: true } });
+    expect(unlocks.map((u) => u.unlockedAt.toISOString()).sort()).toEqual([
+      "2022-05-01T10:00:00.000Z",
+      "2022-06-01T10:00:00.000Z",
+    ]);
   });
 
   it("running twice does not change totalXp or the ledger", async () => {

@@ -40,8 +40,32 @@ Copie `.env.example` para `.env`. Em desenvolvimento todas as obrigatórias têm
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | opcional | Metadados de jogos (IGDB / Twitch): capa, descrição, gêneros, datas. |
 | `RAWG_API_KEY` | opcional | Metadados complementares de jogos (RAWG). |
 | `SGDB_API_KEY` | opcional | Artes (capas, banners, ícones) via SteamGridDB. |
+| `STEAM_MODE` | opcional | Só vale sem `STEAM_API_KEY`: `fixture` usa os dados offline em vez das páginas públicas da Steam (testes e e2e usam). |
 
 Sem uma chave, a integração correspondente usa fixtures locais (`src/lib/integrations/*/__fixtures__`), então o app funciona offline com os dados do seed. Para ligar dados reais, basta preencher a chave no `.env` e reiniciar; as integrações são escolhidas por `hasKey()` em `src/lib/env.ts`.
+
+A Steam é a exceção: sem `STEAM_API_KEY` ela usa as páginas públicas da comunidade (`src/lib/integrations/steam/community.ts`): perfil e conquistas de perfis públicos em XML e a raridade global, sem chave. A lista de jogos de um perfil exige login na Steam, então a sincronização sonda os jogos do catálogo, um por um, com no máximo uma requisição a cada 1,2 s por domínio. Com `STEAM_MODE=fixture` tudo fica offline.
+
+## Dados reais da Steam (sem chave)
+
+Dois scripts gravam dados reais no banco indicado em `DATABASE_URL`, que é obrigatória (eles se recusam a gravar no banco `gamelog`). Os dois só inserem e atualizam, nunca apagam. Cada execução deixa um log em `scripts/.logs/`.
+
+```bash
+# 1. Catálogo: união dos tops do SteamSpy (mais donos primeiro), ficha da loja em pt-BR,
+#    capa/hero/logo/cabeçalho/screenshots/trailers (links para o CDN da Steam, nada é baixado),
+#    conquistas com raridade global e habilidades pelas tags. Pode ser retomado: pula jogos completos.
+DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_dev pnpm catalog:bootstrap --limit 300
+
+# 2. Perfis públicos: cria/atualiza o usuário como um login Steam faria e sincroniza sondando o catálogo.
+DATABASE_URL=... pnpm steam:import 76561198012210783 --admin --psn MrDead_   # dono: admin, Steam verificada, PSN pendente
+DATABASE_URL=... pnpm steam:import diguzzz                                    # vanity ou SteamID64; conta não verificada
+```
+
+O login real pela Steam (`/api/auth/steam`) de um perfil importado cai no mesmo usuário, porque os dois caminhos buscam o usuário pelo SteamID64.
+
+### PSN e Xbox pendentes
+
+`--psn <onlineId>` cria um `LinkedAccount` PSN **pendente** (sem `verifiedAt`, com `externalId` provisório `pending:<onlineId>`). A PSN não tem API pública: para ativar, crie uma conta PSN de serviço dedicada ao Tralked (nunca a de um usuário), entre nela em `https://www.playstation.com`, copie o `npsso` de `https://ca.account.sony.com/api/v1/ssocookie` e defina `PSN_NPSSO` no `.env` do servidor. Depois o dono confirma a vinculação pela tela de contas (código no "Sobre mim" da PSN), o que grava o `accountId` real e a data de verificação. O Xbox também precisa de um provedor com credencial; até lá fica sem vínculo.
 
 ## Cron
 
@@ -72,6 +96,8 @@ Resposta: `{ "job": "catalog", "processed": N }`. Token inválido retorna 401, j
 | `pnpm db:migrate` | `prisma migrate dev`. |
 | `pnpm db:seed` | Popula o banco com dados de exemplo. |
 | `pnpm db:generate` | `prisma generate` (também roda no `postinstall`). |
+| `pnpm catalog:bootstrap` | Catálogo real da Steam (`--limit N`, `--concurrency N`, `--only-top`). Exige `DATABASE_URL`. |
+| `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
 | `pnpm e2e` | Playwright + axe contra o build de produção (`pnpm build && pnpm start -p 3200`): rotas públicas. |
 | `pnpm e2e:dev` | Playwright + axe contra `next dev -p 3200`: inclui as rotas que exigem login de demonstração. |
 | `pnpm e2e:screens` | Screenshots de todas as rotas (1440×900 e 390×844) em `e2e/__screens__/` (ignorado pelo controle de versão). |
