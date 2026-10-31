@@ -120,8 +120,9 @@ test.describe("bot API → review → publish", () => {
     const published = await page.goto(`/noticias/${slug}`);
     expect(published?.status()).toBe(200);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
-    await expect(page.getByText(`Robô ${botName}`)).toBeVisible();
-    await expect(page.getByText("Gerado por robô · revisado pela redação")).toBeVisible();
+    await expect(page.getByText("Equipe Tralked", { exact: true })).toBeVisible();
+    await expect(page.getByText(`Robô ${botName}`)).toHaveCount(0);
+    await expect(page.getByText("Gerado por robô")).toHaveCount(0);
   });
 });
 

@@ -140,18 +140,14 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
         </h1>
         {article.subtitle ? <p className="text-lg text-text-3">{article.subtitle}</p> : null}
         <div className="flex flex-wrap gap-3.5 font-mono text-xs text-dim">
-          {/* Bot authors are "Robô <key name>", not a user handle. */}
+          {/* Robot articles are signed "Equipe Tralked", not a user handle. */}
           <span className="text-text-2">{article.authorLabel}</span>
           <time dateTime={article.publishedAt.toISOString()}>{DATE_FORMAT.format(article.publishedAt)}</time>
           <span>▲ {article.likes}</span>
           <a href="#comentarios" className="hover:text-text">
             ◼ {article.comments} {article.comments === 1 ? "comentário" : "comentários"}
           </a>
-          {article.source === "bot" ? (
-            <span className="text-text-3">
-              {article.reviewed ? "Gerado por robô · revisado pela redação" : "Gerado por robô"}
-            </span>
-          ) : article.humanAuthored ? (
+          {article.source !== "bot" && article.humanAuthored ? (
             <span className="inline-flex items-center gap-1.5 text-acc before:size-1.5 before:rounded-full before:bg-acc before:content-['']">
               Autoria humana
             </span>

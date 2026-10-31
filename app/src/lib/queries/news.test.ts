@@ -318,17 +318,20 @@ describe("wire and tab view models", () => {
     ]);
   });
 
-  it("credits robots without the '@' of a user handle, on tabs and on the wire", async () => {
-    const { articleStory, authorLabel, buildWireItems } = await import("./news");
-    expect(authorLabel("bot", "Robô Patch Notes")).toBe("Robô Patch Notes");
-    expect(authorLabel("editorial", "Rivia")).toBe("@Rivia");
+  it("signs robots as 'Equipe Tralked' (no '@'), on tabs and on the wire", async () => {
+    const { BOT_BYLINE, articleStory, authorLabel, buildWireItems } = await import("./news");
+    expect(BOT_BYLINE).toBe("Equipe Tralked");
+    expect(authorLabel("bot", "Robô Notícias")).toBe("Equipe Tralked");
+    expect(authorLabel("editorial", "mrdead")).toBe("@mrdead");
     expect(authorLabel(null, "Rivia")).toBe("@Rivia");
 
-    const bot = { ...card("r", "GAMES", 1), authorHandle: "Robô Patch Notes", authorLabel: "Robô Patch Notes", bot: true };
-    expect(articleStory(bot, now).source).toBe("Robô Patch Notes");
+    const bot = { ...card("r", "GAMES", 1), authorHandle: "Robô Patch Notes", authorLabel: authorLabel("bot", "Robô Patch Notes"), bot: true, humanAuthored: false };
+    expect(bot.authorLabel).toBe("Equipe Tralked");
+    expect(bot.humanAuthored).toBe(false);
+    expect(articleStory(bot, now).source).toBe("Equipe Tralked");
     expect(articleStory(card("h", "GAMES", 1), now).source).toBe("@Rivia");
     const [wireBot, wireHuman] = buildWireItems([bot, card("h", "GAMES", 2)], [], now);
-    expect(wireBot.source).toBe("Robô Patch Notes");
+    expect(wireBot.source).toBe("Equipe Tralked");
     expect(wireHuman.source).toBe("Redação Tralked");
   });
 });

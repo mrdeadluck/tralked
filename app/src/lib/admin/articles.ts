@@ -79,7 +79,7 @@ async function staffAuthorId(user: { id: string; handle: string }): Promise<stri
 /**
  * Creates or updates an article from the admin editor. The slug of an article that was ever
  * published is frozen (it is its public URL). Publishing stamps `publishedAt`; publishing a bot
- * article also stamps `reviewedAt` ("Gerado por robô · revisado pela redação").
+ * article also stamps `reviewedAt`.
  */
 export async function saveArticle(
   input: ArticleInput,

@@ -13,7 +13,7 @@ import { fail, isUniqueViolation, type WriteContext, type WriteFailure, type Wri
 /**
  * Bot articles: `source = bot`, `humanAuthored = false`, author "Robô <key name>". Without the
  * `publish` scope they enter the review queue (`status = review`); an editor publishing them sets
- * `reviewedAt`, which shows the "Gerado por robô · revisado pela redação" badge.
+ * `reviewedAt`. The public byline is "Equipe Tralked"; the admin shows the robot origin.
  */
 
 export const botAuthorHandle = (key: Pick<ApiKeyRecord, "name">) => `Robô ${key.name}`;
