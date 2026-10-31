@@ -102,7 +102,7 @@ export async function syncGame(appId: number): Promise<Game | null> {
         });
       }
 
-      const rows = await tx.achievement.findMany({ where: { gameId: game.id } });
+      const rows = await tx.achievement.findMany({ where: { gameId: game.id, platform: "steam" } });
       const byApiName = new Map(rows.map((r) => [r.apiName, r]));
       const fields = (a: (typeof schema)[number]) => ({
         name: a.name,
@@ -115,7 +115,7 @@ export async function syncGame(appId: number): Promise<Game | null> {
       await tx.achievement.createMany({
         data: schema
           .filter((a) => !byApiName.has(a.apiName))
-          .map((a) => ({ gameId: game.id, apiName: a.apiName, ...fields(a) })),
+          .map((a) => ({ gameId: game.id, platform: "steam", apiName: a.apiName, ...fields(a) })),
         skipDuplicates: true,
       });
       for (const a of schema) {
@@ -144,12 +144,14 @@ export async function syncGame(appId: number): Promise<Game | null> {
  * not success, keeps a game that keeps failing from starving the batch.
  */
 async function staleGames(limit: number, where: Prisma.GameWhereInput) {
-  const games = await prisma.game.findMany({
-    where,
+  // Only games on Steam: these jobs refresh from the Steam/IGDB/RAWG/SGDB-by-appid pipeline.
+  const rows = await prisma.game.findMany({
+    where: { AND: [{ steamAppId: { not: null } }, where] },
     orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     take: limit,
     select: { id: true, steamAppId: true },
   });
+  const games = rows.flatMap((g) => (g.steamAppId === null ? [] : [{ id: g.id, steamAppId: g.steamAppId }]));
   const now = new Date();
   await prisma.game.updateMany({
     where: { id: { in: games.map((g) => g.id) } },
@@ -192,7 +194,7 @@ export async function refreshRarity(
     try {
       const percentages = await steam.getGlobalAchievementPercentages(steamAppId);
       const rows = await prisma.achievement.findMany({
-        where: { gameId: id },
+        where: { gameId: id, platform: "steam" },
         select: { id: true, apiName: true, globalPct: true },
       });
       await prisma.$transaction(

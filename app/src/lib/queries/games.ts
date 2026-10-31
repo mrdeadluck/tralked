@@ -56,7 +56,8 @@ export async function listGames(filter: GameFilter, userId?: string): Promise<Ga
     include: {
       skills: true,
       guide: { select: { status: true } },
-      users: userId ? { where: { userId } } : false,
+      // Steam progress (achievementCount is the Steam total).
+      users: userId ? { where: { userId, platform: "steam" } } : false,
     },
   });
 
@@ -128,7 +129,8 @@ export async function getGame(slug: string, userId?: string): Promise<GameDetail
     where: { slug },
     include: {
       skills: true,
-      users: userId ? { where: { userId } } : false,
+      // Steam progress (achievementCount is the Steam total).
+      users: userId ? { where: { userId, platform: "steam" } } : false,
       guide: {
         include: {
           author: { select: { handle: true } },
@@ -290,7 +292,8 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
   const stepApiNames = [...new Set(guide.steps.flatMap((s) => s.achievementApiNames))];
   const stepAchievements = stepApiNames.length
     ? await prisma.achievement.findMany({
-        where: { gameId: game.id, apiName: { in: stepApiNames } },
+        // Guide steps name Steam achievements (apiNames repeat across platforms).
+        where: { gameId: game.id, platform: "steam", apiName: { in: stepApiNames } },
       })
     : [];
   const byApiName = new Map(stepAchievements.map((a) => [a.apiName, a]));
@@ -390,7 +393,7 @@ export async function loadGuideUserState(
   ];
   const [owned, unlocks, stepProgress, votes, ownTips, skillRows] = await Promise.all([
     prisma.userGame.findUnique({
-      where: { userId_gameId: { userId, gameId: guide.game.id } },
+      where: { userId_gameId_platform: { userId, gameId: guide.game.id, platform: "steam" } },
     }),
     prisma.userAchievement.findMany({
       where: { userId, achievementId: { in: achievementIds } },

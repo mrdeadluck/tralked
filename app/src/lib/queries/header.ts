@@ -11,6 +11,7 @@ export async function getTrendingSuggestions(
 
   const popular = await prisma.userGame.groupBy({
     by: ["gameId"],
+    where: { platform: "steam" },
     _count: { gameId: true },
     orderBy: [{ _count: { gameId: "desc" } }, { gameId: "asc" }],
     take: limit,

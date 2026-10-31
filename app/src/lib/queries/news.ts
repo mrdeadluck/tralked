@@ -98,18 +98,18 @@ function toCard(row: CardRow): ArticleCard {
 export async function getHomeNews(): Promise<HomeNews> {
   const [hero, side, latest] = await Promise.all([
     prisma.article.findFirstOrThrow({
-      where: { featured: 2 },
+      where: { status: "published", featured: 2 },
       orderBy: { publishedAt: "desc" },
       select: cardSelect,
     }),
     prisma.article.findMany({
-      where: { featured: 1 },
+      where: { status: "published", featured: 1 },
       orderBy: { publishedAt: "desc" },
       take: 4,
       select: cardSelect,
     }),
     prisma.article.findMany({
-      where: { featured: 0 },
+      where: { status: "published", featured: 0 },
       orderBy: { publishedAt: "desc" },
       select: cardSelect,
     }),
@@ -119,7 +119,8 @@ export async function getHomeNews(): Promise<HomeNews> {
 
 export async function getArticle(slug: string): Promise<ArticleFull | null> {
   const row = await prisma.article.findUnique({
-    where: { slug },
+    // Drafts, articles in review and archived ones are not public.
+    where: { slug, status: "published" },
     select: {
       ...cardSelect,
       body: true,
@@ -141,7 +142,10 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
 }
 
 export async function getAllArticleSlugs(): Promise<string[]> {
-  const rows = await prisma.article.findMany({ select: { slug: true } });
+  const rows = await prisma.article.findMany({
+    where: { status: "published" },
+    select: { slug: true },
+  });
   return rows.map((r) => r.slug);
 }
 

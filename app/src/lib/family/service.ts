@@ -277,7 +277,8 @@ export async function getFamilyLibrary(familyId: string): Promise<FamilyLibraryE
   const handleById = new Map(members.map((m) => [m.userId, m.handle]));
 
   const rows = await prisma.userGame.findMany({
-    where: { userId: { in: members.map((m) => m.userId) } },
+    // Steam libraries: progress is compared against the game's Steam achievement count.
+    where: { userId: { in: members.map((m) => m.userId) }, platform: "steam" },
     include: { game: true },
   });
 

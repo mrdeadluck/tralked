@@ -190,7 +190,7 @@ describe.skipIf(!reachable)("syncUser", () => {
     const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
     expect(stats.totalXp).toBe(await totalXp(user.id));
     const userGame = await prisma.userGame.findUniqueOrThrow({
-      where: { userId_gameId: { userId: user.id, gameId: game.id } },
+      where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
     });
     expect(userGame).toMatchObject({ unlockedCount: 5, completedAt: null, playtimeMin: 600 });
     const refreshed = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
@@ -319,7 +319,7 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(platinum[0].sourceKey).toBe(game.id);
     expect(platinum[0].xp).toBe(platinumBonus(Object.values(pcts).map(xpForAchievement)));
     const userGame = await prisma.userGame.findUniqueOrThrow({
-      where: { userId_gameId: { userId: user.id, gameId: game.id } },
+      where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
     });
     expect(userGame.completedAt).toEqual(new Date("2024-01-09T10:00:00Z"));
     expect(userGame.unlockedCount).toBe(3);
