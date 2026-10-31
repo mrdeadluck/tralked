@@ -48,7 +48,7 @@ Copie `.env.example` para `.env`. Em desenvolvimento todas as obrigatórias têm
 
 Sem uma chave, a integração correspondente usa fixtures locais (`src/lib/integrations/*/__fixtures__`), então o app funciona offline com os dados do seed. Para ligar dados reais, basta preencher a chave no `.env` e reiniciar; as integrações são escolhidas por `hasKey()` em `src/lib/env.ts`.
 
-A Steam é a exceção: sem `STEAM_API_KEY` ela usa as páginas públicas da comunidade (`src/lib/integrations/steam/community.ts`): perfil e conquistas de perfis públicos em XML e a raridade global, sem chave. A lista de jogos de um perfil exige login na Steam, então a sincronização sonda os jogos do catálogo, um por um, com no máximo uma requisição a cada 1,2 s por domínio. Com `STEAM_MODE=fixture` tudo fica offline.
+A Steam é a exceção: sem `STEAM_API_KEY` ela usa as páginas públicas da comunidade (`src/lib/integrations/steam/community.ts`): perfil e conquistas de perfis públicos em XML e a raridade global, sem chave. A lista de jogos de um perfil exige login na Steam, então a sincronização sonda os jogos do catálogo, um por um, com no máximo uma requisição a cada 1,2 s por domínio: cada sincronização sonda o que cabe em 45 s (o ponto de partida gira pelo catálogo a cada 2 minutos, então sincronizações seguidas cobrem o catálogo todo), para depois de 5 falhas seguidas, e só volta aos jogos que já estão na biblioteca uma vez por semana ou quando os dados do jogo mudam. A importação por script sonda o catálogo inteiro. Com `STEAM_MODE=fixture` tudo fica offline.
 
 ## Dados reais da Steam (sem chave)
 

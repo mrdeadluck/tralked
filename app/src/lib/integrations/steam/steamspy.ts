@@ -1,4 +1,4 @@
-import type { PoliteFetch } from "./polite-fetch";
+import { readJson, type PoliteFetch } from "./polite-fetch";
 
 const STEAMSPY = "https://steamspy.com/api.php";
 
@@ -42,7 +42,7 @@ function toApp(entry: SpyEntry): SpyApp | null {
 export async function fetchTopList(politeFetch: PoliteFetch, list: TopList): Promise<SpyApp[]> {
   const res = await politeFetch(`${STEAMSPY}?request=${list}`);
   if (!res.ok) throw new Error(`SteamSpy ${list} failed with HTTP ${res.status}`);
-  const data = (await res.json()) as Record<string, SpyEntry>;
+  const data = await readJson<Record<string, SpyEntry>>(res);
   return Object.values(data).flatMap((entry) => toApp(entry) ?? []);
 }
 
@@ -54,7 +54,7 @@ export async function fetchTopList(politeFetch: PoliteFetch, list: TopList): Pro
 export async function fetchMostOwnedPage(politeFetch: PoliteFetch, page = 0): Promise<SpyApp[]> {
   const res = await politeFetch(`${STEAMSPY}?request=all&page=${page}`);
   if (!res.ok) throw new Error(`SteamSpy all page ${page} failed with HTTP ${res.status}`);
-  const data = (await res.json()) as Record<string, SpyEntry>;
+  const data = await readJson<Record<string, SpyEntry>>(res);
   return Object.values(data).flatMap((entry) => toApp(entry) ?? []);
 }
 
@@ -62,7 +62,7 @@ export async function fetchMostOwnedPage(politeFetch: PoliteFetch, page = 0): Pr
 export async function fetchTags(politeFetch: PoliteFetch, appId: number): Promise<Record<string, number>> {
   const res = await politeFetch(`${STEAMSPY}?request=appdetails&appid=${appId}`);
   if (!res.ok) throw new Error(`SteamSpy appdetails ${appId} failed with HTTP ${res.status}`);
-  const tags = ((await res.json()) as SpyEntry).tags;
+  const tags = (await readJson<SpyEntry>(res)).tags;
   return tags && !Array.isArray(tags) ? tags : {};
 }
 

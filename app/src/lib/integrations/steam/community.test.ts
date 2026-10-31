@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSteamCommunity, parseAchievementPage, parseProfile } from "./community";
+import { createSteamCommunity, parseAchievementPage, parseProfile, xmlTag } from "./community";
 
 const REF = "76561198012210783";
 const USER = "76561197993315263";
@@ -183,5 +183,35 @@ describe("createSteamCommunity", () => {
   it("resolveVanity returns the SteamID64 of a custom URL", async () => {
     const { fetch } = fakeFetch((url) => (url.pathname === "/id/MrDead_/" ? xml(profileXml(REF, "MrDead_")) : undefined));
     await expect(createSteamCommunity({ fetch }).resolveVanity("MrDead_")).resolves.toBe(REF);
+  });
+
+  it("only accepts real SteamID64s and Steam CDN avatars/icons", async () => {
+    const { fetch } = fakeFetch((url) =>
+      url.pathname === "/id/fake/" ? xml(profileXml("12345", "Fake")) : undefined,
+    );
+    await expect(createSteamCommunity({ fetch }).resolveVanity("fake")).resolves.toBeNull();
+    const evil = profileXml(USER, "Diguzz").replace(
+      "https://avatars.fastly.steamstatic.com/abc_full.jpg",
+      "javascript:alert(1)",
+    );
+    expect(parseProfile(evil)?.avatarUrl).toBe("");
+    const page = parseAchievementPage(
+      statsXml(USER, achievement("a", "A", 1).replace(/https:\/\/shared\.fastly\.steamstatic\.com/g, "http://evil.example")),
+    );
+    expect(page.status === "ok" && page.achievements[0].iconUrl).toBeUndefined();
+  });
+
+  it("does not follow a redirect off steamcommunity.com", async () => {
+    const { fetch, calls } = fakeFetch((url) =>
+      url.pathname.includes("/stats/")
+        ? redirect("https://evil.example/id/x/stats/TF2?tab=achievements")
+        : undefined,
+    );
+    await expect(createSteamCommunity({ fetch }).getPlayerAchievements(USER, 440)).resolves.toEqual([]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("skips invalid numeric entities instead of throwing", () => {
+    expect(xmlTag("<name>a&#99999999;b&#x41;</name>", "name")).toBe("abA");
   });
 });

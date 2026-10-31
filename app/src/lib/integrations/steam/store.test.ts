@@ -21,8 +21,15 @@ const hollowKnight = {
         { path_full: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/367520/ss_b.jpg" },
       ],
       movies: [
-        { id: 256679401, name: "Release Trailer", thumbnail: "https://x/movie.293x165.jpg", hls_h264: "https://x/hls.m3u8" },
-        { id: 2, name: "Old", mp4: { max: "https://cdn/movie_max.mp4" } },
+        {
+          id: 256679401,
+          name: "Release Trailer",
+          thumbnail: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/256679401/movie.293x165.jpg",
+          hls_h264: "https://video.akamai.steamstatic.com/x/hls.m3u8",
+        },
+        { id: 2, name: "Old", mp4: { max: "https://cdn.akamai.steamstatic.com/steam/apps/2/movie_max.mp4" } },
+        // Not on Steam's CDN: dropped (media is hotlinked as is).
+        { id: 9, name: "Elsewhere", mp4: { max: "http://evil.example/movie.mp4" } },
         { id: 3, name: "Third" },
         { id: 4, name: "Fourth" },
         { id: 5, name: "Fifth" },
@@ -55,12 +62,21 @@ describe("store", () => {
         id: 256679401,
         name: "Release Trailer",
         url: "https://video.akamai.steamstatic.com/store_trailers/256679401/movie_max.mp4",
-        thumbnailUrl: "https://x/movie.293x165.jpg",
+        thumbnailUrl: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/256679401/movie.293x165.jpg",
       },
-      { id: 2, name: "Old", url: "https://cdn/movie_max.mp4", thumbnailUrl: undefined },
+      { id: 2, name: "Old", url: "https://cdn.akamai.steamstatic.com/steam/apps/2/movie_max.mp4", thumbnailUrl: undefined },
       expect.objectContaining({ id: 3 }),
       expect.objectContaining({ id: 4 }),
     ]);
+  });
+
+  it("keeps only https Steam CDN media", () => {
+    const data = structuredClone(hollowKnight);
+    data["367520"].data.header_image = "javascript:alert(1)";
+    data["367520"].data.screenshots = [{ path_full: "http://shared.akamai.steamstatic.com/ss.jpg" }];
+    const app = parseStoreApp(367520, data);
+    expect(app?.headerUrl).toBeUndefined();
+    expect(app?.screenshots).toEqual([]);
   });
 
   it("drops trademark signs from names", () => {
@@ -83,6 +99,8 @@ describe("store", () => {
 
   it("htmlToText drops markup and decodes entities", () => {
     expect(htmlToText("<p>A &amp; B&#39;s <i>game</i></p>")).toBe("A & B's game");
+    // An invalid code point is skipped instead of throwing a RangeError.
+    expect(htmlToText("x&#99999999;y&#x110000;z")).toBe("xyz");
   });
 
   it("fetchStoreApp asks in Brazilian Portuguese and throws on HTTP errors", async () => {
