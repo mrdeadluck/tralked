@@ -1,10 +1,8 @@
-"use server";
+﻿"use server";
 
 import { getSessionUser } from "@/lib/auth/session";
-import { prisma } from "@/lib/db";
+import { claimSyncSlot } from "@/lib/sync/claim";
 import { syncUser } from "@/lib/sync/user";
-
-const MIN_INTERVAL_MS = 2 * 60_000;
 
 export type SyncNowResult =
   | {
@@ -25,27 +23,12 @@ export async function syncNow(): Promise<SyncNowResult> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "Entre com a Steam para sincronizar." };
 
-  // Atomic claim: concurrent clicks cannot both pass the interval check.
-  const now = new Date();
-  const claimed = await prisma.user.updateMany({
-    where: {
-      id: user.id,
-      OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: new Date(now.getTime() - MIN_INTERVAL_MS) } }],
-    },
-    data: { lastSyncedAt: now },
-  });
-  if (claimed.count === 0) {
-    return { ok: false, error: "Aguarde um pouco antes de sincronizar de novo." };
-  }
-
-  const releaseClaim = () =>
-    prisma.user.update({ where: { id: user.id }, data: { lastSyncedAt: user.lastSyncedAt } });
-
   try {
+    if (!(await claimSyncSlot(user.id))) {
+      return { ok: false, error: "Aguarde um pouco antes de sincronizar de novo." };
+    }
     const result = await syncUser(user.id);
-    const status: string = result.status;
-    if (status === "private") {
-      await releaseClaim();
+    if (result.status === "private") {
       return { ok: false, error: PRIVATE_PROFILE_ERROR };
     }
     return {
@@ -55,8 +38,11 @@ export async function syncNow(): Promise<SyncNowResult> {
       levelAfter: result.levelAfter,
       skillUps: result.skillUps,
     };
-  } catch {
-    await releaseClaim().catch(() => {});
+  } catch (error) {
+    console.error("syncNow failed", {
+      userId: user.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return { ok: false, error: "Não foi possível sincronizar agora. Tente de novo em instantes." };
   }
 }

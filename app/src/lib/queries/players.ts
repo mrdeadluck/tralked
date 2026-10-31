@@ -1,10 +1,11 @@
-import type { Prisma } from "@/generated/prisma/client";
+﻿import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { skillNeed } from "@/lib/engine/skills";
 import { toLocalDay } from "@/lib/engine/streak";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
 import { levelFromXp, rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import type { MissionCondition } from "@/lib/engine/missions";
+import { dailyPeriodKey, weeklyPeriodKey } from "@/lib/progression/periods";
 
 /** Any Prisma client; tests pass a transaction client to see uncommitted fixtures. */
 export type Db = Prisma.TransactionClient;
@@ -112,13 +113,6 @@ export function hoursUntilDailyReset(now: Date): number {
   return Math.max(1, Math.ceil((86_400 - elapsed) / 3600));
 }
 
-/** Monday ('YYYY-MM-DD', America/Sao_Paulo) of the week containing `date`: the weekly mission period key. */
-export function weekKey(date: Date): string {
-  const day = toLocalDay(date);
-  const noon = new Date(`${day}T12:00:00Z`);
-  const back = (noon.getUTCDay() + 6) % 7;
-  return toLocalDay(new Date(noon.getTime() - back * DAY_MS));
-}
 
 function lastSevenDays(now: Date, activeDays: Set<string>): StreakDay[] {
   const today = toLocalDay(now);
@@ -261,7 +255,6 @@ export async function getCharacter(
 
   const totalXp = user.stats?.totalXp ?? 0;
   const progress = levelFromXp(totalXp);
-  const today = toLocalDay(now);
 
   const [
     unlockedAgg,
@@ -283,8 +276,8 @@ export async function getCharacter(
       where: {
         userId: user.id,
         OR: [
-          { kind: "daily", periodKey: today },
-          { kind: "weekly", periodKey: weekKey(now) },
+          { kind: "daily", periodKey: dailyPeriodKey(now) },
+          { kind: "weekly", periodKey: weeklyPeriodKey(now) },
         ],
       },
       orderBy: [{ kind: "asc" }, { title: "asc" }],

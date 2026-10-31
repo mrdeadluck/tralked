@@ -1,12 +1,12 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
+import { dailyPeriodKey, weeklyPeriodKey } from "@/lib/progression/periods";
 import {
   getCharacter,
   getHighscores,
   getUserRank,
   hoursUntilDailyReset,
   isHighscoreSkill,
-  weekKey,
 } from "@/lib/queries/players";
 
 describe("hoursUntilDailyReset", () => {
@@ -17,14 +17,6 @@ describe("hoursUntilDailyReset", () => {
     expect(hoursUntilDailyReset(new Date("2026-11-01T02:59:30Z"))).toBe(1);
     // 03:00:00Z = 00:00 local -> a full day ahead
     expect(hoursUntilDailyReset(new Date("2026-11-01T03:00:00Z"))).toBe(24);
-  });
-});
-
-describe("weekKey", () => {
-  it("returns the Monday of the local week", () => {
-    expect(weekKey(new Date("2026-10-31T15:00:00Z"))).toBe("2026-10-26"); // Saturday
-    expect(weekKey(new Date("2026-10-26T12:00:00Z"))).toBe("2026-10-26"); // Monday
-    expect(weekKey(new Date("2026-11-01T01:00:00Z"))).toBe("2026-10-26"); // Saturday night local
   });
 });
 
@@ -79,6 +71,20 @@ describe.skipIf(!reachable)("player queries (seeded database)", () => {
     }
   });
 
+  it("getCharacter lists the current daily and weekly missions (period keys from progression/periods)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const now = new Date();
+    const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
+    const stored = await prisma.mission.findMany({
+      where: { userId: lucas.id, periodKey: { in: [dailyPeriodKey(now), weeklyPeriodKey(now)] } },
+    });
+    const character = await getCharacter("lucas", now);
+    const weekly = character!.missions.filter((m) => m.kind === "weekly");
+    expect(weekly.length).toBeGreaterThan(0);
+    expect(character!.missions.some((m) => m.kind === "daily")).toBe(true);
+    expect(character!.missions.map((m) => m.id).sort()).toEqual(stored.map((m) => m.id).sort());
+    for (const mission of weekly) expect(mission.goal).toBeGreaterThan(0);
+  });
   it("getCharacter returns null for an unknown handle", async () => {
     expect(await getCharacter("ninguem-por-aqui")).toBeNull();
   });
