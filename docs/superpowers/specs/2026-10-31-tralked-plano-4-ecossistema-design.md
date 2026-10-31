@@ -70,9 +70,15 @@ Pedido: "conectar com alguma fonte que mostrasse os próximos lançamentos e os 
 - **Card "Lançamentos" na home**: abas **Últimos** (últimos 30 dias) e **Próximos** (próximos 90 dias), PC primeiro, filtro por plataforma; capa, data (ou "a definir"), plataformas; link para a página do jogo.
 - Página `/lancamentos` com a lista completa e os mesmos filtros; os lançamentos alimentam o calendário (F8).
 
+### F11 — Jogos e Família organizados (paginação)
+Pedido: "não ficar tudo mostrando numa lista infinita, até uns 80 por página, escolha de no mínimo 10 por página, ou algo que deixe mais bonito".
+- `/jogos`: grade de capas com **paginação numerada** (anterior/próxima, primeira/última, reticências), seletor **10 / 20 / 40 / 80 por página** (padrão 40), filtros e ordenação no topo (plataforma, gênero, popular, nome, lançamento, "quase lá"); estado na URL (`?pagina=&por=&…`), funciona sem JS; contagem "X jogos no catálogo"; stubs fora.
+- `/familia`: resumo dos integrantes no topo; **biblioteca da família** em grade paginada com o mesmo seletor; filtro por integrante, "todos têm"/"só alguém tem"; seções organizadas em vez de uma lista única.
+- O mesmo componente de paginação serve à lista de jogos do perfil (F3).
+
 ## Ordem (controller)
 - Onda 1 (paralela, áreas separadas): **F1+F2** (sync + RPG), **F4** (e-mail + Google), **F5** (marca/nav/capinha/nomes).
-- Onda 2: **F3** (perfil), **F6** (highscores), **F7+F8+F10** (notícias + calendário + lançamentos).
+- Onda 2: **F3** (perfil) + **F11** (paginação Jogos/Família), **F6** (highscores), **F7+F8+F10** (notícias + calendário + lançamentos).
 - Onda 3: **F9** (social).
 - Depois: emulador (Plano 3) e hospedagem definitiva.
 
