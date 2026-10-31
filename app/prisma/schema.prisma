@@ -12,17 +12,20 @@ datasource db {
 // ---------- Users ----------
 
 model User {
-  id            String    @id @default(cuid())
-  steamId       String    @unique
-  handle        String    @unique
-  displayName   String
-  avatarUrl     String?
-  profilePublic Boolean   @default(false)
+  id                String    @id @default(cuid())
+  steamId           String    @unique
+  handle            String    @unique
+  displayName       String
+  avatarUrl         String?
+  profilePublic     Boolean   @default(false)
   /// admin | editor | author | user
-  role          String    @default("user")
-  lastSyncedAt  DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  role              String    @default("user")
+  /// Last successful sync.
+  lastSyncedAt      DateTime?
+  /// Last sync attempt (success or failure); cron rotates on this so failing users cannot starve it.
+  lastSyncAttemptAt DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   games         UserGame[]
   achievements  UserAchievement[]
@@ -59,6 +62,8 @@ model Game {
   timeToBeatCompleteMin Int?
   platforms             String[]
   achievementCount      Int
+  /// Last catalog/rarity refresh attempt (success or failure); cron rotates on this.
+  lastSyncAttemptAt     DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 

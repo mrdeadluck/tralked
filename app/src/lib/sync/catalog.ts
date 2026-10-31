@@ -133,20 +133,33 @@ export async function syncGame(appId: number): Promise<Game | null> {
   }
 }
 
-/** Least recently touched games first; touching a game moves it to the back of the queue. */
-function staleGames(limit: number) {
-  return prisma.game.findMany({
-    orderBy: { updatedAt: "asc" },
+/**
+ * Games whose last refresh attempt is oldest (never attempted first). Ordering by attempt,
+ * not success, keeps a game that keeps failing from starving the batch.
+ */
+async function staleGames(limit: number, where: Prisma.GameWhereInput) {
+  const games = await prisma.game.findMany({
+    where,
+    orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     take: limit,
     select: { id: true, steamAppId: true },
   });
+  const now = new Date();
+  await prisma.game.updateMany({
+    where: { id: { in: games.map((g) => g.id) } },
+    data: { lastSyncAttemptAt: now },
+  });
+  return games;
 }
 
 /** Weekly job: re-syncs the `limit` stalest games (metadata, achievements, rarity). */
-export async function syncCatalog(limit = 25): Promise<{ processed: number; failed: number }> {
+export async function syncCatalog(
+  limit = 25,
+  where: Prisma.GameWhereInput = {},
+): Promise<{ processed: number; failed: number }> {
   let processed = 0;
   let failed = 0;
-  for (const { steamAppId } of await staleGames(limit)) {
+  for (const { steamAppId } of await staleGames(limit, where)) {
     try {
       await syncGame(steamAppId);
       processed++;
@@ -162,19 +175,22 @@ export async function syncCatalog(limit = 25): Promise<{ processed: number; fail
  * Daily job: refreshes the global unlock percentage of the `limit` stalest games.
  * Only affects achievements recorded from now on: XP already in the ledger is frozen.
  */
-export async function refreshRarity(limit = 50): Promise<{ processed: number; failed: number }> {
+export async function refreshRarity(
+  limit = 50,
+  where: Prisma.GameWhereInput = {},
+): Promise<{ processed: number; failed: number }> {
   const steam = getSteam();
   let processed = 0;
   let failed = 0;
-  for (const { id, steamAppId } of await staleGames(limit)) {
+  for (const { id, steamAppId } of await staleGames(limit, where)) {
     try {
       const percentages = await steam.getGlobalAchievementPercentages(steamAppId);
       const rows = await prisma.achievement.findMany({
         where: { gameId: id },
         select: { id: true, apiName: true, globalPct: true },
       });
-      await prisma.$transaction([
-        ...rows
+      await prisma.$transaction(
+        rows
           .filter((r) => percentages[r.apiName] !== undefined && percentages[r.apiName] !== r.globalPct)
           .map((r) =>
             prisma.achievement.update({
@@ -182,8 +198,7 @@ export async function refreshRarity(limit = 50): Promise<{ processed: number; fa
               data: { globalPct: percentages[r.apiName] },
             }),
           ),
-        prisma.game.update({ where: { id }, data: { updatedAt: new Date() } }),
-      ]);
+      );
       processed++;
     } catch (error) {
       failed++;

@@ -18,10 +18,10 @@ import hollowKnight from "../src/lib/integrations/steam/__fixtures__/hollow-knig
 import { prisma } from "../src/lib/db";
 import { expFor, levelFromXp, xpForAchievement } from "../src/lib/engine/xp";
 import { skillNeed, skillPointsFor } from "../src/lib/engine/skills";
-import { toLocalDay } from "../src/lib/engine/streak";
 import type { MissionCondition } from "../src/lib/engine/missions";
 import { SKILLS, type SkillId, type SkillState } from "../src/lib/engine/types";
 import { vocationFor } from "../src/lib/engine/vocation";
+import { dailyPeriodKey, weeklyPeriodKey } from "../src/lib/progression/periods";
 import { skillsFromLedger } from "../src/lib/progression/skills-from-ledger";
 import { FEED_ACHIEVEMENTS, GAMES, GAME_SLUG_BY_PREVIEW_ID } from "./seed-data/games";
 import { HK_GUIDE } from "./seed-data/guides";
@@ -94,14 +94,6 @@ function assertSkillsMatch(
       throw new Error(`Seed: ledger of ${who} does not reproduce skill ${id}`);
     }
   }
-}
-
-/** Monday (America/Sao_Paulo) of the current week, 'YYYY-MM-DD'. */
-function weekKey(date: Date): string {
-  const day = toLocalDay(date);
-  const dow = new Date(`${day}T12:00:00Z`).getUTCDay(); // 0 = Sunday
-  const back = (dow + 6) % 7;
-  return toLocalDay(new Date(new Date(`${day}T12:00:00Z`).getTime() - back * DAY));
 }
 
 function mustFind<T>(value: T | undefined | null, what: string): T {
@@ -308,7 +300,8 @@ export async function runSeed() {
       });
 
       // Missions (preview `S.missions`).
-      const today = toLocalDay(now);
+      const today = dailyPeriodKey(now);
+      const week = weeklyPeriodKey(now);
       const missions: {
         kind: "daily" | "weekly";
         periodKey: string;
@@ -319,7 +312,9 @@ export async function runSeed() {
       }[] = [
         { kind: "daily", periodKey: today, title: "Desbloqueie 3 conquistas raras", condition: { minCount: 3, maxGlobalPct: 20 }, rewardXp: 12000, progress: 1 },
         { kind: "daily", periodKey: today, title: "Ganhe XP em Soulslike", condition: { minCount: 1, skill: "soulslike" }, rewardXp: 5000, progress: 0 },
-        { kind: "weekly", periodKey: weekKey(now), title: "Desbloqueie 10 conquistas de Survival Horror", condition: { minCount: 10, skill: "horror" }, rewardXp: 40000, progress: 6 },
+        { kind: "daily", periodKey: today, title: "Desbloqueie 5 conquistas", condition: { minCount: 5 }, rewardXp: 8000, progress: 2 },
+        { kind: "weekly", periodKey: week, title: "Desbloqueie 10 conquistas de Survival Horror", condition: { minCount: 10, skill: "horror" }, rewardXp: 40000, progress: 6 },
+        { kind: "weekly", periodKey: week, title: "Desbloqueie 10 conquistas raras", condition: { minCount: 10, maxGlobalPct: 20 }, rewardXp: 50000, progress: 4 },
       ];
       await tx.mission.createMany({ data: missions.map((m) => ({ userId: lucasId, ...m })) });
 

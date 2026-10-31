@@ -437,4 +437,78 @@ describe.skipIf(!reachable)("syncUser", () => {
     const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
     expect(stats.totalXp).toBe(ledger.reduce((sum, e) => sum + e.xp, 0));
   });
+
+  it("stores the private verdict and picks the profile up again when it turns public", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncStaleUsers } = await import("./user");
+    const appId = newAppId();
+    const steam = fakeSteam({
+      [appId]: { pcts: pctsOf(3), unlocks: { A0: new Date("2024-01-01T10:00:00Z") } },
+    });
+    steamState.api = steam.api;
+    const user = await newUser();
+    await prisma.user.update({ where: { id: user.id }, data: { profilePublic: false } });
+    const only = { id: user.id };
+
+    steam.profilePublic = false;
+    expect(await syncStaleUsers(10, only)).toEqual({ processed: 1, failed: 0 });
+    let row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(row).toMatchObject({ profilePublic: false, lastSyncedAt: null });
+    expect(row.lastSyncAttemptAt).not.toBeNull();
+
+    steam.profilePublic = true;
+    expect(await syncStaleUsers(10, only)).toEqual({ processed: 1, failed: 0 });
+    row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(row.profilePublic).toBe(true);
+    expect(row.lastSyncedAt).not.toBeNull();
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(1);
+  });
+
+  it("marks a public profile with private game details as private", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const appId = newAppId();
+    const steam = fakeSteam({ [appId]: { pcts: pctsOf(2), unlocks: {} } });
+    steam.privateGames.add(appId);
+    steamState.api = steam.api;
+    const user = await newUser(); // created public
+
+    expect((await syncUser(user.id)).status).toBe("private");
+
+    const row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(row.profilePublic).toBe(false);
+    expect(row.lastSyncedAt).toBeNull();
+  });
+
+  it("does not let a failing user starve the cron batch", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncStaleUsers } = await import("./user");
+    const failing = await newUser();
+    const healthy = await newUser();
+    // Never attempted sorts first, so the failing user is picked first; the healthy one was attempted long ago.
+    await prisma.user.update({
+      where: { id: healthy.id },
+      data: { lastSyncAttemptAt: new Date("2020-01-01T00:00:00Z") },
+    });
+    const base = fakeSteam({}).api;
+    steamState.api = {
+      ...base,
+      getPlayerSummary: async (steamId) => {
+        if (steamId === failing.steamId) throw new Error("Steam is down for this user");
+        return base.getPlayerSummary(steamId);
+      },
+    };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const candidates = { id: { in: [failing.id, healthy.id] } };
+
+    expect(await syncStaleUsers(1, candidates)).toEqual({ processed: 0, failed: 1 });
+    expect(await syncStaleUsers(1, candidates)).toEqual({ processed: 1, failed: 0 });
+    errors.mockRestore();
+
+    const healthyRow = await prisma.user.findUniqueOrThrow({ where: { id: healthy.id } });
+    const failingRow = await prisma.user.findUniqueOrThrow({ where: { id: failing.id } });
+    expect(healthyRow.lastSyncedAt).not.toBeNull();
+    expect(failingRow.lastSyncedAt).toBeNull();
+    expect(failingRow.lastSyncAttemptAt).not.toBeNull();
+  });
 });

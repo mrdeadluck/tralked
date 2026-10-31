@@ -25,16 +25,6 @@ const APP_ID = 97000001;
 const NOW = new Date("2026-10-31T15:00:00Z"); // Saturday, ISO week 2026-W44
 const HOUR = 3_600_000;
 
-describe("isoWeekKey", () => {
-  it("formats ISO weeks, including year boundaries", async () => {
-    const { isoWeekKey } = await import("./recompute");
-    expect(isoWeekKey("2026-10-31")).toBe("2026-W44");
-    expect(isoWeekKey("2021-01-03")).toBe("2020-W53");
-    expect(isoWeekKey("2024-12-30")).toBe("2025-W01");
-    expect(isoWeekKey("2026-01-01")).toBe("2026-W01");
-  });
-});
-
 describe.skipIf(!reachable)("recomputeUser", () => {
   let counter = 0;
   let achievementIds: string[] = [];
@@ -226,5 +216,35 @@ describe.skipIf(!reachable)("recomputeUser", () => {
     expect(rpg.level).toBeGreaterThan(1); // 12000 / 12 = 1000 points
     const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
     expect(stats.vocation).toBe("Andarilho de RPG");
+  });
+
+  it("tops partially seeded periods up to 3 daily and 2 weekly missions", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { recomputeUser } = await import("./recompute");
+    const user = await newUser();
+    await prisma.mission.createMany({
+      data: [
+        { userId: user.id, kind: "daily", periodKey: "2026-10-31", title: "Custom daily", condition: { minCount: 1 }, rewardXp: 1000 },
+        { userId: user.id, kind: "weekly", periodKey: "2026-W44", title: "Custom weekly", condition: { minCount: 1 }, rewardXp: 1000 },
+      ],
+    });
+
+    await recomputeUser(user.id, NOW);
+    await recomputeUser(user.id, NOW);
+
+    const missions = await prisma.mission.findMany({ where: { userId: user.id } });
+    expect(missions.filter((m) => m.kind === "daily")).toHaveLength(3);
+    expect(missions.filter((m) => m.kind === "weekly")).toHaveLength(2);
+    expect(missions.some((m) => m.title === "Custom daily")).toBe(true);
+    expect(missions.some((m) => m.title === "Custom weekly")).toBe(true);
+  });
+
+  it("keeps lucas's seeded missions complete (3 daily + 2 weekly, ISO week key)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const missions = await prisma.mission.findMany({ where: { user: { handle: "lucas" } } });
+    expect(missions.filter((m) => m.kind === "daily")).toHaveLength(3);
+    const weekly = missions.filter((m) => m.kind === "weekly");
+    expect(weekly).toHaveLength(2);
+    expect(weekly.every((m) => /^\d{4}-W\d{2}$/.test(m.periodKey))).toBe(true);
   });
 });

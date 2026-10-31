@@ -1,4 +1,4 @@
-import type { Game, GameSkill, Achievement } from "@/generated/prisma/client";
+import type { Achievement, Game, GameSkill, Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { findBursts, isSpeedPlatinum } from "@/lib/engine/fraud";
 import type { SkillId } from "@/lib/engine/types";
@@ -189,14 +189,23 @@ export async function syncUser(userId: string): Promise<SyncUserResult> {
   const before = await currentProgress(userId);
   const steam = getSteam();
 
-  const markSynced = () =>
-    prisma.user.update({ where: { id: userId }, data: { lastSyncedAt: new Date() } });
+  // Recorded first so a user that keeps failing still rotates to the back of the cron queue.
+  await prisma.user.update({ where: { id: userId }, data: { lastSyncAttemptAt: new Date() } });
+
   const privateResult = async (): Promise<SyncUserResult> => {
-    await markSynced();
+    await prisma.user.update({ where: { id: userId }, data: { profilePublic: false } });
     return { status: "private", newUnlocks: 0, levelBefore: before.level, levelAfter: before.level, skillUps: [] };
   };
 
   const summary = await steam.getPlayerSummary(user.steamId);
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      profilePublic: summary.profilePublic,
+      displayName: summary.personaName,
+      avatarUrl: summary.avatarUrl,
+    },
+  });
   if (!summary.profilePublic) return privateResult();
 
   // Games never played have no unlocks; skipping them saves most of a big library's API calls.
@@ -246,7 +255,7 @@ export async function syncUser(userId: string): Promise<SyncUserResult> {
   }
 
   await recomputeUser(userId);
-  await markSynced();
+  await prisma.user.update({ where: { id: userId }, data: { lastSyncedAt: new Date() } });
 
   const after = await currentProgress(userId);
   return {
@@ -260,11 +269,19 @@ export async function syncUser(userId: string): Promise<SyncUserResult> {
   };
 }
 
-/** Cron job: syncs the `limit` public users that were synced longest ago (never synced first). */
-export async function syncStaleUsers(limit = 50): Promise<{ processed: number; failed: number }> {
+/**
+ * Cron job: syncs the `limit` users whose last attempt is oldest (never attempted first),
+ * private ones included so a profile that turned public is picked up. Ordering by attempt
+ * (not success) keeps users that keep failing from starving the batch. `where` narrows the
+ * candidates (tests).
+ */
+export async function syncStaleUsers(
+  limit = 50,
+  where: Prisma.UserWhereInput = {},
+): Promise<{ processed: number; failed: number }> {
   const users = await prisma.user.findMany({
-    where: { profilePublic: true },
-    orderBy: { lastSyncedAt: { sort: "asc", nulls: "first" } },
+    where,
+    orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     take: limit,
     select: { id: true },
   });

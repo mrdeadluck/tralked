@@ -9,24 +9,13 @@ import { computeStreak, toLocalDay } from "@/lib/engine/streak";
 import { SKILLS, type SkillId, type SkillState } from "@/lib/engine/types";
 import { vocationFor } from "@/lib/engine/vocation";
 import { levelFromXp } from "@/lib/engine/xp";
+import { dailyPeriodKey, isoWeekKey, weeklyPeriodKey } from "./periods";
 import { skillsFromLedger, type LedgerSkillEntry } from "./skills-from-ledger";
 
 const DAY_MS = 86_400_000;
 // Longest period start we may need (the Monday of the current ISO week) is under 7 days back.
 const EVENT_LOOKBACK_DAYS = 8;
 const TOP_SKILL_COUNT = 3;
-
-/** ISO week ('YYYY-Www') of a calendar day ('YYYY-MM-DD'). */
-export function isoWeekKey(day: string): string {
-  const [year, month, date] = day.split("-").map(Number);
-  const thursday = new Date(Date.UTC(year, month - 1, date));
-  // The ISO year/week of a date are those of the Thursday of its Monday-based week.
-  thursday.setUTCDate(thursday.getUTCDate() + 4 - (thursday.getUTCDay() || 7));
-  const isoYear = thursday.getUTCFullYear();
-  const dayOfYear = (thursday.getTime() - Date.UTC(isoYear, 0, 1)) / DAY_MS;
-  const week = Math.floor(dayOfYear / 7) + 1;
-  return `${isoYear}-W${String(week).padStart(2, "0")}`;
-}
 
 type SkillMap = Record<SkillId, SkillState>;
 
@@ -82,18 +71,22 @@ async function loadUnlockEvents(userId: string, now: Date) {
 }
 
 /**
- * Creates the missions of the current day and ISO week (once), updates their progress from
+ * Creates the missions of the current day and ISO week (3 daily + 2 weekly), updates their progress from
  * the period's non-suspicious unlocks and pays each completed mission exactly once.
  * Returns whether any mission was completed by this call.
  */
 async function applyMissions(userId: string, now: Date, topSkills: SkillId[]): Promise<boolean> {
-  const today = toLocalDay(now);
+  const weekKey = weeklyPeriodKey(now);
   const periods = [
-    { kind: "daily" as const, periodKey: today, inPeriod: (day: string) => day === today },
+    {
+      kind: "daily" as const,
+      periodKey: dailyPeriodKey(now),
+      inPeriod: (day: string) => day === dailyPeriodKey(now),
+    },
     {
       kind: "weekly" as const,
-      periodKey: isoWeekKey(today),
-      inPeriod: (day: string) => isoWeekKey(day) === isoWeekKey(today),
+      periodKey: weekKey,
+      inPeriod: (day: string) => isoWeekKey(day) === weekKey,
     },
   ];
   const events = await loadUnlockEvents(userId, now);
@@ -101,9 +94,15 @@ async function applyMissions(userId: string, now: Date, topSkills: SkillId[]): P
 
   for (const { kind, periodKey, inPeriod } of periods) {
     let missions = await prisma.mission.findMany({ where: { userId, kind, periodKey } });
-    if (missions.length === 0) {
+    // Top up to the full set (3 daily / 2 weekly); existing missions are never replaced.
+    const wanted = generateMissions(`${userId}:${periodKey}`, kind, topSkills);
+    const have = new Set(missions.map((m) => m.title));
+    const missing = wanted
+      .filter((m) => !have.has(m.title))
+      .slice(0, Math.max(0, wanted.length - missions.length));
+    if (missing.length > 0) {
       await prisma.mission.createMany({
-        data: generateMissions(`${userId}:${periodKey}`, kind, topSkills).map((m) => ({
+        data: missing.map((m) => ({
           userId,
           kind,
           periodKey,
