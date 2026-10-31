@@ -47,3 +47,6 @@ next-env.d.ts
 /e2e/__screens__/
 /e2e/__results__/
 /playwright-report/
+
+# gallery uploads written by the local storage adapter (dev)
+/public/uploads/

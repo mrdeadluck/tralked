@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
+import { Comments } from "@/components/community/Comments";
 import { FactsStrip } from "@/components/games/FactsStrip";
 import { GameHead } from "@/components/games/GameHead";
 import { AchievementList } from "@/components/guide/AchievementList";
@@ -17,6 +18,7 @@ import {
   SidebarIsland,
   TipsIsland,
 } from "@/components/guide/UserIslands";
+import { guideIdCached } from "@/lib/community/cached";
 import { listGameSlugs } from "@/lib/queries/games";
 import { getGameCached, getGuideCached } from "@/lib/queries/games-cached";
 import { gameMetadata } from "../metadata";
@@ -45,6 +47,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
 
   const returnTo = `/jogos/${slug}/guia`;
   const now = guide.game.generatedAt;
+  const guideId = await guideIdCached(guide.game.id);
 
   return (
     <>
@@ -79,6 +82,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
             <TipsIsland guide={guide} returnTo={returnTo} />
           </Suspense>
           <Revisions revisions={guide.revisions} now={now} />
+          {guideId ? <Comments targetType="guide" targetId={guideId} /> : null}
         </div>
         <Suspense
           fallback={<GuideSidebar guide={guide} loggedIn={false} returnTo={returnTo} pending />}
