@@ -82,9 +82,10 @@ export function GameHead({ game }: { game: GameDetail }) {
               </p>
               <Link
                 href={`/jogos/${game.slug}`}
+                aria-label={`Página do jogo: ${game.name}`}
                 className="mb-3.5 inline-flex min-h-6 items-center gap-1.5 font-mono text-[11.5px] tracking-[0.08em] text-acc uppercase underline-offset-[3px] hover:underline"
               >
-                Página do jogo<span className="sr-only">: {game.name}</span> →
+                Página do jogo →
               </Link>
               <div className="flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[11.5px] text-dim">
                 {guide.authorHandle ? <span className="text-text-2">@{guide.authorHandle}</span> : null}

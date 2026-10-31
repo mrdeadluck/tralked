@@ -121,6 +121,9 @@ test.describe("admin feeds per area", () => {
     // The example host does not resolve: the SSRF guard refuses it, nothing is saved.
     await expect(form.getByRole("alert")).toContainText("não leva a um site público");
     expect(await sql(`select 1 from "NewsFeed" where url = $1`, [URL])).toHaveLength(0);
+    // Off the button: axe would otherwise measure its hover colors mid-transition.
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(400);
     await expectNoBlockingViolations(page);
   });
 });

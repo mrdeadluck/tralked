@@ -94,12 +94,12 @@ function RelatedGames({ article }: { article: ArticleFull }) {
             <span className="flex min-w-0 flex-col gap-1">
               <b className="truncate text-[17px] font-extrabold">{game.name}</b>
               <span className="flex flex-wrap gap-x-4">
-                <Link href={`/jogos/${game.slug}`} className={gameLink}>
-                  Ver jogo<span className="sr-only">: {game.name}</span> →
+                <Link href={`/jogos/${game.slug}`} aria-label={`Ver jogo: ${game.name}`} className={gameLink}>
+                  Ver jogo →
                 </Link>
                 {game.hasGuide ? (
-                  <Link href={`/jogos/${game.slug}/guia`} className={gameLink}>
-                    Abrir guia 100%<span className="sr-only"> de {game.name}</span> →
+                  <Link href={`/jogos/${game.slug}/guia`} aria-label={`Abrir guia 100% de ${game.name}`} className={gameLink}>
+                    Abrir guia 100% →
                   </Link>
                 ) : null}
               </span>
@@ -143,12 +143,12 @@ function GameChips({ article }: { article: ArticleFull }) {
           )}
           <span className="text-[14px] font-bold">{game.name}</span>
           <span className="flex gap-3 pl-1">
-            <Link href={`/jogos/${game.slug}`} className={gameLink}>
-              Ver jogo<span className="sr-only">: {game.name}</span>
+            <Link href={`/jogos/${game.slug}`} aria-label={`Ver jogo: ${game.name}`} className={gameLink}>
+              Ver jogo
             </Link>
             {game.hasGuide ? (
-              <Link href={`/jogos/${game.slug}/guia`} className={gameLink}>
-                Guia 100%<span className="sr-only"> de {game.name}</span>
+              <Link href={`/jogos/${game.slug}/guia`} aria-label={`Guia 100% de ${game.name}`} className={gameLink}>
+                Guia 100%
               </Link>
             ) : null}
           </span>
