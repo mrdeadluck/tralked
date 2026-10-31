@@ -66,8 +66,10 @@ describe("NewsWire", () => {
     const links = screen.getAllByRole("link");
     expect(links).toHaveLength(items.length);
     const all = region.querySelectorAll("a");
-    expect(all).toHaveLength(items.length * 2);
-    const copies = Array.from(all).slice(items.length);
+    expect(all).toHaveLength(items.length * 3);
+    const n = items.length;
+    const copies = [...Array.from(all).slice(0, n), ...Array.from(all).slice(2 * n)];
+    expect(Array.from(all).slice(n, 2 * n)).toEqual(links);
     expect(copies.every((a) => a.getAttribute("aria-hidden") === "true" && a.tabIndex === -1)).toBe(true);
   });
 
@@ -102,6 +104,23 @@ describe("NewsWire", () => {
     expect(screen.getByRole("button", { name: "Retomar notícias" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Próxima notícia" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Notícia anterior" })).toBeInTheDocument();
+  });
+
+  it("never renders an unsafe href", () => {
+    const { container } = render(
+      <NewsWire
+        items={[
+          ...items,
+          { ...items[2], id: "x:js", href: "javascript:alert(1)", title: "Inseguro js" },
+          { ...items[2], id: "x:data", href: "data:text/html,<b>x</b>", title: "Inseguro data" },
+          { ...items[0], id: "a:proto", href: "//evil.example.com", title: "Inseguro proto" },
+        ]}
+      />,
+    );
+    const hrefs = Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href") ?? "");
+    expect(hrefs).toHaveLength(items.length * 3);
+    expect(hrefs.some((h) => /^(javascript|data):|^\/\//i.test(h))).toBe(false);
+    expect(screen.queryByText(/Inseguro/)).toBeNull();
   });
 
   it("renders nothing without items", () => {
@@ -170,5 +189,31 @@ describe("NewsTabs", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Guias, 1 notícia" }));
     expect(screen.getByRole("tabpanel")).toHaveAttribute("data-phase", "in");
     expect(screen.getByRole("heading", { level: 3, name: "Delta" })).toBeInTheDocument();
+  });
+
+  it("drops stories with unsafe hrefs (javascript:, data:, protocol-relative)", () => {
+    const unsafe = (id: string, href: string, external = true) => ({ ...story(id, `Inseguro ${id}`), href, external });
+    const { container } = render(
+      <NewsTabs
+        tabs={[
+          {
+            id: "ultimas",
+            label: "Últimas",
+            stories: [
+              unsafe("js", "javascript:alert(1)"),
+              unsafe("data", "data:text/html,<b>x</b>"),
+              unsafe("proto", "//evil.example.com", false),
+              story("ok", "Segura"),
+            ],
+          },
+        ]}
+        mostRead={[unsafe("mr", "javascript:alert(2)"), story("mr-ok", "Lida")]}
+      />,
+    );
+    expect(screen.getByRole("tab", { name: "Últimas, 1 notícia" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Segura" })).toBeInTheDocument();
+    expect(screen.queryByText(/Inseguro/)).toBeNull();
+    const hrefs = Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href") ?? "");
+    expect(hrefs.some((h) => /^(javascript|data):|^\/\//i.test(h))).toBe(false);
   });
 });

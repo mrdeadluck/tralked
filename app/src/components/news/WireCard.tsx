@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { GameArt } from "@/components/art/GameArt";
+import { isSafeHref } from "@/lib/content/url";
 import type { WireItem } from "@/lib/queries/news";
 
 /*
@@ -128,8 +129,10 @@ function body(item: WireItem): ReactNode {
 }
 
 export function WireCard({ item, hidden = false }: { item: WireItem; hidden?: boolean }) {
+  // Never render an unsafe href (e.g. a javascript: link from a feed).
+  if (!isSafeHref(item.href, item.external)) return null;
   const common = {
-    className: `tkw-card tkw-${item.variant}`,
+    className: `tkw-card tkw-${item.variant}${hidden ? " tkw-copy" : ""}`,
     "aria-hidden": hidden || undefined,
     tabIndex: hidden ? -1 : undefined,
     draggable: false,

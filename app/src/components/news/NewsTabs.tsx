@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { GameArt } from "@/components/art/GameArt";
+import { isSafeHref } from "@/lib/content/url";
 import type { NewsTab, StoryCard } from "@/lib/queries/news";
 
 /*
@@ -89,6 +90,14 @@ function StoryLink({
   style?: CSSProperties;
   children: ReactNode;
 }) {
+  // Never render an unsafe href; stories are also filtered before the panel is built.
+  if (!isSafeHref(story.href, story.external)) {
+    return (
+      <div className={className} style={style}>
+        {children}
+      </div>
+    );
+  }
   return story.external ? (
     <a href={story.href} target="_blank" rel="noopener noreferrer" className={className} style={style}>
       {children}
@@ -179,9 +188,11 @@ function Panel({ tab, mostRead, mostReadTitle }: { tab: NewsTab; mostRead: Story
   );
 }
 
+const safeStories = (stories: StoryCard[]) => stories.filter((s) => isSafeHref(s.href, s.external));
+
 export function NewsTabs({
-  tabs,
-  mostRead,
+  tabs: allTabs,
+  mostRead: allMostRead,
   mostReadTitle = "Mais lidas",
   label = "Categorias de notícias",
 }: {
@@ -191,6 +202,8 @@ export function NewsTabs({
   /** Accessible name of the tab list. */
   label?: string;
 }) {
+  const tabs = allTabs.map((tab) => ({ ...tab, stories: safeStories(tab.stories) }));
+  const mostRead = safeStories(allMostRead);
   const base = useId();
   const listRef = useRef<HTMLDivElement>(null);
   const inkRef = useRef<HTMLSpanElement>(null);

@@ -67,6 +67,28 @@ describe("contentBlocksSchema", () => {
     expect(paths([{ type: "image", url: "https://example.com/a.png", alt: "a" }])).toEqual(["0/credit"]);
   });
 
+  it("rejects C0 control characters with the field path, but keeps tab and line feed", () => {
+    expect(paths([{ type: "paragraph", text: "nul\u0000byte" }])).toEqual(["0/text"]);
+    expect(paths([{ type: "heading", level: 2, text: "bell\u0007" }])).toEqual(["0/text"]);
+    expect(paths([{ type: "list", ordered: false, items: ["ok", "esc\u001b[31m"] }])).toEqual(["0/items/1"]);
+    expect(paths([{ type: "table", header: ["a"], rows: [["x\u000bY"]] }])).toEqual(["0/rows/0/0"]);
+    expect(paths([{ type: "image", url: "https://example.com/a.png", alt: "a", credit: "c\r" }])).toEqual([]);
+    expect(paths([{ type: "image", url: "https://example.com/a.png", alt: "a\u0001b", credit: "c" }])).toEqual([
+      "0/alt",
+    ]);
+    expect(paths([{ type: "achievement", apiName: "ACH\u0000" }])).toEqual(["0/apiName"]);
+    expect(parse([{ type: "paragraph", text: "linha 1\nlinha 2\tcom tab" }]).success).toBe(true);
+  });
+
+  it("accepts ordinary text mentioning data:, but not data: link or image targets", () => {
+    expect(parse([{ type: "paragraph", text: "Antes de tudo, save data: faça backup." }]).success).toBe(true);
+    expect(paths([{ type: "paragraph", text: "[x](data:text/html,<b>)" }])).toContain("0/text");
+    expect(paths([{ type: "paragraph", text: "[x](data:text/plain,oi)" }])).toEqual(["0/text"]);
+    expect(paths([{ type: "image", url: "data:image/png;base64,AAAA", alt: "a", credit: "b" }])).toEqual(["0/url"]);
+    expect(paths([{ type: "paragraph", text: "[x](//evil.example.com)" }])).toEqual(["0/text"]);
+    expect(paths([{ type: "paragraph", text: "nada de JavaScript : alert" }])).toEqual(["0/text"]);
+  });
+
   it("is strict: unknown keys and types fail", () => {
     expect(parse([{ type: "paragraph", text: "a", html: "<b>" }]).success).toBe(false);
     expect(parse([{ type: "embed", src: "https://x" }]).success).toBe(false);
