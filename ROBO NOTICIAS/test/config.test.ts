@@ -97,6 +97,12 @@ describe("loadSources", () => {
     ).toThrow(/news\.google\.com/);
   });
 
+  it("reports a malformed url with linkResolve as a validation error, not a TypeError", () => {
+    const run = () => loadSources(writeSources([{ ...validSource, url: "not a url", linkResolve: "google-news" }]));
+    expect(run).toThrow(/Invalid sources file/);
+    expect(run).not.toThrow(TypeError);
+  });
+
   it("rejects duplicate ids", () => {
     expect(() => loadSources(writeSources([validSource, validSource]))).toThrow(/duplicate/i);
   });

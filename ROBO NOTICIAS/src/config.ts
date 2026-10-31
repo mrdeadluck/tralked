@@ -50,7 +50,7 @@ const SourceSchema = z.object({
   /** Item links are Google News redirect URLs; the collector must resolve the publisher URL. */
   linkResolve: z.literal("google-news").optional(),
   active: z.boolean(),
-}).refine((s) => s.linkResolve !== "google-news" || new URL(s.url).hostname === "news.google.com", {
+}).refine((s) => s.linkResolve !== "google-news" || (URL.canParse(s.url) && new URL(s.url).hostname === "news.google.com"), {
   message: 'linkResolve "google-news" requires a news.google.com url',
   path: ["linkResolve"],
 });
