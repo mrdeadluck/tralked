@@ -21,6 +21,7 @@ async function databaseReachable(): Promise<boolean> {
 const reachable = await databaseReachable();
 
 const HANDLE_PREFIX = "test_platform_";
+const FAKE_TITLE_PREFIX = "TESTRESUME_";
 // Titles the fixtures have that the seeded catalog does not: the sync creates these games.
 const CREATED_TITLES = [
   { platform: "psn", externalId: "NPWR90004_00" },
@@ -34,6 +35,45 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     const { prisma } = await import("@/lib/db");
     await prisma.user.deleteMany({ where: { handle: { startsWith: HANDLE_PREFIX } } });
     await prisma.game.deleteMany({ where: { platformLinks: { some: { OR: CREATED_TITLES } } } });
+    await prisma.game.deleteMany({
+      where: { platformLinks: { some: { platform: "psn", externalId: { startsWith: FAKE_TITLE_PREFIX } } } },
+    });
+  }
+
+  /** Replaces the PSN fixture's library with `count` one-trophy titles (one failing, optionally). */
+  async function fakePsnLibrary(count: number, failing?: string) {
+    const { getPsn } = await import("@/lib/integrations");
+    const psn = getPsn();
+    const id = (i: number) => `${FAKE_TITLE_PREFIX}${String(i).padStart(2, "0")}`;
+    const earnedAt = (i: number) => new Date(Date.UTC(2026, 0, 1 + i, 20));
+    const titles = vi.spyOn(psn, "getTitles").mockResolvedValue(
+      Array.from({ length: count }, (_, i) => ({
+        npTitleId: id(i),
+        serviceName: "trophy2" as const,
+        name: `Resumo Teste ${id(i)}`,
+        platform: "PS5",
+        progress: 50,
+        trophyCounts: { bronze: 2, silver: 0, gold: 0, platinum: 0 },
+        earnedCounts: { bronze: 1, silver: 0, gold: 0, platinum: 0 },
+        lastPlayed: earnedAt(i),
+      })),
+    );
+    const trophies = vi.spyOn(psn, "getTrophies").mockImplementation(async (_account, npTitleId) => {
+      if (npTitleId === failing) throw new Error("PSN title trophies failed with HTTP 500");
+      const i = Number(npTitleId.slice(FAKE_TITLE_PREFIX.length));
+      return [
+        { trophyId: "1", name: "Um", description: null, iconUrl: null, hidden: false, tier: "bronze" as const, earned: true, earnedAt: earnedAt(i), rarityPct: 50 },
+        { trophyId: "2", name: "Dois", description: null, iconUrl: null, hidden: false, tier: "bronze" as const, earned: false, earnedAt: null, rarityPct: 30 },
+      ];
+    });
+    return {
+      trophies,
+      id,
+      restore: () => {
+        titles.mockRestore();
+        trophies.mockRestore();
+      },
+    };
   }
 
   async function userWith(platform: string, externalId: string, handle: string, verified = true) {
@@ -264,7 +304,7 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
       });
     const before = await constancia();
 
-    await syncPlatformAccount(user.id, "psn", { now: t2 });
+    await syncPlatformAccount(user.id, "psn", { now: t2, full: true });
     const second = await prisma.userAchievement.findMany({ where: { userId: user.id } });
     expect(second.every((u) => u.unlockedAt.getTime() === t1.getTime())).toBe(true);
     expect((await constancia()).points).toBe(before.points);
@@ -287,6 +327,71 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     await syncPlatformAccount(user.id, "psn", { full: true });
     expect(reads).toHaveBeenCalledTimes(3);
     reads.mockRestore();
+  });
+
+  it("resumes interrupted runs: 12 titles at 5 per run finish in 3 runs", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const fake = await fakePsnLibrary(12);
+    try {
+      const user = await userWith("psn", "test-resume-account", "Resumo-Teste");
+      const synced = async () => {
+        const account = await prisma.linkedAccount.findUniqueOrThrow({
+          where: { userId_platform: { userId: user.id, platform: "psn" } },
+        });
+        const games = await prisma.userGame.count({ where: { userId: user.id, platform: "psn" } });
+        return { games, lastSyncedAt: account.lastSyncedAt };
+      };
+
+      await expect(syncPlatformAccount(user.id, "psn", { maxTitles: 5 })).resolves.toMatchObject({ partial: true, newUnlocks: 5 });
+      await expect(synced()).resolves.toEqual({ games: 5, lastSyncedAt: null });
+      await expect(syncPlatformAccount(user.id, "psn", { maxTitles: 5 })).resolves.toMatchObject({ partial: true, newUnlocks: 5 });
+      await expect(synced()).resolves.toEqual({ games: 10, lastSyncedAt: null });
+      await expect(syncPlatformAccount(user.id, "psn", { maxTitles: 5 })).resolves.toMatchObject({ partial: false, newUnlocks: 2 });
+      const done = await synced();
+      expect(done.games).toBe(12);
+      expect(done.lastSyncedAt).not.toBeNull();
+      // Oldest first, never the same title twice.
+      const order = fake.trophies.mock.calls.map((c) => c[1]);
+      expect(order).toEqual(Array.from({ length: 12 }, (_, i) => fake.id(i)));
+
+      fake.trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn", { maxTitles: 5 });
+      expect(fake.trophies).not.toHaveBeenCalled();
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a permanently failing title is retried but does not block lastSyncedAt", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const fake = await fakePsnLibrary(3, `${FAKE_TITLE_PREFIX}01`);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const user = await userWith("psn", "test-resume-account", "Resumo-Teste");
+      const lastSyncedAt = async () =>
+        (await prisma.linkedAccount.findUniqueOrThrow({
+          where: { userId_platform: { userId: user.id, platform: "psn" } },
+        })).lastSyncedAt;
+
+      await expect(syncPlatformAccount(user.id, "psn", { now: new Date("2026-10-30T10:00:00Z") })).resolves.toMatchObject({
+        status: "ok",
+        partial: false,
+        newUnlocks: 2,
+      });
+      expect(await lastSyncedAt()).toEqual(new Date("2026-10-30T10:00:00Z"));
+
+      fake.trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn", { now: new Date("2026-10-31T10:00:00Z") });
+      // Only the failing title is read again, and the account still counts as synced.
+      expect(fake.trophies.mock.calls.map((c) => c[1])).toEqual([`${FAKE_TITLE_PREFIX}01`]);
+      expect(await lastSyncedAt()).toEqual(new Date("2026-10-31T10:00:00Z"));
+      expect(logged).toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+      fake.restore();
+    }
   });
 
   it("stops at the time budget and does not mark the account synced", async () => {

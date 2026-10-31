@@ -70,6 +70,25 @@ describe("parseFeed", () => {
     expect(items.map((i) => i.url)).toEqual(["https://example.com/ok"]);
   });
 
+  it("parses a closed 240 KB item full of unclosed <link tags in linear time", () => {
+    const xml =
+      `<rss><item><title>Muitos links</title>` +
+      "<link ".repeat(40_000) +
+      ` href="https://example.com/far">` +
+      `<guid>https://example.com/guid</guid><pubDate>Thu, 29 Oct 2026 10:00:00 GMT</pubDate></item></rss>`;
+    expect(xml.length).toBeGreaterThan(240_000);
+    const started = performance.now();
+    const items = parseFeed(xml, NOW);
+    expect(performance.now() - started).toBeLessThan(200);
+    // The last <link is closed by the far ">" and is honored; the unclosed ones are skipped.
+    expect(items.map((i) => i.url)).toEqual(["https://example.com/far"]);
+  });
+
+  it("ignores link tags longer than 2 KB", () => {
+    const xml = `<feed><entry><title>Longo</title><link href="https://example.com/${"a".repeat(3000)}"/><id>x</id><updated>2026-10-28T09:00:00Z</updated></entry></feed>`;
+    expect(parseFeed(xml, NOW)).toEqual([]);
+  });
+
   it("keeps indexes aligned when the text has characters whose lowercase is longer", () => {
     const xml = `<rss><item><title>İstanbul HOLLOW Knight</title><LINK>https://example.com/i</LINK><pubDate>Thu, 29 Oct 2026 10:00:00 GMT</pubDate></item></rss>`;
     expect(parseFeed(xml, NOW)).toEqual([

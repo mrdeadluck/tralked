@@ -11,6 +11,7 @@ import {
   type CodePlatform,
   type LibraryAchievement,
   type LibraryTitle,
+  type StoredProgress,
 } from "./platform-library";
 
 export type SyncPlatformResult = {
@@ -18,7 +19,7 @@ export type SyncPlatformResult = {
   newUnlocks: number;
   levelBefore: number;
   levelAfter: number;
-  /** Titles were left for the next run (time budget); the account is not marked synced. */
+  /** Titles were left for the next run (time or title budget); the account is not marked synced. */
   partial: boolean;
 };
 
@@ -27,7 +28,9 @@ export type SyncPlatformOptions = {
   now?: Date;
   /** Epoch ms after which no further title is read. */
   deadline?: number;
-  /** Reads every title, ignoring `lastSyncedAt` (default: incremental). */
+  /** At most this many titles are read in this run. */
+  maxTitles?: number;
+  /** Reads every title, even those already up to date (default: incremental). */
   full?: boolean;
 };
 
@@ -186,6 +189,45 @@ async function recordTitle(
   }, TRANSACTION_OPTIONS);
 }
 
+/**
+ * Per-title progress already in the database, keyed by the platform's title id: the UserGame
+ * unlock count (and, for RetroAchievements, the hardcore unlock count). Persistent, so a run
+ * cut short by the budget resumes where it stopped.
+ */
+async function storedProgress(
+  userId: string,
+  platform: CodePlatform,
+): Promise<Map<string, StoredProgress>> {
+  const games = await prisma.userGame.findMany({
+    where: { userId, platform },
+    select: { gameId: true, unlockedCount: true },
+  });
+  if (games.length === 0) return new Map();
+  const [links, hardcore] = await Promise.all([
+    prisma.gamePlatformLink.findMany({
+      where: { platform, gameId: { in: games.map((g) => g.gameId) } },
+      select: { gameId: true, externalId: true },
+    }),
+    platform === "retro"
+      ? prisma.userAchievement.findMany({
+          where: { userId, hardcore: true, achievement: { platform } },
+          select: { achievement: { select: { gameId: true } } },
+        })
+      : [],
+  ]);
+  const hardcoreByGame = new Map<string, number>();
+  for (const h of hardcore) {
+    hardcoreByGame.set(h.achievement.gameId, (hardcoreByGame.get(h.achievement.gameId) ?? 0) + 1);
+  }
+  const countByGame = new Map(games.map((g) => [g.gameId, g.unlockedCount]));
+  return new Map(
+    links.map((l) => [
+      l.externalId,
+      { unlocked: countByGame.get(l.gameId) ?? 0, hardcore: hardcoreByGame.get(l.gameId) ?? 0 },
+    ]),
+  );
+}
+
 async function currentLevel(userId: string): Promise<number> {
   const stats = await prisma.userStats.findUnique({ where: { userId }, select: { level: true } });
   return stats?.level ?? 1;
@@ -195,8 +237,9 @@ async function currentLevel(userId: string): Promise<number> {
  * Imports the user's progress on one linked platform (PSN, Xbox or RetroAchievements): maps
  * every title to a catalog game, records unlocks with the anti-fraud rules, appends XP to the
  * ledger and recomputes level, skills, attributes, missions and streak. Only verified accounts
- * are read. Incremental: titles without activity since the last complete sync are skipped.
- * `lastSyncedAt` only moves when every title was read, so nothing is ever skipped for good.
+ * are read. Incremental and resumable: titles whose stored unlock counts already match the
+ * platform's list are skipped, the rest is read oldest first, so a run cut short by the budget
+ * continues where it stopped. `lastSyncedAt` moves when a run reaches the end of the list.
  * Idempotent: running it again changes nothing unless the platform has new unlocks.
  */
 export async function syncPlatformAccount(
@@ -227,7 +270,11 @@ export async function syncPlatformAccount(
   const library = await readLibrary(
     platform,
     { externalId: account.externalId, handle: account.handle },
-    { since: options.full ? null : account.lastSyncedAt, deadline: options.deadline },
+    {
+      stored: options.full ? undefined : await storedProgress(userId, platform),
+      deadline: options.deadline,
+      maxTitles: options.maxTitles,
+    },
   );
   if (library === "private") return unchanged("private");
   for (const failure of library.failures) {
@@ -236,7 +283,10 @@ export async function syncPlatformAccount(
       failure.error,
     );
   }
-  if (library.titles.length === 0 && library.failures.length > 0) throw library.failures[0].error;
+  // Nothing readable at all (every title failed, none up to date): an outage, not a bad title.
+  if (library.titles.length === 0 && library.upToDate === 0 && library.failures.length > 0) {
+    throw library.failures[0].error;
+  }
 
   const names = await loadNameIndex();
   const resolved: { gameId: string; title: LibraryTitle }[] = [];
@@ -279,12 +329,12 @@ export async function syncPlatformAccount(
   }
 
   await recomputeUser(userId);
-  const complete = !library.partial && library.failures.length === 0;
   await prisma.linkedAccount.update({
     where: { id: account.id },
     data: {
-      // The start time: activity during this run is picked up by the next one.
-      ...(complete && { lastSyncedAt: startedAt }),
+      // The run reached the end of the list. Failing titles are retried by later runs (they are
+      // not up to date) but do not hold this back.
+      ...(!library.partial && { lastSyncedAt: startedAt }),
       ...(library.handle && { handle: library.handle }),
     },
   });

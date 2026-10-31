@@ -38,14 +38,20 @@ export type LibraryTitle = {
 
 export type LibraryAccount = { externalId: string; handle: string };
 
+/** What the database already holds for a title (from its UserGame row and unlocks). */
+export type StoredProgress = { unlocked: number; hardcore: number };
+
 export type ReadOptions = {
   /**
-   * Incremental sync: titles whose last activity is at or before this instant are skipped
-   * (titles without an activity date are always read).
+   * Incremental sync, keyed by the title's platform id: a title whose unlock counts (and, for
+   * RetroAchievements, hardcore count) in the platform's list equal what is stored is already
+   * up to date and is not read again. Persistent per title, so an interrupted run resumes.
    */
-  since?: Date | null;
+  stored?: Map<string, StoredProgress>;
   /** Epoch ms after which no further title is read (the rest waits for the next run). */
   deadline?: number;
+  /** At most this many titles are read per run. */
+  maxTitles?: number;
   now?: () => number;
 };
 
@@ -53,13 +59,27 @@ export type LibraryResult = {
   titles: LibraryTitle[];
   /** Titles the sync could not read; the rest of the library is still imported. */
   failures: { externalId: string; error: unknown }[];
-  /** Some titles were left for the next run (time budget). */
+  /** Some titles were left for the next run (time or title budget). */
   partial: boolean;
+  /** Titles already up to date (not read). */
+  upToDate: number;
   /** Current handle on the platform, when the sync learned it (RA usernames can change). */
   handle?: string;
 };
 
-type Listed<T> = { item: T; id: string; lastUpdated: Date | null };
+type Listed<T> = {
+  item: T;
+  id: string;
+  lastUpdated: Date | null;
+  /** Unlock counts the platform's title list reports. */
+  unlocked: number;
+  hardcore?: number;
+};
+
+const upToDate = (listed: Listed<unknown>, stored: StoredProgress | undefined) =>
+  stored !== undefined &&
+  stored.unlocked === listed.unlocked &&
+  (listed.hardcore === undefined || stored.hardcore === listed.hardcore);
 
 async function collect<T>(
   items: Listed<T>[],
@@ -67,12 +87,22 @@ async function collect<T>(
   read: (item: T) => Promise<LibraryTitle | "private" | null>,
 ): Promise<LibraryResult | "private"> {
   const now = options.now ?? Date.now;
-  const result: LibraryResult = { titles: [], failures: [], partial: false };
-  const since = options.since ?? null;
-  const pending = items.filter((i) => !since || !i.lastUpdated || i.lastUpdated > since);
+  const stored = options.stored;
+  const pending = items
+    .filter((i) => !stored || !upToDate(i, stored.get(i.id)))
+    // Oldest activity first (undated first), so interrupted runs move through the whole backlog.
+    .sort((a, b) => (a.lastUpdated?.getTime() ?? 0) - (b.lastUpdated?.getTime() ?? 0));
+  const result: LibraryResult = {
+    titles: [],
+    failures: [],
+    partial: false,
+    upToDate: items.length - pending.length,
+  };
   // Sequential on purpose: the unofficial APIs rate-limit aggressively.
-  for (const { item, id } of pending) {
-    if (options.deadline !== undefined && now() >= options.deadline) {
+  for (const [index, { item, id }] of pending.entries()) {
+    const outOfTime = options.deadline !== undefined && now() >= options.deadline;
+    const outOfTitles = options.maxTitles !== undefined && index >= options.maxTitles;
+    if (outOfTime || outOfTitles) {
       result.partial = true;
       break;
     }
@@ -93,7 +123,12 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
   if (titles === "private") return "private";
   const played = titles
     .filter((t) => Object.values(t.earnedCounts).some((n) => n > 0))
-    .map((t) => ({ item: t, id: t.npTitleId, lastUpdated: t.lastPlayed }));
+    .map((t) => ({
+      item: t,
+      id: t.npTitleId,
+      lastUpdated: t.lastPlayed,
+      unlocked: Object.values(t.earnedCounts).reduce((sum, n) => sum + n, 0),
+    }));
   return collect(played, options, async (t) => {
     const trophies = await psn.getTrophies(account.externalId, t.npTitleId, t.serviceName);
     if (trophies === "private") return "private";
@@ -125,7 +160,7 @@ async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<
   if (titles === "private") return "private";
   const played = titles
     .filter((t) => t.currentAchievements > 0)
-    .map((t) => ({ item: t, id: t.titleId, lastUpdated: t.lastPlayed }));
+    .map((t) => ({ item: t, id: t.titleId, lastUpdated: t.lastPlayed, unlocked: t.currentAchievements }));
   return collect(played, options, async (t) => {
     const list = await xbox.getAchievements(account.externalId, t.titleId);
     if (list === "private") return "private";
@@ -159,7 +194,13 @@ async function readRetro(account: LibraryAccount, options: ReadOptions): Promise
   const games = await retro.getGames(user);
   const played = games
     .filter((g) => g.numAwarded > 0)
-    .map((g) => ({ item: g, id: g.gameId, lastUpdated: g.lastPlayed }));
+    .map((g) => ({
+      item: g,
+      id: g.gameId,
+      lastUpdated: g.lastPlayed,
+      unlocked: g.numAwarded,
+      hardcore: g.numAwardedHardcore,
+    }));
   const result = await collect(played, options, async (g) => {
     const progress = await retro.getGameProgress(user, g.gameId);
     return {

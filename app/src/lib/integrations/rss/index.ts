@@ -71,12 +71,30 @@ function findTag(lower: string, name: string, from: number): number {
   }
 }
 
+/** Longest start tag we read (`<link href="..." rel="..."/>`); longer ones are ignored. */
+const MAX_TAG_LENGTH = 2048;
+
+/**
+ * Index of the `>` closing the tag that starts at `at`, or -1 when another `<` comes first or
+ * the tag is longer than MAX_TAG_LENGTH. Bounded scan: a run of unclosed tags costs linear
+ * time, since each scan stops at the next `<`.
+ */
+function tagEnd(lower: string, at: number): number {
+  const limit = Math.min(lower.length, at + MAX_TAG_LENGTH);
+  for (let i = at + 1; i < limit; i++) {
+    const c = lower.charCodeAt(i);
+    if (c === 62 /* > */) return i;
+    if (c === 60 /* < */) return -1;
+  }
+  return -1;
+}
+
 /** Inner text of the first `<name ...>...</name>` in `block` (lowercased copy: `lower`). */
 function element(block: string, lower: string, names: string[]): string | null {
   for (const name of names) {
     const open = findTag(lower, name, 0);
     if (open < 0) continue;
-    const gt = lower.indexOf(">", open);
+    const gt = tagEnd(lower, open);
     if (gt < 0) continue;
     if (lower[gt - 1] === "/") continue; // self-closing: no content
     const close = lower.indexOf(`</${name}>`, gt + 1);
@@ -102,8 +120,8 @@ const attribute = (attrs: string, name: string) =>
 function linkOf(block: string, lower: string): string | null {
   // Atom: <link href="..." rel="alternate"/> (rel defaults to alternate).
   for (let pos = findTag(lower, "link", 0); pos >= 0; pos = findTag(lower, "link", pos + 1)) {
-    const gt = lower.indexOf(">", pos);
-    if (gt < 0) break;
+    const gt = tagEnd(lower, pos);
+    if (gt < 0) continue; // unclosed or oversized tag: skipped (attributes stay <= 2 KB)
     const attrs = block.slice(pos + 5, gt);
     const href = attribute(attrs, "href");
     const rel = attribute(attrs, "rel") ?? "alternate";
@@ -132,14 +150,15 @@ export function parseFeed(xml: string, now: Date = new Date()): FeedItem[] {
     const start = item < 0 ? entry : entry < 0 ? item : Math.min(item, entry);
     if (start < 0) break;
     const name = start === item ? "item" : "entry";
-    const bodyStart = lower.indexOf(">", start);
+    const bodyStart = tagEnd(lower, start);
     const end = bodyStart < 0 ? -1 : lower.indexOf(`</${name}>`, bodyStart);
     // An unclosed item ends the document: nothing after it can be trusted.
     if (end < 0) break;
     pos = end + name.length + 3;
 
     const block = xml.slice(bodyStart + 1, end);
-    const blockLower = lower.slice(bodyStart + 1, end);    const rawTitle = element(block, blockLower, ["title"]);
+    const blockLower = lower.slice(bodyStart + 1, end);
+    const rawTitle = element(block, blockLower, ["title"]);
     const title = rawTitle ? plainText(rawTitle).slice(0, MAX_TITLE_LENGTH) : "";
     const url = linkOf(block, blockLower);
     const rawDate = element(block, blockLower, ["pubdate", "published", "updated", "dc:date"]);
