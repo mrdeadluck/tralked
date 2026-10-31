@@ -85,16 +85,78 @@ describe.skipIf(!reachable)("player queries (seeded database)", () => {
     expect(character!.missions.map((m) => m.id).sort()).toEqual(stored.map((m) => m.id).sort());
     for (const mission of weekly) expect(mission.goal).toBeGreaterThan(0);
   });
-  it("getCharacter's sheet counts Steam libraries only (seeded PSN/Xbox rows leave it as in Plan 1)", async () => {
+  it("getCharacter's counters cover every platform and agree with the Troféus card", async () => {
     const { prisma } = await import("@/lib/db");
+    const { getCharacterSheetExtras } = await import("@/lib/character/sheet");
     const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
     expect(await prisma.userGame.count({ where: { userId: lucas.id, platform: { not: "steam" } } })).toBeGreaterThan(0);
-    const steam = await prisma.userGame.findMany({ where: { userId: lucas.id, platform: "steam" } });
     const character = await getCharacter("lucas");
-    expect(character?.stats.achievements).toBe(steam.reduce((sum, g) => sum + g.unlockedCount, 0));
-    expect(character?.stats.perfectGames).toBe(steam.filter((g) => g.completedAt !== null).length);
+    const extras = await getCharacterSheetExtras(lucas.id);
+    // "Conquistas" is the Troféus card's total: valid unlocks of all platforms.
+    expect(character?.stats.achievements).toBe(extras.trophies.byPlatform.reduce((sum, p) => sum + p.unlocks, 0));
+    expect(character?.stats.achievements).toBe(await prisma.userAchievement.count({ where: { userId: lucas.id, suspicious: false } }));
+    expect(character?.stats.pendingReview).toBe(
+      await prisma.userAchievement.count({ where: { userId: lucas.id, suspicious: true, fraudReview: null } }),
+    );
     const slugs = character!.almostThere.map((g) => g.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
+  });
+
+  it("getCharacter leaves suspicious unlocks and tainted 100%s out, and finds 'Quase lá' on PSN", async () => {
+    const { prisma } = await import("@/lib/db");
+    class Rollback extends Error {}
+    const handle = `contagem-teste-${Date.now()}`;
+    let seen = null as Awaited<ReturnType<typeof getCharacter>>;
+    await prisma
+      .$transaction(async (tx) => {
+        const user = await tx.user.create({ data: { handle, displayName: handle } });
+        const game = await tx.game.create({
+          data: {
+            slug: handle,
+            name: "Jogo da contagem",
+            achievementCount: 0,
+            platforms: ["PLAYSTATION", "XBOX"],
+            achievements: {
+              create: [
+                ...Array.from({ length: 10 }, (_, i) => ({ platform: "psn", apiName: `P${i}`, name: `P${i}`, globalPct: 50 })),
+                ...Array.from({ length: 2 }, (_, i) => ({ platform: "xbox", apiName: `X${i}`, name: `X${i}`, globalPct: 2 })),
+              ],
+            },
+          },
+          include: { achievements: true },
+        });
+        const psn = game.achievements.filter((a) => a.platform === "psn");
+        const xbox = game.achievements.filter((a) => a.platform === "xbox");
+        const at = new Date("2026-10-01T12:00:00Z");
+        // PSN: 8 valid + 1 pending review of 10 -> 80% "Quase lá" (the pending one never counts).
+        await tx.userGame.create({ data: { userId: user.id, gameId: game.id, platform: "psn", playtimeMin: 0, unlockedCount: 9 } });
+        await tx.userAchievement.createMany({
+          data: psn.slice(0, 9).map((a, i) => ({ userId: user.id, achievementId: a.id, unlockedAt: at, suspicious: i === 8 })),
+        });
+        // Xbox: a "100%" with a confirmed-fraud unlock: not a perfect game, not counted, not pending.
+        await tx.userGame.create({
+          data: { userId: user.id, gameId: game.id, platform: "xbox", playtimeMin: 0, unlockedCount: 2, completedAt: at },
+        });
+        await tx.userAchievement.createMany({
+          data: xbox.map((a, i) => ({
+            userId: user.id,
+            achievementId: a.id,
+            unlockedAt: at,
+            suspicious: i === 1,
+            fraudReview: i === 1 ? "confirmed" : null,
+          })),
+        });
+        seen = await getCharacter(handle, new Date(), tx);
+        throw new Rollback();
+      })
+      .catch((error) => {
+        if (!(error instanceof Rollback)) throw error;
+      });
+    const character = seen!;
+    expect(character.stats).toMatchObject({ achievements: 9, pendingReview: 1, perfectGames: 0, legendary: 1 });
+    expect(character.almostThere).toEqual([
+      expect.objectContaining({ slug: handle, unlocked: 8, total: 10, percent: 80 }),
+    ]);
   });
 
   it("getCharacter returns null for an unknown handle", async () => {

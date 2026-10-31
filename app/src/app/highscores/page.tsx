@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Suspense } from "react";
@@ -12,6 +13,11 @@ import {
   type HighscoreRow,
   type HighscoreSkill,
 } from "@/lib/queries/players";
+
+export const metadata: Metadata = {
+  title: "Highscores | Tralked",
+  description: "Ranking dos jogadores do Tralked: nível geral e cada habilidade, de Soulslike a Sábio.",
+};
 
 export default function HighscoresPage({ searchParams }: PageProps<"/highscores">) {
   return (

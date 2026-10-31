@@ -19,8 +19,12 @@ type CharacterCardProps = {
 
 export function CharacterCard({ character, platforms, bio, actions }: CharacterCardProps) {
   const { stats } = character;
-  const items: [string, string][] = [
-    ["Conquistas", formatNumber(stats.achievements)],
+  const items: [string, string, string?][] = [
+    [
+      "Conquistas",
+      formatNumber(stats.achievements),
+      stats.pendingReview > 0 ? `+${formatNumber(stats.pendingReview)} em análise` : undefined,
+    ],
     ["Jogos 100%", formatNumber(stats.perfectGames)],
     ["Lendárias", formatNumber(stats.legendary)],
     ["Ranking geral", stats.rank === null ? "—" : `#${formatNumber(stats.rank)}`],
@@ -84,13 +88,18 @@ export function CharacterCard({ character, platforms, bio, actions }: CharacterC
       </div>
 
       <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-[2px] border border-line bg-line min-[641px]:col-span-2 min-[641px]:grid-cols-4">
-        {items.map(([label, value]) => (
+        {items.map(([label, value, note]) => (
           <div key={label} className="bg-surface px-3.5 py-3">
             <dt className="font-mono text-[10px] tracking-[0.12em] text-dim-2 uppercase">
               {label}
             </dt>
             <dd className="mt-1 text-2xl font-extrabold font-stretch-[112%] tabular-nums">
               {value}
+              {note ? (
+                <small className="mt-0.5 block font-mono text-[10.5px] font-normal tracking-normal text-dim">
+                  {note}
+                </small>
+              ) : null}
             </dd>
           </div>
         ))}

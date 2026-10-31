@@ -148,7 +148,11 @@ test.describe("community", () => {
     const like = page.getByRole("button", { name: /^Curtir/ });
     const pressed = (await like.getAttribute("aria-pressed")) === "true";
     const before = Number((await like.textContent())?.match(/\d+/)?.[0]);
+    // The button flips at once (optimistic); wait for the Server Action itself before reloading,
+    // or a slow dev server can still be handling it when the reload aborts the request.
+    const saved = page.waitForResponse((r) => r.request().method() === "POST" && Boolean(r.request().headers()["next-action"]));
     await like.click();
+    await saved;
     await expect(like).toHaveAttribute("aria-pressed", String(!pressed));
     await expect(like).toContainText(String(before + (pressed ? -1 : 1)));
     // The like is stored: it survives a reload.

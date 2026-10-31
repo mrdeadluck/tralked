@@ -40,6 +40,22 @@ describe.skipIf(!reachable)("gallery queries (database)", () => {
       const ids = await recentPhotoIds(5);
       expect(ids).toContain(publicPhoto.id);
       expect(ids).not.toContain(privatePhoto.id);
+
+      // The photo page of a private profile is a 404 too; it comes back when the profile does.
+      const { getPhoto } = await import("./gallery");
+      expect(await getPhoto(privatePhoto.id)).toBeNull();
+      expect(await getPhoto(publicPhoto.id)).toMatchObject({ id: publicPhoto.id });
+      await prisma.user.update({ where: { id: hidden.id }, data: { profilePublic: true } });
+      expect(await getPhoto(privatePhoto.id)).toMatchObject({ id: privatePhoto.id });
+
+      // Flipping the visibility reports the change, and the tags cover the user's photo pages.
+      const { updateProfileSettings } = await import("@/lib/accounts/settings");
+      const { visibilityTags } = await import("@/lib/accounts/privacy");
+      expect(await updateProfileSettings(hidden.id, { bio: "", profilePublic: false })).toEqual({ visibilityChanged: true });
+      expect(await updateProfileSettings(hidden.id, { bio: "", profilePublic: false })).toEqual({ visibilityChanged: false });
+      expect((await visibilityTags(hidden.id)).sort()).toEqual(
+        ["gallery", "forum", `photo:${privatePhoto.id}`, `player:${hidden.handle.toLowerCase()}`].sort(),
+      );
     } finally {
       await prisma.photo.deleteMany({ where: { authorId: { in: [hidden.id, open.id] } } });
       await prisma.user.deleteMany({ where: { id: { in: [hidden.id, open.id] } } });

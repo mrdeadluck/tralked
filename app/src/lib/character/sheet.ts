@@ -3,6 +3,7 @@ import type { PhotoCardView } from "@/lib/community/gallery";
 import { prisma } from "@/lib/db";
 import { ATTRIBUTES, attributeLevel, type AttributeId } from "@/lib/engine/attributes";
 import { trophyTierFromRarity, type PlatformId, type TrophyTier } from "@/lib/engine/trophies";
+import { validCompletions } from "@/lib/progression/completions";
 
 /**
  * Character sheet v2 (Plan 2): attributes, linked platforms, trophies by tier and the player's
@@ -118,10 +119,8 @@ export async function getCharacterSheetExtras(userId: string): Promise<Character
       where: { userId, suspicious: false },
       select: { achievement: { select: { gameId: true, platform: true, trophyTier: true, globalPct: true } } },
     }),
-    prisma.userGame.findMany({
-      where: { userId, completedAt: { not: null } },
-      select: { gameId: true, platform: true },
-    }),
+    // A tainted 100% (suspicious unlock) is no platinum, as in Glória and the sheet's counters.
+    validCompletions(userId),
     listPhotosByAuthor(userId, SHEET_PHOTO_LIMIT),
   ]);
 

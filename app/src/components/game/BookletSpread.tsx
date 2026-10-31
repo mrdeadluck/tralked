@@ -8,6 +8,7 @@ import {
 } from "@/lib/queries/game-profile";
 import { CaseReplayButton } from "./case-replay";
 import { DiscProgress } from "./DiscProgress";
+import { titleFitStyle } from "./title-fit";
 
 /*
  * The open booklet ("encarte") of preview/tralked-jogo.html: left page with the game's sheet
@@ -22,7 +23,7 @@ const CSS = `
 .gps::after { content: ""; position: absolute; top: 0; bottom: 0; left: 53.5%; width: 46px; translate: -50% 0; pointer-events: none; z-index: 1; background: linear-gradient(90deg, transparent, rgba(0,0,0,.45) 48%, rgba(255,255,255,.04) 52%, transparent); }
 .gps-art { position: absolute; inset: 0; opacity: .32; pointer-events: none; -webkit-mask: linear-gradient(90deg, transparent 30%, #000 75%); mask: linear-gradient(90deg, transparent 30%, #000 75%); }
 .gps-l, .gps-r { position: relative; z-index: 2; padding: 44px 48px 56px; }
-.gps-l { display: flex; flex-direction: column; gap: 22px; }
+.gps-l { display: flex; flex-direction: column; gap: 22px; container-type: inline-size; }
 .gps-r { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
 .gps-folio { position: absolute; bottom: 16px; font-family: var(--font-jetbrains-mono), monospace; font-size: 10px; letter-spacing: .14em; color: var(--ph); }
 .gps-l .gps-folio { left: 48px; } .gps-r .gps-folio { right: 48px; }
@@ -30,7 +31,8 @@ const CSS = `
 .gps-cat { color: var(--acc); margin-right: 6px; }
 .gps-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 1px solid var(--border-2); color: var(--c, var(--text-2)); }
 .gps-chip::before { content: ""; width: 5px; height: 5px; background: var(--c, var(--text-2)); }
-.gps-title { font-weight: 900; font-stretch: 125%; font-size: clamp(40px, 6.4vw, 92px); line-height: .86; letter-spacing: -0.04em; text-transform: uppercase; overflow-wrap: anywhere; }
+/* Breaks only between words; the size is capped so the longest word (--longest, in em) fits the column. */
+.gps-title { font-weight: 900; font-stretch: 125%; font-size: min(clamp(40px, 6.4vw, 92px), calc(100cqi / var(--longest, 1))); line-height: .86; letter-spacing: -0.04em; text-transform: uppercase; overflow-wrap: normal; word-break: normal; hyphens: manual; }
 .gps-title:focus { outline: none; }
 .gps-lede { font-size: 17.5px; line-height: 1.55; color: var(--text-2); max-width: 54ch; }
 .gps-ficha { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--border-2); }
@@ -245,7 +247,12 @@ export function BookletSpread({ profile, progress }: { profile: GameProfile; pro
             );
           })}
         </div>
-        <h1 id="gp-title" tabIndex={-1} className="gps-title gp-veil" style={delay(".12s")}>
+        <h1
+          id="gp-title"
+          tabIndex={-1}
+          className="gps-title gp-veil"
+          style={{ ...delay(".12s"), ...titleFitStyle(profile.name) }}
+        >
           {profile.name}
         </h1>
         {profile.summary ? (

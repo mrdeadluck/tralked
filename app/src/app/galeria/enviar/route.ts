@@ -4,13 +4,15 @@ import { getSessionUser } from "@/lib/auth/session";
 import { GALLERY_TAG } from "@/lib/community/cached";
 import { MAX_UPLOAD_BYTES, TOO_LARGE_MESSAGE } from "@/lib/community/upload-limits";
 import { uploadPhoto, type UploadResult } from "@/lib/community/upload";
+import { readCapped } from "@/lib/api/read-capped";
+import { StorageNotConfiguredError } from "@/lib/storage";
 
 // Multipart overhead (boundaries, part headers, the text fields) on top of the image itself.
 const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + 64 * 1024;
 
 export type UploadResponse =
   | { status: "ok"; photoId: string; xpAwarded: boolean; href: string }
-  | { status: "unauthenticated" | "forbidden" | "bad_request"; message: string }
+  | { status: "unauthenticated" | "forbidden" | "bad_request" | "unavailable"; message: string }
   | Exclude<UploadResult, { status: "ok" }>;
 
 const STATUS_CODE: Record<UploadResponse["status"], number> = {
@@ -21,6 +23,7 @@ const STATUS_CODE: Record<UploadResponse["status"], number> = {
   invalid: 422,
   too_large: 413,
   rate_limited: 429,
+  unavailable: 503,
 };
 
 const reply = (body: UploadResponse) => NextResponse.json(body, { status: STATUS_CODE[body.status] });
@@ -37,31 +40,6 @@ function sameOrigin(request: Request): boolean {
   } catch {
     return false;
   }
-}
-
-/** Reads the body but stops as soon as it exceeds `limit` bytes. Returns null when too large. */
-async function readCapped(request: Request, limit: number): Promise<Uint8Array<ArrayBuffer> | null> {
-  if (!request.body) return new Uint8Array();
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel().catch(() => {});
-      return null;
-    }
-    chunks.push(value);
-  }
-  const body = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
 }
 
 /**
@@ -90,12 +68,22 @@ export async function POST(request: Request) {
     return reply({ status: "bad_request", message: "Envie o formulário de foto." });
   }
 
-  const result = await uploadPhoto({
-    userId: user.id,
-    file: form.get("foto"),
-    gameSlug: form.get("jogo"),
-    caption: form.get("legenda"),
-  });
+  let result: UploadResult;
+  try {
+    result = await uploadPhoto({
+      userId: user.id,
+      file: form.get("foto"),
+      gameSlug: form.get("jogo"),
+      caption: form.get("legenda"),
+    });
+  } catch (error) {
+    // Production without BLOB_READ_WRITE_TOKEN: refuse clearly instead of writing to local disk.
+    if (error instanceof StorageNotConfiguredError) {
+      console.error("Gallery upload refused:", error.message);
+      return reply({ status: "unavailable", message: "O envio de fotos está indisponível no momento. Tente de novo mais tarde." });
+    }
+    throw error;
+  }
   if (result.status !== "ok") return reply(result);
 
   revalidateTag(GALLERY_TAG, { expire: 0 });

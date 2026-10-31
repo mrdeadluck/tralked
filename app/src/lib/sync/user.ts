@@ -1,4 +1,5 @@
 import type { Achievement, Game, GameSkill, Prisma } from "@/generated/prisma/client";
+import { revalidateVisibility } from "@/lib/accounts/privacy";
 import { prisma } from "@/lib/db";
 import { findBursts, isSpeedPlatinum } from "@/lib/engine/fraud";
 import type { SkillId } from "@/lib/engine/types";
@@ -285,6 +286,8 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
 
   const privateResult = async (): Promise<SyncUserResult> => {
     await prisma.user.update({ where: { id: userId }, data: { profilePublic: false } });
+    // Going private reaches the cached public pages (gallery, photos, forum, profile) at once.
+    if (user.profilePublic) await revalidateVisibility(userId);
     return { status: "private", newUnlocks: 0, levelBefore: before.level, levelAfter: before.level, skillUps: [] };
   };
 
@@ -388,16 +391,29 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
   };
 }
 
+/** Wall-clock budget of one `users` cron run, shared by all of its users (one invocation). */
+export const STALE_USERS_BUDGET_MS = 50_000;
+
+export type StaleUsersOptions = {
+  /** Stop starting new users after this long; each user's probing gets what is left. */
+  budgetMs?: number;
+  now?: () => number;
+};
+
 /**
  * Cron job: syncs the `limit` Steam users whose last attempt is oldest (never attempted first),
  * private ones included so a profile that turned public is picked up. Ordering by attempt
  * (not success) keeps users that keep failing from starving the batch. `where` narrows the
- * candidates (tests).
+ * candidates (tests). The run shares one deadline (`budgetMs`): no user starts after it, and
+ * each user's catalog probing is cut to the time left (at most PROBE_BUDGET_MS), so one run
+ * fits in one serverless invocation; users left over go first next run.
  */
 export async function syncStaleUsers(
   limit = 50,
   where: Prisma.UserWhereInput = {},
+  { budgetMs = STALE_USERS_BUDGET_MS, now = Date.now }: StaleUsersOptions = {},
 ): Promise<{ processed: number; failed: number }> {
+  const deadline = now() + budgetMs;
   const users = await prisma.user.findMany({
     where: { AND: [{ steamId: { not: null } }, where] },
     orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
@@ -407,8 +423,10 @@ export async function syncStaleUsers(
   let processed = 0;
   let failed = 0;
   for (const { id } of users) {
+    const left = deadline - now();
+    if (left <= 0) break;
     try {
-      await syncUser(id);
+      await syncUser(id, { probeBudgetMs: Math.min(PROBE_BUDGET_MS, left), now });
       processed++;
     } catch (error) {
       failed++;

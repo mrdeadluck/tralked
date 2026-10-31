@@ -22,6 +22,13 @@ async function databaseReachable(): Promise<boolean> {
 
 const reachable = await databaseReachable();
 
+// Cache invalidation is recorded (there is no Next.js cache in tests).
+const revalidateTag = vi.hoisted(() => vi.fn());
+vi.mock("next/cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/cache")>()),
+  revalidateTag,
+}));
+
 // The pipeline talks to Steam through getSteam(); the other sources return nothing so
 // that games are created from Steam data alone.
 const steamState = vi.hoisted(() => ({ api: null as unknown as SteamApi }));
@@ -672,12 +679,21 @@ describe.skipIf(!reachable)("syncUser", () => {
     steam.privateGames.add(appId);
     steamState.api = steam.api;
     const user = await newUser(); // created public
+    revalidateTag.mockClear();
 
     expect((await syncUser(user.id)).status).toBe("private");
 
     const row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(row.profilePublic).toBe(false);
     expect(row.lastSyncedAt).toBeNull();
+    // Going private reaches the cached public pages at once.
+    for (const tag of ["gallery", "forum", `player:${row.handle.toLowerCase()}`]) {
+      expect(revalidateTag).toHaveBeenCalledWith(tag, { expire: 0 });
+    }
+    // Already private: nothing to invalidate on the next sync.
+    revalidateTag.mockClear();
+    expect((await syncUser(user.id)).status).toBe("private");
+    expect(revalidateTag).not.toHaveBeenCalled();
   });
 
   it("marks the user private when Steam hides the owned games list (game details private)", async () => {
@@ -783,5 +799,47 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(healthyRow.lastSyncedAt).not.toBeNull();
     expect(failingRow.lastSyncedAt).toBeNull();
     expect(failingRow.lastSyncAttemptAt).not.toBeNull();
+  });
+
+  it("cron run shares one deadline: no user starts after it, probing gets only the time left", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncStaleUsers, PROBE_BUDGET_MS } = await import("./user");
+    const first = await newUser();
+    const second = await newUser();
+    await prisma.user.update({ where: { id: second.id }, data: { lastSyncAttemptAt: new Date("2020-01-01T00:00:00Z") } });
+    const candidates = { id: { in: [first.id, second.id] } };
+    let clock = 1_000_000;
+    const now = () => clock;
+    const base = fakeSteam({}).api;
+    // Probing mode (no API key): reading each user's profile takes 40 s of the clock.
+    let probes = 0;
+    steamState.api = {
+      ...base,
+      getOwnedGames: async () => "unsupported",
+      getPlayerSummary: async (steamId) => {
+        clock += 40_000;
+        return base.getPlayerSummary(steamId);
+      },
+      getPlayerAchievements: async (steamId, appId) => {
+        probes++;
+        return base.getPlayerAchievements(steamId, appId);
+      },
+    };
+
+    // No time at all: nobody is touched.
+    expect(await syncStaleUsers(10, candidates, { budgetMs: 0, now })).toEqual({ processed: 0, failed: 0 });
+    expect(await prisma.user.count({ where: { ...candidates, lastSyncAttemptAt: null } })).toBe(1);
+
+    // 30 s: the first user starts, but its probing gets 30 s (not PROBE_BUDGET_MS), all spent
+    // reading the profile, so no catalog game is probed; the second user starts past the deadline.
+    expect(await syncStaleUsers(10, candidates, { budgetMs: 30_000, now })).toEqual({ processed: 1, failed: 0 });
+    expect(probes).toBe(0);
+    const rows = await prisma.user.findMany({ where: candidates, select: { id: true, lastSyncedAt: true } });
+    expect(rows.filter((r) => r.lastSyncedAt !== null)).toHaveLength(1);
+
+    // 50 s: probing gets min(45 s, 50 s) and 5 s are left after the profile, so it probes.
+    expect(await syncStaleUsers(1, candidates, { budgetMs: 50_000, now })).toEqual({ processed: 1, failed: 0 });
+    expect(probes).toBeGreaterThan(0);
+    expect(PROBE_BUDGET_MS).toBe(45_000);
   });
 });

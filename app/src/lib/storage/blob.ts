@@ -1,5 +1,8 @@
 import type { Storage } from "./index";
 
+/** Cache lifetime (seconds) of user uploads on the Blob CDN and in browsers. */
+export const UPLOAD_CACHE_MAX_AGE_S = 60 * 60 * 24;
+
 /**
  * Production adapter on Vercel Blob. The SDK is imported lazily, so it never loads in
  * development or tests (where `BLOB_READ_WRITE_TOKEN` is unset).
@@ -15,7 +18,9 @@ export function blobStorage(token: string): Storage {
         token,
         // Keys contain a fresh cuid, so a collision means a bug: never overwrite silently.
         allowOverwrite: false,
-        cacheControlMaxAge: 60 * 60 * 24 * 365,
+        // One day, not a year: names are ids (not content hashes), and a photo removed by
+        // moderation is deleted, so CDN and browser copies must expire soon after.
+        cacheControlMaxAge: UPLOAD_CACHE_MAX_AGE_S,
       });
       return { url: result.url };
     },

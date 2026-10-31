@@ -36,6 +36,30 @@ export type SyncPlatformOptions = {
 
 const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
+/** The linked account a run started with: every title transaction re-checks it is still linked. */
+type AccountSnapshot = { userId: string; platform: CodePlatform; externalId: string };
+
+/** The account was unlinked (or relinked to another platform account) while the sync ran. */
+class AccountChangedError extends Error {
+  constructor() {
+    super("The linked account changed during the sync");
+  }
+}
+
+/**
+ * Locks the account row FOR SHARE until the title transaction ends and checks it is still the
+ * verified account the run started with. `unlink` takes the same row FOR UPDATE, so an unlink
+ * either waits for this title (and then removes it) or has already committed (and this aborts).
+ */
+async function assertStillLinked(tx: Prisma.TransactionClient, account: AccountSnapshot): Promise<void> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "LinkedAccount"
+    WHERE "userId" = ${account.userId} AND platform = ${account.platform}
+      AND "externalId" = ${account.externalId} AND "verifiedAt" IS NOT NULL
+    FOR SHARE`;
+  if (rows.length === 0) throw new AccountChangedError();
+}
+
 /** `fraudReview` "cleared": an admin released the unlock, so the rules no longer flag it. */
 type KnownUnlock = { unlockedAt: Date; suspicious: boolean; hardcore: boolean; fraudReview: string | null };
 
@@ -53,18 +77,19 @@ const xpOf = (platform: CodePlatform, a: LibraryAchievement, hardcore: boolean) 
  * UserGame of that platform, UserAchievement (with the anti-fraud verdict and the hardcore flag)
  * and ledger entries (`platform` set) for valid unlocks plus the completion bonus. Every insert
  * is idempotent and XP already in the ledger is never rewritten. A stored unlock date is never
- * rewritten either: an undated unlock keeps the time it was first seen (`seenAt`).
+ * rewritten either: an undated unlock keeps the time it was first seen (`seenAt`). Throws
+ * AccountChangedError (writing nothing) when the account is no longer linked.
  * Returns how many unlocks were new.
  */
 async function recordTitle(
-  userId: string,
-  platform: CodePlatform,
+  account: AccountSnapshot,
   gameId: string,
   title: LibraryTitle,
   known: Map<string, KnownUnlock>,
   bursts: Set<string>,
   seenAt: Date,
 ): Promise<number> {
+  const { userId, platform } = account;
   const game = await prisma.game.findUniqueOrThrow({
     where: { id: gameId },
     select: { timeToBeatCompleteMin: true, skills: { select: { skill: true } } },
@@ -81,6 +106,7 @@ async function recordTitle(
   });
 
   return prisma.$transaction(async (tx) => {
+    await assertStillLinked(tx, account);
     const existing = await tx.achievement.findMany({ where: { gameId, platform } });
     const byApiName = new Map(existing.map((r) => [r.apiName, r]));
     await tx.achievement.createMany({
@@ -328,14 +354,23 @@ export async function syncPlatformAccount(
   }
   const bursts = findBursts([...everyUnlock.values()]);
 
+  const snapshot: AccountSnapshot = { userId, platform, externalId: account.externalId };
   let newUnlocks = 0;
   for (const { gameId, title } of resolved) {
-    newUnlocks += await recordTitle(userId, platform, gameId, title, known, bursts, startedAt);
+    try {
+      newUnlocks += await recordTitle(snapshot, gameId, title, known, bursts, startedAt);
+    } catch (error) {
+      // Unlinked while this run was reading: stop. Unlink already removed what was recorded and
+      // recomputed; nothing more is written for this account.
+      if (error instanceof AccountChangedError) return unchanged("unverified");
+      throw error;
+    }
   }
 
   await recomputeUser(userId);
-  await prisma.linkedAccount.update({
-    where: { id: account.id },
+  // Guarded like the titles: an account unlinked meanwhile is not marked synced.
+  await prisma.linkedAccount.updateMany({
+    where: { id: account.id, externalId: account.externalId, verifiedAt: { not: null } },
     data: {
       // The run reached the end of the list. Failing titles are retried by later runs (they are
       // not up to date) but do not hold this back.

@@ -104,6 +104,7 @@ export async function removeComment(raw: unknown): Promise<{ status: "ok" } | Fa
   if (result.status === "not_found") return NOT_FOUND;
   if (result.status === "forbidden") return FORBIDDEN;
   if (result.articleSlug) refreshArticleCount(result.articleSlug);
+  if (result.photoId) updateTag(photoTag(result.photoId));
   return { status: "ok" };
 }
 

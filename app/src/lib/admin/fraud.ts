@@ -222,7 +222,12 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
         : [];
     });
 
-    const total = key.platform === "steam" ? Math.max(game.achievementCount, game.achievements.length) : game.achievements.length;
+    // Like the Steam sync, completion only counts what the game has upstream today:
+    // `achievementCount` is Steam's current count (the catalog sync writes it), while the catalog
+    // may keep rows Steam no longer lists (removed achievements, old seed rows) that nobody can
+    // unlock. Other platforms keep only their current list's rows.
+    const total =
+      key.platform === "steam" && game.achievementCount > 0 ? game.achievementCount : game.achievements.length;
     const clean = unlocks.filter((u) => !u.suspicious);
     if (total > 0 && clean.length >= total) {
       const completedAt = new Date(Math.max(...clean.map((u) => u.unlockedAt.getTime())));
@@ -235,7 +240,8 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
         source: "platinum",
         sourceKey: platinumSourceKey(key.platform, key.gameId),
         platform: ledgerPlatform,
-        xp: platinumBonus(game.achievements.map((a) => xpOf(a, false))),
+        // Over the unlocked (upstream) achievements, as the syncs compute it: orphans add nothing.
+        xp: platinumBonus(clean.flatMap((u) => achievementById.get(u.achievementId) ?? []).map((a) => xpOf(a, false))),
         skills,
         createdAt: completedAt,
       });

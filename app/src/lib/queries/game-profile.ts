@@ -340,11 +340,18 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
   };
 }
 
+/** At most this many games sharing a genre are ranked for "Na mesma estante". */
+const SIMILAR_CANDIDATES = 60;
+
 async function loadSimilar(gameId: string, skills: SkillId[]): Promise<SimilarGame[]> {
   const genres = genresOf(skills);
   if (genres.length === 0) return [];
+  // Capped candidate set (the most played games sharing a genre), so the query does not grow
+  // with the catalog; the Jaccard ranking then picks the 10 closest among them.
   const rows = await prisma.game.findMany({
     where: { id: { not: gameId }, skills: { some: { skill: { in: genres } } } },
+    orderBy: [{ users: { _count: "desc" } }, { slug: "asc" }],
+    take: SIMILAR_CANDIDATES,
     select: {
       slug: true,
       name: true,

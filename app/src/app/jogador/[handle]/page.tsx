@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -16,14 +17,40 @@ import { Card } from "@/components/ui/Card";
 import { getSessionUser } from "@/lib/auth/session";
 import { pendingDespertar } from "@/lib/character/despertar";
 import { getCharacterSheetExtras } from "@/lib/character/sheet";
-import { getCharacter, getPlayerHeader, hoursUntilDailyReset } from "@/lib/queries/players";
+import { getCharacter, hoursUntilDailyReset, type PlayerHeader } from "@/lib/queries/players";
+import { getPlayerHeaderCached } from "@/lib/queries/players-cached";
 
 const STEAM_PRIVACY_SETTINGS_URL = "https://steamcommunity.com/my/edit/settings";
 
-export default function PlayerPage({ params }: PageProps<"/jogador/[handle]">) {
+export async function generateStaticParams() {
+  // Cache Components needs a sample to validate the route at build time. Profiles are not
+  // prerendered: the placeholder renders a real 404 and every handle renders on demand.
+  return [{ handle: "exemplo" }];
+}
+
+export async function generateMetadata({ params }: PageProps<"/jogador/[handle]">): Promise<Metadata> {
+  const { handle } = await params;
+  const header = await getPlayerHeaderCached(handle);
+  if (!header) return { title: "Jogador não encontrado | Tralked", robots: { index: false } };
+  if (!header.profilePublic) {
+    return { title: `@${header.handle} | Tralked`, robots: { index: false, follow: false } };
+  }
+  return {
+    title: `${header.displayName} (@${header.handle}) | Tralked`,
+    description: `Ficha de personagem de ${header.displayName} no Tralked: nível, habilidades, conquistas e troféus.`,
+    alternates: { canonical: `/jogador/${header.handle}` },
+  };
+}
+
+export default async function PlayerPage({ params }: PageProps<"/jogador/[handle]">) {
+  // The header comes from cache, so an unknown handle is a real 404 before anything streams;
+  // what depends on the visitor (owner or not) streams in below.
+  const { handle } = await params;
+  const header = await getPlayerHeaderCached(handle);
+  if (!header) notFound();
   return (
     <Suspense fallback={<SheetSkeleton />}>
-      <PlayerSheet params={params} />
+      <PlayerSheet header={header} />
     </Suspense>
   );
 }
@@ -37,11 +64,8 @@ function SheetSkeleton() {
   );
 }
 
-async function PlayerSheet({ params }: { params: PageProps<"/jogador/[handle]">["params"] }) {
-  const { handle } = await params;
-  const [header, viewer] = await Promise.all([getPlayerHeader(handle), getSessionUser()]);
-  if (!header) notFound();
-
+async function PlayerSheet({ header }: { header: PlayerHeader }) {
+  const viewer = await getSessionUser();
   const isOwner = viewer?.id === header.id;
 
   if (!header.profilePublic && !isOwner) {

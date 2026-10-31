@@ -1,8 +1,8 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { getStorage, uploadKey } from "./index";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { getStorage, StorageNotConfiguredError, uploadKey } from "./index";
 import { localStorage } from "./local";
 
 let root: string | null = null;
@@ -46,6 +46,18 @@ describe("storage", () => {
     } finally {
       if (previous === undefined) delete process.env.BLOB_READ_WRITE_TOKEN;
       else process.env.BLOB_READ_WRITE_TOKEN = previous;
+    }
+  });
+
+  it("refuses to fall back to local disk in production without BLOB_READ_WRITE_TOKEN", () => {
+    const previous = process.env.BLOB_READ_WRITE_TOKEN;
+    delete process.env.BLOB_READ_WRITE_TOKEN;
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      expect(() => getStorage()).toThrow(StorageNotConfiguredError);
+    } finally {
+      vi.unstubAllEnvs();
+      if (previous !== undefined) process.env.BLOB_READ_WRITE_TOKEN = previous;
     }
   });
 });

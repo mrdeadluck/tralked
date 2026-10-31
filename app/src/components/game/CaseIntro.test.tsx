@@ -9,6 +9,25 @@ vi.mock("@/app/jogos/[slug]/actions", () => ({ markOpened: (id: unknown) => mark
 
 let reduceMotion = false;
 
+// jsdom has HTMLDialogElement without showModal/show/close: a minimal stand-in that records the mode.
+const dialogMode = new WeakMap<HTMLDialogElement, "modal" | "modeless">();
+Object.assign(HTMLDialogElement.prototype, {
+  showModal(this: HTMLDialogElement) {
+    this.setAttribute("open", "");
+    dialogMode.set(this, "modal");
+  },
+  show(this: HTMLDialogElement) {
+    this.setAttribute("open", "");
+    dialogMode.set(this, "modeless");
+  },
+  close(this: HTMLDialogElement) {
+    if (!this.hasAttribute("open")) return;
+    this.removeAttribute("open");
+    dialogMode.delete(this);
+    this.dispatchEvent(new Event("close"));
+  },
+});
+
 beforeEach(() => {
   reduceMotion = false;
   localStorage.clear();
@@ -80,10 +99,21 @@ describe("CaseIntro", () => {
     expect(markOpened).toHaveBeenCalledWith("game-1");
   });
 
-  it("Esc also skips", () => {
+  it("Esc (the dialog's cancel) also skips", () => {
     const { stage } = renderIntro();
-    fireEvent.keyDown(document, { key: "Escape" });
+    const cancel = new Event("cancel", { cancelable: true });
+    fireEvent(stage!, cancel);
+    expect(cancel.defaultPrevented).toBe(true);
     expect(stage).not.toHaveClass("gpc-on");
+    expect(stage).not.toHaveAttribute("open");
+    expect(localStorage.getItem(KEY)).toBe("1");
+  });
+
+  it("a dialog the browser closes by itself (non-cancelable Esc) also finishes", () => {
+    const { root, stage } = renderIntro();
+    (stage as HTMLDialogElement).close();
+    expect(stage).not.toHaveClass("gpc-on");
+    expect(root).not.toHaveAttribute("data-intro");
     expect(localStorage.getItem(KEY)).toBe("1");
   });
 
@@ -110,17 +140,33 @@ describe("CaseIntro", () => {
     expect(markOpened).toHaveBeenCalledWith("game-1");
   });
 
-  it("while open, the rest of the page is inert; skipping restores it", () => {
+  it("opens as a modal <dialog> without touching the page's elements (no inert attributes)", () => {
     const header = document.createElement("header");
     document.body.prepend(header);
     const { root, stage } = renderIntro();
-    expect(header).toHaveAttribute("inert");
-    expect(root).toHaveAttribute("inert");
-    expect(stage).not.toHaveAttribute("inert");
-    fireEvent.click(screen.getByRole("button", { name: "Pular" }));
+    expect(stage?.tagName).toBe("DIALOG");
+    expect(dialogMode.get(stage as HTMLDialogElement)).toBe("modal");
+    // The browser makes the rest inert itself: setting attributes on <header>/<main> while the
+    // layout may still hydrate caused hydration mismatches.
     expect(header).not.toHaveAttribute("inert");
     expect(root).not.toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "Pular" }));
+    expect(stage).not.toHaveAttribute("open");
+    expect(document.querySelectorAll("[inert]")).toHaveLength(0);
     header.remove();
+  });
+
+  it("long titles break only between words, sized by their longest word", () => {
+    const root = document.createElement("div");
+    root.id = "gp-root";
+    document.body.append(root);
+    render(
+      <CaseIntro gameId="g" slug="x" name="Supercalifragilisticexpialidocious Edition" hues={[1, 2]} seed={1} coverUrl={null}
+        discArt={null} platformLabel="PC" discLabel="D" plat={false} bookletNote="n" account={null} />,
+    );
+    const titles = screen.getAllByText("Supercalifragilisticexpialidocious Edition");
+    expect(titles.length).toBeGreaterThan(0);
+    for (const t of titles) expect(Number(t.style.getPropertyValue("--longest"))).toBeGreaterThan(25);
   });
 
   it("sound only after the visitor's click: the 6 s auto-open is silent; unmount closes the AudioContext", () => {

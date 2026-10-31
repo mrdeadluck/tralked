@@ -13,6 +13,7 @@ import {
   type LogEntry,
 } from "./idempotency";
 import { jsonDepthExceeds, MAX_JSON_DEPTH } from "./json-depth";
+import { readCapped } from "./read-capped";
 import type { ApiKeyRecord, ApiScope } from "./keys";
 
 /** Largest JSON body accepted (bytes). */
@@ -75,10 +76,12 @@ async function readJson(request: Request): Promise<{ ok: true; body: unknown } |
   if (declared > MAX_BODY_BYTES) {
     return { ok: false, code: "payload_too_large", message: "O corpo passa de 1 MiB." };
   }
-  const text = await request.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) {
+  // Capped while streaming: a chunked body (no Content-Length) is never buffered past the limit.
+  const bytes = await readCapped(request, MAX_BODY_BYTES);
+  if (!bytes) {
     return { ok: false, code: "payload_too_large", message: "O corpo passa de 1 MiB." };
   }
+  const text = new TextDecoder().decode(bytes);
   // Checked on the raw text, before anything recursive touches the value.
   if (jsonDepthExceeds(text)) {
     return {

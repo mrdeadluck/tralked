@@ -393,10 +393,16 @@ async function resolveAchievements(
   return out;
 }
 
-export async function getAllArticleSlugs(): Promise<string[]> {
+/** How many article pages the build prerenders; older ones render on first request. */
+export const PRERENDER_ARTICLES = 200;
+
+/** Slugs of the most recent published articles (generateStaticParams), capped. */
+export async function getAllArticleSlugs(limit = PRERENDER_ARTICLES): Promise<string[]> {
   const rows = await prisma.article.findMany({
     where: PUBLISHED,
     select: { slug: true },
+    orderBy: [{ publishedAt: "desc" }, { slug: "asc" }],
+    take: limit,
   });
   return rows.map((r) => r.slug);
 }

@@ -1,8 +1,9 @@
 import { randomInt } from "node:crypto";
 import { Prisma, type LinkedAccount } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { toLocalDay } from "@/lib/engine/streak";
 import { parseSteamProfileInput, steamProfileHandle } from "@/lib/integrations/steam/profile-lookup";
-import { recomputeUser } from "@/lib/progression/recompute";
+import { recomputeUser, revalidateMissions } from "@/lib/progression/recompute";
 import type { CodePlatform } from "@/lib/sync/platform-library";
 import { lookupProfile, type LinkPlatform, type PlatformProfile } from "./profiles";
 
@@ -266,9 +267,14 @@ export async function cancelPendingLink(userId: string, platform: LinkPlatform):
  * the platform account is free for anyone; the verification counts as a recent start), the
  * platform's library rows and valid unlocks are removed, and its ledger entries are voided
  * (never deleted): relinking the same account later does not pay those unlocks again, while
- * another user who proves ownership is paid normally. Suspicious unlocks are kept, so fraud
- * history survives. Disconnecting Steam also clears User.steamId (the Steam sync stops).
- * Returns false when the platform was not linked.
+ * another user who proves ownership is paid normally. Mission rewards that those unlocks
+ * completed are voided too (the missions are re-checked without them). Suspicious unlocks are
+ * kept, so fraud history survives. Disconnecting Steam also clears User.steamId (the Steam sync
+ * stops). Returns false when the platform was not linked.
+ *
+ * The account row is locked FOR UPDATE: a platform sync of this account re-checks the same row
+ * (FOR SHARE) in every title transaction, so it either records that title before the unlink
+ * (which then removes it) or sees the account gone and stops.
  */
 export async function unlink(
   userId: string,
@@ -276,10 +282,11 @@ export async function unlink(
   now: Date = new Date(),
 ): Promise<boolean> {
   const removed = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "LinkedAccount" WHERE "userId" = ${userId} AND platform = ${platform} FOR UPDATE`;
     const account = await tx.linkedAccount.findUnique({
       where: { userId_platform: { userId, platform } },
     });
-    if (!account?.verifiedAt) return false;
+    if (!account?.verifiedAt) return null;
     await tx.linkedAccount.update({
       where: { id: account.id },
       data: {
@@ -294,13 +301,20 @@ export async function unlink(
       where: { userId, platform, voidedAt: null },
       data: { voidedAt: now },
     });
+    // Days of the unlocks that go away: the missions of those days and weeks are re-checked.
+    const gone = await tx.userAchievement.findMany({
+      where: { userId, suspicious: false, achievement: { platform } },
+      select: { unlockedAt: true },
+    });
     await tx.userAchievement.deleteMany({
       where: { userId, suspicious: false, achievement: { platform } },
     });
     await tx.userGame.deleteMany({ where: { userId, platform } });
     if (platform === "steam") await tx.user.update({ where: { id: userId }, data: { steamId: null, lastSyncedAt: null } });
-    return true;
+    return { days: [...new Set(gone.map((u) => toLocalDay(u.unlockedAt)))] };
   });
-  if (removed) await recomputeUser(userId, now);
-  return removed;
+  if (!removed) return false;
+  await revalidateMissions(userId, removed.days, now);
+  await recomputeUser(userId, now);
+  return true;
 }

@@ -87,9 +87,12 @@ export async function photoOfTheWeek(now: Date = new Date()): Promise<PhotoCardV
   return (await withCommentCounts([row]))[0];
 }
 
-/** One visible photo with its author's photo count; null when missing or moderated. */
+/**
+ * One listed photo with its author's photo count; null (404) when missing, moderated or by a
+ * player whose profile is private (going private takes the photo pages down too).
+ */
 export async function getPhoto(id: string): Promise<PhotoDetail | null> {
-  const row = await prisma.photo.findFirst({ where: { id, status: "visible" }, select: photoSelect });
+  const row = await prisma.photo.findFirst({ where: { id, ...LISTED }, select: photoSelect });
   if (!row) return null;
   const [card] = await withCommentCounts([row]);
   const authorPhotoCount = row.author

@@ -36,6 +36,20 @@ beforeEach(() => {
 });
 
 describe("POST /galeria/enviar", () => {
+  it("answers 503 with a clear message when image storage is not configured (production without Blob)", async () => {
+    const { StorageNotConfiguredError } = await import("@/lib/storage");
+    uploadPhoto.mockRejectedValue(new StorageNotConfiguredError());
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await POST(request());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      status: "unavailable",
+      message: "O envio de fotos está indisponível no momento. Tente de novo mais tarde.",
+    });
+    expect(revalidateTag).not.toHaveBeenCalled();
+    logged.mockRestore();
+  });
+
   it("refuses uploads without login", async () => {
     getSessionUser.mockResolvedValue(null);
     const response = await POST(request());
