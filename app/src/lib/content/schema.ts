@@ -41,7 +41,7 @@ function checkText(value: string, ctx: z.RefinementCtx, inline: boolean) {
 }
 
 /** Plain text: no markup, no HTML. */
-const plainText = (max: number) =>
+export const plainText = (max: number) =>
   z
     .string()
     .trim()
@@ -50,7 +50,7 @@ const plainText = (max: number) =>
     .superRefine((value, ctx) => checkText(value, ctx, false));
 
 /** Text with restricted inline markup (**bold**, *italic*, [link](https://…)). */
-const inlineText = (max: number) =>
+export const inlineText = (max: number) =>
   z
     .string()
     .trim()

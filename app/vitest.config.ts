@@ -20,6 +20,8 @@ export default defineConfig({
           // so files must not run concurrently.
           fileParallelism: false,
           include: ["src/**/*.test.ts"],
+          // Refuses to run without a dedicated test database (never gamelog / gamelog_dev).
+          setupFiles: ["./vitest.db-guard.ts"],
         },
       },
       {

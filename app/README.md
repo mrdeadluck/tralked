@@ -66,8 +66,8 @@ Resposta: `{ "job": "catalog", "processed": N }`. Token inválido retorna 401, j
 | `pnpm dev` | Servidor de desenvolvimento. |
 | `pnpm build` / `pnpm start` | Build e servidor de produção. |
 | `pnpm lint` | ESLint. |
-| `pnpm test` | Vitest (todas as suítes). |
-| `pnpm test:db` | Apenas a suíte de conexão com o banco. |
+| `pnpm test` | Vitest (todas as suítes). Exige `DATABASE_URL` de um banco de teste; veja abaixo. |
+| `pnpm test:db` | Apenas a suíte de conexão com o banco (mesma exigência). |
 | `pnpm db:up` | `docker compose up -d` (Postgres). |
 | `pnpm db:migrate` | `prisma migrate dev`. |
 | `pnpm db:seed` | Popula o banco com dados de exemplo. |
@@ -75,6 +75,19 @@ Resposta: `{ "job": "catalog", "processed": N }`. Token inválido retorna 401, j
 | `pnpm e2e` | Playwright + axe contra o build de produção (`pnpm build && pnpm start -p 3200`): rotas públicas. |
 | `pnpm e2e:dev` | Playwright + axe contra `next dev -p 3200`: inclui as rotas que exigem login de demonstração. |
 | `pnpm e2e:screens` | Screenshots de todas as rotas (1440×900 e 390×844) em `e2e/__screens__/` (ignorado pelo controle de versão). |
+
+## Testes (Vitest)
+
+As suítes do projeto `node` (`src/**/*.test.ts`) gravam no Postgres: criam e apagam chaves, notícias, guias e comentários. Por isso rodam só contra um banco dedicado a testes. `vitest.db-guard.ts` interrompe a execução com um erro claro quando `DATABASE_URL` não está definida ou aponta para `gamelog` (o banco padrão) ou `gamelog_dev` (o banco do servidor de desenvolvimento). O Vitest não lê `.env` nem `.env.local`, então passe a URL na mesma linha do comando:
+
+```bash
+docker exec gamelog-db createdb -U gamelog gamelog_test
+DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_test pnpm exec prisma migrate deploy
+DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_test pnpm db:seed
+DATABASE_URL=postgresql://gamelog:gamelog@localhost:5433/gamelog_test pnpm test
+```
+
+No PowerShell: `$env:DATABASE_URL='postgresql://gamelog:gamelog@localhost:5433/gamelog_test'; pnpm test`.
 
 ## Testes e2e (Playwright + axe)
 
@@ -108,6 +121,8 @@ src/app/              rotas (App Router)
   highscores          ranking por habilidade (?skill=...)
   familia             modo família e convites
   noticias/[slug]     artigos
+  desenvolvedores     documentação da API para robôs (também em ../docs/robos.md)
+  api/v1              API para robôs: notícias, guias, busca de jogos, OpenAPI e JSON Schemas
   api/auth            login Steam, demo e logout
   api/cron/[job]      jobs de sincronização
 src/components/       componentes de UI
@@ -120,6 +135,8 @@ src/lib/
   auth/               sessão (jose), OpenID Steam, upsert de usuário
   family/             regras do modo família
   guide/              votos nos passos dos guias
+  api/                API para robôs: chaves (hash SHA-256), escopos, limite de 60 req/min por chave
+                      (em memória: com várias instâncias cada uma conta à parte), idempotência e erros
 ```
 
 ## Notas
