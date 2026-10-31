@@ -56,6 +56,97 @@ describe.skipIf(!reachable)("news queries (seeded database)", () => {
     expect(typeof article?.game?.hasGuide).toBe("boolean");
   });
 
+  it("getNewsIndex paginates published articles newest first", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getNewsIndex } = await import("./news");
+    const total = await prisma.article.count({ where: { status: "published" } });
+    const p1 = await getNewsIndex({ category: null, page: 1, pageSize: 4 });
+    const p2 = await getNewsIndex({ category: null, page: 2, pageSize: 4 });
+    expect(p1.total).toBe(total);
+    expect(p1.pageCount).toBe(Math.ceil(total / 4));
+    expect(p1.articles).toHaveLength(4);
+    expect(p2.page).toBe(2);
+    expect(p1.articles.at(-1)!.publishedAt.getTime()).toBeGreaterThanOrEqual(p2.articles[0].publishedAt.getTime());
+    expect(new Set([...p1.articles, ...p2.articles].map((a) => a.slug)).size).toBe(8);
+    // Out of range and invalid pages clamp.
+    expect((await getNewsIndex({ category: null, page: 99, pageSize: 4 })).page).toBe(p1.pageCount);
+    expect((await getNewsIndex({ category: null, page: Number.NaN, pageSize: 4 })).page).toBe(1);
+  });
+
+  it("getNewsIndex filters by category and hides drafts", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getNewsIndex } = await import("./news");
+    const guides = await getNewsIndex({ category: "GUIAS", page: 1, pageSize: 50 });
+    expect(guides.total).toBe(await prisma.article.count({ where: { status: "published", category: "GUIAS" } }));
+    expect(guides.articles.length).toBeGreaterThan(0);
+    expect(guides.articles.every((a) => a.category === "GUIAS")).toBe(true);
+
+    const author = await prisma.author.findFirstOrThrow();
+    const draft = await prisma.article.create({
+      data: { slug: "test-news-draft", title: "Rascunho", body: "x", category: "GUIAS", imageLabel: "x", authorId: author.id },
+    });
+    try {
+      const after = await getNewsIndex({ category: "GUIAS", page: 1, pageSize: 50 });
+      expect(after.total).toBe(guides.total);
+      expect(after.articles.some((a) => a.slug === draft.slug)).toBe(false);
+    } finally {
+      await prisma.article.delete({ where: { id: draft.id } });
+    }
+  });
+
+  it("getArticle returns validated blocks, related games and their external headlines", async () => {
+    const { getArticle } = await import("./news");
+    const article = await getArticle("hollow-knight-guia-100-por-cento-em-7-etapas");
+    expect(article?.blocks.length).toBeGreaterThan(0);
+    expect(article?.blocks.every((b) => typeof b.type === "string")).toBe(true);
+    expect(article?.games.map((g) => g.slug)).toContain("hollow-knight");
+    expect(article?.externalNews.length).toBeGreaterThan(0);
+    expect(article?.externalNews.every((n) => n.game?.slug === "hollow-knight")).toBe(true);
+    expect(article?.excerpt).toBeTruthy();
+  });
+
+  it("falls back to the body for the excerpt when blocks are empty, and resolves achievement blocks", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getArticle } = await import("./news");
+    const author = await prisma.author.findFirstOrThrow();
+    const game = await prisma.game.findUniqueOrThrow({ where: { slug: "hollow-knight" } });
+    const ach = await prisma.achievement.findFirstOrThrow({ where: { gameId: game.id, platform: "steam" } });
+    const legacy = await prisma.article.create({
+      data: {
+        slug: "test-news-legacy",
+        title: "Legado",
+        body: "## Título\n\nPrimeiro **parágrafo** do corpo.",
+        status: "published",
+        category: "GAMES",
+        imageLabel: "x",
+        authorId: author.id,
+      },
+    });
+    const withBlocks = await prisma.article.create({
+      data: {
+        slug: "test-news-blocks",
+        title: "Blocos",
+        body: "",
+        blocks: [{ type: "achievement", apiName: ach.apiName }],
+        status: "published",
+        category: "GAMES",
+        imageLabel: "x",
+        authorId: author.id,
+        games: { create: { gameId: game.id } },
+      },
+    });
+    try {
+      const a = await getArticle(legacy.slug);
+      expect(a?.blocks).toEqual([]);
+      expect(a?.excerpt).toBe("Primeiro parágrafo do corpo.");
+      const b = await getArticle(withBlocks.slug);
+      expect(b?.achievements[`steam:${ach.apiName}`]?.name).toBe(ach.name);
+      expect(b?.achievements[`steam:${ach.apiName}`]?.gameName).toBe(game.name);
+    } finally {
+      await prisma.article.deleteMany({ where: { id: { in: [legacy.id, withBlocks.id] } } });
+    }
+  });
+
   it("getTopPlayers returns public profiles ordered by total XP", async () => {
     const { getTopPlayers } = await import("./news");
     const players = await getTopPlayers(5);
@@ -94,5 +185,74 @@ describe.skipIf(!reachable)("news queries (seeded database)", () => {
     } finally {
       await prisma.user.delete({ where: { id: user.id } });
     }
+  });
+});
+
+describe("wire and tab view models", () => {
+  const now = new Date("2026-10-31T12:00:00Z");
+  const card = (slug: string, category: "GAMES" | "GUIAS" | "COMUNIDADE", hoursAgo: number) => ({
+    id: slug,
+    slug,
+    title: `Título ${slug}`,
+    subtitle: null,
+    excerpt: null,
+    category,
+    platforms: [],
+    imageLabel: slug,
+    imageUrl: null,
+    authorHandle: "Rivia",
+    featured: 0,
+    likes: 0,
+    comments: 0,
+    humanAuthored: true,
+    publishedAt: new Date(now.getTime() - hoursAgo * 3_600_000),
+    game: category === "GUIAS" ? { slug: "hollow-knight", name: "Hollow Knight" } : null,
+  });
+
+  it("merges articles and external headlines by date and labels the external source", async () => {
+    const { buildWireItems } = await import("./news");
+    const items = buildWireItems(
+      [card("a", "GAMES", 1), card("b", "GAMES", 5)],
+      [
+        {
+          id: "x1",
+          title: "Fora",
+          url: "https://example.com/n",
+          source: "Portal Exemplo",
+          publishedAt: new Date(now.getTime() - 3 * 3_600_000),
+          game: null,
+        },
+      ],
+      now,
+    );
+    expect(items.map((i) => i.id)).toEqual(["a:a", "x:x1", "a:b"]);
+    expect(items[1]).toMatchObject({
+      external: true,
+      href: "https://example.com/n",
+      source: "Fonte externa: Portal Exemplo",
+    });
+    expect(items[0]).toMatchObject({ href: "/noticias/a", source: "Redação Tralked", when: "há 1 hora" });
+    expect(items.every((i) => Number.isInteger(i.seed))).toBe(true);
+  });
+
+  it("adds the 'Guias da semana' block card when there are two guides", async () => {
+    const { buildWireItems } = await import("./news");
+    const items = buildWireItems([card("g1", "GUIAS", 1), card("g2", "GUIAS", 2), card("c", "GAMES", 3)], [], now);
+    expect(items[1]).toMatchObject({ variant: "block", href: "/noticias?categoria=guias#arquivo" });
+    expect(items[1].items).toEqual([
+      { label: "Hollow Knight", date: expect.stringMatching(/^\d{2} \S+$/) },
+      { label: "Hollow Knight", date: expect.any(String) },
+    ]);
+  });
+
+  it("builds Últimas + one tab per category linking to the filtered index", async () => {
+    const { buildNewsTabs } = await import("./news");
+    const tabs = buildNewsTabs([card("g1", "GUIAS", 1), card("c", "COMUNIDADE", 2)], now);
+    expect(tabs.map((t) => [t.id, t.stories.length, t.moreHref])).toEqual([
+      ["ultimas", 2, "/noticias#arquivo"],
+      ["games", 0, "/noticias?categoria=games#arquivo"],
+      ["guias", 1, "/noticias?categoria=guias#arquivo"],
+      ["comunidade", 1, "/noticias?categoria=comunidade#arquivo"],
+    ]);
   });
 });
