@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#060608;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+a:hover{color:var(--acc,#C6F432)}
+*{box-sizing:border-box}
+input::placeholder{color:#6E717A}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#060608">
+<div style="max-width:{{ frameW }};margin:0 auto;min-height:100vh;background:#0B0C0F;color:#ECECE6;font-family:'Archivo',sans-serif;border-left:{{ frameBorder }};border-right:{{ frameBorder }}">
+
+  <header style="position:sticky;top:0;z-index:20;background:rgba(11,12,15,.94);backdrop-filter:blur(10px);border-bottom:1px solid #1E2026">
+    <div style="max-width:1320px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+      <a href="#" style="display:flex;align-items:center;gap:12px;color:#ECECE6;flex:0 0 auto">
+        <sc-if value="{{ logoA }}" hint-placeholder-val="{{ true }}">
+          <div style="position:relative;width:44px;height:44px;flex:0 0 44px;background:var(--acc,#C6F432);clip-path:polygon(0 0,100% 0,100% 72%,72% 100%,0 100%)">
+            <span style="position:absolute;left:50%;top:50%;width:30px;height:7px;background:#0B0C0F;transform:translate(-50%,-50%) rotate(45deg)"></span>
+            <span style="position:absolute;left:50%;top:50%;width:30px;height:7px;background:#0B0C0F;transform:translate(-50%,-50%) rotate(-45deg)"></span>
+            <span style="position:absolute;left:50%;top:50%;width:7px;height:7px;background:var(--acc,#C6F432);transform:translate(-50%,-50%) rotate(45deg)"></span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div style="display:flex;align-items:baseline;gap:8px"><span style="font-weight:900;font-stretch:125%;font-size:25px;letter-spacing:-0.03em;line-height:1">P<span style="color:var(--acc,#C6F432)">X</span>N</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.24em;color:#ECECE6">GAMES</span></div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.18em;color:#7C7F88;text-transform:uppercase">Feito por pessoas que amam jogar</div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ logoB }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;gap:3px">
+            <span style="width:34px;height:38px;display:grid;place-items:center;background:#ECECE6;color:#0B0C0F;font-weight:900;font-stretch:125%;font-size:22px">P</span>
+            <span style="width:34px;height:38px;display:grid;place-items:center;background:var(--acc,#C6F432);color:#0B0C0F;font-weight:900;font-stretch:125%;font-size:22px">X</span>
+            <span style="width:34px;height:38px;display:grid;place-items:center;background:#ECECE6;color:#0B0C0F;font-weight:900;font-stretch:125%;font-size:22px">N</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div style="font-weight:800;font-stretch:110%;font-size:20px;letter-spacing:-0.01em;line-height:1">Games</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.18em;color:#7C7F88;text-transform:uppercase">Feito por pessoas que amam jogar</div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ logoC }}" hint-placeholder-val="{{ false }}">
+          <div style="display:grid;grid-template-columns:repeat(5,7px);grid-auto-rows:7px;gap:2px">
+            <sc-for list="{{ pixels }}" as="px" hint-placeholder-count="25"><span style="background:{{ px }}"></span></sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div style="display:flex;align-items:baseline;gap:8px"><span style="font-weight:900;font-stretch:125%;font-size:24px;letter-spacing:-0.03em;line-height:1">PXN</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.2em;color:var(--acc,#C6F432)">GAMES</span></div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.18em;color:#7C7F88;text-transform:uppercase">Feito por pessoas que amam jogar</div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ logoD }}" hint-placeholder-val="{{ false }}">
+          <div style="position:relative;width:42px;height:42px;flex:0 0 42px;border:3px solid var(--acc,#C6F432);border-radius:50%">
+            <span style="position:absolute;left:50%;top:50%;width:26px;height:3px;background:#ECECE6;transform:translate(-50%,-50%) rotate(45deg)"></span>
+            <span style="position:absolute;left:50%;top:50%;width:26px;height:3px;background:#ECECE6;transform:translate(-50%,-50%) rotate(-45deg)"></span>
+            <span style="position:absolute;left:50%;top:50%;width:8px;height:8px;border-radius:50%;background:var(--acc,#C6F432);transform:translate(-50%,-50%)"></span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div style="display:flex;align-items:baseline;gap:8px"><span style="font-weight:900;font-stretch:125%;font-size:25px;letter-spacing:-0.03em;line-height:1">PXN</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.24em;color:var(--acc,#C6F432)">GAMES</span></div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.18em;color:#7C7F88;text-transform:uppercase">Feito por pessoas que amam jogar</div>
+          </div>
+        </sc-if>
+      </a>
+
+      <sc-if value="{{ isDesktop }}" hint-placeholder-val="{{ true }}">
+        <nav style="display:flex;gap:4px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;letter-spacing:.08em;text-transform:uppercase">
+          <a href="#" style="padding:9px 12px;color:#0B0C0F;background:#ECECE6;border-radius:2px">Início</a>
+          <div style="position:relative" onMouseEnter="{{ openGames }}" onMouseLeave="{{ closeMenu }}">
+            <a href="#" style="display:block;padding:9px 12px;color:#B9BBC2;border-radius:2px;background:{{ gamesBg }}" style-hover="color:#ECECE6">Games ▾</a>
+            <sc-if value="{{ gamesOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;top:100%;left:0;padding-top:8px;z-index:30">
+                <div style="width:260px;background:#141519;border:1px solid #2A2C33;border-radius:4px;padding:8px;display:flex;flex-direction:column;box-shadow:0 20px 40px rgba(0,0,0,.5)">
+                  <sc-for list="{{ platforms }}" as="p" hint-placeholder-count="4">
+                    <a href="#" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:2px;color:#ECECE6;text-transform:none;letter-spacing:0;font-family:'Archivo',sans-serif;font-size:14px;font-weight:600" style-hover="background:#1C1E24">
+                      <span style="width:8px;height:8px;background:{{ p.color }}"></span>{{ p.name }}
+                    </a>
+                  </sc-for>
+                  <div style="height:1px;background:#23252C;margin:6px 0"></div>
+                  <a href="#" style="padding:10px;color:var(--acc,#C6F432);font-size:11px">Reviews</a>
+                  <a href="#" style="padding:10px;color:var(--acc,#C6F432);font-size:11px">Lançamentos</a>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+          <div style="position:relative" onMouseEnter="{{ openEnt }}" onMouseLeave="{{ closeMenu }}">
+            <a href="#" style="display:block;padding:9px 12px;color:#B9BBC2;border-radius:2px;background:{{ entBg }}" style-hover="color:#ECECE6">Entretenimento ▾</a>
+            <sc-if value="{{ entOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;top:100%;left:0;padding-top:8px;z-index:30">
+                <div style="width:220px;background:#141519;border:1px solid #2A2C33;border-radius:4px;padding:8px;display:flex;flex-direction:column;box-shadow:0 20px 40px rgba(0,0,0,.5)">
+                  <sc-for list="{{ entItems }}" as="e" hint-placeholder-count="4">
+                    <a href="#" style="padding:10px;border-radius:2px;color:#ECECE6;text-transform:none;letter-spacing:0;font-family:'Archivo',sans-serif;font-size:14px;font-weight:600" style-hover="background:#1C1E24">{{ e }}</a>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+          <a href="#" style="padding:9px 12px;color:#B9BBC2;border-radius:2px" style-hover="background:#17191E;color:#ECECE6">Tecnologia</a>
+          <a href="#" style="padding:9px 12px;color:#B9BBC2;border-radius:2px" style-hover="background:#17191E;color:#ECECE6">Calendário</a>
+        </nav>
+      </sc-if>
+
+      <div style="flex:1 1 240px;position:relative;order:{{ searchOrder }}">
+        <div style="display:flex;align-items:center;gap:10px;height:42px;padding:0 14px;background:#141519;border:1px solid {{ searchBorder }};border-radius:2px;color:#6E717A">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:14px">⌕</span>
+          <input value="{{ q }}" onChange="{{ onQ }}" onFocus="{{ onFocus }}" onBlur="{{ onBlur }}" placeholder="Buscar notícias, jogos, autores" style="flex:1;min-width:0;background:transparent;border:0;outline:0;color:#ECECE6;font-family:'Archivo',sans-serif;font-size:14px"></input>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;border:1px solid #2C2E36;padding:2px 6px;border-radius:2px">/</span>
+        </div>
+        <sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:30;background:#141519;border:1px solid #2A2C33;border-radius:4px;padding:10px;display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 40px rgba(0,0,0,.5)">
+            <sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:#6E717A;padding:4px 8px">{{ g.label }}</div>
+                <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="3">
+                  <a href="#" onMouseDown="{{ it.pick }}" style="padding:9px 8px;border-radius:2px;font-size:14px;color:#ECECE6" style-hover="background:#1C1E24;color:var(--acc,#C6F432)">{{ it.text }}</a>
+                </sc-for>
+              </div>
+            </sc-for>
+            <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:8px;font-size:14px;color:#8A8D96">Nada encontrado para “{{ q }}”.</div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-left:auto">
+        <div style="width:40px;height:40px;border-radius:50%;background:repeating-linear-gradient(135deg,#1A1C22 0 5px,#22242B 5px 10px);border:2px solid var(--acc,#C6F432)"></div>
+        <sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ toggleDrawer }}" style="width:44px;height:44px;background:#141519;border:1px solid #2A2C33;border-radius:2px;color:#ECECE6;font-size:18px;cursor:pointer">{{ drawerIcon }}</button>
+        </sc-if>
+      </div>
+    </div>
+
+    <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ false }}">
+      <nav style="border-top:1px solid #1E2026;padding:8px 20px 20px;display:flex;flex-direction:column;font-weight:800;font-stretch:115%;font-size:22px;letter-spacing:-0.02em">
+        <a href="#" style="padding:14px 0;border-bottom:1px solid #1A1C21;color:var(--acc,#C6F432)">Início</a>
+        <a href="#" style="padding:14px 0;border-bottom:1px solid #1A1C21">Games</a>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;padding:12px 0">
+          <sc-for list="{{ platforms }}" as="p" hint-placeholder-count="4">
+            <a href="#" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #2A2C33;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;letter-spacing:.06em"><span style="width:7px;height:7px;background:{{ p.color }}"></span>{{ p.name }}</a>
+          </sc-for>
+        </div>
+        <a href="#" style="padding:14px 0;border-bottom:1px solid #1A1C21">Entretenimento</a>
+        <a href="#" style="padding:14px 0;border-bottom:1px solid #1A1C21">Tecnologia</a>
+        <a href="#" style="padding:14px 0">Calendário</a>
+      </nav>
+    </sc-if>
+  </header>
+
+  <main style="max-width:1320px;margin:0 auto;padding:24px 20px 72px;display:flex;flex-direction:column;gap:56px">
+
+    <section style="display:flex;flex-wrap:wrap;gap:12px">
+      <a href="#" style="flex:1 1 560px;min-height:{{ heroH }};position:relative;display:flex;flex-direction:column;justify-content:flex-end;padding:{{ heroPad }};border-radius:4px;overflow:hidden;background:repeating-linear-gradient(135deg,#16181D 0 12px,#1A1C22 12px 24px);color:#ECECE6;transition:transform .2s,box-shadow .2s" style-hover="color:#ECECE6;transform:translateY(-3px);box-shadow:0 0 0 1px var(--acc,#C6F432)">
+        <span style="position:absolute;top:20px;left:20px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#5D6068">[ imagem: destaque GTA 6 ]</span>
+        <span style="position:absolute;top:18px;right:18px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;background:var(--acc,#C6F432);color:#0B0C0F;padding:5px 9px;font-weight:700">EXCLUSIVO</span>
+        <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,12,15,0) 30%,rgba(11,12,15,.96) 92%)"></div>
+        <div style="position:relative;display:flex;flex-direction:column;gap:16px;max-width:720px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.1em">
+            <span style="color:var(--acc,#C6F432);margin-right:6px">GAMES</span>
+            <span style="display:flex;align-items:center;gap:6px;padding:3px 7px;border:1px solid rgba(236,236,230,.2);background:rgba(11,12,15,.5);color:oklch(0.74 0.14 255)"><span style="width:6px;height:6px;background:oklch(0.74 0.14 255)"></span>PLAYSTATION</span>
+            <span style="display:flex;align-items:center;gap:6px;padding:3px 7px;border:1px solid rgba(236,236,230,.2);background:rgba(11,12,15,.5);color:oklch(0.74 0.14 145)"><span style="width:6px;height:6px;background:oklch(0.74 0.14 145)"></span>XBOX</span>
+          </div>
+          <h1 style="margin:0;font-weight:900;font-stretch:112%;font-size:clamp(30px,4.2vw,56px);line-height:.98;letter-spacing:-0.035em;text-wrap:balance">GTA 6 tem 25 minutos de gameplay vazados e Jason aparece nu</h1>
+          <p style="margin:0;font-size:17px;line-height:1.5;color:#B9BBC2;text-wrap:pretty">Um novo vazamento de GTA 6 revela quase 25 minutos de gameplay, incluindo cenas inéditas, spoilers e Jason completamente nu.</p>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8A8D96;display:flex;gap:14px"><span style="color:#ECECE6">@Fuyushiro</span><span>há 10 horas</span></div>
+        </div>
+      </a>
+      <div style="flex:1 1 520px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+        <sc-for list="{{ side }}" as="s" hint-placeholder-count="4">
+          <a href="#" style="position:relative;min-height:224px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;padding:18px;border-radius:4px;overflow:hidden;background:repeating-linear-gradient(135deg,#16181D 0 10px,#1A1C22 10px 20px);color:#ECECE6;transition:transform .2s,box-shadow .2s" style-hover="color:#ECECE6;transform:translateY(-3px);box-shadow:0 0 0 1px var(--acc,#C6F432)">
+            <span style="position:absolute;top:14px;left:16px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#5D6068">[ {{ s.img }} ]</span>
+            <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,12,15,0) 20%,rgba(11,12,15,.95) 85%)"></div>
+            <div style="position:relative;display:flex;gap:5px;flex-wrap:wrap;align-items:center;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em">
+              <span style="color:var(--acc,#C6F432);margin-right:4px">GAMES</span>
+              <sc-for list="{{ s.tags }}" as="t" hint-placeholder-count="2"><span style="display:flex;align-items:center;gap:5px;padding:2px 6px;border:1px solid rgba(236,236,230,.18);background:rgba(11,12,15,.5);color:{{ t.color }}"><span style="width:5px;height:5px;background:{{ t.color }}"></span>{{ t.label }}</span></sc-for>
+            </div>
+            <h3 style="position:relative;margin:0;font-weight:800;font-size:19px;line-height:1.15;letter-spacing:-0.015em;text-wrap:balance">{{ s.title }}</h3>
+            <div style="position:relative;font-family:'JetBrains Mono',monospace;font-size:11px;color:#8A8D96;display:flex;gap:12px"><span style="color:#C9CBD1">{{ s.author }}</span><span>{{ s.time }}</span></div>
+          </a>
+        </sc-for>
+      </div>
+    </section>
+
+    <div style="display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start">
+      <section style="flex:1 1 600px;min-width:0;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding-bottom:16px;border-bottom:2px solid #ECECE6">
+          <h2 style="margin:0;font-weight:900;font-stretch:125%;font-size:28px;letter-spacing:-0.03em;line-height:1;text-transform:uppercase">Últimas notícias</h2>
+          <a href="#" style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.08em;color:var(--acc,#C6F432)">VER TUDO →</a>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;padding:16px 0 4px">
+          <sc-for list="{{ filters }}" as="f" hint-placeholder-count="5">
+            <button onClick="{{ f.pick }}" style="display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;border-radius:2px;border:1px solid {{ f.border }};background:{{ f.bg }};color:{{ f.fg }};font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.08em;cursor:pointer">
+              <span style="width:6px;height:6px;background:{{ f.color }}"></span>{{ f.label }}
+            </button>
+          </sc-for>
+        </div>
+        <sc-for list="{{ news }}" as="n" hint-placeholder-count="3">
+          <a href="#" style="display:flex;flex-wrap:wrap;gap:24px;padding:24px 12px;margin:0 -12px;border-bottom:1px solid #1E2026;color:#ECECE6;border-radius:3px;transition:background .15s" style-hover="background:#121318;color:#ECECE6">
+            <div style="flex:0 1 280px;min-width:200px;aspect-ratio:16/10;border-radius:3px;background:repeating-linear-gradient(135deg,#16181D 0 10px,#1B1D23 10px 20px);display:flex;align-items:flex-end;padding:12px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#5D6068">[ {{ n.img }} ]</div>
+            <div style="flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:12px;justify-content:center">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em">
+                <span style="color:var(--acc,#C6F432);margin-right:6px">GAMES</span>
+                <sc-for list="{{ n.tags }}" as="t" hint-placeholder-count="2"><span style="display:flex;align-items:center;gap:5px;padding:2px 6px;border:1px solid #2C2E36;color:{{ t.color }}"><span style="width:5px;height:5px;background:{{ t.color }}"></span>{{ t.label }}</span></sc-for>
+              </div>
+              <h3 style="margin:0;font-weight:800;font-stretch:105%;font-size:23px;line-height:1.12;letter-spacing:-0.02em;text-wrap:balance">{{ n.title }}</h3>
+              <p style="margin:0;font-size:15.5px;line-height:1.5;color:#9EA1A9;text-wrap:pretty">{{ n.desc }}</p>
+              <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#7C7F88">
+                <span style="color:#C9CBD1">{{ n.author }}</span><span>{{ n.time }}</span><span>▲ {{ n.likes }}</span><span>◼ {{ n.comments }}</span>
+                <span style="display:flex;align-items:center;gap:6px;color:var(--acc,#C6F432)"><span style="width:6px;height:6px;background:var(--acc,#C6F432);border-radius:50%"></span>Autoria humana</span>
+              </div>
+            </div>
+          </a>
+        </sc-for>
+        <sc-if value="{{ newsEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:40px 0;color:#8A8D96;font-size:15px">Nenhuma notícia recente nessa plataforma.</div>
+        </sc-if>
+      </section>
+
+      <aside style="flex:1 1 340px;max-width:440px;display:flex;flex-direction:column;gap:20px">
+        <a href="#" style="display:flex;align-items:center;gap:14px;padding:18px;background:#5865F2;border-radius:4px;color:#fff;transition:transform .2s" style-hover="color:#fff;transform:translateY(-2px)">
+          <div style="width:44px;height:44px;border-radius:4px;background:rgba(255,255,255,.18);display:grid;place-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700">DC</div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+            <div style="font-weight:800;font-size:17px">Comunidade no Discord</div>
+            <div style="font-size:13.5px;opacity:.9">Converse sobre games com a gente</div>
+          </div>
+          <span style="font-size:20px">→</span>
+        </a>
+
+        <div style="background:#121317;border:1px solid #1E2026;border-radius:4px;padding:22px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:14px;border-bottom:1px solid #23252C">
+            <h2 style="margin:0;font-weight:900;font-stretch:125%;font-size:19px;letter-spacing:-0.02em;line-height:1.05;text-transform:uppercase">Ranking da<br>comunidade</h2>
+            <a href="#" style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.08em;color:var(--acc,#C6F432)">VER TUDO →</a>
+          </div>
+          <sc-for list="{{ ranking }}" as="r" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:28px 40px minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #1A1C21">
+              <span style="font-weight:900;font-stretch:125%;font-size:20px;color:{{ r.rankColor }}">{{ r.pos }}</span>
+              <div style="width:40px;height:40px;border-radius:50%;background:repeating-linear-gradient(135deg,#1C1E24 0 4px,#24262D 4px 8px)"></div>
+              <div style="min-width:0;display:flex;flex-direction:column;gap:6px">
+                <div style="font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</div>
+                <sc-if value="{{ showXp }}" hint-placeholder-val="{{ true }}">
+                  <div style="height:3px;background:#22242B;border-radius:2px;overflow:hidden"><div style="height:100%;width:{{ r.pct }};background:var(--acc,#C6F432)"></div></div>
+                </sc-if>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;font-family:'JetBrains Mono',monospace">
+                <span style="font-size:13px;font-weight:700">{{ r.xp }}<span style="color:#6E717A;font-weight:400;font-size:10px"> XP</span></span>
+                <span style="font-size:10px;color:#A3A6AE;letter-spacing:.06em">NV {{ r.lvl }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="padding:24px;border-radius:4px;background:#ECECE6;color:#0B0C0F;display:flex;flex-direction:column;gap:14px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em">POLÍTICA EDITORIAL</span>
+          <h3 style="margin:0;font-weight:900;font-stretch:115%;font-size:26px;line-height:1.02;letter-spacing:-0.03em">Feito pela redação, vigiado por você</h3>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer style="border-top:1px solid #1E2026;background:#08090B">
+    <div style="max-width:1320px;margin:0 auto;padding:56px 20px 32px;display:flex;flex-direction:column;gap:48px">
+      <div style="display:flex;flex-wrap:wrap;gap:24px 48px;align-items:flex-end;justify-content:space-between;padding:32px;background:var(--acc,#C6F432);color:#0B0C0F;border-radius:4px">
+        <div style="flex:1 1 320px;display:flex;flex-direction:column;gap:10px">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;font-weight:700">NEWSLETTER</span>
+          <h2 style="margin:0;font-weight:900;font-stretch:120%;font-size:clamp(26px,3vw,38px);line-height:1;letter-spacing:-0.035em;text-wrap:balance">As principais notícias da semana no seu e-mail</h2>
+        </div>
+        <sc-if value="{{ notSubscribed }}" hint-placeholder-val="{{ true }}">
+          <form onSubmit="{{ subscribe }}" style="flex:1 1 360px;display:flex;flex-wrap:wrap;gap:8px">
+            <input type="email" required="required" value="{{ email }}" onChange="{{ onEmail }}" placeholder="seu@email.com" style="flex:1 1 200px;height:52px;padding:0 16px;border:2px solid #0B0C0F;background:transparent;color:#0B0C0F;font-family:'Archivo',sans-serif;font-size:16px;border-radius:2px;outline:0"></input>
+            <button type="submit" style="height:52px;padding:0 22px;border:0;background:#0B0C0F;color:#ECECE6;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.1em;border-radius:2px;cursor:pointer" style-hover="background:#23252C">INSCREVER →</button>
+          </form>
+        </sc-if>
+        <sc-if value="{{ subscribed }}" hint-placeholder-val="{{ false }}">
+          <div style="flex:1 1 360px;font-weight:800;font-size:18px">Pronto! Confirme a inscrição em {{ email }}.</div>
+        </sc-if>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:32px">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="position:relative;width:34px;height:34px;flex:0 0 34px;background:var(--acc,#C6F432);clip-path:polygon(0 0,100% 0,100% 72%,72% 100%,0 100%)">
+              <span style="position:absolute;left:50%;top:50%;width:23px;height:5px;background:#08090B;transform:translate(-50%,-50%) rotate(45deg)"></span>
+              <span style="position:absolute;left:50%;top:50%;width:23px;height:5px;background:#08090B;transform:translate(-50%,-50%) rotate(-45deg)"></span>
+            </div>
+            <span style="font-weight:900;font-stretch:125%;font-size:22px;letter-spacing:-0.03em;line-height:1">P<span style="color:var(--acc,#C6F432)">X</span>N</span>
+          </div>
+          <div style="font-size:14px;line-height:1.5;color:#8A8D96">Feito por pessoas que amam jogar.</div>
+        </div>
+        <sc-for list="{{ footerCols }}" as="c" hint-placeholder-count="4">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;color:#6E717A">{{ c.title }}</div>
+            <sc-for list="{{ c.links }}" as="l" hint-placeholder-count="4"><a href="#" style="font-size:14.5px;color:#C9CBD1">{{ l }}</a></sc-for>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;padding-top:20px;border-top:1px solid #1A1C21;font-family:'JetBrains Mono',monospace;font-size:11px;color:#6E717A">
+        <span>© 2026 PXN Games</span>
+        <div style="display:flex;gap:16px"><a href="#">Termos</a><a href="#">Privacidade</a></div>
+      </div>
+    </div>
+  </footer>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;logo&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Badge X&quot;,&quot;Blocos&quot;,&quot;Pixel&quot;,&quot;Mira&quot;],&quot;default&quot;:&quot;Pixel&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Identidade&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#2EE6C9&quot;,&quot;options&quot;:[&quot;#C6F432&quot;,&quot;#FF4D2E&quot;,&quot;#8B6CFF&quot;,&quot;#2EE6C9&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Identidade&quot;},&quot;viewport&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;desktop&quot;,&quot;mobile&quot;],&quot;default&quot;:&quot;desktop&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Visualização&quot;},&quot;showXp&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Visualização&quot;}}">
+class Component extends DCLogic {
+  state = { menu: null, q: '', focus: false, drawer: false, filter: 'TODAS', email: '', sub: false, w: typeof window !== 'undefined' ? window.innerWidth : 1400 };
+  onResize = () => this.setState({ w: window.innerWidth });
+  onKey = (e) => { if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); const i = document.querySelector('header input'); i && i.focus(); } };
+  applyAccent() { document.documentElement.style.setProperty('--acc', this.props.accent ?? '#C6F432'); }
+  componentDidMount() { this.applyAccent(); window.addEventListener('resize', this.onResize); window.addEventListener('keydown', this.onKey); }
+  componentWillUnmount() { window.removeEventListener('resize', this.onResize); window.removeEventListener('keydown', this.onKey); }
+  componentDidUpdate() { this.applyAccent(); }
+  renderVals() {
+    const C = { PLAYSTATION: 'oklch(0.74 0.14 255)', XBOX: 'oklch(0.74 0.14 145)', NINTENDO: 'oklch(0.74 0.14 25)', PC: 'oklch(0.74 0.14 75)' };
+    const tg = (a) => a.map(label => ({ label, color: C[label] }));
+    const acc = 'var(--acc,#C6F432)';
+    const s = this.state;
+    const mobileView = (this.props.viewport ?? 'desktop') === 'mobile';
+    const isMobile = mobileView || s.w < 900;
+    const logo = ({ 'Badge X': 'A', 'Blocos': 'B', 'Pixel': 'C', 'Mira': 'D' })[this.props.logo ?? 'Badge X'] || 'A';
+    const pixels = Array.from({ length: 25 }, (_, i) => { const r = Math.floor(i / 5), c = i % 5; return i === 12 ? '#ECECE6' : (r === c || r + c === 4) ? acc : 'transparent'; });
+
+    const side = [
+      { img: 'gta 6 gameplay', tags: tg(['PLAYSTATION','XBOX']), title: 'GTA 6 revela novos detalhes de gameplay e até Jason pelado', author: '@Fuyushiro', time: 'ontem' },
+      { img: 'gta 6 xbox', tags: tg(['XBOX']), title: 'Bomba: Xbox compra a exclusividade de streaming de GTA 6', author: '@Al1enado', time: 'anteontem' },
+      { img: 'playstation studios', tags: tg(['PLAYSTATION']), title: 'PlayStation Studios: todos os projetos, rumores e vazamentos', author: '@Fuyushiro', time: 'anteontem' },
+      { img: 'gears of war e-day', tags: tg(['XBOX','PC']), title: 'Gears Of War E-Day estreia na Steam com 29 Mil Jogadores simultâneos', author: '@NascimentoRE', time: 'anteontem' }
+    ];
+    const allNews = [
+      { img: 'silver pines', tags: tg(['PLAYSTATION','XBOX','NINTENDO','PC']), title: 'Desenvolvedora de Silver Pines diz estar ciente da diferença de preço entre PlayStation e outras plataformas', desc: 'Estúdio afirma estar investigando a discrepância na PlayStation Store brasileira.', author: '@Rivia', time: 'há 1 hora', likes: 6, comments: 66 },
+      { img: 'arc raiders frozen trail', tags: tg(['PLAYSTATION','XBOX','PC']), title: 'ARC Raiders - Veja o que o público está achando da atualização Frozen Trail', desc: 'Nova atualização traz novo mapa, mecânicas e inimigos.', author: '@Rivia', time: 'há 1 hora', likes: 4, comments: 10 },
+      { img: 'gta 6 vice city', tags: tg(['PLAYSTATION','XBOX']), title: 'GTA 6 terá podcasts e fones de ouvido para as rádios', desc: 'Rockstar Games revela novidades sonoras para GTA 6: além das rádios e músicas inéditas, jogadores terão podcasts sob demanda e fones para ouvir a pé pelo mapa.', author: '@Fuyushiro', time: 'há 1 hora', likes: 12, comments: 262 }
+    ];
+    const news = s.filter === 'TODAS' ? allNews : allNews.filter(n => n.tags.some(t => t.label === s.filter));
+    const filters = ['TODAS','PLAYSTATION','XBOX','NINTENDO','PC'].map(label => {
+      const on = s.filter === label;
+      return { label, color: C[label] || acc, bg: on ? '#ECECE6' : 'transparent', fg: on ? '#0B0C0F' : '#B9BBC2', border: on ? '#ECECE6' : '#2C2E36', pick: () => this.setState({ filter: label }) };
+    });
+
+    const games = ['GTA 6','ARC Raiders','Gears of War: E-Day','Silver Pines'];
+    const authors = ['@Fuyushiro','@Rivia','@Al1enado','@NascimentoRE'];
+    const titles = [...side, ...allNews].map(x => x.title);
+    const ql = s.q.trim().toLowerCase();
+    const pick = (text) => () => this.setState({ q: text, focus: false });
+    const mk = (arr, n) => arr.filter(t => !ql || t.toLowerCase().includes(ql)).slice(0, n).map(text => ({ text, pick: pick(text) }));
+    const groups = (ql ? [
+      { label: 'JOGOS', items: mk(games, 3) }, { label: 'NOTÍCIAS', items: mk(titles, 4) }, { label: 'AUTORES', items: mk(authors, 3) }
+    ] : [{ label: 'EM ALTA', items: mk(games, 4) }]).filter(g => g.items.length);
+
+    const rk = [['@BillyButcher',7,639],['@ZeroJimmy',6,563],['@MotocaGamer',6,504],['@Fuyushiro',5,458],['@urso',5,449]];
+    return {
+      frameW: mobileView ? '390px' : 'none', frameBorder: mobileView ? '1px solid #23252C' : '0',
+      pixels, logoA: logo === 'A', logoB: logo === 'B', logoC: logo === 'C', logoD: logo === 'D',
+      isDesktop: !isMobile, isMobile,
+      drawerOpen: isMobile && s.drawer, toggleDrawer: () => this.setState({ drawer: !s.drawer }), drawerIcon: s.drawer ? '✕' : '☰',
+      searchOrder: isMobile ? 5 : 0,
+      heroH: isMobile ? '420px' : '460px', heroPad: isMobile ? '20px' : '32px',
+      gamesOpen: s.menu === 'games', entOpen: s.menu === 'ent',
+      gamesBg: s.menu === 'games' ? '#17191E' : 'transparent', entBg: s.menu === 'ent' ? '#17191E' : 'transparent',
+      openGames: () => this.setState({ menu: 'games' }), openEnt: () => this.setState({ menu: 'ent' }), closeMenu: () => this.setState({ menu: null }),
+      platforms: Object.keys(C).map(k => ({ name: k === 'PC' ? 'PC' : k[0] + k.slice(1).toLowerCase(), color: C[k] })),
+      entItems: ['Filmes','Séries','Anime','Streaming'],
+      q: s.q, onQ: (e) => this.setState({ q: e.target.value }), onFocus: () => this.setState({ focus: true }), onBlur: () => setTimeout(() => this.setState({ focus: false }), 120),
+      searchOpen: s.focus, searchBorder: s.focus ? acc : '#23252C', groups, noResults: !!ql && groups.length === 0,
+      showXp: this.props.showXp ?? true,
+      side, news, newsEmpty: news.length === 0, filters,
+      ranking: rk.map(([name, lvl, xp], i) => ({ pos: i + 1, name, lvl, xp, pct: Math.round(xp / rk[0][2] * 100) + '%', rankColor: i === 0 ? acc : (i < 3 ? '#ECECE6' : '#5D6068') })),
+      email: s.email, onEmail: (e) => this.setState({ email: e.target.value }),
+      subscribe: (e) => { e.preventDefault(); this.setState({ sub: true }); }, subscribed: s.sub, notSubscribed: !s.sub,
+      footerCols: [
+        { title: 'EDITORIAS', links: ['Games','Entretenimento','Tecnologia','Calendário'] },
+        { title: 'PLATAFORMAS', links: ['PlayStation','Xbox','Nintendo','PC'] },
+        { title: 'COMUNIDADE', links: ['Discord','Ranking'] },
+        { title: 'INSTITUCIONAL', links: ['Sobre','Política editorial','Contato','Anuncie'] }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

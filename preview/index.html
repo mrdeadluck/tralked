@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PXN Games Prévia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Identidade PXN Games (design_handoff_pxn_games_home). Layout: header sticky, views por hash, conteúdo até 1320px, coluna principal + sidebar. Tema único escuro. */
+:root {
+  --bg: #0B0C0F;
+  --bg-deep: #08090B;
+  --surface: #121317;
+  --surface-2: #141519;
+  --hover: #17191E;
+  --hover-2: #1C1E24;
+  --border: #1E2026;
+  --border-2: #2C2E36;
+  --divider: #1A1C21;
+  --track: #22242B;
+  --text: #ECECE6;
+  --text-2: #C9CBD1;
+  --text-3: #B9BBC2;
+  --muted: #9EA1A9;
+  --dim: #7C7F88;
+  --dim-2: #6E717A;
+  --ph: #5D6068;
+  --acc: #C6F432;
+  --discord: #5865F2;
+  --ps: oklch(0.74 0.14 255);
+  --xbox: oklch(0.74 0.14 145);
+  --nin: oklch(0.74 0.14 25);
+  --pc: oklch(0.74 0.14 75);
+  --r-comum: #9EA1A9;
+  --r-incomum: oklch(0.74 0.14 145);
+  --r-raro: oklch(0.74 0.14 255);
+  --r-epico: oklch(0.72 0.16 305);
+  --r-lendario: oklch(0.80 0.15 75);
+  --sans: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --stripes: repeating-linear-gradient(135deg, #16181D 0 10px, #1B1D23 10px 20px);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+button, input, select { font: inherit; color: inherit; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+p { margin: 0; text-wrap: pretty; }
+input::placeholder { color: var(--dim-2); }
+:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+.mono { font-family: var(--mono); }
+
+/* ---------- Header ---------- */
+.hdr { position: sticky; top: 0; z-index: 20; background: rgba(11, 12, 15, .94); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+.hdr-in { max-width: 1320px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.logo { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; color: var(--text); }
+.logo svg { width: 44px; height: 44px; flex: 0 0 44px; }
+.logo-txt { display: flex; flex-direction: column; gap: 5px; }
+.logo-word { display: flex; align-items: baseline; gap: 8px; }
+.logo-word b { font-weight: 900; font-stretch: 125%; font-size: 25px; letter-spacing: -0.03em; line-height: 1; }
+.logo-word b i { font-style: normal; color: var(--acc); }
+.logo-word span { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .24em; }
+.logo-tag { font-family: var(--mono); font-size: 9.5px; letter-spacing: .18em; color: var(--dim); text-transform: uppercase; }
+.nav { display: flex; gap: 4px; font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; }
+.nav a { padding: 9px 12px; color: var(--text-3); border-radius: 2px; white-space: nowrap; }
+.nav a:hover { background: var(--hover); color: var(--text); }
+.nav a[aria-current="page"] { background: var(--text); color: var(--bg); }
+.search { flex: 1 1 240px; position: relative; }
+.search-box { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 14px; background: var(--surface-2); border: 1px solid #23252C; border-radius: 2px; color: var(--dim-2); }
+.search-box:focus-within { border-color: var(--acc); }
+.search-box input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text); font-size: 14px; }
+.kbd { font-family: var(--mono); font-size: 10px; border: 1px solid var(--border-2); padding: 2px 6px; border-radius: 2px; }
+.sugg { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30; background: var(--surface-2); border: 1px solid #2A2C33; border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, .5); }
+.sugg[hidden] { display: none; }
+.sugg-g { display: flex; flex-direction: column; gap: 2px; }
+.sugg-l { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--dim-2); padding: 4px 8px; }
+.sugg a { padding: 9px 8px; border-radius: 2px; font-size: 14px; }
+.sugg a:hover { background: var(--hover-2); color: var(--acc); }
+.sugg .none { padding: 8px; font-size: 14px; color: #8A8D96; }
+.me { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.me-lvl { display: flex; align-items: center; gap: 10px; }
+.me-lvl .lv { display: flex; flex-direction: column; align-items: flex-end; font-family: var(--mono); line-height: 1.2; }
+.me-lvl .lv small { font-size: 10px; letter-spacing: .1em; color: var(--dim); }
+.me-lvl .lv b { font-size: 13px; }
+.me-lvl .lv b span { color: var(--acc); }
+.av { width: 40px; height: 40px; border-radius: 50%; background: repeating-linear-gradient(135deg, #1A1C22 0 5px, #22242B 5px 10px); border: 2px solid var(--acc); flex: none; }
+.sq-btn { width: 44px; height: 44px; background: var(--surface-2); border: 1px solid #2A2C33; border-radius: 2px; cursor: pointer; display: grid; place-items: center; }
+.sq-btn svg { width: 18px; height: 18px; }
+.sq-btn:hover { border-color: var(--acc); }
+.burger { display: none; }
+.drawer { border-top: 1px solid var(--border); padding: 8px 20px 20px; display: flex; flex-direction: column; font-weight: 800; font-stretch: 115%; font-size: 22px; letter-spacing: -0.02em; }
+.drawer[hidden] { display: none; }
+.drawer a { padding: 14px 0; border-bottom: 1px solid var(--divider); }
+.drawer a[aria-current="page"] { color: var(--acc); }
+.drawer a:last-child { border-bottom: 0; }
+
+.banner { max-width: 1320px; margin: 16px auto 0; padding: 0 20px; }
+.banner p { border: 1px dashed var(--border-2); border-radius: 2px; padding: 10px 14px; font-size: 14px; color: var(--muted); }
+.banner b { color: var(--text); font-weight: 700; }
+main { max-width: 1320px; margin: 0 auto; padding: 24px 20px 72px; }
+.view[hidden] { display: none; }
+.stack { display: flex; flex-direction: column; gap: 56px; }
+
+/* ---------- Componentes base ---------- */
+.sec-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding-bottom: 16px; border-bottom: 2px solid var(--text); flex-wrap: wrap; }
+.sec-head h2 { font-weight: 900; font-stretch: 125%; font-size: 28px; letter-spacing: -0.03em; line-height: 1; text-transform: uppercase; }
+.sec-head .aside { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; color: var(--acc); text-transform: uppercase; }
+.sec-head p.aside { color: var(--dim); text-transform: none; letter-spacing: 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 22px; }
+.card-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid #23252C; }
+.card-head h2 { font-weight: 900; font-stretch: 125%; font-size: 19px; letter-spacing: -0.02em; line-height: 1.05; text-transform: uppercase; }
+.card-head .aside { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--acc); text-transform: uppercase; }
+.card-head span.aside { color: var(--dim); }
+.label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; color: var(--dim-2); text-transform: uppercase; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.tags .cat { color: var(--acc); margin-right: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border: 1px solid var(--border-2); color: var(--c, var(--text-3)); }
+.chip::before { content: ""; width: 5px; height: 5px; background: var(--c, var(--text-3)); }
+.chip.plain::before { display: none; }
+.on-img .chip { border-color: rgba(236, 236, 230, .2); background: rgba(11, 12, 15, .5); }
+.meta { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+.meta .who { color: var(--text-2); }
+.human { display: inline-flex; align-items: center; gap: 6px; color: var(--acc); }
+.human::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--acc); }
+.ph { background: var(--stripes); border-radius: 3px; position: relative; overflow: hidden; }
+.ph-l { position: absolute; left: 12px; bottom: 10px; font-family: var(--mono); font-size: 10px; color: var(--ph); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 18px; border-radius: 2px; border: 1px solid var(--border-2); background: transparent; color: var(--text); font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+.btn:hover { border-color: var(--text); }
+.btn-acc { background: var(--acc); color: var(--bg); border-color: var(--acc); }
+.btn-acc:hover { filter: brightness(1.08); border-color: var(--acc); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn svg { width: 16px; height: 16px; }
+.fchips { display: flex; gap: 6px; flex-wrap: wrap; }
+.fchip { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 2px; border: 1px solid var(--border-2); background: transparent; color: var(--text-3); font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.fchip::before { content: ""; width: 6px; height: 6px; background: var(--c, var(--acc)); }
+.fchip.nodot::before { display: none; }
+.fchip:hover { color: var(--text); border-color: var(--dim); }
+.fchip[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+.fchip:disabled { opacity: .45; cursor: not-allowed; }
+.bar { height: 3px; background: var(--track); border-radius: 2px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--acc); transition: width .7s cubic-bezier(.2, .8, .2, 1); }
+.empty { padding: 40px 0; color: #8A8D96; font-size: 15px; }
+.lift { transition: transform .2s, box-shadow .2s; }
+.lift:hover { transform: translateY(-3px); box-shadow: 0 0 0 1px var(--acc); }
+
+/* ---------- Notícias ---------- */
+.hero { display: flex; flex-wrap: wrap; gap: 12px; }
+.hero-main { flex: 1 1 560px; min-height: 460px; position: relative; display: flex; flex-direction: column; justify-content: flex-end; padding: 32px; border-radius: 4px; overflow: hidden; background: repeating-linear-gradient(135deg, #16181D 0 12px, #1A1C22 12px 24px); }
+.ph-t { position: absolute; top: 20px; left: 20px; font-family: var(--mono); font-size: 11px; color: var(--ph); }
+.hero-side .ph-t { top: 14px; left: 16px; font-size: 10px; }
+.excl { position: absolute; top: 18px; right: 18px; font-family: var(--mono); font-size: 11px; letter-spacing: .12em; background: var(--acc); color: var(--bg); padding: 5px 9px; font-weight: 700; }
+.shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(11, 12, 15, 0) 30%, rgba(11, 12, 15, .96) 92%); }
+.hero-main .in { position: relative; display: flex; flex-direction: column; gap: 16px; max-width: 720px; }
+.hero-main h1 { font-weight: 900; font-stretch: 112%; font-size: clamp(30px, 4.2vw, 56px); line-height: .98; letter-spacing: -0.035em; }
+.hero-main p { font-size: 17px; color: var(--text-3); }
+.hero-grid { flex: 1 1 520px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.hero-side { position: relative; min-height: 224px; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; padding: 18px; border-radius: 4px; overflow: hidden; background: var(--stripes); }
+.hero-side .shade { background: linear-gradient(180deg, rgba(11, 12, 15, 0) 20%, rgba(11, 12, 15, .95) 85%); }
+.hero-side > *:not(.shade):not(.ph-t) { position: relative; }
+.hero-side h3 { font-weight: 800; font-size: 19px; line-height: 1.15; letter-spacing: -0.015em; }
+.hero-side .tags { font-size: 9.5px; }
+.cols { display: flex; flex-wrap: wrap; gap: 48px; align-items: flex-start; }
+.col-main { flex: 1 1 600px; min-width: 0; display: flex; flex-direction: column; }
+.col-side { flex: 1 1 340px; max-width: 440px; display: flex; flex-direction: column; gap: 20px; }
+.news-filters { padding: 16px 0 4px; }
+.news-item { display: flex; flex-wrap: wrap; gap: 24px; padding: 24px 12px; margin: 0 -12px; border-bottom: 1px solid var(--border); border-radius: 3px; transition: background .15s; }
+a.news-item:hover { background: #121318; }
+.news-item .ph { flex: 0 1 280px; min-width: 200px; aspect-ratio: 16 / 10; }
+.news-item .txt { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 12px; justify-content: center; }
+.news-item h3 { font-weight: 800; font-stretch: 105%; font-size: 23px; line-height: 1.12; letter-spacing: -0.02em; }
+.news-item p { font-size: 15.5px; color: var(--muted); }
+.guide-link { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--acc); text-transform: uppercase; }
+.discord { display: flex; align-items: center; gap: 14px; padding: 18px; background: var(--discord); border-radius: 4px; color: #fff; transition: transform .2s; }
+.discord:hover { transform: translateY(-2px); }
+.discord .ic { width: 44px; height: 44px; border-radius: 4px; background: rgba(255, 255, 255, .18); display: grid; place-items: center; font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.discord b { display: block; font-weight: 800; font-size: 17px; }
+.discord small { font-size: 13.5px; opacity: .9; }
+.rk-row { display: grid; grid-template-columns: 28px 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--divider); }
+.rk-row:last-child { border-bottom: 0; }
+.rk-pos { font-weight: 900; font-stretch: 125%; font-size: 20px; color: var(--ph); }
+.rk-row:nth-child(-n+3) .rk-pos { color: var(--text); }
+.rk-row:first-child .rk-pos { color: var(--acc); }
+.rk-av { width: 40px; height: 40px; border-radius: 50%; background: repeating-linear-gradient(135deg, #1C1E24 0 4px, #24262D 4px 8px); }
+.rk-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; margin-bottom: 6px; }
+.rk-num { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-family: var(--mono); }
+.rk-num b { font-size: 13px; }
+.rk-num b small { color: var(--dim-2); font-weight: 400; font-size: 10px; }
+.rk-num span { font-size: 10px; color: #A3A6AE; letter-spacing: .06em; }
+.editorial { padding: 24px; border-radius: 4px; background: var(--text); color: var(--bg); display: flex; flex-direction: column; gap: 14px; }
+.editorial span { font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; }
+.editorial h3 { font-weight: 900; font-stretch: 115%; font-size: 26px; line-height: 1.02; letter-spacing: -0.03em; }
+.quest { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
+.quest p { font-size: 15px; font-weight: 600; }
+.quest .row { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.quest .row b { color: var(--acc); }
+
+/* ---------- Personagem ---------- */
+.sheet { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; }
+.pc { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 28px; display: grid; grid-template-columns: auto 1fr; gap: 24px; align-items: center; }
+.pc-av { width: 104px; height: 104px; border-radius: 50%; background: repeating-linear-gradient(135deg, #1A1C22 0 7px, #22242B 7px 14px); border: 3px solid var(--acc); display: grid; place-items: center; font-weight: 900; font-stretch: 125%; font-size: 40px; color: var(--acc); }
+.pc h1 { font-weight: 900; font-stretch: 125%; font-size: clamp(30px, 4vw, 44px); letter-spacing: -0.035em; line-height: 1; text-transform: uppercase; margin-top: 6px; }
+.pc .tags { margin-top: 12px; font-size: 10.5px; }
+.lvl-row { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
+.lvl-big { font-weight: 900; font-stretch: 125%; font-size: clamp(72px, 10vw, 112px); line-height: .8; letter-spacing: -0.05em; color: var(--acc); font-variant-numeric: tabular-nums; }
+.lvl-lbl { display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px; }
+.lvl-lbl b { font-weight: 800; font-stretch: 112%; font-size: 18px; }
+.lvl-lbl > span { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.xp-wrap { grid-column: 1 / -1; position: relative; }
+.xpbar { height: 10px; background: var(--track); border-radius: 2px; overflow: hidden; }
+.xpbar i { display: block; height: 100%; width: 0; background: var(--acc); box-shadow: 0 0 16px rgba(198, 244, 50, .45); transition: width .7s cubic-bezier(.2, .8, .2, 1); }
+.xp-meta { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.xp-meta b { color: var(--text); }
+.float-xp { position: absolute; right: 0; top: -30px; font-weight: 900; font-stretch: 125%; font-size: 20px; color: var(--acc); animation: floatUp 1.4s ease-out forwards; pointer-events: none; white-space: nowrap; }
+@keyframes floatUp { from { opacity: 0; transform: translateY(10px); } 15% { opacity: 1; } to { opacity: 0; transform: translateY(-26px); } }
+.stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 0; background: var(--border); border: 1px solid var(--border); border-radius: 2px; overflow: hidden; }
+.stats div { background: var(--surface); padding: 12px 14px; }
+.stats dt { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; color: var(--dim-2); text-transform: uppercase; }
+.stats dd { margin: 4px 0 0; font-weight: 800; font-stretch: 112%; font-size: 24px; font-variant-numeric: tabular-nums; }
+.actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+.side-stack { display: flex; flex-direction: column; gap: 20px; }
+.streak { display: flex; align-items: center; gap: 16px; padding-top: 14px; }
+.streak b { font-weight: 900; font-stretch: 125%; font-size: 40px; line-height: 1; color: var(--acc); }
+.streak p { font-size: 14px; color: var(--muted); }
+.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 16px; }
+.week span { height: 30px; display: grid; place-items: center; font-family: var(--mono); font-size: 10px; color: var(--dim-2); border: 1px solid var(--border-2); border-radius: 2px; }
+.week span.on { background: rgba(198, 244, 50, .12); border-color: rgba(198, 244, 50, .4); color: var(--acc); }
+.week span.today { background: var(--acc); color: var(--bg); border-color: var(--acc); font-weight: 700; }
+.missions { list-style: none; margin: 0; padding: 0; }
+.mission { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; padding: 14px 0; border-bottom: 1px solid var(--divider); }
+.mission:last-child { border-bottom: 0; padding-bottom: 0; }
+.mission p { font-size: 15px; font-weight: 600; }
+.mission small { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.mission .rw { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--acc); text-align: right; }
+.mission .bar { grid-column: 1 / -1; }
+.mission.done p { color: var(--acc); }
+.skills-list { list-style: none; margin: 0; padding: 8px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 48px; }
+.skill { padding: 14px 0; border-bottom: 1px solid var(--divider); }
+.skill-row { display: flex; align-items: center; gap: 12px; }
+.skill-row svg { width: 20px; height: 20px; color: var(--dim); flex: none; }
+.skill.top .skill-row svg { color: var(--acc); }
+.skill-name { font-weight: 600; font-size: 16px; white-space: nowrap; }
+.leader { flex: 1; min-width: 12px; border-bottom: 2px dotted #34363F; transform: translateY(-4px); }
+.skill-lv { font-weight: 900; font-stretch: 125%; font-size: 24px; line-height: 1; min-width: 2ch; text-align: right; font-variant-numeric: tabular-nums; }
+.skill.top .skill-lv { color: var(--acc); }
+.skill .bar { margin: 10px 0 0 32px; }
+.skill-sub { margin: 6px 0 0 32px; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10.5px; color: var(--dim-2); }
+.skill.flash { animation: flash 1.2s ease; }
+@keyframes flash { 25% { background: rgba(198, 244, 50, .08); } }
+.feed { list-style: none; margin: 0; padding: 0; }
+.feed li { display: grid; grid-template-columns: 8px 1fr auto; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--divider); align-items: start; }
+.feed li:last-child { border-bottom: 0; }
+.feed .dot { width: 8px; height: 8px; margin-top: 7px; background: var(--c); }
+.feed b { font-weight: 700; font-size: 15px; display: block; }
+.feed small { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.feed .xp { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--acc); white-space: nowrap; }
+.feed li.new { animation: flash 1.2s ease; }
+
+/* ---------- Jogos ---------- */
+.lib-tools { padding: 16px 0 20px; }
+.lib-count { font-family: var(--mono); font-size: 11px; color: var(--dim); letter-spacing: .06em; margin-bottom: 14px; }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.tile { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.tile .ph { aspect-ratio: 16 / 10; border-radius: 0; }
+.plat { position: absolute; top: 10px; right: 10px; font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .12em; background: var(--acc); color: var(--bg); padding: 4px 8px; }
+.tile-b { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.tile-b h3 { font-weight: 800; font-stretch: 105%; font-size: 19px; line-height: 1.15; letter-spacing: -0.015em; }
+.tile-m { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: auto; }
+.tile-m b { color: var(--text); }
+.ring text { font-family: var(--mono); font-weight: 700; fill: var(--text); }
+
+/* ---------- Página do jogo / guia ---------- */
+.back { display: inline-flex; font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 18px; }
+.back:hover { color: var(--acc); }
+.g-head { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr) auto; gap: 28px; align-items: center; padding-bottom: 28px; border-bottom: 2px solid var(--text); }
+.g-head .ph { aspect-ratio: 16 / 10; }
+.g-head h1 { font-weight: 900; font-stretch: 112%; font-size: clamp(32px, 4.2vw, 56px); line-height: .98; letter-spacing: -0.035em; margin: 12px 0 10px; }
+.g-head .sub { font-size: 17px; color: var(--text-3); margin-bottom: 14px; }
+.facts { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; margin: 24px 0 0; background: var(--border); border: 1px solid var(--border); border-radius: 2px; overflow: hidden; }
+.facts div { background: var(--surface); padding: 14px 16px; }
+.facts dt { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; color: var(--dim-2); text-transform: uppercase; }
+.facts dd { margin: 6px 0 0; font-weight: 800; font-stretch: 112%; font-size: 21px; line-height: 1.1; }
+.facts dd small { display: block; font-family: var(--mono); font-weight: 400; font-stretch: 100%; font-size: 10.5px; color: var(--dim); margin-top: 4px; }
+.diff { display: flex; gap: 3px; margin-top: 8px; }
+.diff i { width: 100%; height: 4px; background: var(--track); }
+.diff i.on { background: var(--acc); }
+.guide { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 48px; align-items: start; margin-top: 40px; }
+.g-main { display: flex; flex-direction: column; gap: 56px; min-width: 0; }
+.g-side { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 20px; }
+.toc { list-style: none; margin: 0; padding: 8px 0 0; }
+.toc button { width: 100%; text-align: left; background: none; border: 0; border-left: 2px solid var(--border-2); padding: 9px 12px; cursor: pointer; font-family: var(--mono); font-size: 12px; letter-spacing: .04em; color: var(--text-3); display: flex; justify-content: space-between; gap: 8px; }
+.toc button:hover { color: var(--text); background: var(--hover); }
+.toc button.cur { color: var(--acc); border-left-color: var(--acc); }
+.toc button small { color: var(--dim-2); }
+.prose { display: flex; flex-direction: column; gap: 14px; padding-top: 18px; max-width: 72ch; }
+.prose p { font-size: 17px; line-height: 1.6; color: var(--text-2); }
+.callout { border: 1px solid var(--border-2); border-left: 3px solid var(--r-lendario); background: var(--surface); padding: 16px 18px; border-radius: 2px; display: flex; flex-direction: column; gap: 8px; }
+.callout ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); font-size: 15.5px; }
+.steps { list-style: none; counter-reset: st; margin: 0; padding: 0; }
+.step { counter-increment: st; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 18px; padding: 24px 0; border-bottom: 1px solid var(--border); }
+.step::before { content: counter(st, decimal-leading-zero); font-weight: 900; font-stretch: 125%; font-size: 34px; line-height: 1; color: var(--ph); letter-spacing: -0.03em; }
+.step.done::before { color: var(--acc); }
+.step-h { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.step h3 { font-weight: 800; font-stretch: 105%; font-size: 22px; letter-spacing: -0.02em; line-height: 1.15; }
+.step .meta { margin-top: 6px; }
+.step p { margin-top: 10px; color: var(--muted); font-size: 15.5px; }
+.step .tags { margin-top: 14px; }
+.chk { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; letter-spacing: .06em; color: var(--text-3); cursor: pointer; text-transform: uppercase; white-space: nowrap; }
+.chk input { appearance: none; width: 18px; height: 18px; border: 1px solid var(--border-2); border-radius: 2px; display: grid; place-items: center; margin: 0; cursor: pointer; }
+.chk input:checked { background: var(--acc); border-color: var(--acc); }
+.chk input:checked::after { content: ""; width: 5px; height: 9px; border: solid var(--bg); border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); }
+.ach-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 0 6px; }
+.ach-list { list-style: none; margin: 0; padding: 0; }
+.ach { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 4px 18px; padding: 20px 0; border-bottom: 1px solid var(--border); }
+.ach-ic { width: 52px; height: 52px; grid-row: span 3; border: 2px solid var(--rc); background: color-mix(in srgb, var(--rc) 12%, var(--bg)); display: grid; place-items: center; color: var(--rc); clip-path: polygon(0 0, 100% 0, 100% 76%, 76% 100%, 0 100%); }
+.ach-ic svg { width: 24px; height: 24px; }
+.ach.pending .ach-ic { filter: saturate(.3) brightness(.75); }
+.ach h3 { font-weight: 800; font-stretch: 105%; font-size: 19px; letter-spacing: -0.015em; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rar { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--rc); border: 1px solid color-mix(in srgb, var(--rc) 50%, transparent); padding: 1px 6px; }
+.ach .desc { color: var(--muted); font-size: 15.5px; }
+.ach .tags { margin-top: 4px; }
+.ach-r { grid-row: span 3; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; text-align: right; }
+.ach-r .xp { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--acc); }
+.ach-r small { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.ach-r .ok { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; color: var(--acc); text-transform: uppercase; }
+.mini { height: 32px; padding: 0 10px; border-radius: 2px; border: 1px solid var(--acc); background: transparent; color: var(--acc); font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.mini:hover { background: var(--acc); color: var(--bg); }
+.ach details { grid-column: 2 / -1; margin-top: 10px; }
+.ach summary { cursor: pointer; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--acc); text-transform: uppercase; list-style: none; }
+.ach summary::-webkit-details-marker { display: none; }
+.ach summary::before { content: "+ "; }
+.ach details[open] summary::before { content: "− "; }
+.how { margin-top: 12px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 2px; display: flex; flex-direction: column; gap: 10px; }
+.how p { font-size: 15.5px; color: var(--text-2); }
+.how ol { margin: 0; padding-left: 20px; color: var(--text-2); font-size: 15px; display: flex; flex-direction: column; gap: 4px; }
+.spoiler { filter: blur(6px); cursor: pointer; user-select: none; transition: filter .2s; }
+.col-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding-top: 18px; }
+.col-card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.col-card .n { font-weight: 900; font-stretch: 125%; font-size: 30px; line-height: 1; letter-spacing: -0.03em; }
+.col-card .n small { font-size: 16px; color: var(--dim); font-weight: 700; }
+.col-card p { font-size: 14px; color: var(--muted); }
+.col-card.full .n { color: var(--acc); }
+.tips { list-style: none; margin: 0; padding: 0; }
+.tip { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 14px; padding: 20px 0; border-bottom: 1px solid var(--border); }
+.tip p { font-size: 15.5px; color: var(--text-2); margin-top: 6px; }
+.vote { display: flex; flex-direction: column; align-items: center; gap: 2px; height: fit-content; min-width: 56px; padding: 6px 8px; border: 1px solid var(--border-2); border-radius: 2px; background: transparent; cursor: pointer; font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text-3); }
+.vote[aria-pressed="true"] { border-color: var(--acc); color: var(--acc); }
+.revs { list-style: none; margin: 0; padding: 0; }
+.revs li { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--divider); font-size: 15px; }
+.revs li b { font-family: var(--mono); font-size: 12px; color: var(--acc); }
+.revs li small { font-family: var(--mono); font-size: 11px; color: var(--dim); white-space: nowrap; }
+.my-prog { display: flex; align-items: center; gap: 16px; padding-top: 14px; }
+.my-prog p { font-size: 14px; color: var(--muted); }
+.my-prog p b { color: var(--text); }
+.trains { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; }
+.trains div { display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
+.trains b { font-weight: 900; font-stretch: 125%; font-size: 20px; }
+.community-box { margin-top: 40px; border: 1px dashed var(--border-2); border-radius: 4px; padding: 40px 24px; text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.community-box h2 { font-weight: 900; font-stretch: 115%; font-size: 26px; letter-spacing: -0.03em; }
+.community-box p { color: var(--muted); max-width: 52ch; }
+
+/* ---------- Ranking ---------- */
+.rank-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 16px 0 12px; }
+select { background: var(--surface-2); border: 1px solid #23252C; border-radius: 2px; height: 42px; padding: 0 12px; color: var(--text); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 14px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; color: var(--dim-2); font-weight: 400; text-transform: uppercase; }
+td.pos { font-weight: 900; font-stretch: 125%; font-size: 20px; color: var(--ph); width: 56px; }
+tr.top td.pos { color: var(--text); }
+tr.first td.pos { color: var(--acc); }
+tr.me { background: rgba(198, 244, 50, .07); }
+tr.me td:first-child { box-shadow: inset 3px 0 0 var(--acc); }
+td.voc { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+td.lv { font-weight: 900; font-stretch: 125%; font-size: 20px; }
+
+/* ---------- Rodapé ---------- */
+footer { border-top: 1px solid var(--border); background: var(--bg-deep); }
+.ft { max-width: 1320px; margin: 0 auto; padding: 56px 20px 32px; display: flex; flex-direction: column; gap: 48px; }
+.nl { display: flex; flex-wrap: wrap; gap: 24px 48px; align-items: flex-end; justify-content: space-between; padding: 32px; background: var(--acc); color: var(--bg); border-radius: 4px; }
+.nl-t { flex: 1 1 320px; display: flex; flex-direction: column; gap: 10px; }
+.nl-t span { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; font-weight: 700; }
+.nl-t h2 { font-weight: 900; font-stretch: 120%; font-size: clamp(26px, 3vw, 38px); line-height: 1; letter-spacing: -0.035em; }
+.nl form { flex: 1 1 360px; display: flex; flex-wrap: wrap; gap: 8px; }
+.nl input { flex: 1 1 200px; height: 52px; padding: 0 16px; border: 2px solid var(--bg); background: transparent; color: var(--bg); font-size: 16px; border-radius: 2px; outline: 0; }
+.nl input::placeholder { color: rgba(11, 12, 15, .55); }
+.nl button { height: 52px; padding: 0 22px; border: 0; background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .1em; border-radius: 2px; cursor: pointer; }
+.nl button:hover { background: #23252C; }
+.nl .ok { flex: 1 1 360px; font-weight: 800; font-size: 18px; }
+.ft-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 32px; }
+.ft-cols > div { display: flex; flex-direction: column; gap: 10px; }
+.ft-cols a { font-size: 14.5px; color: var(--text-2); }
+.ft-cols a:hover { color: var(--acc); }
+.ft-brand { display: flex; align-items: center; gap: 10px; }
+.ft-brand svg { width: 34px; height: 34px; }
+.ft-brand b { font-weight: 900; font-stretch: 125%; font-size: 22px; letter-spacing: -0.03em; line-height: 1; }
+.ft-brand b i { font-style: normal; color: var(--acc); }
+.ft-bottom { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; padding-top: 20px; border-top: 1px solid var(--divider); font-family: var(--mono); font-size: 11px; color: var(--dim-2); }
+.ft-bottom div { display: flex; gap: 16px; }
+
+/* ---------- Level up e toasts ---------- */
+.lu { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(6, 6, 8, .82); backdrop-filter: blur(4px); padding: 20px; }
+.lu[hidden] { display: none; }
+.lu-box { position: relative; text-align: center; padding: 40px 24px; animation: luIn .5s cubic-bezier(.2, 1.4, .4, 1); }
+.lu-box::before { content: ""; position: absolute; left: 50%; top: 45%; width: 560px; height: 560px; max-width: 120vw; translate: -50% -50%; z-index: -1; background: repeating-conic-gradient(from 0deg, rgba(198, 244, 50, .16) 0 4deg, transparent 4deg 22deg); mask: radial-gradient(circle, #000 15%, transparent 68%); animation: spin 14s linear infinite; }
+.lu-box .label { color: var(--acc); }
+.lu-box strong { display: block; font-weight: 900; font-stretch: 125%; font-size: clamp(96px, 20vw, 180px); line-height: .9; letter-spacing: -0.05em; color: var(--acc); text-shadow: 0 0 60px rgba(198, 244, 50, .45); margin: 10px 0; }
+.lu-box p { font-weight: 800; font-stretch: 112%; font-size: 20px; letter-spacing: -0.01em; margin-bottom: 24px; }
+@keyframes luIn { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes spin { to { rotate: 360deg; } }
+.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: flex; flex-direction: column; gap: 8px; width: min(360px, calc(100vw - 40px)); }
+.toast { display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: center; background: var(--surface-2); border: 1px solid #2A2C33; border-left: 3px solid var(--c, var(--acc)); border-radius: 2px; padding: 12px 14px; box-shadow: 0 20px 40px rgba(0, 0, 0, .5); animation: tIn .3s ease; }
+.toast .ti { width: 40px; height: 40px; display: grid; place-items: center; color: var(--c, var(--acc)); background: color-mix(in srgb, var(--c, var(--acc)) 12%, transparent); }
+.toast .ti svg { width: 22px; height: 22px; }
+.toast b { display: block; font-weight: 800; font-size: 15px; }
+.toast span { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+@keyframes tIn { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 1100px) {
+  .guide { grid-template-columns: 1fr; }
+  .g-side { position: static; order: -1; }
+  .g-side .toc-card { display: none; }
+  .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .nav { display: none; }
+  .burger { display: grid; }
+  .search { order: 5; flex-basis: 100%; }
+  .me-lvl .lv { display: none; }
+  .hero-main { min-height: 420px; padding: 20px; }
+  .sheet { grid-template-columns: 1fr; }
+  .g-head { grid-template-columns: 1fr auto; }
+  .g-head .ph { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .pc { grid-template-columns: 1fr; padding: 20px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .skills-list { grid-template-columns: 1fr; }
+  .ach { grid-template-columns: 44px minmax(0, 1fr); }
+  .ach-ic { width: 44px; height: 44px; grid-row: span 2; }
+  .ach-r { grid-column: 2; grid-row: auto; flex-direction: row; flex-wrap: wrap; align-items: center; text-align: left; }
+  .ach details { grid-column: 1 / -1; }
+  .step { grid-template-columns: 1fr; gap: 8px; }
+  .revs li { grid-template-columns: 56px minmax(0, 1fr); }
+  .revs li small { grid-column: 2; }
+  .nl { padding: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-in">
+    <a class="logo" href="#noticias" aria-label="PXN Games, página inicial">
+      <svg viewBox="0 0 44 44" aria-hidden="true"><path d="M0 0H44V31.68L31.68 44H0Z" style="fill:var(--acc)"/><g transform="translate(22 22)"><rect x="-15" y="-3.5" width="30" height="7" transform="rotate(45)" style="fill:var(--bg)"/><rect x="-15" y="-3.5" width="30" height="7" transform="rotate(-45)" style="fill:var(--bg)"/><rect x="-3.5" y="-3.5" width="7" height="7" transform="rotate(45)" style="fill:var(--acc)"/></g></svg>
+      <span class="logo-txt">
+        <span class="logo-word"><b>P<i>X</i>N</b><span>GAMES</span></span>
+        <span class="logo-tag">Feito por pessoas que amam jogar</span>
+      </span>
+    </a>
+    <nav class="nav" aria-label="Seções">
+      <a href="#noticias" data-nav="noticias">Notícias</a>
+      <a href="#biblioteca" data-nav="biblioteca">Jogos e guias</a>
+      <a href="#personagem" data-nav="personagem">Personagem</a>
+      <a href="#ranking" data-nav="ranking">Highscores</a>
+    </nav>
+    <div class="search">
+      <label class="search-box"><span class="mono" aria-hidden="true">⌕</span><input id="q" type="search" autocomplete="off" placeholder="Buscar notícias, jogos, autores" aria-label="Buscar notícias, jogos, autores"><span class="kbd" aria-hidden="true">/</span></label>
+      <div class="sugg" id="sugg" hidden></div>
+    </div>
+    <div class="me">
+      <a class="me-lvl" href="#personagem" aria-label="Seu personagem">
+        <span class="lv"><small>LUCAS</small><b>NV <span id="hudLevel">47</span></b></span>
+        <span class="av"></span>
+      </a>
+      <button class="sq-btn" id="soundBtn" type="button" aria-pressed="true" aria-label="Desligar som">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="soundWave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+      </button>
+      <button class="sq-btn burger" id="burger" type="button" aria-expanded="false" aria-controls="drawer" aria-label="Abrir menu">☰</button>
+    </div>
+  </div>
+  <nav class="drawer" id="drawer" hidden aria-label="Menu">
+    <a href="#noticias" data-nav="noticias">Notícias</a>
+    <a href="#biblioteca" data-nav="biblioteca">Jogos e guias</a>
+    <a href="#personagem" data-nav="personagem">Personagem</a>
+    <a href="#ranking" data-nav="ranking">Highscores</a>
+  </nav>
+</header>
+
+<div class="banner"><p><b>Prévia com dados de exemplo.</b> Notícias, jogos, porcentagens, jogadores e textos do guia são ilustrativos. Na versão completa, catálogo e conquistas vêm da Steam e o progresso é importado da sua conta. Os botões em verde simulam conquistas para você ver o personagem evoluir.</p></div>
+
+<main>
+  <section class="view" id="v-noticias" aria-label="Notícias"></section>
+  <section class="view" id="v-biblioteca" aria-label="Jogos e guias" hidden></section>
+  <section class="view" id="v-jogo" aria-label="Guia do jogo" hidden></section>
+  <section class="view" id="v-personagem" aria-label="Personagem" hidden></section>
+  <section class="view" id="v-ranking" aria-label="Highscores" hidden></section>
+</main>
+
+<footer>
+  <div class="ft">
+    <div class="nl">
+      <div class="nl-t"><span>NEWSLETTER</span><h2>As principais notícias e guias da semana no seu e-mail</h2></div>
+      <form id="nlForm"><input id="nlEmail" type="email" required placeholder="seu@email.com" aria-label="Seu e-mail"><button type="submit">INSCREVER →</button></form>
+    </div>
+    <div class="ft-cols">
+      <div>
+        <div class="ft-brand"><svg viewBox="0 0 34 34" aria-hidden="true"><path d="M0 0H34V24.48L24.48 34H0Z" style="fill:var(--acc)"/><g transform="translate(17 17)"><rect x="-11.5" y="-2.5" width="23" height="5" transform="rotate(45)" style="fill:var(--bg-deep)"/><rect x="-11.5" y="-2.5" width="23" height="5" transform="rotate(-45)" style="fill:var(--bg-deep)"/></g></svg><b>P<i>X</i>N</b></div>
+        <p style="font-size:14px;color:#8A8D96">Feito por pessoas que amam jogar.</p>
+      </div>
+      <div><span class="label">Editorias</span><a href="#noticias">Notícias</a><a href="#biblioteca">Guias de conquistas</a><a href="#noticias">Reviews</a><a href="#noticias">Calendário</a></div>
+      <div><span class="label">Plataformas</span><a href="#noticias">PlayStation</a><a href="#noticias">Xbox</a><a href="#noticias">Nintendo</a><a href="#noticias">PC</a></div>
+      <div><span class="label">Comunidade</span><a href="#noticias">Discord</a><a href="#ranking">Highscores</a><a href="#personagem">Missões</a></div>
+      <div><span class="label">Institucional</span><a href="#noticias">Sobre</a><a href="#noticias">Política editorial</a><a href="#noticias">Contato</a><a href="#noticias">Anuncie</a></div>
+    </div>
+    <div class="ft-bottom"><span>© 2026 PXN Games</span><div><a href="#noticias">Termos</a><a href="#noticias">Privacidade</a></div></div>
+  </div>
+</footer>
+
+<div class="lu" id="lu" hidden role="dialog" aria-modal="true" aria-labelledby="luTitle">
+  <div class="lu-box">
+    <span class="label">Level up</span>
+    <strong id="luNum">48</strong>
+    <p id="luTitle">Você avançou do nível 47 para o nível 48.</p>
+    <button class="btn btn-acc" id="luClose" type="button">Continuar caçando</button>
+  </div>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+/* ---------- Ícones ---------- */
+const ICON = {
+  fps: '<circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>',
+  horror: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  soulslike: '<path d="M19 3l-9 9M14 3h5v5M7 13l4 4M5 19l3-3M4 15l5 5"/>',
+  rpg: '<path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/>',
+  roguelike: '<rect x="3" y="3" width="18" height="18"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="16" cy="16" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/>',
+  plataforma: '<path d="M3 20h5v-5h5v-5h5V5h3"/>',
+  estrategia: '<path d="M5 21V3M5 4h12l-3 4 3 4H5"/>',
+  simulacao: '<path d="M12 21v-9M12 12C12 7 8 5 4 5c0 5 3 7 8 7zM12 14c0-4 3-6 8-6 0 4-3 6-8 6z"/>',
+  puzzle: '<rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/>',
+  coop: '<circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M2 20c0-3.5 3-6 6-6s6 2.5 6 6M14 15c1-1 2-1.5 3-1.5 2.5 0 5 2 5 5.5"/>',
+  sabio: '<path d="M4 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4zM20 4h-4a2 2 0 0 0-2 2"/><path d="M20 4v14h-6"/>',
+  trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H4c0 3 2 5 4 5M16 6h4c0 3-2 5-4 5M12 13v4M8 21h8M10 17h4"/>',
+  lock: '<rect x="5" y="11" width="14" height="10"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'
+};
+const svg = (k, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true" ${extra}>${ICON[k]}</svg>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = n => n.toLocaleString('pt-BR');
+const fmtK = n => n >= 1e6 ? (n / 1e6).toFixed(1).replace('.', ',') + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n);
+const pctTxt = p => String(p).replace('.', ',') + '%';
+
+/* ---------- Plataformas ---------- */
+const PLAT = { PLAYSTATION: 'var(--ps)', XBOX: 'var(--xbox)', NINTENDO: 'var(--nin)', PC: 'var(--pc)' };
+const platChips = arr => arr.map(p => `<span class="chip" style="--c:${PLAT[p]}">${p}</span>`).join('');
+
+/* ---------- Gêneros (skills) ---------- */
+const GENRES = [
+  { id: 'fps', name: 'FPS' }, { id: 'horror', name: 'Survival Horror' }, { id: 'soulslike', name: 'Soulslike' },
+  { id: 'rpg', name: 'RPG' }, { id: 'roguelike', name: 'Roguelike' }, { id: 'plataforma', name: 'Plataforma' },
+  { id: 'estrategia', name: 'Estratégia' }, { id: 'simulacao', name: 'Simulação' }, { id: 'puzzle', name: 'Puzzle' },
+  { id: 'coop', name: 'Co-op' }, { id: 'sabio', name: 'Sábio (guias)' }
+];
+const GNAME = Object.fromEntries(GENRES.map(g => [g.id, g.name]));
+const VOCATIONS = [
+  { pair: ['soulslike', 'plataforma'], name: 'Lâmina Sombria' }, { pair: ['soulslike', 'rpg'], name: 'Cavaleiro Maculado' },
+  { pair: ['fps', 'horror'], name: 'Caçador' }, { pair: ['rpg', 'estrategia'], name: 'Arquimago' },
+  { pair: ['roguelike', 'estrategia'], name: 'Trapaceiro da Sorte' }, { pair: ['puzzle', 'coop'], name: 'Engenheiro de Portais' },
+  { pair: ['fps', 'coop'], name: 'Sobrevivente' }
+];
+
+/* ---------- Jogos (exemplo) ---------- */
+const GAMES = [
+  { id: 'hollow-knight', name: 'Hollow Knight', genres: ['soulslike', 'plataforma'], total: 63, done: 58, guide: true },
+  { id: 'hades', name: 'Hades', genres: ['roguelike', 'rpg'], total: 49, done: 46 },
+  { id: 're4', name: 'Resident Evil 4', genres: ['horror', 'fps'], total: 44, done: 40 },
+  { id: 'elden-ring', name: 'Elden Ring', genres: ['soulslike', 'rpg'], total: 42, done: 31 },
+  { id: 'portal-2', name: 'Portal 2', genres: ['puzzle', 'coop'], total: 51, done: 51 },
+  { id: 'slay-the-spire', name: 'Slay the Spire', genres: ['roguelike', 'estrategia'], total: 46, done: 46 },
+  { id: 'l4d2', name: 'Left 4 Dead 2', genres: ['fps', 'coop', 'horror'], total: 100, done: 71 },
+  { id: 'doom-eternal', name: 'DOOM Eternal', genres: ['fps'], total: 40, done: 22 },
+  { id: 'dead-space', name: 'Dead Space', genres: ['horror'], total: 50, done: 9 },
+  { id: 'bg3', name: "Baldur's Gate 3", genres: ['rpg', 'estrategia'], total: 54, done: 30 },
+  { id: 'celeste', name: 'Celeste', genres: ['plataforma'], total: 32, done: 12 },
+  { id: 'stardew', name: 'Stardew Valley', genres: ['simulacao', 'rpg'], total: 40, done: 25 },
+  { id: 'civ6', name: 'Civilization VI', genres: ['estrategia'], total: 320, done: 64 },
+  { id: 'phasmophobia', name: 'Phasmophobia', genres: ['horror', 'coop'], total: 40, done: 18 }
+];
+const GAME = Object.fromEntries(GAMES.map(g => [g.id, g]));
+const pctDone = g => Math.round(g.done / g.total * 100);
+
+/* ---------- Notícias (exemplo) ---------- */
+const AUTHORS = ['@Fuyushiro', '@Rivia', '@Al1enado', '@NascimentoRE', '@Nyx_Vortex'];
+const HERO = { cat: 'GUIAS', tags: ['PC'], img: 'imagem: conquistas raras', title: 'As 25 conquistas mais raras da Steam em 2026, e o que é preciso para fazer cada uma', sub: 'Levantamento da redação cruzou raridade global e tempo médio de conclusão. Três delas têm menos de 0,1% de desbloqueio.', author: '@Fuyushiro', time: 'há 2 horas' };
+const SIDE = [
+  { cat: 'GUIAS', tags: ['PC'], img: 'hollow knight', title: 'Hollow Knight: guia de 100% ganha rota em 7 etapas', author: '@Nyx_Vortex', time: 'ontem', game: 'hollow-knight' },
+  { cat: 'COMUNIDADE', tags: [], img: 'evento halloween', title: 'Semana do terror: conquistas de Survival Horror valem XP em dobro', author: '@Rivia', time: 'ontem' },
+  { cat: 'GAMES', tags: ['PLAYSTATION', 'XBOX', 'PC'], img: 'hades', title: 'Hades: os 3 desafios que mais travam o 100% da comunidade', author: '@Al1enado', time: 'anteontem', game: 'hades' },
+  { cat: 'GAMES', tags: ['PC'], img: 'civilization vi', title: 'Civilization VI e suas 320 conquistas: vale a pena começar agora?', author: '@NascimentoRE', time: 'anteontem', game: 'civ6' }
+];
+const NEWS = [
+  { cat: 'GUIAS', tags: ['PC', 'PLAYSTATION', 'XBOX'], img: 'baldurs gate 3', title: "Baldur's Gate 3: 10 conquistas perdíveis para conhecer antes de começar", desc: 'Algumas escolhas do primeiro ato fecham conquistas para o resto da campanha. Veja o que evitar e quando salvar.', author: '@Rivia', time: 'há 1 hora', likes: 48, comments: 66, game: 'bg3' },
+  { cat: 'COMUNIDADE', tags: ['PLAYSTATION', 'XBOX'], img: 'perfil multiplataforma', title: 'Em breve: importe conquistas de PlayStation e Xbox para o seu personagem', desc: 'A redação explica como vai funcionar a importação e por que as skills por gênero vão somar tudo num só perfil.', author: '@Fuyushiro', time: 'há 3 horas', likes: 212, comments: 94 },
+  { cat: 'GAMES', tags: ['NINTENDO', 'PC'], img: 'celeste', title: 'Celeste: a comunidade elegeu o Capítulo 9 como o desafio mais difícil do ano', desc: 'Votação com mais de 8 mil jogadores coloca o Farewell no topo. Veja as dicas mais votadas para atravessar.', author: '@Al1enado', time: 'há 5 horas', likes: 31, comments: 18, game: 'celeste' },
+  { cat: 'GUIAS', tags: ['PC', 'PLAYSTATION', 'XBOX'], img: 'resident evil 4', title: 'Resident Evil 4: rota para o rank S+ no Profissional sem armas infinitas', desc: 'Guia atualizado com os pontos de save que mais ajudam e os chefes que exigem preparo.', author: '@NascimentoRE', time: 'ontem', likes: 77, comments: 40, game: 're4' },
+  { cat: 'COMUNIDADE', tags: ['PC'], img: 'phasmophobia', title: 'Phasmophobia: as conquistas co-op que mais pedem grupo no Discord', desc: 'Levantamos os pedidos de grupo da semana. Monte sua equipe pelo canal de caçadas.', author: '@Rivia', time: 'ontem', likes: 22, comments: 35, game: 'phasmophobia' }
+];
+
+/* ---------- Guia modelo: Hollow Knight ---------- */
+const HK = {
+  author: '@Nyx_Vortex', reviewers: 14, updated: 'há 3 dias', version: 'v3.2', useful: 1284,
+  overview: [
+    'Hollow Knight é um metroidvania de exploração densa, com chefes exigentes e muitos coletáveis. O 100% de conquistas pede uma jornada completa, os panteões do conteúdo Godmaster e saves dedicados a speedrun e ao modo Alma de Aço.',
+    'Nenhuma conquista é perdível de forma definitiva: depois dos créditos o jogo volta para antes do chefe final. A parte mais difícil está nos panteões e na Alma de Aço, onde morrer apaga o save.'
+  ],
+  warnings: [
+    'Ritual e Banishment são excludentes no mesmo save. Faça Ritual na jornada principal e Banishment no save de speedrun.',
+    'A Alma de Aço deve ser a última etapa: com a rota e os chefes dominados, o risco cai muito.',
+    'Todas as expansões são gratuitas e já fazem parte do jogo.'
+  ],
+  steps: [
+    { t: 'Jornada principal e exploração', h: '35 a 45 h', d: 'Jogue no ritmo normal explorando cada área. Pegue amuletos, máscaras e vasos que aparecerem no caminho e termine com o final padrão.', a: ['Falsehood', 'Test of Resolve', 'Proof of Resolve', 'Charmed', 'Protected', 'Soulful', 'Grubfriend', 'The Hollow Knight'] },
+    { t: 'Limpeza de coletáveis', h: '10 a 15 h', d: 'Volte para fechar tudo antes de ir aos finais alternativos. Use o mapa completo e o marcador de larvas.', a: ['Metamorphosis', 'Blessed', 'Masked', 'Worldsoul', 'True Hunter', 'Completion'] },
+    { t: 'Trupe Grimm', h: '3 a 5 h', d: 'Acenda a lanterna do pesadelo e complete o ritual neste save. Deixe Banishment para o save de speedrun.', a: ['Ritual'] },
+    { t: 'Finais alternativos', h: '2 h', d: 'Recarregue o save antes do chefe final para cada final restante.', a: ['Sealed Siblings', 'Dream No More'] },
+    { t: 'Panteões de Hallownest', h: '15 a 30 h', d: 'Treine cada chefe no Salão dos Deuses antes de encarar um panteão inteiro. O quinto é o desafio final do jogo.', a: ['Brotherhood', 'Inspiration', 'Focus', 'Soul and Shade', 'Embrace the Void'] },
+    { t: 'Speedruns', h: '5 a 20 h', d: 'Novo save seguindo uma rota de speedrun. Speed Completion (100% em menos de 20 h) costuma ir num save separado.', a: ['Speedrun 1', 'Speedrun 2', 'Banishment', 'Speed Completion'] },
+    { t: 'Alma de Aço', h: '15 a 25 h', d: 'Morrer apaga o save. Siga a mesma rota da speedrun com calma e evite lutas opcionais.', a: ['Steel Soul'] }
+  ],
+  ach: [
+    { n: 'Falsehood', d: 'Derrote o False Knight.', pct: 86.4, done: true, cat: 'chefes', tip: 'Primeiro chefe, nas Encruzilhadas Esquecidas. Quando ele cair atordoado, a cabeça fica exposta: é ali que o dano conta.', how: ['Fique abaixo dele no salto e recue quando a maça bater no chão.', 'Ataque a cabeça exposta a cada atordoamento.', 'Use foco para curar só quando ele estiver se levantando.'] },
+    { n: 'Test of Resolve', d: 'Derrote Hornet em Greenpath.', pct: 71.2, done: true, cat: 'chefes', tip: 'Fique perto dela: o lançamento da agulha passa por cima se você estiver colado. Pule o golpe giratório.' },
+    { n: 'Proof of Resolve', d: 'Derrote Hornet no Limite do Reino.', pct: 31.5, done: true, cat: 'chefes', tip: 'Ela espalha espinhos pela arena. Mantenha distância média e puna depois de cada investida.' },
+    { n: 'Charmed', d: 'Obtenha um amuleto.', pct: 92.3, done: true, cat: 'coletaveis', tip: 'Acontece naturalmente no começo do jogo.' },
+    { n: 'Blessed', d: 'Obtenha todos os amuletos.', pct: 8.7, done: true, cat: 'coletaveis', tip: 'Alguns amuletos são vendidos por mercadores e outros exigem chefes opcionais. Confira a lista de coletáveis abaixo.' },
+    { n: 'Protected', d: 'Junte quatro fragmentos de máscara.', pct: 74.0, done: true, cat: 'coletaveis', tip: 'A primeira máscara extra costuma vir naturalmente nas primeiras áreas.' },
+    { n: 'Masked', d: 'Junte todos os fragmentos de máscara.', pct: 10.9, done: true, cat: 'coletaveis', tip: 'Vários fragmentos são vendidos ou ficam atrás de desafios de plataforma. Use o mapa completo para achar os que faltam.' },
+    { n: 'Soulful', d: 'Junte três fragmentos de vaso.', pct: 62.8, done: true, cat: 'coletaveis', tip: 'Explore os cantos das primeiras áreas e compre o fragmento à venda em Dirtmouth.' },
+    { n: 'Worldsoul', d: 'Junte todos os fragmentos de vaso.', pct: 12.6, done: true, cat: 'coletaveis', tip: 'O último costuma ser o mais escondido. Confira a contagem na tela de inventário.' },
+    { n: 'Grubfriend', d: 'Resgate metade das larvas presas.', pct: 39.8, done: true, cat: 'coletaveis', tip: 'Compre o marcador de larvas com Iselda em Dirtmouth para que elas apareçam no mapa.' },
+    { n: 'Metamorphosis', d: 'Resgate todas as larvas.', pct: 17.5, done: true, cat: 'coletaveis', tip: 'Ao entrar numa sala, ouça o choro das larvas presas. Com o marcador de Iselda, as que faltam aparecem no mapa.' },
+    { n: 'True Hunter', d: 'Complete o Diário do Caçador.', pct: 9.1, done: true, cat: 'coletaveis', tip: 'Alguns inimigos só aparecem em sonhos ou em áreas opcionais. Derrote o número exigido de cada um.' },
+    { n: 'Completion', d: 'Alcance 100% de conclusão do jogo.', pct: 7.4, done: true, cat: 'coletaveis', tip: 'A porcentagem fica na tela de save. Ela conta amuletos, máscaras, vasos, chefes e melhorias.' },
+    { n: 'The Hollow Knight', d: 'Derrote o Hollow Knight.', pct: 44.2, done: true, cat: 'historia', spoiler: true, tip: 'Final padrão. Ataque nas aberturas depois das investidas e mantenha distância dos golpes em área.' },
+    { n: 'Sealed Siblings', d: 'Alcance o final com o Coração do Vazio.', pct: 6.1, done: true, cat: 'historia', spoiler: true, tip: 'Com o Coração do Vazio equipado, derrote o Hollow Knight sem usar o Ferrão dos Sonhos na luta.' },
+    { n: 'Dream No More', d: 'Alcance o final do sonho.', pct: 11.3, done: true, cat: 'historia', spoiler: true, tip: 'Exige o Coração do Vazio. Na luta final, use o Ferrão dos Sonhos quando Hornet prender o Hollow Knight.' },
+    { n: 'Ritual', d: 'Complete o ritual da Trupe Grimm.', pct: 9.8, done: true, cat: 'dlc', tip: 'Junte as chamas do pesadelo pelo mapa e vença o rei do pesadelo no fim do ritual.' },
+    { n: 'Banishment', d: 'Bana a Trupe Grimm.', pct: 7.9, done: true, cat: 'dlc', tip: 'Excludente com Ritual no mesmo save. Faça no save de speedrun, seguindo a conversa com Brumm.' },
+    { n: 'Brotherhood', d: 'Complete o Panteão do Mestre.', pct: 14.0, done: true, cat: 'dlc', tip: 'O primeiro panteão serve de treino para os próximos.' },
+    { n: 'Inspiration', d: 'Complete o Panteão do Artista.', pct: 9.2, done: true, cat: 'dlc', tip: 'Chefes com padrões rápidos. Treine os mais difíceis no Salão dos Deuses.' },
+    { n: 'Focus', d: 'Complete o Panteão do Sábio.', pct: 7.1, done: true, cat: 'dlc', tip: 'Monte um conjunto de amuletos focado em dano e cura rápida.' },
+    { n: 'Soul and Shade', d: 'Complete o Panteão do Cavaleiro.', pct: 4.6, done: false, cat: 'dlc', tip: 'O mais longo antes do final. Pratique a sequência de chefes em blocos.', how: ['Desbloqueie e treine cada chefe no Salão dos Deuses.', 'Teste dois ou três conjuntos de amuletos e fique com o que dá mais folga.', 'Faça tentativas completas só quando vencer cada chefe com consistência.'] },
+    { n: 'Embrace the Void', d: 'Complete o Panteão de Hallownest.', pct: 2.2, done: false, cat: 'dlc', spoiler: true, tip: 'Treine cada chefe no Salão dos Deuses antes de tentar o panteão inteiro. Amuletos de dano e alcance ajudam.', how: ['Complete os quatro panteões anteriores.', 'Vença os chefes finais isoladamente várias vezes seguidas.', 'Reserve sessões longas: uma tentativa completa passa de uma hora.'] },
+    { n: 'Speedrun 1', d: 'Termine o jogo em menos de 10 horas.', pct: 6.8, done: true, cat: 'desafio', tip: 'Pule larvas e coletáveis opcionais. Foque nas habilidades de movimento obrigatórias.' },
+    { n: 'Speedrun 2', d: 'Termine o jogo em menos de 5 horas.', pct: 2.9, done: false, cat: 'desafio', tip: 'Faça no mesmo save do Speedrun 1. Siga uma rota de speedrun e só pegue os amuletos essenciais.' },
+    { n: 'Speed Completion', d: 'Alcance 100% em menos de 20 horas.', pct: 1.9, done: false, cat: 'desafio', tip: 'Use uma rota de coleta já otimizada e evite voltas desnecessárias pelo mapa.' },
+    { n: 'Steel Soul', d: 'Termine o modo Alma de Aço.', pct: 3.1, done: false, cat: 'desafio', tip: 'Faça por último. Evite lutas opcionais arriscadas até ter vida e amuletos de sobra.' }
+  ],
+  collect: [
+    { n: 'Larvas', got: 46, tot: 46, d: 'Marcador de larvas vendido por Iselda.' },
+    { n: 'Fragmentos de máscara', got: 16, tot: 16, d: 'Cada 4 fragmentos viram uma máscara.' },
+    { n: 'Fragmentos de vaso', got: 9, tot: 9, d: 'Cada 3 fragmentos viram um vaso de alma.' },
+    { n: 'Minério pálido', got: 6, tot: 6, d: 'Usado para melhorar o ferrão.' },
+    { n: 'Amuletos', got: 40, tot: 40, d: 'Inclui os amuletos das expansões.' },
+    { n: 'Chefes no Salão dos Deuses', got: 38, tot: 44, d: 'Exemplo de contagem para os panteões.' }
+  ],
+  tips: [
+    { u: '@KairoBR', lv: 92, t: 'Para o Panteão de Hallownest, treinar só os últimos cinco chefes em sequência me poupou umas 10 horas.', v: 342 },
+    { u: '@LunaDeFerro', lv: 71, t: 'Na Alma de Aço, salve o banco antes de cada área nova. Parece óbvio, mas é onde mais gente perde o save.', v: 198 },
+    { u: '@b0ltz', lv: 64, t: 'Dá para fazer Banishment e Speedrun 2 no mesmo save sem perder tempo: Brumm fica no caminho.', v: 87 }
+  ],
+  revs: [
+    ['v3.2', 'Rota de speedrun revisada e dicas do Panteão de Hallownest ampliadas.', '@Nyx_Vortex, há 3 dias'],
+    ['v3.0', 'Guia reorganizado em 7 etapas e lista de coletáveis adicionada.', '@KairoBR, há 2 meses'],
+    ['v2.1', 'Correção sobre Ritual e Banishment serem excludentes.', '@b0ltz, há 5 meses'],
+    ['v1.0', 'Primeira versão publicada.', '@Nyx_Vortex, há 1 ano']
+  ]
+};
+const CATS = [['todas', 'Todas'], ['pendentes', 'Pendentes'], ['historia', 'História'], ['chefes', 'Chefes'], ['coletaveis', 'Coletáveis'], ['desafio', 'Desafio'], ['dlc', 'Expansões']];
+const CATNAME = { historia: 'História', chefes: 'Chefe', coletaveis: 'Coletável', desafio: 'Desafio', dlc: 'Expansão' };
+
+/* ---------- Curvas de XP estilo Tibia ---------- */
+const expFor = L => Math.round(50 / 3 * (L ** 3 - 6 * L ** 2 + 17 * L - 12));
+const skillNeed = L => Math.round(120 * Math.pow(1.085, L));
+const xpForPct = pct => Math.round(1500 + 60000 / (pct + 1.5));
+const rarity = pct => pct <= 3 ? ['Lendária', 'var(--r-lendario)'] : pct <= 8 ? ['Épica', 'var(--r-epico)'] : pct <= 20 ? ['Rara', 'var(--r-raro)'] : pct <= 50 ? ['Incomum', 'var(--r-incomum)'] : ['Comum', 'var(--r-comum)'];
+
+/* ---------- Estado ---------- */
+const S = {
+  name: 'Lucas', level: 47,
+  xp: expFor(47) + Math.round((expFor(48) - expFor(47)) * 0.88),
+  unlocked: 1284, perfect: 9, rare: 37, streak: 12, sound: true,
+  skills: { soulslike: [34, .72], plataforma: [31, .4], rpg: [29, .55], roguelike: [27, .2], fps: [25, .83], horror: [24, .1], estrategia: [21, .66], coop: [19, .3], puzzle: [18, .91], simulacao: [12, .5], sabio: [8, .2] },
+  missions: [
+    { text: 'Desbloqueie 3 conquistas raras', sub: 'Diária', goal: 3, cur: 1, xp: 12000, test: a => a.pct <= 20 },
+    { text: 'Ganhe XP em Soulslike', sub: 'Diária', goal: 1, cur: 0, xp: 5000, test: a => a.genres.includes('soulslike') },
+    { text: 'Desbloqueie 10 conquistas de terror', sub: 'Semanal, XP em dobro', goal: 10, cur: 6, xp: 40000, test: a => a.genres.includes('horror') }
+  ],
+  feed: [
+    { t: 'Metamorphosis', g: 'Hollow Knight', pct: 17.5, when: 'há 2 h' },
+    { t: 'Hellbent', g: 'Hades', pct: 4.8, when: 'ontem' },
+    { t: 'Mercenário S+', g: 'Resident Evil 4', pct: 7.9, when: 'ontem' },
+    { t: 'Ascensão 20', g: 'Slay the Spire', pct: 1.6, when: 'há 3 dias' }
+  ].map(f => ({ ...f, xp: xpForPct(f.pct) })),
+  stepsDone: new Set([0, 1, 2, 3]),
+  votes: new Set()
+};
+for (const k in S.skills) { const [lv, f] = S.skills[k]; S.skills[k] = { lv, pts: Math.round(skillNeed(lv) * f) }; }
+
+const sortedSkills = () => GENRES.filter(g => g.id !== 'sabio').map(g => [g.id, S.skills[g.id]]).sort((a, b) => b[1].lv - a[1].lv || b[1].pts - a[1].pts);
+function vocation() {
+  const [a, b] = sortedSkills().slice(0, 2).map(x => x[0]);
+  const v = VOCATIONS.find(v => v.pair.includes(a) && v.pair.includes(b));
+  return v ? v.name : 'Andarilho de ' + GNAME[a];
+}
+const levelFrac = () => (S.xp - expFor(S.level)) / (expFor(S.level + 1) - expFor(S.level));
+
+/* ---------- Som ---------- */
+let actx;
+function tone(notes, dur = .12, type = 'triangle') {
+  if (!S.sound) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    notes.forEach((f, i) => {
+      const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + i * dur;
+      o.type = type; o.frequency.value = f;
+      g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.12, t + .02); g.gain.exponentialRampToValueAtTime(.0001, t + dur * 1.8);
+      o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur * 2);
+    });
+  } catch (e) { /* sem áudio */ }
+}
+
+/* ---------- Componentes ---------- */
+function ring(p, size = 44, stroke = 4, fs = 11) {
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r, h = size / 2;
+  return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="${p}% concluído" style="flex:none">
+    <circle cx="${h}" cy="${h}" r="${r}" fill="none" stroke="var(--track)" stroke-width="${stroke}"/>
+    <circle cx="${h}" cy="${h}" r="${r}" fill="none" stroke="var(--acc)" stroke-width="${stroke}" stroke-dasharray="${c * p / 100} ${c}" transform="rotate(-90 ${h} ${h})"/>
+    <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central" style="font-size:${fs}px">${p}%</text></svg>`;
+}
+const tile = g => `<a class="tile lift" href="#jogo-${g.id}">
+  <div class="ph"><span class="ph-l">[ capa: ${esc(g.name.toLowerCase())} ]</span>${g.done === g.total ? '<span class="plat">PLATINADO</span>' : ''}</div>
+  <div class="tile-b"><div class="tags">${g.genres.map(x => `<span class="chip plain">${GNAME[x]}</span>`).join('')}${g.guide ? '<span class="chip" style="--c:var(--acc)">Guia completo</span>' : ''}</div>
+    <h3>${esc(g.name)}</h3>
+    <div class="tile-m"><span><b>${g.done}</b> / ${g.total} conquistas</span>${ring(pctDone(g))}</div></div></a>`;
+const catTags = (cat, tags) => `<span class="cat">${cat}</span>${platChips(tags)}`;
+
+/* ---------- View: Notícias ---------- */
+let newsFilter = 'TODAS';
+function renderNoticias() {
+  const top = rankRows('geral').slice(0, 5);
+  const m = S.missions[0];
+  document.getElementById('v-noticias').innerHTML = `
+  <div class="stack">
+    <section class="hero" aria-label="Destaques">
+      <a class="hero-main lift" href="#noticias">
+        <span class="ph-t">[ ${HERO.img} ]</span><span class="excl">EXCLUSIVO</span><div class="shade"></div>
+        <div class="in on-img"><div class="tags" style="font-size:10.5px">${catTags(HERO.cat, HERO.tags)}</div>
+          <h1>${HERO.title}</h1><p>${HERO.sub}</p>
+          <div class="meta" style="font-size:12px"><span class="who">${HERO.author}</span><span>${HERO.time}</span></div></div>
+      </a>
+      <div class="hero-grid">${SIDE.map(s => `
+        <a class="hero-side lift" href="${s.game ? '#jogo-' + s.game : '#noticias'}">
+          <span class="ph-t">[ ${s.img} ]</span><div class="shade"></div>
+          <div class="tags on-img">${catTags(s.cat, s.tags)}</div><h3>${s.title}</h3>
+          <div class="meta" style="font-size:11px"><span class="who">${s.author}</span><span>${s.time}</span></div>
+        </a>`).join('')}</div>
+    </section>
+
+    <div class="cols">
+      <section class="col-main">
+        <div class="sec-head"><h2>Últimas notícias</h2><a class="aside" href="#noticias">Ver tudo →</a></div>
+        <div class="fchips news-filters" role="group" aria-label="Filtrar por plataforma">
+          ${['TODAS', 'PLAYSTATION', 'XBOX', 'NINTENDO', 'PC'].map(p => `<button type="button" class="fchip" data-news="${p}" style="--c:${PLAT[p] || 'var(--acc)'}" aria-pressed="${newsFilter === p}">${p}</button>`).join('')}
+        </div>
+        <div id="newsList"></div>
+      </section>
+      <aside class="col-side">
+        <a class="discord" href="#noticias"><span class="ic">DC</span><span style="flex:1"><b>Comunidade no Discord</b><small>Monte grupos para conquistas co-op</small></span><span style="font-size:20px">→</span></a>
+        <div class="card">
+          <div class="card-head"><h2>Missão de hoje</h2><a class="aside" href="#personagem">Ver todas →</a></div>
+          <div class="quest"><p>${m.text}</p>
+            <div class="bar"><i data-w="${m.cur / m.goal * 100}"></i></div>
+            <div class="row"><span>${m.cur} de ${m.goal}</span><b>+${fmt(m.xp)} XP</b></div></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Ranking da<br>comunidade</h2><a class="aside" href="#ranking">Ver tudo →</a></div>
+          <div>${top.map((r, i) => `<div class="rk-row"><span class="rk-pos">${i + 1}</span><span class="rk-av"></span>
+            <div style="min-width:0"><span class="rk-name">${r.h}</span><div class="bar"><i data-w="${Math.round(r.xp / top[0].xp * 100)}"></i></div></div>
+            <div class="rk-num"><b>${fmtK(r.xp)}<small> XP</small></b><span>NV ${r.lv}</span></div></div>`).join('')}</div>
+        </div>
+        <div class="editorial"><span>POLÍTICA EDITORIAL</span><h3>Feito pela redação, vigiado por você</h3></div>
+      </aside>
+    </div>
+  </div>`;
+  fillNews();
+  requestAnimationFrame(() => document.querySelectorAll('#v-noticias [data-w]').forEach(i => i.style.width = i.dataset.w + '%'));
+}
+function fillNews() {
+  const list = newsFilter === 'TODAS' ? NEWS : NEWS.filter(n => n.tags.includes(newsFilter));
+  document.getElementById('newsList').innerHTML = list.length ? list.map(n => {
+    const tag = n.game ? 'a' : 'article';
+    return `<${tag} class="news-item"${n.game ? ` href="#jogo-${n.game}"` : ''}>
+      <div class="ph"><span class="ph-l">[ ${n.img} ]</span></div>
+      <div class="txt"><div class="tags">${catTags(n.cat, n.tags)}</div><h3>${n.title}</h3><p>${n.desc}</p>
+        <div class="meta"><span class="who">${n.author}</span><span>${n.time}</span><span>▲ ${n.likes}</span><span>◼ ${n.comments}</span><span class="human">Autoria humana</span></div>
+        ${n.game ? `<span class="guide-link">Abrir guia de ${esc(GAME[n.game].name)} →</span>` : ''}</div></${tag}>`;
+  }).join('') : '<p class="empty">Nenhuma notícia recente nessa plataforma.</p>';
+}
+
+/* ---------- View: Personagem ---------- */
+function renderPersonagem() {
+  const almost = GAMES.filter(g => g.done < g.total && pctDone(g) >= 70).sort((a, b) => pctDone(b) - pctDone(a));
+  const skills = sortedSkills().concat([['sabio', S.skills.sabio]]);
+  const topId = skills[0][0];
+  document.getElementById('v-personagem').innerHTML = `
+  <div class="stack">
+    <div class="sheet">
+      <article class="pc">
+        <div class="pc-av">${S.name[0]}</div>
+        <div><span class="label">Personagem</span><h1>${S.name}</h1>
+          <div class="tags"><span class="cat" id="vocChip">${vocation()}</span><span class="chip" style="--c:var(--pc)">Steam vinculada</span></div></div>
+        <div class="lvl-row"><span class="lvl-big" id="lvlBig">${S.level}</span>
+          <span class="lvl-lbl"><b>Nível do personagem</b><span><span id="xpTotal">${fmt(S.xp)}</span> XP total</span></span></div>
+        <div class="xp-wrap" id="xpWrap">
+          <div class="xpbar" id="xpBar" role="progressbar" aria-label="Progresso para o próximo nível" aria-valuemin="0" aria-valuemax="100"><i id="xpFill"></i></div>
+          <div class="xp-meta"><span id="xpPct"></span><span id="xpLeft"></span></div>
+        </div>
+        <dl class="stats">
+          <div><dt>Conquistas</dt><dd id="stUnl">${fmt(S.unlocked)}</dd></div>
+          <div><dt>Jogos 100%</dt><dd>${S.perfect}</dd></div>
+          <div><dt>Lendárias</dt><dd id="stRare">${S.rare}</dd></div>
+          <div><dt>Ranking geral</dt><dd>#1.482</dd></div>
+        </dl>
+        <div class="actions">
+          <button class="btn btn-acc" type="button" data-sim="rare">${svg('trophy')} Simular conquista rara</button>
+          <button class="btn" type="button" data-sim="common">Simular conquista comum</button>
+        </div>
+      </article>
+      <div class="side-stack">
+        <div class="card">
+          <div class="card-head"><h2>Sequência</h2><span class="aside">1 escudo</span></div>
+          <div class="streak"><b>${S.streak}</b><p>dias seguidos com conquista. O escudo salva 1 dia perdido sem quebrar a corrente.</p></div>
+          <div class="week">${['S', 'T', 'Q', 'Q', 'S', 'S', 'D'].map((d, i) => `<span class="${i < 4 ? 'on' : i === 4 ? 'today' : ''}">${d}</span>`).join('')}</div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Missões</h2><span class="aside">Renovam em 6 h</span></div>
+          <ul class="missions" id="missions"></ul>
+        </div>
+      </div>
+    </div>
+
+    <section>
+      <div class="sec-head"><h2>Skills por gênero</h2><p class="aside mono">Conquista rara treina mais. A XP vai para os gêneros do jogo.</p></div>
+      <ul class="skills-list">${skills.map(([id, s]) => `
+        <li class="skill${id === topId ? ' top' : ''}" data-skill="${id}">
+          <div class="skill-row">${svg(id)}<span class="skill-name">${GNAME[id]}</span><span class="leader"></span><span class="skill-lv">${s.lv}</span></div>
+          <div class="bar"><i></i></div>
+          <div class="skill-sub"><span class="sk-pct"></span><span class="sk-left"></span></div>
+        </li>`).join('')}</ul>
+    </section>
+
+    <div class="cols">
+      <section class="col-main">
+        <div class="sec-head"><h2>Quase lá</h2><a class="aside" href="#biblioteca">Ver jogos →</a></div>
+        <div class="lib-grid" style="padding-top:20px">${almost.map(tile).join('')}</div>
+      </section>
+      <aside class="col-side">
+        <div class="card"><div class="card-head"><h2>Atividade recente</h2></div><ul class="feed" id="feed"></ul></div>
+      </aside>
+    </div>
+  </div>`;
+  renderMissions(); renderFeed();
+  requestAnimationFrame(() => { updateXP(false); updateSkills(); });
+}
+function renderMissions() {
+  const el = document.getElementById('missions'); if (!el) return;
+  el.innerHTML = S.missions.map(m => {
+    const done = m.cur >= m.goal;
+    return `<li class="mission${done ? ' done' : ''}"><div><p>${done ? 'Concluída: ' : ''}${m.text}</p><small>${m.sub}, ${Math.min(m.cur, m.goal)} de ${m.goal}</small></div>
+      <span class="rw">+${fmt(m.xp)} XP</span><div class="bar"><i style="width:${Math.min(100, m.cur / m.goal * 100)}%"></i></div></li>`;
+  }).join('');
+}
+function renderFeed(isNew) {
+  const el = document.getElementById('feed'); if (!el) return;
+  el.innerHTML = S.feed.slice(0, 6).map((f, i) => {
+    const [rn, rc] = rarity(f.pct);
+    return `<li class="${isNew && i === 0 ? 'new' : ''}"><span class="dot" style="--c:${rc}"></span>
+      <div><b>${esc(f.t)}</b><small>${esc(f.g)}, ${rn.toLowerCase()} ${pctTxt(f.pct)}, ${f.when}</small></div><span class="xp">+${fmt(f.xp)}</span></li>`;
+  }).join('');
+}
+function updateXP(animate = true) {
+  const fill = document.getElementById('xpFill'); if (!fill) return;
+  if (!animate) { fill.style.transition = 'none'; fill.style.width = '0'; void fill.offsetWidth; fill.style.transition = ''; }
+  const f = levelFrac(), left = expFor(S.level + 1) - S.xp;
+  fill.style.width = (f * 100).toFixed(2) + '%';
+  document.getElementById('xpBar').setAttribute('aria-valuenow', Math.round(f * 100));
+  document.getElementById('xpPct').innerHTML = `<b>${Math.floor(f * 100)}%</b> do nível ${S.level + 1}`;
+  document.getElementById('xpLeft').innerHTML = `faltam <b>${fmt(left)}</b> XP`;
+  document.getElementById('xpTotal').textContent = fmt(S.xp);
+  document.getElementById('lvlBig').textContent = S.level;
+  document.getElementById('stUnl').textContent = fmt(S.unlocked);
+  document.getElementById('stRare').textContent = S.rare;
+}
+function updateSkills(flash = []) {
+  document.querySelectorAll('[data-skill]').forEach(li => {
+    const s = S.skills[li.dataset.skill], need = skillNeed(s.lv);
+    li.querySelector('.skill-lv').textContent = s.lv;
+    li.querySelector('.bar i').style.width = (s.pts / need * 100).toFixed(1) + '%';
+    li.querySelector('.sk-pct').textContent = Math.floor(s.pts / need * 100) + '% para o ' + (s.lv + 1);
+    li.querySelector('.sk-left').textContent = 'faltam ' + fmt(need - s.pts);
+    if (flash.includes(li.dataset.skill)) { li.classList.remove('flash'); void li.offsetWidth; li.classList.add('flash'); }
+  });
+  const v = document.getElementById('vocChip'); if (v) v.textContent = vocation();
+}
+
+/* ---------- View: Jogos ---------- */
+let libFilter = 'todos';
+function renderBiblioteca() {
+  document.getElementById('v-biblioteca').innerHTML = `
+    <div class="sec-head"><h2>Jogos e guias</h2><p class="aside mono">${GAMES.length} jogos de exemplo. A versão completa lista todo o catálogo Steam com conquistas.</p></div>
+    <div class="lib-tools"><div class="fchips" role="group" aria-label="Filtrar jogos">
+      ${[['todos', 'Todos'], ['quase', 'Quase 100%'], ['guia', 'Com guia completo'], ...GENRES.filter(g => g.id !== 'sabio').map(g => [g.id, g.name])].map(([id, n]) =>
+        `<button type="button" class="fchip${['todos', 'quase', 'guia'].includes(id) ? '' : ' nodot'}" data-filter="${id}" aria-pressed="${libFilter === id}">${n}</button>`).join('')}
+    </div></div>
+    <p class="lib-count" id="libCount"></p>
+    <div class="lib-grid" id="libGrid"></div>`;
+  fillLib();
+}
+function fillLib() {
+  const list = GAMES.filter(g => libFilter === 'todos' || (libFilter === 'quase' ? g.done < g.total && pctDone(g) >= 70 : libFilter === 'guia' ? g.guide : g.genres.includes(libFilter)));
+  document.getElementById('libCount').textContent = `${list.length} ${list.length === 1 ? 'JOGO' : 'JOGOS'}`;
+  document.getElementById('libGrid').innerHTML = list.length ? list.map(tile).join('') : '<p class="empty" style="grid-column:1/-1">Nenhum jogo com esse filtro. Escolha outro gênero.</p>';
+}
+
+/* ---------- View: Jogo / Guia modelo ---------- */
+let achFilter = 'todas', showSpoilers = false;
+function renderJogo(id) {
+  const g = GAME[id], v = document.getElementById('v-jogo');
+  if (!g) { v.innerHTML = '<p class="empty">Jogo não encontrado. <a href="#biblioteca" style="color:var(--acc)">Voltar para a lista</a></p>'; return; }
+  const head = `<a class="back" href="#biblioteca">← Jogos e guias</a>
+    <div class="g-head">
+      <div class="ph"><span class="ph-l">[ capa: ${esc(g.name.toLowerCase())} ]</span></div>
+      <div><div class="tags"><span class="cat">${g.guide ? 'GUIA 100%' : 'JOGO'}</span>${platChips(['PC'])}${g.genres.map(x => `<span class="chip plain">Treina ${GNAME[x]}</span>`).join('')}</div>
+        <h1>${esc(g.name)}</h1>
+        ${g.guide ? `<p class="sub">Guia completo de conquistas: rota em ${HK.steps.length} etapas, conquistas detalhadas e coletáveis.</p>
+        <div class="meta"><span class="who">${HK.author}</span><span>atualizado ${HK.updated}</span><span>${HK.version}</span><span>revisado por ${HK.reviewers}</span><span class="human">Autoria humana</span></div>` :
+        `<p class="sub"><b style="color:var(--text)">${g.done}</b> de ${g.total} conquistas desbloqueadas</p>`}
+      </div>
+      ${ring(pctDone(g), 120, 8, 24)}
+    </div>`;
+  if (!g.guide) {
+    v.innerHTML = head + `<div class="community-box">
+      <span class="label">Guia em produção</span>
+      <h2>A comunidade está escrevendo este guia</h2>
+      <p>3 rascunhos em revisão usando o modelo de guia completo. Quem escreve ou revisa trechos aprovados ganha XP na skill Sábio.</p>
+      <div class="actions" style="justify-content:center">
+        <button class="btn btn-acc" type="button" data-sim-game="${g.id}">${svg('trophy')} Simular conquista neste jogo</button>
+        <a class="btn" href="#jogo-hollow-knight">Ver o modelo de guia</a>
+      </div></div>`;
+    return;
+  }
+  const pend = HK.ach.filter(a => !a.done);
+  const pendXp = pend.reduce((s, a) => s + xpForPct(a.pct), 0);
+  const totalXp = HK.ach.reduce((s, a) => s + xpForPct(a.pct), 0);
+  const byName = Object.fromEntries(HK.ach.map(a => [a.n, a]));
+  v.innerHTML = head + `
+    <dl class="facts">
+      <div><dt>Dificuldade</dt><dd>8 / 10<div class="diff">${Array.from({ length: 10 }, (_, i) => `<i class="${i < 8 ? 'on' : ''}"></i>`).join('')}</div></dd></div>
+      <div><dt>Tempo para 100%</dt><dd>70 a 100 h<small>média da comunidade</small></dd></div>
+      <div><dt>Jogadas mínimas</dt><dd>3 a 4<small>principal, speedrun, Alma de Aço</small></dd></div>
+      <div><dt>Perdíveis</dt><dd>Nenhuma<small>finais podem ser refeitos</small></dd></div>
+      <div><dt>Online</dt><dd>Nenhuma<small>tudo offline</small></dd></div>
+      <div><dt>XP do guia</dt><dd>${fmtK(totalXp)}<small>nas conquistas listadas</small></dd></div>
+    </dl>
+    <div class="guide">
+      <div class="g-main">
+        <section id="g-visao" data-sec>
+          <div class="sec-head"><h2>Visão geral</h2></div>
+          <div class="prose">${HK.overview.map(p => `<p>${p}</p>`).join('')}
+            <div class="callout"><span class="label" style="color:var(--r-lendario)">Antes de começar</span><ul>${HK.warnings.map(w => `<li>${w}</li>`).join('')}</ul></div>
+          </div>
+        </section>
+
+        <section id="g-rota" data-sec>
+          <div class="sec-head"><h2>Rota para o 100%</h2><p class="aside mono" id="stepCount"></p></div>
+          <ol class="steps">${HK.steps.map((s, i) => `
+            <li class="step${S.stepsDone.has(i) ? ' done' : ''}" data-step-li="${i}">
+              <div>
+                <div class="step-h"><div><h3>${s.t}</h3><div class="meta"><span>${s.h}</span><span>${s.a.length} ${s.a.length === 1 ? 'conquista' : 'conquistas'}</span></div></div>
+                  <label class="chk"><input type="checkbox" data-step="${i}" ${S.stepsDone.has(i) ? 'checked' : ''}> Etapa concluída</label></div>
+                <p>${s.d}</p>
+                <div class="tags">${s.a.map(n => { const a = byName[n]; return `<span class="chip" style="--c:${a && a.done ? 'var(--acc)' : a ? rarity(a.pct)[1] : 'var(--text-3)'}">${n}</span>`; }).join('')}</div>
+              </div>
+            </li>`).join('')}</ol>
+        </section>
+
+        <section id="g-conq" data-sec>
+          <div class="sec-head"><h2>Conquistas</h2><p class="aside mono">${HK.ach.length} de ${g.total} neste modelo</p></div>
+          <div class="ach-tools">
+            <div class="fchips" role="group" aria-label="Filtrar conquistas">${CATS.map(([k, n]) => `<button type="button" class="fchip nodot" data-ach="${k}" aria-pressed="${achFilter === k}">${n}</button>`).join('')}</div>
+            <label class="chk"><input type="checkbox" id="spoilerChk" ${showSpoilers ? 'checked' : ''}> Mostrar spoilers</label>
+          </div>
+          <ul class="ach-list" id="achList"></ul>
+        </section>
+
+        <section id="g-colet" data-sec>
+          <div class="sec-head"><h2>Coletáveis</h2><p class="aside mono">Seu progresso no save principal</p></div>
+          <div class="col-grid">${HK.collect.map(c => `<div class="col-card${c.got === c.tot ? ' full' : ''}">
+            <span class="label">${c.n}</span><span class="n">${c.got}<small> / ${c.tot}</small></span>
+            <div class="bar"><i style="width:${c.got / c.tot * 100}%"></i></div><p>${c.d}</p></div>`).join('')}</div>
+        </section>
+
+        <section id="g-dicas" data-sec>
+          <div class="sec-head"><h2>Dicas da comunidade</h2><p class="aside mono">Votos dão XP Sábio para o autor</p></div>
+          <ul class="tips">${HK.tips.map((t, i) => `<li class="tip"><span class="rk-av"></span>
+            <div><div class="meta"><span class="who">${t.u}</span><span>NV ${t.lv}</span></div><p>${t.t}</p></div>
+            <button class="vote" type="button" data-vote="${i}" aria-pressed="${S.votes.has(i)}" aria-label="Marcar dica como útil">▲<span>${t.v + (S.votes.has(i) ? 1 : 0)}</span></button></li>`).join('')}</ul>
+        </section>
+
+        <section id="g-rev" data-sec>
+          <div class="sec-head"><h2>Histórico de revisões</h2></div>
+          <ul class="revs">${HK.revs.map(([ver, t, w]) => `<li><b>${ver}</b><span>${t}</span><small>${w}</small></li>`).join('')}</ul>
+        </section>
+      </div>
+
+      <aside class="g-side">
+        <div class="card">
+          <div class="card-head"><h2>Seu progresso</h2></div>
+          <div class="my-prog">${ring(pctDone(g), 72, 6, 15)}<p><b>${g.done} de ${g.total}</b> conquistas. Faltam ${g.total - g.done}, e as ${pend.length} pendentes deste guia valem <b style="color:var(--acc)">+${fmt(pendXp)} XP</b>.</p></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Este guia treina</h2></div>
+          <div class="trains">${g.genres.map(x => `<div><span>${GNAME[x]}</span><b>${S.skills[x].lv}</b></div>`).join('')}</div>
+        </div>
+        <div class="card toc-card">
+          <div class="card-head"><h2>Neste guia</h2></div>
+          <ul class="toc">${[['g-visao', 'Visão geral', ''], ['g-rota', 'Rota para o 100%', HK.steps.length + ' etapas'], ['g-conq', 'Conquistas', HK.ach.length], ['g-colet', 'Coletáveis', HK.collect.length], ['g-dicas', 'Dicas da comunidade', HK.tips.length], ['g-rev', 'Revisões', HK.revs.length]].map(([sid, n, c]) => `<li><button type="button" data-toc="${sid}">${n}<small>${c}</small></button></li>`).join('')}</ul>
+        </div>
+        <button class="btn" type="button" id="usefulBtn">▲ Guia útil (${fmt(HK.useful)})</button>
+      </aside>
+    </div>`;
+  fillAch(); updateStepCount(); watchToc();
+}
+function fillAch() {
+  const list = HK.ach.filter(a => achFilter === 'todas' || (achFilter === 'pendentes' ? !a.done : a.cat === achFilter));
+  document.getElementById('achList').innerHTML = list.length ? list.map(a => {
+    const [rn, rc] = rarity(a.pct), i = HK.ach.indexOf(a), hide = a.spoiler && !showSpoilers;
+    return `<li class="ach ${a.done ? 'done' : 'pending'}" style="--rc:${rc}">
+      <div class="ach-ic">${svg(a.done ? 'trophy' : 'lock')}</div>
+      <h3>${a.n}<span class="rar">${rn}</span></h3>
+      <div class="ach-r"><span class="xp">+${fmt(xpForPct(a.pct))} XP</span><small>${pctTxt(a.pct)} dos jogadores</small>
+        ${a.done ? '<span class="ok">✓ Desbloqueada</span>' : `<button class="mini" type="button" data-unlock="${i}">Simular desbloqueio</button>`}</div>
+      <p class="desc${hide ? ' spoiler' : ''}"${hide ? ' tabindex="0" title="Spoiler: clique para revelar"' : ''}>${a.d}</p>
+      <div class="tags"><span class="chip plain">${CATNAME[a.cat]}</span>${a.spoiler ? '<span class="chip" style="--c:var(--r-lendario)">Spoiler</span>' : ''}</div>
+      <details><summary>Como fazer</summary><div class="how${hide ? ' spoiler' : ''}"${hide ? ' tabindex="0"' : ''}><p>${a.tip}</p>${a.how ? `<ol>${a.how.map(s => `<li>${s}</li>`).join('')}</ol>` : ''}</div></details>
+    </li>`;
+  }).join('') : '<p class="empty">Nenhuma conquista nesse filtro.</p>';
+}
+function updateStepCount() {
+  const el = document.getElementById('stepCount');
+  if (el) el.textContent = `${S.stepsDone.size} de ${HK.steps.length} etapas concluídas`;
+}
+let tocObs;
+function watchToc() {
+  if (tocObs) tocObs.disconnect();
+  if (!('IntersectionObserver' in window)) return;
+  tocObs = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) document.querySelectorAll('[data-toc]').forEach(b => b.classList.toggle('cur', b.dataset.toc === e.target.id)); });
+  }, { rootMargin: '-30% 0px -60% 0px' });
+  document.querySelectorAll('[data-sec]').forEach(s => tocObs.observe(s));
+}
+
+/* ---------- View: Ranking ---------- */
+let rankSkill = 'geral';
+const HANDLES = ['@BillyButcher', '@ZeroJimmy', '@MotocaGamer', '@Fuyushiro', '@urso', '@Nyx_Vortex', '@KairoBR', '@ValkyrieZero', '@LunaDeFerro', '@b0ltz', '@Pixelmancer', '@Morrigan77'];
+function rankRows(skill) {
+  const me = skill === 'geral' ? S.level : S.skills[skill].lv;
+  const rows = HANDLES.map((h, i) => ({ h, lv: me + 40 - i * 4 + (i % 3), voc: VOCATIONS[i % VOCATIONS.length].name }));
+  rows.push({ h: '@' + S.name + ' (você)', lv: me, voc: vocation(), me: true });
+  rows.forEach(r => r.xp = skill === 'geral' ? expFor(r.lv) : skillNeed(r.lv) * 8);
+  return rows.sort((a, b) => b.lv - a.lv || (a.me ? 1 : b.me ? -1 : 0));
+}
+function renderRanking() {
+  const rows = rankRows(rankSkill);
+  document.getElementById('v-ranking').innerHTML = `
+    <div class="sec-head"><h2>Highscores</h2><p class="aside mono">Os melhores de cada gênero. Jogadores de exemplo.</p></div>
+    <div class="rank-tools"><label class="label" for="rankSel">Skill</label>
+      <select id="rankSel"><option value="geral" ${rankSkill === 'geral' ? 'selected' : ''}>Nível geral</option>${GENRES.map(g => `<option value="${g.id}" ${g.id === rankSkill ? 'selected' : ''}>${g.name}</option>`).join('')}</select>
+      <div class="fchips" role="group" aria-label="Escopo"><button class="fchip nodot" type="button" aria-pressed="true">Global</button><button class="fchip nodot" type="button" aria-pressed="false" disabled>Amigos (em breve)</button></div>
+    </div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Jogador</th><th>Vocação</th><th>${rankSkill === 'geral' ? 'Nível' : 'Nível em ' + GNAME[rankSkill]}</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr class="${r.me ? 'me' : ''} ${i < 3 ? 'top' : ''} ${i === 0 ? 'first' : ''}"><td class="pos">${i + 1}</td><td>${r.h}</td><td class="voc">${r.voc}</td><td class="lv">${r.lv}</td></tr>`).join('')}</tbody></table></div>`;
+  document.getElementById('rankSel').addEventListener('change', e => { rankSkill = e.target.value; renderRanking(); });
+}
+
+/* ---------- Ganho de XP ---------- */
+const COMMON_NAMES = ['Primeiros passos', 'Explorador', 'Colecionador', 'Sem dano', 'Mestre de armas', 'Noite em claro', 'Sobreviveu ao pior', 'Dedicado'];
+function award(a) {
+  const xp = xpForPct(a.pct), oldLevel = S.level;
+  S.xp += xp; S.unlocked += 1; if (a.pct <= 3) S.rare += 1;
+  while (S.xp >= expFor(S.level + 1)) S.level++;
+  const pts = Math.round(xp / 12 / a.genres.length), ups = [];
+  a.genres.forEach(id => { const s = S.skills[id]; s.pts += pts; while (s.pts >= skillNeed(s.lv)) { s.pts -= skillNeed(s.lv); s.lv++; ups.push(id); } });
+  S.missions.forEach(m => { if (m.cur < m.goal && m.test(a)) { m.cur++; if (m.cur >= m.goal) setTimeout(() => toast('Missão concluída', `${m.text.toUpperCase()}, +${fmt(m.xp)} XP`, 'var(--acc)', 'trophy'), 900); } });
+  S.feed.unshift({ t: a.t, g: a.g, pct: a.pct, xp, when: 'agora' });
+  const [rn, rc] = rarity(a.pct);
+  toast(a.t, `${a.g.toUpperCase()}, ${rn.toUpperCase()}, +${fmt(xp)} XP`, rc, 'trophy');
+  tone(a.pct <= 8 ? [660, 880, 1320] : [660, 990], .09);
+  ups.forEach((id, i) => setTimeout(() => { toast(`Você avançou em ${GNAME[id]}`, `SKILL NO NÍVEL ${S.skills[id].lv}`, 'var(--text)', id); tone([523, 784], .1, 'square'); }, 500 + i * 400));
+  document.getElementById('hudLevel').textContent = S.level;
+  if (!document.getElementById('v-personagem').hidden) {
+    floatXP(xp); renderMissions(); renderFeed(true); updateSkills(a.genres);
+    if (S.level > oldLevel) { document.getElementById('xpFill').style.width = '100%'; setTimeout(() => { showLevelUp(oldLevel); updateXP(false); }, 750); }
+    else updateXP();
+  } else if (S.level > oldLevel) showLevelUp(oldLevel);
+}
+function floatXP(xp) {
+  const w = document.getElementById('xpWrap'); if (!w) return;
+  const s = document.createElement('span'); s.className = 'float-xp'; s.textContent = `+${fmt(xp)} XP`;
+  w.appendChild(s); setTimeout(() => s.remove(), 1500);
+}
+function showLevelUp(from) {
+  document.getElementById('luNum').textContent = S.level;
+  document.getElementById('luTitle').textContent = `Você avançou do nível ${from} para o nível ${S.level}.`;
+  document.getElementById('lu').hidden = false;
+  document.getElementById('luClose').focus();
+  tone([523, 659, 784, 1047, 1319], .11);
+}
+function toast(title, text, color, icon) {
+  const t = document.createElement('div'); t.className = 'toast'; t.style.setProperty('--c', color);
+  t.innerHTML = `<div class="ti">${svg(icon)}</div><div><b>${esc(title)}</b><span>${esc(text)}</span></div>`;
+  const box = document.getElementById('toasts'); box.prepend(t);
+  while (box.children.length > 4) box.lastChild.remove();
+  setTimeout(() => t.remove(), 4200);
+}
+function randomAch(kind, game) {
+  const g = game || GAMES[Math.floor(Math.random() * GAMES.length)];
+  const pct = kind === 'rare' ? +(0.6 + Math.random() * 4).toFixed(1) : +(25 + Math.random() * 60).toFixed(1);
+  return { t: COMMON_NAMES[Math.floor(Math.random() * COMMON_NAMES.length)], g: g.name, genres: g.genres, pct };
+}
+
+/* ---------- Busca ---------- */
+const qEl = document.getElementById('q'), sugg = document.getElementById('sugg');
+function renderSugg() {
+  const ql = qEl.value.trim().toLowerCase();
+  const m = (arr, n) => arr.filter(x => !ql || x.text.toLowerCase().includes(ql)).slice(0, n);
+  const games = GAMES.map(g => ({ text: g.name, href: '#jogo-' + g.id }));
+  const news = [HERO, ...SIDE, ...NEWS].map(n => ({ text: n.title, href: n.game ? '#jogo-' + n.game : '#noticias' }));
+  const authors = AUTHORS.map(a => ({ text: a, href: '#noticias' }));
+  const hot = games.filter(g => ['Hollow Knight', 'Hades', "Baldur's Gate 3", 'Phasmophobia'].includes(g.text));
+  const groups = (ql ? [['JOGOS', m(games, 3)], ['NOTÍCIAS', m(news, 4)], ['AUTORES', m(authors, 3)]] : [['EM ALTA', hot]]).filter(g => g[1].length);
+  sugg.innerHTML = groups.length ? groups.map(([l, items]) => `<div class="sugg-g"><div class="sugg-l">${l}</div>${items.map(it => `<a href="${it.href}" data-pick>${esc(it.text)}</a>`).join('')}</div>`).join('')
+    : `<div class="none">Nada encontrado para “${esc(qEl.value)}”.</div>`;
+}
+qEl.addEventListener('focus', () => { renderSugg(); sugg.hidden = false; });
+qEl.addEventListener('input', renderSugg);
+qEl.addEventListener('blur', () => setTimeout(() => { sugg.hidden = true; }, 150));
+sugg.addEventListener('mousedown', e => { const a = e.target.closest('[data-pick]'); if (a) { e.preventDefault(); qEl.value = a.textContent; location.hash = a.getAttribute('href'); sugg.hidden = true; qEl.blur(); } });
+
+/* ---------- Eventos ---------- */
+document.addEventListener('click', e => {
+  const t = e.target;
+  const sim = t.closest('[data-sim]'); if (sim) return award(randomAch(sim.dataset.sim));
+  const sg = t.closest('[data-sim-game]');
+  if (sg) { const g = GAME[sg.dataset.simGame]; if (g.done < g.total) g.done++; award(randomAch(Math.random() < .4 ? 'rare' : 'common', g)); return renderJogo(g.id); }
+  const un = t.closest('[data-unlock]');
+  if (un) { const a = HK.ach[+un.dataset.unlock]; a.done = true; GAME['hollow-knight'].done++; award({ t: a.n, g: 'Hollow Knight', genres: GAME['hollow-knight'].genres, pct: a.pct }); return renderJogo('hollow-knight'); }
+  const f = t.closest('[data-filter]');
+  if (f) { libFilter = f.dataset.filter; document.querySelectorAll('[data-filter]').forEach(b => b.setAttribute('aria-pressed', b === f)); return fillLib(); }
+  const nf = t.closest('[data-news]');
+  if (nf) { newsFilter = nf.dataset.news; document.querySelectorAll('[data-news]').forEach(b => b.setAttribute('aria-pressed', b === nf)); return fillNews(); }
+  const af = t.closest('[data-ach]');
+  if (af) { achFilter = af.dataset.ach; document.querySelectorAll('[data-ach]').forEach(b => b.setAttribute('aria-pressed', b === af)); return fillAch(); }
+  const toc = t.closest('[data-toc]');
+  if (toc) { const sec = document.getElementById(toc.dataset.toc); if (sec) sec.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); return; }
+  const sp = t.closest('.spoiler'); if (sp) { sp.classList.remove('spoiler'); return; }
+  const vt = t.closest('[data-vote]');
+  if (vt) {
+    const i = +vt.dataset.vote, on = !S.votes.has(i);
+    on ? S.votes.add(i) : S.votes.delete(i);
+    vt.setAttribute('aria-pressed', on); vt.querySelector('span').textContent = HK.tips[i].v + (on ? 1 : 0);
+    if (on) { toast('Voto registrado', `+25 XP SÁBIO PARA ${HK.tips[i].u.toUpperCase()}`, 'var(--acc)', 'sabio'); tone([880], .08); }
+    return;
+  }
+  const ub = t.closest('#usefulBtn');
+  if (ub && !ub.disabled) { HK.useful++; ub.textContent = `▲ Você achou útil (${fmt(HK.useful)})`; ub.disabled = true; toast('Obrigado pelo voto', `+50 XP SÁBIO PARA ${HK.author.toUpperCase()}`, 'var(--acc)', 'sabio'); }
+});
+document.addEventListener('change', e => {
+  if (e.target.matches('[data-step]')) {
+    const i = +e.target.dataset.step;
+    e.target.checked ? S.stepsDone.add(i) : S.stepsDone.delete(i);
+    document.querySelector(`[data-step-li="${i}"]`).classList.toggle('done', e.target.checked);
+    updateStepCount();
+    if (e.target.checked) { toast('Etapa concluída', HK.steps[i].t.toUpperCase(), 'var(--acc)', 'trophy'); tone([660, 880], .08); }
+  }
+  if (e.target.id === 'spoilerChk') { showSpoilers = e.target.checked; fillAch(); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeLU();
+  if (e.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) { e.preventDefault(); qEl.focus(); }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('spoiler')) { e.preventDefault(); e.target.classList.remove('spoiler'); }
+});
+function closeLU() { document.getElementById('lu').hidden = true; }
+document.getElementById('luClose').addEventListener('click', closeLU);
+document.getElementById('lu').addEventListener('click', e => { if (e.target.id === 'lu') closeLU(); });
+document.getElementById('soundBtn').addEventListener('click', e => {
+  S.sound = !S.sound; const b = e.currentTarget;
+  b.setAttribute('aria-pressed', S.sound); b.setAttribute('aria-label', S.sound ? 'Desligar som' : 'Ligar som');
+  document.getElementById('soundWave').style.opacity = S.sound ? 1 : .15;
+});
+const burger = document.getElementById('burger'), drawer = document.getElementById('drawer');
+burger.addEventListener('click', () => { const open = drawer.hidden; drawer.hidden = !open; burger.textContent = open ? '✕' : '☰'; burger.setAttribute('aria-expanded', open); burger.setAttribute('aria-label', open ? 'Fechar menu' : 'Abrir menu'); });
+document.getElementById('nlForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const ok = document.createElement('div'); ok.className = 'ok'; ok.textContent = `Pronto! Confirme a inscrição em ${document.getElementById('nlEmail').value}.`;
+  e.target.replaceWith(ok);
+});
+
+/* ---------- Rotas por hash ---------- */
+function route() {
+  const h = (location.hash || '#noticias').slice(1);
+  let view = h, gameId = null;
+  if (h.startsWith('jogo-')) { view = 'jogo'; gameId = h.slice(5); }
+  if (!['noticias', 'biblioteca', 'jogo', 'personagem', 'ranking'].includes(view)) view = 'noticias';
+  document.querySelectorAll('.view').forEach(v => v.hidden = v.id !== 'v-' + view);
+  document.querySelectorAll('[data-nav]').forEach(a => {
+    const cur = a.dataset.nav === view || (view === 'jogo' && a.dataset.nav === 'biblioteca');
+    cur ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current');
+  });
+  drawer.hidden = true; burger.textContent = '☰'; burger.setAttribute('aria-expanded', 'false');
+  if (view === 'noticias') renderNoticias();
+  if (view === 'biblioteca') renderBiblioteca();
+  if (view === 'jogo') { achFilter = 'todas'; renderJogo(gameId); }
+  if (view === 'personagem') renderPersonagem();
+  if (view === 'ranking') renderRanking();
+  window.scrollTo(0, 0);
+}
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
