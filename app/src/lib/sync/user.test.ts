@@ -419,6 +419,44 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(again.skillUps).toEqual([]);
   });
 
+  it("derives skill points from the game's current skills, so unlocks recorded without skills catch up", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { recomputeUser } = await import("@/lib/progression/recompute");
+    const appId = newAppId();
+    steamState.api = fakeSteam({
+      [appId]: {
+        pcts: pctsOf(2, 2),
+        unlocks: { A0: new Date("2024-01-01T10:00:00Z"), A1: new Date("2024-01-04T10:00:00Z") },
+      },
+    }).api;
+    const user = await newUser();
+
+    // IGDB found nothing: the game is created without skills, so the unlocks earn XP only.
+    await syncUser(user.id);
+    const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId }, include: { skills: true } });
+    expect(game.skills).toHaveLength(0);
+    const statsBefore = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
+    const rpgBefore = await prisma.skillProgress.findUniqueOrThrow({
+      where: { userId_skill: { userId: user.id, skill: "rpg" } },
+    });
+    expect(rpgBefore).toMatchObject({ level: 1, points: 0 });
+    const ledger = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id } });
+    expect(ledger.map((e) => e.source).sort()).toEqual(["achievement", "achievement", "platinum"]);
+
+    // Later the catalog (or an admin override) gives the game its skills.
+    await prisma.gameSkill.create({ data: { gameId: game.id, skill: "rpg" } });
+    await recomputeUser(user.id);
+
+    const rpgAfter = await prisma.skillProgress.findUniqueOrThrow({
+      where: { userId_skill: { userId: user.id, skill: "rpg" } },
+    });
+    expect(rpgAfter.level > 1 || rpgAfter.points > 0).toBe(true);
+    const statsAfter = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
+    expect(statsAfter.totalXp).toBe(statsBefore.totalXp);
+    expect(await totalXp(user.id)).toBe(statsBefore.totalXp);
+  });
+
   it("keeps XP correct when two syncs of the same user run at once", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");

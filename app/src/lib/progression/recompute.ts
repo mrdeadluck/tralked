@@ -19,16 +19,62 @@ const TOP_SKILL_COUNT = 3;
 
 type SkillMap = Record<SkillId, SkillState>;
 
+/**
+ * Current skills of the games behind `achievement` (sourceKey = achievementId) and `platinum`
+ * (sourceKey = gameId) ledger entries, keyed by `${source}:${sourceKey}`.
+ */
+async function currentGameSkills(
+  rows: { source: string; sourceKey: string }[],
+): Promise<Map<string, string[]>> {
+  const keysOf = (source: string) => rows.filter((r) => r.source === source).map((r) => r.sourceKey);
+  const achievementIds = keysOf("achievement");
+  const platinumGameIds = keysOf("platinum");
+  if (achievementIds.length === 0 && platinumGameIds.length === 0) return new Map();
+
+  const achievements = await prisma.achievement.findMany({
+    where: { id: { in: achievementIds } },
+    select: { id: true, gameId: true },
+  });
+  const games = await prisma.game.findMany({
+    where: { id: { in: [...new Set([...platinumGameIds, ...achievements.map((a) => a.gameId)])] } },
+    select: { id: true, skills: { select: { skill: true } } },
+  });
+  const skillsByGame = new Map(games.map((g) => [g.id, g.skills.map((s) => s.skill)]));
+
+  // Entries whose achievement or game no longer exists are left out (they keep their copy).
+  const result = new Map<string, string[]>();
+  for (const a of achievements) {
+    const skills = skillsByGame.get(a.gameId);
+    if (skills) result.set(`achievement:${a.id}`, skills);
+  }
+  for (const id of platinumGameIds) {
+    const skills = skillsByGame.get(id);
+    if (skills) result.set(`platinum:${id}`, skills);
+  }
+  return result;
+}
+
+/**
+ * Loads the ledger for the skill rebuild. XP is frozen at record time, but the genre mapping is
+ * not: `achievement` and `platinum` entries without explicit `skillPoints` take the skills their
+ * game has now (so a game that only later got skills, from the catalog job or an admin override,
+ * also counts for past unlocks). Entries with explicit `skillPoints` (seed, guide votes) and
+ * sources without a game keep their own `skills`. The `skills` column stays as an audit copy.
+ */
 async function loadLedger(userId: string) {
   const rows = await prisma.xpLedgerEntry.findMany({
     where: { userId },
-    select: { xp: true, skills: true, skillPoints: true },
+    select: { source: true, sourceKey: true, xp: true, skills: true, skillPoints: true },
   });
-  const entries: LedgerSkillEntry[] = rows.map((r) => ({
-    xp: r.xp,
-    skills: r.skills,
-    skillPoints: r.skillPoints as Record<string, number> | null,
-  }));
+  const fromGame = await currentGameSkills(rows.filter((r) => r.skillPoints === null));
+  const entries: LedgerSkillEntry[] = rows.map((r) => {
+    const skillPoints = r.skillPoints as Record<string, number> | null;
+    return {
+      xp: r.xp,
+      skills: fromGame.get(`${r.source}:${r.sourceKey}`) ?? r.skills,
+      skillPoints,
+    };
+  });
   return { entries, totalXp: rows.reduce((sum, r) => sum + r.xp, 0) };
 }
 
