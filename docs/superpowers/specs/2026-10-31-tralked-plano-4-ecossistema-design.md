@@ -61,9 +61,15 @@ Novas categorias **Entretenimento** (animes, filmes, séries — só o que tem r
 - **Mensagens privadas** entre usuários: conversa 1:1, caixa de entrada, enviar pelo perfil, notificação, limite de envio, bloquear e denunciar, texto puro (sem HTML), apagar a conversa para si.
 - **Seguir** jogadores e **feed** de atividade de quem você segue (conquistas raras, 100%, marcos de horas, matérias, fotos).
 
+### F10 — Lançamentos (últimos e próximos)
+Pedido: "conectar com alguma fonte que mostrasse os próximos lançamentos e os últimos… card na tela principal… principalmente do PC".
+- Fontes (controller): **Steam Store** para PC (listas públicas de novos lançamentos e "em breve", ex. `store.steampowered.com/api/featuredcategories` — verificar o formato atual; sem chave), e **IGDB** `release_dates` por plataforma (PS5/PS4, Xbox Series/One, Switch, PC) quando `IGDB_CLIENT_ID/SECRET` existirem. Cron a cada 6 h; jogos desconhecidos entram no catálogo (`syncGame`).
+- **Card "Lançamentos" na home**: abas **Últimos** (últimos 30 dias) e **Próximos** (próximos 90 dias), PC primeiro, filtro por plataforma; capa, data (ou "a definir"), plataformas; link para a página do jogo.
+- Página `/lancamentos` com a lista completa e os mesmos filtros; os lançamentos alimentam o calendário (F8).
+
 ## Ordem (controller)
 - Onda 1 (paralela, áreas separadas): **F1+F2** (sync + RPG), **F4** (e-mail + Google), **F5** (marca/nav/capinha/nomes).
-- Onda 2: **F3** (perfil), **F6** (highscores), **F7+F8** (notícias + calendário).
+- Onda 2: **F3** (perfil), **F6** (highscores), **F7+F8+F10** (notícias + calendário + lançamentos).
 - Onda 3: **F9** (social).
 - Depois: emulador (Plano 3) e hospedagem definitiva.
 
