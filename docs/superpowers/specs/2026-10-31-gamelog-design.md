@@ -90,7 +90,14 @@ Legenda: [MVP] lançamento · [F2] comunidade e retenção · [F3] expansão.
 9. **Coleção**: [F3] cartas colecionáveis por conquista.
 10. **Integrações e notificações**: [MVP] Steam, IGDB, RAWG, SteamGridDB com sync em segundo plano; notificações no site e e-mail · [F2] bot Discord, push, GG.deals · [F3] extensão Twitch, assistente IA.
 11. **Operação**: [MVP] painel admin, moderação, antifraude, SEO das páginas de guia/jogo, LGPD, acessibilidade, métricas de retenção.
-12. **Monetização**: [MVP] espaço de anúncio no editorial · [F2] afiliados · [F3] premium só cosmético, contratos patrocinados.
+12. **Monetização** (aprovada pelo Lucas):
+    - [MVP] Publicidade no editorial (Google Ad Manager + venda direta); nunca dentro do passo a passo dos guias, só laterais e entre seções; consentimento de cookies (LGPD).
+    - [MVP] Afiliados só de lojas oficiais (Nuuvem, Green Man Gaming, Fanatical, Humble, Amazon para periféricos — termos a validar) no card de compra, "Quase lá" e "Janela de ouro"; keyshops nunca monetizadas.
+    - [MVP] Newsletter patrocinada.
+    - [F2] Assinatura **GAMELOG+** (R$ 9,90–14,90/mês, desconto anual; preço a validar): sem anúncios, cosméticos exclusivos, selo de apoiador, estatísticas avançadas, planejador completo, retrospectiva detalhada, família ampliada. Nunca vantagem de XP.
+    - [F2/F3] Patrocínio de publishers: temporadas, contratos de caça, boss mundial e guias oficiais em parceria, sempre marcados "Patrocinado" (CONAR).
+    - [F3] Relatórios agregados e anônimos para a indústria — **bloqueado até análise jurídica** dos termos da Steam Web API e LGPD.
+    - Apoio inicial da comunidade (Apoia.se/Catarse) com selo "Fundador"; eventos com prêmios de patrocinadores e sem taxa de inscrição.
 
 ## 7. Arquitetura
 
