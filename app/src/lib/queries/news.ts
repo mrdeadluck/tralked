@@ -91,7 +91,8 @@ export type ArticleFull = ArticleCard & {
 };
 
 export type HomeNews = {
-  hero: ArticleCard;
+  /** Null only when nothing is published at all. */
+  hero: ArticleCard | null;
   side: ArticleCard[];
   latest: ArticleCard[];
 };
@@ -214,8 +215,8 @@ function toCard(row: CardRow): ArticleCard {
 }
 
 export async function getHomeNews(): Promise<HomeNews> {
-  const [hero, side, latest] = await Promise.all([
-    prisma.article.findFirstOrThrow({
+  const [main, side, latest] = await Promise.all([
+    prisma.article.findFirst({
       where: { ...PUBLISHED, featured: 2 },
       orderBy: { publishedAt: "desc" },
       select: cardSelect,
@@ -233,7 +234,13 @@ export async function getHomeNews(): Promise<HomeNews> {
       select: cardSelect,
     }),
   ]);
-  return { hero: toCard(hero), side: side.map(toCard), latest: latest.map(toCard) };
+  // No main highlight (unfeatured or archived by the newsroom): the newest article takes its place.
+  const hero = main ?? latest[0] ?? side[0] ?? null;
+  return {
+    hero: hero ? toCard(hero) : null,
+    side: side.filter((a) => a.id !== hero?.id).map(toCard),
+    latest: latest.filter((a) => a.id !== hero?.id).map(toCard),
+  };
 }
 
 /** Latest published articles (any highlight level). */

@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -39,6 +38,9 @@ async function WireSection() {
   const items = buildWireItems(articles, external, new Date());
   return (
     <NewsWire
+      // A cached component's root is replayed inside the page's children: keyed, so development
+      // React does not report it as a keyless list item.
+      key="wire"
       items={items}
       description="Da redação e da imprensa de games, atualizado a cada hora"
       label="Notícias em movimento"
@@ -47,41 +49,47 @@ async function WireSection() {
   );
 }
 
-/** Public, cacheable part: highlights + news tabs. `aside` is an opaque slot for the request-time sidebar. */
-async function NewsSection({ aside }: { aside: ReactNode }) {
+/** Main and side highlights, cached. */
+async function HighlightsSection() {
   "use cache";
   cacheLife("minutes");
   cacheTag(NEWS_TAG);
 
-  const [{ hero, side, latest }, mostRead] = await Promise.all([getHomeNews(), getMostRead(5)]);
+  const { hero, side } = await getHomeNews();
+  if (!hero) return null;
   const now = new Date();
   const view = (a: ArticleCard): ArticleView => ({ ...a, timeAgo: timeAgo(a.publishedAt, now) });
-
   return (
-    <div className="flex flex-col gap-12">
-      <section aria-label="Destaques" className="flex flex-wrap gap-3">
-        <HeroMain article={view(hero)} />
+    <section aria-label="Destaques" className="flex flex-wrap gap-3">
+      <HeroMain article={view(hero)} />
+      {side.length > 0 ? (
         <div className="grid flex-[1_1_520px] grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
           {side.map((article) => (
             <HeroSide key={article.slug} article={view(article)} />
           ))}
         </div>
-      </section>
+      ) : null}
+    </section>
+  );
+}
 
-      <div className="flex flex-wrap items-start gap-12">
-        <section aria-label="Últimas notícias" className="flex min-w-0 flex-[1_1_600px] flex-col gap-1">
-          <SectionHead
-            title="Últimas notícias"
-            aside={<Link href="/noticias">Todas as notícias →</Link>}
-          />
-          <NewsTabs
-            tabs={buildNewsTabs(latest, now)}
-            mostRead={mostRead.map((a) => articleStory(a, now))}
-          />
-        </section>
-        {aside}
-      </div>
-    </div>
+/** "Últimas notícias" tabs and "Mais lidas", cached. */
+async function LatestSection() {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(NEWS_TAG);
+
+  const [{ latest }, mostRead] = await Promise.all([getHomeNews(), getMostRead(5)]);
+  const now = new Date();
+  return (
+    <section aria-label="Últimas notícias" className="flex min-w-0 flex-[1_1_600px] flex-col gap-1">
+      <SectionHead title="Últimas notícias" aside={<Link href="/noticias">Todas as notícias →</Link>} />
+      {latest.length > 0 ? (
+        <NewsTabs tabs={buildNewsTabs(latest, now)} mostRead={mostRead.map((a) => articleStory(a, now))} />
+      ) : (
+        <p className="py-6 text-[15px] text-muted">Nenhuma notícia publicada ainda.</p>
+      )}
+    </section>
   );
 }
 
@@ -105,24 +113,27 @@ const sidebarFallback = <Card className="h-40" aria-hidden="true" />;
  * The wire and the news are cached, so they render in the static shell itself, outside any
  * <Suspense>: a boundary that resolves after the shell is streamed as a hidden <div> that only a
  * script reveals, which would leave the home empty without JavaScript (and for crawlers that do
- * not run it). Only the per-visitor sidebar cards stream behind their own boundaries.
+ * not run it). Only the per-visitor sidebar cards stream behind their own boundaries. No JSX is
+ * passed into a cached component (React would re-validate it as a keyless list in development).
  */
 export default function Home() {
   return (
     <div className="flex flex-col gap-12">
       <WireSection />
-      <NewsSection
-        aside={
+      <div className="flex flex-col gap-12">
+        <HighlightsSection />
+        <div className="flex flex-wrap items-start gap-12">
+          <LatestSection />
           <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
-            <DiscordCard key="discord" />
-            <Suspense key="quest" fallback={sidebarFallback}>
+            <DiscordCard />
+            <Suspense fallback={sidebarFallback}>
               <QuestSection />
             </Suspense>
-            <RankingSection key="ranking" />
-            <EditorialCard key="editorial" />
+            <RankingSection />
+            <EditorialCard />
           </aside>
-        }
-      />
+        </div>
+      </div>
     </div>
   );
 }

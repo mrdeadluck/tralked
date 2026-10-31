@@ -30,13 +30,27 @@ describe.skipIf(!reachable)("news queries (seeded database)", () => {
   it("getHomeNews returns the main highlight, 4 side highlights and the latest list", async () => {
     const { getHomeNews } = await import("./news");
     const { hero, side, latest } = await getHomeNews();
-    expect(hero.featured).toBe(2);
+    expect(hero?.featured).toBe(2);
     expect(side).toHaveLength(4);
     expect(side.every((a) => a.featured === 1)).toBe(true);
     expect(latest.length).toBeGreaterThan(0);
     expect(latest.every((a) => a.featured === 0)).toBe(true);
     const times = latest.map((a) => a.publishedAt.getTime());
     expect(times).toEqual([...times].sort((a, b) => b - a));
+  });
+
+  it("getHomeNews falls back to the newest article when no main highlight is published", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getHomeNews } = await import("./news");
+    const mains = await prisma.article.findMany({ where: { featured: 2 }, select: { id: true } });
+    await prisma.article.updateMany({ where: { featured: 2 }, data: { featured: 0 } });
+    try {
+      const { hero, latest } = await getHomeNews();
+      expect(hero).not.toBeNull();
+      expect(latest.some((a) => a.id === hero?.id)).toBe(false);
+    } finally {
+      await prisma.article.updateMany({ where: { id: { in: mains.map((m) => m.id) } }, data: { featured: 2 } });
+    }
   });
 
   it("getArticle returns the article with author, or null for an unknown slug", async () => {

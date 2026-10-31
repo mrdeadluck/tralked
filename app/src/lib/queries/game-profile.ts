@@ -107,8 +107,8 @@ export type GameProfile = {
 export function safeMediaUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   // Browsers strip tabs/newlines and read "\" as "/": refuse them anywhere rather than guess.
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000- \u007f\\]/.test(url)) return null;
+  // Control characters (U+0000..U+001F, U+007F), spaces and backslashes.
+  if (/[\x00-\x20\x7f\\]/.test(url)) return null;
   // A same-site path; "//host" is read by browsers as another host.
   if (url.startsWith("/")) return url[1] === "/" ? null : url;
   try {
