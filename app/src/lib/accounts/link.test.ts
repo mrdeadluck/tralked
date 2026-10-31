@@ -207,6 +207,25 @@ describe.skipIf(!reachable)("account linking", () => {
     await expect(startLink(user.id, "retro", "Varios", later(60 * 60_000 + 1000))).resolves.toMatchObject({ ok: true });
   });
 
+  it("an expired code is shown as expired; cancelling a pending link hides it and kills the code", async () => {
+    const { cancelPendingLink, confirmLink, startLink } = await import("./link");
+    const { getLinkedAccounts } = await import("./queries");
+    const { connectionState } = await import("./connection-state");
+    const user = await newUser();
+    const started = await startLink(user.id, "psn", "Tralked-Teste", T0);
+    expect(started.ok).toBe(true);
+
+    const [pending] = await getLinkedAccounts(user.id, later(60_000));
+    expect(connectionState(pending, later(60_000))).toMatchObject({ kind: "pending", handle: "Tralked-Teste" });
+    const [expired] = await getLinkedAccounts(user.id, later(31 * 60_000));
+    expect(connectionState(expired, later(31 * 60_000))).toEqual({ kind: "disconnected", expiredHandle: "Tralked-Teste" });
+
+    await expect(cancelPendingLink(user.id, "psn")).resolves.toBe(true);
+    await expect(getLinkedAccounts(user.id, later(60_000))).resolves.toEqual([]);
+    await expect(confirmLink(user.id, "psn", later(60_000))).resolves.toEqual({ ok: false, reason: "expired" });
+    await expect(cancelPendingLink(user.id, "psn")).resolves.toBe(false);
+  });
+
   it("rejects malformed handles before anything else", async () => {
     const { startLink } = await import("./link");
     const user = await newUser();

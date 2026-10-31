@@ -20,8 +20,9 @@ export async function getLinkedAccounts(userId: string, now: Date = new Date()):
   });
   return rows.flatMap((r) => {
     const pending = Boolean(!r.verifiedAt && r.verifyCode && r.verifyExpiresAt && r.verifyExpiresAt > now);
-    // Unlinked rows and expired attempts only exist for rate limiting: not shown.
-    if (!r.verifiedAt && !pending) return [];
+    // An attempt whose code expired is shown as such (handle prefilled for a new code); unlinked
+    // and cancelled rows (no code) only exist for rate limiting and are not shown.
+    if (!r.verifiedAt && !r.verifyCode) return [];
     return [{
       platform: r.platform,
       handle: r.handle,

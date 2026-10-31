@@ -210,6 +210,19 @@ export async function confirmLink(
 }
 
 /**
+ * Cancels a link that was started but never confirmed: the code stops working and the card goes
+ * back to "Não conectada". The row stays (placeholder externalId) so the start limit still counts.
+ * Returns false when there is no unconfirmed link to cancel.
+ */
+export async function cancelPendingLink(userId: string, platform: CodePlatform): Promise<boolean> {
+  const { count } = await prisma.linkedAccount.updateMany({
+    where: { userId, platform, verifiedAt: null, verifyCode: { not: null } },
+    data: { verifyCode: null, verifyExpiresAt: null },
+  });
+  return count > 0;
+}
+
+/**
  * Disconnects the account: the row goes back to the unlinked state (placeholder externalId, so
  * the platform account is free for anyone; the verification counts as a recent start), the
  * platform's library rows and valid unlocks are removed, and its ledger entries are voided

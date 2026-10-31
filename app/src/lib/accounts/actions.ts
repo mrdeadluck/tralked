@@ -6,7 +6,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import { syncPlatformAccount } from "@/lib/sync/platform-user";
 import { MIN_SYNC_INTERVAL_MS } from "@/lib/sync/claim";
-import { confirmLink, startLink, unlink, type ConfirmLinkFailure } from "./link";
+import { cancelPendingLink, confirmLink, startLink, unlink, type ConfirmLinkFailure } from "./link";
 
 /**
  * Server Actions of the account connections (PSN, Xbox, RetroAchievements). Every action
@@ -123,7 +123,9 @@ export async function unlinkAction(input: unknown): Promise<SimpleActionResult> 
   if (!user) return NOT_LOGGED_IN;
   const parsed = platformOnlySchema.safeParse(input);
   if (!parsed.success) return INVALID;
-  const removed = await unlink(user.id, parsed.data.platform);
+  // A verified account is disconnected; a link still waiting for its code is cancelled.
+  const removed =
+    (await unlink(user.id, parsed.data.platform)) || (await cancelPendingLink(user.id, parsed.data.platform));
   return removed ? { ok: true } : { ok: false, error: "Essa plataforma não está conectada." };
 }
 
