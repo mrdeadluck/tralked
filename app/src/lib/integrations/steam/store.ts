@@ -1,4 +1,5 @@
-import type { PoliteFetch } from "./polite-fetch";
+import { isSteamCdnUrl, readJson, type PoliteFetch } from "./polite-fetch";
+import { decodeEntities } from "./text";
 
 const STORE = "https://store.steampowered.com";
 /** Unhashed library assets; they exist for most apps, so callers verify them before use. */
@@ -51,20 +52,9 @@ type StoreAppDetails = {
   movies?: StoreMovie[];
 };
 
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
-
 /** Plain text from store HTML: tags dropped, entities decoded, whitespace collapsed. */
 export function htmlToText(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, " ")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, code: string) => {
-      if (code[0] === "#") {
-        const n = code[1].toLowerCase() === "x" ? parseInt(code.slice(2), 16) : Number(code.slice(1));
-        return Number.isFinite(n) ? String.fromCodePoint(n) : match;
-      }
-      return ENTITIES[code.toLowerCase()] ?? match;
-    })
+  return decodeEntities(html.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]*>/g, ""))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -124,16 +114,20 @@ export function parseStoreApp(appId: number, json: unknown): StoreApp | null {
     comingSoon: data.release_date?.coming_soon ?? false,
     criticScore: data.metacritic?.score,
     achievementCount: data.achievements?.total ?? 0,
-    headerUrl: data.header_image,
+    // Media is hotlinked, so only https URLs on Steam's CDN are kept.
+    headerUrl: isSteamCdnUrl(data.header_image) ? data.header_image : undefined,
     screenshots: (data.screenshots ?? [])
-      .flatMap((s) => (s.path_full ? [{ url: s.path_full, ...sizeFromUrl(s.path_full) }] : []))
+      .flatMap((s) => (isSteamCdnUrl(s.path_full) ? [{ url: s.path_full, ...sizeFromUrl(s.path_full) }] : []))
       .slice(0, MAX_SCREENSHOTS),
-    trailers: movies.slice(0, MAX_TRAILER_CANDIDATES).map((m) => ({
-      id: m.id,
-      name: m.name?.trim() || "Trailer",
-      url: trailerUrl(m),
-      thumbnailUrl: m.thumbnail,
-    })),
+    trailers: movies
+      .filter((m) => Number.isInteger(m.id) && isSteamCdnUrl(trailerUrl(m)))
+      .slice(0, MAX_TRAILER_CANDIDATES)
+      .map((m) => ({
+        id: m.id,
+        name: m.name?.trim() || "Trailer",
+        url: trailerUrl(m),
+        thumbnailUrl: isSteamCdnUrl(m.thumbnail) ? m.thumbnail : undefined,
+      })),
   };
 }
 
@@ -141,7 +135,7 @@ export function parseStoreApp(appId: number, json: unknown): StoreApp | null {
 export async function fetchStoreApp(politeFetch: PoliteFetch, appId: number): Promise<StoreApp | null> {
   const res = await politeFetch(`${STORE}/api/appdetails?appids=${appId}&l=brazilian&cc=br`);
   if (!res.ok) throw new Error(`Steam store appdetails ${appId} failed with HTTP ${res.status}`);
-  return parseStoreApp(appId, await res.json());
+  return parseStoreApp(appId, await readJson(res));
 }
 
 /** Library art at its unhashed path: portrait cover, wide hero and transparent logo. */
