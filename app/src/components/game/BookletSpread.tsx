@@ -229,7 +229,7 @@ export function BookletSpread({ profile, progress }: { profile: GameProfile; pro
         {CSS}
       </style>
       <div className="gps-art" aria-hidden="true">
-        <GameArt seed={profile.seed + 1} hues={profile.hues} imageUrl={profile.art.hero} figure width={1400} height={700} />
+        <GameArt seed={profile.seed + 1} hues={profile.hues} imageUrl={profile.art.hero} figure priority width={1400} height={700} />
       </div>
 
       <div className="gps-l">

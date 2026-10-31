@@ -37,6 +37,37 @@ test.describe("game page case intro", () => {
     expect(await page.evaluate(() => localStorage.getItem("tralked:opened:hollow-knight"))).toBe("1");
   });
 
+  test("client-side navigation: the page is veiled from its first frame and the case drops in", async ({ page }) => {
+    await page.goto("/jogos");
+    await page.waitForLoadState("networkidle");
+    // Record #gp-root's state the moment it enters the DOM. Mutation callbacks run after React's
+    // commit and layout effects but before the browser paints, so this is the first frame.
+    await page.evaluate(() => {
+      const w = window as unknown as { __gpFirst?: string | null };
+      new MutationObserver((_, observer) => {
+        const root = document.getElementById("gp-root");
+        if (!root) return;
+        w.__gpFirst = root.getAttribute("data-intro");
+        observer.disconnect();
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    await page.locator('main a[href="/jogos/hollow-knight"]').first().click();
+    await expect(page).toHaveURL(/\/jogos\/hollow-knight$/);
+    expect(await page.evaluate(() => (window as unknown as { __gpFirst?: string | null }).__gpFirst)).toBe("pending");
+    await expect(intro(page)).toBeVisible();
+    // The background is inert while the dialog is open.
+    await expect(page.locator("#gp-root")).toHaveAttribute("data-intro", "stage");
+    const background = await page
+      .locator("body > *:not([data-testid=case-intro]):not(script):not(style)")
+      .evaluateAll((els) => els.map((e) => [`${e.tagName}.${e.className}#${e.id}`, e.hasAttribute("inert")] as const));
+    expect(background.length).toBeGreaterThan(0);
+    expect(background.filter(([, inert]) => !inert)).toEqual([]);
+    expect(background.some(([tag]) => tag.startsWith("MAIN."))).toBe(true);
+    await page.getByRole("button", { name: "Pular" }).click();
+    await expect(intro(page)).toBeHidden();
+    expect(await page.locator("[inert]").count()).toBe(0);
+  });
+
   test("a second visit does not show the case again", async ({ page }) => {
     await openGame(page);
     await page.getByRole("button", { name: "Pular" }).click();
@@ -80,6 +111,11 @@ test.describe("game page case intro", () => {
       await expect(page.getByText("Tempo para 100%")).toBeVisible();
       await expect(page.getByRole("heading", { name: "Notícias de Hollow Knight" })).toBeVisible();
       await expect(page.getByRole("link", { name: "Fórum do jogo", exact: true })).toHaveAttribute("href", "/forum/hollow-knight");
+      // Data credits stay active links (RAWG's terms require one).
+      const credits = page.locator(".gp-credits");
+      await expect(credits.getByRole("link", { name: "IGDB" })).toHaveAttribute("href", "https://www.igdb.com");
+      await expect(credits.getByRole("link", { name: "RAWG" })).toHaveAttribute("href", "https://rawg.io");
+      await expect(credits.getByRole("link", { name: "SteamGridDB" })).toHaveAttribute("href", "https://www.steamgriddb.com");
     });
   });
 

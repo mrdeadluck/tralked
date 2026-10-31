@@ -48,11 +48,20 @@ async function withCommentCounts(rows: PhotoRow[]): Promise<PhotoCardView[]> {
   return rows.map((r) => ({ ...r, commentCount: byId.get(r.id) ?? 0 }));
 }
 
+/**
+ * Photos shown in public listings (gallery grid, photo of the week, game pages, filter counts):
+ * visible, and not by a player whose profile is private. Photos of deleted accounts stay listed.
+ */
+const LISTED: Prisma.PhotoWhereInput = {
+  status: "visible",
+  OR: [{ authorId: null }, { author: { profilePublic: true } }],
+};
+
 export type PhotoListing = { photos: PhotoCardView[]; total: number; page: number; pageCount: number };
 
 /** Visible photos, newest first, optionally only one game's. `page` starts at 1. */
 export async function listPhotos(filter: { gameSlug?: string | null; page?: number }): Promise<PhotoListing> {
-  const where: Prisma.PhotoWhereInput = { status: "visible" };
+  const where: Prisma.PhotoWhereInput = { ...LISTED };
   if (filter.gameSlug) where.game = { slug: filter.gameSlug };
   const total = await prisma.photo.count({ where });
   const pageCount = Math.max(1, Math.ceil(total / PHOTOS_PER_PAGE));
@@ -70,7 +79,7 @@ export async function listPhotos(filter: { gameSlug?: string | null; page?: numb
 /** "Foto da semana": the most liked visible photo posted in the last 7 days (ties: newest). */
 export async function photoOfTheWeek(now: Date = new Date()): Promise<PhotoCardView | null> {
   const row = await prisma.photo.findFirst({
-    where: { status: "visible", likeCount: { gt: 0 }, createdAt: { gte: new Date(now.getTime() - WEEK_MS) } },
+    where: { ...LISTED, likeCount: { gt: 0 }, createdAt: { gte: new Date(now.getTime() - WEEK_MS) } },
     orderBy: [{ likeCount: "desc" }, { createdAt: "desc" }],
     select: photoSelect,
   });
@@ -124,7 +133,7 @@ export type GameOption = { slug: string; name: string; photoCount: number };
 export async function galleryGames(): Promise<GameOption[]> {
   const games = await prisma.game.findMany({
     orderBy: { name: "asc" },
-    select: { slug: true, name: true, _count: { select: { photos: { where: { status: "visible" } } } } },
+    select: { slug: true, name: true, _count: { select: { photos: { where: LISTED } } } },
   });
   return games.map((g) => ({ slug: g.slug, name: g.name, photoCount: g._count.photos }));
 }

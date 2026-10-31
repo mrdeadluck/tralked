@@ -23,16 +23,18 @@ async function databaseReachable(): Promise<boolean> {
 }
 
 describe("game profile helpers", () => {
-  it("only lets http(s) and same-site media URLs through", () => {
+  it("only lets https and same-site media URLs through", () => {
     expect(safeMediaUrl("https://cdn.example.com/a.jpg")).toBe("https://cdn.example.com/a.jpg");
     expect(safeMediaUrl("/uploads/x.webp")).toBe("/uploads/x.webp");
     expect(safeMediaUrl("javascript:alert(1)")).toBeNull();
     expect(safeMediaUrl("data:image/png;base64,AAAA")).toBeNull();
     expect(safeMediaUrl("//evil.example.com/x.js")).toBeNull();
+    expect(safeMediaUrl("/\\evil.example.com/x.js")).toBeNull();
+    expect(safeMediaUrl("http://cdn.example.com/a.jpg")).toBeNull();
     expect(safeMediaUrl(null)).toBeNull();
   });
 
-  it("keeps playable videos only: files over http(s) and valid YouTube ids", () => {
+  it("keeps playable videos only: files over https and valid YouTube ids", () => {
     const row = { kind: "video", source: "steam", order: 0 };
     const videos = playableVideos(
       [
@@ -137,6 +139,32 @@ describe.skipIf(!reachable)("game profile (seeded database)", () => {
     expect(p.similar.map((g) => g.slug)).not.toContain("hollow-knight");
     // lucas completed it on PSN in 80 h: the Tralked time to 100%.
     expect(p.timeTo100).toEqual({ minutes: 4800, players: 1 });
+  });
+
+  it("public photo listings leave out players with a private profile", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { listPhotos, galleryGames } = await import("@/lib/community/gallery");
+    const { loadGameProfile } = await import("./game-profile");
+    const handle = "test-private-photo";
+    await prisma.photo.deleteMany({ where: { author: { handle } } });
+    await prisma.user.deleteMany({ where: { handle } });
+    const user = await prisma.user.create({ data: { handle, displayName: "Privado", profilePublic: false } });
+    const game = await prisma.game.findUniqueOrThrow({ where: { slug: "celeste" } });
+    const countOf = async () => (await galleryGames()).find((g) => g.slug === "celeste")!.photoCount;
+    const before = await countOf();
+    const photo = await prisma.photo.create({ data: { authorId: user.id, gameId: game.id, width: 800, height: 600 } });
+    try {
+      expect((await listPhotos({ gameSlug: "celeste" })).photos.map((p) => p.id)).not.toContain(photo.id);
+      expect((await loadGameProfile("celeste"))!.gallery.photos.map((p) => p.id)).not.toContain(photo.id);
+      expect(await countOf()).toBe(before);
+
+      await prisma.user.update({ where: { id: user.id }, data: { profilePublic: true } });
+      expect((await listPhotos({ gameSlug: "celeste" })).photos.map((p) => p.id)).toContain(photo.id);
+      expect(await countOf()).toBe(before + 1);
+    } finally {
+      await prisma.photo.delete({ where: { id: photo.id } });
+      await prisma.user.delete({ where: { id: user.id } });
+    }
   });
 
   it("returns null for an unknown game", async () => {

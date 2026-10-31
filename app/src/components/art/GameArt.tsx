@@ -18,6 +18,8 @@ type GameArtProps = {
   height?: number;
   /** Alt text for a real image. Empty (decorative) by default: cards label their link instead. */
   alt?: string;
+  /** Above-the-fold art: load the real image eagerly with high fetch priority. */
+  priority?: boolean;
   className?: string;
   style?: CSSProperties;
 };
@@ -130,6 +132,7 @@ export function GameArt({
   width = 600,
   height = 480,
   alt = "",
+  priority = false,
   className = "",
   style,
 }: GameArtProps) {
@@ -147,7 +150,8 @@ export function GameArt({
       <img
         src={imageUrl}
         alt={alt}
-        loading="lazy"
+        loading={priority ? "eager" : "lazy"}
+        fetchPriority={priority ? "high" : undefined}
         decoding="async"
         draggable={false}
         className={`block size-full object-cover ${className}`}

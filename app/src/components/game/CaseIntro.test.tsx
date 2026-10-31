@@ -41,7 +41,7 @@ function renderIntro(account: { opened: boolean } | null = null) {
   root.id = "gp-root";
   root.setAttribute("data-intro", "pending");
   document.body.append(root);
-  render(
+  const view = render(
     <CaseIntro
       gameId="game-1"
       slug="hollow-knight"
@@ -57,7 +57,8 @@ function renderIntro(account: { opened: boolean } | null = null) {
       account={account}
     />,
   );
-  return { root, stage: screen.getByTestId("case-intro") };
+  // The stage is portalled into <body> and only mounted for a first visit.
+  return { root, stage: screen.queryByTestId("case-intro"), unmount: view.unmount };
 }
 
 describe("CaseIntro", () => {
@@ -86,16 +87,17 @@ describe("CaseIntro", () => {
     expect(localStorage.getItem(KEY)).toBe("1");
   });
 
-  it("second visit on this browser: no case", () => {
+  it("second visit on this browser: the case is not even mounted", () => {
     localStorage.setItem(KEY, "1");
     const { root, stage } = renderIntro();
-    expect(stage).not.toHaveClass("gpc-on");
+    expect(stage).toBeNull();
+    expect(document.querySelector("canvas")).toBeNull();
     expect(root).not.toHaveAttribute("data-intro");
   });
 
   it("opened on another device (account): no case, and this browser learns it", () => {
     const { stage } = renderIntro({ opened: true });
-    expect(stage).not.toHaveClass("gpc-on");
+    expect(stage).toBeNull();
     expect(localStorage.getItem(KEY)).toBe("1");
     expect(markOpened).not.toHaveBeenCalled();
   });
@@ -103,9 +105,62 @@ describe("CaseIntro", () => {
   it("reduced motion: never shows the case, records the first visit", () => {
     reduceMotion = true;
     const { root, stage } = renderIntro({ opened: false });
-    expect(stage).not.toHaveClass("gpc-on");
+    expect(stage).toBeNull();
     expect(root).not.toHaveAttribute("data-intro");
     expect(markOpened).toHaveBeenCalledWith("game-1");
+  });
+
+  it("while open, the rest of the page is inert; skipping restores it", () => {
+    const header = document.createElement("header");
+    document.body.prepend(header);
+    const { root, stage } = renderIntro();
+    expect(header).toHaveAttribute("inert");
+    expect(root).toHaveAttribute("inert");
+    expect(stage).not.toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "Pular" }));
+    expect(header).not.toHaveAttribute("inert");
+    expect(root).not.toHaveAttribute("inert");
+    header.remove();
+  });
+
+  it("sound only after the visitor's click: the 6 s auto-open is silent; unmount closes the AudioContext", () => {
+    vi.useFakeTimers();
+    const close = vi.fn(async () => undefined);
+    const created = vi.fn();
+    class FakeAudio {
+      state = "running";
+      currentTime = 0;
+      sampleRate = 8000;
+      destination = {};
+      constructor() {
+        created();
+      }
+      close = close;
+      resume = async () => undefined;
+      createBuffer = () => ({ getChannelData: () => new Float32Array(8) });
+      createBufferSource = () => ({ connect: (n: unknown) => n, start() {} });
+      createBiquadFilter = () => ({ type: "", frequency: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, Q: { value: 0 }, connect: (n: unknown) => n });
+      createGain = () => ({ gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: (n: unknown) => n });
+      createOscillator = () => ({ type: "", frequency: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: (n: unknown) => n, start() {}, stop() {} });
+    }
+    vi.stubGlobal("AudioContext", FakeAudio);
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => setTimeout(() => cb(0), 16));
+    try {
+      const first = renderIntro();
+      vi.advanceTimersByTime(6000 + 4000);
+      expect(created).not.toHaveBeenCalled();
+      first.unmount();
+      document.getElementById("gp-root")?.remove();
+      localStorage.clear();
+
+      const second = renderIntro();
+      fireEvent.click(screen.getByRole("button", { name: "Abrir o lacre" }));
+      expect(created).toHaveBeenCalledTimes(1);
+      second.unmount();
+      expect(close).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

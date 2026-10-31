@@ -19,7 +19,7 @@ const CSS = `
 .gpp-ring { position: absolute; inset: -14px; pointer-events: none; }
 .gpp-ring circle { fill: none; stroke-width: 3; }
 .gpp-trk { stroke: var(--border-2); }
-.gpp-val { stroke: var(--acc); stroke-linecap: butt; transition: stroke-dasharray 1.4s cubic-bezier(.2,.8,.2,1) .4s, stroke .4s; }
+.gpp-val { stroke-dasharray: var(--ring); stroke: var(--acc); stroke-linecap: butt; transition: stroke-dasharray 1.4s cubic-bezier(.2,.8,.2,1) .4s, stroke .4s; }
 .gpp-hold.gpp-plat .gpp-val { stroke: var(--gold); }
 .gpp-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
 .gpp-toggle input { appearance: none; width: 30px; height: 16px; border-radius: 999px; background: var(--border-2); position: relative; cursor: pointer; margin: 0; transition: background .2s; }
@@ -73,6 +73,7 @@ export function DiscProgress({
             cy="50"
             r="48"
             strokeDasharray={`${(C * shown) / 100} ${C}`}
+            style={{ "--ring": `${(C * shown) / 100} ${C}` } as CSSProperties}
             transform="rotate(-90 50 50)"
           />
         </svg>

@@ -5,7 +5,7 @@ import { PhotoGrid } from "@/components/community/PhotoGrid";
 import { AttributesGained } from "@/components/game/AttributesGained";
 import { BookletProgress, BookletSpread } from "@/components/game/BookletSpread";
 import { CaseIntro } from "@/components/game/CaseIntro";
-import { openedKey } from "@/components/game/opened-key";
+import { IntroVeil } from "@/components/game/IntroVeil";
 import { FamilyPlayers } from "@/components/game/FamilyPlayers";
 import { MediaRail } from "@/components/game/MediaRail";
 import { ShotsRail } from "@/components/game/ShotsRail";
@@ -49,7 +49,9 @@ const CSS = `
 .gp[data-reveal="instant"] .gp-veil, .gp[data-reveal="instant"] .gpp-val, .gp[data-reveal="instant"] .gpp-hold .gpd { transition: none; }
 /* If the intro never takes over (script error, slow network), the page shows itself anyway. */
 .gp[data-intro="pending"] .gp-veil, .gp[data-intro="pending"] .gpp-hold .gpd { animation: gp-failsafe .6s ease 3.5s forwards; }
+.gp[data-intro="pending"] .gpp-val { animation: gp-failsafe-ring 1.4s cubic-bezier(.2,.8,.2,1) 3.5s forwards; }
 @keyframes gp-failsafe { to { opacity: 1; transform: none; } }
+@keyframes gp-failsafe-ring { to { stroke-dasharray: var(--ring); } }
 .gp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 2px solid var(--text); margin-bottom: 20px; flex-wrap: wrap; }
 .gp-head h2 { font-weight: 900; font-stretch: 125%; font-size: 26px; line-height: 1; letter-spacing: -0.03em; text-transform: uppercase; }
 .gp-aside { font-family: var(--font-jetbrains-mono), monospace; font-size: 11.5px; letter-spacing: .06em; color: var(--muted); }
@@ -70,15 +72,10 @@ a.gp-aside:hover { text-decoration: underline; text-underline-offset: 3px; }
 .gp-side p { font-size: 14px; color: var(--muted); }
 .gp-side .gpf { align-self: stretch; }
 .gp-credits { font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; letter-spacing: .04em; color: var(--dim); margin-top: -32px; }
-.gp-credits a:hover { color: var(--acc); }
+.gp-credits a { color: var(--text-2); text-decoration: underline; text-decoration-color: var(--border-2); text-underline-offset: 3px; }
+.gp-credits a:hover { color: var(--acc); text-decoration-color: currentColor; }
 @media (max-width: 1000px) { .gp-gal { grid-template-columns: 1fr; } }
 `;
-
-/** Runs before the page paints: on a likely first visit, veil the page so the case drops in on a clean stage. */
-function introScript(slug: string) {
-  const key = JSON.stringify(openedKey(slug)).replace(/</g, "\\u003c");
-  return `(function(){try{var r=document.getElementById("gp-root");if(!r||matchMedia("(prefers-reduced-motion: reduce)").matches||localStorage.getItem(${key})==="1")return;r.setAttribute("data-intro","pending")}catch(e){}})();`;
-}
 
 const sessionUser = cache(getSessionUser);
 const visitor = cache(async (slug: string) => {
@@ -99,6 +96,7 @@ async function IntroIsland({ profile }: { profile: GameProfile }) {
       : (profile.platforms[0] ?? "TRALKED");
   return (
     <CaseIntro
+      key={profile.slug}
       gameId={profile.id}
       slug={profile.slug}
       name={profile.name}
@@ -173,7 +171,7 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
 
   return (
     <div id="gp-root" className="gp" suppressHydrationWarning>
-      <script dangerouslySetInnerHTML={{ __html: introScript(profile.slug) }} />
+      <IntroVeil slug={profile.slug} />
       <style href="tralked-game-page" precedence="default">
         {CSS}
       </style>
@@ -265,7 +263,22 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
       </Suspense>
 
       <p className="gp-credits gp-veil" style={delay("0s")}>
-        Dados de jogos: Steam, IGDB, RAWG · Arte: SteamGridDB
+        Dados de jogos:{" "}
+        <a href="https://store.steampowered.com" target="_blank" rel="noopener noreferrer">
+          Steam
+        </a>
+        ,{" "}
+        <a href="https://www.igdb.com" target="_blank" rel="noopener noreferrer">
+          IGDB
+        </a>
+        ,{" "}
+        <a href="https://rawg.io" target="_blank" rel="noopener noreferrer">
+          RAWG
+        </a>{" "}
+        · Arte:{" "}
+        <a href="https://www.steamgriddb.com" target="_blank" rel="noopener noreferrer">
+          SteamGridDB
+        </a>
       </p>
     </div>
   );

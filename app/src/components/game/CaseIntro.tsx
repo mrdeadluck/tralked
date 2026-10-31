@@ -1,37 +1,41 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { GameArt, type Hues } from "@/components/art/GameArt";
 import { useSound } from "@/components/fx/useSound";
 import { markOpened } from "@/app/jogos/[slug]/actions";
 import { registerCaseReplay } from "./case-replay";
 import { Disc } from "./Disc";
+import { openedKey } from "./opened-key";
 
 /*
  * First visit to a game: the sealed case of preview/tralked-jogo.html. Seal peel with an edge
  * glint, the front cover hinging open, the disc lifting and spinning, then the disc flies to its
  * slot on the page while the booklet grows into the page background and the page reveals.
  *
- * It is only a layer over a page that is complete without it: the stage is hidden in the server
- * HTML and only shown after hydration, when this visitor has not opened the game yet (account:
- * GameOpen; logged out: localStorage) and motion is allowed. "Pular" and Esc finish at once.
+ * It is only a layer over a page that is complete without it: nothing is in the server HTML. The
+ * stage is mounted (portalled into <body>) only after hydration, when this visitor has not opened
+ * the game yet (account: GameOpen; logged out: localStorage) and motion is allowed, so returning
+ * visitors never paint its canvases or fetch its cover. "Pular" and Esc finish at once. While it
+ * is open the rest of the document is `inert` and Tab cycles inside the dialog. Sound only plays
+ * after the visitor's own click (never on the 6 s auto-open), and the AudioContext is closed on
+ * unmount.
  *
- * The page root (#gp-root) carries `data-intro`: "pending" (set by an inline script before paint,
- * so the page does not flash before the case drops in), "stage" while the case is up, "flight"
- * while the disc flies. Page CSS veils sections and hides the hero disc while it is set.
- * Visibility and animation classes are driven imperatively on purpose: the timings are the
- * preview's, step by step, and React never renders those class names.
+ * The page root (#gp-root) carries `data-intro`: "pending" (set before paint by IntroVeil, so the
+ * page does not flash before the case drops in), "stage" while the case is up, "flight" while the
+ * disc flies. Page CSS veils sections and hides the hero disc while it is set. Visibility and
+ * animation classes are driven imperatively on purpose: the timings are the preview's, step by
+ * step, and React never renders those class names.
  */
 
 const ROOT_ID = "gp-root";
 const HOLD_ID = "gp-disc-hold";
 const TITLE_ID = "gp-title";
 const AUTO_OPEN_MS = 6000;
-import { openedKey } from "./opened-key";
 
 const CSS = `
-.gpc { --cw: min(280px, 34vw); --ch: calc(var(--cw) * 1.38); --case: #191b21; --case-2: #0e0f13; --case-rim: #24262e; --case-in: #121318;
-  position: fixed; inset: 0; z-index: 60; display: none; place-items: center; perspective: 1700px;
+.gpc { --cw: min(280px, 34vw); --ch: calc(var(--cw) * 1.38); --case: #191b21; --case-2: #0e0f13; --case-rim: #24262e; --case-in: #121318;  position: fixed; inset: 0; z-index: 60; display: none; place-items: center; perspective: 1700px;
   background: radial-gradient(ellipse 70% 60% at 50% 42%, #1a1c23 0%, var(--bg) 55%, #050507 100%); transition: opacity .9s ease; }
 .gpc.gpc-on { display: grid; }
 .gpc::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 40% 12% at 50% 84%, rgba(0,0,0,.6), transparent 70%); }
@@ -126,6 +130,29 @@ const root = () => document.getElementById(ROOT_ID);
 const lockScroll = (on: boolean) => {
   document.body.style.overflow = on ? "hidden" : "";
 };
+/** Makes everything in <body> but the stage inert (and restores it with `false`). */
+let inertWatch: MutationObserver | null = null;
+const inertBackground = (stage: HTMLElement | null, on: boolean) => {
+  const makeInert = (el: Node) => {
+    if (!(el instanceof HTMLElement) || el === stage || el.classList.contains("gpc-fly")) return;
+    if (el.hasAttribute("inert")) return;
+    el.setAttribute("inert", "");
+    el.dataset.gpInert = "";
+  };
+  inertWatch?.disconnect();
+  inertWatch = null;
+  if (on) {
+    Array.from(document.body.children).forEach(makeInert);
+    // Portals and toasts opened meanwhile join the background too.
+    inertWatch = new MutationObserver((records) => records.forEach((r) => r.addedNodes.forEach(makeInert)));
+    inertWatch.observe(document.body, { childList: true });
+  } else {
+    document.body.querySelectorAll<HTMLElement>(":scope > [data-gp-inert]").forEach((el) => {
+      el.removeAttribute("inert");
+      delete el.dataset.gpInert;
+    });
+  }
+};
 /** Shows the veiled page at once (skip, returning visitor): page CSS drops the transitions meanwhile. */
 const revealNow = () => {
   const r = root();
@@ -153,7 +180,11 @@ export function CaseIntro(props: CaseIntroProps) {
   const ui = useRef<HTMLDivElement>(null);
   const openBtn = useRef<HTMLButtonElement>(null);
   const run = useRef({ id: 0, running: false, timers: [] as number[], auto: 0, flies: [] as HTMLElement[] });
-  const openSequenceRef = useRef<() => Promise<void>>(async () => undefined);
+  const openSequenceRef = useRef<(withSound: boolean) => Promise<void>>(async () => undefined);
+  /** Sound is allowed only for a sequence the visitor started with a click. */
+  const soundOn = useRef(false);
+  /** Null: stage not mounted. Each request to show it (first visit, replay) gets a new `n`. */
+  const [staged, setStaged] = useState<{ auto: boolean; n: number } | null>(null);
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -161,6 +192,7 @@ export function CaseIntro(props: CaseIntroProps) {
 
   // ---------- Sound (Web Audio, only after a click; respects the site-wide mute) ----------
   const ctx = useCallback(() => {
+    if (!soundOn.current) return null;
     try {
       if (!audio.current) {
         const Ctor =
@@ -263,6 +295,7 @@ export function CaseIntro(props: CaseIntroProps) {
 
   const hideStage = useCallback(() => {
     stage.current?.classList.remove("gpc-on", "gpc-fade");
+    inertBackground(stage.current, false);
     lockScroll(false);
   }, []);
 
@@ -291,9 +324,11 @@ export function CaseIntro(props: CaseIntroProps) {
       }
       root()?.setAttribute("data-intro", "stage");
       stage.current?.classList.add("gpc-on");
+      inertBackground(stage.current, true);
       lockScroll(true);
       openBtn.current?.focus({ preventScroll: true });
-      if (autoOpen) run.current.auto = window.setTimeout(() => void openSequenceRef.current(), AUTO_OPEN_MS);
+      // The auto-open is not a gesture of the visitor: it plays silently.
+      if (autoOpen) run.current.auto = window.setTimeout(() => void openSequenceRef.current(false), AUTO_OPEN_MS);
     },
     [clearRun, resetStage],
   );
@@ -322,10 +357,11 @@ export function CaseIntro(props: CaseIntroProps) {
     return f;
   };
 
-  const openSequence = async () => {
+  const openSequence = async (withSound: boolean) => {
     const r = run.current;
     if (r.running) return;
     r.running = true;
+    soundOn.current = withSound;
     window.clearTimeout(r.auto);
     const id = r.id;
     const wait = (ms: number) =>
@@ -358,6 +394,7 @@ export function CaseIntro(props: CaseIntroProps) {
     if (booklet.current) booklet.current.style.visibility = "hidden";
     stage.current?.classList.add("gpc-fade");
     root()?.setAttribute("data-intro", "flight");
+    inertBackground(stage.current, false);
     lockScroll(false);
     const target = document.getElementById(HOLD_ID)?.getBoundingClientRect();
     requestAnimationFrame(() =>
@@ -398,14 +435,21 @@ export function CaseIntro(props: CaseIntroProps) {
       // Keep both records in sync (account opened elsewhere / opened here while logged out).
       if (!local || (account && !account.opened)) remember();
     } else {
-      showStage(true);
+      // Mounting the stage is the decision itself: returning visitors never mount it. It depends on
+      // browser-only state (localStorage, the motion preference), so it cannot be made while
+      // rendering or hydrating; it runs once, after hydration.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setStaged({ auto: true, n: 1 });
     }
-    const unregister = reduce ? () => undefined : registerCaseReplay(() => showStage(false));
+    const unregister = reduce
+      ? () => undefined
+      : registerCaseReplay(() => setStaged((s) => ({ auto: false, n: (s?.n ?? 0) + 1 })));
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && stage.current?.classList.contains("gpc-on")) finishInstant();
     };
     document.addEventListener("keydown", onKey);
     const r = run.current;
+    const stageEl = stage;
     return () => {
       unregister();
       document.removeEventListener("keydown", onKey);
@@ -413,11 +457,19 @@ export function CaseIntro(props: CaseIntroProps) {
       r.timers.forEach((t) => window.clearTimeout(t));
       window.clearTimeout(r.auto);
       r.flies.forEach((f) => f.remove());
+      inertBackground(stageEl.current, false);
       lockScroll(false);
+      void audio.current?.close().catch(() => undefined);
+      audio.current = null;
     };
     // Runs once per mount: the decision is made with the first props.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Show the stage once it is mounted, and again on every replay.
+  useEffect(() => {
+    if (staged) showStage(staged.auto);
+  }, [staged, showStage]);
 
   /** Keeps Tab inside the dialog while it is open. */
   const trapFocus = (e: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -437,8 +489,9 @@ export function CaseIntro(props: CaseIntroProps) {
     }
   };
 
+  if (!staged) return null;
   const upper = name.toUpperCase();
-  return (
+  return createPortal(
     <div
       ref={stage}
       className="gpc"
@@ -525,10 +578,11 @@ export function CaseIntro(props: CaseIntroProps) {
       </div>
       <div ref={ui} className="gpc-ui">
         <p>Primeira vez com este jogo</p>
-        <button ref={openBtn} type="button" className="gpc-open" onClick={() => void openSequence()}>
+        <button ref={openBtn} type="button" className="gpc-open" onClick={() => void openSequence(true)}>
           Abrir o lacre
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

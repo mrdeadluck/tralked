@@ -103,13 +103,14 @@ export type GameProfile = {
   similar: SimilarGame[];
 };
 
-/** Only absolute http(s) URLs (or same-site paths) reach `src`/`href`; anything else is dropped. */
+/** Only https URLs (or same-site paths) reach `src`/`href`: no mixed content, no other schemes. */
 export function safeMediaUrl(url: string | null | undefined): string | null {
   if (!url) return null;
-  if (url.startsWith("/") && !url.startsWith("//")) return url;
+  // A same-site path; "//host" and "/\host" are read by browsers as another host.
+  if (url.startsWith("/")) return url[1] === "/" || url[1] === "\\" ? null : url;
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : null;
+    return parsed.protocol === "https:" ? parsed.href : null;
   } catch {
     return null;
   }
@@ -145,7 +146,7 @@ const VIDEO_SOURCE: Record<string, string> = {
 
 type MediaRow = { id: string; kind: string; url: string | null; youtubeId: string | null; source: string; order: number };
 
-/** Playable videos only: an http(s) file or a valid YouTube id. Fixture rows without either are skipped. */
+/** Playable videos only: an https file or a valid YouTube id. Fixture rows without either are skipped. */
 export function playableVideos(rows: MediaRow[], poster: string | null): GameVideo[] {
   const videos: GameVideo[] = [];
   for (const row of rows) {
