@@ -6,20 +6,23 @@
  * seed twice yields the same data. Everything is written in one transaction.
  *
  * Ledger notes (lucas): real `achievement` entries are written for every achievement he
- * has unlocked in the seed (Hollow Knight fixture + the preview's recent feed). The rest of
- * his XP up to level 47 comes from ONE synthetic entry `source: 'seed'`, `sourceKey: 'baseline'`
- * (it stands in for the history of the other ~1,200 preview achievements). SkillProgress rows
- * are stored directly with the preview's levels, not derived from the ledger's `skills`.
- * The other players get a single `seed` baseline entry each.
+ * has unlocked in the seed (Hollow Knight fixture + the preview's recent feed); their skill
+ * points are derived (`skillPoints: null`). The rest of his XP and skill points up to the
+ * preview's state comes from ONE synthetic entry `source: 'seed'`, `sourceKey: 'baseline'`
+ * with explicit `skillPoints` (it stands in for the other ~1,200 preview achievements).
+ * SkillProgress rows are exactly `skillsFromLedger(ledger)`; the seed throws if that differs
+ * from the target levels. The other players get a single `seed` baseline entry each.
  */
+import { pathToFileURL } from "node:url";
 import hollowKnight from "../src/lib/integrations/steam/__fixtures__/hollow-knight.json";
 import { prisma } from "../src/lib/db";
 import { expFor, levelFromXp, xpForAchievement } from "../src/lib/engine/xp";
-import { skillNeed } from "../src/lib/engine/skills";
+import { skillNeed, skillPointsFor } from "../src/lib/engine/skills";
 import { toLocalDay } from "../src/lib/engine/streak";
 import type { MissionCondition } from "../src/lib/engine/missions";
 import { SKILLS, type SkillId, type SkillState } from "../src/lib/engine/types";
 import { vocationFor } from "../src/lib/engine/vocation";
+import { skillsFromLedger } from "../src/lib/progression/skills-from-ledger";
 import { FEED_ACHIEVEMENTS, GAMES, GAME_SLUG_BY_PREVIEW_ID } from "./seed-data/games";
 import { HK_GUIDE } from "./seed-data/guides";
 import { ARTICLES, AUTHOR_HANDLES } from "./seed-data/news";
@@ -50,6 +53,49 @@ function skillStates(levels: Record<SkillId, number>, fraction: (id: SkillId) =>
   ) as Record<SkillId, SkillState>;
 }
 
+/** Total points a skill needs to be at `state`, counted from level 1 with 0 points. */
+function totalPointsFor(state: SkillState): number {
+  let total = state.points;
+  for (let level = 1; level < state.level; level++) total += skillNeed(level);
+  return total;
+}
+
+/**
+ * Explicit per-skill points for a baseline entry: the target totals minus what the
+ * already-derived entries contribute. Throws if the derived entries overshoot.
+ */
+function baselineSkillPoints(
+  target: Record<SkillId, SkillState>,
+  derived: { xp: number; skills: string[] }[],
+): Record<string, number> {
+  const have: Record<string, number> = {};
+  for (const e of derived) {
+    for (const skill of e.skills) {
+      have[skill] = (have[skill] ?? 0) + skillPointsFor(e.xp, e.skills.length);
+    }
+  }
+  const result: Record<string, number> = {};
+  for (const id of SKILL_IDS) {
+    const missing = totalPointsFor(target[id]) - (have[id] ?? 0);
+    if (missing < 0) throw new Error(`Seed: derived points exceed target for ${id}`);
+    if (missing > 0) result[id] = missing;
+  }
+  return result;
+}
+
+function assertSkillsMatch(
+  who: string,
+  ledger: { xp: number; skills: string[]; skillPoints: Record<string, number> | null }[],
+  target: Record<SkillId, SkillState>,
+) {
+  const rebuilt = skillsFromLedger(ledger);
+  for (const id of SKILL_IDS) {
+    if (rebuilt[id].level !== target[id].level || rebuilt[id].points !== target[id].points) {
+      throw new Error(`Seed: ledger of ${who} does not reproduce skill ${id}`);
+    }
+  }
+}
+
 /** Monday (America/Sao_Paulo) of the current week, 'YYYY-MM-DD'. */
 function weekKey(date: Date): string {
   const day = toLocalDay(date);
@@ -63,7 +109,7 @@ function mustFind<T>(value: T | undefined | null, what: string): T {
   return value;
 }
 
-async function main() {
+export async function runSeed() {
   await prisma.$transaction(
     async (tx) => {
       // ---------- Users ----------
@@ -203,6 +249,7 @@ async function main() {
       const lucasTotalXp =
         expFor(LUCAS_LEVEL) +
         Math.round((expFor(LUCAS_LEVEL + 1) - expFor(LUCAS_LEVEL)) * LUCAS_LEVEL_FRACTION);
+      const lucasSkills = skillStates(LUCAS_SKILLS, (id) => LUCAS_SKILL_FRACTION[id]);
       const achievementEntries = unlocks.map((u) => ({
         userId: lucasId,
         source: "achievement",
@@ -214,6 +261,15 @@ async function main() {
       const achievementXp = achievementEntries.reduce((sum, e) => sum + e.xp, 0);
       const baselineXp = lucasTotalXp - achievementXp;
       if (baselineXp < 0) throw new Error("Seed: lucas's real unlocks exceed his target XP");
+      const baselinePoints = baselineSkillPoints(lucasSkills, achievementEntries);
+      assertSkillsMatch(
+        "lucas",
+        [
+          ...achievementEntries.map((e) => ({ ...e, skillPoints: null })),
+          { xp: baselineXp, skills: Object.keys(baselinePoints), skillPoints: baselinePoints },
+        ],
+        lucasSkills,
+      );
       await tx.xpLedgerEntry.createMany({
         data: [
           ...achievementEntries,
@@ -222,13 +278,13 @@ async function main() {
             source: "seed",
             sourceKey: "baseline",
             xp: baselineXp,
-            skills: [],
+            skills: Object.keys(baselinePoints),
+            skillPoints: baselinePoints,
             createdAt: daysAgo(400),
           },
         ],
       });
 
-      const lucasSkills = skillStates(LUCAS_SKILLS, (id) => LUCAS_SKILL_FRACTION[id]);
       const lucasLevel = levelFromXp(lucasTotalXp).level;
       if (lucasLevel !== LUCAS_LEVEL) {
         throw new Error(`Seed: lucas ended at level ${lucasLevel}, expected ${LUCAS_LEVEL}`);
@@ -272,8 +328,22 @@ async function main() {
         const states = skillStates(p.skills, () => 0.5);
         const totalXp =
           expFor(p.level) + Math.round((expFor(p.level + 1) - expFor(p.level)) * 0.5);
+        const points = baselineSkillPoints(states, []);
+        assertSkillsMatch(
+          p.handle,
+          [{ xp: totalXp, skills: Object.keys(points), skillPoints: points }],
+          states,
+        );
         await tx.xpLedgerEntry.create({
-          data: { userId: id, source: "seed", sourceKey: "baseline", xp: totalXp, skills: [], createdAt: daysAgo(400) },
+          data: {
+            userId: id,
+            source: "seed",
+            sourceKey: "baseline",
+            xp: totalXp,
+            skills: Object.keys(points),
+            skillPoints: points,
+            createdAt: daysAgo(400),
+          },
         });
         await tx.skillProgress.createMany({
           data: SKILL_IDS.map((skill) => ({ userId: id, skill, ...states[skill] })),
@@ -372,12 +442,8 @@ async function main() {
         missables: HK_GUIDE.missables,
         online: HK_GUIDE.online,
         overview: HK_GUIDE.overview,
-        warnings: [
-          ...HK_GUIDE.warnings,
-          ...HK_GUIDE.collectibles.map(
-            (c) => `Coletável: ${c.name} (${c.total} no total). ${c.note}`,
-          ),
-        ],
+        warnings: HK_GUIDE.warnings,
+        collectibles: HK_GUIDE.collectibles,
         usefulCount: HK_GUIDE.usefulCount,
         publishedAt: daysAgo(mustFind(HK_GUIDE.revisions.at(-1), "first revision").agoDays),
       };
@@ -477,9 +543,12 @@ async function main() {
   console.log(`Seed ok: ${games} games, ${articles} articles, ${users} users.`);
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(() => prisma.$disconnect());
+// Run only when executed directly (`tsx prisma/seed.ts`), not when imported by tests.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runSeed()
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(() => prisma.$disconnect());
+}

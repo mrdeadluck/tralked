@@ -43,10 +43,10 @@ model User {
 // ---------- Catalog ----------
 
 model Game {
-  id                    String   @id @default(cuid())
-  slug                  String   @unique
+  id                    String    @id @default(cuid())
+  slug                  String    @unique
   name                  String
-  steamAppId            Int      @unique
+  steamAppId            Int       @unique
   igdbId                Int?
   rawgId                Int?
   sgdbId                Int?
@@ -59,8 +59,8 @@ model Game {
   timeToBeatCompleteMin Int?
   platforms             String[]
   achievementCount      Int
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   skills       GameSkill[]
   achievements Achievement[]
@@ -78,7 +78,7 @@ model GameSkill {
 }
 
 model Achievement {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   gameId      String
   apiName     String
   name        String
@@ -104,6 +104,7 @@ model UserGame {
   game          Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   @@id([userId, gameId])
+  @@index([gameId])
 }
 
 model UserAchievement {
@@ -115,22 +116,36 @@ model UserAchievement {
   achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
 
   @@id([userId, achievementId])
+  @@index([achievementId])
+  @@index([userId, unlockedAt])
 }
 
 // ---------- RPG ----------
 
+/// Immutable XP ledger; level and skills are derived from it.
+///
+/// `source` / `sourceKey` conventions (sourceKey makes the entry idempotent per user):
+///   achievement -> achievementId
+///   platinum    -> gameId
+///   mission     -> missionId
+///   guide_vote  -> `${tipId}:${voterUserId}`
+///   seed        -> 'baseline' (synthetic entry, development seed data only)
+///
+/// Skill points: `skillPoints` holds explicit per-skill points ({"soulslike": 123}).
+/// When null, each skill in `skills` receives skillPointsFor(xp, skills.length).
 model XpLedgerEntry {
-  id        String   @id @default(cuid())
-  userId    String
-  /// achievement | platinum | mission | guide_vote | seed (seed data only)
-  source    String
-  sourceKey String
-  xp        Int
-  skills    String[]
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  userId      String
+  source      String
+  sourceKey   String
+  xp          Int
+  skills      String[]
+  skillPoints Json?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, source, sourceKey])
+  @@index([userId, createdAt])
 }
 
 model SkillProgress {
@@ -141,6 +156,7 @@ model SkillProgress {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, skill])
+  @@index([skill, level, points])
 }
 
 model UserStats {
@@ -152,6 +168,9 @@ model UserStats {
   streakBest    Int    @default(0)
   shields       Int    @default(0)
   user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([totalXp])
+  @@index([level])
 }
 
 model Mission {
@@ -175,7 +194,7 @@ model Mission {
 model Guide {
   id           String    @id @default(cuid())
   gameId       String    @unique
-  authorId     String
+  authorId     String?
   /// draft | review | published
   status       String
   version      String
@@ -187,12 +206,14 @@ model Guide {
   online       Int
   overview     String[]
   warnings     String[]
+  /// [{ name, total, description }]
+  collectibles Json      @default("[]")
   usefulCount  Int       @default(0)
   publishedAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   game         Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  author       User      @relation(fields: [authorId], references: [id])
+  author       User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
 
   steps     GuideStep[]
   notes     GuideAchievementNote[]
@@ -201,14 +222,14 @@ model Guide {
 }
 
 model GuideStep {
-  id                 String   @id @default(cuid())
-  guideId            String
-  order              Int
-  title              String
-  hours              String
-  body               String
+  id                  String   @id @default(cuid())
+  guideId             String
+  order               Int
+  title               String
+  hours               String
+  body                String
   achievementApiNames String[]
-  guide              Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  guide               Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
 
   progress GuideStepProgress[]
 
@@ -233,14 +254,16 @@ model GuideAchievementNote {
 model GuideTip {
   id        String   @id @default(cuid())
   guideId   String
-  authorId  String
+  authorId  String?
   body      String
   votes     Int      @default(0)
   createdAt DateTime @default(now())
   guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
-  author    User     @relation(fields: [authorId], references: [id])
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
 
   voters GuideVote[]
+
+  @@index([guideId])
 }
 
 model GuideVote {
@@ -250,6 +273,7 @@ model GuideVote {
   tip    GuideTip @relation(fields: [tipId], references: [id], onDelete: Cascade)
 
   @@id([userId, tipId])
+  @@index([tipId])
 }
 
 model GuideRevision {
@@ -257,10 +281,12 @@ model GuideRevision {
   guideId   String
   version   String
   summary   String
-  authorId  String
+  authorId  String?
   createdAt DateTime @default(now())
   guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
-  author    User     @relation(fields: [authorId], references: [id])
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([guideId])
 }
 
 model GuideStepProgress {
@@ -275,10 +301,10 @@ model GuideStepProgress {
 // ---------- Editorial ----------
 
 model Author {
-  id       String  @id @default(cuid())
-  handle   String  @unique
-  userId   String? @unique
-  user     User?   @relation(fields: [userId], references: [id])
+  id     String  @id @default(cuid())
+  handle String  @unique
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   articles Article[]
 }
@@ -313,9 +339,9 @@ model Article {
 model Family {
   id        String   @id @default(cuid())
   name      String
-  ownerId   String
+  ownerId   String?
   createdAt DateTime @default(now())
-  owner     User     @relation(fields: [ownerId], references: [id])
+  owner     User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
 
   members FamilyMember[]
   invites FamilyInvite[]

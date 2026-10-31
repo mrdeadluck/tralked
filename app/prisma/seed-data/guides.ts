@@ -28,16 +28,16 @@ export const HK_GUIDE = {
     "Todas as expansões são gratuitas e já fazem parte do jogo.",
   ],
   /**
-   * Collectibles (preview `HK.collect`). The schema has no dedicated table, so they are
-   * stored as extra `warnings` entries prefixed with "Coletável:" (totals only, no progress).
+   * Collectibles (preview `HK.collect`), stored in `Guide.collectibles` as
+   * `[{ name, total, description }]` (totals only, no per-user progress).
    */
   collectibles: [
-    { name: "Larvas", total: 46, note: "Marcador de larvas vendido por Iselda." },
-    { name: "Fragmentos de máscara", total: 16, note: "Cada 4 fragmentos viram uma máscara." },
-    { name: "Fragmentos de vaso", total: 9, note: "Cada 3 fragmentos viram um vaso de alma." },
-    { name: "Minério pálido", total: 6, note: "Usado para melhorar o ferrão." },
-    { name: "Amuletos", total: 40, note: "Inclui os amuletos das expansões." },
-    { name: "Chefes no Salão dos Deuses", total: 44, note: "Contagem usada nos panteões." },
+    { name: "Larvas", total: 46, description: "Marcador de larvas vendido por Iselda." },
+    { name: "Fragmentos de máscara", total: 16, description: "Cada 4 fragmentos viram uma máscara." },
+    { name: "Fragmentos de vaso", total: 9, description: "Cada 3 fragmentos viram um vaso de alma." },
+    { name: "Minério pálido", total: 6, description: "Usado para melhorar o ferrão." },
+    { name: "Amuletos", total: 40, description: "Inclui os amuletos das expansões." },
+    { name: "Chefes no Salão dos Deuses", total: 44, description: "Contagem usada nos panteões." },
   ],
   steps: [
     {
