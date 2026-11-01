@@ -18,7 +18,7 @@ export function ProfileHeader({ summary, section }: { summary: ProfileSummary; s
           summary.displayName.charAt(0).toUpperCase()
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[180px] flex-1">
         <span className="font-mono text-[10.5px] tracking-[0.14em] text-dim-2 uppercase">{section}</span>
         <h1 className="mt-1 text-[clamp(26px,3.4vw,36px)] leading-none font-black font-stretch-[125%] tracking-[-0.03em] break-words uppercase">
           <Link href={profilePath(summary.handle)} className="hover:text-acc">
@@ -29,7 +29,7 @@ export function ProfileHeader({ summary, section }: { summary: ProfileSummary; s
           @{summary.handle} · <span className="text-acc">{summary.vocation}</span> · Nível {summary.level}
         </p>
       </div>
-      <dl className="m-0 flex gap-px overflow-hidden rounded-[2px] border border-line bg-line">
+      <dl className="m-0 flex w-full gap-px overflow-hidden rounded-[2px] border border-line bg-line min-[641px]:w-auto [&>div]:flex-1">
         <div className="bg-surface px-4 py-2.5">
           <dt className="font-mono text-[10px] tracking-[0.12em] text-dim-2 uppercase">Horas jogadas</dt>
           <dd className="m-0 text-xl font-extrabold font-stretch-[112%] tabular-nums">{formatHours(summary.playtimeMin)}</dd>
