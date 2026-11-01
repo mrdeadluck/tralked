@@ -20,6 +20,7 @@
     "sample:rename": "tsx scripts/rename-sample-users.ts",
     "highscores:backfill": "tsx scripts/backfill-rank-stats.ts",
     "news:feeds": "tsx scripts/news-feeds.ts",
+    "games:repair-placeholders": "tsx scripts/repair-placeholder-games.ts",
     "postinstall": "prisma generate",
     "test:db": "vitest run src/lib/db.test.ts",
     "e2e": "playwright test",
