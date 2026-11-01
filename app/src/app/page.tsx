@@ -139,10 +139,10 @@ export default function Home() {
     <div className="flex flex-col gap-12">
       <HighlightsSection />
       <div className="flex flex-wrap items-start gap-12">
-        {/* Releases and the latest news share the left column; the sidebar keeps the right one. */}
+        {/* The latest news, then the releases, share the left column; the sidebar keeps the right one. */}
         <div className="flex min-w-0 flex-[1_1_600px] flex-col gap-12">
-          <ReleasesSection />
           <LatestSection />
+          <ReleasesSection />
         </div>
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
           <DiscordCard />

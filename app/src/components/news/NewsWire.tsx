@@ -236,9 +236,14 @@ export function NewsWire({
       track.style.transform = `translate3d(${x}px,0,0)`;
       mark();
     };
+    let frames = 0;
     const tick = (t: number) => {
       const dt = Math.min(0.05, (t - last) / 1000 || 0);
       last = t;
+      // Geometry can change without a resize (fonts, the stylesheet or art arriving after the first
+      // measure): stale offsets put the cards off screen while the caption still names one, so the
+      // cards are measured again about once a second.
+      if (++frames % 60 === 0) measure();
       if (glide) {
         const k = Math.min(1, (t - glide.t0) / GLIDE_MS);
         const e = 1 - Math.pow(1 - k, 3);
