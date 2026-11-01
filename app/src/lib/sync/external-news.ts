@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { normalizeTitle } from "@/lib/integrations/title-match";
 import { fetchFeed, resolveHost, type FeedItem, type ResolveHost } from "@/lib/integrations/rss";
+import { classifyHeadline, toNewsFeedArea, type CatalogMatch } from "@/lib/news/areas";
 
 /** Names shorter than this (normalized) only match with their exact case: "HK", "RE4". */
 const SHORT_NAME = 4;
@@ -9,7 +10,7 @@ type GameNames = { gameId: string; names: { text: string; short: boolean }[] };
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-function loadMatcher(games: { id: string; name: string; aliases: string[] }[]) {
+export function loadMatcher(games: { id: string; name: string; aliases: string[] }[]) {
   const list: GameNames[] = games.map((g) => ({
     gameId: g.id,
     names: [g.name, ...g.aliases]
@@ -29,7 +30,7 @@ function loadMatcher(games: { id: string; name: string; aliases: string[] }[]) {
    * longest match wins ("Hollow Knight Silksong" over "Hollow Knight"); a tie between two
    * games is ambiguous and matches nothing.
    */
-  return (title: string): string | null => {
+  return (title: string): CatalogMatch | null => {
     const normalized = ` ${normalizeTitle(title)} `;
     let best: { gameId: string; length: number } | null = null;
     let tie = false;
@@ -48,16 +49,17 @@ function loadMatcher(games: { id: string; name: string; aliases: string[] }[]) {
         }
       }
     }
-    return best && !tie ? best.gameId : null;
+    return best && !tie ? { gameId: best.gameId } : null;
   };
 }
 
 export type ExternalNewsResult = { processed: number; failed: number; created: number };
 
 /**
- * Cron job: reads every active RSS feed and stores the items that are about a catalog game
- * (matched by name or alias). Only title, link, publication name and date are kept, never the
- * text. Items are unique by URL, so re-reading a feed adds nothing.
+ * Cron job: reads every active RSS feed and stores the items that belong to the feed's area
+ * (GAMES: about a catalog game, matched by name or alias; ENTRETENIMENTO / TECNOLOGIA: see the
+ * rule in src/lib/news/areas.ts). Only title, link, publication name, date and area are kept,
+ * never the text. Items are unique by URL, so re-reading a feed adds nothing.
  */
 export async function syncExternalNews(
   fetchImpl: typeof fetch = globalThis.fetch,
@@ -82,10 +84,11 @@ export async function syncExternalNews(
       console.error(`News: could not read feed ${feed.name}`, error instanceof Error ? error.message : error);
       continue;
     }
+    const area = toNewsFeedArea(feed.area);
     const rows = items.flatMap((item) => {
-      const gameId = gameOf(item.title);
-      return gameId
-        ? [{ gameId, title: item.title, url: item.url, source: feed.name, publishedAt: item.publishedAt }]
+      const kept = classifyHeadline(area, item.title, gameOf(item.title));
+      return kept
+        ? [{ gameId: kept.gameId, title: item.title, url: item.url, source: feed.name, publishedAt: item.publishedAt, area }]
         : [];
     });
     const result = await prisma.externalNews.createMany({ data: rows, skipDuplicates: true });

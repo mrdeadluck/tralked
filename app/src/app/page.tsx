@@ -17,13 +17,15 @@ import {
   articleStory,
   buildNewsTabs,
   buildWireItems,
-  getExternalHeadlines,
+  getWireHeadlines,
   getHomeNews,
   getLatestArticles,
   getMostRead,
+  getPressHeadlines,
   getTodayMission,
   getTopPlayers,
   NEWS_TAG,
+  withPressHeadlines,
   type ArticleCard,
 } from "@/lib/queries/news";
 import { getReleasesCard, RELEASES_TAG } from "@/lib/queries/releases";
@@ -36,7 +38,7 @@ async function WireSection() {
   cacheLife("minutes");
   cacheTag(NEWS_TAG);
 
-  const [articles, external] = await Promise.all([getLatestArticles(10), getExternalHeadlines(6)]);
+  const [articles, external] = await Promise.all([getLatestArticles(10), getWireHeadlines(6)]);
   const items = buildWireItems(articles, external, new Date());
   return (
     <NewsWire
@@ -80,13 +82,13 @@ async function LatestSection() {
   cacheLife("minutes");
   cacheTag(NEWS_TAG);
 
-  const [{ latest }, mostRead] = await Promise.all([getHomeNews(), getMostRead(5)]);
+  const [{ latest }, mostRead, press] = await Promise.all([getHomeNews(), getMostRead(5), getPressHeadlines(6)]);
   const now = new Date();
   return (
     <section aria-label="Últimas notícias" className="flex min-w-0 flex-[1_1_600px] flex-col gap-1">
       <SectionHead title="Últimas notícias" aside={<Link href="/noticias">Todas as notícias →</Link>} />
       {latest.length > 0 ? (
-        <NewsTabs tabs={buildNewsTabs(latest, now)} mostRead={mostRead.map((a) => articleStory(a, now))} />
+        <NewsTabs tabs={withPressHeadlines(buildNewsTabs(latest, now), press, now)} mostRead={mostRead.map((a) => articleStory(a, now))} />
       ) : (
         <p className="py-6 text-[15px] text-muted">Nenhuma notícia publicada ainda.</p>
       )}

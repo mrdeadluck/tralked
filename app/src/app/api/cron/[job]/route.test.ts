@@ -11,9 +11,7 @@ const jobs = vi.hoisted(() => ({
   deleteOldNotifications: vi.fn(async () => ({ processed: 9 })),
   runReleasesJob: vi.fn(async () => ({ processed: 6, failed: 0 })),
   runIgdbCatalogJob: vi.fn(async () => ({ processed: 0, failed: 0, status: "disabled" })),
-  revalidateTag: vi.fn(),
 }));
-vi.mock("next/cache", () => ({ revalidateTag: jobs.revalidateTag }));
 vi.mock("@/lib/sync/releases", () => ({ runReleasesJob: jobs.runReleasesJob }));
 vi.mock("@/lib/sync/igdb-catalog", () => ({ runIgdbCatalogJob: jobs.runIgdbCatalogJob }));
 vi.mock("@/lib/notifications/retention", () => ({ deleteOldNotifications: jobs.deleteOldNotifications }));
@@ -25,6 +23,11 @@ vi.mock("@/lib/sync/user", () => ({ syncStaleUsers: jobs.syncStaleUsers }));
 vi.mock("@/lib/sync/platform-user", () => ({ syncStalePlatformAccounts: jobs.syncStalePlatformAccounts }));
 vi.mock("@/lib/sync/media", () => ({ syncStaleMedia: jobs.syncStaleMedia }));
 vi.mock("@/lib/sync/external-news", () => ({ syncExternalNews: jobs.syncExternalNews }));
+const cache = vi.hoisted(() => ({ revalidateTag: vi.fn() }));
+vi.mock("next/cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/cache")>()),
+  revalidateTag: cache.revalidateTag,
+}));
 
 import { GET } from "./route";
 
@@ -73,6 +76,16 @@ describe("GET /api/cron/[job]", () => {
 
   it("refreshes the pages that show releases after the releases job", async () => {
     await call("releases", `Bearer ${env.CRON_SECRET}`);
-    expect(jobs.revalidateTag).toHaveBeenCalledWith("releases", { expire: 0 });
+    expect(cache.revalidateTag).toHaveBeenCalledWith("releases", { expire: 0 });
+  });
+
+  it("news refreshes the cached news views only when headlines were added", async () => {
+    await call("news", `Bearer ${env.CRON_SECRET}`);
+    expect(cache.revalidateTag).toHaveBeenCalledWith("news", "max");
+
+    cache.revalidateTag.mockClear();
+    jobs.syncExternalNews.mockResolvedValueOnce({ processed: 2, failed: 0, created: 0 });
+    await call("news", `Bearer ${env.CRON_SECRET}`);
+    expect(cache.revalidateTag).not.toHaveBeenCalled();
   });
 });

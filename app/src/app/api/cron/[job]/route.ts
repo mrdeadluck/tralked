@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { CronJob } from "@/lib/cron/schedules";
 import { env } from "@/lib/env";
 import { deleteOldNotifications } from "@/lib/notifications/retention";
+import { NEWS_TAG } from "@/lib/queries/news";
 import { refreshRarity, syncCatalog } from "@/lib/sync/catalog";
 import { syncExternalNews } from "@/lib/sync/external-news";
 import { syncStaleMedia } from "@/lib/sync/media";
@@ -36,7 +37,12 @@ const JOBS: Record<CronJob, () => Promise<{ processed: number; failed?: number }
   users: () => syncStaleUsers(),
   platforms: () => syncStalePlatformAccounts(),
   media: () => syncStaleMedia(),
-  news: () => syncExternalNews(),
+  news: async () => {
+    const result = await syncExternalNews();
+    // New headlines show on the cached news views (home, /noticias, articles): stale-while-revalidate.
+    if (result.created > 0) revalidateTag(NEWS_TAG, "max");
+    return result;
+  },
   // Daily: notifications older than 90 days (they may quote people who left).
   notifications: () => deleteOldNotifications(),
   // Hourly: full Steam catalog (app list, popularity, details), 50 s in all.

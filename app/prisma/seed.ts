@@ -38,7 +38,9 @@ import { createIgdbCatalogFixture } from "../src/lib/integrations/igdb/catalog-f
 import { fixtureReleaseList } from "../src/lib/integrations/steam/releases-fixture";
 import { runReleasesJob } from "../src/lib/sync/releases";
 import { markdownToBlocks } from "./seed-data/blocks";
+import { RECOMMENDED_FEEDS } from "../src/lib/news/feed-catalog";
 import {
+  AREA_EXTERNAL_NEWS,
   COMMENTS,
   EXAMPLE_API_KEY,
   FORUM_CATEGORIES,
@@ -625,6 +627,30 @@ export async function runSeed() {
           where: { url: f.url },
           create: { ...f, active: false },
           update: { name: f.name, active: false },
+        });
+      }
+      // Plan 4 F7: the curated Entretenimento/Tecnologia feeds, paused so dev and tests never
+      // fetch the internet (`pnpm news:feeds` adds them active on a real database). A feed that
+      // already exists is left as the admin set it (active, name, area) on a re-seed.
+      for (const f of RECOMMENDED_FEEDS) {
+        await tx.newsFeed.upsert({
+          where: { url: f.url },
+          create: { name: f.name, url: f.url, area: f.area, active: false },
+          update: {},
+        });
+      }
+      for (const n of AREA_EXTERNAL_NEWS) {
+        const data = {
+          gameId: n.gameSlug ? gid(n.gameSlug) : null,
+          title: n.title,
+          source: n.source,
+          area: n.area,
+          publishedAt: hoursAgo(n.agoHours),
+        };
+        await tx.externalNews.upsert({
+          where: { url: n.url },
+          create: { url: n.url, ...data, fetchedAt: hoursAgo(1) },
+          update: data,
         });
       }
       for (const n of HK_EXTERNAL_NEWS) {

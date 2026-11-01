@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useId, useRef, useState, useTransition, type FormEvent } from "react";
 import { createKeyAction } from "@/app/admin/robos/actions";
 import { Button } from "@/components/ui/Button";
-import { HINT, INPUT, LABEL, SMALL_BUTTON } from "./ui";
+import { BUTTON_TONE, HINT, INPUT, LABEL, SMALL_BUTTON, SMALL_BUTTON_SHAPE } from "./ui";
 
 const SCOPES = [
   { id: "articles:write", label: "articles:write", hint: "Criar e editar notícias próprias" },
@@ -72,7 +72,7 @@ export function KeyCreator() {
               spellCheck={false}
               className={`${INPUT} min-w-0 flex-1 font-mono text-[13px]`}
             />
-            <button type="button" onClick={copy} className={`${SMALL_BUTTON} h-11`}>
+            <button type="button" onClick={copy} className={`${SMALL_BUTTON_SHAPE} h-11 ${BUTTON_TONE.default}`}>
               <span aria-live="polite">{copied === "copied" ? "Copiada" : copied === "failed" ? "Selecione e copie" : "Copiar"}</span>
             </button>
           </div>
