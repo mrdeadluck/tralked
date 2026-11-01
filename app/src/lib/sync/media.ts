@@ -103,19 +103,25 @@ export async function syncGameMedia(
 }
 
 /**
- * Cron job: fills the official media of `limit` games that have none from IGDB yet, picked at
- * random among the candidates so games IGDB has nothing for cannot starve the rest.
+ * Cron job: fills the official media of `limit` games that have none from IGDB yet: the most
+ * popular half first, the rest at random among the candidates.
  */
 export async function syncStaleMedia(limit = 20): Promise<{ processed: number; failed: number }> {
   const candidates = await prisma.game.findMany({
     // Stubs of the full Steam catalog (name only) wait for their store details first.
     where: { stub: false, media: { none: { source: "igdb" } } },
-    select: { id: true },
+    select: { id: true, popularity: true },
   });
-  const picked = candidates
+  // Half the run goes to the most popular games (those the news and players show most), the other
+  // half is picked at random so games IGDB has nothing for cannot starve the rest.
+  const popular = [...candidates].sort((a, b) => b.popularity - a.popularity).slice(0, Math.ceil(limit / 2));
+  const chosen = new Set(popular.map((c) => c.id));
+  const random = candidates
+    .filter((c) => !chosen.has(c.id))
     .map((c) => ({ id: c.id, sort: Math.random() }))
     .sort((a, b) => a.sort - b.sort)
-    .slice(0, limit);
+    .slice(0, limit - popular.length);
+  const picked = [...popular, ...random];
   let processed = 0;
   let failed = 0;
   for (const { id } of picked) {

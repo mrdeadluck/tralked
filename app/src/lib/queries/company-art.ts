@@ -31,6 +31,11 @@ export const COMPANIES: { pattern: RegExp; names: string[] }[] = [
   { pattern: /FromSoftware/i, names: ["FromSoftware"] },
 ];
 
+/** IGDB serves several sizes by URL: wide art on the site uses the 1080p one (covers come at 264 px). */
+export function wideArt(url: string): string {
+  return url.replace(/(images\.igdb\.com\/igdb\/image\/upload\/)t_[a-z0-9_]+\//, "$1t_1080p/");
+}
+
 /** The companies named in `text`, in the order of COMPANIES (pure; tested). */
 export function companiesIn(text: string): string[][] {
   return COMPANIES.filter((c) => c.pattern.test(text)).map((c) => c.names);
@@ -92,7 +97,8 @@ async function companyGames(names: string[]): Promise<CompanyGames> {
   });
   const seen = new Set<string>();
   return games.flatMap((g) => {
-    const url = g.heroUrl ?? g.coverUrl;
+    const found = g.heroUrl ?? g.coverUrl;
+    const url = found ? wideArt(found) : null;
     if (!url || seen.has(url)) return [];
     seen.add(url);
     return [{ name: g.name, url }];

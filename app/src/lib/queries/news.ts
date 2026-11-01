@@ -14,7 +14,7 @@ import { toLocalDay } from "@/lib/engine/streak";
 import { NEWS_FEED_AREA_LABEL, type NewsFeedArea } from "@/lib/news/areas";
 import { timeAgo } from "@/lib/time-ago";
 
-import { companyArt, pickIndex, withCompanyArt } from "./company-art";
+import { companyArt, pickIndex, wideArt, withCompanyArt } from "./company-art";
 
 // Plain, testable queries. Caching is applied by the calling components ("use cache").
 
@@ -178,8 +178,8 @@ function gameScene(games: GameRow[], seed: string): string | null {
     const wide = [g.heroUrl, ...g.media.filter((m) => m.kind === "screenshot").map((m) => m.url)].filter(
       (url): url is string => Boolean(url && url.startsWith("https://")),
     );
-    if (wide.length > 0) return wide[pickIndex(seed, wide.length)];
-    if (g.coverUrl) return g.coverUrl;
+    if (wide.length > 0) return wideArt(wide[pickIndex(seed, wide.length)]);
+    if (g.coverUrl) return wideArt(g.coverUrl);
   }
   return null;
 }

@@ -53,6 +53,7 @@ async function FrontSection() {
         items={buildWireItems(articles, external, now)}
         description="Da redação e da imprensa de games, atualizado a cada hora"
         label="Notícias em movimento"
+        className="tkw-compact"
       />
       <section aria-label="Notícias por categoria" className="flex flex-col gap-1">
         <SectionHead title="Por categoria" />

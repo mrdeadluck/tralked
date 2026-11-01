@@ -29,6 +29,8 @@ body:has(.tkw) { overflow-x: clip; }
 .tkw-head p { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
 .tkw-stage { position: relative; padding: 46px 0; cursor: grab; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .tkw-stage[data-dragging] { cursor: grabbing; }
+.tkw-compact .tkw-stage { zoom: .55; }
+.tkw-compact { padding-block: 24px; }
 .tkw-track { display: flex; gap: ${GAP}px; width: max-content; will-change: transform; }
 .tkw-lens { position: absolute; left: 50%; top: 50%; width: 330px; height: 404px; translate: -50% -50%; border: 1px solid rgba(236,236,230,.22); border-radius: 22px; pointer-events: none; z-index: 2; }
 .tkw-lens::after { content: ""; position: absolute; left: 50%; bottom: -14px; width: 6px; height: 6px; translate: -50% 0; background: var(--acc); }
