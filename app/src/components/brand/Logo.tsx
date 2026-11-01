@@ -6,7 +6,7 @@ type LogoProps = {
   size?: 44 | 34;
 };
 
-/** Escudo com o monograma T no acento e o chevron interno no roxo da marca. */
+/** Monograma "TLK": T na cor do texto, L no roxo do logo, K no acento. */
 export function Emblem({ size, className = "" }: { size: number; className?: string }) {
   return (
     <svg
@@ -16,13 +16,14 @@ export function Emblem({ size, className = "" }: { size: number; className?: str
       aria-hidden="true"
       className={`flex-none ${className}`}
     >
-      <path d={EMBLEM.d} fill="var(--acc)" />
-      <path d={EMBLEM.chevron} fill="var(--brand-2)" />
+      <path d={EMBLEM.t} fill="currentColor" />
+      <path d={EMBLEM.l} fill="var(--logo-purple)" />
+      <path d={EMBLEM.k} fill="var(--acc)" />
     </svg>
   );
 }
 
-/** Logotipo "TRALKED": letras na cor do texto (currentColor), o K no acento (ou em `--wordmark-k`). */
+/** Logotipo "TRALKED": letras na cor do texto (currentColor), o L no roxo do logo (ou `--wordmark-l`), o K no acento (ou `--wordmark-k`). */
 export function Wordmark({ height, className = "", label }: { height: number; className?: string; label?: string }) {
   return (
     <svg
@@ -33,6 +34,7 @@ export function Wordmark({ height, className = "", label }: { height: number; cl
       {...(label ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
     >
       <path d={WORDMARK.d} fill="currentColor" fillRule="evenodd" />
+      <path d={WORDMARK.l} fill="var(--wordmark-l, var(--logo-purple))" />
       <path d={WORDMARK.k} fill="var(--wordmark-k, var(--acc))" />
     </svg>
   );
@@ -42,7 +44,8 @@ export function Logo({ size = 44 }: LogoProps) {
   const full = size === 44;
   return (
     <span className="flex flex-none items-center gap-3 text-text">
-      <Emblem size={size} />
+      {/* The TLK monogram is wide (≈1.9:1): it sits a bit shorter than the old square badge. */}
+      <Emblem size={Math.round(size * 0.7)} />
       <span className="flex flex-col gap-[7px]">
         <Wordmark height={full ? 20 : 18} label="Tralked" />
         {full ? (
