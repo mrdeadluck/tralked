@@ -395,7 +395,7 @@ const weekOf = (ms: number) => Math.floor(ms / PROBE_RECHECK_MS);
  * re-checked at least weekly), or when its catalog data changed since then (refresh, rarity).
  */
 /** Games other players own that one sync asks Steam about for this user (see borrowedCandidates). */
-const BORROWED_PER_SYNC = 40;
+const BORROWED_PER_SYNC = 80;
 const borrowedKey = (userId: string) => `steam-borrowed:${userId}`;
 
 /**
@@ -407,15 +407,18 @@ const borrowedKey = (userId: string) => `steam-borrowed:${userId}`;
 async function borrowedCandidates(userId: string, listed: Set<number>): Promise<SteamOwnedGame[]> {
   const cursor = await prisma.syncCursor.findUnique({ where: { key: borrowedKey(userId) } });
   const tried = new Set(Array.isArray(cursor?.value) ? (cursor.value as number[]) : []);
+  // Most achievements first: those are the ones worth asking about.
   const rows = await prisma.$queryRaw<{ appid: number }[]>`
-    SELECT DISTINCT g."steamAppId" AS appid
+    SELECT g."steamAppId" AS appid, MAX(g."achievementCount") AS achievements
     FROM "UserGame" ug JOIN "Game" g ON g.id = ug."gameId"
     WHERE ug.platform = 'steam' AND ug."userId" <> ${userId} AND g."steamAppId" IS NOT NULL
       AND g."achievementCount" > 0
       AND NOT EXISTS (
         SELECT 1 FROM "UserGame" mine
         WHERE mine."userId" = ${userId} AND mine."gameId" = g.id AND mine.platform = 'steam'
-      )`;
+      )
+    GROUP BY g."steamAppId"
+    ORDER BY achievements DESC`;
   return rows
     .map((r) => Number(r.appid))
     .filter((appId) => !listed.has(appId) && !tried.has(appId))
