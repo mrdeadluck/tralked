@@ -28,12 +28,15 @@ describe.skipIf(!reachable)("news queries (seeded database)", () => {
     await prisma.$disconnect();
   });
 
-  it("getHomeNews returns the main highlight, 4 side highlights and the latest list", async () => {
+  it("getHomeNews returns the main highlight, up to 4 side highlights of the week and the latest list", async () => {
     const { getHomeNews } = await import("./news");
     const { hero, side, latest } = await getHomeNews();
     expect(hero?.featured).toBe(2);
-    expect(side).toHaveLength(4);
-    expect(side.every((a) => a.featured === 1)).toBe(true);
+    // Side highlights: the week's articles with most engagement first, then the most recent.
+    expect(side.length).toBeLessThanOrEqual(4);
+    expect(side.some((a) => a.id === hero?.id)).toBe(false);
+    const weekAgo = Date.now() - 7 * 86_400_000;
+    expect(side.every((a) => a.publishedAt.getTime() >= weekAgo)).toBe(true);
     expect(latest.length).toBeGreaterThan(0);
     expect(latest.every((a) => a.featured === 0)).toBe(true);
     const times = latest.map((a) => a.publishedAt.getTime());

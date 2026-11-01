@@ -266,10 +266,11 @@ export async function getHomeNews(): Promise<HomeNews> {
       orderBy: { publishedAt: "desc" },
       select: cardSelect,
     }),
+    // Highlights pool: the last week's articles (any level), ranked below by engagement and recency.
     prisma.article.findMany({
-      where: { ...PUBLISHED, featured: 1 },
+      where: { ...PUBLISHED, publishedAt: { gte: new Date(Date.now() - 7 * 86_400_000) } },
       orderBy: { publishedAt: "desc" },
-      take: 4,
+      take: 60,
       select: cardSelect,
     }),
     prisma.article.findMany({
@@ -281,9 +282,21 @@ export async function getHomeNews(): Promise<HomeNews> {
   ]);
   // No main highlight (unfeatured or archived by the newsroom): the newest article takes its place.
   const hero = main ?? latest[0] ?? side[0] ?? null;
+  // Four highlights next to the main one: the two with most engagement (likes, comments) of the
+  // week, then the most recent ones.
+  const pool = side.filter((a) => a.id !== hero?.id);
+  const engagement = (a: (typeof pool)[number]) => a.likes * 3 + a.comments * 5;
+  const picked = new Map<string, (typeof pool)[number]>();
+  for (const a of [...pool].sort((x, y) => engagement(y) - engagement(x)).slice(0, 2)) {
+    if (engagement(a) > 0) picked.set(a.id, a);
+  }
+  for (const a of pool) {
+    if (picked.size >= 4) break;
+    picked.set(a.id, a);
+  }
   const [heroCards, sideCards, latestCards] = await Promise.all([
     withCompanyArt(hero ? [toCard(hero)] : []),
-    withCompanyArt(side.filter((a) => a.id !== hero?.id).map(toCard)),
+    withCompanyArt([...picked.values()].map(toCard)),
     withCompanyArt(latest.filter((a) => a.id !== hero?.id).map(toCard)),
   ]);
   return { hero: heroCards[0] ?? null, side: sideCards, latest: latestCards };

@@ -85,7 +85,7 @@ async function LatestSection() {
   const [{ latest }, mostRead, press] = await Promise.all([getHomeNews(), getMostRead(5), getPressHeadlines(6)]);
   const now = new Date();
   return (
-    <section aria-label="Últimas notícias" className="flex min-w-0 flex-[1_1_600px] flex-col gap-1">
+    <section aria-label="Últimas notícias" className="flex min-w-0 flex-col gap-1">
       <SectionHead title="Últimas notícias" aside={<Link href="/noticias">Todas as notícias →</Link>} />
       {latest.length > 0 ? (
         <NewsTabs tabs={withPressHeadlines(buildNewsTabs(latest, now), press, now)} mostRead={mostRead.map((a) => articleStory(a, now))} />
@@ -138,9 +138,12 @@ export default function Home() {
   return (
     <div className="flex flex-col gap-12">
       <HighlightsSection />
-      <ReleasesSection />
       <div className="flex flex-wrap items-start gap-12">
-        <LatestSection />
+        {/* Releases and the latest news share the left column; the sidebar keeps the right one. */}
+        <div className="flex min-w-0 flex-[1_1_600px] flex-col gap-12">
+          <ReleasesSection />
+          <LatestSection />
+        </div>
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
           <DiscordCard />
           <Suspense fallback={sidebarFallback}>

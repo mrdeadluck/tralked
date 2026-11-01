@@ -59,6 +59,13 @@ const CSS = `
 .tkt-most a { font-weight: 700; font-size: 14.5px; line-height: 1.25; }
 .tkt-most a:hover { color: var(--acc); }
 .tkt-most small { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 4px; }
+.tkt-next { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; list-style: none; margin: 0; padding: 0; }
+.tkt-next a { display: flex; gap: 12px; align-items: center; padding: 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); }
+.tkt-next a:hover strong { color: var(--acc); }
+.tkt-thumb { position: relative; flex: none; width: 112px; height: 64px; border-radius: 2px; overflow: hidden; }
+.tkt-next span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.tkt-next strong { font-weight: 700; font-size: 14px; line-height: 1.25; }
+.tkt-next small { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
 .tkt-empty { grid-column: 1 / -1; padding: 40px 0; color: var(--muted); }
 .tkt-more { grid-column: 1 / -1; justify-self: start; font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--acc); }
 .tkt-more:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -127,6 +134,8 @@ function Panel({ tab, mostRead, mostReadTitle }: { tab: NewsTab; mostRead: Story
   }
   const [lead, ...rest] = tab.stories;
   const secondary = rest.slice(0, 2);
+  // Ten stories in all: the lead, two secondary and a compact list of the next seven.
+  const more = rest.slice(2, 9);
   return (
     <>
       <StoryLink story={lead} className="tkt-lead" style={delay(0)}>
@@ -164,6 +173,22 @@ function Panel({ tab, mostRead, mostReadTitle }: { tab: NewsTab; mostRead: Story
       {Array.from({ length: 2 - secondary.length }, (_, i) => (
         <div key={`gap-${i}`} className="tkt-sec" style={{ visibility: "hidden" }} aria-hidden="true" />
       ))}
+      {more.length > 0 ? (
+        <ul className="tkt-next" style={delay(3)}>
+          {more.map((story) => (
+            <li key={story.id}>
+              <StoryLink story={story}>
+                <GameArt className="tkt-thumb" seed={story.seed} hues={story.hues} imageUrl={story.imageUrl} width={224} height={128} />
+                <span>
+                  <small>{story.kicker}</small>
+                  <strong>{story.title}</strong>
+                  <small>{story.when}</small>
+                </span>
+              </StoryLink>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <div className="tkt-most" style={delay(3)}>
         <h3>{mostReadTitle}</h3>
         <ol>
