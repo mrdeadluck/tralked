@@ -10,6 +10,7 @@ export const CRON_JOBS = [
   "steam-catalog",
   "releases",
   "igdb-catalog",
+  "highscores",
 ] as const;
 export type CronJob = (typeof CRON_JOBS)[number];
 
@@ -28,4 +29,5 @@ export const CRON_SCHEDULES: { path: `/api/cron/${CronJob}`; schedule: string }[
   { path: "/api/cron/steam-catalog", schedule: "20 * * * *" },
   { path: "/api/cron/releases", schedule: "40 */6 * * *" },
   { path: "/api/cron/igdb-catalog", schedule: "50 * * * *" },
+  { path: "/api/cron/highscores", schedule: "5 3 * * *" },
 ];

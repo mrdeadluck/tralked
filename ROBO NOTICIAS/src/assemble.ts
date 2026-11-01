@@ -208,7 +208,21 @@ export type AssembleStory = {
   candidates?: { slug: string }[];
 };
 
-export type AssembleOpts = { insights: Map<string, Insights>; updatedAt?: Date };
+export type AssembleOpts = {
+  insights: Map<string, Insights>;
+  updatedAt?: Date;
+  /** Follow-ups: the earlier article of the case, linked right after "Em 3 pontos" (https only). */
+  parent?: { title: string; url: string };
+};
+
+/** `Entenda o caso: [title](url)`, or null when the link would not be a safe https link. */
+function parentLink(parent: { title: string; url: string }): ContentBlock | null {
+  const url = parent.url.trim();
+  if (!isHttps(url) || /[\s()]/.test(url)) return null;
+  const title = clip(plain(parent.title).replace(/[[\]]/g, ""), 200);
+  if (!title) return null;
+  return paragraph(`Entenda o caso: [${title}](${url})`);
+}
 
 export function assemble(draft: Draft, story: AssembleStory, opts: AssembleOpts): ArticlePayload {
   const blocks: ContentBlock[] = [];
@@ -217,6 +231,9 @@ export function assemble(draft: Draft, story: AssembleStory, opts: AssembleOpts)
 
   const pontos = listItems(draft.pontos);
   if (pontos.length > 0) blocks.push(heading("Em 3 pontos"), list(pontos));
+
+  const link = opts.parent ? parentLink(opts.parent) : null;
+  if (link) blocks.push(link);
 
   for (const block of draft.corpo) {
     const mapped = bodyBlock(block);

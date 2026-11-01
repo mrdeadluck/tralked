@@ -82,6 +82,8 @@ A Steam é a exceção: sem `STEAM_API_KEY` ela usa as páginas públicas da com
 
 **Biblioteca completa e horas (Plano 4).** Com `STEAM_API_KEY`, a sincronização grava a biblioteca Steam inteira (`GetOwnedGames` com `include_appinfo` e `include_played_free_games`, inclusive jogos nunca jogados) com horas por jogo, horas das últimas 2 semanas e última vez jogado (`UserGame.playtimeMin`, `playtime2WeeksMin`, `lastPlayedAt`); jogos fora do catálogo entram como entradas só com nome (`Game.stub`). Conquistas são lidas só dos jogos jogados desde a última leitura (`UserGame.checkedPlaytimeMin`), dentro do mesmo limite de 45 s; o que sobrar continua na próxima. A lista de desejos vem de `IWishlistService/GetWishlist` (também sem chave, para listas públicas) e é substituída a cada sincronização (`WishlistItem`). PSN (`gamelist/v2`, `playDuration`) e Xbox (estatística `MinutesPlayed` via OpenXBL) gravam as horas de todos os jogos jogados, com ou sem troféus; o RetroAchievements informa segundos (convertidos para minutos). Cada marco de horas acumuladas por jogo e plataforma paga XP uma vez (ledger `source = 'playtime'`, `sourceKey = '<plataforma>:<gameId>:<marco>'`, datado no pagamento; só horas reais informadas pela plataforma). **Nada abaixo de 5 h num jogo** (contra "idle farming"): o primeiro marco pago, 5 h, vale o acumulado até ele, `round(2000 · 5^0,7)`; os seguintes (10, 25, 50, 100, 250, 500, 1000, 2500, 5000 e 10000 h) valem `round(2000 · (m^0,7 − anterior^0,7))`. Limites por usuário (`src/lib/sync/playtime.ts`): no máximo **10 jogos novos** começam a render horas por dia UTC (um jogo "começa" quando seu primeiro marco é pago; os que passarem do limite ficam para os dias seguintes, os mais jogados primeiro) e no máximo **150 jogos** rendem horas na vida toda (o mesmo jogo em outra plataforma não conta de novo; jogos que já rendem continuam rendendo marcos novos; os que passarem desse limite nunca rendem). Desconectar ou perder a conta numa reivindicação anula esse XP como o resto, e marcos anulados nunca pagam de novo. Atributos novos: **Resistência** (`round(10 · horas totais^0,7)`) e **Acervo** (10 por jogo jogado + 5 por jogo possuído e nunca jogado). Leitura para o perfil: `getUserLibrary`, `getUserWishlist` e `getPlaytimeTotals` em `src/lib/library/queries.ts`.
 
+**Highscores (Plano 4).** `/highscores` tem pódio animado do top 3, números que sobem, barras de XP/progresso, setas de subida e queda e a barra fixa "Você está aqui" (posição, mudança e quanto falta para alcançar quem está logo acima). Categorias: Nível, Horas jogadas, Conquistas, Raras e lendárias (até 20% / até 3% dos jogadores), Platinas e 100%, Acervo, cada uma por plataforma (`/highscores/horas/psn`), e por gênero (`/highscores/genero/rpg`); os links antigos `?skill=` redirecionam. Cada ranking é uma leitura indexada: os totais por usuário e plataforma ficam em `UserRankStats`, regravados a cada recompute (`src/lib/highscores/`); o ranking de nível usa `UserStats` e o de gênero `SkillProgress`. As páginas são pré-renderadas com os dados públicos em cache (tag `highscores`, alguns minutos; funcionam sem JS) e a parte do visitante é uma ilha dinâmica. As setas comparam com a foto diária de cada ranking (`RankSnapshot`, cron `highscores`). Em bancos anteriores, `pnpm highscores:backfill --dry-run` mostra e `pnpm highscores:backfill --snapshot` grava os totais de todos os usuários e tira a foto do dia. Toda a animação para com `prefers-reduced-motion`.
+
 Um app que a Steam lista sem nome (ainda fora da lista de apps importada) entra como `Jogo <appid> da Steam`, com o slug provisório `jogo-<appid>-da-steam`, e continua `stub` (fora das listagens) enquanto o nome for esse. Quando os detalhes (ou o IGDB) trazem o nome real, o slug provisório passa a ser o do nome real: ele nunca foi listado, pré-renderizado nem entrou no sitemap, e as páginas sempre linkam pelo slug atual; jogos com nome real nunca mudam de slug. PSN/Xbox/RA casam títulos com o catálogo listado por nome normalizado e com os stubs só por nome exato (sem diferenciar maiúsculas), um a um, sem carregar os ~150 mil nomes; títulos só com horas (sem troféus) não consultam o IGDB, e o passo de horas respeita o prazo da execução (o resto continua na próxima). No Xbox, os títulos cujos minutos já foram pedidos ficam guardados (`SyncCursor`, por conta e jogador) e só são pedidos de novo quando jogados outra vez. Num build de produção, `STEAM_MODE=fixture` só vale com `PLATFORM_FIXTURES=1` ou `STEAM_FIXTURES=1` (modos de teste, nunca num deploy real; o e2e usa o segundo).
 
 ## E-mail transacional (Resend)
@@ -164,7 +166,7 @@ Um perfil importado não tem e-mail nem senha: quem reivindicar essa Steam (cód
 
 ## Cron
 
-Dez jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
+Onze jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
 
 | Endpoint | Faz |
 | --- | --- |
@@ -178,6 +180,7 @@ Dez jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame 
 | `/api/cron/steam-catalog` | Catálogo completo da Steam, em 50 s por execução: (1) até 40% do tempo importando a lista de jogos da loja (`IStoreService/GetAppList`, 10 mil por página, exige `STEAM_API_KEY`) como entradas só com nome (`Game.stub`, fora das listagens, do sitemap e dos seletores), retomando pelo `last_appid` guardado em `SyncCursor`; terminada uma volta, as seguintes pedem só o que mudou (`if_modified_since`); (2) uma página do SteamSpy (os mil mais possuídos, girando pelas 10 primeiras) define `Game.popularity`; (3) no tempo que sobra, detalhes da loja em pt-BR (resumo, desenvolvedora, data, nota; nunca preço), tags (habilidades), conquistas com raridade e artes do CDN da Steam pelo appid (capa 600×900, hero e logo conferidos com `HEAD` antes de gravar; sem capa, SteamGridDB e depois IGDB), na ordem: jogos que alguém abriu, jogos que alguém tem ou deseja, os mais populares. Offline (`STEAM_MODE=fixture`) só a lista de apps da fixture é importada. |
 | `/api/cron/releases` | Lançamentos (Plano 4, F10), em 50 s: (1) **Steam, sem chave**: as listas "lançamentos populares" e "em breve populares" da loja (`store.steampowered.com/search/results/?filter=popularnew\|popularcomingsoon&category1=998&infinite=1`, o JSON por trás das páginas da loja; 2 páginas de 50 cada, por popularidade, com data em pt-BR, ou o texto da loja quando não é um dia, ex. "4º trimestre de 2026"); jogos desconhecidos viram entradas só com nome (`ensureSteamGames`) e os 40 mais populares ainda sem detalhes vão para o começo da fila de detalhes do `steam-catalog`; jogos com conteúdo sexual (descritores 3 e 4 da Steam) ficam de fora. A `api/featuredcategories` (new_releases/coming_soon) foi conferida em outubro de 2026 e não serve: os itens não têm data nem ordem de popularidade. (2) **IGDB** (com `IGDB_CLIENT_ID/SECRET`): `release_dates` só dos consoles (o PC é da Steam), **por família** (PlayStation, Xbox, Nintendo) e em duas janelas: os últimos 30 dias, do mais recente para trás, e os próximos 120, de hoje para a frente; até 2 páginas de 500 por família e janela (12 requisições no máximo), só jogos principais, remakes, remasters, ports e expansões independentes que alguém segue ou avaliou (`hypes` ou `total_rating_count` > 0). A precisão da data vem do `category` antigo quando existe, senão do `date_format`, que é uma referência à tabela `/date_formats` (lida uma vez, pelo texto `format`: `YYYYMMMMDD`, `YYYYMMMM`, `YYYY`, `YYYYQ1`…, `TBD`); só um dia exato vira data, o resto vira texto ("4º trimestre de 2026") e "TBD" é ignorado. Todas as regiões de um jogo numa família viram uma linha só (o dia exato mais cedo). Uma linha `GameRelease` por jogo e família de plataforma (PC primeiro): o mesmo lançamento visto pela Steam e pelo IGDB aparece uma vez só, e a linha da Steam vale para o PC. Os jogos do IGDB casam com o catálogo pelo id do IGDB, pelo appid da Steam que o IGDB informa ou pelo nome (sem diferenciar maiúsculas nem ™/®; com os dois anos de lançamento conhecidos, no máximo um ano de diferença; com algum desconhecido, só se tiverem uma família em comum: o God of War de PS2 não é o God of War da Steam; nome ambíguo é pulado) e só os desconhecidos viram entradas novas (`src/lib/sync/igdb-games.ts`). No sentido inverso, quando a Steam traz um app (lista de apps, lançamentos, biblioteca) com o mesmo nome de **um** stub do IGDB que está no PC e ainda não tem appid, o stub recebe o appid em vez de nascer outra linha (`ensureSteamGames`). Ao terminar, invalida o cache da home, de `/lancamentos` e do calendário. |
 | `/api/cron/igdb-catalog` | Catálogo completo de consoles (Plano 4, F10), com `IGDB_CLIENT_ID/SECRET`, em 50 s: (1) até 60% do tempo importando páginas de 500 jogos do IGDB de PlayStation (PS1–PS5, PSP, Vita), Xbox (todos), Nintendo (NES/Famicom até Switch e portáteis; o Switch 2 é procurado pelo nome) e PC, pelo id, retomando de `SyncCursor` `igdb-catalog`; terminada uma volta, as seguintes pedem só o que mudou (`updated_at`); cada jogo casa com o catálogo como acima e os desconhecidos entram como `stub` (nome, plataformas, id do IGDB, data, capa); (2) no resto, detalhes dos stubs do IGDB sem appid da Steam (resumo, capa, nota, gêneros → habilidades), 500 por requisição (fila com índice parcial próprio, `Game_igdb_details_queue_idx`), primeiro os que alguém abriu, depois os que alguém tem, depois os mais novos; com os detalhes o jogo sai de `stub` e entra nas listagens. O IGDB aceita 4 requisições por segundo; o cliente enfileira e espaça. Sem as chaves, em produção não faz nada (`{ "status": "disabled" }`). |
+| `/api/cron/highscores` | Diário: guarda a posição dos 200 primeiros de cada ranking dos Highscores (`RankSnapshot`, 14 dias); as setas de subida e queda comparam a posição atual com a foto do dia anterior. |
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://seu-dominio/api/cron/catalog
@@ -204,7 +207,8 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
     { "path": "/api/cron/notifications", "schedule": "15 5 * * *" },
     { "path": "/api/cron/steam-catalog", "schedule": "20 * * * *" },
     { "path": "/api/cron/releases", "schedule": "40 */6 * * *" },
-    { "path": "/api/cron/igdb-catalog", "schedule": "50 * * * *" }
+    { "path": "/api/cron/igdb-catalog", "schedule": "50 * * * *" },
+    { "path": "/api/cron/highscores", "schedule": "5 3 * * *" }
   ]
 }
 ```
@@ -220,6 +224,7 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
 | `steam-catalog` | de hora em hora | catálogo completo da Steam: lista de apps (incremental), popularidade e detalhes dos jogos mais procurados, um pouco por vez |
 | `releases` | a cada 6 h | listas de lançamentos da Steam e datas do IGDB mudam ao longo do dia |
 | `igdb-catalog` | de hora em hora | catálogo de consoles do IGDB, 500 jogos por requisição, um pouco por vez (sem as chaves do IGDB, não faz nada) |
+| `highscores` | 1x por dia, 00:05 em Brasília | a foto do ranking no começo do dia é a referência das setas de amanhã |
 
 A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste falha se as duas divergirem ou se algum job ficar sem horário.
 
@@ -267,6 +272,7 @@ Feeds sugeridos (conferidos em 31/10/2026: https, RSS válido, sem redirecioname
 | `pnpm catalog:bootstrap` | Catálogo real da Steam (`--limit N` jogos populares, `--concurrency N`, `--only-top`). Exige `DATABASE_URL`. |
 | `pnpm comments:recount` | Reconta `Article.comments` pelos comentários visíveis. Exige `DATABASE_URL`. |
 | `pnpm sample:rename [--dry-run]` | Renomeia os personagens fictícios de um banco semeado antes do Plano 4 (seed, bylines, notificações). Idempotente. Exige `DATABASE_URL`. |
+| `pnpm highscores:backfill [--dry-run] [--snapshot]` | Grava os totais dos Highscores (`UserRankStats`) de todos os usuários a partir da biblioteca e das conquistas válidas (só essa tabela; XP, missões e atributos ficam como estão) e, com `--snapshot`, tira a foto do dia dos rankings (o mesmo que o cron `highscores`). Idempotente. Exige `DATABASE_URL`. |
 | `pnpm news:feeds [--dry-run] [--paused]` | Cadastra os feeds de manchetes de Entretenimento e Tecnologia (`src/lib/news/feed-catalog.ts`), ativos (ou pausados com `--paused`). Idempotente: feed já cadastrado (mesma URL) nunca é alterado. Exige `DATABASE_URL`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
 | `pnpm api:key` | `"<nome>" <escopo>...`: cria uma chave de robô e imprime o segredo `tk_live_…` uma vez (só no terminal). Exige `DATABASE_URL`. |
@@ -339,9 +345,10 @@ prisma/               schema, migrations e seed
 src/app/              rotas (App Router)
   /                   home com notícias, ranking e missão diária
   jogos/[slug]        página do jogo e /guia (guia 100% com votos)
-  jogador/[handle]    perfil público; /jogador/me redireciona para o seu
-  highscores          ranking por habilidade (?skill=...)
-  familia             modo família e convites
+  jogador/[handle]    perfil público (ficha); /jogos, /conquistas, /estatisticas e /desejos (lista de desejos)
+                      são as seções; /jogador/me redireciona para o seu
+  highscores          rankings: nível, /horas, /conquistas, /raras, /platinas, /acervo (+ /<plataforma>), /genero/<habilidade>
+  familia             modo família e convites; biblioteca da família paginada, com busca e filtros
   noticias/[slug]     artigos
   desenvolvedores     documentação da API para robôs (também em ../docs/robos.md)
   admin               painel da redação (editor/admin): notícias e guias em blocos, fila de revisão,
@@ -371,11 +378,21 @@ src/proxy.ts          /admin responde 404 de verdade a quem não é da redação
                       Server Actions conferem o papel de novo)
 ```
 
+## Deploy (checklist)
+
+1. **Migrations antes do build**: `DATABASE_URL=... pnpm exec prisma migrate deploy`. O `next build` pré-renderiza páginas que leem tabelas novas (os Highscores leem `UserRankStats` e `RankSnapshot`), então o build falha ou sai vazio num banco sem elas.
+2. `pnpm build` e o deploy.
+3. **Depois do deploy, uma vez por banco anterior ao Plano 4 (F6)**: `DATABASE_URL=... pnpm highscores:backfill --dry-run` para conferir e `DATABASE_URL=... pnpm highscores:backfill --snapshot` para gravar os totais de todos os usuários e a primeira foto dos rankings (as setas aparecem a partir do dia seguinte). Sem isso, os rankings de horas, conquistas, raras, platinas e acervo só mostram quem sincronizou depois do deploy.
+4. Agende os crons (veja "Agendamento"), inclusive o diário `highscores`.
+
 ## Notas
 
 - `next build` precisa do banco acessível: as páginas dinâmicas (`/jogos/[slug]`, `/noticias/[slug]`, `/jogador/[handle]`) usam `generateStaticParams`, que consulta o Postgres. Suba e popule o banco antes (`pnpm db:up && pnpm db:seed`).
 - As suítes de teste que usam o banco (`pnpm test`) também precisam do Postgres no ar e das migrations aplicadas.
 - Admin: entre como `lucas` (`/entrar` com as credenciais de desenvolvimento do seed, ou `/api/auth/demo`; o seed dá papel admin) e abra `/admin`. Papéis: `editor` cuida de notícias, guias, revisão e moderação; `admin` também de fraude, jogos, robôs, feeds e usuários. Ninguém muda o próprio papel.
 - O projeto usa Next.js 16 com Cache Components; veja `AGENTS.md` antes de alterar convenções do framework.
+- Listas paginadas (`/jogos`, `/familia`, seções do perfil): estado na URL (`?pagina=&por=10|20|40|80&q=…`), com `components/ui/Pagination.tsx` e `components/ui/ListSearch.tsx`. A busca por nome ignora acentos, maiúsculas e pontuação: `Game.searchName` é escrito por um gatilho do banco (`tralked_search_name`, extensões `unaccent` e `pg_trgm`, migration `20261102100000_game_name_search`) e tem índice trigram; em `/jogos` a busca também acha os jogos do catálogo completo ainda sem detalhes (só a partir de 3 caracteres: com menos não há trigramas e a busca fica nos jogos com detalhes).
+  - Postgres hospedado: a função chama `public.unaccent('public.unaccent', …)`, então a extensão `unaccent` precisa estar no schema `public` (onde `CREATE EXTENSION` a põe por padrão); em provedores que instalam extensões em outro schema (ex.: `extensions`), ajuste a função antes de aplicar a migration. Os separadores são uma lista explícita (funciona com LC_CTYPE C/POSIX); com C/POSIX, `lower()` só converte ASCII, igual nos nomes e nas buscas.
+  - As migrations `20261102100000_game_name_search` e `20261102110000_game_search_fold_v2` reescrevem `searchName` de todo o catálogo num único `UPDATE` (bloqueia escrita nessas linhas durante a passada, segundos com ~150 mil jogos; leituras seguem): aplique fora de um import do catálogo em andamento.
 - Emulador web (SNES/PS1 no navegador): planejado (`../docs/superpowers/specs/2026-10-31-emulador-web-plano-lucas.pdf`), ainda não implementado. Nenhuma rota `/jogar` existe nesta versão.
 - E-mail: pela Resend com `RESEND_API_KEY` (veja "E-mail transacional (Resend)"). Sem a chave, em desenvolvimento os e-mails saem no console do servidor; em produção nada é enviado e as telas avisam (esqueci a senha, newsletter, confirmação em `/conta`). `pnpm user:invite` continua imprimindo o link no terminal.

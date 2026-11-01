@@ -42,7 +42,9 @@ test.describe("brand and navigation", () => {
     await options.nth(4).hover();
     await options.nth(4).click();
     await expect(page).toHaveURL(/\/jogos\?plataforma=RETRO$/);
-    await expect(page.getByRole("link", { name: /Plataforma: Retro/ })).toBeVisible();
+    await expect(
+      page.getByRole("group", { name: "Filtrar por plataforma" }).getByRole("link", { name: "Retro", exact: true }),
+    ).toHaveAttribute("aria-current", "true");
   });
 
   test("Jogos menu by keyboard: focus opens it, Tab walks into it, Esc closes it", async ({ page }) => {

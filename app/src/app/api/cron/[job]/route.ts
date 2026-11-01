@@ -3,6 +3,7 @@ import { revalidateTag } from "next/cache";
 import { NextResponse, type NextRequest } from "next/server";
 import type { CronJob } from "@/lib/cron/schedules";
 import { env } from "@/lib/env";
+import { runHighscoresJob } from "@/lib/highscores/job";
 import { deleteOldNotifications } from "@/lib/notifications/retention";
 import { NEWS_TAG } from "@/lib/queries/news";
 import { refreshRarity, syncCatalog } from "@/lib/sync/catalog";
@@ -25,7 +26,8 @@ import { syncStaleUsers } from "@/lib/sync/user";
  * - platforms: at most 5 PSN/Xbox/RA accounts and 50 s in all;
  * - steam-catalog: 50 s in all (app list ≤ 40%, one SteamSpy page, store details with the rest);
  * - releases: 50 s in all (4 Steam store pages, ≤ 12 IGDB pages of console release dates);
- * - igdb-catalog: 50 s in all (import pages ≤ 60%, details batches of 500 with the rest).
+ * - igdb-catalog: 50 s in all (import pages ≤ 60%, details batches of 500 with the rest);
+ * - highscores: one indexed top-200 read and one insert per board (about 40 boards).
  * Work left over goes first in the next run. Schedules: CRON_SCHEDULES in @/lib/cron/schedules
  * (and the README).
  */
@@ -56,6 +58,8 @@ const JOBS: Record<CronJob, () => Promise<{ processed: number; failed?: number }
   },
   // Hourly: console catalog from IGDB (import pages, then details), 50 s in all; off without keys.
   "igdb-catalog": () => runIgdbCatalogJob(),
+  // Daily, just after midnight in Sao Paulo: rank snapshot of every board (the highscores arrows).
+  highscores: () => runHighscoresJob(),
 };
 
 function isAuthorized(request: NextRequest): boolean {

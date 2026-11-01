@@ -154,6 +154,7 @@ describe("deleteAccountAction", () => {
     expect(updateTag).toHaveBeenCalledWith("thread:t1");
     expect(updateTag).toHaveBeenCalledWith("game:hollow-knight");
     expect(updateTag).toHaveBeenCalledWith("player:eu");
+    expect(updateTag).toHaveBeenCalledWith("highscores");
     expect(redirect).toHaveBeenCalledWith("/?conta=excluida");
   });
 

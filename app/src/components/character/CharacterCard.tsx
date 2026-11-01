@@ -15,9 +15,11 @@ type CharacterCardProps = {
   bio: string | null;
   /** Ações do dono do perfil (sincronizar, som). */
   actions?: ReactNode;
+  /** Horas jogadas em todas as plataformas (minutos), mostradas ao lado do nível. */
+  playtimeMin?: number;
 };
 
-export function CharacterCard({ character, platforms, bio, actions }: CharacterCardProps) {
+export function CharacterCard({ character, platforms, bio, actions, playtimeMin }: CharacterCardProps) {
   const { stats } = character;
   const items: [string, string, string?][] = [
     [
@@ -85,6 +87,14 @@ export function CharacterCard({ character, platforms, bio, actions }: CharacterC
             {formatNumber(character.totalXp)} XP total
           </span>
         </span>
+        {playtimeMin !== undefined ? (
+          <span className="ml-auto flex flex-col items-end gap-1 pb-1">
+            <b className="text-[clamp(28px,3.6vw,40px)] leading-none font-black font-stretch-[112%] whitespace-nowrap tabular-nums">
+              {`${formatNumber(Math.floor(playtimeMin / 60))} h`}
+            </b>
+            <span className="font-mono text-[10.5px] tracking-[0.12em] text-dim-2 uppercase">Horas jogadas</span>
+          </span>
+        ) : null}
       </div>
 
       <div className="min-[641px]:col-span-2">

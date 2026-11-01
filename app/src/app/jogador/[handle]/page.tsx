@@ -16,7 +16,9 @@ import { TrophyTiers } from "@/components/character/TrophyTiers";
 import { Card } from "@/components/ui/Card";
 import { getSessionUser } from "@/lib/auth/session";
 import { pendingDespertar } from "@/lib/character/despertar";
+import { ProfileTabs } from "@/components/profile/ProfileTabs";
 import { getCharacterSheetExtras } from "@/lib/character/sheet";
+import { getTotalPlaytimeMin } from "@/lib/profile/queries";
 import { getCharacter, hoursUntilDailyReset, type PlayerHeader } from "@/lib/queries/players";
 import { getPlayerHeaderCached } from "@/lib/queries/players-cached";
 
@@ -84,9 +86,10 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
 
   const character = await getCharacter(header.handle);
   if (!character) notFound();
-  const [extras, despertar] = await Promise.all([
+  const [extras, despertar, playtimeMin] = await Promise.all([
     getCharacterSheetExtras(character.userId),
     isOwner ? pendingDespertar(character.userId) : Promise.resolve(null),
+    getTotalPlaytimeMin(character.userId),
   ]);
 
   const now = new Date();
@@ -124,9 +127,12 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
         </p>
       ) : null}
 
+      <ProfileTabs handle={character.handle} active="ficha" />
+
       <div className="grid gap-5 min-[901px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <CharacterCard
           character={character}
+          playtimeMin={playtimeMin}
           platforms={extras.platforms}
           bio={extras.bio}
           actions={

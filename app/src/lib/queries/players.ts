@@ -5,6 +5,7 @@ import { toLocalDay } from "@/lib/engine/streak";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
 import { levelFromXp, rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import type { MissionCondition } from "@/lib/engine/missions";
+import { getRank } from "@/lib/highscores/queries";
 import { validCompletions } from "@/lib/progression/completions";
 import { dailyPeriodKey, weeklyPeriodKey } from "@/lib/progression/periods";
 
@@ -14,19 +15,6 @@ export type Db = Prisma.TransactionClient;
 const DAY_MS = 86_400_000;
 const TIME_ZONE = "America/Sao_Paulo";
 const WEEK_LETTERS = ["D", "S", "T", "Q", "Q", "S", "S"];
-
-export type HighscoreSkill = SkillId | "geral";
-
-export function isHighscoreSkill(value: string): value is HighscoreSkill {
-  return value === "geral" || SKILLS.some((s) => s.id === value);
-}
-
-export type HighscoreRow = {
-  rank: number;
-  handle: string;
-  vocation: string;
-  level: number;
-};
 
 export type CharacterSkill = {
   id: SkillId;
@@ -135,101 +123,6 @@ function lastSevenDays(now: Date, activeDays: Set<string>): StreakDay[] {
   return days;
 }
 
-// ---------- Highscores ----------
-
-/** A skill counts for ranking only once trained (level above 1 or any points). */
-const TRAINED = { OR: [{ level: { gt: 1 } }, { points: { gt: 0 } }] };
-
-export async function getHighscores(
-  skill: HighscoreSkill,
-  limit = 50,
-  db: Db = prisma,
-): Promise<HighscoreRow[]> {
-  if (skill === "geral") {
-    const rows = await db.userStats.findMany({
-      where: { user: { profilePublic: true } },
-      orderBy: [{ level: "desc" }, { totalXp: "desc" }, { user: { handle: "asc" } }],
-      take: limit,
-      select: { level: true, vocation: true, user: { select: { handle: true } } },
-    });
-    return rows.map((r, i) => ({
-      rank: i + 1,
-      handle: r.user.handle,
-      vocation: r.vocation,
-      level: r.level,
-    }));
-  }
-
-  const rows = await db.skillProgress.findMany({
-    where: { skill, user: { profilePublic: true }, ...TRAINED },
-    orderBy: [{ level: "desc" }, { points: "desc" }, { user: { handle: "asc" } }],
-    take: limit,
-    select: {
-      level: true,
-      user: { select: { handle: true, stats: { select: { vocation: true } } } },
-    },
-  });
-  return rows.map((r, i) => ({
-    rank: i + 1,
-    handle: r.user.handle,
-    vocation: r.user.stats?.vocation ?? "Recruta",
-    level: r.level,
-  }));
-}
-
-/** Real rank (among public profiles, same ordering as `getHighscores`) of a public user; null if private or unranked. */
-export async function getUserRank(
-  userId: string,
-  skill: HighscoreSkill,
-  db: Db = prisma,
-): Promise<HighscoreRow | null> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { handle: true, profilePublic: true, stats: true },
-  });
-  if (!user?.profilePublic) return null;
-
-  if (skill === "geral") {
-    if (!user.stats) return null;
-    const { level, totalXp } = user.stats;
-    const ahead = await db.userStats.count({
-      where: {
-        user: { profilePublic: true },
-        OR: [
-          { level: { gt: level } },
-          { level, totalXp: { gt: totalXp } },
-          { level, totalXp, user: { handle: { lt: user.handle } } },
-        ],
-      },
-    });
-    return { rank: ahead + 1, handle: user.handle, vocation: user.stats.vocation, level };
-  }
-
-  const progress = await db.skillProgress.findFirst({
-    where: { userId, skill, ...TRAINED },
-  });
-  if (!progress) return null;
-  const { level, points } = progress;
-  const ahead = await db.skillProgress.count({
-    where: {
-      skill,
-      user: { profilePublic: true },
-      ...TRAINED,
-      OR: [
-        { level: { gt: level } },
-        { level, points: { gt: points } },
-        { level, points, user: { handle: { lt: user.handle } } },
-      ],
-    },
-  });
-  return {
-    rank: ahead + 1,
-    handle: user.handle,
-    vocation: user.stats?.vocation ?? "Recruta",
-    level,
-  };
-}
-
 // ---------- Character ----------
 
 export type PlayerHeader = {
@@ -281,7 +174,7 @@ export async function getCharacter(
     db.userAchievement.count({
       where: { userId: user.id, suspicious: false, achievement: { globalPct: { lte: 3 } } },
     }),
-    user.profilePublic ? getUserRank(user.id, "geral", db) : Promise.resolve(null),
+    user.profilePublic ? getRank(user.id, { metric: "nivel" }, db) : Promise.resolve(null),
     db.mission.findMany({
       where: {
         userId: user.id,
@@ -395,7 +288,7 @@ export async function getCharacter(
       pendingReview,
       perfectGames: perfect.size,
       legendary,
-      rank: rankRow?.rank ?? null,
+      rank: rankRow,
     },
     streak: {
       current: user.stats?.streakCurrent ?? 0,

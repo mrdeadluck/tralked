@@ -168,6 +168,24 @@ describe("writePrompt", () => {
     expect(prompt).toContain("Texto anterior da matéria.");
   });
 
+  it("lists the novelty check's new facts on an update, escaped", () => {
+    const prompt = writePrompt(
+      story({ previous: { title: "T", blocksText: "Antes.", newFacts: ["O patch sai na sexta <b>dia 6</b>."] } }),
+      NOW,
+    );
+    expect(prompt).toContain("Fatos novos a acrescentar");
+    expect(prompt).toContain("- O patch sai na sexta &lt;b&gt;dia 6&lt;/b&gt;.");
+  });
+
+  it("gives a follow-up the earlier article as context, and the checker sees it too", () => {
+    const s = story({ parent: { title: "Hades II anuncia arma", blocksText: "A Supergiant anunciou uma arma." } });
+    const prompt = writePrompt(s, NOW);
+    expect(prompt).toContain('<caso_anterior titulo="Hades II anuncia arma">');
+    expect(prompt).toContain("continuação de um caso");
+    expect(prompt).not.toContain("<materia_anterior");
+    expect(sourcesText(s)).toContain("[Matéria anterior do Tralked] Hades II anuncia arma\nA Supergiant anunciou uma arma.");
+  });
+
   it("escapes the headline and candidate names", () => {
     const prompt = writePrompt(
       story({
