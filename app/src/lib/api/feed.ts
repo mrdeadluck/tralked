@@ -62,7 +62,7 @@ export async function listRecentArticles(
       category: true,
       publishedAt: true,
       source: true,
-      games: { select: { game: { select: { slug: true } } }, orderBy: { game: { slug: "asc" } } },
+      games: { where: { game: { stub: false } }, select: { game: { select: { slug: true } } }, orderBy: { game: { slug: "asc" } } },
     },
   });
   return {
