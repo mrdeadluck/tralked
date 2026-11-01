@@ -8,10 +8,15 @@ import type { SpendBucket } from "../db.js";
 import { ARTICLE_CATEGORIES, ARTICLE_PLATFORMS, type ArticleCategory, type ArticlePlatform, type Insights } from "../tralked.js";
 import type { Ai } from "./client.js";
 import { checkDraft } from "./checker.js";
+import { escapeAttr, escapeText } from "./escape.js";
 
 // ---------------------------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------------------------
+
+/** Robot news never uses GUIAS or COMUNIDADE (spec); Pautas sets its own category in code after the draft. */
+export const NEWS_CATEGORIES = ["GAMES", "MERCADO", "ENTRETENIMENTO", "TECNOLOGIA"] as const satisfies readonly ArticleCategory[];
+export type NewsCategory = (typeof NEWS_CATEGORIES)[number];
 
 export type DraftBlock =
   | { h: string }
@@ -29,7 +34,7 @@ export type Draft = {
   corpo: DraftBlock[];
   noTralked: null | { casual: string | null; cacador: string | null; conquistas: string[] };
   pergunta: string;
-  category: ArticleCategory;
+  category: NewsCategory;
   platforms: ArticlePlatform[];
   games: string[];
   imageLabel: string;
@@ -100,7 +105,7 @@ export const DraftSchema = z.object({
     .nullable()
     .describe("null quando a notícia não tem nada útil para nenhum dos dois perfis"),
   pergunta: z.string().describe("Pergunta neutra ao leitor"),
-  category: z.enum(ARTICLE_CATEGORIES),
+  category: z.enum(NEWS_CATEGORIES),
   platforms: z.array(z.enum(ARTICLE_PLATFORMS)),
   games: z.array(z.string()).describe("Slugs da lista de jogos candidatos"),
   imageLabel: z.string().describe("Rótulo da capa, até 60 caracteres, minúsculas"),
@@ -123,10 +128,9 @@ const TZ = "America/Sao_Paulo";
 const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
 const todayFmt = new Intl.DateTimeFormat("pt-BR", { timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric" });
 
-const attr = (value: string) =>
-  value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-/** Source text may not open or close tags of the prompt. */
-const body = (value: string) => value.replace(/</g, "&lt;").replace(/>/g, "&gt;").trim();
+const attr = escapeAttr;
+/** Outside text (sources, headline, names, data) may not open or close tags of the prompt. */
+const body = escapeText;
 const dateOf = (d: Date | null) => (d ? dayFmt.format(d) : "sem data");
 
 const isHeadlineOnly = (s: StorySource) => s.textUnavailable === true || s.text.trim() === "";
@@ -140,7 +144,7 @@ export function writePrompt(story: StoryForWriting, now: Date = new Date()): str
   parts.push(
     [
       `Hoje é ${todayFmt.format(now)} (horário de Brasília).`,
-      `Pauta: ${story.headline}`,
+      `Pauta: ${body(story.headline)}`,
       `Categoria sugerida pela triagem: ${story.category}`,
       `A triagem marcou como rumor: ${story.rumor ? "sim" : "não"}`,
     ].join("\n"),
@@ -167,7 +171,7 @@ export function writePrompt(story: StoryForWriting, now: Date = new Date()): str
         'Estes veículos chegaram só com o título. Não tire fatos deles: cada um só pode ser citado como "segundo <veículo>", com o que a manchete afirma.',
         ...headlines.map(
           (s) =>
-            `<manchete nome="${attr(s.name)}" url="${attr(s.url)}" data="${dateOf(s.publishedAt)}">${body(s.title ?? s.text)}</manchete> (cite como "segundo ${s.name}")`,
+            `<manchete nome="${attr(s.name)}" url="${attr(s.url)}" data="${dateOf(s.publishedAt)}">${body(s.title ?? s.text)}</manchete> (cite como "segundo ${body(s.name)}")`,
         ),
       ].join("\n\n"),
     );
@@ -181,7 +185,7 @@ export function writePrompt(story: StoryForWriting, now: Date = new Date()): str
         ? ["(nenhum)"]
         : story.candidates.map(
             (c) =>
-              `- ${c.name} (${c.slug}): ${c.insights ? `dados do Tralked ${JSON.stringify(c.insights)}` : "sem dados do Tralked"}`,
+              `- ${body(c.name)} (${body(c.slug)}): ${c.insights ? `dados do Tralked ${body(JSON.stringify(c.insights))}` : "sem dados do Tralked"}`,
           )),
     ].join("\n"),
   );
@@ -200,13 +204,13 @@ export function writePrompt(story: StoryForWriting, now: Date = new Date()): str
   return parts.join("\n\n");
 }
 
-/** The sources as plain text for the fact-checker. */
+/** The sources as plain text for the fact-checker, escaped like the writer's source bodies. */
 export function sourcesText(story: StoryForWriting): string {
   return story.sources
     .map((s) =>
       isHeadlineOnly(s)
-        ? `[${s.name}] manchete apenas (${dateOf(s.publishedAt)}): ${(s.title ?? s.text).trim()}`
-        : `[${s.name}] (${s.tier}, ${dateOf(s.publishedAt)}, ${s.url})\n${s.text.trim()}`,
+        ? `[${body(s.name)}] manchete apenas (${dateOf(s.publishedAt)}): ${body(s.title ?? s.text)}`
+        : `[${body(s.name)}] (${s.tier}, ${dateOf(s.publishedAt)}, ${body(s.url)})\n${body(s.text)}`,
     )
     .join("\n\n");
 }
@@ -265,11 +269,12 @@ export async function writeAndCheck(
   const sources = sourcesText(story);
 
   const first = await writeDraft(ai, story, bucket, opts);
-  const firstCheck = await checkDraft(ai, first, sources, bucket, models.MODEL_FAST);
+  const check = { model: models.MODEL_FAST, candidates: story.candidates };
+  const firstCheck = await checkDraft(ai, first, sources, bucket, check);
   if (firstCheck.ok) return { ok: true, draft: first };
 
   const second = await writeDraft(ai, story, bucket, { ...opts, problems: firstCheck.problems });
-  const secondCheck = await checkDraft(ai, second, sources, bucket, models.MODEL_FAST);
+  const secondCheck = await checkDraft(ai, second, sources, bucket, check);
   if (secondCheck.ok) return { ok: true, draft: second };
   return { ok: false, problems: secondCheck.problems };
 }

@@ -198,6 +198,18 @@ describe("assemble", () => {
     });
   });
 
+  it("leaves out a source whose link would not fit in a list item", () => {
+    const longUrl = `https://example.com/${"a".repeat(1000)}`;
+    const payload = assemble(draft(), { ...story, sources: [{ name: "Longa", url: longUrl }, ...story.sources] }, opts());
+    const fontes = payload.blocks.at(-1);
+    expect(fontes).toEqual({
+      type: "list",
+      ordered: false,
+      items: ["[Team Cherry](https://teamcherry.com.au/blog/1-6)", "[PC Gamer](https://www.pcgamer.com/hk-16/)"],
+    });
+    expect(articlePayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
   it("drops games that are not candidates", () => {
     const payload = assemble(draft({ games: ["inventado", "hollow-knight", "hollow-knight"] }), story, opts());
     expect(payload.games).toEqual([{ slug: "hollow-knight" }]);

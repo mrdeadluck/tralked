@@ -188,9 +188,12 @@ function sourceBlocks(sources: { name: string; url: string }[]): ContentBlock[] 
     if (!isHttps(url) || /[\s()]/.test(url)) continue;
     const key = normalizeUrl(url);
     if (seen.has(key)) continue;
-    seen.add(key);
     const name = plain(source.name).replace(/[[\]]/g, "") || new URL(url).hostname;
-    items.push(clip(`[${clip(name, 200)}](${url})`, LIMITS.listItem));
+    const item = `[${clip(name, 200)}](${url})`;
+    // Clipping would cut the link in half: a source that cannot fit is left out.
+    if (item.length > LIMITS.listItem) continue;
+    seen.add(key);
+    items.push(item);
   }
   return items.length > 0 ? [heading("Fontes"), list(items.slice(0, LIMITS.listItems))] : [];
 }
