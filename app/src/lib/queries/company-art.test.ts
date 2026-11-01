@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { companiesIn } from "./company-art";
+import { companiesIn, pickIndex } from "./company-art";
 
 describe("companiesIn", () => {
   it("finds the company a headline names, first match first", () => {
@@ -12,5 +12,11 @@ describe("companiesIn", () => {
   it("does not match words that only contain a company name", () => {
     expect(companiesIn("Ideias para o fim de semana")).toEqual([]);
     expect(companiesIn("Steamworks muda regras")).toEqual([]);
+  });
+
+  it("picks a stable image per article and spreads articles over the gallery", () => {
+    expect(pickIndex("ea-conclui-venda", 10)).toBe(pickIndex("ea-conclui-venda", 10));
+    const picks = new Set(["ea-a", "ea-b", "ea-c", "ea-d", "ea-e", "ea-f"].map((slug) => pickIndex(slug, 10)));
+    expect(picks.size).toBeGreaterThan(2);
   });
 });

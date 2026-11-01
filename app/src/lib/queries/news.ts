@@ -390,7 +390,7 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     reviewed: row.reviewedAt !== null,
     heroUrl:
       gameRows.map((g) => g.heroUrl ?? g.coverUrl).find((url) => url) ??
-      (await companyArt(`${row.title} ${row.subtitle ?? ""}`)),
+      (await companyArt(`${row.title} ${row.subtitle ?? ""}`, row.slug)),
     game: games[0] ?? null,
     games,
     achievements,
