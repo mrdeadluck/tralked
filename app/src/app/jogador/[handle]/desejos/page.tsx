@@ -10,7 +10,7 @@ import { profilePath, ProfileTabs } from "@/components/profile/ProfileTabs";
 import { Chip } from "@/components/ui/Chip";
 import { Pagination } from "@/components/ui/Pagination";
 import { getUserWishlist } from "@/lib/library/queries";
-import { paginate, parsePagination } from "@/lib/pagination";
+import { paginate, parsePagination, perPageParam } from "@/lib/pagination";
 import { profileAccess, sectionMetadata } from "@/lib/profile/access";
 import { getProfileSummary } from "@/lib/profile/queries";
 import type { PlayerHeader } from "@/lib/queries/players";
@@ -52,7 +52,7 @@ async function ProfileWishlist({
   if (!summary) notFound();
   const { page, perPage } = parsePagination(params);
   const list = paginate(wishlist, page, perPage);
-  const kept = { por: String(perPage) };
+  const kept = { por: perPageParam(perPage) };
 
   return (
     <div className="flex flex-col gap-6">

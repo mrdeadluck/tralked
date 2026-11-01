@@ -27,6 +27,11 @@ export function parsePagination(params: SearchParamsRecord): { page: number; per
   return { page, perPage };
 }
 
+/** The `por` value a list keeps in its links and forms: absent for the default size. */
+export function perPageParam(perPage: number): string | undefined {
+  return perPage === DEFAULT_PER_PAGE ? undefined : String(perPage);
+}
+
 export type PageWindow = {
   /** Clamped to 1..totalPages. */
   page: number;

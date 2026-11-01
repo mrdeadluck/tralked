@@ -1,4 +1,4 @@
-import { foldName } from "@/lib/search/fold";
+import { compareNames, foldName } from "@/lib/search/fold";
 import type { FamilyLibraryEntry } from "./service";
 
 /**
@@ -46,7 +46,7 @@ export function filterFamilyLibrary(entries: FamilyLibraryEntry[], query: Family
   });
 }
 
-const byName = (a: FamilyLibraryEntry, b: FamilyLibraryEntry) => a.game.name.localeCompare(b.game.name, "pt-BR");
+const byName = (a: FamilyLibraryEntry, b: FamilyLibraryEntry) => compareNames(a.game.name, b.game.name);
 
 export function sortFamilyLibrary(entries: FamilyLibraryEntry[], sort: FamilySort): FamilyLibraryEntry[] {
   const list = [...entries];

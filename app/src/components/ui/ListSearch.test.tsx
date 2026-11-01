@@ -31,6 +31,13 @@ describe("ListSearch", () => {
     expect(screen.getByRole("searchbox", { name: "Buscar jogo" })).toHaveAttribute("name", "q");
   });
 
+  it("lands a submission without JavaScript on the anchor and only keeps the params it is given", () => {
+    const { container } = render(<ListSearch basePath="/familia" params={{ posse: "varios" }} label="Buscar" anchor="biblioteca" />);
+    const form = container.querySelector("form")!;
+    expect(form).toHaveAttribute("action", "/familia#biblioteca");
+    expect([...form.querySelectorAll('input[type="hidden"]')].map((i) => i.getAttribute("name"))).toEqual(["posse"]);
+  });
+
   it("searches while typing after a pause, back to page 1, keeping the filters", () => {
     render(<ListSearch basePath="/jogos" params={{ plataforma: "PC", pagina: "3" }} label="Buscar jogo" />);
     const input = screen.getByRole("searchbox", { name: "Buscar jogo" });

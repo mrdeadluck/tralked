@@ -72,11 +72,21 @@ export type GameCard = {
 export const CATALOG_SORTS = ["popular", "nome", "lancamento"] as const;
 export type CatalogSort = (typeof CATALOG_SORTS)[number];
 
+/**
+ * Orders of the catalog. "Popular" and "Nome" read the (stub, popularity DESC, name) and
+ * (stub, name) indexes with LIMIT (no aggregate: the hot path of every /jogos view and keystroke).
+ */
 const SORT_ORDER: Record<CatalogSort, Prisma.GameOrderByWithRelationInput[]> = {
-  popular: [{ popularity: "desc" }, { users: { _count: "desc" } }, { name: "asc" }],
+  popular: [{ popularity: "desc" }, { name: "asc" }],
   nome: [{ name: "asc" }],
   lancamento: [{ releaseDate: { sort: "desc", nulls: "last" } }, { name: "asc" }],
 };
+
+/**
+ * Shortest folded query that also searches name-only stubs (~150k names): shorter ones have no
+ * trigram for the index, so they only search the games with details.
+ */
+export const STUB_SEARCH_MIN_LENGTH = 3;
 
 export type CatalogPage = {
   items: GameCard[];
@@ -107,8 +117,9 @@ export async function listGames(
   const and: Prisma.GameWhereInput[] = [];
   const q = filter.q?.trim();
   const folded = q ? await foldQueryInDb(q) : "";
+  const withStubs = folded.length >= STUB_SEARCH_MIN_LENGTH;
   if (folded) and.push({ searchName: { contains: folded } });
-  else and.push({ stub: false });
+  if (!withStubs) and.push({ stub: false });
   if (filter.skill) and.push({ skills: { some: { skill: filter.skill } } });
   if (filter.withGuide) and.push({ guide: { is: { status: "published" } } });
   if (filter.platform) and.push(platformWhere(filter.platform));
@@ -126,7 +137,7 @@ export async function listGames(
 
   const [total, stubTotal] = await Promise.all([
     prisma.game.count({ where }),
-    folded ? prisma.game.count({ where: { AND: [...and, { stub: true }] } }) : Promise.resolve(0),
+    withStubs ? prisma.game.count({ where: { AND: [...and, { stub: true }] } }) : Promise.resolve(0),
   ]);
   if (total === 0) return empty;
   const page = Math.min(requested, Math.max(1, Math.ceil(total / perPage)));
@@ -134,7 +145,7 @@ export async function listGames(
   const games = await prisma.game.findMany({
     where,
     // A search lists games with details first; the id keeps pages stable on ties.
-    orderBy: [...(folded ? [{ stub: "asc" as const }] : []), ...SORT_ORDER[opts.sort ?? "popular"], { id: "asc" }],
+    orderBy: [...(withStubs ? [{ stub: "asc" as const }] : []), ...SORT_ORDER[opts.sort ?? "popular"], { id: "asc" }],
     skip: (page - 1) * perPage,
     take: perPage,
     include: {

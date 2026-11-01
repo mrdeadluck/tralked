@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { SkillId } from "@/lib/engine/types";
 import { getUserLibrary, type LibraryGame } from "@/lib/library/queries";
+import { compareNames } from "@/lib/search/fold";
 
 export const MAX_FAMILY_MEMBERS = 6;
 export const INVITE_TTL_DAYS = 7;
@@ -337,8 +338,8 @@ export async function getFamilyLibraryView(familyId: string): Promise<FamilyLibr
   });
 
   const entries = [...byGame.values()]
-    .map((entry) => ({ ...entry, owners: entry.owners.sort((a, b) => a.handle.localeCompare(b.handle)) }))
-    .sort((a, b) => a.game.name.localeCompare(b.game.name, "pt-BR"));
+    .map((entry) => ({ ...entry, owners: entry.owners.sort((a, b) => compareNames(a.handle, b.handle)) }))
+    .sort((a, b) => compareNames(a.game.name, b.game.name));
 
   return {
     members: members.map((m, index) => {

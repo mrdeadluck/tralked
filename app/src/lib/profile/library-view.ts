@@ -1,6 +1,6 @@
 import type { PlatformId } from "@/lib/engine/trophies";
 import type { LibraryGame } from "@/lib/library/queries";
-import { foldName } from "@/lib/search/fold";
+import { compareNames, foldName } from "@/lib/search/fold";
 
 /**
  * Filtering and ordering of a player's library for the profile's "Jogos" tab (Plano 4, F3). The
@@ -22,7 +22,7 @@ export type LibraryQuery = {
   q?: string;
 };
 
-const byName = (a: LibraryGame, b: LibraryGame) => a.name.localeCompare(b.name, "pt-BR");
+const byName = (a: LibraryGame, b: LibraryGame) => compareNames(a.name, b.name);
 const time = (d: Date | null) => (d ? d.getTime() : -Infinity);
 
 /** Games matching platform and name (both sections). */

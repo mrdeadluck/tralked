@@ -124,6 +124,13 @@ describe.skipIf(!reachable)("listGames (seeded database)", () => {
     expect(lantern.items.map((c) => [c.slug, c.stub])).toEqual([["lanterna-do-farol", true]]);
     expect(lantern.stubTotal).toBe(1);
 
+    // 1–2 characters have no trigram for the index: stubs are left out.
+    const short = await listGames({ q: "lá" }, { perPage: 80 });
+    expect(short.stubTotal).toBe(0);
+    expect(short.items.length).toBeGreaterThan(0);
+    expect(short.items.some((c) => c.stub)).toBe(false);
+    expect((await listGames({ q: "lan" })).items.map((c) => c.slug)).toContain("lanterna-do-farol");
+
     const tag = `srch${Date.now().toString(36)}`;
     try {
       await prisma.game.createMany({

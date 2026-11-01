@@ -17,8 +17,17 @@ export function cleanQuery(raw: string | undefined | null): string | undefined {
 }
 
 /**
+ * Separators folded to one space: the same explicit list as `tralked_search_name` (migration
+ * 20261102110000_game_search_fold_v2), so letters of any script are kept whatever the locale.
+ */
+const SEPARATORS = /[\s 　!"#$%&()*+,./:;<=>?@^_{|}~[\]\\\-–—‐‒…·•“”„«»‹›¿¡™®©°・「」『』【】、。：！？（）／～]+/g;
+
+/** Sorts names the Portuguese way (accents and case after the base letter). */
+export const compareNames = new Intl.Collator("pt-BR").compare;
+
+/**
  * JavaScript twin of `tralked_search_name`: lower case, accents removed, apostrophes dropped,
- * any other run of non-letters/digits as one space.
+ * punctuation and whitespace runs as one space.
  */
 export function foldName(value: string): string {
   return (
@@ -33,8 +42,11 @@ export function foldName(value: string): string {
       .replace(/ß/g, "ss")
       .replace(/ø/g, "o")
       .replace(/ł/g, "l")
+      // unaccent writes these as "(C)" and "(R)" ("Six® Siege" -> "six r siege").
+      .replace(/©/g, "(c)")
+      .replace(/®/g, "(r)")
       .replace(/['’`´]/g, "")
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(SEPARATORS, " ")
       .trim()
   );
 }

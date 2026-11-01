@@ -10,11 +10,21 @@ import {
   type OwnershipFilter,
 } from "@/lib/family/library-view";
 import type { FamilyLibraryView } from "@/lib/family/service";
-import { hrefWith, PAGE_PARAM, paginate, parsePagination, pickParams, type SearchParamsRecord } from "@/lib/pagination";
+import {
+  hrefWith,
+  PAGE_PARAM,
+  paginate,
+  parsePagination,
+  perPageParam,
+  pickParams,
+  type SearchParamsRecord,
+} from "@/lib/pagination";
 import { cleanQuery } from "@/lib/search/fold";
 import { FamilyGameTile } from "./FamilyGameTile";
 
 const BASE = "/familia";
+/** Id of the library section on /familia (app/familia/page.tsx). */
+const ANCHOR = "biblioteca";
 const KEYS = ["q", "membro", "posse", "ordem", "por", PAGE_PARAM] as const;
 
 const OWNERSHIP_LABEL: Record<OwnershipFilter, string> = {
@@ -48,9 +58,11 @@ export function FamilyLibrary({ view, searchParams }: { view: FamilyLibraryView;
     membro: member,
     posse: ownership === "todos" ? undefined : ownership,
     ordem: sort === "nome" ? undefined : sort,
-    por: String(perPage),
+    por: perPageParam(perPage),
   };
-  const link = (changes: Record<string, string | undefined>) => hrefWith(BASE, kept, { ...changes, [PAGE_PARAM]: undefined });
+  // The library sits below the family summary: filter links land on it.
+  const link = (changes: Record<string, string | undefined>) =>
+    `${hrefWith(BASE, kept, { ...changes, [PAGE_PARAM]: undefined })}#${ANCHOR}`;
 
   const filtered = filterFamilyLibrary(view.entries, { ownership, member, q, sharingMembers: sharing.length });
   const list = paginate(sortFamilyLibrary(filtered, sort), page, perPage);
@@ -65,7 +77,14 @@ export function FamilyLibrary({ view, searchParams }: { view: FamilyLibraryView;
 
   return (
     <div className="flex flex-col gap-4 pt-5">
-      <ListSearch basePath={BASE} params={kept} q={q} label="Buscar na biblioteca da família" placeholder="Nome do jogo" />
+      <ListSearch
+        basePath={BASE}
+        params={kept}
+        q={q}
+        label="Buscar na biblioteca da família"
+        placeholder="Nome do jogo"
+        anchor={ANCHOR}
+      />
       <LinkChips
         label="Quem tem"
         caption="Quem tem"
@@ -106,7 +125,7 @@ export function FamilyLibrary({ view, searchParams }: { view: FamilyLibraryView;
       ) : (
         <p className="py-6 text-muted">Nenhum jogo com esses filtros. Escolha outro.</p>
       )}
-      <Pagination basePath={BASE} params={kept} window={list} noun={["jogo", "jogos"]} label="Páginas da biblioteca da família" anchor="biblioteca" />
+      <Pagination basePath={BASE} params={kept} window={list} noun={["jogo", "jogos"]} label="Páginas da biblioteca da família" anchor={ANCHOR} />
     </div>
   );
 }

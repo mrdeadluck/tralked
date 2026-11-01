@@ -192,7 +192,8 @@ model Game {
   /// Popularity rank for the details job (SteamSpy owners lower bound); 0 = unknown.
   popularity            Int       @default(0)
   /// Name folded for search (lower case, no accents, punctuation as spaces): written by a database
-  /// trigger on every insert/rename (migration 20261102100000_game_name_search), never by the app.
+  /// trigger on every insert/rename (migrations 20261102100000_game_name_search and
+  /// 20261102110000_game_search_fold_v2), never by the app.
   /// /jogos and the libraries search it with a trigram index (lib/search/normalize.ts).
   searchName            String?
   createdAt             DateTime  @default(now())
@@ -215,8 +216,9 @@ model Game {
 
   /// Name search of /jogos (stubs included): `searchName LIKE '%q%'` uses the trigram index.
   @@index([searchName(ops: raw("gin_trgm_ops"))], type: Gin)
-  /// Catalog listing ("Popular" order, stubs left out).
+  /// Catalog listing ("Popular" and "Nome" orders, stubs left out).
   @@index([stub, popularity(sort: Desc), name])
+  @@index([stub, name])
   // The details job's queue has a partial index written in SQL (migration
   // 20261101130000_full_sync_playtime): ("lastSyncAttemptAt", popularity DESC) WHERE
   // "detailsSyncedAt" IS NULL AND "steamAppId" IS NOT NULL. Prisma cannot declare it here.

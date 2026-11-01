@@ -10,7 +10,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { SectionHead } from "@/components/ui/SectionHead";
 import { getSessionUser } from "@/lib/auth/session";
 import { SKILLS, type SkillId } from "@/lib/engine/types";
-import { hrefWith, PAGE_PARAM, parsePagination, pickParams } from "@/lib/pagination";
+import { hrefWith, PAGE_PARAM, parsePagination, perPageParam, pickParams } from "@/lib/pagination";
 import {
   CATALOG_PLATFORMS,
   CATALOG_SORTS,
@@ -67,7 +67,7 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
     quase: almost ? "1" : undefined,
     guia: withGuide ? "1" : undefined,
     ordem: sort === "popular" ? undefined : sort,
-    por: String(perPage),
+    por: perPageParam(perPage),
   };
   const link = (changes: Record<string, string | undefined>) => hrefWith(BASE, kept, { ...changes, [PAGE_PARAM]: undefined });
 

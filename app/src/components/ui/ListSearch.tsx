@@ -3,10 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition, type FormEvent } from "react";
 import { hrefWith, PAGE_PARAM } from "@/lib/pagination";
+import { SEARCH_MAX_LENGTH } from "@/lib/search/fold";
 
 /** Delay between the last keystroke and the search (ms). */
 export const SEARCH_DEBOUNCE_MS = 350;
-const MAX_LENGTH = 80;
 
 type ListSearchProps = {
   /** Path of the list page; the search goes to `basePath?q=…`. */
@@ -18,6 +18,11 @@ type ListSearchProps = {
   /** Accessible name and visible label of the field. */
   label: string;
   placeholder?: string;
+  /**
+   * Element id a submission without JavaScript lands on (the list below other content). Searching
+   * while typing stays in place instead.
+   */
+  anchor?: string;
 };
 
 /**
@@ -25,7 +30,7 @@ type ListSearchProps = {
  * (Enter or the button); with JavaScript it also searches while typing (debounced), keeping the
  * filters and going back to page 1.
  */
-export function ListSearch({ basePath, params, q = "", label, placeholder }: ListSearchProps) {
+export function ListSearch({ basePath, params, q = "", label, placeholder, anchor }: ListSearchProps) {
   const router = useRouter();
   const inputId = useId();
   const [value, setValue] = useState(q);
@@ -55,7 +60,7 @@ export function ListSearch({ basePath, params, q = "", label, placeholder }: Lis
   function search(text: string) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
-    const query = text.trim().slice(0, MAX_LENGTH);
+    const query = text.trim().slice(0, SEARCH_MAX_LENGTH);
     if (query === q.trim()) return;
     const href = hrefWith(basePath, Object.fromEntries(kept), { q: query || undefined, [PAGE_PARAM]: undefined });
     startTransition(() => router.replace(href, { scroll: false }));
@@ -67,7 +72,7 @@ export function ListSearch({ basePath, params, q = "", label, placeholder }: Lis
   }
 
   return (
-    <form role="search" action={basePath} method="get" onSubmit={onSubmit} className="flex max-w-[560px] flex-col gap-1.5">
+    <form role="search" action={anchor ? `${basePath}#${anchor}` : basePath} method="get" onSubmit={onSubmit} className="flex max-w-[560px] flex-col gap-1.5">
       <label htmlFor={inputId} className="font-mono text-[10.5px] tracking-[0.12em] text-dim-2 uppercase">
         {label}
       </label>
@@ -84,7 +89,7 @@ export function ListSearch({ basePath, params, q = "", label, placeholder }: Lis
             type="search"
             name="q"
             value={value}
-            maxLength={MAX_LENGTH}
+            maxLength={SEARCH_MAX_LENGTH}
             autoComplete="off"
             placeholder={placeholder}
             onFocus={() => setFocused(true)}

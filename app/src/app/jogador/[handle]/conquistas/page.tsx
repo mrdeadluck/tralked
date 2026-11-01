@@ -12,7 +12,7 @@ import { LinkChips } from "@/components/ui/LinkChips";
 import { Pagination } from "@/components/ui/Pagination";
 import type { PlatformId } from "@/lib/engine/trophies";
 import type { RarityTier } from "@/lib/engine/types";
-import { hrefWith, PAGE_PARAM, parsePagination, pickParams } from "@/lib/pagination";
+import { hrefWith, PAGE_PARAM, parsePagination, perPageParam, pickParams } from "@/lib/pagination";
 import { profileAccess, sectionMetadata } from "@/lib/profile/access";
 import {
   ACHIEVEMENT_SORTS,
@@ -84,7 +84,7 @@ async function ProfileAchievements({
     raridade: rarity,
     jogo: game,
     ordem: sort === "recentes" ? undefined : sort,
-    por: String(perPage),
+    por: perPageParam(perPage),
   };
   const link = (changes: Record<string, string | undefined>) => hrefWith(base, kept, { ...changes, [PAGE_PARAM]: undefined });
   const hidden = Object.entries(kept).filter((e): e is [string, string] => e[0] !== "jogo" && Boolean(e[1]));
@@ -151,6 +151,8 @@ async function ProfileAchievements({
             <label className="flex flex-col gap-1.5">
               <span className="font-mono text-[10.5px] tracking-[0.12em] text-dim-2 uppercase">Jogo</span>
               <select
+                // Uncontrolled: remount when the URL's game changes (client navigation keeps the DOM).
+                key={game ?? ""}
                 name="jogo"
                 defaultValue={game ?? ""}
                 className="h-[38px] max-w-[min(420px,80vw)] rounded-[2px] border border-line-2 bg-surface-2 px-2.5 text-sm text-text"

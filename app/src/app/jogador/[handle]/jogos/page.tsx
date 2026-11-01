@@ -11,7 +11,7 @@ import { ListSearch } from "@/components/ui/ListSearch";
 import { Pagination } from "@/components/ui/Pagination";
 import type { PlatformId } from "@/lib/engine/trophies";
 import { getUserLibrary } from "@/lib/library/queries";
-import { hrefWith, PAGE_PARAM, paginate, parsePagination, pickParams } from "@/lib/pagination";
+import { hrefWith, PAGE_PARAM, paginate, parsePagination, perPageParam, pickParams } from "@/lib/pagination";
 import { profileAccess, sectionMetadata } from "@/lib/profile/access";
 import {
   filterLibrary,
@@ -85,7 +85,7 @@ async function ProfileGames({
     plataforma: platform,
     ordem: sort === "horas" ? undefined : sort,
     secao: section === "nunca" ? "nunca" : undefined,
-    por: String(perPage),
+    por: perPageParam(perPage),
   };
   const link = (changes: Record<string, string | undefined>) => hrefWith(base, kept, { ...changes, [PAGE_PARAM]: undefined });
 
