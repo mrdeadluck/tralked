@@ -22,6 +22,10 @@ export interface ItemRow {
   text: string | null;
   status: ItemStatus;
   triage_json: string | null;
+  /** Publisher name from the feed (Google News `<source>`), when known. */
+  publisher: string | null;
+  /** 1 when the item has no fetchable article page (unresolved Google News link): title-only. */
+  text_unavailable: number;
 }
 
 export interface StoryRow {
@@ -38,6 +42,8 @@ export interface StoryRow {
   status: StoryStatus;
   mode: StoryMode;
   story_date: string | null;
+  /** Set on a follow-up story: the article it follows up on. */
+  parent_article_id: number | null;
 }
 
 export interface ArticleRow {
@@ -75,6 +81,8 @@ export interface NewItem {
   publishedAt?: string | null;
   contentHash?: string | null;
   text?: string | null;
+  publisher?: string | null;
+  textUnavailable?: boolean;
 }
 
 export interface StoryInput {
@@ -90,6 +98,8 @@ export interface StoryInput {
   status?: StoryStatus;
   /** ISO timestamp of the most recent item; defaults to now. */
   lastItemAt?: string;
+  /** Follow-up stories: the article they follow up on. Set on insert only. */
+  parentArticleId?: number | null;
 }
 
 export interface ArticleInput {
@@ -121,7 +131,9 @@ CREATE TABLE IF NOT EXISTS items (
   content_hash TEXT,
   text TEXT,
   status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','triaged','dropped','clustered')),
-  triage_json TEXT
+  triage_json TEXT,
+  publisher TEXT,
+  text_unavailable INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
 CREATE INDEX IF NOT EXISTS idx_items_hash ON items(content_hash);
@@ -139,7 +151,8 @@ CREATE TABLE IF NOT EXISTS stories (
   last_item_at TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','queued','written','published','dropped','expired')),
   mode TEXT NOT NULL DEFAULT 'live' CHECK (mode IN ('live','backfill')),
-  story_date TEXT
+  story_date TEXT,
+  parent_article_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_stories_status ON stories(status);
 
@@ -188,6 +201,20 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 `;
 
+/** Columns added after the first release: added to existing databases on open. */
+const ADDED_COLUMNS: [table: string, column: string, ddl: string][] = [
+  ["items", "publisher", "TEXT"],
+  ["items", "text_unavailable", "INTEGER NOT NULL DEFAULT 0"],
+  ["stories", "parent_article_id", "INTEGER"],
+];
+
+function addMissingColumns(raw: DatabaseSync): void {
+  for (const [table, column, ddl] of ADDED_COLUMNS) {
+    const columns = raw.prepare(`PRAGMA table_info(${table})`).all() as unknown as { name: string }[];
+    if (!columns.some((c) => c.name === column)) raw.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface Db {
@@ -198,6 +225,9 @@ export interface Db {
   insertItemIfNew(item: NewItem, now?: Date): boolean;
   itemsByStatus(status: ItemStatus, limit?: number): ItemRow[];
   setItemStatus(id: number, status: ItemStatus, triageJson?: string | null): void;
+  setItemText(id: number, text: string): void;
+  /** The story's items, in id order. */
+  itemsForStory(storyId: number): ItemRow[];
 
   /** Insert or update by `key`; returns the story id. */
   upsertStory(story: StoryInput, now?: Date): number;
@@ -205,6 +235,10 @@ export interface Db {
   itemIdsForStory(storyId: number): number[];
   storiesByStatus(status: StoryStatus, limit?: number): StoryRow[];
   setStoryStatus(id: number, status: StoryStatus): void;
+  storyById(id: number): StoryRow | undefined;
+  storyByKey(key: string): StoryRow | undefined;
+  /** Follow-up stories of an article, newest first. */
+  followUpsOf(articleId: number): StoryRow[];
 
   recordSpend(bucket: SpendBucket, purpose: string, model: string, usd: number, at?: Date): void;
   spentToday(bucket: SpendBucket, now?: Date): number;
@@ -232,6 +266,7 @@ export function openDb(dir: string): Db {
   raw.exec("PRAGMA foreign_keys=ON");
   raw.exec("PRAGMA busy_timeout=5000");
   raw.exec(SCHEMA);
+  addMissingColumns(raw);
 
   const iso = (d: Date) => d.toISOString();
   const rows = <T>(sql: string, ...args: (string | number | null)[]) =>
@@ -251,8 +286,8 @@ export function openDb(dir: string): Db {
       }
       raw
         .prepare(
-          `INSERT INTO items (url, source_id, title, summary, published_at, fetched_at, content_hash, text, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new')`,
+          `INSERT INTO items (url, source_id, title, summary, published_at, fetched_at, content_hash, text, status, publisher, text_unavailable)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`,
         )
         .run(
           url,
@@ -263,6 +298,8 @@ export function openDb(dir: string): Db {
           iso(now),
           item.contentHash ?? null,
           item.text ?? null,
+          item.publisher ?? null,
+          item.textUnavailable ? 1 : 0,
         );
       return true;
     },
@@ -279,12 +316,23 @@ export function openDb(dir: string): Db {
       }
     },
 
+    setItemText(id, text) {
+      raw.prepare("UPDATE items SET text = ? WHERE id = ?").run(text, id);
+    },
+
+    itemsForStory(storyId) {
+      return rows<ItemRow>(
+        "SELECT items.* FROM items JOIN story_items ON story_items.item_id = items.id WHERE story_items.story_id = ? ORDER BY items.id",
+        storyId,
+      );
+    },
+
     upsertStory(s, now = new Date()) {
       const last = s.lastItemAt ?? iso(now);
       raw
         .prepare(
-          `INSERT INTO stories (key, headline, category, score, bomb, rumor, games_json, first_seen_at, last_item_at, status, mode, story_date)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO stories (key, headline, category, score, bomb, rumor, games_json, first_seen_at, last_item_at, status, mode, story_date, parent_article_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(key) DO UPDATE SET
              headline = excluded.headline,
              category = excluded.category,
@@ -311,6 +359,7 @@ export function openDb(dir: string): Db {
           s.status ?? "open",
           s.mode,
           s.storyDate ?? null,
+          s.parentArticleId ?? null,
         );
       return one<{ id: number }>("SELECT id FROM stories WHERE key = ?", s.key)!.id;
     },
@@ -332,6 +381,18 @@ export function openDb(dir: string): Db {
 
     setStoryStatus(id, status) {
       raw.prepare("UPDATE stories SET status = ? WHERE id = ?").run(status, id);
+    },
+
+    storyById(id) {
+      return one<StoryRow>("SELECT * FROM stories WHERE id = ?", id);
+    },
+
+    storyByKey(key) {
+      return one<StoryRow>("SELECT * FROM stories WHERE key = ?", key);
+    },
+
+    followUpsOf(articleId) {
+      return rows<StoryRow>("SELECT * FROM stories WHERE parent_article_id = ? ORDER BY id DESC", articleId);
     },
 
     recordSpend(bucket, purpose, model, usd, at = new Date()) {
