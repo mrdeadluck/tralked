@@ -23,3 +23,26 @@ const PLATFORM_SUFFIX = /(\s+(and\s+)?(ps3|ps4|ps5|vita|psvita|xbox one|xbox ser
 export function normalizePlatformTitle(title: string): string {
   return normalizeTitle(title).replace(PLATFORM_SUFFIX, "").trim();
 }
+
+/**
+ * Store editions a platform list may add to the game's name (`… Digital Deluxe Edition`,
+ * `… - Game of the Year`). Only the usual store tiers: a named edition (`Voidheart Edition`) or a
+ * Director's Cut is another catalog entry and stays as is. Without the word "Edition" only GOTY
+ * counts: `Pokémon Gold` is a game of its own.
+ */
+const EDITION_SUFFIX =
+  /[\s:\-–—]+(?:(?:digital\s+)?(?:deluxe|standard|ultimate|gold|complete|definitive|premium|special|launch|cross[\s-]?gen|collector['’]?s)\s+edition|digital\s+deluxe|(?:game\s+of\s+the\s+year|goty)(?:\s+edition)?)\s*$/i;
+
+/**
+ * The game's name without a trailing store edition (and trademark signs or a trailing platform
+ * tag in parentheses), or null when the name has no such edition.
+ * `Marvel’s Spider-Man 2 Digital Deluxe Edition (PS5)` -> `Marvel’s Spider-Man 2`.
+ */
+export function withoutEdition(title: string): string | null {
+  const plain = title
+    .replace(/[™®©]/g, "")
+    .replace(/\s*\((?:ps[345]|ps vita|xbox[^)]*|pc|windows)\)\s*$/i, "")
+    .trim();
+  const base = plain.replace(EDITION_SUFFIX, "").trim();
+  return base && base !== plain ? base : null;
+}

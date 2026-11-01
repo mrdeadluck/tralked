@@ -212,7 +212,8 @@ export function createIgdbClient({
 
     async findByName(name): Promise<IgdbGame | null> {
       // Apicalypse strings cannot hold quotes or backslashes; they never matter for matching.
-      const term = name.replace(/["\\]/g, " ").trim();
+      // Typographic apostrophes (`Marvel’s`) as plain ones, which IGDB's search knows.
+      const term = name.replace(/[’‘`´]/g, "'").replace(/[™®©]/g, "").replace(/["\\]/g, " ").trim();
       if (!term) return null;
       const hits = await query<{ id: number; name: string }>(
         "games",

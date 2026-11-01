@@ -1,7 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getIgdb, mapToSkills } from "@/lib/integrations";
-import { normalizePlatformTitle, normalizeTitle } from "@/lib/integrations/title-match";
+import { normalizePlatformTitle, normalizeTitle, withoutEdition } from "@/lib/integrations/title-match";
 import { slugify } from "./catalog";
 
 const IGDB_COVER_URL = "https://images.igdb.com/igdb/image/upload/t_cover_big";
@@ -26,17 +26,22 @@ export async function loadNameIndex(): Promise<NameIndex> {
 }
 
 /**
- * The one stub whose name is exactly `name` (ignoring case), or null (none, or ambiguous). Written
- * as `lower(name) = lower($1)` on stubs so it uses the partial expression index
- * expression index `Game_name_lower_idx` on lower(name) (migration 20261102090000_releases_calendar,
- * which replaced the stub-only one), not a scan of ~150k rows.
+ * The one stub named `name`, or null (none, or ambiguous): first the exact name ignoring case
+ * (`lower(name) = lower($1)`, served by the expression index `Game_name_lower_idx`, migration
+ * 20261102090000_releases_calendar), then the same name folded like the catalog search
+ * (`searchName = tralked_search_name($1)`, served by the trigram index): apostrophes, accents and
+ * punctuation aside, so `Marvel’s Wolverine` finds `Marvel's Wolverine` and `Ghost of Yotei` finds
+ * `Ghost of Yōtei`. Never a scan of the ~150k stubs.
  */
 export async function findStubByName(name: string): Promise<string | null> {
   const trimmed = name.replace(/[™®©]/g, "").trim();
   if (!trimmed) return null;
-  const rows = await prisma.$queryRaw<{ id: string }[]>`
+  const exact = await prisma.$queryRaw<{ id: string }[]>`
     SELECT id FROM "Game" WHERE stub AND lower(name) = lower(${trimmed}) LIMIT 2`;
-  return rows.length === 1 ? rows[0].id : null;
+  if (exact.length > 0) return exact.length === 1 ? exact[0].id : null;
+  const folded = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "Game" WHERE "searchName" = tralked_search_name(${trimmed}) AND stub LIMIT 2`;
+  return folded.length === 1 ? folded[0].id : null;
 }
 
 const isUniqueViolation = (error: unknown) =>
@@ -57,8 +62,8 @@ export type ResolveOptions = {
 /**
  * Finds the catalog game of a platform title, in order: the platform link (PSN
  * npCommunicationId or store title id, Xbox titleId, RA game id), the normalized name or an alias
- * of a listed game, the exact name of a stub of the full Steam catalog, then IGDB by exact name
- * (matched to the catalog by igdbId). A title nobody knows yet becomes a new game, with IGDB
+ * of a listed game, the name of a stub of the full Steam catalog (findStubByName), the same without
+ * a store edition (`… Deluxe Edition`), then IGDB by exact name (matched to the catalog by igdbId). A title nobody knows yet becomes a new game, with IGDB
  * metadata and skills when IGDB knows it. The link is stored so the next sync is a single lookup.
  * `names` is updated in place with created games.
  */
@@ -85,6 +90,16 @@ export async function resolvePlatformGame(
     await linkPlatform(stub, platform, title.externalId);
     names.set(normalized, stub);
     return stub;
+  }
+  // A store edition of a known game (`… Digital Deluxe Edition`) is that game.
+  const editionOf = withoutEdition(title.name);
+  if (editionOf) {
+    const known = names.get(normalizePlatformTitle(editionOf)) ?? names.get(normalizeTitle(editionOf)) ?? (await findStubByName(editionOf));
+    if (known) {
+      await linkPlatform(known, platform, title.externalId);
+      names.set(normalized, known);
+      return known;
+    }
   }
 
   let igdb = null;
