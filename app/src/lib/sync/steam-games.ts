@@ -13,15 +13,28 @@ export const placeholderSteamName = (appId: number) => `Jogo ${appId} da Steam`;
 export const steamSlugBase = (name: string, appId: number) =>
   slugify(cleanName(name).replace(/['’]/g, "")) || `app-${appId}`;
 
-/** A name still the placeholder of an app known only by its appid. */
-export const isPlaceholderName = (name: string, appId: number | null) =>
-  appId !== null && name === placeholderSteamName(appId);
+/**
+ * Names given before the 2026-11 catalog work: the old `syncGame` named an app IGDB did not know
+ * `Steam App <appid>` (slug `steam-app-<appid>`), as a listed game. Treated as a placeholder too.
+ */
+export const LEGACY_PLACEHOLDER = /^Steam App \d+$/;
 
 /**
- * The slug a game with a placeholder slug (`jogo-<appid>-da-steam`, given while Steam knew it only
- * by appid) takes once its real name is known: the real name's slug, or `<slug>-<appid>` when
- * taken. Safe to change: a placeholder game is a stub, never listed, prerendered or in the sitemap,
- * and pages link to it by its current slug; an old bookmark of the placeholder URL gets a 404.
+ * A name still the placeholder of an app known only by its appid: `Jogo <appid> da Steam`, or the
+ * legacy `Steam App <n>`. Such a game is never listed (stub) until it has its real name.
+ */
+export const isPlaceholderName = (name: string, appId: number | null) =>
+  LEGACY_PLACEHOLDER.test(name) || (appId !== null && name === placeholderSteamName(appId));
+
+/** A slug given from a placeholder name (`jogo-<appid>-da-steam…` or the legacy `steam-app-<n>…`). */
+export const isPlaceholderSlug = (slug: string, appId: number) =>
+  slug.startsWith(steamSlugBase(placeholderSteamName(appId), appId)) || /^steam-app-\d+(?:-\d+)?$/.test(slug);
+
+/**
+ * The slug a game with a placeholder slug (`jogo-<appid>-da-steam` or the legacy `steam-app-<n>`,
+ * given while Steam knew it only by appid) takes once its real name is known: the real name's slug,
+ * or `<slug>-<appid>` when taken. Safe to change: a placeholder name is never a real game title,
+ * and pages link to games by their current slug; an old bookmark of the placeholder URL gets a 404.
  * Games with a real slug keep it (`{}`), so a published URL never changes.
  */
 export async function slugAfterPlaceholder(
@@ -30,7 +43,7 @@ export async function slugAfterPlaceholder(
   realName: string,
   appId: number,
 ): Promise<{ slug?: string }> {
-  if (!game.slug.startsWith(steamSlugBase(placeholderSteamName(appId), appId))) return {};
+  if (!isPlaceholderSlug(game.slug, appId)) return {};
   if (isPlaceholderName(realName, appId)) return {};
   const base = steamSlugBase(realName, appId);
   for (const slug of [base, `${base}-${appId}`]) {
@@ -38,6 +51,60 @@ export async function slugAfterPlaceholder(
     if (!taken || taken.id === game.id) return { slug };
   }
   return {};
+}
+
+export type PlaceholderGame = {
+  id: string;
+  slug: string;
+  name: string;
+  steamAppId: number;
+  stub: boolean;
+  detailsSyncedAt: Date | null;
+};
+
+/** Steam games still named with a placeholder (either form), optionally only these appids. */
+export async function placeholderGames(appIds?: number[]): Promise<PlaceholderGame[]> {
+  if (appIds && appIds.length === 0) return [];
+  const only = appIds ? Prisma.sql`AND "steamAppId" = ANY(${appIds}::int[])` : Prisma.empty;
+  return prisma.$queryRaw<PlaceholderGame[]>`
+    SELECT id, slug, name, "steamAppId", stub, "detailsSyncedAt" FROM "Game"
+    WHERE "steamAppId" IS NOT NULL
+      AND (name ~ '^Steam App [0-9]+$' OR name = 'Jogo ' || "steamAppId" || ' da Steam')
+      ${only}
+    ORDER BY "steamAppId"`;
+}
+
+/**
+ * Gives a placeholder-named game its real name: name, slug (slugAfterPlaceholder, collision-safe)
+ * and, while it has no store details yet, a place at the front of the details queue so its cover
+ * and art arrive. Its `stub` flag is left as is (a stub becomes listed only with its details).
+ * Re-checked under a row lock: a game renamed meanwhile is left alone (returns null), so running
+ * twice changes nothing. A placeholder or empty `realName` is refused.
+ */
+export async function renamePlaceholderGame(
+  gameId: string,
+  realName: string,
+  now: Date = new Date(),
+): Promise<{ name: string; slug: string } | null> {
+  const name = cleanName(realName);
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<PlaceholderGame[]>`
+      SELECT id, slug, name, "steamAppId", stub, "detailsSyncedAt" FROM "Game" WHERE id = ${gameId} FOR UPDATE`;
+    const game = rows[0];
+    if (!game || game.steamAppId === null || !isPlaceholderName(game.name, game.steamAppId)) return null;
+    if (!name || isPlaceholderName(name, game.steamAppId)) return null;
+    const { slug } = await slugAfterPlaceholder(tx, game, name, game.steamAppId);
+    const updated = await tx.game.update({
+      where: { id: game.id },
+      data: {
+        name,
+        ...(slug && { slug }),
+        ...(game.detailsSyncedAt === null && { detailsRequestedAt: now }),
+      },
+      select: { name: true, slug: true },
+    });
+    return updated;
+  });
 }
 
 function chunks<T>(items: T[], size = CHUNK): T[][] {

@@ -5,7 +5,7 @@ import { isSteamCdnUrl } from "@/lib/integrations/steam/polite-fetch";
 import type { StoreApp } from "@/lib/integrations/steam/store";
 import type { SteamSchemaAchievement } from "@/lib/integrations/steam/types";
 import { slugify } from "@/lib/sync/catalog";
-import { placeholderSteamName, slugAfterPlaceholder } from "@/lib/sync/steam-games";
+import { isPlaceholderName, slugAfterPlaceholder } from "@/lib/sync/steam-games";
 
 export type CatalogMedia = {
   kind: "cover" | "hero" | "logo" | "artwork" | "screenshot" | "video";
@@ -71,7 +71,7 @@ export async function writeCatalogGame(input: CatalogGameInput): Promise<{ game:
       // A name-only stub of the full catalog (or a placeholder name) takes the store's name; an
       // editorial name is never overwritten.
       const renamed =
-        current.stub || current.name === placeholderSteamName(appId)
+        current.stub || isPlaceholderName(current.name, appId)
           ? { name: store.name, ...(await slugAfterPlaceholder(tx, current, store.name, appId)) }
           : {};
       game = await tx.game.update({

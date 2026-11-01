@@ -932,6 +932,33 @@ describe.skipIf(!reachable)("syncUser", () => {
     });
   });
 
+  it("a legacy `Steam App <n>` game takes its library name and slug; without a name it is unlisted", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const named = newAppId();
+    const nameless = newAppId();
+    for (const appId of [named, nameless]) {
+      await prisma.game.create({
+        data: { steamAppId: appId, name: `Steam App ${appId}`, slug: `steam-app-${appId}`, platforms: ["PC"], achievementCount: 2 },
+      });
+    }
+    steamState.api = fakeSteam({
+      [named]: { pcts: {}, name: "Silent Hill 2", unlocks: {} },
+      [nameless]: { pcts: pctsOf(2), name: null, unlocks: { A0: new Date("2024-01-01T10:00:00Z") } },
+    }).api;
+    const user = await newUser();
+    await syncUser(user.id);
+
+    const renamed = await prisma.game.findUniqueOrThrow({ where: { steamAppId: named } });
+    expect(renamed).toMatchObject({ name: "Silent Hill 2", stub: false, detailsRequestedAt: expect.any(Date) });
+    expect(renamed.slug).toMatch(/^silent-hill-2(-\d+)?$/);
+    // No name anywhere (library, IGDB): the catalog sync keeps it out of listings.
+    expect(await prisma.game.findUniqueOrThrow({ where: { steamAppId: nameless } })).toMatchObject({
+      name: `Steam App ${nameless}`,
+      stub: true,
+    });
+  });
+
   it("a re-sync reads achievements only of games played since the last read", async () => {
     const { syncUser } = await import("./user");
     const a = newAppId();
