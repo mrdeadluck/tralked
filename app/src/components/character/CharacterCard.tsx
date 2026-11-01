@@ -89,8 +89,8 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin 
         </span>
         {playtimeMin !== undefined ? (
           <span className="ml-auto flex flex-col items-end gap-1 pb-1">
-            <b className="text-[clamp(28px,3.6vw,40px)] leading-none font-black font-stretch-[112%] tabular-nums">
-              {formatNumber(Math.floor(playtimeMin / 60))} h
+            <b className="text-[clamp(28px,3.6vw,40px)] leading-none font-black font-stretch-[112%] whitespace-nowrap tabular-nums">
+              {`${formatNumber(Math.floor(playtimeMin / 60))} h`}
             </b>
             <span className="font-mono text-[10.5px] tracking-[0.12em] text-dim-2 uppercase">Horas jogadas</span>
           </span>

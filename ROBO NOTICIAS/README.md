@@ -1,14 +1,122 @@
 # Robô de Notícias
 
-Standalone Node/TypeScript project (pnpm, Node >= 24, built-in `node:sqlite`). It writes to the site only through `/api/v1/*`.
+Standalone Node/TypeScript project (pnpm, Node >= 24, built-in `node:sqlite`). It collects game news, writes articles in pt-BR with Claude and publishes them on tralked.com. It writes to the site only through `/api/v1/*`, never to its database.
+
+## Setup
+
+1. Install: `pnpm install` (in this folder, `ROBO NOTICIAS/`).
+2. Create the site API key. In `app/`, with `DATABASE_URL` pointing at the site database:
+
+   ```
+   pnpm api:key "Robo de Noticias" articles:write publish
+   ```
+
+   The secret is printed once and cannot be recovered; the database keeps only its hash.
+3. Copy `.env.example` to `.env` (gitignored) and fill it in:
+
+   | Key | Required | Meaning |
+   |---|---|---|
+   | `ANTHROPIC_API_KEY` | yes | Anthropic API key. |
+   | `TRALKED_API_URL` | no | Site base URL. Default `https://tralked.com`. |
+   | `TRALKED_API_KEY` | yes | The secret from `pnpm api:key`. |
+   | `RESEND_API_KEY` | no | Resend API key, for alert and summary e-mails. |
+   | `ALERT_EMAIL` | no | Where alerts and the daily summary are sent. |
+
+   The other keys in `.env.example` (models, budgets, `MAX_PER_DAY`, slot hours, backfill size, `DATA_DIR`) have working defaults.
+4. Check: `pnpm test && pnpm typecheck`.
+
+State lives in `data/` (gitignored): `robo.db` (SQLite), `logs/YYYY-MM-DD.log`, the `PAUSADO` file and the publish lock. Secrets live in `.env` (gitignored).
+
+## Commands
+
+All commands run from this folder with `pnpm <command>`.
+
+| Command | What it does |
+|---|---|
+| `pnpm coleta` | Collects every active source, triages, clusters, queues stories, publishes "bombs" right away and updates same-day articles. Runs every 30 min, 24 h a day. |
+| `pnpm publica [--agora]` | Publishes the best queued story, one per hour between 06:00 and 23:00 (America/Sao_Paulo), at most `MAX_PER_DAY` (15) a day. Waits 0 to 12 min first; `--agora` skips the wait. |
+| `pnpm retroativo` | Backfill: writes the older articles of the last `BACKFILL_DAYS` days with backdated times, under its own budget. |
+| `pnpm resumo [dia]` | Prints and e-mails the counts for a local day: collected, dropped, queued, published, updated, check failures, spend by bucket and broken sources. `dia` is `AAAA-MM-DD` or `ontem`; the default is today. |
+| `pnpm despublicar --de AAAA-MM-DD --ate AAAA-MM-DD [--fonte id] [--confirmar]` | Bulk unpublish by publication day (local), optionally only stories that used source `id`. Without `--confirmar` it only lists. With it, it PATCHes `{status: "archived"}` on the site for each match and marks it `archived` locally. |
+
+Every command ends by e-mailing the alerts not yet sent (see below).
+
+### Task Scheduler (Windows)
+
+`scripts/instalar-tarefas.ps1` creates three tasks in the Windows Task Scheduler (Windows PowerShell 5.1):
+
+| Task | When | Runs |
+|---|---|---|
+| `Tralked Robo - Coleta` | every 30 min, indefinitely | `pnpm coleta` |
+| `Tralked Robo - Publica` | daily at 06:00, 07:00 ... 23:00 | `pnpm publica` |
+| `Tralked Robo - Resumo` | daily at 00:10 | `pnpm resumo ontem` |
 
 ```
-pnpm install
-cp .env.example .env     # fill ANTHROPIC_API_KEY and TRALKED_API_KEY
-pnpm test && pnpm typecheck
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\instalar-tarefas.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\instalar-tarefas.ps1 -Remover
 ```
 
-State lives in `data/` (gitignored). Secrets live in `.env` (gitignored).
+- Each task runs `cmd /c pnpm ...` in the `ROBO NOTICIAS` folder, so `PATH` resolves `pnpm`. Output goes to `data/logs/agendador.log`.
+- It tries "run whether the user is logged on or not" (S4U, no password stored) and falls back to "only while logged on". The script prints which one applied.
+- It is idempotent: running it again replaces the tasks. `-Remover` deletes them.
+- The trigger times use this PC's clock; the robot itself decides the publishing grid in America/Sao_Paulo.
+
+## PAUSADO (emergency stop)
+
+Create an empty file `data/PAUSADO` and the robot stops: `coleta` collects nothing and `publica` publishes nothing, at the next run. Delete the file to resume.
+
+```
+New-Item data\PAUSADO -ItemType File      # pause (PowerShell)
+Remove-Item data\PAUSADO                  # resume
+```
+
+A paused run raises a `pausado` alert, at most once a day.
+
+## Alerts
+
+Every alert is stored in `robo.db`, appended to `data/logs/YYYY-MM-DD.log` and e-mailed. Kinds:
+
+| Kind | When |
+|---|---|
+| `checagem` | The fact checker rejected a draft twice. |
+| `orcamento` | A daily or backfill budget cap was reached (once a day). |
+| `pausado` | The `PAUSADO` file stopped a run (once a day). |
+| `fonte` | A source has had no success for more than 24 h (once a day per source). |
+| `api` | A call to the site API failed. |
+| `recusa` | The model refused to write a story. |
+
+E-mails need both `RESEND_API_KEY` and `ALERT_EMAIL`. They go from `no-reply@tralked.com` (the `tralked.com` domain must be verified in Resend), as plain text in pt-BR, with all pending alerts in one message. If Resend fails the alerts stay pending and go out after the next command. Without those keys alerts are only logged.
+
+## Costs
+
+Prices in USD per 1M tokens (input / output): Opus 5.5 `4 / 20` (writer), Sonnet 5.5 `2 / 10`, Haiku 5.5 `0.10 / 0.50` (triage, clustering, checker). Cache reads cost 0.1x, cache writes 1.25x and batch calls 0.5x.
+
+Spend is recorded per call in two separate buckets with hard caps:
+
+- `live`: `DAILY_BUDGET_USD`, default US$ 5 a day. When reached, the robot stops spending until the next local day and raises an `orcamento` alert.
+- `backfill`: `BACKFILL_BUDGET_USD`, default US$ 70 in total.
+
+`pnpm resumo` shows the spend of each bucket for the day.
+
+## Editing the sources (`config/fontes.json`)
+
+A JSON array with one object per source; the file is validated on every start, so a typo fails fast with the offending field.
+
+| Field | Meaning |
+|---|---|
+| `id` | Unique short id (used by `despublicar --fonte`). |
+| `name` | Display name. |
+| `kind` | `rss` (RSS 2.0 or Atom) or `listing` (an HTML page of links). |
+| `url` | Feed or page URL. |
+| `tier` | `oficial`, `portal` or `outro`: how much the ranking trusts it. |
+| `category` | Default category: `GAMES`, `MERCADO`, `ENTRETENIMENTO` or `TECNOLOGIA`. |
+| `gamingFilter` | `true` for general feeds: only game-related items are kept. |
+| `active` | `false` keeps the entry but skips it. |
+| `listingSelector` | `listing` only: CSS selector of the item anchors. |
+| `linkResolve` | `"google-news"` for Google News search feeds (requires a `news.google.com` URL). |
+| `backfill` | Optional `{ "kind": "sitemap", "url": ... }` used by `pnpm retroativo`. |
+
+To add a source: append an object, run `pnpm test` (it validates the file), then verify the feed by hand. Follow the bot-protection rule below: never work around a block. To retire one, set `"active": false` instead of deleting it. A source with no success for more than 24 h raises a `fonte` alert.
 
 ## Sources (`config/fontes.json`)
 

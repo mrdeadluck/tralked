@@ -1,0 +1,225 @@
+/*
+ * Highscores (components/highscores): global classes prefixed `hs-` (this app's Turbopack CSS
+ * rule does not build CSS modules).
+ *
+ * Motion. One orchestrated moment: the podium rises (3rd, 2nd, then 1st) while the
+ * numbers count up; the bars fill once. Everything is still with prefers-reduced-motion, and the
+ * final state is the static one (no JS needed).
+ */
+
+.hs-podium {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Rank 1 sits in the middle; the DOM (and the reading order) stays 1, 2, 3. */
+.hs-slot1 { order: 2; }
+.hs-slot2 { order: 1; }
+.hs-slot3 { order: 3; }
+
+@media (max-width: 640px) {
+  .hs-podium {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .hs-slot1,
+  .hs-slot2,
+  .hs-slot3 {
+    order: 0;
+  }
+}
+
+.hs-slot {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.hs-slot-head {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 14px;
+  animation: hs-appear 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--head-delay, 0ms);
+}
+
+.hs-avatar {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 3px solid var(--medal);
+  border-radius: 50%;
+  background: repeating-linear-gradient(135deg, var(--hover) 0 6px, var(--hover-2) 6px 12px);
+  color: var(--medal);
+  font-weight: 900;
+  font-stretch: 125%;
+  line-height: 1;
+}
+
+.hs-slot1 .hs-avatar {
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--medal) 18%, transparent),
+    0 0 42px color-mix(in oklab, var(--medal) 40%, transparent);
+}
+
+.hs-plinth {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: var(--plinth-h);
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+  border-top: 4px solid var(--medal);
+  border-radius: 4px 4px 0 0;
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--medal) 16%, transparent), transparent 70%),
+    var(--surface);
+  transform-origin: bottom;
+  animation: hs-rise 700ms cubic-bezier(0.2, 0.9, 0.25, 1.05) both;
+  animation-delay: var(--rise-delay, 0ms);
+}
+
+.hs-plinth-rank {
+  margin-top: 6px;
+  color: color-mix(in oklab, var(--medal) 70%, var(--bg));
+  font-size: clamp(56px, 8vw, 104px);
+  font-weight: 900;
+  font-stretch: 125%;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+@media (max-width: 640px) {
+  .hs-slot {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    align-items: stretch;
+    text-align: left;
+  }
+  .hs-slot-head {
+    flex-direction: row;
+    align-items: center;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    order: 2;
+    text-align: left;
+  }
+  .hs-plinth {
+    height: auto;
+    min-height: 72px;
+    align-items: center;
+    border-top: 0;
+    border-left: 4px solid var(--medal);
+    border-radius: 4px 0 0 4px;
+    transform-origin: left;
+    animation-name: hs-rise-x;
+  }
+  .hs-plinth-rank {
+    margin: 0;
+    font-size: 48px;
+  }
+  /* The podium's avatars are sized inline for the desktop steps; one size in the stacked list. */
+  .hs-slot-head .hs-avatar {
+    width: 56px !important;
+    height: 56px !important;
+    font-size: 22px !important;
+  }
+}
+
+/* Bars: fill once, a few ms apart down the list. */
+.hs-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transform-origin: left;
+  animation: hs-grow 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(min(var(--i, 0), 20) * 35ms + 150ms);
+}
+
+.hs-delta {
+  animation: hs-pop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+  animation-delay: calc(min(var(--i, 0), 20) * 35ms + 500ms);
+}
+
+/* The viewer's own row and podium slot (`data-me`, set by MarkViewerRow or on their own row). */
+.hs-you-tag {
+  display: none;
+}
+
+[data-me] .hs-you-tag {
+  display: inline;
+}
+
+.hs-row[data-me] {
+  background: color-mix(in oklab, var(--acc) 7%, transparent);
+  box-shadow: inset 3px 0 0 var(--acc);
+}
+
+.hs-row[data-me] .hs-fill {
+  background: var(--acc) !important;
+}
+
+/*
+ * While the bar is on the page, focusing (Tab) or jumping to a link scrolls it clear of the bar,
+ * never under it (WCAG 2.4.11, focus not obscured). The bar is at most ~110px tall (two lines on
+ * phones).
+ */
+html:has(.hs-you) {
+  scroll-padding-bottom: 136px;
+}
+
+/* "Você está aqui": pinned to the bottom of the viewport while the board scrolls. */
+.hs-you {
+  position: sticky;
+  bottom: 12px;
+  z-index: 10;
+  animation: hs-appear 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: 600ms;
+}
+
+@keyframes hs-rise {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes hs-rise-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes hs-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* Transform only (no opacity): text keeps its full contrast at every frame. */
+@keyframes hs-appear {
+  from { transform: translateY(14px) scale(0.94); }
+  to { transform: none; }
+}
+
+@keyframes hs-pop {
+  from { transform: translateY(4px) scale(0.4); }
+  to { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hs-slot-head,
+  .hs-plinth,
+  .hs-fill,
+  .hs-delta,
+  .hs-you {
+    animation: none;
+  }
+}

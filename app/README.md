@@ -84,6 +84,8 @@ A Steam é a exceção: sem `STEAM_API_KEY` ela usa as páginas públicas da com
 
 Nomes provisórios antigos: antes do Plano 4, a sincronização do catálogo chamava um app desconhecido do IGDB de `Steam App <appid>` (slug `steam-app-<appid>`), listado. Esse nome também conta como provisório: a sincronização Steam troca nome e slug pelo nome que a biblioteca informa (`include_appinfo`) e coloca o jogo na fila de detalhes, e sem nome conhecido ele sai das listagens (`stub`). Para corrigir de uma vez o que já está no banco: `DATABASE_URL=… pnpm exec tsx --env-file=.env.production.local scripts/repair-placeholder-games.ts [--dry-run]` (ou `STEAM_API_KEY=… DATABASE_URL=… pnpm games:repair-placeholders [--dry-run]`): nomes vêm primeiro das bibliotecas dos donos (uma requisição por dono, exige `STEAM_API_KEY`), depois da loja (`appdetails` com `filters=basic`, uma a cada 1,5 s); sem nome, o jogo vira `stub`. Idempotente e registra cada troca em `scripts/.logs/`.
 
+**Highscores (Plano 4).** `/highscores` tem pódio animado do top 3, números que sobem, barras de XP/progresso, setas de subida e queda e a barra fixa "Você está aqui" (posição, mudança e quanto falta para alcançar quem está logo acima). Categorias: Nível, Horas jogadas, Conquistas, Raras e lendárias (até 20% / até 3% dos jogadores), Platinas e 100%, Acervo, cada uma por plataforma (`/highscores/horas/psn`), e por gênero (`/highscores/genero/rpg`); os links antigos `?skill=` redirecionam. Cada ranking é uma leitura indexada: os totais por usuário e plataforma ficam em `UserRankStats`, regravados a cada recompute (`src/lib/highscores/`); o ranking de nível usa `UserStats` e o de gênero `SkillProgress`. As páginas são pré-renderadas com os dados públicos em cache (tag `highscores`, alguns minutos; funcionam sem JS) e a parte do visitante é uma ilha dinâmica. As setas comparam com a foto diária de cada ranking (`RankSnapshot`, cron `highscores`). Em bancos anteriores, `pnpm highscores:backfill --dry-run` mostra e `pnpm highscores:backfill --snapshot` grava os totais de todos os usuários e tira a foto do dia. Toda a animação para com `prefers-reduced-motion`.
+
 Um app que a Steam lista sem nome (ainda fora da lista de apps importada) entra como `Jogo <appid> da Steam`, com o slug provisório `jogo-<appid>-da-steam`, e continua `stub` (fora das listagens) enquanto o nome for esse. Quando os detalhes (ou o IGDB) trazem o nome real, o slug provisório passa a ser o do nome real: ele nunca foi listado, pré-renderizado nem entrou no sitemap, e as páginas sempre linkam pelo slug atual; jogos com nome real nunca mudam de slug. PSN/Xbox/RA casam títulos com o catálogo listado por nome normalizado e com os stubs só por nome exato (sem diferenciar maiúsculas), um a um, sem carregar os ~150 mil nomes; títulos só com horas (sem troféus) não consultam o IGDB, e o passo de horas respeita o prazo da execução (o resto continua na próxima). No Xbox, os títulos cujos minutos já foram pedidos ficam guardados (`SyncCursor`, por conta e jogador) e só são pedidos de novo quando jogados outra vez. Num build de produção, `STEAM_MODE=fixture` só vale com `PLATFORM_FIXTURES=1` ou `STEAM_FIXTURES=1` (modos de teste, nunca num deploy real; o e2e usa o segundo).
 
 ## E-mail transacional (Resend)
@@ -161,7 +163,7 @@ Um perfil importado não tem e-mail nem senha: quem reivindicar essa Steam (cód
 
 ## Cron
 
-Oito jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
+Nove jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
 
 | Endpoint | Faz |
 | --- | --- |
@@ -173,6 +175,7 @@ Oito jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame
 | `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte, data e área das manchetes que passam na regra da área do feed (veja "Manchetes externas por área"). |
 | `/api/cron/notifications` | Diário: apaga notificações com mais de 90 dias (o texto delas pode citar outras pessoas, inclusive quem excluiu a conta). |
 | `/api/cron/steam-catalog` | Catálogo completo da Steam, em 50 s por execução: (1) até 40% do tempo importando a lista de jogos da loja (`IStoreService/GetAppList`, 10 mil por página, exige `STEAM_API_KEY`) como entradas só com nome (`Game.stub`, fora das listagens, do sitemap e dos seletores), retomando pelo `last_appid` guardado em `SyncCursor`; terminada uma volta, as seguintes pedem só o que mudou (`if_modified_since`); (2) uma página do SteamSpy (os mil mais possuídos, girando pelas 10 primeiras) define `Game.popularity`; (3) no tempo que sobra, detalhes da loja em pt-BR (resumo, desenvolvedora, data, nota; nunca preço), tags (habilidades), conquistas com raridade e artes do CDN da Steam pelo appid (capa 600×900, hero e logo conferidos com `HEAD` antes de gravar; sem capa, SteamGridDB e depois IGDB), na ordem: jogos que alguém abriu, jogos que alguém tem ou deseja, os mais populares. Offline (`STEAM_MODE=fixture`) só a lista de apps da fixture é importada. |
+| `/api/cron/highscores` | Diário: guarda a posição dos 200 primeiros de cada ranking dos Highscores (`RankSnapshot`, 14 dias); as setas de subida e queda comparam a posição atual com a foto do dia anterior. |
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://seu-dominio/api/cron/catalog
@@ -197,7 +200,8 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
     { "path": "/api/cron/rarity", "schedule": "30 3 * * *" },
     { "path": "/api/cron/media", "schedule": "0 4 * * *" },
     { "path": "/api/cron/notifications", "schedule": "15 5 * * *" },
-    { "path": "/api/cron/steam-catalog", "schedule": "20 * * * *" }
+    { "path": "/api/cron/steam-catalog", "schedule": "20 * * * *" },
+    { "path": "/api/cron/highscores", "schedule": "5 3 * * *" }
   ]
 }
 ```
@@ -211,6 +215,7 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
 | `catalog`, `rarity`, `media` | 1x por dia, de madrugada (horário de Brasília) | dados que mudam devagar |
 | `notifications` | 1x por dia | apaga notificações com mais de 90 dias |
 | `steam-catalog` | de hora em hora | catálogo completo da Steam: lista de apps (incremental), popularidade e detalhes dos jogos mais procurados, um pouco por vez |
+| `highscores` | 1x por dia, 00:05 em Brasília | a foto do ranking no começo do dia é a referência das setas de amanhã |
 
 A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste falha se as duas divergirem ou se algum job ficar sem horário.
 
@@ -258,6 +263,7 @@ Feeds sugeridos (conferidos em 31/10/2026: https, RSS válido, sem redirecioname
 | `pnpm catalog:bootstrap` | Catálogo real da Steam (`--limit N` jogos populares, `--concurrency N`, `--only-top`). Exige `DATABASE_URL`. |
 | `pnpm comments:recount` | Reconta `Article.comments` pelos comentários visíveis. Exige `DATABASE_URL`. |
 | `pnpm sample:rename [--dry-run]` | Renomeia os personagens fictícios de um banco semeado antes do Plano 4 (seed, bylines, notificações). Idempotente. Exige `DATABASE_URL`. |
+| `pnpm highscores:backfill [--dry-run] [--snapshot]` | Grava os totais dos Highscores (`UserRankStats`) de todos os usuários a partir da biblioteca e das conquistas válidas (só essa tabela; XP, missões e atributos ficam como estão) e, com `--snapshot`, tira a foto do dia dos rankings (o mesmo que o cron `highscores`). Idempotente. Exige `DATABASE_URL`. |
 | `pnpm news:feeds [--dry-run] [--paused]` | Cadastra os feeds de manchetes de Entretenimento e Tecnologia (`src/lib/news/feed-catalog.ts`), ativos (ou pausados com `--paused`). Idempotente: feed já cadastrado (mesma URL) nunca é alterado. Exige `DATABASE_URL`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
 | `pnpm api:key` | `"<nome>" <escopo>...`: cria uma chave de robô e imprime o segredo `tk_live_…` uma vez (só no terminal). Exige `DATABASE_URL`. |
@@ -332,7 +338,7 @@ src/app/              rotas (App Router)
   jogos/[slug]        página do jogo e /guia (guia 100% com votos)
   jogador/[handle]    perfil público (ficha); /jogos, /conquistas, /estatisticas e /desejos (lista de desejos)
                       são as seções; /jogador/me redireciona para o seu
-  highscores          ranking por habilidade (?skill=...)
+  highscores          rankings: nível, /horas, /conquistas, /raras, /platinas, /acervo (+ /<plataforma>), /genero/<habilidade>
   familia             modo família e convites; biblioteca da família paginada, com busca e filtros
   noticias/[slug]     artigos
   desenvolvedores     documentação da API para robôs (também em ../docs/robos.md)
@@ -362,6 +368,13 @@ src/lib/
 src/proxy.ts          /admin responde 404 de verdade a quem não é da redação (as páginas e as
                       Server Actions conferem o papel de novo)
 ```
+
+## Deploy (checklist)
+
+1. **Migrations antes do build**: `DATABASE_URL=... pnpm exec prisma migrate deploy`. O `next build` pré-renderiza páginas que leem tabelas novas (os Highscores leem `UserRankStats` e `RankSnapshot`), então o build falha ou sai vazio num banco sem elas.
+2. `pnpm build` e o deploy.
+3. **Depois do deploy, uma vez por banco anterior ao Plano 4 (F6)**: `DATABASE_URL=... pnpm highscores:backfill --dry-run` para conferir e `DATABASE_URL=... pnpm highscores:backfill --snapshot` para gravar os totais de todos os usuários e a primeira foto dos rankings (as setas aparecem a partir do dia seguinte). Sem isso, os rankings de horas, conquistas, raras, platinas e acervo só mostram quem sincronizou depois do deploy.
+4. Agende os crons (veja "Agendamento"), inclusive o diário `highscores`.
 
 ## Notas
 

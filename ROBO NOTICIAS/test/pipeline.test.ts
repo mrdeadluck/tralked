@@ -964,3 +964,38 @@ describe("coleta: budget and absorbing", () => {
     expect(h.site.created).toHaveLength(0);
   });
 });
+
+describe("alerts", () => {
+  it("PAUSADO raises one pausado alert a day across both commands", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    writeFileSync(join(h.dir, "PAUSADO"), "");
+    await h.coleta();
+    await h.publica();
+    await h.coleta();
+    expect(h.db.alerts().filter((a) => a.kind === "pausado")).toHaveLength(1);
+
+    h.at(local("2026-11-01T10:00"));
+    await h.publica();
+    expect(h.db.alerts().filter((a) => a.kind === "pausado")).toHaveLength(2);
+  });
+
+  it("coleta raises a fonte alert for a source silent for more than 24 h, once a day", async () => {
+    const h = harness(local("2026-10-30T08:00"));
+    await h.coleta(); // every source answers: all marked ok
+    expect(h.db.alerts().filter((a) => a.kind === "fonte")).toHaveLength(0);
+
+    h.fetchFn.mockImplementation(async (input: string) =>
+      input === "https://feeds.test/blog.xml" ? new Response("boom", { status: 500 }) : new Response(rss([]), { status: 200 }),
+    );
+    h.at(local("2026-10-31T07:00")); // 23 h later
+    await h.coleta();
+    expect(h.db.alerts().filter((a) => a.kind === "fonte")).toHaveLength(0);
+
+    h.at(local("2026-10-31T09:00")); // 25 h later
+    await h.coleta();
+    await h.coleta();
+    const fonte = h.db.alerts().filter((a) => a.kind === "fonte");
+    expect(fonte).toHaveLength(1);
+    expect(fonte[0]!.message).toContain("Blog Qualquer");
+  });
+});

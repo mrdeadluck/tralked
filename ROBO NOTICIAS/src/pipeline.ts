@@ -5,6 +5,7 @@ import { clusterItems, openStories, storyKeyOf, type ClusterItem, type OpenStory
 import { checkNovelty } from "./ai/novelty.js";
 import { CATEGORIES, triageItems, type Triage, type TriageInput } from "./ai/triage.js";
 import { writeAndCheck, type StoryForWriting, type StorySource } from "./ai/writer.js";
+import { alert, alertOncePerDay, checkSourceHealth } from "./alerts.js";
 import { assemble } from "./assemble.js";
 import { inSlotWindow, localDay, localHour } from "./clock.js";
 import { collectLive, extractText, fetchPage, type FetchFn } from "./collect/index.js";
@@ -177,15 +178,20 @@ async function withPublishLock<T>(deps: PipelineDeps, fn: () => Promise<T>): Pro
   }
 }
 
-/** One alert of a kind per local day (budget alerts would otherwise repeat every run). */
-function alertOncePerDay(db: Db, kind: string, message: string, now: Date): void {
-  const today = localDay(now);
-  if (db.alerts().some((a) => a.kind === kind && localDay(new Date(a.at)) === today)) return;
-  db.addAlert(kind, message, now);
+/** One budget alert per local day (it would otherwise repeat every run). */
+function budgetAlert(db: Db, error: BudgetExceededError, now: Date): void {
+  alertOncePerDay(db, "orcamento", `Teto de gasto atingido: ${error.message}. O robô para até amanhã.`, now, "Teto de gasto");
 }
 
-function budgetAlert(db: Db, error: BudgetExceededError, now: Date): void {
-  alertOncePerDay(db, "orcamento", `Teto de gasto atingido: ${error.message}. O robô para até amanhã.`, now);
+/** One `pausado` alert per local day, whichever command was stopped by the PAUSADO file. */
+function pausedAlert(deps: Pick<PipelineDeps, "db" | "config">, now: Date): void {
+  alertOncePerDay(
+    deps.db,
+    "pausado",
+    `Arquivo PAUSADO presente em ${join(deps.config.DATA_DIR, "PAUSADO")}: o robô não coleta nem publica. Apague o arquivo para retomar.`,
+    now,
+    "Arquivo PAUSADO",
+  );
 }
 
 async function pool<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
@@ -428,14 +434,15 @@ async function publishOne(story: StoryRow, deps: PipelineDeps): Promise<PublishO
         if (error instanceof BudgetExceededError) budgetAlert(db, error, now);
         if (error instanceof RefusalError) {
           db.setStoryStatus(story.id, "dropped");
-          db.addAlert("recusa", `História ${story.id} "${story.headline}": ${error.message}`, now);
+          alert(db, "recusa", `História ${story.id} "${story.headline}": ${error.message}`, now);
           return { kind: "rejected" };
         }
         throw error;
       }
       if (!result.ok) {
         db.setStoryStatus(story.id, "dropped");
-        db.addAlert(
+        alert(
+          db,
           "checagem",
           `História ${story.id} "${story.headline}" reprovada duas vezes na checagem: ${result.problems.join(" | ")}`,
           now,
@@ -455,7 +462,7 @@ async function publishOne(story: StoryRow, deps: PipelineDeps): Promise<PublishO
     } catch (error) {
       if (error instanceof TralkedError) {
         const permanent = error.status >= 400 && error.status < 500 && error.status !== 429;
-        db.addAlert("api", `Falha ao publicar a história ${story.id} "${story.headline}": ${error.status} ${error.message}`, now);
+        alert(db, "api", `Falha ao publicar a história ${story.id} "${story.headline}": ${error.status} ${error.message}`, now);
         if (permanent) {
           db.markArticle(story.id, { status: "failed" }, now);
           db.setStoryStatus(story.id, "dropped");
@@ -557,7 +564,8 @@ async function updateStory(story: StoryRow, deps: PipelineDeps): Promise<boolean
     });
     result = await writeAndCheck(ai, writing, "live", { models: config, now });
     if (!result.ok) {
-      db.addAlert(
+      alert(
+        db,
         "checagem",
         `Atualização da história ${story.id} "${story.headline}" reprovada duas vezes na checagem: ${result.problems.join(" | ")}`,
         now,
@@ -571,7 +579,7 @@ async function updateStory(story: StoryRow, deps: PipelineDeps): Promise<boolean
       await tralked.patchArticle(article.site_id, patch, updateKey(article.site_id, db.itemIdsForStory(story.id).length));
     } catch (error) {
       if (error instanceof TralkedError) {
-        db.addAlert("api", `Falha ao atualizar a matéria ${article.site_id}: ${error.status} ${error.message}`, now);
+        alert(db, "api", `Falha ao atualizar a matéria ${article.site_id}: ${error.status} ${error.message}`, now);
       }
       throw error;
     }
@@ -582,7 +590,7 @@ async function updateStory(story: StoryRow, deps: PipelineDeps): Promise<boolean
   } catch (error) {
     if (error instanceof BudgetExceededError) budgetAlert(db, error, now);
     if (error instanceof RefusalError) {
-      db.addAlert("recusa", `Atualização da história ${story.id} "${story.headline}": ${error.message}`, now);
+      alert(db, "recusa", `Atualização da história ${story.id} "${story.headline}": ${error.message}`, now);
       return false;
     }
     throw error;
@@ -870,7 +878,7 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
   } catch (error) {
     // Without the feed we cannot tell what the site already covered: queue nothing new this run.
     if (error instanceof TralkedError) {
-      db.addAlert("api", `Falha ao ler as matérias recentes do site: ${error.status} ${error.message}`, now);
+      alert(db, "api", `Falha ao ler as matérias recentes do site: ${error.status} ${error.message}`, now);
       report.feedUnavailable = true;
       return;
     }
@@ -912,11 +920,13 @@ export async function runColeta(deps: PipelineDeps): Promise<ColetaReport> {
   const now = deps.now();
   if (isPaused(deps.config)) {
     deps.log?.("PAUSADO: coleta não executada");
+    pausedAlert(deps, now);
     report.paused = true;
     return report;
   }
 
   await collectAndStore(deps, report, now);
+  checkSourceHealth(deps.db, deps.sources, now);
   try {
     await triageNew(deps, report, now);
     await fetchTexts(deps, report);
@@ -962,7 +972,10 @@ function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
 
 function refusal(deps: PipelineDeps, now: Date): string | null {
   const { config, db } = deps;
-  if (isPaused(config)) return "pausado (arquivo PAUSADO)";
+  if (isPaused(config)) {
+    pausedAlert(deps, now);
+    return "pausado (arquivo PAUSADO)";
+  }
   if (!inSlotWindow(now, config.SLOT_FIRST_HOUR, config.SLOT_LAST_HOUR)) {
     return `fora da grade (${config.SLOT_FIRST_HOUR}h–${config.SLOT_LAST_HOUR}h, horário de Brasília)`;
   }

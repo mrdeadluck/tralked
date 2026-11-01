@@ -54,7 +54,7 @@ describe.skipIf(!reachable)("gallery queries (database)", () => {
       expect(await updateProfileSettings(hidden.id, { bio: "", profilePublic: false })).toEqual({ visibilityChanged: true });
       expect(await updateProfileSettings(hidden.id, { bio: "", profilePublic: false })).toEqual({ visibilityChanged: false });
       expect((await visibilityTags(hidden.id)).sort()).toEqual(
-        ["gallery", "forum", `photo:${privatePhoto.id}`, `player:${hidden.handle.toLowerCase()}`].sort(),
+        ["gallery", "forum", "highscores", `photo:${privatePhoto.id}`, `player:${hidden.handle.toLowerCase()}`].sort(),
       );
     } finally {
       await prisma.photo.deleteMany({ where: { authorId: { in: [hidden.id, open.id] } } });

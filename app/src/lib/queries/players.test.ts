@@ -1,13 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
 import { dailyPeriodKey, weeklyPeriodKey } from "@/lib/progression/periods";
-import {
-  getCharacter,
-  getHighscores,
-  getUserRank,
-  hoursUntilDailyReset,
-  isHighscoreSkill,
-} from "@/lib/queries/players";
+import { getRank, getRanking } from "@/lib/highscores/queries";
+import { getCharacter, hoursUntilDailyReset } from "@/lib/queries/players";
 
 describe("hoursUntilDailyReset", () => {
   it("counts whole hours to the next America/Sao_Paulo midnight", () => {
@@ -17,14 +12,6 @@ describe("hoursUntilDailyReset", () => {
     expect(hoursUntilDailyReset(new Date("2026-11-01T02:59:30Z"))).toBe(1);
     // 03:00:00Z = 00:00 local -> a full day ahead
     expect(hoursUntilDailyReset(new Date("2026-11-01T03:00:00Z"))).toBe(24);
-  });
-});
-
-describe("isHighscoreSkill", () => {
-  it("accepts 'geral' and skill ids only", () => {
-    expect(isHighscoreSkill("geral")).toBe(true);
-    expect(isHighscoreSkill("soulslike")).toBe(true);
-    expect(isHighscoreSkill("nope")).toBe(false);
   });
 });
 
@@ -46,6 +33,8 @@ async function databaseReachable(): Promise<boolean> {
 }
 
 const reachable = await databaseReachable();
+const NIVEL = { metric: "nivel" } as const;
+const SOULSLIKE = { metric: "genero", skill: "soulslike" } as const;
 
 describe.skipIf(!reachable)("player queries (seeded database)", () => {
   afterAll(async () => {
@@ -163,25 +152,6 @@ describe.skipIf(!reachable)("player queries (seeded database)", () => {
     expect(await getCharacter("ninguem-por-aqui")).toBeNull();
   });
 
-  it("getHighscores('geral') is ordered by level desc, ranks are 1..n", async () => {
-    const rows = await getHighscores("geral");
-    expect(rows.length).toBeGreaterThan(1);
-    expect(rows.length).toBeLessThanOrEqual(50);
-    for (let i = 1; i < rows.length; i++) {
-      expect(rows[i - 1].level).toBeGreaterThanOrEqual(rows[i].level);
-    }
-    expect(rows.map((r) => r.rank)).toEqual(rows.map((_, i) => i + 1));
-    expect(rows.some((r) => r.handle === "lucas")).toBe(true);
-  });
-
-  it("getHighscores(skill) is ordered by that skill's level desc and honors the limit", async () => {
-    const rows = await getHighscores("soulslike", 5);
-    expect(rows).toHaveLength(5);
-    for (let i = 1; i < rows.length; i++) {
-      expect(rows[i - 1].level).toBeGreaterThanOrEqual(rows[i].level);
-    }
-  });
-
   it("a user with profilePublic=false does not appear and has no rank", async () => {
     const { prisma } = await import("@/lib/db");
     class Rollback extends Error {}
@@ -200,15 +170,15 @@ describe.skipIf(!reachable)("player queries (seeded database)", () => {
             skills: { create: { skill: "soulslike", level: 99, points: 1 } },
           },
         });
-        seen.inGeral = (await getHighscores("geral", 50, tx)).some((r) => r.handle === handle);
-        seen.inSkill = (await getHighscores("soulslike", 50, tx)).some((r) => r.handle === handle);
-        seen.rank = await getUserRank(user.id, "geral", tx);
+        seen.inGeral = (await getRanking(NIVEL, 50, tx)).some((r) => r.handle === handle);
+        seen.inSkill = (await getRanking(SOULSLIKE, 50, tx)).some((r) => r.handle === handle);
+        seen.rank = await getRank(user.id, NIVEL, tx);
         seen.sheetRank = (await getCharacter(handle, new Date(), tx))?.stats.rank;
 
         // Control: the same user, once public, tops both rankings.
         await tx.user.update({ where: { id: user.id }, data: { profilePublic: true } });
-        seen.publicGeral = (await getHighscores("geral", 1, tx))[0]?.handle;
-        seen.publicSkill = (await getHighscores("soulslike", 1, tx))[0]?.handle;
+        seen.publicGeral = (await getRanking(NIVEL, 1, tx))[0]?.handle;
+        seen.publicSkill = (await getRanking(SOULSLIKE, 1, tx))[0]?.handle;
         throw new Rollback();
       })
       .catch((error) => {
@@ -225,14 +195,13 @@ describe.skipIf(!reachable)("player queries (seeded database)", () => {
     expect(await prisma.user.count({ where: { handle } })).toBe(0);
   });
 
-  it("getUserRank matches the user's position in the listing", async () => {
-    const { prisma } = await import("@/lib/db");
-    const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
-    const rows = await getHighscores("geral", 500);
+  it("the sheet's rank is the player's position on the Nível board", async () => {
+    const rows = await getRanking(NIVEL, 500);
     const position = rows.findIndex((r) => r.handle === "lucas") + 1;
-    expect((await getUserRank(lucas.id, "geral"))?.rank).toBe(position);
-    const soulslike = await getHighscores("soulslike", 500);
-    const skillPosition = soulslike.findIndex((r) => r.handle === "lucas") + 1;
-    expect((await getUserRank(lucas.id, "soulslike"))?.rank).toBe(skillPosition);
+    expect(position).toBeGreaterThan(0);
+    expect((await getCharacter("lucas"))?.stats.rank).toBe(position);
+    const soulslike = await getRanking(SOULSLIKE, 500);
+    const lucas = soulslike.find((r) => r.handle === "lucas")!;
+    expect(await getRank(lucas.userId, SOULSLIKE)).toBe(lucas.rank);
   });
 });
