@@ -866,6 +866,30 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(await syncUser(user.id)).toMatchObject({ status: "ok", newUnlocks: 0 });
   });
 
+  it("asks once about games other players own that Steam leaves out of the list (Family Sharing)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const mine = newAppId();
+    const shared = newAppId();
+    // A friend owns `shared`; this user's Steam list does not show it, but Steam answers its unlocks.
+    const friendFake = fakeSteam({ [shared]: { pcts: pctsOf(2), playtimeMin: 60, unlocks: { A0: new Date("2024-03-01T10:00:00Z") } } });
+    steamState.api = friendFake.api;
+    const friend = await newUser();
+    await syncUser(friend.id);
+
+    const fake = fakeSteam({ [mine]: { pcts: pctsOf(2), playtimeMin: 120, unlocks: { A0: new Date("2024-01-01T10:00:00Z") } } });
+    const listed = fake.api.getPlayerAchievements;
+    fake.api.getPlayerAchievements = async (steamId, appId) =>
+      appId === shared ? friendFake.api.getPlayerAchievements(steamId, appId) : listed(steamId, appId);
+    steamState.api = fake.api;
+    const user = await newUser();
+    await syncUser(user.id);
+    const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: shared } });
+    expect(
+      await prisma.userGame.findUnique({ where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } } }),
+    ).toMatchObject({ unlockedCount: 1 });
+  });
+
   it("pays each hours milestone once, only for real playtime, and survives re-syncs", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");
@@ -973,7 +997,8 @@ describe.skipIf(!reachable)("syncUser", () => {
     const reads: number[] = [];
     const read = steam.api.getPlayerAchievements;
     steam.api.getPlayerAchievements = async (steamId, appId) => {
-      reads.push(appId);
+      // Only this library's games: games other players own are also asked once (borrowed games).
+      if (appId === a || appId === b) reads.push(appId);
       return read(steamId, appId);
     };
     steamState.api = steam.api;

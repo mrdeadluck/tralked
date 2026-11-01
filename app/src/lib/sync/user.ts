@@ -394,6 +394,43 @@ const weekOf = (ms: number) => Math.floor(ms / PROBE_RECHECK_MS);
  * never synced, when a new 7-day period began since the last sync (so every library game is
  * re-checked at least weekly), or when its catalog data changed since then (refresh, rarity).
  */
+/** Games other players own that one sync asks Steam about for this user (see borrowedCandidates). */
+const BORROWED_PER_SYNC = 40;
+const borrowedKey = (userId: string) => `steam-borrowed:${userId}`;
+
+/**
+ * Steam games other Tralked players own that are neither in this user's Steam list nor already in
+ * their library, and were not asked before: Steam leaves out of the list the games played through
+ * Family Sharing or a temporary free license, but still answers their unlocks when asked by appid.
+ * Only one with an unlock enters the library; the ones without are remembered and not asked again.
+ */
+async function borrowedCandidates(userId: string, listed: Set<number>): Promise<SteamOwnedGame[]> {
+  const cursor = await prisma.syncCursor.findUnique({ where: { key: borrowedKey(userId) } });
+  const tried = new Set(Array.isArray(cursor?.value) ? (cursor.value as number[]) : []);
+  const rows = await prisma.$queryRaw<{ appid: number }[]>`
+    SELECT DISTINCT g."steamAppId" AS appid
+    FROM "UserGame" ug JOIN "Game" g ON g.id = ug."gameId"
+    WHERE ug.platform = 'steam' AND ug."userId" <> ${userId} AND g."steamAppId" IS NOT NULL
+      AND g."achievementCount" > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM "UserGame" mine
+        WHERE mine."userId" = ${userId} AND mine."gameId" = g.id AND mine.platform = 'steam'
+      )`;
+  return rows
+    .map((r) => Number(r.appid))
+    .filter((appId) => !listed.has(appId) && !tried.has(appId))
+    .slice(0, BORROWED_PER_SYNC)
+    .map((appId) => ({ appId, playtimeMin: 0, lastPlayedAt: null }));
+}
+
+async function rememberBorrowedTried(userId: string, appIds: number[]): Promise<void> {
+  if (appIds.length === 0) return;
+  const key = borrowedKey(userId);
+  const cursor = await prisma.syncCursor.findUnique({ where: { key } });
+  const value = [...new Set([...(Array.isArray(cursor?.value) ? (cursor.value as number[]) : []), ...appIds])];
+  await prisma.syncCursor.upsert({ where: { key }, create: { key, value }, update: { value } });
+}
+
 export async function catalogProbeCandidates(
   userId: string,
   lastSyncedAt: Date | null,
@@ -526,6 +563,9 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
         .filter((g) => probing || options.probeAll || libraryEntries.get(g.appId)?.checkedPlaytimeMin !== g.playtimeMin)
         .sort((a, b) => (b.lastPlayedAt?.getTime() ?? 0) - (a.lastPlayedAt?.getTime() ?? 0))
     : candidates;
+  const borrowed = probing ? [] : await borrowedCandidates(userId, new Set(candidates.map((g) => g.appId)));
+  const borrowedIds = new Set(borrowed.map((g) => g.appId));
+  const borrowedEmpty: number[] = [];
   let sawPrivate = false;
   let attempted = 0;
   let failures = 0;
@@ -536,13 +576,15 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
     sawPrivate || outOfTime() || (probing && consecutiveFailures >= PROBE_CIRCUIT_BREAKER);
   /** Library games read without achievements to record: their read is done at this playtime. */
   const readEmpty: { appId: number; playtimeMin: number }[] = [];
-  const results = await mapPool(owned, STEAM_CONCURRENCY, stop, async (game) => {
+  const results = await mapPool([...owned, ...borrowed], STEAM_CONCURRENCY, stop, async (game) => {
     attempted++;
+    const isBorrowed = borrowedIds.has(game.appId);
     try {
-      const fetched = await fetchGame(steamId, game, playtimeKnown, probing);
+      const fetched = await fetchGame(steamId, game, playtimeKnown, probing || isBorrowed);
       consecutiveFailures = 0;
-      if (fetched === "private") sawPrivate = true;
-      if (fetched === "none" && !probing) readEmpty.push(game);
+      if (fetched === "private" && !isBorrowed) sawPrivate = true;
+      if (fetched === "none" && isBorrowed) borrowedEmpty.push(game.appId);
+      else if (fetched === "none" && !probing) readEmpty.push(game);
       return fetched;
     } catch (error) {
       // One broken game must not block the rest; it is retried on the next sync.
@@ -556,6 +598,7 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
   if (sawPrivate) return privateResult();
   if (attempted > 0 && failures === attempted) throw firstError;
   const partial = attempted < owned.length;
+  await rememberBorrowedTried(userId, borrowedEmpty);
 
   for (const { appId, playtimeMin } of readEmpty) {
     const gameId = libraryEntries.get(appId)?.gameId;
