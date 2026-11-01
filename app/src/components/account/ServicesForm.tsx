@@ -322,7 +322,7 @@ function ServiceField({
     .join(" ");
 
   return (
-    <li className="grid gap-x-6 gap-y-2.5 border-b border-line px-5 py-5 last:border-b-0 min-[761px]:grid-cols-[210px_minmax(0,1fr)]">
+    <li className="grid gap-x-6 gap-y-2.5 border-b border-line px-5 py-5 last:border-b-0 min-[761px]:grid-cols-[250px_minmax(0,1fr)]">
       <div className="flex items-center gap-3 min-[761px]:h-11">
         <span aria-hidden="true" className="size-2.5 flex-none" style={{ background: PLATFORM_COLOR[platform] }} />
         <label

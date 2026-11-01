@@ -41,7 +41,8 @@ export function PageBackdrop() {
   return (
     <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
       <Corner id="tk-dots-tr" className="top-0 right-0" />
-      <Corner id="tk-dots-bl" className="bottom-0 left-0 rotate-180" />
+      {/* Bottom-left only where the side gutter is wide enough not to sit behind lists and rank numbers. */}
+      <Corner id="tk-dots-bl" className="bottom-0 left-0 rotate-180 max-[1599px]:hidden" />
     </div>
   );
 }

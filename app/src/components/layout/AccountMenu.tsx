@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { LogoutForm } from "./LogoutForm";
 
-export type AccountUser = { handle: string; level: number; role: string };
+export type AccountUser = { handle: string; level: number; role: string; avatarUrl?: string | null };
 
 export type AccountLink = { href: string; label: string };
 
@@ -64,10 +64,22 @@ export function AccountMenu({ user }: { user: AccountUser }) {
           <small className="text-[10px] tracking-[0.1em] text-dim uppercase">{user.handle}</small>
           <b className="text-[13px]">NV {user.level}</b>
         </span>
-        <span
-          aria-hidden="true"
-          className="size-10 flex-none rounded-full border-2 border-acc bg-[repeating-linear-gradient(135deg,#1a1c22_0_5px,#22242b_5px_10px)]"
-        />
+        {user.avatarUrl?.startsWith("https://") ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={user.avatarUrl}
+            alt=""
+            width={40}
+            height={40}
+            decoding="async"
+            className="size-10 flex-none rounded-full border-2 border-acc object-cover"
+          />
+        ) : (
+          <span
+            aria-hidden="true"
+            className="size-10 flex-none rounded-full border-2 border-acc bg-[repeating-linear-gradient(135deg,#1a1c22_0_5px,#22242b_5px_10px)]"
+          />
+        )}
       </button>
       <div
         id={panelId}
