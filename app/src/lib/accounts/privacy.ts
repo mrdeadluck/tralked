@@ -1,12 +1,13 @@
 import { revalidateTag } from "next/cache";
 import { FORUM_TAG, GALLERY_TAG, photoTag } from "@/lib/community/cached";
 import { prisma } from "@/lib/db";
+import { HIGHSCORES_TAG } from "@/lib/highscores/cached";
 import { playerTag } from "@/lib/queries/players-cached";
 
 /**
  * Cache tags of every public page that shows a player depending on their profile visibility:
  * gallery listings (grid, photo of the week, game pages' community galleries, all tagged
- * `gallery`), each of their photo pages, the forum listings and their own profile page.
+ * `gallery`), each of their photo pages, the forum listings, the highscores and their own profile page.
  * Invalidated whenever `profilePublic` flips, so "private" takes effect at once.
  */
 export async function visibilityTags(userId: string): Promise<string[]> {
@@ -17,6 +18,7 @@ export async function visibilityTags(userId: string): Promise<string[]> {
   return [
     GALLERY_TAG,
     FORUM_TAG,
+    HIGHSCORES_TAG,
     ...photos.map((p) => photoTag(p.id)),
     ...(user ? [playerTag(user.handle)] : []),
   ];
