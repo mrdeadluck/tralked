@@ -103,3 +103,66 @@ describe.skipIf(!reachable)("syncExternalNews", () => {
     logged.mockRestore();
   });
 });
+
+describe.skipIf(!reachable)("syncExternalNews areas (Plan 4 F7)", () => {
+  const ENT_URL = "https://feeds.test-news-area.example/ent";
+  const TEC_URL = "https://feeds.test-news-area.example/tec";
+  const BASE = "https://news.test-news-area.example/";
+  const areaItem = (title: string, slug: string) => item(title, slug).replace(ITEM_BASE, BASE);
+  const ENT = `<rss><channel>
+${areaItem("Anime de Elden Ring é anunciado", "ent-elden")}
+${areaItem("Série de Fallout renovada para a 3ª temporada", "ent-fallout")}
+${areaItem("Dead Space: filme de terror espacial ganha diretor", "ent-dead-space-film")}
+${areaItem("Filme do jogo Dead Space ganha diretor", "ent-dead-space-game")}
+${areaItem("Hades: filme sobre mitologia grega estreia", "ent-hades-myth")}
+${areaItem("Jogos Vorazes: novo filme ganha trailer", "ent-hunger")}
+${areaItem("Nova placa de vídeo chega às lojas", "ent-gpu")}
+</channel></rss>`;
+  const TEC = `<rss><channel>
+${areaItem("Nova placa de vídeo da Nvidia chega ao Brasil", "tec-gpu")}
+${areaItem("Como a IA está mudando os estúdios", "tec-ai")}
+${areaItem("Banco lança novo aplicativo", "tec-bank")}
+</channel></rss>`;
+
+  const cleanup = async () => {
+    const { prisma } = await import("@/lib/db");
+    await prisma.externalNews.deleteMany({ where: { url: { startsWith: BASE } } });
+    await prisma.newsFeed.deleteMany({ where: { url: { in: [ENT_URL, TEC_URL] } } });
+  };
+  beforeAll(cleanup);
+  afterAll(cleanup);
+
+  it("keeps only the headlines of each feed's area, stores the area and links games", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncExternalNews } = await import("./external-news");
+    await prisma.newsFeed.createMany({
+      data: [
+        { name: "Teste Entretenimento", url: ENT_URL, active: true, area: "ENTRETENIMENTO" },
+        { name: "Teste Tecnologia", url: TEC_URL, active: true, area: "TECNOLOGIA" },
+      ],
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === ENT_URL) return new Response(ENT, { status: 200 });
+      if (url === TEC_URL) return new Response(TEC, { status: 200 });
+      throw new Error(`unexpected fetch ${url}`);
+    });
+
+    const result = await syncExternalNews(fetchMock as unknown as typeof fetch, publicDns);
+    expect(result).toMatchObject({ processed: 2, failed: 0, created: 4 });
+
+    const stored = await prisma.externalNews.findMany({
+      where: { url: { startsWith: BASE } },
+      include: { game: { select: { slug: true } } },
+      orderBy: { url: "asc" },
+    });
+    expect(stored.map((n) => [n.url.slice(BASE.length), n.area, n.game?.slug ?? null, n.source])).toEqual([
+      // A catalog name alone neither keeps nor links ("Dead Space: filme..."); with "jogo" it does.
+      // "Série de Fallout" has no gaming signal (Fallout is also an ordinary word): dropped.
+      ["ent-dead-space-game", "ENTRETENIMENTO", "dead-space", "Teste Entretenimento"],
+      ["ent-elden", "ENTRETENIMENTO", "elden-ring", "Teste Entretenimento"],
+      ["tec-ai", "TECNOLOGIA", null, "Teste Tecnologia"],
+      ["tec-gpu", "TECNOLOGIA", null, "Teste Tecnologia"],
+    ]);
+  });
+});

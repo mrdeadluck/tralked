@@ -12,12 +12,19 @@ import {
   buildWireItems,
   CATEGORIES,
   categoryFromSlug,
-  getExternalHeadlines,
+  getWireHeadlines,
   getLatestArticles,
   getMostRead,
   getNewsIndex,
+  getAreaHeadlines,
+  getPressHeadlines,
+  headlineStory,
+  isPressArea,
   NEWS_TAG,
+  pressAreaLabel,
+  withPressHeadlines,
   type ArticleCategory,
+  type PressArea,
 } from "@/lib/queries/news";
 
 export const metadata: Metadata = {
@@ -33,10 +40,11 @@ async function FrontSection() {
   cacheLife("minutes");
   cacheTag(NEWS_TAG);
 
-  const [articles, external, mostRead] = await Promise.all([
+  const [articles, external, mostRead, press] = await Promise.all([
     getLatestArticles(30),
-    getExternalHeadlines(6),
+    getWireHeadlines(6),
     getMostRead(5),
+    getPressHeadlines(6),
   ]);
   const now = new Date();
   return (
@@ -48,7 +56,7 @@ async function FrontSection() {
       />
       <section aria-label="Notícias por categoria" className="flex flex-col gap-1">
         <SectionHead title="Por categoria" />
-        <NewsTabs tabs={buildNewsTabs(articles, now)} mostRead={mostRead.map((a) => articleStory(a, now))} />
+        <NewsTabs tabs={withPressHeadlines(buildNewsTabs(articles, now), press, now)} mostRead={mostRead.map((a) => articleStory(a, now))} />
       </section>
     </>
   );
@@ -61,6 +69,49 @@ async function loadIndex(category: ArticleCategory | null, page: number) {
   const index = await getNewsIndex({ category, page, pageSize: PAGE_SIZE });
   const now = new Date();
   return { ...index, stories: index.articles.map((a) => articleStory(a, now)) };
+}
+
+/** Latest press headlines of an area for its archive filter (Plan 4 F7), cached. */
+async function loadPress(area: PressArea) {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(NEWS_TAG);
+  const now = new Date();
+  return (await getAreaHeadlines(area, 10)).map((h) => headlineStory(h, now));
+}
+
+/** "Na imprensa": external headlines of Entretenimento / Tecnologia, clearly marked as external. */
+async function PressList({ area }: { area: PressArea }) {
+  const stories = await loadPress(area);
+  if (stories.length === 0) return null;
+  const label = pressAreaLabel(area);
+  return (
+    <section aria-labelledby="h-na-imprensa" className="flex flex-col gap-2 pt-10">
+      <h3 id="h-na-imprensa" className="text-[19px] leading-none font-black font-stretch-[125%] tracking-[-0.02em] uppercase">
+        Na imprensa: {label}
+      </h3>
+      <p className="max-w-[68ch] text-[14px] text-muted">
+        Manchetes de outros sites sobre {label.toLowerCase()} ligado a games. O Tralked guarda só o título, o link,
+        a fonte e a data; a matéria completa abre no site da fonte.
+      </p>
+      <ul className="m-0 list-none p-0">
+        {stories.map((story) => (
+          <li key={story.id} className="border-b border-divider last:border-b-0">
+            <a href={story.href} target="_blank" rel="noopener noreferrer" className="group flex flex-col gap-1 py-3">
+              <span className="font-mono text-[10px] tracking-[0.12em] text-acc uppercase">{story.kicker}</span>
+              <span className="text-[16px] leading-snug font-bold group-hover:text-acc">
+                {story.title}
+                <span className="sr-only"> (abre em nova aba)</span>
+              </span>
+              <span className="font-mono text-[11px] text-dim">
+                {story.source} · {story.when}
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
@@ -166,6 +217,8 @@ async function Archive({ searchParams }: { searchParams: PageProps<"/noticias">[
           )}
         </nav>
       ) : null}
+
+      {isPressArea(category) ? <PressList area={category} /> : null}
     </>
   );
 }

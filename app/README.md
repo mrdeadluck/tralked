@@ -170,7 +170,7 @@ Nove jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame
 | `/api/cron/users` | Ressincroniza até 50 usuários Steam por execução (os mais antigos primeiro), com limite de 50 s para a execução toda: ninguém começa depois do prazo e a sondagem do catálogo de cada usuário usa só o tempo que sobra (no máximo 45 s). |
 | `/api/cron/platforms` | Ressincroniza até 5 contas PSN, Xbox e RetroAchievements verificadas por execução (as mais antigas primeiro), lendo só os jogos com conquistas novas e retomando de onde parou (limite de 50 s). |
 | `/api/cron/media` | Busca vídeos, screenshots e artworks (IGDB) e capa/hero/logo (SteamGridDB) de jogos ainda sem mídia oficial. |
-| `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte e data das notícias que citam um jogo do catálogo. |
+| `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte, data e área das manchetes que passam na regra da área do feed (veja "Manchetes externas por área"). |
 | `/api/cron/notifications` | Diário: apaga notificações com mais de 90 dias (o texto delas pode citar outras pessoas, inclusive quem excluiu a conta). |
 | `/api/cron/steam-catalog` | Catálogo completo da Steam, em 50 s por execução: (1) até 40% do tempo importando a lista de jogos da loja (`IStoreService/GetAppList`, 10 mil por página, exige `STEAM_API_KEY`) como entradas só com nome (`Game.stub`, fora das listagens, do sitemap e dos seletores), retomando pelo `last_appid` guardado em `SyncCursor`; terminada uma volta, as seguintes pedem só o que mudou (`if_modified_since`); (2) uma página do SteamSpy (os mil mais possuídos, girando pelas 10 primeiras) define `Game.popularity`; (3) no tempo que sobra, detalhes da loja em pt-BR (resumo, desenvolvedora, data, nota; nunca preço), tags (habilidades), conquistas com raridade e artes do CDN da Steam pelo appid (capa 600×900, hero e logo conferidos com `HEAD` antes de gravar; sem capa, SteamGridDB e depois IGDB), na ordem: jogos que alguém abriu, jogos que alguém tem ou deseja, os mais populares. Offline (`STEAM_MODE=fixture`) só a lista de apps da fixture é importada. |
 | `/api/cron/highscores` | Diário: guarda a posição dos 200 primeiros de cada ranking dos Highscores (`RankSnapshot`, 14 dias); as setas de subida e queda comparam a posição atual com a foto do dia anterior. |
@@ -217,6 +217,22 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
 
 A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste falha se as duas divergirem ou se algum job ficar sem horário.
 
+## Manchetes externas por área
+
+Cada feed RSS de `/admin/feeds` tem uma **área** (`NewsFeed.area`), e cada manchete guardada leva a área do feed (`ExternalNews.area`). Só título, link, fonte e data são guardados, nunca o texto; o leitor SSRF de sempre (`src/lib/integrations/rss`) lê os feeds. A regra de cada área fica em `src/lib/news/areas.ts` (com testes) e olha só o título:
+
+| Área | Mantém | Onde aparece |
+| --- | --- | --- |
+| Games | manchetes que citam um jogo do catálogo (nome ou nome alternativo) | página do jogo, "Em circulação" |
+| Entretenimento | animes, filmes e séries **ligados a games**, só com um sinal de games no título: termo de games (`jogo`, `game`, `videogame`, `PlayStation`, `Xbox`, `Nintendo`, `Steam Deck`…) ou franquia sem ambiguidade (`The Last of Us`, `Pokémon`, `Resident Evil`, `Elden Ring`…). Nomes que também são palavras comuns ou pessoas (`Steam`, `Fallout`, `Kirby`, `Halo`, `Control`, `Hades`, `Cyberpunk`, `Yakuza`, `Sonic`, `Arcane`…) e nomes do catálogo sozinhos não contam: só com outro sinal no mesmo título (o filme "Ready or Not 2" não é o jogo). Falsos amigos (`Jogos Vorazes`, `Jogos Mortais`, `O Jogo da Imitação`, `Game of Thrones`, `Round 6`, `está em jogo`…) são tirados do título antes da busca. A manchete só é ligada a um jogo do catálogo quando tem esse sinal. | aba Entretenimento (home e `/noticias`), filtro `?categoria=entretenimento` ("Na imprensa"); "Em circulação" e página do jogo só quando ligada a um jogo |
+| Tecnologia | o que Entretenimento manteria, mais hardware e IA (`GPU`, `placa de vídeo`, `RTX`, `Ryzen`, `console`, `IA`, `inteligência artificial`, `ChatGPT`, `OpenAI`…; siglas curtas como `IA`/`AI`/`PC` só em maiúsculas) | aba Tecnologia, filtro `?categoria=tecnologia`; "Em circulação" e página do jogo só quando ligada a um jogo (hardware/IA sozinhos nunca ligam) |
+
+O "Em circulação" ("da imprensa de games") lê só os feeds de Games e as manchetes de Entretenimento/Tecnologia ligadas a um jogo (`getWireHeadlines`). O cron `news` invalida o cache das notícias (`revalidateTag("news", "max")`) quando guarda manchetes novas. Trocar a área de um feed no admin não muda as manchetes já guardadas.
+
+Nas abas, as matérias do Tralked vêm primeiro e as manchetes depois, sempre marcadas como externas: "Imprensa" no chapéu, "Fonte externa: <publicação>" e "abre em nova aba" (link com `target="_blank" rel="noopener noreferrer"`).
+
+Feeds sugeridos (conferidos em 31/10/2026: https, RSS válido, sem redirecionamento), em `src/lib/news/feed-catalog.ts`: Entretenimento: Legião dos Heróis, AnimeNew, IGN Movies, IGN TV, Anime News Network; Tecnologia: Tecnoblog, TecMundo, Adrenaline, Canaltech, Tom's Hardware, The Verge (IA). O **seed os cadastra pausados** (desenvolvimento e testes nunca buscam a internet) e `pnpm news:feeds` os cadastra **ativos** num banco real (`--paused` para deixar o admin ativar). Depois disso, o admin cuida deles em `/admin/feeds` (agrupados por área: pausar, editar, mudar a área, excluir).
+
 ## SEO, privacidade e páginas de sistema
 
 - `sitemap.xml` (jogos, guias publicados, notícias publicadas, tópicos visíveis do fórum e páginas fixas) e `robots.txt` (bloqueia `/admin`, `/conta`, `/api`, `/notificacoes`, `/newsletter` e `/confirmar-email`) usam `APP_URL` como origem pública: defina a URL de produção também no build, porque os dois arquivos são gerados nele.
@@ -245,6 +261,7 @@ A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste 
 | `pnpm catalog:bootstrap` | Catálogo real da Steam (`--limit N` jogos populares, `--concurrency N`, `--only-top`). Exige `DATABASE_URL`. |
 | `pnpm comments:recount` | Reconta `Article.comments` pelos comentários visíveis. Exige `DATABASE_URL`. |
 | `pnpm sample:rename [--dry-run]` | Renomeia os personagens fictícios de um banco semeado antes do Plano 4 (seed, bylines, notificações). Idempotente. Exige `DATABASE_URL`. |
+| `pnpm news:feeds [--dry-run] [--paused]` | Cadastra os feeds de manchetes de Entretenimento e Tecnologia (`src/lib/news/feed-catalog.ts`), ativos (ou pausados com `--paused`). Idempotente: feed já cadastrado (mesma URL) nunca é alterado. Exige `DATABASE_URL`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
 | `pnpm api:key` | `"<nome>" <escopo>...`: cria uma chave de robô e imprime o segredo `tk_live_…` uma vez (só no terminal). Exige `DATABASE_URL`. |
 | `pnpm user:invite` | `<handle> <email>`: grava o e-mail de login de uma conta e imprime um link de "definir senha" (1 h, uso único; só no terminal). Exige `DATABASE_URL`; o link usa `APP_URL`. |
