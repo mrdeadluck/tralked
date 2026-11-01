@@ -1,0 +1,64 @@
+# Finishes the platform imports of players (PSN, Xbox, RetroAchievements, big Steam libraries)
+# straight against the production database, so a 700-game library is imported in one go instead of
+# many 50 s cron runs on Vercel (lib/sync/first-import.ts). Hourly at :22, just after the :20 cron
+# (the free Neon database is often awake then; waking it every few minutes would eat its 100 CU-h):
+# a run with nothing to import ends in about a minute; one with work goes on until it is done
+# (at most 5.5 h), and the runs scheduled meanwhile wait for it. A new connection gets its first
+# 50 s right after linking (lib/accounts/actions.ts) and the rest here.
+# Needs the repository secrets DATABASE_URL (Neon, unpooled), STEAM_API_KEY, PSN_NPSSO,
+# XBOX_OPENXBL_KEY, RA_USERNAME and RA_API_KEY (a platform whose secret is empty is skipped here
+# and keeps being synced by the cron); IGDB_CLIENT_ID/IGDB_CLIENT_SECRET name the new games.
+# Unlimited Actions minutes only while the repository is public: on a private one, slow the schedule.
+name: platform-import
+
+on:
+  schedule:
+    - cron: "22 * * * *"
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Hours to work (at most 5.5)"
+        required: true
+        default: "5.5"
+
+# One worker at a time: a run that is still going makes the next one wait.
+concurrency:
+  group: platform-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Import players' platforms
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          STEAM_API_KEY: ${{ secrets.STEAM_API_KEY }}
+          PSN_NPSSO: ${{ secrets.PSN_NPSSO }}
+          XBOX_OPENXBL_KEY: ${{ secrets.XBOX_OPENXBL_KEY }}
+          RA_USERNAME: ${{ secrets.RA_USERNAME }}
+          RA_API_KEY: ${{ secrets.RA_API_KEY }}
+          IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
+          IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
+          SGDB_API_KEY: ${{ secrets.SGDB_API_KEY }}
+          APP_URL: https://tralked.com
+          HOURS: ${{ github.event.inputs.hours || '5.5' }}
+        run: |
+          # Production mode asks for these two; the worker signs nothing, so throwaway values do.
+          export SESSION_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 16)"
+          pnpm platforms:import --hours "$HOURS"

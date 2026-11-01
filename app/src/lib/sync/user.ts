@@ -8,6 +8,7 @@ import { platinumBonus, xpForAchievement } from "@/lib/engine/xp";
 import { getSteam, type SteamOwnedGame } from "@/lib/integrations";
 import { recomputeUser } from "@/lib/progression/recompute";
 import { syncGame } from "./catalog";
+import { busyImports, busyPairs } from "./import-lease";
 import { settlePlaytime } from "./playtime";
 import { ensureSteamGames, placeholderGames, renamePlaceholderGame } from "./steam-games";
 
@@ -426,6 +427,21 @@ async function borrowedCandidates(userId: string, listed: Set<number>): Promise<
     .map((appId) => ({ appId, playtimeMin: 0, lastPlayedAt: null }));
 }
 
+/**
+ * Marker of a Steam library the last sync could not read whole (time budget): the first-import
+ * worker (lib/sync/first-import.ts) finishes those imports without the cron's 50 s ceiling.
+ */
+export const steamBacklogKey = (userId: string) => `steam-backlog:${userId}`;
+
+async function markSteamBacklog(userId: string, partial: boolean): Promise<void> {
+  const key = steamBacklogKey(userId);
+  if (partial) {
+    await prisma.syncCursor.upsert({ where: { key }, create: { key, value: { since: Date.now() } }, update: {} });
+  } else {
+    await prisma.syncCursor.deleteMany({ where: { key } });
+  }
+}
+
 async function rememberBorrowedTried(userId: string, appIds: number[]): Promise<void> {
   if (appIds.length === 0) return;
   const key = borrowedKey(userId);
@@ -652,6 +668,8 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
   await recomputeUser(userId);
   // Guarded like the games: a Steam disconnected meanwhile is not marked synced.
   await prisma.user.updateMany({ where: { id: userId, steamId }, data: { lastSyncedAt: new Date() } });
+  // Keyed syncs only: probing walks the catalog as a ring and is never "whole".
+  if (!probing) await markSteamBacklog(userId, partial);
 
   const after = await currentProgress(userId);
   return {
@@ -689,8 +707,10 @@ export async function syncStaleUsers(
   { budgetMs = STALE_USERS_BUDGET_MS, now = Date.now }: StaleUsersOptions = {},
 ): Promise<{ processed: number; failed: number }> {
   const deadline = now() + budgetMs;
+  // Users the first-import worker is importing right now are its own (no parallel syncs).
+  const busy = busyPairs(await busyImports(now())).filter((b) => b.platform === "steam");
   const users = await prisma.user.findMany({
-    where: { AND: [{ steamId: { not: null } }, where] },
+    where: { AND: [{ steamId: { not: null } }, { id: { notIn: busy.map((b) => b.userId) } }, where] },
     orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     take: limit,
     select: { id: true },

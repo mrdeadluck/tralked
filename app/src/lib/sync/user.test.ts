@@ -1016,14 +1016,19 @@ describe.skipIf(!reachable)("syncUser", () => {
   });
 
   it("stops reading achievements at the time budget and finishes on the next sync", async () => {
-    const { syncUser } = await import("./user");
+    const { steamBacklogKey, syncUser } = await import("./user");
     const a = newAppId();
     steamState.api = fakeSteam({
       [a]: { pcts: pctsOf(2), playtimeMin: 100, unlocks: { A0: new Date("2024-01-01T10:00:00Z") } },
     }).api;
     const user = await newUser();
     expect(await syncUser(user.id, { probeBudgetMs: 0 })).toMatchObject({ status: "ok", newUnlocks: 0, partial: true });
+    // The unfinished library is marked for the first-import worker, and unmarked once read whole.
+    const { prisma } = await import("@/lib/db");
+    const marker = { where: { key: steamBacklogKey(user.id) } };
+    expect(await prisma.syncCursor.findUnique(marker)).not.toBeNull();
     expect(await syncUser(user.id)).toMatchObject({ status: "ok", newUnlocks: 1, partial: false });
+    expect(await prisma.syncCursor.findUnique(marker)).toBeNull();
   });
 
   it("imports the wishlist (unknown apps as stubs queued for details) and replaces it on every sync", async () => {

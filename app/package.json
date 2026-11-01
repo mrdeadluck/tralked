@@ -22,6 +22,7 @@
     "news:feeds": "tsx scripts/news-feeds.ts",
     "games:repair-placeholders": "tsx scripts/repair-placeholder-games.ts",
     "steam:details": "tsx scripts/steam-details-worker.ts",
+    "platforms:import": "tsx scripts/platform-import-worker.ts",
     "postinstall": "prisma generate",
     "test:db": "vitest run src/lib/db.test.ts",
     "e2e": "playwright test",

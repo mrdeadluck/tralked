@@ -192,6 +192,15 @@ Resposta: `{ "job": "catalog", "processed": N }`. Token inválido retorna 401, j
 
 A rota exporta `maxDuration = 300` (o teto da Vercel sem Fluid compute). Cada job cabe com folga: `catalog` 25 jogos, `rarity` 50, `media` 20, `news` os feeds ativos, `notifications` uma exclusão; `users` e `platforms` param em 50 s. O que sobra vai primeiro na execução seguinte.
 
+### Primeiras importações (worker no GitHub Actions)
+
+Uma biblioteca grande (PSN com 700 jogos, Steam com milhares) não cabe nos 50 s do cron: a 5 contas por execução, a primeira importação não terminava nunca. O worker `pnpm platforms:import` (`scripts/platform-import-worker.ts`, lógica em `src/lib/sync/first-import.ts`) roda de hora em hora no `.github/workflows/platform-import.yml` (às :22, logo depois do cron das :20, para não acordar o Neon à toa) direto contra o banco, sem o limite de 50 s, e importa:
+
+- conexões PSN, Xbox e RetroAchievements cuja sincronização nunca chegou ao fim da lista (`LinkedAccount.lastSyncedAt` nulo);
+- usuários Steam nunca sincronizados por inteiro, ou cuja última sincronização acabou o tempo antes de ler todos os jogos (marcador `SyncCursor` `steam-backlog:<userId>`, gravado e apagado pela própria sincronização Steam).
+
+Há uma fila por plataforma, todas em paralelo. Cada conta recebe fatias de 5 min (`--slice-minutes`) e volta para o fim da fila, então uma biblioteca enorme não segura quem acabou de entrar. Uma conta privada, desconectada, com erro ou cuja fatia não gravou nada fica para a próxima execução. Uma conta que o cron ou o "Sincronizar agora" começou há menos de 3 min é deixada terminar. Enquanto trabalha, o worker mantém uma trava (`SyncCursor` `platform-import-worker`, 15 min, renovada a cada 5) com as contas que pegou, e os jobs `users` e `platforms` pulam essas contas. Se o processo morrer, a trava vence sozinha. Uma conta recém-conectada recebe os primeiros 50 s logo ao conectar e o resto no worker. Segredos do repositório: `DATABASE_URL`, `STEAM_API_KEY`, `PSN_NPSSO`, `XBOX_OPENXBL_KEY`, `RA_USERNAME`, `RA_API_KEY` (plataforma sem segredo é pulada pelo worker e continua só no cron) e `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`. Disparo manual: `gh workflow run platform-import.yml -f hours=2`.
+
 ### Agendamento (pronto para o `vercel.json`)
 
 O repositório ainda não tem `vercel.json` (a configuração de deploy fica para o plano de produção). Os horários sugeridos, em UTC, já estão no formato da chave `crons`; basta colar no `vercel.json` ao configurar o deploy. A Vercel chama cada rota com `GET` e, quando a variável `CRON_SECRET` existe no projeto, envia `Authorization: Bearer $CRON_SECRET` sozinha. No plano Hobby a Vercel só aceita jobs diários: lá, use `0 3 * * *` (ou outro horário diário) para `news`, `platforms` e `users`.

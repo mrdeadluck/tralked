@@ -15,6 +15,7 @@ import {
   type PlaytimeTitle,
   type StoredProgress,
 } from "./platform-library";
+import { busyImports, busyPairs } from "./import-lease";
 import { settlePlaytime } from "./playtime";
 
 export type SyncPlatformResult = {
@@ -578,8 +579,16 @@ export async function syncStalePlatformAccounts({
   now = Date.now,
 }: StaleSyncOptions = {}): Promise<{ processed: number; failed: number }> {
   const deadline = now() + budgetMs;
+  // Accounts the first-import worker is importing right now are its own (no parallel syncs).
+  const busy = busyPairs(await busyImports(now())).filter((b) => b.platform !== "steam");
   const accounts = await prisma.linkedAccount.findMany({
-    where: { AND: [{ platform: { in: CODE_PLATFORMS.filter(platformAvailable) }, linkedAt: { not: null } }, where] },
+    where: {
+      AND: [
+        { platform: { in: CODE_PLATFORMS.filter(platformAvailable) }, linkedAt: { not: null } },
+        ...(busy.length > 0 ? [{ NOT: { OR: busy } }] : []),
+        where,
+      ],
+    },
     orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     take: limit,
     select: { userId: true, platform: true },
