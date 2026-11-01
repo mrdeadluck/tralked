@@ -6,13 +6,18 @@ type LogoProps = {
   size?: 44 | 34;
 };
 
-/** Monograma "TLK": T na cor do texto, L no roxo do logo, K no acento. */
-export function Emblem({ size, className = "" }: { size: number; className?: string }) {
+/**
+ * Monograma "TLK": T na cor do texto, L no roxo do logo, K no acento. Com `size`, altura fixa em px;
+ * sem `size`, a altura vem do `className` (ex. `h-9`) e a largura segue a proporção.
+ */
+export function Emblem({ size, className = "" }: { size?: number; className?: string }) {
+  const ratio = `${EMBLEM.width} / ${EMBLEM.height}`;
   return (
     <svg
       viewBox={`0 0 ${EMBLEM.width} ${EMBLEM.height}`}
-      height={size}
-      width={Math.round((size * EMBLEM.width) / EMBLEM.height)}
+      {...(size
+        ? { height: size, width: Math.round((size * EMBLEM.width) / EMBLEM.height) }
+        : { style: { width: "auto", aspectRatio: ratio } })}
       aria-hidden="true"
       className={`flex-none ${className}`}
     >
@@ -43,14 +48,16 @@ export function Wordmark({ height, className = "", label }: { height: number; cl
 export function Logo({ size = 44 }: LogoProps) {
   const full = size === 44;
   return (
-    <span className="flex flex-none items-center gap-3 text-text">
-      {/* The TLK monogram is wide (≈1.9:1): it sits a bit shorter than the old square badge. */}
-      <Emblem size={Math.round(size * 0.7)} />
+    // The monogram spans the whole text block: its top meets the top of TRALKED and its bottom the
+    // bottom of the slogan (wordmark 20 + gap 7 + slogan 9.5 = 36.5 px), or of the wordmark alone when
+    // the slogan is hidden (phones) or absent (footer).
+    <span className="flex flex-none items-start gap-3 text-text">
+      <Emblem className={full ? "h-[36.5px] max-[479px]:h-5" : "h-[18px]"} />
       <span className="flex flex-col gap-[7px]">
         <Wordmark height={full ? 20 : 18} label="Tralked" />
         {full ? (
           // On narrow phones the tagline would push the account and menu buttons to a second row.
-          <span className="font-mono text-[9.5px] tracking-[0.18em] text-dim uppercase max-[479px]:hidden">
+          <span className="font-mono text-[9.5px] leading-none tracking-[0.18em] text-dim uppercase max-[479px]:hidden">
             {SLOGAN}
           </span>
         ) : null}
