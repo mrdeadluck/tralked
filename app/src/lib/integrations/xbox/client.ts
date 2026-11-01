@@ -196,6 +196,12 @@ export function createXboxClient({
         });
         if (body === "private") return "private";
         if (body === null) continue;
+        // OpenXBL relays Xbox Live errors as { ErrorType, Description }: a failure, so the titles are
+        // asked again next time instead of being remembered as having no minutes.
+        const error = body as { ErrorType?: unknown; Description?: unknown };
+        if (error.ErrorType !== undefined) {
+          throw new Error(`Xbox stats refused: ${String(error.ErrorType)} ${String(error.Description ?? "").slice(0, 200)}`);
+        }
         const parsed = parseMinutesPlayed(body);
         if (parsed.size === 0) {
           // Shape check when nothing came back (keys and stat names only, no personal data).
