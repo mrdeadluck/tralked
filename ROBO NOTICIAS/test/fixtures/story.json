@@ -1,0 +1,53 @@
+{
+  "id": 1,
+  "headline": "Hollow Knight recebe atualização gratuita com modo de desafio",
+  "category": "GAMES",
+  "rumor": false,
+  "sources": [
+    {
+      "name": "Team Cherry",
+      "tier": "oficial",
+      "url": "https://www.teamcherry.com.au/blog/amostra-atualizacao",
+      "publishedAt": "2026-10-30T18:00:00Z",
+      "text": "AMOSTRA DE TESTE. Substitua por uma fonte real antes da rodada de qualidade. A Team Cherry anunciou a atualização 1.6 de Hollow Knight, gratuita para quem tem o jogo. A atualização adiciona um modo de desafio com cinco provas cronometradas e corrige falhas no Panteão. Segundo o estúdio, a atualização chega ao PC e ao Nintendo Switch em 6 de novembro. \"Queríamos agradecer a quem continua jogando\", disse o estúdio no anúncio."
+    },
+    {
+      "name": "PC Gamer",
+      "tier": "portal",
+      "url": "https://www.pcgamer.com/amostra-hollow-knight-1-6",
+      "publishedAt": "2026-10-30T20:30:00Z",
+      "text": "SAMPLE FOR TESTING. Team Cherry's free 1.6 update for Hollow Knight adds a challenge mode with five timed trials. The studio says the update lands on PC and Switch on November 6. The patch notes also mention fixes to the Pantheon boss rush. No new Steam achievements were announced."
+    },
+    {
+      "name": "Eurogamer",
+      "tier": "outro",
+      "url": "https://news.google.com/rss/articles/amostra",
+      "publishedAt": "2026-10-31T09:00:00Z",
+      "text": "",
+      "title": "Hollow Knight's 1.6 update adds a timed challenge mode",
+      "textUnavailable": true
+    }
+  ],
+  "candidates": [
+    {
+      "slug": "hollow-knight",
+      "name": "Hollow Knight",
+      "insights": {
+        "game": {
+          "slug": "hollow-knight",
+          "name": "Hollow Knight",
+          "releaseDate": "2017-02-24",
+          "platforms": ["PC", "NINTENDO", "PLAYSTATION", "XBOX"],
+          "achievementCount": 63,
+          "timeToBeatCompleteMin": 3720
+        },
+        "tralked": { "players": 120, "avgPlaytimeMin": 2460 },
+        "rarest": [
+          { "platform": "steam", "apiName": "PANTHEON_5", "name": "Embrace the Void", "globalPct": 1.1 },
+          { "platform": "steam", "apiName": "STEEL_SOUL_FULL", "name": "Steel Heart", "globalPct": 1.6 },
+          { "platform": "steam", "apiName": "SPEEDRUN_2", "name": "Speedrun 2", "globalPct": 2.3 }
+        ]
+      }
+    }
+  ]
+}

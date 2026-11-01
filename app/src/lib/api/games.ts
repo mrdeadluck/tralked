@@ -52,7 +52,8 @@ const SEARCH_LIMIT = 20;
 
 /**
  * Catalog search for bots: exact `slug`, `steamAppId` or `igdbId`, or `q` (part of the name, or
- * an alias). A malformed parameter is reported with its name (`?steamAppId`).
+ * an alias; most popular first). Catalog stubs are never returned. A malformed parameter is
+ * reported with its name (`?steamAppId`).
  */
 export async function searchGames(
   params: URLSearchParams,
@@ -71,13 +72,13 @@ export async function searchGames(
     const raw = params.get(name);
     if (raw === null) continue;
     if (!/^\d{1,10}$/.test(raw)) return { ok: false, param: `?${name}`, message: `${name} deve ser um número inteiro` };
-    const games = await prisma.game.findMany({ where: { [name]: Number(raw) }, select, take: SEARCH_LIMIT });
+    const games = await prisma.game.findMany({ where: { [name]: Number(raw), stub: false }, select, take: SEARCH_LIMIT });
     return { ok: true, games };
   }
 
   const slug = params.get("slug");
   if (slug !== null) {
-    const game = await prisma.game.findUnique({ where: { slug: slug.trim() }, select });
+    const game = await prisma.game.findFirst({ where: { slug: slug.trim(), stub: false }, select });
     return { ok: true, games: game ? [game] : [] };
   }
 
@@ -86,8 +87,8 @@ export async function searchGames(
     return { ok: false, param: "?q", message: "Envie q (2 a 100 caracteres), slug, steamAppId ou igdbId" };
   }
   const games = await prisma.game.findMany({
-    where: { OR: [{ name: { contains: q, mode: "insensitive" } }, { aliases: { has: q } }, { slug: q }] },
-    orderBy: { name: "asc" },
+    where: { stub: false, OR: [{ name: { contains: q, mode: "insensitive" } }, { aliases: { has: q } }, { slug: q }] },
+    orderBy: [{ popularity: "desc" }, { name: "asc" }],
     select,
     take: SEARCH_LIMIT,
   });
