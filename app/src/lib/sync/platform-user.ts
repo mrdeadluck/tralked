@@ -39,6 +39,8 @@ export type SyncPlatformOptions = {
 };
 
 const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
+/** Share of a sync's budget that reading the platform may take; the rest resolves and writes. */
+const READ_SHARE = 0.6;
 
 /** The linked account a run started with: every title transaction re-checks it is still linked. */
 /** `linkedAt` too: an unlink followed by a quick relink of the same account is another link. */
@@ -428,13 +430,18 @@ export async function syncPlatformAccount(
     data: { lastSyncAttemptAt: startedAt },
   });
 
+  // A big first import can spend the whole budget reading, leaving no time to write anything, and the
+  // next run would read the same titles again: reading stops at READ_SHARE of the budget, so what was
+  // read is written and the next run starts after it.
+  const readDeadline =
+    options.deadline === undefined ? undefined : Date.now() + Math.max(0, options.deadline - Date.now()) * READ_SHARE;
   const library = await readLibrary(
     platform,
     { externalId: account.externalId, handle: account.handle },
     {
       stored: options.full ? undefined : await storedProgress(userId, platform),
       checkedTitles: options.full || platform !== "xbox" ? undefined : checkedTitlesOf(account.minutesChecked),
-      deadline: options.deadline,
+      deadline: readDeadline,
       maxTitles: options.maxTitles,
     },
   );
