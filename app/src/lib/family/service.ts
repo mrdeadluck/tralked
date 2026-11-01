@@ -3,6 +3,8 @@ import type { Family, Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { SkillId } from "@/lib/engine/types";
+import { getUserLibrary, type LibraryGame } from "@/lib/library/queries";
+import { compareNames } from "@/lib/search/fold";
 
 export const MAX_FAMILY_MEMBERS = 6;
 export const INVITE_TTL_DAYS = 7;
@@ -250,82 +252,114 @@ export type GameCard = {
   slug: string;
   name: string;
   coverUrl: string | null;
-  platforms: string[];
-  achievementCount: number;
+  /** Name-only catalog entry ("detalhes em breve"). */
+  stub: boolean;
+};
+
+export type FamilyLibraryOwner = {
+  handle: string;
+  /** That member's playtime in the game, every platform added up (minutes). */
+  playtimeMin: number;
 };
 
 export type FamilyLibraryEntry = {
   game: GameCard;
-  owners: { handle: string }[];
-  /** Member with the most unlocks in this game. `unlocked` is that member's raw count. */
-  bestProgress: { handle: string; pct: number; unlocked: number };
+  /** Members (public profiles) who own the game on some platform, by handle. */
+  owners: FamilyLibraryOwner[];
+  /**
+   * Member with the highest completion (all their platforms' achievements together; ties: more
+   * unlocks, then handle). `total` 0: the game has no achievements.
+   */
+  bestProgress: { handle: string; pct: number; unlocked: number; total: number };
+  /** Playtime of the whole family in the game (minutes). */
+  playtimeMin: number;
 };
 
-/** Public members only: a private profile does not contribute its library. */
-async function publicMembers(familyId: string): Promise<{ userId: string; handle: string }[]> {
+export type FamilyMemberLibrary = {
+  userId: string;
+  handle: string;
+  displayName: string;
+  /** Private profiles do not share their library (counts are 0 and the UI says so). */
+  profilePublic: boolean;
+  gamesOwned: number;
+  gamesPlayed: number;
+  playtimeMin: number;
+};
+
+export type FamilyLibraryView = {
+  /** Every member, in join order, with their library totals. */
+  members: FamilyMemberLibrary[];
+  /** The joint library (public members only), by name. */
+  entries: FamilyLibraryEntry[];
+};
+
+/**
+ * The family's joint library over every platform (Plano 4, F3/F11): each public member's library
+ * (lib/library/queries.ts, two queries per member, at most 6 members) merged per game, with who
+ * owns it, their hours and the best completion. Private profiles do not contribute.
+ */
+export async function getFamilyLibraryView(familyId: string): Promise<FamilyLibraryView> {
   const members = await prisma.familyMember.findMany({
-    where: { familyId, user: { profilePublic: true } },
+    where: { familyId },
     orderBy: [{ joinedAt: "asc" }, { userId: "asc" }],
-    select: { userId: true, user: { select: { handle: true } } },
+    select: { userId: true, user: { select: { handle: true, displayName: true, profilePublic: true } } },
   });
-  return members.map((m) => ({ userId: m.userId, handle: m.user.handle }));
+  const libraries = await Promise.all(
+    members.map((m) => (m.user.profilePublic ? getUserLibrary(m.userId) : Promise.resolve([] as LibraryGame[]))),
+  );
+
+  const byGame = new Map<string, FamilyLibraryEntry>();
+  members.forEach((member, index) => {
+    if (!member.user.profilePublic) return;
+    const handle = member.user.handle;
+    for (const game of libraries[index]) {
+      let entry = byGame.get(game.gameId);
+      if (!entry) {
+        entry = {
+          game: { id: game.gameId, slug: game.slug, name: game.name, coverUrl: game.coverUrl, stub: game.stub },
+          owners: [],
+          bestProgress: { handle, pct: -1, unlocked: -1, total: 0 },
+          playtimeMin: 0,
+        };
+        byGame.set(game.gameId, entry);
+      }
+      entry.owners.push({ handle, playtimeMin: game.playtimeMin });
+      entry.playtimeMin += game.playtimeMin;
+      const pct = game.completionPct ?? 0;
+      const best = entry.bestProgress;
+      if (
+        pct > best.pct ||
+        (pct === best.pct && game.unlockedCount > best.unlocked) ||
+        (pct === best.pct && game.unlockedCount === best.unlocked && handle < best.handle)
+      ) {
+        entry.bestProgress = { handle, pct, unlocked: game.unlockedCount, total: game.achievementTotal };
+      }
+    }
+  });
+
+  const entries = [...byGame.values()]
+    .map((entry) => ({ ...entry, owners: entry.owners.sort((a, b) => compareNames(a.handle, b.handle)) }))
+    .sort((a, b) => compareNames(a.game.name, b.game.name));
+
+  return {
+    members: members.map((m, index) => {
+      const library = libraries[index];
+      return {
+        userId: m.userId,
+        handle: m.user.handle,
+        displayName: m.user.displayName,
+        profilePublic: m.user.profilePublic,
+        gamesOwned: library.length,
+        gamesPlayed: library.filter((g) => g.played).length,
+        playtimeMin: library.reduce((sum, g) => sum + g.playtimeMin, 0),
+      };
+    }),
+    entries,
+  };
 }
 
 export async function getFamilyLibrary(familyId: string): Promise<FamilyLibraryEntry[]> {
-  const members = await publicMembers(familyId);
-  if (members.length === 0) return [];
-  const handleById = new Map(members.map((m) => [m.userId, m.handle]));
-
-  const rows = await prisma.userGame.findMany({
-    // Steam libraries: progress is compared against the game's Steam achievement count.
-    where: { userId: { in: members.map((m) => m.userId) }, platform: "steam" },
-    include: { game: true },
-  });
-
-  const byGame = new Map<string, FamilyLibraryEntry>();
-  for (const row of rows) {
-    const handle = handleById.get(row.userId);
-    if (!handle) continue;
-    const { game } = row;
-    let entry = byGame.get(game.id);
-    if (!entry) {
-      entry = {
-        game: {
-          id: game.id,
-          slug: game.slug,
-          name: game.name,
-          coverUrl: game.coverUrl,
-          platforms: game.platforms,
-          achievementCount: game.achievementCount,
-        },
-        owners: [],
-        bestProgress: { handle, pct: 0, unlocked: -1 },
-      };
-      byGame.set(game.id, entry);
-    }
-    entry.owners.push({ handle });
-    const best = entry.bestProgress;
-    if (
-      row.unlockedCount > best.unlocked ||
-      (row.unlockedCount === best.unlocked && handle < best.handle)
-    ) {
-      entry.bestProgress = {
-        handle,
-        unlocked: row.unlockedCount,
-        pct:
-          game.achievementCount > 0
-            ? Math.round((row.unlockedCount / game.achievementCount) * 100)
-            : 0,
-      };
-    }
-  }
-
-  return [...byGame.values()]
-    .map((entry) => ({
-      ...entry,
-      owners: entry.owners.sort((a, b) => a.handle.localeCompare(b.handle)),
-    }))
-    .sort((a, b) => a.game.name.localeCompare(b.game.name));
+  return (await getFamilyLibraryView(familyId)).entries;
 }
 
 /** "Quase lá" da família: unfinished games where the best member is at 70% or more. */
@@ -335,8 +369,8 @@ export function almostThere(library: FamilyLibraryEntry[]): FamilyLibraryEntry[]
   return library
     .filter(
       (e) =>
-        e.game.achievementCount > 0 &&
-        e.bestProgress.unlocked < e.game.achievementCount &&
+        e.bestProgress.total > 0 &&
+        e.bestProgress.unlocked < e.bestProgress.total &&
         e.bestProgress.pct >= ALMOST_THERE_MIN_PCT,
     )
     .sort((a, b) => b.bestProgress.pct - a.bestProgress.pct);

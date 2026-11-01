@@ -284,11 +284,41 @@ describe.skipIf(!reachable)("family service", () => {
       const sharedEntry = library.find((e) => e.game.id === shared.id)!;
       expect(sharedEntry.owners.map((o) => o.handle).sort()).toEqual([owner.handle, guest.handle].sort());
       expect(sharedEntry.bestProgress).toMatchObject({ handle: guest.handle, unlocked: 3 });
-      expect(sharedEntry.bestProgress.pct).toBe(Math.round((3 / shared.achievementCount) * 100));
+      expect(sharedEntry.bestProgress.total).toBeGreaterThanOrEqual(shared.achievementCount);
+      expect(sharedEntry.bestProgress.pct).toBe(Math.round((3 / sharedEntry.bestProgress.total) * 100));
+      expect(sharedEntry.playtimeMin).toBe(150);
 
       const ownerEntry = library.find((e) => e.game.id === onlyOwner.id)!;
-      expect(ownerEntry.owners).toEqual([{ handle: owner.handle }]);
+      expect(ownerEntry.owners).toEqual([{ handle: owner.handle, playtimeMin: 10 }]);
       expect(ownerEntry.bestProgress.unlocked).toBe(0);
+    });
+
+    it("merges every platform of a member into one entry and sums the members' totals", async () => {
+      const owner = await makeUser();
+      const guest = await makeUser();
+      const family = await makeFamily(owner.id);
+      await svc.acceptInvite((await svc.createInvite(family.id, owner.id)).token, guest.id);
+      const [game] = await db.game.findMany({ orderBy: { slug: "desc" }, take: 1 });
+      await db.userGame.createMany({
+        data: [
+          { userId: owner.id, gameId: game.id, platform: "steam", playtimeMin: 60, unlockedCount: 0 },
+          { userId: owner.id, gameId: game.id, platform: "psn", playtimeMin: 30, unlockedCount: 0 },
+          { userId: guest.id, gameId: game.id, platform: "xbox", playtimeMin: 0, unlockedCount: 0 },
+        ],
+      });
+
+      const view = await svc.getFamilyLibraryView(family.id);
+      expect(view.entries).toHaveLength(1);
+      expect(view.entries[0].owners).toEqual(
+        [
+          { handle: owner.handle, playtimeMin: 90 },
+          { handle: guest.handle, playtimeMin: 0 },
+        ].sort((a, b) => a.handle.localeCompare(b.handle)),
+      );
+      expect(view.members.map((m) => [m.handle, m.gamesOwned, m.gamesPlayed, m.playtimeMin])).toEqual([
+        [owner.handle, 1, 1, 90],
+        [guest.handle, 1, 0, 0],
+      ]);
     });
 
     it("ignores members with a private profile", async () => {
@@ -306,14 +336,16 @@ describe.skipIf(!reachable)("family service", () => {
 
   describe("almostThere", () => {
     it("keeps unfinished games where the best member is at 70% or more", () => {
-      const entry = (achievementCount: number, unlocked: number) => ({
-        game: { id: "g", slug: "g", name: "G", coverUrl: null, platforms: [], achievementCount },
-        owners: [{ handle: "a" }],
+      const entry = (total: number, unlocked: number) => ({
+        game: { id: "g", slug: "g", name: "G", coverUrl: null, stub: false },
+        owners: [{ handle: "a", playtimeMin: 0 }],
         bestProgress: {
           handle: "a",
           unlocked,
-          pct: achievementCount ? Math.round((unlocked / achievementCount) * 100) : 0,
+          total,
+          pct: total ? Math.round((unlocked / total) * 100) : 0,
         },
+        playtimeMin: 0,
       });
       expect(svc.almostThere([entry(10, 7), entry(10, 10), entry(10, 6), entry(0, 0)])).toHaveLength(1);
     });
