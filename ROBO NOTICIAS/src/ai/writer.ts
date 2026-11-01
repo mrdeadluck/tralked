@@ -95,7 +95,7 @@ const DraftBlockSchema = z.union([
 ]);
 
 export const DraftSchema = z.object({
-  title: z.string().describe("Até 110 caracteres, direto, sem clickbait"),
+  title: z.string().describe("Curto: 4 a 9 palavras, até uns 60 caracteres, direto, sem clickbait"),
   subtitle: z.string().describe("Linha fina: o fato em uma frase, até 220 caracteres"),
   excerpt: z.string().describe("Resumo para os cards, até 280 caracteres"),
   pontos: z.array(z.string()).min(3).describe("Exatamente 3 frases curtas com o essencial"),

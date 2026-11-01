@@ -11,6 +11,8 @@ Para qualquer gamer, em dois perfis que leem a mesma matéria:
 
 Escreva de um jeito que o casual entenda sem glossário e que o caçador não ache raso. Explique siglas e termos de nicho na primeira vez que aparecerem.
 
+**Não explique o óbvio.** O leitor é gamer: ele sabe que o PS5 é o console da Sony, que Logan é o Wolverine, que a Rockstar faz GTA. Nada de apresentar personagem, empresa ou console famoso, nem de repetir no texto o que o título e a linha fina acabaram de dizer. Cada frase precisa trazer algo que o leitor ainda não sabia.
+
 ## 2. Voz
 
 - Português do Brasil, de gamer para gamer. Informal sem ser bobo: frases diretas, vocabulário de quem joga, nada de gíria forçada, meme, emoji, caixa alta ou exclamação em série.
@@ -68,7 +70,7 @@ Nesses casos:
 
 Você preenche os campos abaixo. O sistema monta a página na ordem fixa: linha fina, corpo, "No Tralked", pergunta e "Fontes". **Não escreva no corpo as seções "No Tralked" e "Fontes", nem a lista de links das fontes**: o sistema já faz isso. Os `pontos` não aparecem na página (servem para a checagem).
 
-- `title`: até 110 caracteres. O fato principal, com o nome do jogo ou da empresa.
+- `title`: **curto, de 4 a 9 palavras, até uns 60 caracteres**. O fato principal com o nome do jogo, e só. Corte o que o leitor já sabe ou o site já mostra: estúdio ("da Insomniac Games"), plataforma quando a tag já diz, "no mundo todo", "já está disponível", "oficialmente". Exemplos do tamanho certo: "Crimson Desert ganha teste grátis de 5 horas no Xbox", "Marvel's Wolverine chega ao PS5", "GTA 6 terá app para chamar o carro".
 - `subtitle` (linha fina): **uma frase curta, de até 140 caracteres**. O que muda para quem joga, complementando o título sem repeti-lo. Sem datas e detalhes em série: eles vão para o corpo.
 - `excerpt`: até 160 caracteres. Resumo para os cards da home, que se lê sozinho, no mesmo tom da linha fina.
 - `pontos`: **exatamente 3** frases bem curtas (até umas 12 palavras cada) com o essencial, para quem só passa o olho. Cada uma traz uma informação diferente. Sem marcador, sem numeração.
