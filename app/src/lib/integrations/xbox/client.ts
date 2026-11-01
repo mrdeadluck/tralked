@@ -63,8 +63,8 @@ const STATS_BODIES: StatsBody[] = [
   (xuid, ids) => ({ xuids: [xuid], stats: ids.map((titleId) => ({ name: "MinutesPlayed", titleId })) }),
   (xuid, ids) => ({ arrangebyfield: "xuid", xuids: [Number(xuid)], stats: ids.map((titleId) => ({ name: "MinutesPlayed", titleId: Number(titleId) })) }),
 ];
-/** Index of the shape OpenXBL accepted last (kept for the life of the server instance). */
-let statsShape = 0;
+/** Index of the shape OpenXBL accepted last (1 as of 2026-11-01; kept for the life of the server instance). */
+let statsShape = 1;
 
 /** Titles per stats request (one batch request covers many titles). */
 const STATS_BATCH = 25;
