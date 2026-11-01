@@ -1,22 +1,25 @@
 /*
- * Tralked brand marks, vectorized from the approved logo (assets/brand/tralked-logo-source.png).
- * Pure path data so the page header, the footer, the wire cards and the social image (satori)
- * all draw the same shapes. Colours come from the caller: the emblem and the "K" take the accent,
- * the rest of the wordmark the text colour.
+ * Tralked brand marks, built from the approved logo (assets/brand/tralked-logo-tlk-source.png):
+ * every letter is the logo's own glyph, re-spaced with one constant gap (22 units) so no space is
+ * wider than another. The TLK monogram reuses the wordmark's T, L and K (same height, upright T).
+ * Colours come from the caller: white parts take the text colour, the L the logo purple, the K the
+ * accent.
  */
 
-/** Shield emblem with the T monogram (`d`, accent) and the inner chevron (`chevron`, brand purple). */
+/** "TLK" monogram: white T (`t`), purple L (`l`), lime K (`k`). */
 export const EMBLEM = {
-  width: 373,
-  height: 378,
-  d: "M363 38 284 113 284 226 189 315 189 377 333 243 333 135 363 106ZM8 38 8 106 37 136 37 244 175 377 175 315 86 227 86 113ZM0 1 59 62 149 62 149 172 179 202 211 173 211 62 311 62 372 1Z",
-  chevron: "M102 153 102 200 180 279 261 201 261 154 181 231Z",
+  width: 583,
+  height: 219,
+  t: "M193 0 51 0 0 52 52 52 52 218 110 218 110 53 149 53Z",
+  l: "M215 0 215 134 258 218 352 218 352 165 274 165 274 0Z",
+  k: "M374 0 374 218 432 218 432 141 504 218 583 218 471 102 578 0 505 0 432 68 432 0Z",
 } as const;
 
-/** "TRALKED" wordmark: `d` draws T R A L E D (even-odd, for the counters), `k` the accent K. */
+/** "TRALKED" wordmark: `d` draws T R A E D (even-odd, for the counters), `l` the purple L, `k` the lime K. */
 export const WORDMARK = {
-  width: 1451,
-  height: 223,
-  d: "M1257 0 1257 222 1401 222 1450 174 1450 42 1409 0ZM1319 53 1374 53 1384 63 1384 155 1374 164 1319 164ZM1086 0 1047 50 1047 171 1097 222 1235 222 1235 165 1109 165 1109 138 1110 135 1200 135 1236 82 1109 82 1109 54 1201 54 1239 0ZM664 0 664 132 709 222 829 222 829 164 725 164 725 0ZM515 0 431 168 456 204 471 220 547 57 583 136 527 136 508 178 602 178 623 222 689 222 583 0ZM227 0 227 54 361 54 361 87 227 87 227 222 289 222 289 140 301 143 370 222 445 222 377 140 389 140 430 100 430 42 390 0ZM40 0 0 54 78 54 78 222 139 222 139 54 177 54 218 0Z",
-  k: "M842 0 842 222 902 222 902 149 907 144 985 222 1067 222 950 102 1055 0 981 0 903 75 903 0Z",
+  width: 1391,
+  height: 219,
+  d: "M193 0 51 0 0 52 52 52 52 218 110 218 110 53 149 53ZM214 1 214 52 348 52 348 81 214 81 214 218 270 218 270 134 279 134 351 218 425 218 357 135 374 135 409 100 409 40 374 1ZM503 1 409 166 411 173 443 213 447 214 528 69 559 135 509 135 490 172 577 172 599 218 660 218 554 1ZM1031 0 986 41 986 171 1032 218 1171 218 1171 166 1048 166 1048 135 1135 135 1173 81 1048 81 1048 53 1139 53 1177 0ZM1199 0 1199 218 1345 218 1391 172 1391 42 1348 0ZM1261 52 1315 52 1328 65 1328 152 1314 165 1261 165Z",
+  l: "M641 0 641 134 684 218 778 218 778 165 700 165 700 0Z",
+  k: "M800 0 800 218 858 218 858 141 930 218 1009 218 897 102 1004 0 931 0 858 68 858 0Z",
 } as const;
