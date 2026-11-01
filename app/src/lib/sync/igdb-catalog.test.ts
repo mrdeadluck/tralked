@@ -183,6 +183,61 @@ describe.skipIf(!reachable)("IGDB console catalog", () => {
     expect(await prisma.game.count()).toBe(before + 2);
   });
 
+  it("adopts listed IGDB games too (queued for Steam details), never a name other games share, accents via SQL lower()", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { ensureSteamGames } = await import("./steam-games");
+    const syncedAt = new Date(Date.UTC(2030, 0, 1));
+    // Already out of the stub state (the IGDB details step lists ~4k games an hour).
+    const listed = await prisma.game.create({
+      data: { slug: "igdbt-listado", name: "Igdbt Listado no PC", igdbId: IGDB + 40, platforms: ["PC", "XBOX"], achievementCount: 0, stub: false, detailsSyncedAt: syncedAt },
+    });
+    // A generic name: an IGDB game on PC, plus another catalog game of the same name.
+    const chess = await prisma.game.create({
+      data: { slug: "igdbt-xadrez-igdb", name: "Igdbt Xadrez", igdbId: IGDB + 41, platforms: ["PC"], achievementCount: 0, stub: true },
+    });
+    await prisma.game.create({ data: { slug: "igdbt-xadrez-outro", name: "igdbt xadrez", platforms: ["NINTENDO"], achievementCount: 0 } });
+    // Accented name, other case on the Steam side: Postgres lower() folds both the same way.
+    const accented = await prisma.game.create({
+      data: { slug: "igdbt-eter", name: "Igdbt Éter Órbita", igdbId: IGDB + 42, platforms: ["PC"], achievementCount: 0, stub: true },
+    });
+    const ids = await ensureSteamGames([
+      { appId: APP + 40, name: "Igdbt Listado no PC" },
+      { appId: APP + 41, name: "Igdbt Xadrez" },
+      { appId: APP + 42, name: "IGDBT ÉTER ÓRBITA" },
+    ]);
+    expect(ids.get(APP + 40)).toBe(listed.id);
+    expect(await prisma.game.findUniqueOrThrow({ where: { id: listed.id } })).toMatchObject({ steamAppId: APP + 40, detailsSyncedAt: null, stub: false });
+    expect(ids.get(APP + 41)).not.toBe(chess.id);
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: chess.id } })).steamAppId).toBeNull();
+    expect(ids.get(APP + 42)).toBe(accented.id);
+  });
+
+  it("matches IGDB names with accents and case through SQL lower(), also when re-checked under the lock", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { resolveIgdbGames } = await import("./igdb-games");
+    const known = await prisma.game.create({
+      data: { slug: "igdbt-acento", name: "igdbt ação élfica", platforms: ["PLAYSTATION"], achievementCount: 0 },
+    });
+    const result = await resolveIgdbGames([g(50, "IGDBT AÇÃO ÉLFICA™", [48])]);
+    expect(result.ids.get(IGDB + 50)).toBe(known.id);
+    expect(result.created).toBe(0);
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: known.id } })).igdbId).toBe(IGDB + 50);
+  });
+
+  it("a Steam import and an IGDB import of the same new PC game at once leave one row", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { resolveIgdbGames } = await import("./igdb-games");
+    const { ensureSteamGames } = await import("./steam-games");
+    for (let i = 0; i < 5; i++) {
+      const name = `Igdbt Corrida Simultânea ${i}`;
+      await Promise.all([
+        ensureSteamGames([{ appId: APP + 60 + i, name }]),
+        resolveIgdbGames([g(60 + i, name, [6, 48])]),
+      ]);
+      expect(await prisma.game.count({ where: { name: { equals: name, mode: "insensitive" } } })).toBe(1);
+    }
+  });
+
   it("fills IGDB stubs' details, opened ones first, and lists them", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncIgdbDetails } = await import("./igdb-catalog");

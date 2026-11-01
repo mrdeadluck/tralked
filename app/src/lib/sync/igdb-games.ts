@@ -42,7 +42,8 @@ export type IgdbResolveResult = {
   skipped: number;
 };
 
-const lowerName = (name: string) => name.replace(/[™®©]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+/** The name as stored and matched: trademark signs and extra spaces out (case is left to SQL lower()). */
+const cleanIgdbName = (name: string) => name.replace(/[™®©]/g, "").replace(/\s+/g, " ").trim();
 const yearOf = (unixSeconds: number | undefined) =>
   unixSeconds === undefined ? null : new Date(unixSeconds * 1000).getUTCFullYear();
 
@@ -84,15 +85,38 @@ export function candidateFamilies(c: Pick<Candidate, "platforms" | "links">): Se
   return out;
 }
 
-async function candidatesByName(names: string[]): Promise<Map<string, Candidate[]>> {
+/**
+ * Catalog games named like each input name, keyed by the input name as given. Both sides are
+ * lowercased by Postgres' own lower() (the expression index), so accented names ("É") match the
+ * same way the index does.
+ */
+async function candidatesByName(
+  names: string[],
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<Map<string, Candidate[]>> {
   const out = new Map<string, Candidate[]>();
   if (names.length === 0) return out;
-  const rows = await prisma.$queryRaw<(Candidate & { key: string })[]>`
-    SELECT g.id, g.name, g."igdbId", g."releaseDate", g.platforms, lower(g.name) AS key,
+  const rows = await db.$queryRaw<(Candidate & { input: string })[]>`
+    WITH q AS (SELECT DISTINCT n AS input, lower(n) AS key FROM unnest(${names}::text[]) AS n)
+    SELECT q.input, g.id, g.name, g."igdbId", g."releaseDate", g.platforms,
            COALESCE((SELECT array_agg(DISTINCT l.platform) FROM "GamePlatformLink" l WHERE l."gameId" = g.id), '{}') AS links
-    FROM "Game" g WHERE lower(g.name) = ANY(${names}::text[])`;
-  for (const row of rows) out.set(row.key, [...(out.get(row.key) ?? []), row]);
+    FROM q JOIN "Game" g ON lower(g.name) = q.key`;
+  for (const row of rows) out.set(row.input, [...(out.get(row.input) ?? []), row]);
   return out;
+}
+
+/** The one catalog game an IGDB game is, by name (see sameGame); "ambiguous" when several could be. */
+function pickByName(
+  candidates: Candidate[] | undefined,
+  g: IgdbCatalogGame,
+  families: ReleasePlatform[],
+): Candidate | "ambiguous" | null {
+  const year = yearOf(g.firstReleaseDate);
+  const fits = (candidates ?? []).filter((c) => sameGame(c, { igdbId: g.igdbId, year, families }));
+  if (fits.length === 1) return fits[0];
+  const sameYear = fits.filter((c) => c.releaseDate !== null && year !== null && c.releaseDate.getUTCFullYear() === year);
+  if (sameYear.length === 1) return sameYear[0];
+  return fits.length > 1 ? "ambiguous" : null;
 }
 
 /**
@@ -176,19 +200,14 @@ export async function resolveIgdbGames(
 
   // 3. Same name.
   pending = games.filter((g) => !result.ids.has(g.igdbId));
-  const byName = await candidatesByName([...new Set(pending.map((g) => lowerName(g.name)).filter(Boolean))]);
+  const byName = await candidatesByName([...new Set(pending.map((g) => cleanIgdbName(g.name)).filter(Boolean))]);
   const unknown: IgdbCatalogGame[] = [];
   for (const g of pending) {
-    const year = yearOf(g.firstReleaseDate);
-    const fits = (byName.get(lowerName(g.name)) ?? []).filter((c) =>
-      sameGame(c, { igdbId: g.igdbId, year, families: families(g) }),
-    );
-    const sameYear = fits.filter((c) => c.releaseDate !== null && year !== null && c.releaseDate.getUTCFullYear() === year);
-    const pick = fits.length === 1 ? fits[0] : sameYear.length === 1 ? sameYear[0] : null;
-    if (pick) {
+    const pick = pickByName(byName.get(cleanIgdbName(g.name)), g, families(g));
+    if (pick && pick !== "ambiguous") {
       result.ids.set(g.igdbId, pick.id);
       matched.push({ id: pick.id, game: g });
-    } else if (fits.length > 1) {
+    } else if (pick === "ambiguous") {
       // Two catalog games could be this one: never guess.
       result.skipped++;
     } else {
@@ -215,7 +234,19 @@ export async function resolveIgdbGames(
         select: { id: true, igdbId: true },
       });
       const already = new Map(raced.map((r) => [r.igdbId!, r.id]));
-      const fresh = part.filter((g) => !already.has(g.igdbId));
+      // Re-checked by name too: a game of that name may have been created since the check above
+      // (a Steam app, another job's stub). One that is this game is used; an ambiguous name waits.
+      const byNameNow = await candidatesByName(
+        [...new Set(part.filter((g) => !already.has(g.igdbId)).map((g) => cleanIgdbName(g.name)))],
+        tx,
+      );
+      const matchedNow = new Map<number, string>();
+      const fresh = part.filter((g) => {
+        if (already.has(g.igdbId)) return false;
+        const pick = pickByName(byNameNow.get(cleanIgdbName(g.name)), g, families(g));
+        if (pick && pick !== "ambiguous") matchedNow.set(g.igdbId, pick.id);
+        return pick === null;
+      });
       const bases = fresh.map((g) => ({ g, base: slugify(g.name.replace(/['’]/g, "")) || `igdb-${g.igdbId}` }));
       const taken = new Set(
         (await tx.game.findMany({ where: { slug: { in: bases.map((b) => b.base) } }, select: { slug: true } })).map((r) => r.slug),
@@ -225,7 +256,7 @@ export async function resolveIgdbGames(
         taken.add(slug);
         return {
           slug,
-          name: g.name.replace(/[™®©]/g, "").replace(/\s+/g, " ").trim(),
+          name: cleanIgdbName(g.name),
           igdbId: g.igdbId,
           platforms: families(g),
           releaseDate: releaseOf(g),
@@ -240,9 +271,16 @@ export async function resolveIgdbGames(
         where: { igdbId: { in: part.map((g) => g.igdbId) } },
         select: { id: true, igdbId: true },
       });
-      return { rows, count: data.length };
+      return { rows, count: data.length, matchedNow };
     }, { timeout: 60_000, maxWait: 20_000 });
     for (const row of created.rows) if (row.igdbId !== null && !result.ids.has(row.igdbId)) result.ids.set(row.igdbId, row.id);
+    for (const [igdbId, id] of created.matchedNow) {
+      if (result.ids.has(igdbId)) continue;
+      result.ids.set(igdbId, id);
+      result.matched++;
+      const game = part.find((g) => g.igdbId === igdbId)!;
+      await enrich([{ id, igdbId, families: families(game), releaseDate: releaseOf(game) }]);
+    }
     result.created += created.count;
   }
   result.skipped += unknown.filter((g) => !result.ids.has(g.igdbId)).length;
