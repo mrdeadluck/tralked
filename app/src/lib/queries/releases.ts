@@ -20,9 +20,10 @@ export const RELEASES_TAG = "releases";
 const DAY_MS = 86_400_000;
 export const PAST_DAYS = 30;
 export const AHEAD_DAYS = 90;
-/** Undated upcoming releases leave the list when no source listed them for this long. */
-const UNDATED_FRESH_DAYS = 14;
-const LIST_LIMIT = 400;
+/** Upcoming releases leave "Próximos" when no source listed them for this long. */
+const FRESH_DAYS = 14;
+/** Most games one list (tab × filter) holds, the most popular first. */
+export const LIST_LIMIT = 400;
 
 const SHORT_MONTHS = MONTH_NAMES.map((m) => (m.length > 4 ? `${m.slice(0, 3)}.` : m));
 
@@ -93,28 +94,46 @@ export function todayUtc(now: Date): { key: string; date: Date } {
 }
 
 /**
+ * Which release rows a tab shows. A source must still vouch for each one:
+ * - Últimos: out in the last 30 days, and listed by a source on or after that day (a game that
+ *   was only ever seen as upcoming and then dropped off the lists may have been delayed);
+ * - Próximos: in the next 90 days, or undated, and listed in the last two weeks (a delayed game
+ *   is listed again with its new date; one no source lists anymore leaves).
+ */
+export function releaseWindow(tab: ReleaseTab, now: Date): Prisma.GameReleaseWhereInput {
+  const today = todayUtc(now).date;
+  if (tab === "ultimos") {
+    return {
+      date: { gte: new Date(today.getTime() - PAST_DAYS * DAY_MS), lte: today },
+      seenAt: { gte: prisma.gameRelease.fields.date },
+    };
+  }
+  return {
+    seenAt: { gte: new Date(now.getTime() - FRESH_DAYS * DAY_MS) },
+    OR: [{ date: { gt: today, lte: new Date(today.getTime() + AHEAD_DAYS * DAY_MS) } }, { date: null }],
+  };
+}
+
+/**
  * Releases of a tab, most recent / soonest first; with `platform`, the games out on that family
- * (still listing all their platforms).
+ * (still listing all their platforms in the window). The family is filtered in SQL
+ * (GameRelease_platform_date_idx) before the most popular games are taken, so a busy family never
+ * pushes another out; then every row of those games in the window is loaded.
  */
 export async function listReleases(tab: ReleaseTab, now: Date, platform?: ReleasePlatform): Promise<ReleaseView[]> {
-  const today = todayUtc(now);
-  const where: Prisma.GameReleaseWhereInput =
-    tab === "ultimos"
-      ? { date: { gte: new Date(today.date.getTime() - PAST_DAYS * DAY_MS), lte: today.date } }
-      : {
-          OR: [
-            { date: { gt: today.date, lte: new Date(today.date.getTime() + AHEAD_DAYS * DAY_MS) } },
-            { date: null, seenAt: { gte: new Date(now.getTime() - UNDATED_FRESH_DAYS * DAY_MS) } },
-          ],
-        };
-  const rows = await prisma.gameRelease.findMany({
-    where,
-    include: { game: { select: { slug: true, name: true, coverUrl: true, stub: true } } },
+  const window = releaseWindow(tab, now);
+  const picked = await prisma.gameRelease.findMany({
+    where: platform ? { AND: [window, { platform }] } : window,
+    select: { gameId: true },
     orderBy: [{ score: "desc" }, { gameId: "asc" }],
     take: LIST_LIMIT,
   });
-  const views = groupReleases(rows, tab, today.key);
-  return platform ? views.filter((r) => r.platforms.includes(platform)) : views;
+  if (picked.length === 0) return [];
+  const rows = await prisma.gameRelease.findMany({
+    where: { AND: [window, { gameId: { in: [...new Set(picked.map((p) => p.gameId))] } }] },
+    include: { game: { select: { slug: true, name: true, coverUrl: true, stub: true } } },
+  });
+  return groupReleases(rows, tab, todayUtc(now).key);
 }
 
 /** The `n` most popular releases of a list, shown in date order (the card's picks). */
@@ -124,12 +143,15 @@ export function topReleases(list: ReleaseView[], n: number): ReleaseView[] {
 }
 
 export async function getReleasesCard(now: Date, perList = 6): Promise<ReleasesCardData> {
-  const [ultimos, proximos] = await Promise.all([listReleases("ultimos", now), listReleases("proximos", now)]);
-  const split = (list: ReleaseView[]) =>
+  // One query per tab and filter, so each family gets its own most popular games.
+  const tab = async (id: ReleaseTab) =>
     Object.fromEntries(
-      RELEASE_FILTERS.map((f) => [f, topReleases(f === "TODAS" ? list : list.filter((r) => r.platforms.includes(f)), perList)]),
+      await Promise.all(
+        RELEASE_FILTERS.map(async (f) => [f, topReleases(await listReleases(id, now, f === "TODAS" ? undefined : f), perList)] as const),
+      ),
     ) as Record<ReleaseFilter, ReleaseView[]>;
-  return { tabs: { ultimos: split(ultimos), proximos: split(proximos) }, consolesOff: !igdbCatalogAvailable() };
+  const [ultimos, proximos] = await Promise.all([tab("ultimos"), tab("proximos")]);
+  return { tabs: { ultimos, proximos }, consolesOff: !igdbCatalogAvailable() };
 }
 
 /** /lancamentos: every release of a tab and filter; `consolesOff` when IGDB is off and it matters. */

@@ -37,8 +37,9 @@ function fakeIgdb(games: IgdbCatalogGame[], details: Record<number, Partial<Igdb
     getReleaseDates: async () => [],
     async listGames(query) {
       calls.push(query);
-      if (query.updatedSince !== undefined) return [];
-      return games.filter((x) => x.igdbId > query.afterId).sort((a, b) => a.igdbId - b.igdbId).slice(0, query.limit);
+      if (query.updatedSince !== undefined) return { games: [], rawCount: 0, lastId: 0 };
+      const page = games.filter((x) => x.igdbId > query.afterId).sort((a, b) => a.igdbId - b.igdbId).slice(0, query.limit);
+      return { games: page, rawCount: page.length, lastId: page.at(-1)?.igdbId ?? 0 };
     },
     async getGames(ids) {
       return ids.flatMap((id) => {
@@ -85,27 +86,40 @@ describe.skipIf(!reachable)("IGDB console catalog", () => {
       g(1, "Igdbt Vapor Game (console)", [6, 48], { steamAppIds: [APP + 1] }),
       // Case and trademark signs do not matter.
       g(2, "igdbt mesmo nome™", [8], { firstReleaseDate: sec(2004) }),
-      g(3, "Igdbt Ambíguo", [7]),
+      // Two PC games of this name (no dates) could both be it: skipped.
+      g(3, "Igdbt Ambíguo", [7, 6]),
       // Same name as a 2020 game, but from 1998: a different game.
       g(4, "Igdbt Clássico", [7], { firstReleaseDate: sec(1998) }),
       g(5, "Igdbt Só no Console", [130, 4], { firstReleaseDate: sec(2017), coverImageId: "co5abc" }),
       // A Steam appid the catalog does not have yet: becomes a Steam stub (found later by the app list).
       g(6, "Igdbt Novo na Steam", [6], { steamAppIds: [APP + 6] }),
+      // God of War on PS2 (2005) is not the Steam "God of War" stub (no date): no shared family.
+      g(7, "Igdbt Deus da Guerra", [8], { firstReleaseDate: sec(2005) }),
+      // A listed console game without a date, same name and family: the same game.
+      g(8, "Igdbt Console Sem Data", [167]),
+      // On PC too, but IGDB knows no Steam appid: an IGDB stub the Steam import adopts later.
+      g(9, "Igdbt Também no PC", [6, 48]),
     ];
+    const godOfWarSteam = await prisma.game.create({
+      data: { slug: "igdbt-deus-steam", name: "Igdbt Deus da Guerra", steamAppId: APP + 7, platforms: ["PC"], achievementCount: 0, stub: true },
+    });
+    const consoleNoDate = await prisma.game.create({
+      data: { slug: "igdbt-console", name: "Igdbt Console Sem Data", platforms: ["PS5"], achievementCount: 0 },
+    });
     const { api, calls } = fakeIgdb(games);
     // Each clock read advances it: with a deadline of 2 a run has time for exactly one page.
     const ticking = () => {
       let t = 0;
       return () => t++;
     };
-    const first = await importIgdbCatalog(api, 2, ticking(), 4);
-    expect(first).toMatchObject({ pages: 1, games: 4, passDone: false });
-    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: "igdb-catalog" } })).value).toMatchObject({ lastId: IGDB + 4, since: null });
-    const second = await importIgdbCatalog(api, 2, ticking(), 4);
-    expect(second).toMatchObject({ pages: 1, games: 2, passDone: true });
-    expect(calls[1].afterId).toBe(IGDB + 4);
+    const first = await importIgdbCatalog(api, 2, ticking(), 5);
+    expect(first).toMatchObject({ pages: 1, games: 5, passDone: false });
+    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: "igdb-catalog" } })).value).toMatchObject({ lastId: IGDB + 5, since: null });
+    const second = await importIgdbCatalog(api, 2, ticking(), 5);
+    expect(second).toMatchObject({ pages: 1, games: 4, passDone: true });
+    expect(calls[1].afterId).toBe(IGDB + 5);
     // A finished pass: the next one asks only for changes.
-    await importIgdbCatalog(api, 2, ticking(), 4);
+    await importIgdbCatalog(api, 2, ticking(), 5);
     expect(calls[2]).toMatchObject({ afterId: 0, updatedSince: expect.any(Number) });
 
     const steam = await prisma.game.findUniqueOrThrow({ where: { id: steamGame.id } });
@@ -126,6 +140,12 @@ describe.skipIf(!reachable)("IGDB console catalog", () => {
     });
     const newSteam = await prisma.game.findUniqueOrThrow({ where: { steamAppId: APP + 6 } });
     expect(newSteam).toMatchObject({ igdbId: IGDB + 6, stub: true });
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: godOfWarSteam.id } })).igdbId).toBeNull();
+    expect(await prisma.game.findMany({ where: { igdbId: IGDB + 7 } })).toEqual([
+      expect.objectContaining({ slug: `igdbt-deus-da-guerra`, steamAppId: null, platforms: ["PLAYSTATION"], stub: true }),
+    ]);
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: consoleNoDate.id } })).igdbId).toBe(IGDB + 8);
+    expect(await prisma.game.count({ where: { igdbId: IGDB + 8 } })).toBe(1);
 
     // Running the whole list again creates nothing new.
     await prisma.syncCursor.deleteMany({ where: { key: "igdb-catalog" } });
@@ -133,6 +153,34 @@ describe.skipIf(!reachable)("IGDB console catalog", () => {
     const again = await importIgdbCatalog(api, 2, ticking(), 100);
     expect(again.created).toBe(0);
     expect(await prisma.game.count()).toBe(before);
+  });
+
+  it("the Steam import gives an IGDB stub on PC its appid instead of adding the game twice", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { ensureSteamGames } = await import("./steam-games");
+    const igdbStub = await prisma.game.findFirstOrThrow({ where: { igdbId: IGDB + 9 } });
+    expect(igdbStub).toMatchObject({ steamAppId: null, stub: true, platforms: ["PC", "PLAYSTATION"] });
+    const before = await prisma.game.count();
+    const ids = await ensureSteamGames([
+      // Same name, other case: adopted.
+      { appId: APP + 9, name: "igdbt também no pc" },
+      // An IGDB stub that is not on PC is never adopted: a new Steam row.
+      { appId: APP + 5, name: "Igdbt Só no Console" },
+      // Nothing of this name: a new Steam row, as before.
+      { appId: APP + 10, name: "Igdbt Só na Steam" },
+    ]);
+    expect(ids.get(APP + 9)).toBe(igdbStub.id);
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: igdbStub.id } })).steamAppId).toBe(APP + 9);
+    expect(ids.get(APP + 5)).not.toBe((await prisma.game.findFirstOrThrow({ where: { igdbId: IGDB + 5 } })).id);
+    expect(await prisma.game.count()).toBe(before + 2);
+    // Idempotent: the next import finds them all by appid.
+    expect(await ensureSteamGames([{ appId: APP + 9, name: "Igdbt Também no PC" }, { appId: APP + 10, name: "Igdbt Só na Steam" }])).toEqual(
+      new Map([
+        [APP + 9, igdbStub.id],
+        [APP + 10, ids.get(APP + 10)],
+      ]),
+    );
+    expect(await prisma.game.count()).toBe(before + 2);
   });
 
   it("fills IGDB stubs' details, opened ones first, and lists them", async () => {

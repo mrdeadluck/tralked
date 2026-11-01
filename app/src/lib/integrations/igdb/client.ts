@@ -1,6 +1,12 @@
 import { timeoutSignal } from "../http";
 import { normalizeTitle } from "../title-match";
-import type { IgdbCatalogApi, IgdbCatalogGame, IgdbReleaseDate } from "./catalog-types";
+import type {
+  IgdbCatalogApi,
+  IgdbCatalogGame,
+  IgdbCatalogPage,
+  IgdbDatePrecision,
+  IgdbReleaseDate,
+} from "./catalog-types";
 import type { IgdbApi, IgdbGame, IgdbMedia } from "./types";
 
 const API_BASE = "https://api.igdb.com/v4";
@@ -182,6 +188,18 @@ export function createIgdbClient({
 
   const ids = (values: number[]) => values.filter((v) => Number.isInteger(v) && v > 0).join(",");
 
+  // The /date_formats table (id → precision), read once per client.
+  let formatTable: Promise<Map<number, IgdbDatePrecision>> | null = null;
+  function dateFormats(): Promise<Map<number, IgdbDatePrecision>> {
+    formatTable ??= query<{ id: number; format?: string }>("date_formats", "fields id,format; limit 50;")
+      .then((rows) => new Map(rows.map((r) => [r.id, precisionFromFormat(r.format)])))
+      .catch((error) => {
+        formatTable = null;
+        throw error;
+      });
+    return formatTable;
+  }
+
   return {
     async findBySteamAppId(appId): Promise<IgdbGame | null> {
       const [external] = await query<{ game?: number }>(
@@ -224,41 +242,47 @@ export function createIgdbClient({
       };
     },
 
-    async getReleaseDates({ platforms, from, to, offset, limit }): Promise<IgdbReleaseDate[]> {
+    async getReleaseDates({ platforms, from, to, order, popularOnly, offset, limit }): Promise<IgdbReleaseDate[]> {
       const gameFields = CATALOG_GAME_FIELDS.split(",").map((f) => `game.${f}`).join(",");
+      const popular = popularOnly ? " & (game.hypes > 0 | game.total_rating_count > 0)" : "";
       const rows = await query<ReleaseRecord>(
         "release_dates",
         `fields date,date_format,category,human,platform,${gameFields}; ` +
           `where platform = (${ids(platforms)}) & date >= ${Math.floor(from)} & date < ${Math.floor(to)} ` +
-          `& game.game_type = (${GAME_TYPES}); sort date asc; limit ${clampLimit(limit)}; offset ${Math.max(0, Math.floor(offset))};`,
+          `& game.game_type = (${GAME_TYPES})${popular}; sort date ${order === "desc" ? "desc" : "asc"}; ` +
+          `limit ${clampLimit(limit)}; offset ${Math.max(0, Math.floor(offset))};`,
       );
+      // `date_format` is a reference into /date_formats: its ids are resolved once per client.
+      const needsFormats = rows.some((r) => typeof r.category !== "number" && typeof r.date_format === "number");
+      const formats = needsFormats ? await dateFormats() : new Map<number, IgdbDatePrecision>();
       return rows.flatMap((row) => {
         const game = row.game && typeof row.game === "object" ? toCatalogGame(row.game) : null;
         if (!game || typeof row.platform !== "number") return [];
-        return [
-          {
-            id: row.id,
-            platform: row.platform,
-            date: row.date,
-            dateFormat: row.date_format ?? row.category ?? 0,
-            human: row.human,
-            game,
-          },
-        ];
+        const precision =
+          typeof row.category === "number"
+            ? precisionFromCategory(row.category)
+            : typeof row.date_format === "number"
+              ? (formats.get(row.date_format) ?? "tbd")
+              : "tbd";
+        return [{ id: row.id, platform: row.platform, date: row.date, precision, human: row.human, game }];
       });
     },
 
-    async listGames({ platforms, afterId, updatedSince, limit }): Promise<IgdbCatalogGame[]> {
+    async listGames({ platforms, afterId, updatedSince, limit }): Promise<IgdbCatalogPage> {
       const since = updatedSince !== undefined ? ` & updated_at > ${Math.floor(updatedSince)}` : "";
       const rows = await query<CatalogGameRecord>(
         "games",
         `fields ${CATALOG_GAME_FIELDS}; where platforms = (${ids(platforms)}) & game_type = (${GAME_TYPES}) ` +
           `& id > ${Math.max(0, Math.floor(afterId))}${since}; sort id asc; limit ${clampLimit(limit)};`,
       );
-      return rows.flatMap((row) => {
-        const game = toCatalogGame(row);
-        return game ? [game] : [];
-      });
+      return {
+        games: rows.flatMap((row) => {
+          const game = toCatalogGame(row);
+          return game ? [game] : [];
+        }),
+        rawCount: rows.length,
+        lastId: rows.reduce((max, r) => (Number.isInteger(r.id) ? Math.max(max, r.id) : max), 0),
+      };
     },
 
     async getGames(gameIds): Promise<IgdbGame[]> {
@@ -275,6 +299,24 @@ export function createIgdbClient({
       return rows.map((r) => r.id).filter((id) => Number.isInteger(id));
     },
   };
+}
+
+const CATEGORY_PRECISION: IgdbDatePrecision[] = ["day", "month", "year", "q1", "q2", "q3", "q4", "tbd"];
+
+/** Deprecated `category` enum of release dates (0 YYYYMMMMDD … 7 TBD). */
+export function precisionFromCategory(category: number): IgdbDatePrecision {
+  return CATEGORY_PRECISION[category] ?? "tbd";
+}
+
+/** `format` string of a /date_formats row ("YYYYMMMMDD", "YYYYMMMM", "YYYY", "YYYYQ1"…, "TBD"). */
+export function precisionFromFormat(format: string | undefined): IgdbDatePrecision {
+  const value = (format ?? "").trim().toUpperCase();
+  if (value === "YYYYMMMMDD") return "day";
+  if (value === "YYYYMMMM") return "month";
+  if (value === "YYYY") return "year";
+  const quarter = /^YYYYQ([1-4])$/.exec(value);
+  if (quarter) return `q${quarter[1]}` as IgdbDatePrecision;
+  return "tbd";
 }
 
 /** Largest page IGDB serves. */

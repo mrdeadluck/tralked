@@ -2,22 +2,47 @@
 
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 
+/** Day of the month to focus after Page Up / Page Down opened another month. */
+const FOCUS_KEY = "tralked:calendar-focus-day";
+
 /**
  * Keyboard for the month grid (WAI-ARIA date grid pattern, on a plain table of links): one day
  * link in the tab order; arrows move a day / a week, Home/End go to the start/end of the week,
- * PageUp/PageDown open the previous/next month. Without JavaScript every day link is simply
- * tabbable, so nothing is lost.
+ * PageUp/PageDown open the previous/next month and keep the focus on the same day there. Without
+ * JavaScript every day link is simply tabbable, so nothing is lost. Keyed by month by its parent,
+ * so a client navigation to another month starts fresh.
  */
-export function CalendarGridKeys({ children, prevHref, nextHref }: { children: ReactNode; prevHref: string | null; nextHref: string | null }) {
+export function CalendarGridKeys({
+  children,
+  month,
+  prevMonth,
+  nextMonth,
+}: {
+  children: ReactNode;
+  /** "2026-10": this grid's month; prev/next are null outside the calendar's range. */
+  month: string;
+  prevMonth: string | null;
+  nextMonth: string | null;
+}) {
   const root = useRef<HTMLDivElement>(null);
 
   const links = () => [...(root.current?.querySelectorAll<HTMLAnchorElement>("a[data-day]") ?? [])];
 
   useEffect(() => {
     const all = links();
-    const start = all.find((a) => a.dataset.start === "1") ?? all[0];
+    let wanted: number | null = null;
+    try {
+      // Left in place for a few seconds: the month may mount twice (its public fallback first).
+      const stored = JSON.parse(sessionStorage.getItem(FOCUS_KEY) ?? "null") as { month: string; day: number; at: number } | null;
+      if (stored && stored.month === month && Date.now() - stored.at < 5_000) wanted = stored.day;
+    } catch {
+      // Storage blocked or garbled: start on today / the 1st.
+    }
+    const byDay = wanted ? all[Math.min(all.length, wanted) - 1] : undefined;
+    const start = byDay ?? all.find((a) => a.dataset.start === "1") ?? all[0];
     for (const a of all) a.tabIndex = a === start ? 0 : -1;
-  }, []);
+    if (byDay) byDay.focus();
+  }, [month]);
 
   const move = (to: HTMLAnchorElement | undefined) => {
     if (!to) return;
@@ -53,9 +78,14 @@ export function CalendarGridKeys({ children, prevHref, nextHref }: { children: R
         break;
       case "PageUp":
       case "PageDown": {
-        const href = e.key === "PageUp" ? prevHref : nextHref;
-        if (!href) return;
+        const target = e.key === "PageUp" ? prevMonth : nextMonth;
+        if (!target) return;
         e.preventDefault();
+        try {
+          sessionStorage.setItem(FOCUS_KEY, JSON.stringify({ month: target, day: i + 1, at: Date.now() }));
+        } catch {
+          // Storage blocked: the new month starts on its 1st.
+        }
         root.current?.querySelector<HTMLAnchorElement>(`a[data-month-nav="${e.key === "PageUp" ? "prev" : "next"}"]`)?.click();
         return;
       }

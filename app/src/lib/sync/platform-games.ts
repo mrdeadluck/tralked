@@ -28,7 +28,8 @@ export async function loadNameIndex(): Promise<NameIndex> {
 /**
  * The one stub whose name is exactly `name` (ignoring case), or null (none, or ambiguous). Written
  * as `lower(name) = lower($1)` on stubs so it uses the partial expression index
- * `Game_stub_name_lower_idx` (migration 20261101130000_full_sync_playtime), not a scan of ~150k rows.
+ * expression index `Game_name_lower_idx` on lower(name) (migration 20261102090000_releases_calendar,
+ * which replaced the stub-only one), not a scan of ~150k rows.
  */
 export async function findStubByName(name: string): Promise<string | null> {
   const trimmed = name.replace(/[™®©]/g, "").trim();

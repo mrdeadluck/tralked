@@ -62,18 +62,19 @@ export async function importIgdbCatalog(igdb: IgdbCatalogApi, deadline: number, 
     const nowSec = Math.floor(now() / 1000);
     const cursor = (await readCursor()) ?? { lastId: 0, since: null, passStartedAt: nowSec };
     const passStartedAt = cursor.lastId === 0 ? nowSec : cursor.passStartedAt;
-    const games = await igdb.listGames({
+    const page = await igdb.listGames({
       platforms,
       afterId: cursor.lastId,
       updatedSince: cursor.since ?? undefined,
       limit: pageSize,
     });
-    const resolved = await resolveIgdbGames(games, { extraFamilies });
+    const resolved = await resolveIgdbGames(page.games, { extraFamilies });
     result.pages++;
-    result.games += games.length;
+    result.games += page.games.length;
     result.created += resolved.created;
-    const lastId = games.reduce((max, g) => Math.max(max, g.igdbId), cursor.lastId);
-    const more = games.length >= pageSize && lastId > cursor.lastId;
+    // A full raw page means there may be more, even when some of its rows were unusable.
+    const lastId = Math.max(cursor.lastId, page.lastId);
+    const more = page.rawCount >= pageSize && lastId > cursor.lastId;
     await writeCursor(more ? { lastId, since: cursor.since, passStartedAt } : { lastId: 0, since: passStartedAt, passStartedAt });
     if (!more) {
       result.passDone = true;

@@ -58,6 +58,7 @@ export async function PublicCalendar({ month }: { month: Month | null }) {
       todayKey={dayKey(now)}
       events={await publicMonth(shown)}
       kinds={PUBLIC_KINDS}
+      idSuffix="p"
     />
   );
 }
@@ -133,6 +134,7 @@ export async function PersonalCalendar({
       kinds={subject ? PERSONAL_KINDS : PUBLIC_KINDS}
       query={query}
       subject={note}
+      idSuffix="v"
     />
   );
 }

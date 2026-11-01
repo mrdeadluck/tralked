@@ -62,6 +62,56 @@ export async function steamGameIds(appIds: number[]): Promise<Map<number, string
   return result;
 }
 
+/**
+ * pg_advisory_xact_lock key taken by whatever creates or adopts name-only catalog rows that are
+ * matched by name (IGDB stubs in lib/sync/igdb-games.ts, and their adoption below).
+ */
+export const CATALOG_CREATE_LOCK = 0x16db_ca7a;
+
+/**
+ * Steam apps that are an IGDB stub of the console catalog (Plano 4, F10): a stub with no appid,
+ * listing PC, whose name is the app's name ignoring case. When exactly one stub and one app of the
+ * batch share the name, the stub takes the appid instead of a second row being created; the Steam
+ * details job then fills it in. Returns appid → game id of the adopted stubs.
+ */
+async function adoptIgdbStubs(apps: [number, string][]): Promise<Map<number, string>> {
+  const adopted = new Map<number, string>();
+  const byKey = new Map<string, number[]>();
+  for (const [appId, name] of apps) {
+    if (isPlaceholderName(name, appId)) continue;
+    const key = name.toLowerCase();
+    byKey.set(key, [...(byKey.get(key) ?? []), appId]);
+  }
+  const keys = [...byKey].filter(([, appIds]) => appIds.length === 1).map(([key]) => key);
+  for (const part of chunks(keys)) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CATALOG_CREATE_LOCK}::bigint)`;
+        const rows = await tx.$queryRaw<{ id: string; key: string }[]>`
+          SELECT id, lower(name) AS key FROM "Game"
+          WHERE stub AND "steamAppId" IS NULL AND "igdbId" IS NOT NULL AND 'PC' = ANY(platforms)
+            AND lower(name) = ANY(${part}::text[])`;
+        const stubs = new Map<string, string[]>();
+        for (const r of rows) stubs.set(r.key, [...(stubs.get(r.key) ?? []), r.id]);
+        for (const [key, gameIds] of stubs) {
+          const appId = byKey.get(key)?.[0];
+          if (appId === undefined || gameIds.length !== 1) continue;
+          const updated = await tx.$executeRaw`
+            UPDATE "Game" SET "steamAppId" = ${appId}::int, "updatedAt" = now()
+            WHERE id = ${gameIds[0]} AND "steamAppId" IS NULL
+              AND NOT EXISTS (SELECT 1 FROM "Game" WHERE "steamAppId" = ${appId}::int)`;
+          if (updated === 1) adopted.set(appId, gameIds[0]);
+        }
+      });
+    } catch (error) {
+      // An appid created meanwhile: those apps go through the normal path (which finds it).
+      if (!isUniqueViolation(error)) throw error;
+      for (const key of part) adopted.delete(byKey.get(key)![0]);
+    }
+  }
+  return adopted;
+}
+
 export type EnsureOptions = {
   /** New games are queued first for the details job (someone needs them now). */
   requestDetails?: boolean;
@@ -69,7 +119,8 @@ export type EnsureOptions = {
 };
 
 /**
- * Makes sure every app is in the catalog and returns appid → game id. Apps not there yet become
+ * Makes sure every app is in the catalog and returns appid → game id. An app that is an IGDB stub
+ * of the console catalog (same name, no appid) gives that stub its appid. Other apps not there yet become
  * name-only stubs (`stub` true: unlisted until the details job fills them in) with a unique slug:
  * the name's slug, or `<slug>-<appid>` when another game (or another app of the batch) has it.
  * Idempotent and safe to run concurrently: existing games are never touched, and an app created
@@ -87,8 +138,11 @@ export async function ensureSteamGames(
   }
   const ids = await steamGameIds([...unique.keys()]);
   const missing = [...unique].filter(([appId]) => !ids.has(appId));
+  // An IGDB stub of the console catalog may already be this game (Plano 4, F10).
+  const adopted = await adoptIgdbStubs(missing);
+  for (const [appId, id] of adopted) ids.set(appId, id);
 
-  for (const part of chunks(missing)) {
+  for (const part of chunks(missing.filter(([appId]) => !adopted.has(appId)))) {
     const bases = part.map(([appId, name]) => ({ appId, name, base: steamSlugBase(name, appId) }));
     const taken = new Set(
       (

@@ -214,7 +214,8 @@ model Game {
   @@index([releaseDate])
   /// IGDB matching (releases and the console catalog import, lib/sync/igdb-games.ts). That
   /// matching also uses the expression index "Game_name_lower_idx" on lower(name) (migration
-  /// 20261102090000_releases_calendar), which Prisma cannot declare.
+  /// 20261102090000_releases_calendar), which Prisma cannot declare; the IGDB details queue has
+  /// the partial index "Game_igdb_details_queue_idx" (20261102100000_releases_catalog_indexes).
   @@index([igdbId])
   // The details job's queue has a partial index written in SQL (migration
   // 20261101130000_full_sync_playtime): ("lastSyncAttemptAt", popularity DESC) WHERE

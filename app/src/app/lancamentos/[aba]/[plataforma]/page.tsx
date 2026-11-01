@@ -24,6 +24,10 @@ export async function generateMetadata({ params }: PageProps<"/lancamentos/[aba]
   return {
     title: `Lançamentos: ${tab.label.toLowerCase()} (${platform}) | Tralked`,
     description: `Lançamentos de jogos dos ${tab.hint}, ${platform}.`,
+    // The default view (últimos, PC) is also /lancamentos: one canonical URL for it.
+    alternates: {
+      canonical: view.tab === "ultimos" && view.filter === "PC" ? "/lancamentos" : `/lancamentos/${view.tab}/${plataforma}`,
+    },
   };
 }
 

@@ -50,6 +50,11 @@ export type MonthViewProps = {
   query?: string;
   /** Line about whose achievements are shown (or why none are). */
   subject?: ReactNode;
+  /**
+   * Suffix of this instance's element ids: the public month (Suspense fallback) and the visitor's
+   * month can both be in the HTML (without JavaScript the second stays hidden), so ids differ.
+   */
+  idSuffix: string;
 };
 
 /**
@@ -57,7 +62,7 @@ export type MonthViewProps = {
  * month's timeline, day by day, where each day link of the grid lands. Pure server markup: the
  * month and its prev/next links work without JavaScript; CalendarGridKeys only adds arrow keys.
  */
-export function MonthView({ month, todayKey, events, kinds, query = "", subject }: MonthViewProps) {
+export function MonthView({ month, todayKey, events, kinds, query = "", subject, idSuffix }: MonthViewProps) {
   const days = byDay(events);
   const prev = addMonths(month, -1);
   const next = addMonths(month, 1);
@@ -67,11 +72,18 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject 
   const todayInMonth = todayKey.startsWith(`${monthParam(month)}-`);
   const startDay = todayInMonth ? Number(todayKey.slice(8, 10)) : 1;
   const timeline = [...days.keys()].sort();
-  const timelineId = `linha-${monthParam(month)}`;
+  const timelineId = `linha-${monthParam(month)}-${idSuffix}`;
+  const hintId = `cal-keys-hint-${idSuffix}`;
+  const dayId = (key: string) => `dia-${key}-${idSuffix}`;
 
   return (
     <div className="flex flex-col gap-8">
-      <CalendarGridKeys prevHref={prevHref} nextHref={nextHref}>
+      <CalendarGridKeys
+        key={monthParam(month)}
+        month={monthParam(month)}
+        prevMonth={prevHref ? monthParam(prev) : null}
+        nextMonth={nextHref ? monthParam(next) : null}
+      >
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-[26px] leading-none font-black font-stretch-[118%] tracking-[-0.02em] first-letter:uppercase">
@@ -106,11 +118,11 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject 
               </li>
             ))}
           </ul>
-          <p id="cal-keys-hint" className="sr-only">
+          <p id={hintId} className="sr-only">
             Cada dia leva à linha do tempo abaixo. Com o teclado: setas mudam de dia, Page Up e Page Down mudam de mês.
           </p>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] table-fixed border-collapse" aria-describedby="cal-keys-hint">
+            <table className="w-full min-w-[640px] table-fixed border-collapse" aria-describedby={hintId}>
               <caption className="sr-only">Calendário de {label}</caption>
               <thead>
                 <tr>
@@ -135,7 +147,7 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject 
                         <td key={weekday} className={`h-[104px] border border-line align-top ${today ? "bg-surface-2" : ""}`}>
                           <div className="flex h-full flex-col gap-1 p-1.5">
                             <a
-                              href={`#dia-${key}`}
+                              href={`#${dayId(key)}`}
                               data-day={key}
                               data-weekday={weekday}
                               data-start={day === startDay ? "1" : undefined}
@@ -180,7 +192,7 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject 
           <ol className="m-0 flex list-none flex-col p-0">
             {timeline.map((key) => {
               return (
-                <li key={key} id={`dia-${key}`} className="grid scroll-mt-24 grid-cols-[120px_minmax(0,1fr)] gap-4 border-b border-divider py-4 max-sm:grid-cols-1 max-sm:gap-2">
+                <li key={key} id={dayId(key)} className="grid scroll-mt-24 grid-cols-[120px_minmax(0,1fr)] gap-4 border-b border-divider py-4 max-sm:grid-cols-1 max-sm:gap-2">
                   <h3 className="font-mono text-[12px] leading-snug tracking-[0.04em] text-text-3">
                     <time dateTime={key}>{dayLabel(key)}</time>
                     {key === todayKey ? <span className="mt-1 block text-acc uppercase">hoje</span> : null}

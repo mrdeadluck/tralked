@@ -72,6 +72,9 @@ test.describe("/lancamentos", () => {
     await expect(page).toHaveURL(/\/lancamentos\/proximos\/todas$/);
     await expect(page.getByRole("link", { name: /Crônicas da Maré Vermelha/ })).toBeVisible();
     expect((await page.request.get("/lancamentos/amanha/pc")).status()).toBe(404);
+    // The default view has one canonical URL.
+    await page.goto("/lancamentos/ultimos/pc");
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/lancamentos$/);
     await context.close();
   });
 });
@@ -87,6 +90,10 @@ test.describe("/calendario", () => {
     // Today's cell is marked; the timeline has the seeded releases of the month. (The streamed
     // version for this visitor is also in the HTML, hidden until a script swaps it in.)
     await expect(page.locator('a[aria-current="date"]:visible')).toHaveCount(1);
+    // Both copies are in the HTML: their element ids never collide.
+    const ids = await page.locator('[id^="dia-"], [id^="linha-"], [id^="cal-keys-hint"]').evaluateAll((els) => els.map((e) => e.id));
+    expect(ids.length).toBeGreaterThan(2);
+    expect(new Set(ids).size).toBe(ids.length);
     await expect(page.locator("main")).toContainText("Lançamento");
     await page.getByRole("navigation", { name: "Meses" }).getByRole("link", { name: /próximo mês/ }).click();
     await expect(page).toHaveURL(/\/calendario\/\d{4}-\d{2}$/);
@@ -109,6 +116,12 @@ test.describe("/calendario", () => {
     await page.keyboard.press("PageDown");
     await expect(page).not.toHaveURL(new RegExp(`/calendario/${month}$`));
     await expect(page).toHaveURL(/\/calendario\/\d{4}-\d{2}$/);
+    // The focus stays on the same day of the new month.
+    const next = new URL(page.url()).pathname.split("/").pop();
+    await expect(page.locator(`a[data-day="${next}-09"]:visible`)).toBeFocused();
+    await page.keyboard.press("PageUp");
+    await expect(page).toHaveURL(new RegExp(`/calendario/${month}$`));
+    await expect(page.locator(`a[data-day="${month}-09"]:visible`)).toBeFocused();
   });
 
   test("another player's calendar only when the profile is public", async ({ page }) => {
@@ -122,6 +135,11 @@ test.describe("/calendario", () => {
     // Month links keep the player.
     await expect(page.getByRole("link", { name: /próximo mês/ })).toHaveAttribute("href", /\?jogador=lucas$/);
     await noBlockingViolations(page);
+    // The public profile links to it; a private one shows no sheet (and so no link).
+    await page.goto("/jogador/lucas");
+    await expect(page.getByRole("link", { name: "Calendário de @lucas →" })).toHaveAttribute("href", "/calendario?jogador=lucas");
+    await page.goto(`/jogador/${PRIVATE}`);
+    await expect(page.getByRole("link", { name: /^Calendário de @/ })).toHaveCount(0);
   });
 
   test("logged in: the player's own achievements", async ({ page }) => {
@@ -130,6 +148,8 @@ test.describe("/calendario", () => {
     await page.goto("/calendario");
     await expect(page.getByText("Com as suas conquistas, marcos de horas e missões.")).toBeVisible();
     await expect(page.getByRole("list", { name: "Legenda" })).toContainText("Marco de horas");
+    await page.goto("/jogador/lucas");
+    await expect(page.getByRole("link", { name: "Meu calendário →" })).toHaveAttribute("href", "/calendario");
   });
 
   test("an invalid month is a 404", async ({ page }) => {

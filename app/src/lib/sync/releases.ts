@@ -1,7 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getIgdbCatalog } from "@/lib/integrations/igdb";
-import type { IgdbCatalogApi, IgdbReleaseDate } from "@/lib/integrations/igdb/catalog-types";
+import type { IgdbCatalogApi, IgdbDatePrecision, IgdbReleaseDate } from "@/lib/integrations/igdb/catalog-types";
 import { steamFixturesAllowed } from "@/lib/integrations/steam";
 import { createPoliteFetch } from "@/lib/integrations/steam/polite-fetch";
 import { fetchReleaseList, type SteamReleaseItem, type SteamReleaseList } from "@/lib/integrations/steam/releases";
@@ -22,8 +22,8 @@ import { ensureSteamGames } from "./steam-games";
  *    (ensureSteamGames) and the most popular ones without details go first in the details queue,
  *    so the card soon has covers.
  * 2. IGDB (needs IGDB_CLIENT_ID/SECRET; in production without them this part is off): release
- *    dates on PC, PlayStation, Xbox and Nintendo from 30 days ago to 120 days ahead, matched to the
- *    catalog without duplicates (lib/sync/igdb-games.ts).
+ *    dates on PlayStation, Xbox and Nintendo (PC is Steam's), per family, the last 30 days and the
+ *    next 120, matched to the catalog without duplicates (lib/sync/igdb-games.ts).
  * One GameRelease row per game and platform family; Steam's row wins for PC. Pages never call
  * these sources: they read GameRelease.
  */
@@ -39,7 +39,10 @@ const DETAILS_REQUESTS = 40;
 const IGDB_PAST_DAYS = 30;
 const IGDB_AHEAD_DAYS = 120;
 const IGDB_PAGE = 500;
-const IGDB_MAX_PAGES = 6;
+/** Per family and window: 3 families × 2 windows × 2 pages = at most 12 requests (3 s at 4/s). */
+const IGDB_PAGES_PER_WINDOW = 2;
+/** IGDB is read for the consoles only: Steam's lists cover PC (and win there anyway). */
+const IGDB_RELEASE_FAMILIES = ["PLAYSTATION", "XBOX", "NINTENDO"] as const satisfies readonly ReleasePlatform[];
 
 export type ReleasesDeps = {
   /** A page of a Steam list. */
@@ -157,14 +160,13 @@ export async function syncSteamReleases(deps: ReleasesDeps, deadline: number): P
 const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
 /** pt-BR text of an IGDB date that is not a day ("novembro de 2026", "4º trimestre de 2026", "2027"). */
-export function igdbDateLabel(date: number | undefined, dateFormat: number): string | null {
-  if (date === undefined || dateFormat === 7) return null;
+export function igdbDateLabel(date: number | undefined, precision: IgdbDatePrecision): string | null {
+  if (date === undefined || precision === "tbd" || precision === "day") return null;
   const d = new Date(date * 1000);
   const year = d.getUTCFullYear();
-  if (dateFormat === 1) return `${MONTHS[d.getUTCMonth()]} de ${year}`;
-  if (dateFormat === 2) return String(year);
-  if (dateFormat >= 3 && dateFormat <= 6) return `${dateFormat - 2}º trimestre de ${year}`;
-  return null;
+  if (precision === "month") return `${MONTHS[d.getUTCMonth()]} de ${year}`;
+  if (precision === "year") return String(year);
+  return `${precision.slice(1)}º trimestre de ${year}`;
 }
 
 /** Day (UTC midnight) of an exact IGDB date. */
@@ -175,7 +177,14 @@ const dayOf = (unixSeconds: number) => {
 
 export type IgdbReleasesResult = { status: "ok" | "disabled"; releases: number; written: number; created: number; failed: number };
 
-/** Step 2: IGDB release dates on every family, around today. */
+/**
+ * Step 2: IGDB release dates of the consoles (Steam already covers PC), around today. Each
+ * family (PlayStation, Xbox, Nintendo) is read on its own, in two windows: the past 30 days
+ * walking back from today (most recent first) and the next 120 days walking forward, so neither
+ * the past nor one busy family eats the pages of the others. Only games people follow or rated
+ * (IGDB hypes or ratings), which also keeps the eShop/PS Store shovelware out. All regions of a
+ * game on a family collapse into one release (its earliest exact day).
+ */
 export async function syncIgdbReleases(deps: ReleasesDeps, deadline: number): Promise<IgdbReleasesResult> {
   const igdb = deps.igdb;
   if (!igdb) return { status: "disabled", releases: 0, written: 0, created: 0, failed: 0 };
@@ -191,26 +200,28 @@ export async function syncIgdbReleases(deps: ReleasesDeps, deadline: number): Pr
     console.warn("Releases: IGDB platform lookup failed", error);
   }
   const familyOf = (platform: number) => IGDB_PLATFORM_FAMILY[platform] ?? extraFamilies[platform];
+  const allIds = [...IGDB_PLATFORM_IDS, ...Object.keys(extraFamilies).map(Number)];
 
   const today = Math.floor(deps.now() / DAY_MS) * DAY_MS;
-  const from = (today - IGDB_PAST_DAYS * DAY_MS) / 1000;
-  const to = (today + IGDB_AHEAD_DAYS * DAY_MS) / 1000;
+  const windows = [
+    { order: "desc" as const, from: (today - IGDB_PAST_DAYS * DAY_MS) / 1000, to: (today + DAY_MS) / 1000 },
+    { order: "asc" as const, from: (today + DAY_MS) / 1000, to: (today + IGDB_AHEAD_DAYS * DAY_MS) / 1000 },
+  ];
   const releases: IgdbReleaseDate[] = [];
-  for (let page = 0; page < IGDB_MAX_PAGES && deps.now() < deadline; page++) {
-    try {
-      const rows = await igdb.getReleaseDates({
-        platforms: [...IGDB_PLATFORM_IDS, ...Object.keys(extraFamilies).map(Number)],
-        from,
-        to,
-        offset: page * IGDB_PAGE,
-        limit: IGDB_PAGE,
-      });
-      releases.push(...rows);
-      if (rows.length < IGDB_PAGE) break;
-    } catch (error) {
-      failed++;
-      console.error(`Releases: IGDB release dates page ${page} failed`, error);
-      break;
+  for (const family of IGDB_RELEASE_FAMILIES) {
+    const platforms = allIds.filter((id) => familyOf(id) === family);
+    for (const window of windows) {
+      for (let page = 0; page < IGDB_PAGES_PER_WINDOW && deps.now() < deadline; page++) {
+        try {
+          const rows = await igdb.getReleaseDates({ platforms, ...window, popularOnly: true, offset: page * IGDB_PAGE, limit: IGDB_PAGE });
+          releases.push(...rows);
+          if (rows.length < IGDB_PAGE) break;
+        } catch (error) {
+          failed++;
+          console.error(`Releases: IGDB release dates (${family}, ${window.order}) page ${page} failed`, error);
+          break;
+        }
+      }
     }
   }
 
@@ -218,13 +229,13 @@ export async function syncIgdbReleases(deps: ReleasesDeps, deadline: number): Pr
   const best = new Map<string, { igdbId: number; family: ReleasePlatform; date: Date | null; label: string | null; at: number; score: number }>();
   for (const r of releases) {
     const family = familyOf(r.platform);
-    if (!family || r.date === undefined || r.dateFormat === 7) continue;
-    const exact = r.dateFormat === 0;
+    if (!family || family === "PC" || r.date === undefined || r.precision === "tbd") continue;
+    const exact = r.precision === "day";
     const candidate = {
       igdbId: r.game.igdbId,
       family,
       date: exact ? dayOf(r.date) : null,
-      label: exact ? null : igdbDateLabel(r.date, r.dateFormat),
+      label: exact ? null : igdbDateLabel(r.date, r.precision),
       at: r.date,
       score: r.game.popularity,
     };

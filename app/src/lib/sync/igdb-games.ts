@@ -1,9 +1,9 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { IgdbCatalogGame } from "@/lib/integrations/igdb/catalog-types";
-import { familiesOf, type ReleasePlatform } from "@/lib/releases/platforms";
+import { familiesOf, RELEASE_PLATFORMS, type ReleasePlatform } from "@/lib/releases/platforms";
 import { slugify } from "./catalog";
-import { ensureSteamGames, steamGameIds } from "./steam-games";
+import { CATALOG_CREATE_LOCK, ensureSteamGames, steamGameIds } from "./steam-games";
 
 /**
  * Finds the catalog game of each IGDB game without ever creating a second row for a game the
@@ -13,7 +13,8 @@ import { ensureSteamGames, steamGameIds } from "./steam-games";
  *    does not have yet, so the Steam app list import finds it later instead of adding it again);
  * 3. a game with the same name, ignoring case and trademark signs (expression index on
  *    lower(name)), that has no other IGDB id and whose release year is within one year of IGDB's
- *    when both are known; two such games make the name ambiguous and the IGDB game is skipped;
+ *    when both are known, or, when either year is unknown, that shares a platform family with it
+ *    (sameGame); two such games make the name ambiguous and the IGDB game is skipped;
  * 4. otherwise, a name-only stub (name, platforms, IGDB id, first release, cover), out of the
  *    listings until the IGDB details step fills it in (lib/sync/igdb-catalog.ts).
  * Matched games get the IGDB id (when they had none), the platform families and the first release
@@ -23,7 +24,7 @@ import { ensureSteamGames, steamGameIds } from "./steam-games";
 
 const CHUNK = 500;
 const IGDB_COVER_URL = "https://images.igdb.com/igdb/image/upload/t_cover_big";
-const CREATE_LOCK = 0x16db_ca7a; // pg_advisory_xact_lock key of IGDB game creation
+const CREATE_LOCK = CATALOG_CREATE_LOCK;
 
 export type IgdbResolveOptions = {
   /** Create stubs for games the catalog does not have (default true). */
@@ -45,16 +46,71 @@ const lowerName = (name: string) => name.replace(/[™®©]/g, "").replace(/\s+/
 const yearOf = (unixSeconds: number | undefined) =>
   unixSeconds === undefined ? null : new Date(unixSeconds * 1000).getUTCFullYear();
 
-type Candidate = { id: string; name: string; igdbId: number | null; releaseDate: Date | null };
+type Candidate = {
+  id: string;
+  name: string;
+  igdbId: number | null;
+  releaseDate: Date | null;
+  /** Game.platforms (catalog families, or a platform sync's labels such as "PS5"). */
+  platforms: string[];
+  /** Networks the game has ids on (GamePlatformLink: steam | psn | xbox | retro). */
+  links: string[];
+};
+
+const LINK_FAMILY: Record<string, ReleasePlatform | undefined> = { steam: "PC", psn: "PLAYSTATION", xbox: "XBOX" };
+
+/** Family of a Game.platforms entry: a family key, or a label a platform sync wrote ("PS5", "Xbox One"). */
+export function familyOfLabel(label: string): ReleasePlatform | null {
+  const value = label.trim().toUpperCase();
+  if ((RELEASE_PLATFORMS as readonly string[]).includes(value)) return value as ReleasePlatform;
+  if (/^PS\d|PLAYSTATION|^PSP|VITA/.test(value)) return "PLAYSTATION";
+  if (/XBOX/.test(value)) return "XBOX";
+  if (/SWITCH|NINTENDO|WII|3DS|^DS|GAME ?BOY|GAMECUBE|N64|SNES|^NES|FAMICOM/.test(value)) return "NINTENDO";
+  if (/^PC$|WINDOWS|STEAM/.test(value)) return "PC";
+  return null;
+}
+
+/** Families a catalog game is known on (its platforms and its platform ids). */
+export function candidateFamilies(c: Pick<Candidate, "platforms" | "links">): Set<ReleasePlatform> {
+  const out = new Set<ReleasePlatform>();
+  for (const p of c.platforms) {
+    const family = familyOfLabel(p);
+    if (family) out.add(family);
+  }
+  for (const l of c.links) {
+    const family = LINK_FAMILY[l];
+    if (family) out.add(family);
+  }
+  return out;
+}
 
 async function candidatesByName(names: string[]): Promise<Map<string, Candidate[]>> {
   const out = new Map<string, Candidate[]>();
   if (names.length === 0) return out;
   const rows = await prisma.$queryRaw<(Candidate & { key: string })[]>`
-    SELECT id, name, "igdbId", "releaseDate", lower(name) AS key
-    FROM "Game" WHERE lower(name) = ANY(${names}::text[])`;
+    SELECT g.id, g.name, g."igdbId", g."releaseDate", g.platforms, lower(g.name) AS key,
+           COALESCE((SELECT array_agg(DISTINCT l.platform) FROM "GamePlatformLink" l WHERE l."gameId" = g.id), '{}') AS links
+    FROM "Game" g WHERE lower(g.name) = ANY(${names}::text[])`;
   for (const row of rows) out.set(row.key, [...(out.get(row.key) ?? []), row]);
   return out;
+}
+
+/**
+ * Whether a catalog game of the same name is this IGDB game: never one with another IGDB id;
+ * with both release years known, within one year; with either unknown (Steam stubs have none),
+ * only when they share a platform family (God of War on PS2 is not the Steam God of War).
+ */
+export function sameGame(
+  candidate: Candidate,
+  igdb: { igdbId: number; year: number | null; families: ReleasePlatform[] },
+): boolean {
+  if (candidate.igdbId !== null && candidate.igdbId !== igdb.igdbId) return false;
+  if (candidate.igdbId === igdb.igdbId) return true;
+  if (igdb.year !== null && candidate.releaseDate !== null) {
+    return Math.abs(candidate.releaseDate.getUTCFullYear() - igdb.year) <= 1;
+  }
+  const families = candidateFamilies(candidate);
+  return igdb.families.some((f) => families.has(f));
 }
 
 /** Writes IGDB id (if missing), platform families and first release (if missing) on matched games. */
@@ -124,10 +180,8 @@ export async function resolveIgdbGames(
   const unknown: IgdbCatalogGame[] = [];
   for (const g of pending) {
     const year = yearOf(g.firstReleaseDate);
-    const fits = (byName.get(lowerName(g.name)) ?? []).filter(
-      (c) =>
-        (c.igdbId === null || c.igdbId === g.igdbId) &&
-        (year === null || c.releaseDate === null || Math.abs(c.releaseDate.getUTCFullYear() - year) <= 1),
+    const fits = (byName.get(lowerName(g.name)) ?? []).filter((c) =>
+      sameGame(c, { igdbId: g.igdbId, year, families: families(g) }),
     );
     const sameYear = fits.filter((c) => c.releaseDate !== null && year !== null && c.releaseDate.getUTCFullYear() === year);
     const pick = fits.length === 1 ? fits[0] : sameYear.length === 1 ? sameYear[0] : null;

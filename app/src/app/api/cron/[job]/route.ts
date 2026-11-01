@@ -24,7 +24,7 @@ import { syncStaleUsers } from "@/lib/sync/user";
  *   probing gets what is left, at most 45 s);
  * - platforms: at most 5 PSN/Xbox/RA accounts and 50 s in all;
  * - steam-catalog: 50 s in all (app list ≤ 40%, one SteamSpy page, store details with the rest);
- * - releases: 50 s in all (4 Steam store pages, ≤ 6 IGDB pages of release dates);
+ * - releases: 50 s in all (4 Steam store pages, ≤ 12 IGDB pages of console release dates);
  * - igdb-catalog: 50 s in all (import pages ≤ 60%, details batches of 500 with the rest).
  * Work left over goes first in the next run. Schedules: CRON_SCHEDULES in @/lib/cron/schedules
  * (and the README).
