@@ -1,0 +1,47 @@
+# Scheduled jobs for the production site (the Vercel Hobby plan only runs daily crons).
+# Each schedule calls the app's cron route with the CRON_SECRET repository secret.
+# Times are UTC. GitHub may delay scheduled runs by a few minutes under load.
+name: cron
+
+on:
+  schedule:
+    - cron: "*/30 * * * *" # users
+    - cron: "20 * * * *"   # steam-catalog, news, platforms
+    - cron: "50 * * * *"   # igdb-catalog
+    - cron: "40 */6 * * *" # releases, media
+    - cron: "5 3 * * *"    # catalog, rarity, highscores, notifications
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: "Jobs to run now (space-separated)"
+        required: true
+        default: "users"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Call cron routes
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ vars.APP_URL || 'https://tralked.com' }}
+          SCHEDULE: ${{ github.event.schedule }}
+          MANUAL: ${{ github.event.inputs.jobs }}
+        run: |
+          case "$SCHEDULE" in
+            "*/30 * * * *") JOBS="users" ;;
+            "20 * * * *") JOBS="steam-catalog news platforms" ;;
+            "50 * * * *") JOBS="igdb-catalog" ;;
+            "40 */6 * * *") JOBS="releases media" ;;
+            "5 3 * * *") JOBS="catalog rarity highscores notifications" ;;
+            *) JOBS="$MANUAL" ;;
+          esac
+          status=0
+          for job in $JOBS; do
+            code=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 310 \
+              -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/$job")
+            echo "$job → $code $(head -c 300 /tmp/out.json)"
+            [ "$code" = "200" ] || status=1
+          done
+          exit $status
