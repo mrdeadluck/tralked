@@ -1,0 +1,284 @@
+import { Prisma } from "@/generated/prisma/client";
+import { prisma } from "@/lib/db";
+import { getIgdbCatalog } from "@/lib/integrations/igdb";
+import type { IgdbCatalogApi, IgdbReleaseDate } from "@/lib/integrations/igdb/catalog-types";
+import { steamFixturesAllowed } from "@/lib/integrations/steam";
+import { createPoliteFetch } from "@/lib/integrations/steam/polite-fetch";
+import { fetchReleaseList, type SteamReleaseItem, type SteamReleaseList } from "@/lib/integrations/steam/releases";
+import { fixtureReleaseList } from "@/lib/integrations/steam/releases-fixture";
+import {
+  IGDB_EXTRA_PLATFORMS,
+  IGDB_PLATFORM_FAMILY,
+  IGDB_PLATFORM_IDS,
+  type ReleasePlatform,
+} from "@/lib/releases/platforms";
+import { resolveIgdbGames } from "./igdb-games";
+import { ensureSteamGames } from "./steam-games";
+
+/**
+ * Cron job `releases` (Plano 4, F10), every 6 hours, 50 s in all:
+ * 1. Steam (PC, no key): the store's popular new releases and popular upcoming games, two pages
+ *    of 50 each (lib/integrations/steam/releases.ts). Unknown appids become catalog stubs
+ *    (ensureSteamGames) and the most popular ones without details go first in the details queue,
+ *    so the card soon has covers.
+ * 2. IGDB (needs IGDB_CLIENT_ID/SECRET; in production without them this part is off): release
+ *    dates on PC, PlayStation, Xbox and Nintendo from 30 days ago to 120 days ahead, matched to the
+ *    catalog without duplicates (lib/sync/igdb-games.ts).
+ * One GameRelease row per game and platform family; Steam's row wins for PC. Pages never call
+ * these sources: they read GameRelease.
+ */
+
+export const RELEASES_BUDGET_MS = 50_000;
+const DAY_MS = 86_400_000;
+const STEAM_PAGES = 2;
+const STEAM_PAGE_SIZE = 50;
+/** "Popular new" also lists old games with a recent update: those are not releases. */
+const STEAM_NEW_MAX_AGE_DAYS = 60;
+/** Release games without details asked first in the details queue, per run. */
+const DETAILS_REQUESTS = 40;
+const IGDB_PAST_DAYS = 30;
+const IGDB_AHEAD_DAYS = 120;
+const IGDB_PAGE = 500;
+const IGDB_MAX_PAGES = 6;
+
+export type ReleasesDeps = {
+  /** A page of a Steam list. */
+  steamList: (list: SteamReleaseList, start: number, count: number) => Promise<SteamReleaseItem[]>;
+  /** Null when IGDB is off (production without credentials). */
+  igdb: IgdbCatalogApi | null;
+  now: () => number;
+};
+
+function defaultDeps(): ReleasesDeps {
+  const offline = process.env.STEAM_MODE?.trim() === "fixture" && steamFixturesAllowed();
+  const politeFetch = offline ? null : createPoliteFetch({ hostIntervalsMs: { "store.steampowered.com": 1_500 } });
+  return {
+    steamList: async (list, start, count) =>
+      politeFetch ? fetchReleaseList(politeFetch, list, start, count) : start === 0 ? fixtureReleaseList(list) : [],
+    igdb: getIgdbCatalog(),
+    now: Date.now,
+  };
+}
+
+type ReleaseRow = {
+  gameId: string;
+  platform: ReleasePlatform;
+  date: Date | null;
+  dateLabel: string | null;
+  source: "steam" | "igdb";
+  score: number;
+  imageUrl: string | null;
+};
+
+/** Inserts or refreshes releases; an IGDB row never replaces a Steam one. */
+export async function upsertReleases(rows: ReleaseRow[], now: Date): Promise<number> {
+  let written = 0;
+  for (let i = 0; i < rows.length; i += 500) {
+    const values = Prisma.join(
+      rows.slice(i, i + 500).map(
+        (r) =>
+          Prisma.sql`(${r.gameId}, ${r.platform}, ${r.date}::timestamp, ${r.dateLabel}, ${r.source}, ${r.score}::int, ${r.imageUrl}, ${now}::timestamp, ${now}::timestamp)`,
+      ),
+    );
+    written += await prisma.$executeRaw`
+      INSERT INTO "GameRelease" ("gameId", platform, date, "dateLabel", source, score, "imageUrl", "seenAt", "updatedAt")
+      VALUES ${values}
+      ON CONFLICT ("gameId", platform) DO UPDATE SET
+        date = EXCLUDED.date,
+        "dateLabel" = EXCLUDED."dateLabel",
+        source = EXCLUDED.source,
+        score = EXCLUDED.score,
+        "imageUrl" = COALESCE(EXCLUDED."imageUrl", "GameRelease"."imageUrl"),
+        "seenAt" = EXCLUDED."seenAt",
+        "updatedAt" = EXCLUDED."updatedAt"
+      WHERE "GameRelease".source = EXCLUDED.source OR EXCLUDED.source = 'steam'`;
+  }
+  return written;
+}
+
+export type SteamReleasesResult = { items: number; written: number; failed: number };
+
+/** Step 1: Steam's popular new and upcoming lists (PC). */
+export async function syncSteamReleases(deps: ReleasesDeps, deadline: number): Promise<SteamReleasesResult> {
+  const now = new Date(deps.now());
+  const items = new Map<number, SteamReleaseItem & { score: number }>();
+  let failed = 0;
+  for (const list of ["popularnew", "popularcomingsoon"] as const) {
+    for (let page = 0; page < STEAM_PAGES && deps.now() < deadline; page++) {
+      let rows: SteamReleaseItem[];
+      try {
+        rows = await deps.steamList(list, page * STEAM_PAGE_SIZE, STEAM_PAGE_SIZE);
+      } catch (error) {
+        failed++;
+        console.error(`Releases: Steam list ${list} page ${page} failed`, error);
+        break;
+      }
+      for (const item of rows) {
+        if (list === "popularnew" && item.date && now.getTime() - item.date.getTime() > STEAM_NEW_MAX_AGE_DAYS * DAY_MS) continue;
+        // Upcoming games without a day only count while Steam still lists them as upcoming.
+        if (!items.has(item.appId)) items.set(item.appId, { ...item, score: Math.max(1, 1_000 - item.position) });
+      }
+      if (rows.length < STEAM_PAGE_SIZE) break;
+    }
+  }
+  if (items.size === 0) return { items: 0, written: 0, failed };
+
+  const ids = await ensureSteamGames([...items.values()].map((i) => ({ appId: i.appId, name: i.name })), { now });
+  const rows: ReleaseRow[] = [];
+  for (const item of items.values()) {
+    const gameId = ids.get(item.appId);
+    if (!gameId) continue;
+    rows.push({
+      gameId,
+      platform: "PC",
+      date: item.date ?? null,
+      dateLabel: item.date ? null : (item.dateLabel ?? null),
+      source: "steam",
+      score: item.score,
+      imageUrl: item.imageUrl ?? null,
+    });
+  }
+  const written = await upsertReleases(rows, now);
+
+  // The most popular release games still without store details go first in the details queue.
+  const top = [...items.values()].sort((a, b) => b.score - a.score).map((i) => ids.get(i.appId)).filter(Boolean) as string[];
+  const waiting = await prisma.game.findMany({
+    where: { id: { in: top }, detailsSyncedAt: null, detailsRequestedAt: null },
+    select: { id: true },
+  });
+  const waitingIds = new Set(waiting.map((w) => w.id));
+  const ask = top.filter((id) => waitingIds.has(id)).slice(0, DETAILS_REQUESTS);
+  if (ask.length > 0) {
+    await prisma.game.updateMany({ where: { id: { in: ask }, detailsRequestedAt: null }, data: { detailsRequestedAt: now } });
+  }
+  return { items: items.size, written, failed };
+}
+
+const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+/** pt-BR text of an IGDB date that is not a day ("novembro de 2026", "4º trimestre de 2026", "2027"). */
+export function igdbDateLabel(date: number | undefined, dateFormat: number): string | null {
+  if (date === undefined || dateFormat === 7) return null;
+  const d = new Date(date * 1000);
+  const year = d.getUTCFullYear();
+  if (dateFormat === 1) return `${MONTHS[d.getUTCMonth()]} de ${year}`;
+  if (dateFormat === 2) return String(year);
+  if (dateFormat >= 3 && dateFormat <= 6) return `${dateFormat - 2}º trimestre de ${year}`;
+  return null;
+}
+
+/** Day (UTC midnight) of an exact IGDB date. */
+const dayOf = (unixSeconds: number) => {
+  const d = new Date(unixSeconds * 1000);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+};
+
+export type IgdbReleasesResult = { status: "ok" | "disabled"; releases: number; written: number; created: number; failed: number };
+
+/** Step 2: IGDB release dates on every family, around today. */
+export async function syncIgdbReleases(deps: ReleasesDeps, deadline: number): Promise<IgdbReleasesResult> {
+  const igdb = deps.igdb;
+  if (!igdb) return { status: "disabled", releases: 0, written: 0, created: 0, failed: 0 };
+  const now = new Date(deps.now());
+  let failed = 0;
+
+  const extraFamilies: Record<number, ReleasePlatform> = {};
+  try {
+    const extraIds = await igdb.findPlatformIds(IGDB_EXTRA_PLATFORMS.map((p) => p.name));
+    // One name per family today, so every id found belongs to that family.
+    for (const id of extraIds) extraFamilies[id] = IGDB_EXTRA_PLATFORMS[0].family;
+  } catch (error) {
+    console.warn("Releases: IGDB platform lookup failed", error);
+  }
+  const familyOf = (platform: number) => IGDB_PLATFORM_FAMILY[platform] ?? extraFamilies[platform];
+
+  const today = Math.floor(deps.now() / DAY_MS) * DAY_MS;
+  const from = (today - IGDB_PAST_DAYS * DAY_MS) / 1000;
+  const to = (today + IGDB_AHEAD_DAYS * DAY_MS) / 1000;
+  const releases: IgdbReleaseDate[] = [];
+  for (let page = 0; page < IGDB_MAX_PAGES && deps.now() < deadline; page++) {
+    try {
+      const rows = await igdb.getReleaseDates({
+        platforms: [...IGDB_PLATFORM_IDS, ...Object.keys(extraFamilies).map(Number)],
+        from,
+        to,
+        offset: page * IGDB_PAGE,
+        limit: IGDB_PAGE,
+      });
+      releases.push(...rows);
+      if (rows.length < IGDB_PAGE) break;
+    } catch (error) {
+      failed++;
+      console.error(`Releases: IGDB release dates page ${page} failed`, error);
+      break;
+    }
+  }
+
+  // One release per game and family: the earliest exact day, else the earliest vague date.
+  const best = new Map<string, { igdbId: number; family: ReleasePlatform; date: Date | null; label: string | null; at: number; score: number }>();
+  for (const r of releases) {
+    const family = familyOf(r.platform);
+    if (!family || r.date === undefined || r.dateFormat === 7) continue;
+    const exact = r.dateFormat === 0;
+    const candidate = {
+      igdbId: r.game.igdbId,
+      family,
+      date: exact ? dayOf(r.date) : null,
+      label: exact ? null : igdbDateLabel(r.date, r.dateFormat),
+      at: r.date,
+      score: r.game.popularity,
+    };
+    const key = `${r.game.igdbId}:${family}`;
+    const current = best.get(key);
+    const better =
+      !current ||
+      (candidate.date && !current.date) ||
+      (Boolean(candidate.date) === Boolean(current.date) && candidate.at < current.at);
+    if (better) best.set(key, candidate);
+  }
+  if (best.size === 0) return { status: "ok", releases: 0, written: 0, created: 0, failed };
+
+  // Only games with a release kept above enter the catalog.
+  const kept = new Set([...best.values()].map((b) => b.igdbId));
+  const resolved = await resolveIgdbGames(
+    releases.map((r) => r.game).filter((g) => kept.has(g.igdbId)),
+    { extraFamilies },
+  );
+  const rows: ReleaseRow[] = [];
+  for (const b of best.values()) {
+    const gameId = resolved.ids.get(b.igdbId);
+    if (!gameId) continue;
+    rows.push({ gameId, platform: b.family, date: b.date, dateLabel: b.label, source: "igdb", score: b.score, imageUrl: null });
+  }
+  const written = await upsertReleases(rows, now);
+  return { status: "ok", releases: best.size, written, created: resolved.created, failed };
+}
+
+export type ReleasesJobResult = {
+  processed: number;
+  failed: number;
+  steam: SteamReleasesResult;
+  igdb: IgdbReleasesResult;
+};
+
+export async function runReleasesJob(
+  budgetMs = RELEASES_BUDGET_MS,
+  deps: ReleasesDeps = defaultDeps(),
+): Promise<ReleasesJobResult> {
+  const deadline = deps.now() + budgetMs;
+  let steam: SteamReleasesResult = { items: 0, written: 0, failed: 0 };
+  try {
+    steam = await syncSteamReleases(deps, deps.now() + budgetMs / 2);
+  } catch (error) {
+    steam.failed++;
+    console.error("Releases: Steam step failed", error);
+  }
+  let igdb: IgdbReleasesResult = { status: deps.igdb ? "ok" : "disabled", releases: 0, written: 0, created: 0, failed: 0 };
+  try {
+    igdb = await syncIgdbReleases(deps, deadline);
+  } catch (error) {
+    igdb.failed++;
+    console.error("Releases: IGDB step failed", error);
+  }
+  return { processed: steam.items + igdb.releases, failed: steam.failed + igdb.failed, steam, igdb };
+}

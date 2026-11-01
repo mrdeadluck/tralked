@@ -62,7 +62,7 @@ Copie `.env.example` para `.env`. Em desenvolvimento todas as obrigatórias têm
 | `CRON_SECRET` | obrigatória | Token Bearer exigido pelos endpoints de cron. |
 | `APP_URL` | obrigatória | URL pública do app (ex.: `https://tralked.exemplo.com`). Usada em redirects e nos links de definir senha. |
 | `STEAM_API_KEY` | opcional | Biblioteca, conquistas e raridade global pela Web API; ao conectar, também confere se os detalhes de jogos estão públicos. A conexão Steam (e o código da reivindicação no Resumo) lê o perfil público com ou sem chave. Também desativa o login de demonstração. |
-| `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | opcional | Metadados de jogos (IGDB / Twitch): capa, descrição, gêneros, datas. |
+| `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | opcional | Metadados de jogos (IGDB / Twitch): capa, descrição, gêneros, datas. Também ligam os lançamentos de consoles (cron `releases`) e o catálogo completo de consoles (cron `igdb-catalog`); sem elas, em produção essas duas partes ficam desligadas (a home e `/lancamentos` avisam) e os lançamentos do PC continuam vindo da Steam, sem chave. |
 | `RAWG_API_KEY` | opcional | Metadados complementares de jogos (RAWG). |
 | `SGDB_API_KEY` | opcional | Artes (capas, banners, ícones) via SteamGridDB. |
 | `PSN_NPSSO` | em produção, para a PSN | Cookie NPSSO da **conta de serviço** PlayStation do Tralked (não de usuários). Trocado no servidor por tokens de acesso/refresh, guardados só em memória. API não oficial: pode quebrar. Sem ele, em produção a PSN aparece como "Em breve". |
@@ -157,9 +157,14 @@ Um perfil importado não tem e-mail nem senha: quem reivindicar essa Steam (cód
 
 `--psn <onlineId>` cria um `LinkedAccount` PSN **pendente** (inativo: sem `linkedAt`, com `externalId` provisório `pending:<onlineId>`). A PSN não tem API pública: para ativar, crie uma conta PSN de serviço dedicada ao Tralked (nunca a de um usuário), entre nela em `https://www.playstation.com`, copie o `npsso` de `https://ca.account.sony.com/api/v1/ssocookie` e defina `PSN_NPSSO` no `.env` do servidor. Depois o dono informa o ID online no campo PlayStation de `/conta/conexoes` e salva, o que grava o `accountId` real. O Xbox também precisa de um provedor com credencial (`XBOX_OPENXBL_KEY`); até lá aparece como "Em breve" em produção.
 
+## Lançamentos e calendário
+
+- **Lançamentos** (Plano 4, F10): card "Lançamentos" na home (logo depois dos destaques, antes de "Últimas notícias"), com as abas **Últimos** (últimos 30 dias) e **Próximos** (próximos 90 dias, e os sem dia marcado que alguma fonte listou nas últimas 2 semanas, como "a definir" ou com o texto da fonte) e o filtro **PC** (padrão) / PlayStation / Xbox / Nintendo / Todas; cada aba mostra os 6 mais populares, em ordem de data, com capa (ou a cápsula da loja), data e plataformas, e leva à página do jogo. `/lancamentos` (`/lancamentos/<ultimos|proximos>/<pc|playstation|xbox|nintendo|todas>`, dez páginas estáticas, funcionam sem JavaScript) tem a lista inteira agrupada por dia. Os dados vêm só do banco (`GameRelease`), gravados pelo cron `releases`; sem as chaves do IGDB, em produção, os consoles mostram o aviso "falta configurar a integração com o IGDB". Offline (dev, testes, seed) as listas vêm de fixtures com datas em volta de hoje (`src/lib/integrations/steam/releases-fixture.ts`, `src/lib/integrations/igdb/catalog-fixture.ts`; os títulos de console da fixture são inventados).
+- **Calendário** (Plano 4, F8): `/calendario` (mês atual) e `/calendario/AAAA-MM` (1980–2040; fora disso, 404): grade do mês (tabela de links, domingo primeiro; setas mudam de dia, Home/End vão ao começo/fim da semana, Page Up/Page Down mudam de mês) e a **linha do tempo** do mês logo abaixo, dia a dia, onde cada dia da grade leva. Mostra matérias publicadas (no dia de Brasília), lançamentos (`GameRelease` e a data de lançamento dos jogos listados do catálogo, um por jogo e dia) e, para quem entrou, as próprias conquistas (uma linha por jogo e dia, com a mais rara; desbloqueios com fraude confirmada ficam de fora), marcos de horas (entradas `playtime` do ledger não anuladas, na data do pagamento) e missões concluídas. `?jogador=<handle>` mostra os de outro jogador se o perfil dele for público (perfil privado ou inexistente: só as datas públicas, com aviso). O mês público fica em cache e já vem no HTML (sem JavaScript, o mês e as setas de mês funcionam); a camada pessoal depende da sessão e chega por streaming no lugar dele.
+
 ## Cron
 
-Oito jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
+Dez jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame com `GET` e o header `Authorization: Bearer $CRON_SECRET`:
 
 | Endpoint | Faz |
 | --- | --- |
@@ -171,6 +176,8 @@ Oito jobs, cada um limitado a uma quantidade fixa de itens por execução. Chame
 | `/api/cron/news` | Lê os feeds RSS ativos e guarda título, link, fonte e data das notícias que citam um jogo do catálogo. |
 | `/api/cron/notifications` | Diário: apaga notificações com mais de 90 dias (o texto delas pode citar outras pessoas, inclusive quem excluiu a conta). |
 | `/api/cron/steam-catalog` | Catálogo completo da Steam, em 50 s por execução: (1) até 40% do tempo importando a lista de jogos da loja (`IStoreService/GetAppList`, 10 mil por página, exige `STEAM_API_KEY`) como entradas só com nome (`Game.stub`, fora das listagens, do sitemap e dos seletores), retomando pelo `last_appid` guardado em `SyncCursor`; terminada uma volta, as seguintes pedem só o que mudou (`if_modified_since`); (2) uma página do SteamSpy (os mil mais possuídos, girando pelas 10 primeiras) define `Game.popularity`; (3) no tempo que sobra, detalhes da loja em pt-BR (resumo, desenvolvedora, data, nota; nunca preço), tags (habilidades), conquistas com raridade e artes do CDN da Steam pelo appid (capa 600×900, hero e logo conferidos com `HEAD` antes de gravar; sem capa, SteamGridDB e depois IGDB), na ordem: jogos que alguém abriu, jogos que alguém tem ou deseja, os mais populares. Offline (`STEAM_MODE=fixture`) só a lista de apps da fixture é importada. |
+| `/api/cron/releases` | Lançamentos (Plano 4, F10), em 50 s: (1) **Steam, sem chave**: as listas "lançamentos populares" e "em breve populares" da loja (`store.steampowered.com/search/results/?filter=popularnew\|popularcomingsoon&category1=998&infinite=1`, o JSON por trás das páginas da loja; 2 páginas de 50 cada, por popularidade, com data em pt-BR, ou o texto da loja quando não é um dia, ex. "4º trimestre de 2026"); jogos desconhecidos viram entradas só com nome (`ensureSteamGames`) e os 40 mais populares ainda sem detalhes vão para o começo da fila de detalhes do `steam-catalog`; jogos com conteúdo sexual (descritores 3 e 4 da Steam) ficam de fora. A `api/featuredcategories` (new_releases/coming_soon) foi conferida em outubro de 2026 e não serve: os itens não têm data nem ordem de popularidade. (2) **IGDB** (com `IGDB_CLIENT_ID/SECRET`): `release_dates` de PC, PlayStation, Xbox e Nintendo de 30 dias atrás até 120 dias à frente (só jogos principais, remakes, remasters, ports e expansões independentes), até 6 páginas de 500. Uma linha `GameRelease` por jogo e família de plataforma (PC primeiro): o mesmo lançamento visto pela Steam e pelo IGDB aparece uma vez só, e a linha da Steam vale para o PC. Os jogos do IGDB casam com o catálogo pelo id do IGDB, pelo appid da Steam que o IGDB informa ou pelo nome (sem diferenciar maiúsculas nem ™/®, ano de lançamento compatível; nome ambíguo é pulado) e só os desconhecidos viram entradas novas (`src/lib/sync/igdb-games.ts`). Ao terminar, invalida o cache da home, de `/lancamentos` e do calendário. |
+| `/api/cron/igdb-catalog` | Catálogo completo de consoles (Plano 4, F10), com `IGDB_CLIENT_ID/SECRET`, em 50 s: (1) até 60% do tempo importando páginas de 500 jogos do IGDB de PlayStation (PS1–PS5, PSP, Vita), Xbox (todos), Nintendo (NES/Famicom até Switch e portáteis; o Switch 2 é procurado pelo nome) e PC, pelo id, retomando de `SyncCursor` `igdb-catalog`; terminada uma volta, as seguintes pedem só o que mudou (`updated_at`); cada jogo casa com o catálogo como acima e os desconhecidos entram como `stub` (nome, plataformas, id do IGDB, data, capa); (2) no resto, detalhes dos stubs do IGDB sem appid da Steam (resumo, capa, nota, gêneros → habilidades), 500 por requisição, primeiro os que alguém abriu, depois os que alguém tem, depois os mais novos; com os detalhes o jogo sai de `stub` e entra nas listagens. O IGDB aceita 4 requisições por segundo; o cliente enfileira e espaça. Sem as chaves, em produção não faz nada (`{ "status": "disabled" }`). |
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" https://seu-dominio/api/cron/catalog
@@ -195,7 +202,9 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
     { "path": "/api/cron/rarity", "schedule": "30 3 * * *" },
     { "path": "/api/cron/media", "schedule": "0 4 * * *" },
     { "path": "/api/cron/notifications", "schedule": "15 5 * * *" },
-    { "path": "/api/cron/steam-catalog", "schedule": "20 * * * *" }
+    { "path": "/api/cron/steam-catalog", "schedule": "20 * * * *" },
+    { "path": "/api/cron/releases", "schedule": "40 */6 * * *" },
+    { "path": "/api/cron/igdb-catalog", "schedule": "50 * * * *" }
   ]
 }
 ```
@@ -209,6 +218,8 @@ O repositório ainda não tem `vercel.json` (a configuração de deploy fica par
 | `catalog`, `rarity`, `media` | 1x por dia, de madrugada (horário de Brasília) | dados que mudam devagar |
 | `notifications` | 1x por dia | apaga notificações com mais de 90 dias |
 | `steam-catalog` | de hora em hora | catálogo completo da Steam: lista de apps (incremental), popularidade e detalhes dos jogos mais procurados, um pouco por vez |
+| `releases` | a cada 6 h | listas de lançamentos da Steam e datas do IGDB mudam ao longo do dia |
+| `igdb-catalog` | de hora em hora | catálogo de consoles do IGDB, 500 jogos por requisição, um pouco por vez (sem as chaves do IGDB, não faz nada) |
 
 A lista é a mesma de `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`; um teste falha se as duas divergirem ou se algum job ficar sem horário.
 

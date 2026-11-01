@@ -34,6 +34,9 @@ import { recomputeUser } from "../src/lib/progression/recompute";
 import { hashPassword } from "../src/lib/auth/password";
 import { recountAllArticleComments } from "../src/lib/community/comments";
 import { skillsFromLedger } from "../src/lib/progression/skills-from-ledger";
+import { createIgdbCatalogFixture } from "../src/lib/integrations/igdb/catalog-fixture";
+import { fixtureReleaseList } from "../src/lib/integrations/steam/releases-fixture";
+import { runReleasesJob } from "../src/lib/sync/releases";
 import { markdownToBlocks } from "./seed-data/blocks";
 import {
   COMMENTS,
@@ -885,6 +888,14 @@ export async function runSeed() {
 
   // Article.comments follows the visible comments (the preview's numbers were decoration).
   await recountAllArticleComments(prisma);
+
+  // Releases (home card, /lancamentos, calendar) through the real job, on the offline lists:
+  // Steam's recorded popular lists and IGDB's fixture, dated around today.
+  await runReleasesJob(60_000, {
+    steamList: async (list, start) => (start === 0 ? fixtureReleaseList(list) : []),
+    igdb: createIgdbCatalogFixture(),
+    now: Date.now,
+  });
 
   const [games, articles, users] = await Promise.all([
     prisma.game.count(),

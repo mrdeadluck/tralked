@@ -26,6 +26,8 @@ import {
   NEWS_TAG,
   type ArticleCard,
 } from "@/lib/queries/news";
+import { getReleasesCard, RELEASES_TAG } from "@/lib/queries/releases";
+import { ReleasesCard } from "@/components/releases/ReleasesCard";
 import { timeAgo } from "@/lib/time-ago";
 
 /** "Em circulação": latest articles and external headlines, cached. */
@@ -92,6 +94,21 @@ async function LatestSection() {
   );
 }
 
+/** "Lançamentos" (Plano 4, F10): latest and upcoming releases, PC first, cached. */
+async function ReleasesSection() {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(RELEASES_TAG);
+
+  const data = await getReleasesCard(new Date());
+  return (
+    <section key="releases" aria-label="Lançamentos" className="flex flex-col gap-4">
+      <SectionHead title="Lançamentos" aside={<Link href="/lancamentos">Ver todos →</Link>} />
+      <ReleasesCard data={data} />
+    </section>
+  );
+}
+
 async function RankingSection() {
   "use cache";
   cacheLife("minutes");
@@ -119,6 +136,7 @@ export default function Home() {
   return (
     <div className="flex flex-col gap-12">
       <HighlightsSection />
+      <ReleasesSection />
       <div className="flex flex-wrap items-start gap-12">
         <LatestSection />
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">

@@ -71,4 +71,11 @@ export const ROUTES: E2ERoute[] = [
   { path: "/newsletter/confirmar?email=x%40exemplo.com&token=nope", name: "newsletter-confirmar" },
   { path: "/confirmar-email?token=nope", name: "confirmar-email-invalido" },
   { path: "/confirmar-email?resultado=confirmed", name: "confirmar-email-resultado" },
+  // Plano 4: releases (F10) and calendar (F8).
+  { path: "/lancamentos", name: "lancamentos" },
+  { path: "/lancamentos/proximos/todas", name: "lancamentos-proximos" },
+  { path: "/calendario", name: "calendario" },
+  { path: "/calendario/2026-01", name: "calendario-mes" },
+  { path: "/calendario?jogador=lucas", name: "calendario-jogador" },
+  { path: "/calendario", name: "calendario-logado", auth: true },
 ];

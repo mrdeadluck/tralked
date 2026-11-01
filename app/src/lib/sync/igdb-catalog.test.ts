@@ -1,0 +1,169 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { env } from "@/lib/env";
+import type { IgdbGame } from "@/lib/integrations";
+import type { IgdbCatalogApi, IgdbCatalogGame, IgdbCatalogQuery } from "@/lib/integrations/igdb/catalog-types";
+
+async function databaseReachable(): Promise<boolean> {
+  const { Client } = await import("pg");
+  const client = new Client({ connectionString: env.DATABASE_URL, connectionTimeoutMillis: 1500 });
+  try {
+    await client.connect();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+const reachable = await databaseReachable();
+
+const IGDB = 96_600_000;
+const APP = 96_600_000;
+const sec = (y: number) => Date.UTC(y, 5, 1) / 1000;
+
+const g = (id: number, name: string, platforms: number[], extra: Partial<IgdbCatalogGame> = {}): IgdbCatalogGame => ({
+  igdbId: IGDB + id,
+  name,
+  platforms,
+  steamAppIds: [],
+  popularity: 0,
+  ...extra,
+});
+
+function fakeIgdb(games: IgdbCatalogGame[], details: Record<number, Partial<IgdbGame>> = {}) {
+  const calls: IgdbCatalogQuery[] = [];
+  const api: IgdbCatalogApi = {
+    getReleaseDates: async () => [],
+    async listGames(query) {
+      calls.push(query);
+      if (query.updatedSince !== undefined) return [];
+      return games.filter((x) => x.igdbId > query.afterId).sort((a, b) => a.igdbId - b.igdbId).slice(0, query.limit);
+    },
+    async getGames(ids) {
+      return ids.flatMap((id) => {
+        const base = games.find((x) => x.igdbId === id);
+        const extra = details[id];
+        if (!base || !extra) return [];
+        return [{ igdbId: id, name: base.name, genres: [], themes: [], gameModes: [], perspectives: [], keywords: [], ...extra }];
+      });
+    },
+    findPlatformIds: async () => [],
+  };
+  return { api, calls };
+}
+
+describe.skipIf(!reachable)("IGDB console catalog", () => {
+  async function cleanup() {
+    const { prisma } = await import("@/lib/db");
+    await prisma.game.deleteMany({
+      where: { OR: [{ igdbId: { gte: IGDB, lt: IGDB + 1000 } }, { steamAppId: { gte: APP, lt: APP + 1000 } }, { slug: { startsWith: "igdbt-" } }] },
+    });
+    await prisma.syncCursor.deleteMany({ where: { key: "igdb-catalog" } });
+  }
+  beforeAll(cleanup);
+  afterAll(cleanup);
+
+  it("imports pages as stubs, resumes from the cursor and matches existing games without duplicates", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { importIgdbCatalog } = await import("./igdb-catalog");
+    // Already in the catalog: a Steam game (matched by appid), a listed game by name, two namesakes.
+    const steamGame = await prisma.game.create({
+      data: { slug: "igdbt-steam", name: "Igdbt Vapor Game", steamAppId: APP + 1, platforms: ["PC"], achievementCount: 3 },
+    });
+    const byName = await prisma.game.create({
+      data: { slug: "igdbt-nome", name: "Igdbt Mesmo Nome", platforms: ["PC"], achievementCount: 0, releaseDate: new Date(Date.UTC(2004, 0, 1)) },
+    });
+    await prisma.game.createMany({
+      data: [
+        { slug: "igdbt-ambiguo-1", name: "Igdbt Ambíguo", platforms: ["PC"], achievementCount: 0 },
+        { slug: "igdbt-ambiguo-2", name: "Igdbt Ambíguo", platforms: ["PC"], achievementCount: 0 },
+        { slug: "igdbt-remake", name: "Igdbt Clássico", platforms: ["PC"], achievementCount: 0, releaseDate: new Date(Date.UTC(2020, 0, 1)) },
+      ],
+    });
+    const games = [
+      g(1, "Igdbt Vapor Game (console)", [6, 48], { steamAppIds: [APP + 1] }),
+      // Case and trademark signs do not matter.
+      g(2, "igdbt mesmo nome™", [8], { firstReleaseDate: sec(2004) }),
+      g(3, "Igdbt Ambíguo", [7]),
+      // Same name as a 2020 game, but from 1998: a different game.
+      g(4, "Igdbt Clássico", [7], { firstReleaseDate: sec(1998) }),
+      g(5, "Igdbt Só no Console", [130, 4], { firstReleaseDate: sec(2017), coverImageId: "co5abc" }),
+      // A Steam appid the catalog does not have yet: becomes a Steam stub (found later by the app list).
+      g(6, "Igdbt Novo na Steam", [6], { steamAppIds: [APP + 6] }),
+    ];
+    const { api, calls } = fakeIgdb(games);
+    // Each clock read advances it: with a deadline of 2 a run has time for exactly one page.
+    const ticking = () => {
+      let t = 0;
+      return () => t++;
+    };
+    const first = await importIgdbCatalog(api, 2, ticking(), 4);
+    expect(first).toMatchObject({ pages: 1, games: 4, passDone: false });
+    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: "igdb-catalog" } })).value).toMatchObject({ lastId: IGDB + 4, since: null });
+    const second = await importIgdbCatalog(api, 2, ticking(), 4);
+    expect(second).toMatchObject({ pages: 1, games: 2, passDone: true });
+    expect(calls[1].afterId).toBe(IGDB + 4);
+    // A finished pass: the next one asks only for changes.
+    await importIgdbCatalog(api, 2, ticking(), 4);
+    expect(calls[2]).toMatchObject({ afterId: 0, updatedSince: expect.any(Number) });
+
+    const steam = await prisma.game.findUniqueOrThrow({ where: { id: steamGame.id } });
+    expect(steam).toMatchObject({ igdbId: IGDB + 1, name: "Igdbt Vapor Game" });
+    expect(steam.platforms).toEqual(["PC", "PLAYSTATION"]);
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: byName.id } })).igdbId).toBe(IGDB + 2);
+    expect(await prisma.game.count({ where: { igdbId: IGDB + 3 } })).toBe(0);
+    const remake = await prisma.game.findMany({ where: { igdbId: IGDB + 4 } });
+    expect(remake).toEqual([expect.objectContaining({ slug: "igdbt-classico", stub: true, platforms: ["PLAYSTATION"] })]);
+    const consoleOnly = await prisma.game.findFirstOrThrow({ where: { igdbId: IGDB + 5 } });
+    expect(consoleOnly).toMatchObject({
+      slug: "igdbt-so-no-console",
+      stub: true,
+      steamAppId: null,
+      platforms: ["NINTENDO"],
+      releaseDate: new Date(sec(2017) * 1000),
+      coverUrl: "https://images.igdb.com/igdb/image/upload/t_cover_big/co5abc.jpg",
+    });
+    const newSteam = await prisma.game.findUniqueOrThrow({ where: { steamAppId: APP + 6 } });
+    expect(newSteam).toMatchObject({ igdbId: IGDB + 6, stub: true });
+
+    // Running the whole list again creates nothing new.
+    await prisma.syncCursor.deleteMany({ where: { key: "igdb-catalog" } });
+    const before = await prisma.game.count();
+    const again = await importIgdbCatalog(api, 2, ticking(), 100);
+    expect(again.created).toBe(0);
+    expect(await prisma.game.count()).toBe(before);
+  });
+
+  it("fills IGDB stubs' details, opened ones first, and lists them", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncIgdbDetails } = await import("./igdb-catalog");
+    const consoleOnly = await prisma.game.findFirstOrThrow({ where: { igdbId: IGDB + 5 } });
+    const remake = await prisma.game.findFirstOrThrow({ where: { igdbId: IGDB + 4 } });
+    await prisma.game.update({ where: { id: remake.id }, data: { detailsRequestedAt: new Date(0) } });
+    const { api } = fakeIgdb(
+      [g(4, "Igdbt Clássico", [7]), g(5, "Igdbt Só no Console", [130])],
+      { [IGDB + 5]: { summary: "Um jogo de console.", genres: ["Platform"], aggregatedRating: 81.6, coverImageId: "coNEW" } },
+    );
+    const result = await syncIgdbDetails(api, new Date(), 1);
+    // Batch of one: the requested game goes first; IGDB no longer knows it, so it stays a stub.
+    expect(result).toEqual({ processed: 0, missing: 1 });
+    expect(await prisma.game.findUniqueOrThrow({ where: { id: remake.id } })).toMatchObject({ stub: true, detailsRequestedAt: null });
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: remake.id } })).detailsSyncedAt).not.toBeNull();
+
+    // Steam stubs are left to the Steam details job.
+    const next = await syncIgdbDetails(api, new Date(), 500);
+    expect(next.processed).toBeGreaterThanOrEqual(1);
+    const listed = await prisma.game.findUniqueOrThrow({ where: { id: consoleOnly.id }, include: { skills: true } });
+    expect(listed).toMatchObject({ stub: false, summary: "Um jogo de console.", criticScore: 82 });
+    // The import's cover stays (only blanks are filled).
+    expect(listed.coverUrl).toContain("co5abc");
+    expect(listed.skills.length).toBeGreaterThan(0);
+    expect((await prisma.game.findUniqueOrThrow({ where: { steamAppId: APP + 6 } })).detailsSyncedAt).toBeNull();
+  });
+
+  it("does nothing without IGDB (production without credentials)", async () => {
+    const { runIgdbCatalogJob } = await import("./igdb-catalog");
+    expect(await runIgdbCatalogJob(1_000, { igdb: null, now: Date.now })).toEqual({ processed: 0, failed: 0, status: "disabled" });
+  });
+});

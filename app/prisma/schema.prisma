@@ -208,7 +208,14 @@ model Game {
   forumThreads  ForumThread[]
   photos        Photo[]
   wishlistedBy  WishlistItem[]
+  releases      GameRelease[]
 
+  /// Calendar (/calendario): catalog releases of a month.
+  @@index([releaseDate])
+  /// IGDB matching (releases and the console catalog import, lib/sync/igdb-games.ts). That
+  /// matching also uses the expression index "Game_name_lower_idx" on lower(name) (migration
+  /// 20261102090000_releases_calendar), which Prisma cannot declare.
+  @@index([igdbId])
   // The details job's queue has a partial index written in SQL (migration
   // 20261101130000_full_sync_playtime): ("lastSyncAttemptAt", popularity DESC) WHERE
   // "detailsSyncedAt" IS NULL AND "steamAppId" IS NOT NULL. Prisma cannot declare it here.
@@ -326,6 +333,35 @@ model WishlistItem {
 
   @@id([userId, gameId, platform])
   @@index([gameId])
+}
+
+/// A game's release on one platform family (Plano 4, F10): the home "Lançamentos" card,
+/// /lancamentos and the calendar. Written by the `releases` cron (lib/sync/releases.ts) from the
+/// Steam store's popular new / upcoming lists (PC) and IGDB release dates (consoles and PC). One row
+/// per game and family, so a release both sources list is shown once; Steam wins for PC.
+model GameRelease {
+  gameId    String
+  /// PC | PLAYSTATION | XBOX | NINTENDO
+  platform  String
+  /// Release day (UTC midnight of the source's calendar date); null while not set to a day.
+  date      DateTime?
+  /// The source's own text when the date is not a day ("4º trimestre de 2026", "Q1 2027").
+  dateLabel String?
+  /// steam | igdb
+  source    String
+  /// Popularity in the source (Steam list position, IGDB hypes + ratings); higher first.
+  score     Int       @default(0)
+  /// Wide store capsule (Steam CDN), shown until the game has a cover.
+  imageUrl  String?
+  /// Last time a source listed it: undated releases not seen for two weeks leave "Próximos".
+  seenAt    DateTime
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  game      Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@id([gameId, platform])
+  @@index([date])
+  @@index([platform, date])
 }
 
 /// Resumable position of a long-running import (e.g. `steam-applist`: the Steam app list cursor).

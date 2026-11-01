@@ -1,5 +1,6 @@
 import { timeoutSignal } from "../http";
 import { normalizeTitle } from "../title-match";
+import type { IgdbCatalogApi, IgdbCatalogGame, IgdbReleaseDate } from "./catalog-types";
 import type { IgdbApi, IgdbGame, IgdbMedia } from "./types";
 
 const API_BASE = "https://api.igdb.com/v4";
@@ -89,7 +90,7 @@ export function createIgdbClient({
   fetch: fetchImpl = globalThis.fetch,
   now = Date.now,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-}: IgdbClientConfig): IgdbApi {
+}: IgdbClientConfig): IgdbApi & IgdbCatalogApi {
   let token: { value: string; expiresAt: number } | null = null;
   let lastStart = Number.NEGATIVE_INFINITY;
   // Serializes calls so concurrent callers still respect the rate limit.
@@ -148,15 +149,7 @@ export function createIgdbClient({
     return result;
   }
 
-  async function loadGame(igdbId: number): Promise<IgdbGame | null> {
-    const [game] = await query<GameRecord>("games", `fields ${GAME_FIELDS}; where id = ${igdbId};`);
-    if (!game) return null;
-
-    const [ttb] = await query<{ completely?: number }>(
-      "game_time_to_beats",
-      `fields completely; where game_id = ${game.id};`,
-    );
-
+  function toGame(game: GameRecord, ttb?: { completely?: number }): IgdbGame {
     return {
       igdbId: game.id,
       name: game.name,
@@ -175,6 +168,19 @@ export function createIgdbClient({
       timeToBeatCompleteSec: ttb?.completely,
     };
   }
+
+  async function loadGame(igdbId: number): Promise<IgdbGame | null> {
+    const [game] = await query<GameRecord>("games", `fields ${GAME_FIELDS}; where id = ${igdbId};`);
+    if (!game) return null;
+
+    const [ttb] = await query<{ completely?: number }>(
+      "game_time_to_beats",
+      `fields completely; where game_id = ${game.id};`,
+    );
+    return toGame(game, ttb);
+  }
+
+  const ids = (values: number[]) => values.filter((v) => Number.isInteger(v) && v > 0).join(",");
 
   return {
     async findBySteamAppId(appId): Promise<IgdbGame | null> {
@@ -217,5 +223,122 @@ export function createIgdbClient({
         artworks: images(game?.artworks),
       };
     },
+
+    async getReleaseDates({ platforms, from, to, offset, limit }): Promise<IgdbReleaseDate[]> {
+      const gameFields = CATALOG_GAME_FIELDS.split(",").map((f) => `game.${f}`).join(",");
+      const rows = await query<ReleaseRecord>(
+        "release_dates",
+        `fields date,date_format,category,human,platform,${gameFields}; ` +
+          `where platform = (${ids(platforms)}) & date >= ${Math.floor(from)} & date < ${Math.floor(to)} ` +
+          `& game.game_type = (${GAME_TYPES}); sort date asc; limit ${clampLimit(limit)}; offset ${Math.max(0, Math.floor(offset))};`,
+      );
+      return rows.flatMap((row) => {
+        const game = row.game && typeof row.game === "object" ? toCatalogGame(row.game) : null;
+        if (!game || typeof row.platform !== "number") return [];
+        return [
+          {
+            id: row.id,
+            platform: row.platform,
+            date: row.date,
+            dateFormat: row.date_format ?? row.category ?? 0,
+            human: row.human,
+            game,
+          },
+        ];
+      });
+    },
+
+    async listGames({ platforms, afterId, updatedSince, limit }): Promise<IgdbCatalogGame[]> {
+      const since = updatedSince !== undefined ? ` & updated_at > ${Math.floor(updatedSince)}` : "";
+      const rows = await query<CatalogGameRecord>(
+        "games",
+        `fields ${CATALOG_GAME_FIELDS}; where platforms = (${ids(platforms)}) & game_type = (${GAME_TYPES}) ` +
+          `& id > ${Math.max(0, Math.floor(afterId))}${since}; sort id asc; limit ${clampLimit(limit)};`,
+      );
+      return rows.flatMap((row) => {
+        const game = toCatalogGame(row);
+        return game ? [game] : [];
+      });
+    },
+
+    async getGames(gameIds): Promise<IgdbGame[]> {
+      const list = ids(gameIds.slice(0, MAX_LIMIT));
+      if (!list) return [];
+      const rows = await query<GameRecord>("games", `fields ${GAME_FIELDS}; where id = (${list}); limit ${MAX_LIMIT};`);
+      return rows.filter((r) => typeof r.id === "number" && r.name).map((r) => toGame(r));
+    },
+
+    async findPlatformIds(platformNames): Promise<number[]> {
+      const list = platformNames.map((n) => `"${n.replace(/["\\]/g, "")}"`).join(",");
+      if (!list) return [];
+      const rows = await query<{ id: number }>("platforms", `fields id; where name = (${list}); limit 50;`);
+      return rows.map((r) => r.id).filter((id) => Number.isInteger(id));
+    },
+  };
+}
+
+/** Largest page IGDB serves. */
+const MAX_LIMIT = 500;
+const clampLimit = (limit: number) => Math.min(MAX_LIMIT, Math.max(1, Math.floor(limit)));
+
+/**
+ * IGDB game types kept in the catalog: main game (0), standalone expansion (4), remake (8),
+ * remaster (9), expanded game (10) and port (11). DLCs, bundles, mods, episodes and updates stay out.
+ */
+export const IGDB_CATALOG_GAME_TYPES = [0, 4, 8, 9, 10, 11] as const;
+const GAME_TYPES = IGDB_CATALOG_GAME_TYPES.join(",");
+
+const CATALOG_GAME_FIELDS = [
+  "name",
+  "platforms",
+  "first_release_date",
+  "cover.image_id",
+  "hypes",
+  "total_rating_count",
+  "external_games.uid",
+  "external_games.external_game_source",
+  "external_games.category",
+].join(",");
+
+type CatalogGameRecord = {
+  id: number;
+  name?: string;
+  platforms?: number[];
+  first_release_date?: number;
+  cover?: { image_id?: string };
+  hypes?: number;
+  total_rating_count?: number;
+  external_games?: { uid?: string; external_game_source?: number; category?: number }[];
+};
+
+type ReleaseRecord = {
+  id: number;
+  date?: number;
+  date_format?: number;
+  /** Deprecated twin of `date_format`, read when the new field is missing. */
+  category?: number;
+  human?: string;
+  platform?: number;
+  game?: CatalogGameRecord | number;
+};
+
+/** IGDB's id for Steam among external game sources. */
+const STEAM_EXTERNAL_SOURCE = 1;
+
+export function toCatalogGame(row: CatalogGameRecord): IgdbCatalogGame | null {
+  const name = row.name?.trim();
+  if (!Number.isInteger(row.id) || !name) return null;
+  const steamAppIds = (row.external_games ?? [])
+    .filter((e) => (e.external_game_source ?? e.category) === STEAM_EXTERNAL_SOURCE)
+    .map((e) => Number(e.uid))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  return {
+    igdbId: row.id,
+    name,
+    platforms: (row.platforms ?? []).filter((p) => Number.isInteger(p)),
+    firstReleaseDate: row.first_release_date,
+    steamAppIds: [...new Set(steamAppIds)],
+    coverImageId: row.cover?.image_id,
+    popularity: Math.max(0, Math.round((row.hypes ?? 0) + (row.total_rating_count ?? 0))),
   };
 }
