@@ -73,6 +73,8 @@ export const MAX_UPDATES_PER_DAY = 3;
 export const PUBLISH_LOCK_FILE = "publica.lock";
 /** Meta key holding the last local slot (`YYYY-MM-DD HH`) in which `publica` published. */
 const LAST_SLOT_KEY = "publica.lastSlot";
+/** News older than this when published is dated when it broke (see publishStory). */
+const OLD_STORY_MS = 12 * 3_600_000;
 const FETCH_CONCURRENCY = 6;
 const FEED_KEY_PREFIX = "feed-";
 /** Pautas Tralked: at most 2 a day (inside `MAX_PER_DAY`), in a slot whose best queued news scores below 60. */
@@ -475,6 +477,10 @@ async function publishOne(story: StoryRow, deps: PipelineDeps): Promise<PublishO
         return { kind: "rejected" };
       }
       payload = assemble(result.draft, writing, assembleOpts(story, writing, deps));
+      // A story that broke more than OLD_STORY_MS ago is dated when it broke, not today: the queue also
+      // holds older news, and a batch of them must not look like it all happened at once.
+      const brokeAt = storyStartedAt(story, db, now);
+      if (now.getTime() - brokeAt.getTime() > OLD_STORY_MS) payload = { ...payload, publishedAt: brokeAt.toISOString() };
       db.saveArticle(
         { storyId: story.id, payloadJson: JSON.stringify(payload), status: "ready", parentArticleId: story.parent_article_id },
         now,
