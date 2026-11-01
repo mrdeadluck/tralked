@@ -37,6 +37,8 @@ export function companiesIn(text: string): string[][] {
 
 /** How many of the company's most popular games take turns as art (so 3 EA stories differ). */
 const GALLERY_SIZE = 10;
+/** How many of its games are checked for a name the article mentions. */
+const MENTION_POOL = 60;
 
 /** Stable small hash of a string (FNV-1a), to pick the same image for the same article every time. */
 export function pickIndex(seed: string, size: number): number {
@@ -45,8 +47,31 @@ export function pickIndex(seed: string, size: number): number {
   return size > 0 ? (h >>> 0) % size : 0;
 }
 
-/** Wide art of the most popular games of one company (publisher or developer), most popular first. */
-async function companyGallery(names: string[]): Promise<string[]> {
+const fold = (text: string) =>
+  ` ${text
+    .normalize("NFD")
+    .replace(/[̀-ͯ™®©]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()} `;
+
+/**
+ * The franchise part of a game name, as an article would write it: "STAR WARS™ Battlefront™ II" →
+ * "star wars battlefront", "Mass Effect™ Legendary Edition" → "mass effect" (pure; tested).
+ */
+export function franchiseOf(name: string): string {
+  const base = fold(name.split(/[:–—]| - /)[0])
+    .replace(/ (legendary|deluxe|ultimate|complete|definitive|remastered|gold|standard) edition /g, " ")
+    .replace(/ (edition|remastered|remake|hd|goty) /g, " ")
+    .replace(/ ([0-9]+|i|ii|iii|iv|v|vi|vii|viii|ix|x) $/g, " ")
+    .trim();
+  return base.length >= 4 ? base : "";
+}
+
+type CompanyGames = { name: string; url: string }[];
+
+/** The company's most popular games with wide art (publisher or developer), most popular first. */
+async function companyGames(names: string[]): Promise<CompanyGames> {
   const games = await prisma.game.findMany({
     where: {
       stub: false,
@@ -61,10 +86,26 @@ async function companyGallery(names: string[]): Promise<string[]> {
       ],
     },
     orderBy: { popularity: "desc" },
-    take: GALLERY_SIZE,
-    select: { heroUrl: true, coverUrl: true },
+    take: MENTION_POOL,
+    select: { name: true, heroUrl: true, coverUrl: true },
   });
-  return [...new Set(games.map((g) => g.heroUrl ?? g.coverUrl).filter((url): url is string => Boolean(url)))];
+  const seen = new Set<string>();
+  return games.flatMap((g) => {
+    const url = g.heroUrl ?? g.coverUrl;
+    if (!url || seen.has(url)) return [];
+    seen.add(url);
+    return [{ name: g.name, url }];
+  });
+}
+
+/** The images to take turns among: games the text mentions, else the company's top games. */
+export function galleryFor(games: CompanyGames, text: string): string[] {
+  const folded = fold(text);
+  const mentioned = games.filter((g) => {
+    const franchise = franchiseOf(g.name);
+    return franchise !== "" && folded.includes(` ${franchise} `);
+  });
+  return (mentioned.length > 0 ? mentioned : games.slice(0, GALLERY_SIZE)).map((g) => g.url);
 }
 
 /**
@@ -73,7 +114,7 @@ async function companyGallery(names: string[]): Promise<string[]> {
  */
 export async function companyArt(text: string, seed: string): Promise<string | null> {
   for (const names of companiesIn(text)) {
-    const gallery = await companyGallery(names);
+    const gallery = galleryFor(await companyGames(names), text);
     if (gallery.length > 0) return gallery[pickIndex(seed, gallery.length)];
   }
   return null;
@@ -87,18 +128,19 @@ export async function companyArt(text: string, seed: string): Promise<string | n
 export async function withCompanyArt<
   T extends { slug: string; title: string; excerpt: string | null; imageUrl: string | null },
 >(cards: T[]): Promise<T[]> {
-  const galleries = new Map<string, Promise<string[]>>();
+  const pools = new Map<string, Promise<CompanyGames>>();
   const used = new Set(cards.map((c) => c.imageUrl).filter(Boolean));
   const out: T[] = [];
   for (const card of cards) {
-    const names = card.imageUrl ? undefined : companiesIn(`${card.title} ${card.excerpt ?? ""}`)[0];
+    const text = `${card.title} ${card.excerpt ?? ""}`;
+    const names = card.imageUrl ? undefined : companiesIn(text)[0];
     if (!names) {
       out.push(card);
       continue;
     }
     const key = names.join("|");
-    if (!galleries.has(key)) galleries.set(key, companyGallery(names));
-    const gallery = await galleries.get(key)!;
+    if (!pools.has(key)) pools.set(key, companyGames(names));
+    const gallery = galleryFor(await pools.get(key)!, text);
     if (gallery.length === 0) {
       out.push(card);
       continue;
