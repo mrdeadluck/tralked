@@ -84,8 +84,9 @@ test.describe("/calendario", () => {
     const table = page.getByRole("table");
     await expect(table).toBeVisible();
     await expect(page.getByRole("heading", { name: "Linha do tempo" })).toBeVisible();
-    // Today's cell is marked; the timeline has the seeded releases of the month.
-    await expect(page.locator('a[aria-current="date"]')).toHaveCount(1);
+    // Today's cell is marked; the timeline has the seeded releases of the month. (The streamed
+    // version for this visitor is also in the HTML, hidden until a script swaps it in.)
+    await expect(page.locator('a[aria-current="date"]:visible')).toHaveCount(1);
     await expect(page.locator("main")).toContainText("Lançamento");
     await page.getByRole("navigation", { name: "Meses" }).getByRole("link", { name: /próximo mês/ }).click();
     await expect(page).toHaveURL(/\/calendario\/\d{4}-\d{2}$/);

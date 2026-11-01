@@ -265,6 +265,8 @@ describe.skipIf(!reachable)("family service", () => {
       await svc.acceptInvite((await svc.createInvite(family.id, owner.id)).token, guest.id);
 
       const [shared, onlyOwner, onlyGuest] = await db.game.findMany({
+        // Games with achievements (the seed also has name-only stubs, e.g. from releases).
+        where: { achievementCount: { gt: 0 } },
         orderBy: { slug: "asc" },
         take: 3,
       });
