@@ -311,9 +311,10 @@ prisma/               schema, migrations e seed
 src/app/              rotas (App Router)
   /                   home com notícias, ranking e missão diária
   jogos/[slug]        página do jogo e /guia (guia 100% com votos)
-  jogador/[handle]    perfil público; /jogador/me redireciona para o seu
+  jogador/[handle]    perfil público (ficha); /jogos, /conquistas, /estatisticas e /desejos (lista de desejos)
+                      são as seções; /jogador/me redireciona para o seu
   highscores          ranking por habilidade (?skill=...)
-  familia             modo família e convites
+  familia             modo família e convites; biblioteca da família paginada, com busca e filtros
   noticias/[slug]     artigos
   desenvolvedores     documentação da API para robôs (também em ../docs/robos.md)
   admin               painel da redação (editor/admin): notícias e guias em blocos, fila de revisão,
@@ -349,5 +350,6 @@ src/proxy.ts          /admin responde 404 de verdade a quem não é da redação
 - As suítes de teste que usam o banco (`pnpm test`) também precisam do Postgres no ar e das migrations aplicadas.
 - Admin: entre como `lucas` (`/entrar` com as credenciais de desenvolvimento do seed, ou `/api/auth/demo`; o seed dá papel admin) e abra `/admin`. Papéis: `editor` cuida de notícias, guias, revisão e moderação; `admin` também de fraude, jogos, robôs, feeds e usuários. Ninguém muda o próprio papel.
 - O projeto usa Next.js 16 com Cache Components; veja `AGENTS.md` antes de alterar convenções do framework.
+- Listas paginadas (`/jogos`, `/familia`, seções do perfil): estado na URL (`?pagina=&por=10|20|40|80&q=…`), com `components/ui/Pagination.tsx` e `components/ui/ListSearch.tsx`. A busca por nome ignora acentos, maiúsculas e pontuação: `Game.searchName` é escrito por um gatilho do banco (`tralked_search_name`, extensões `unaccent` e `pg_trgm`, migration `20261102100000_game_name_search`) e tem índice trigram; em `/jogos` a busca também acha os jogos do catálogo completo ainda sem detalhes.
 - Emulador web (SNES/PS1 no navegador): planejado (`../docs/superpowers/specs/2026-10-31-emulador-web-plano-lucas.pdf`), ainda não implementado. Nenhuma rota `/jogar` existe nesta versão.
 - E-mail: pela Resend com `RESEND_API_KEY` (veja "E-mail transacional (Resend)"). Sem a chave, em desenvolvimento os e-mails saem no console do servidor; em produção nada é enviado e as telas avisam (esqueci a senha, newsletter, confirmação em `/conta`). `pnpm user:invite` continua imprimindo o link no terminal.
