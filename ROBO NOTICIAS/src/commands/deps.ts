@@ -6,7 +6,21 @@ import { openDb } from "../db.js";
 import type { PipelineDeps } from "../pipeline.js";
 import { createTralked } from "../tralked.js";
 
-/** The real dependencies of the live commands: .env config, fontes.json, SQLite, Anthropic and the site API. */
+/** The dependencies of the operations commands (`resumo`, `despublicar`): no Anthropic client. */
+export function opsDeps() {
+  const config = loadConfig();
+  return {
+    config,
+    db: openDb(config.DATA_DIR),
+    tralked: createTralked({ baseUrl: config.TRALKED_API_URL, key: config.TRALKED_API_KEY }),
+    sources: loadSources(),
+    fetchFn: ((input: string, init?: RequestInit) => fetch(input, init)) as (input: string, init?: RequestInit) => Promise<Response>,
+    now: () => new Date(),
+    log: (line: string) => console.log(line),
+  };
+}
+
+/** The real dependencies of the live commands:.env config, fontes.json, SQLite, Anthropic and the site API. */
 export function realDeps(): PipelineDeps {
   const config = loadConfig();
   const db = openDb(config.DATA_DIR);

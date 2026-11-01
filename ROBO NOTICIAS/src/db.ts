@@ -231,6 +231,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface Db {
   raw: DatabaseSync;
+  /** The data directory this database lives in (":memory:" for an in-memory one); logs go under it. */
+  dir: string;
   close(): void;
 
   /** Returns false when the normalized URL (or a provided content hash) is already stored. */
@@ -297,6 +299,7 @@ export function openDb(dir: string): Db {
 
   return {
     raw,
+    dir,
     close: () => raw.close(),
 
     insertItemIfNew(item, now = new Date()) {

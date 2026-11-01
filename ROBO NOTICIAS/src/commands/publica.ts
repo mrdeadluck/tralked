@@ -1,3 +1,4 @@
+import { sendPendingAlerts } from "../alerts.js";
 import { runPublica } from "../pipeline.js";
 import { realDeps } from "./deps.js";
 
@@ -14,6 +15,7 @@ async function main(): Promise<void> {
     const outcome = result.published ? `publicada ${result.published}` : "nada publicado";
     console.log(`publica ${new Date().toISOString()}: ${outcome} (${result.reason})`);
   } finally {
+    await sendPendingAlerts(deps.db, deps.config, deps.fetchFn);
     deps.db.close();
   }
 }

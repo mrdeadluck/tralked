@@ -1,3 +1,4 @@
+import { sendPendingAlerts } from "../alerts.js";
 import { runColeta } from "../pipeline.js";
 import { realDeps } from "./deps.js";
 
@@ -22,6 +23,7 @@ async function main(): Promise<void> {
       ].join("\n"),
     );
   } finally {
+    await sendPendingAlerts(deps.db, deps.config, deps.fetchFn);
     deps.db.close();
   }
 }
