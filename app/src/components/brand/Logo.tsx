@@ -7,7 +7,7 @@ type LogoProps = {
 };
 
 /**
- * Monograma "TLK": T na cor do texto, L no roxo do logo, K no acento. Com `size`, altura fixa em px;
+ * Monograma "TLK": T e L na cor do texto, K no acento. Com `size`, altura fixa em px;
  * sem `size`, a altura vem do `className` (ex. `h-9`) e a largura segue a proporção.
  */
 export function Emblem({ size, className = "" }: { size?: number; className?: string }) {
@@ -22,13 +22,13 @@ export function Emblem({ size, className = "" }: { size?: number; className?: st
       className={`flex-none ${className}`}
     >
       <path d={EMBLEM.t} fill="currentColor" />
-      <path d={EMBLEM.l} fill="var(--logo-purple)" />
+      <path d={EMBLEM.l} fill="currentColor" />
       <path d={EMBLEM.k} fill="var(--acc)" />
     </svg>
   );
 }
 
-/** Logotipo "TRALKED": letras na cor do texto (currentColor), o L no roxo do logo (ou `--wordmark-l`), o K no acento (ou `--wordmark-k`). */
+/** Logotipo "TRALKED": letras na cor do texto (currentColor), o L também (ou `--wordmark-l`), o K no acento (ou `--wordmark-k`). */
 export function Wordmark({ height, className = "", label }: { height: number; className?: string; label?: string }) {
   return (
     <svg
@@ -39,7 +39,7 @@ export function Wordmark({ height, className = "", label }: { height: number; cl
       {...(label ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
     >
       <path d={WORDMARK.d} fill="currentColor" fillRule="evenodd" />
-      <path d={WORDMARK.l} fill="var(--wordmark-l, var(--logo-purple))" />
+      <path d={WORDMARK.l} fill="var(--wordmark-l, currentColor)" />
       <path d={WORDMARK.k} fill="var(--wordmark-k, var(--acc))" />
     </svg>
   );

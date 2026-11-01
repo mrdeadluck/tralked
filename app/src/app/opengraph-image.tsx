@@ -14,7 +14,6 @@ const BG = "#0b0c0f";
 const TEXT = "#ecece6";
 const MUTED = "#9ea1a9";
 const ACC = "#c6f432";
-const LOGO_PURPLE = "#9048fc";
 
 const font = (file: string) => readFile(join(process.cwd(), "assets/fonts", file));
 
@@ -39,12 +38,12 @@ export default async function Image() {
         <div style={{ display: "flex", alignItems: "center", gap: 36 }}>
           <svg width={Math.round((120 * EMBLEM.width) / EMBLEM.height)} height="120" viewBox={`0 0 ${EMBLEM.width} ${EMBLEM.height}`}>
             <path d={EMBLEM.t} fill={TEXT} />
-            <path d={EMBLEM.l} fill={LOGO_PURPLE} />
+            <path d={EMBLEM.l} fill={TEXT} />
             <path d={EMBLEM.k} fill={ACC} />
           </svg>
           <svg width={Math.round((96 * WORDMARK.width) / WORDMARK.height)} height="96" viewBox={`0 0 ${WORDMARK.width} ${WORDMARK.height}`}>
             <path d={WORDMARK.d} fill={TEXT} fillRule="evenodd" />
-            <path d={WORDMARK.l} fill={LOGO_PURPLE} />
+            <path d={WORDMARK.l} fill={TEXT} />
             <path d={WORDMARK.k} fill={ACC} />
           </svg>
         </div>
