@@ -80,6 +80,8 @@ async function ViewerIsland({
   since: string | null;
 }) {
   const viewer = await getSessionUser();
+  // Live rank, while the list above is cached for a few minutes: right after a sync the two can
+  // briefly disagree (the list catches up when its cache expires or the daily cron refreshes it).
   const standing = viewer?.profilePublic ? await getStanding(viewer.id, board) : null;
   const inTop = standing ? view.rows.some((r) => r.userId === standing.row.userId) : false;
 

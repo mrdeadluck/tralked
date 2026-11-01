@@ -39,6 +39,8 @@ const inScope = (scope: RankScope, platform: string) => scope === "all" || scope
  * `attributeInput`): a game is played with playtime or a valid unlock, owned games include games
  * with an unlock but no library row, a completion with a suspicious unlock on its platform is no
  * completion, and `all` counts each game once however many platforms it is on.
+ * Hours are the raw hours the platforms report (product ruling): the anti-idle caps of
+ * lib/sync/playtime.ts limit the XP they pay, not the Horas jogadas ranking.
  */
 export function computeRankStats(input: RankStatsInput): Record<RankScope, RankStatsValues> {
   const result = {} as Record<RankScope, RankStatsValues>;

@@ -40,16 +40,36 @@ describe("gapText", () => {
   it("names the distance to the player above", () => {
     const horas = { metric: "horas", scope: "all" } as const;
     expect(gapText(horas, player({ value: 60 }), player({ handle: "ana", value: 200 }))).toBe("Faltam 3 h para alcançar @ana");
-    expect(gapText(horas, player({ value: 60 }), player({ handle: "ana", value: 90 }))).toBe("Faltam menos de 1 h para alcançar @ana");
-    expect(gapText(horas, player({ value: 60 }), player({ handle: "ana", value: 60 }))).toBe("Empatado com @ana");
+    expect(gapText(horas, player({ value: 60 }), player({ handle: "ana", value: 90 }))).toBe("Falta menos de 1 h para alcançar @ana");
+    expect(gapText(horas, player({ value: 60 }), player({ handle: "ana", value: 60 }))).toBe(
+      "Empatado com @ana nas horas (o desempate é pelo nome)",
+    );
     expect(gapText({ metric: "conquistas", scope: "psn" }, player({ value: 1 }), player({ handle: "ana", value: 2 }))).toBe(
-      "Faltam 1 conquista para alcançar @ana",
+      "Falta 1 conquista para alcançar @ana",
     );
     expect(gapText({ metric: "nivel" }, player({ totalXp: 1000 }), player({ handle: "ana", totalXp: 2500 }))).toBe(
       "Faltam 1.500 XP para alcançar @ana",
     );
     expect(gapText({ metric: "genero", skill: "rpg" }, player({ value: 3 }), player({ handle: "ana", value: 5 }))).toBe(
       "Faltam 2 níveis para alcançar @ana",
+    );
+  });
+});
+
+describe("gapText on a tie of the main value", () => {
+  it("names the tie-breaker gap when there is one", () => {
+    const raras = { metric: "raras", scope: "all" } as const;
+    expect(gapText(raras, player({ value: 5, secondary: 1 }), player({ handle: "ana", value: 5, secondary: 3 }))).toBe(
+      "Empatado com @ana em conquistas raras; faltam 2 lendárias para desempatar",
+    );
+    expect(
+      gapText({ metric: "acervo", scope: "all" }, player({ value: 90, secondary: 9 }), player({ handle: "ana", value: 90, secondary: 10 })),
+    ).toBe("Empatado com @ana em pontos de Acervo; falta 1 jogo na biblioteca para desempatar");
+    expect(
+      gapText({ metric: "platinas", scope: "psn" }, player({ value: 2, secondary: 7 }), player({ handle: "ana", value: 2, secondary: 7 })),
+    ).toBe("Empatado com @ana (o desempate é pelo nome)");
+    expect(gapText({ metric: "nivel" }, player({ totalXp: 5 }), player({ handle: "ana", totalXp: 5 }))).toBe(
+      "Empatado com @ana (o desempate é pelo nome)",
     );
   });
 });

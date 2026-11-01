@@ -22,7 +22,7 @@ const STAT_FIELDS = {
 
 type StatField = (typeof STAT_FIELDS)[StatMetric][number];
 
-/** A skill counts for ranking only once trained (as `getHighscores` in queries/players.ts). */
+/** A skill counts for its genre ranking only once trained (level above 1 or any points). */
 const TRAINED = { OR: [{ level: { gt: 1 } }, { points: { gt: 0 } }] };
 
 const USER_SELECT = {
@@ -287,8 +287,22 @@ export async function getBoardView(
 }
 
 /**
+ * A player's rank on a board (among public profiles, same ordering as the list): two indexed
+ * reads and a count. Null when the profile is private or unranked there. The character sheet's
+ * "#N no ranking" uses it with Nível.
+ */
+export async function getRank(userId: string, board: Board, db: Db = prisma): Promise<number | null> {
+  const user = await db.user.findUnique({ where: { id: userId }, select: { handle: true, profilePublic: true } });
+  if (!user?.profilePublic) return null;
+  const ranked = await valuesOf(userId, board, db);
+  if (!ranked) return null;
+  return (await countAhead(board, ranked.values, user.handle, db)) + 1;
+}
+
+/**
  * Where a player stands on a board (real rank among public profiles, same ordering as the list),
- * with the player right above; null when the profile is private or unranked there.
+ * with the player right above; null when the profile is private or unranked there. Computed live:
+ * the cached top list it is shown with can be a few minutes older, so the two may briefly disagree.
  */
 export async function getStanding(
   userId: string,

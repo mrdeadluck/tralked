@@ -90,7 +90,7 @@ function Bar({ children }: { children: ReactNode }) {
   return (
     <aside
       aria-label="Sua posição"
-      className="hs-you mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-[4px] border border-line-2 bg-surface-2/95 px-4 py-3 shadow-[inset_3px_0_0_var(--acc),0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur"
+      className="hs-you mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-[4px] border border-line-2 bg-surface-2/95 px-4 py-3 shadow-[inset_3px_0_0_var(--acc),0_12px_32px_var(--bg-deep)] backdrop-blur"
     >
       {children}
     </aside>

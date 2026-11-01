@@ -117,6 +117,51 @@ describe.skipIf(!reachable)("highscores queries (seeded database)", () => {
     expect(seen).toEqual({ listed: false, standing: null, top: handle, rank: 1, nivelTop: handle });
   });
 
+  it("two overlapping snapshot runs write each board once, with one consistent ranking", async () => {
+    const { prisma } = await import("@/lib/db");
+    // A day no other test or cron touches; pruning off so nothing else is deleted.
+    const now = new Date("2031-03-15T15:00:00Z");
+    const day = toLocalDay(now);
+    try {
+      // Another run holds the "nivel" board of that day and has written (not yet committed) its row.
+      const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      let locked!: () => void;
+      const isLocked = new Promise<void>((resolve) => (locked = resolve));
+      const other = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rank-snapshot:nivel:${day}`}))`;
+          await tx.rankSnapshot.create({ data: { board: "nivel", day, userId: lucas.id, rank: 99 } });
+          locked();
+          await released;
+        },
+        { timeout: 30_000 },
+      );
+      await isLocked;
+      const run = takeRankSnapshots(now, prisma, { prune: false });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      release();
+      await other;
+      const first = await run;
+      // The run waited for the lock, then found the board taken: the other run's ranking stays whole.
+      const nivel = await prisma.rankSnapshot.findMany({ where: { day, board: "nivel" } });
+      expect(nivel.map((r) => r.rank)).toEqual([99]);
+
+      // A second run the same day adds nothing; every other board holds one ranking 1..n.
+      expect((await takeRankSnapshots(now, prisma, { prune: false })).rows).toBe(0);
+      const rows = await prisma.rankSnapshot.findMany({ where: { day } });
+      expect(first.rows).toBe(rows.length - 1);
+      for (const board of allBoards().filter((b) => b.metric !== "nivel")) {
+        const key = boardKey(board);
+        const ranks = rows.filter((r) => r.board === key).map((r) => r.rank).sort((x, y) => x - y);
+        expect(ranks, key).toEqual(ranks.map((_, i) => i + 1));
+      }
+    } finally {
+      await prisma.rankSnapshot.deleteMany({ where: { day } });
+    }
+  });
+
   it("arrows compare with the latest earlier snapshot; the snapshot is once a day and pruned", async () => {
     const now = new Date("2026-11-20T15:00:00Z");
     const yesterday = new Date(now.getTime() - DAY_MS);

@@ -74,3 +74,18 @@ describe("admin proxy", () => {
     expect(requiredLevel("/admin/revisao")).toBe("staff");
   });
 });
+
+describe("highscores legacy links", () => {
+  it("redirects /highscores?skill=<id> to the genre board with a 308", async () => {
+    const res = await proxy(new NextRequest("http://localhost:3000/highscores?skill=soulslike"));
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe("http://localhost:3000/highscores/genero/soulslike");
+  });
+
+  it("leaves other highscores requests alone", async () => {
+    for (const url of ["/highscores", "/highscores?skill=geral", "/highscores?skill=nope", "/highscores/horas?skill=rpg"]) {
+      expect((await proxy(new NextRequest(`http://localhost:3000${url}`))).status, url).toBe(200);
+    }
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+});

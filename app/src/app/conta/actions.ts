@@ -15,6 +15,7 @@ import { takeConfirmationSlot } from "@/lib/auth/rate-limit";
 import { destroySession, getSessionUser } from "@/lib/auth/session";
 import { FORUM_TAG, GALLERY_TAG, photoTag, threadTag } from "@/lib/community/cached";
 import { prisma } from "@/lib/db";
+import { HIGHSCORES_TAG } from "@/lib/highscores/cached";
 import { mailAvailable } from "@/lib/mail/mailer";
 import { MAIL_OFF_MESSAGE } from "@/lib/mail/messages";
 import { gameTag } from "@/lib/queries/games-cached";
@@ -196,6 +197,8 @@ export async function deleteAccountAction(input: unknown): Promise<AccountAction
     for (const slug of deleted.guideGameSlugs) updateTag(gameTag(slug));
     // The profile page answers 404 from now on.
     updateTag(playerTag(user.handle));
+    // The highscores boards drop the player at once (not when their cache expires).
+    updateTag(HIGHSCORES_TAG);
   }
   redirect("/?conta=excluida");
 }

@@ -261,6 +261,7 @@ Feeds sugeridos (conferidos em 31/10/2026: https, RSS válido, sem redirecioname
 | `pnpm catalog:bootstrap` | Catálogo real da Steam (`--limit N` jogos populares, `--concurrency N`, `--only-top`). Exige `DATABASE_URL`. |
 | `pnpm comments:recount` | Reconta `Article.comments` pelos comentários visíveis. Exige `DATABASE_URL`. |
 | `pnpm sample:rename [--dry-run]` | Renomeia os personagens fictícios de um banco semeado antes do Plano 4 (seed, bylines, notificações). Idempotente. Exige `DATABASE_URL`. |
+| `pnpm highscores:backfill [--dry-run] [--snapshot]` | Grava os totais dos Highscores (`UserRankStats`) de todos os usuários a partir da biblioteca e das conquistas válidas (só essa tabela; XP, missões e atributos ficam como estão) e, com `--snapshot`, tira a foto do dia dos rankings (o mesmo que o cron `highscores`). Idempotente. Exige `DATABASE_URL`. |
 | `pnpm news:feeds [--dry-run] [--paused]` | Cadastra os feeds de manchetes de Entretenimento e Tecnologia (`src/lib/news/feed-catalog.ts`), ativos (ou pausados com `--paused`). Idempotente: feed já cadastrado (mesma URL) nunca é alterado. Exige `DATABASE_URL`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
 | `pnpm api:key` | `"<nome>" <escopo>...`: cria uma chave de robô e imprime o segredo `tk_live_…` uma vez (só no terminal). Exige `DATABASE_URL`. |
@@ -364,6 +365,13 @@ src/lib/
 src/proxy.ts          /admin responde 404 de verdade a quem não é da redação (as páginas e as
                       Server Actions conferem o papel de novo)
 ```
+
+## Deploy (checklist)
+
+1. **Migrations antes do build**: `DATABASE_URL=... pnpm exec prisma migrate deploy`. O `next build` pré-renderiza páginas que leem tabelas novas (os Highscores leem `UserRankStats` e `RankSnapshot`), então o build falha ou sai vazio num banco sem elas.
+2. `pnpm build` e o deploy.
+3. **Depois do deploy, uma vez por banco anterior ao Plano 4 (F6)**: `DATABASE_URL=... pnpm highscores:backfill --dry-run` para conferir e `DATABASE_URL=... pnpm highscores:backfill --snapshot` para gravar os totais de todos os usuários e a primeira foto dos rankings (as setas aparecem a partir do dia seguinte). Sem isso, os rankings de horas, conquistas, raras, platinas e acervo só mostram quem sincronizou depois do deploy.
+4. Agende os crons (veja "Agendamento"), inclusive o diário `highscores`.
 
 ## Notas
 

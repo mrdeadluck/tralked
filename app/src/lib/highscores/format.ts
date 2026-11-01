@@ -87,39 +87,59 @@ export function rowDisplay(board: Board, p: RankedPlayer, leaderValue: number): 
   }
 }
 
-const GAP_UNIT: Record<Exclude<Metric, "nivel" | "genero" | "horas">, [string, string]> = {
-  conquistas: ["conquista", "conquistas"],
+const GAP_UNIT: Record<Exclude<Metric, "nivel" | "genero" | "horas" | "conquistas">, [string, string]> = {
   raras: ["conquista rara", "conquistas raras"],
   platinas: ["jogo em 100%", "jogos em 100%"],
   acervo: ["ponto de Acervo", "pontos de Acervo"],
 };
 
+/** What breaks a tie on each board after the main value (see STAT_FIELDS in queries.ts). */
+const TIE_BREAK_UNIT: Record<Exclude<Metric, "nivel" | "genero" | "horas" | "conquistas">, [string, string]> = {
+  raras: ["lendária", "lendárias"],
+  platinas: ["conquista", "conquistas"],
+  acervo: ["jogo na biblioteca", "jogos na biblioteca"],
+};
+
+const TIED = "Empatado com";
+
 /** "Faltam 30 h para alcançar @fulano": the distance to the player right above. */
 export function gapText(board: Board, me: RankedPlayer, above: RankedPlayer): string {
   const who = `@${above.handle}`;
-  const missing = (amount: string) => `Faltam ${amount} para alcançar ${who}`;
+  /** "Falta 1 conquista" / "Faltam 3 conquistas" (`n` decides the verb). */
+  const amount = (n: number, one: string, many: string) =>
+    `${n === 1 ? "Falta" : "Faltam"} ${fmt(n)} ${plural(n, one, many)}`;
+  const reach = (text: string) => `${text} para alcançar ${who}`;
+  const byName = `${TIED} ${who} (o desempate é pelo nome)`;
   switch (board.metric) {
     case "nivel": {
       const xp = above.totalXp - me.totalXp;
-      return xp > 0 ? missing(`${fmt(xp)} XP`) : `Empatado com ${who}`;
+      return xp > 0 ? reach(amount(xp, "XP", "XP")) : byName;
     }
     case "genero": {
-      if (above.value > me.value) {
-        const levels = above.value - me.value;
-        return missing(`${levels} ${plural(levels, "nível", "níveis")}`);
-      }
+      const levels = above.value - me.value;
+      if (levels > 0) return reach(amount(levels, "nível", "níveis"));
       const points = above.secondary - me.secondary;
-      return points > 0 ? missing(`${fmt(points)} ${plural(points, "ponto", "pontos")}`) : `Empatado com ${who}`;
+      return points > 0 ? reach(amount(points, "ponto", "pontos")) : byName;
     }
     case "horas": {
       const minutes = above.value - me.value;
-      if (minutes <= 0) return `Empatado com ${who}`;
-      return minutes < 60 ? missing("menos de 1 h") : missing(`${fmt(Math.ceil(minutes / 60))} h`);
+      if (minutes <= 0) return `${TIED} ${who} nas horas (o desempate é pelo nome)`;
+      return minutes < 60 ? reach("Falta menos de 1 h") : reach(amount(Math.ceil(minutes / 60), "h", "h"));
+    }
+    case "conquistas": {
+      const diff = above.value - me.value;
+      return diff > 0 ? reach(amount(diff, "conquista", "conquistas")) : byName;
     }
     default: {
       const diff = above.value - me.value;
       const [one, many] = GAP_UNIT[board.metric];
-      return diff > 0 ? missing(`${fmt(diff)} ${plural(diff, one, many)}`) : `Empatado com ${who}`;
+      if (diff > 0) return reach(amount(diff, one, many));
+      // Same value: the board's tie-breaker decides, so that is the gap to show.
+      const second = above.secondary - me.secondary;
+      const [one2, many2] = TIE_BREAK_UNIT[board.metric];
+      return second > 0
+        ? `${TIED} ${who} em ${many}; ${amount(second, one2, many2).toLowerCase()} para desempatar`
+        : byName;
     }
   }
 }

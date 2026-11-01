@@ -170,6 +170,15 @@
   background: var(--acc) !important;
 }
 
+/*
+ * While the bar is on the page, focusing (Tab) or jumping to a link scrolls it clear of the bar,
+ * never under it (WCAG 2.4.11, focus not obscured). The bar is at most ~110px tall (two lines on
+ * phones).
+ */
+html:has(.hs-you) {
+  scroll-padding-bottom: 136px;
+}
+
 /* "Você está aqui": pinned to the bottom of the viewport while the board scrolls. */
 .hs-you {
   position: sticky;

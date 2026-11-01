@@ -65,9 +65,12 @@ test.describe("highscores", () => {
     await expect(page).toHaveURL(/\/highscores\/conquistas$/);
   });
 
-  test("unknown boards are a real 404 and old ?skill= links still land on the genre", async ({ page }) => {
+  test("unknown boards are a real 404 and old ?skill= links get a 308 to the genre", async ({ page, request }) => {
     expect((await page.goto("/highscores/nope"))?.status()).toBe(404);
     expect((await page.goto("/highscores/horas/wii"))?.status()).toBe(404);
+    const legacy = await request.get("/highscores?skill=rpg", { maxRedirects: 0 });
+    expect(legacy.status()).toBe(308);
+    expect(legacy.headers().location).toMatch(/\/highscores\/genero\/rpg$/);
     await page.goto("/highscores?skill=rpg");
     await expect(page).toHaveURL(/\/highscores\/genero\/rpg$/);
   });
@@ -142,7 +145,7 @@ test.describe("highscores", () => {
       await expect(bar).toContainText("Você está aqui");
       await expect(bar).toContainText(`Posição ${now}`);
       await expect(bar).toContainText(`Subiu 3 posições desde ${since}`);
-      await expect(bar).toContainText(now === 1 ? "Você lidera este ranking." : /Faltam .+ para alcançar @/);
+      await expect(bar).toContainText(now === 1 ? "Você lidera este ranking." : /(Faltam?|Empatado com) .+@/);
       // The bar stays on screen while the board scrolls.
       expect(await bar.evaluate((el) => getComputedStyle(el).position)).toBe("sticky");
 
@@ -151,6 +154,17 @@ test.describe("highscores", () => {
       await expect(mine).toHaveCount(1);
       await expect(mine).toContainText("você");
       expect(await axeBlocking(page)).toEqual([]);
+
+      // Keyboard focus never ends up under the sticky bar (WCAG 2.4.11).
+      await page.setViewportSize({ width: 1280, height: 520 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      const links = page.getByRole("list", { name: /do 4º lugar em diante/ }).getByRole("link");
+      for (let i = 0; i < Math.min(await links.count(), 8); i++) {
+        const link = links.nth(i);
+        await link.focus();
+        const [linkBox, barBox] = await Promise.all([link.boundingBox(), bar.boundingBox()]);
+        expect(linkBox!.y + linkBox!.height, `row ${i + 4}`).toBeLessThanOrEqual(barBox!.y + 1);
+      }
 
       // Logged out: the bar invites to sign in.
       await page.context().clearCookies({ name: "gl_session" });
