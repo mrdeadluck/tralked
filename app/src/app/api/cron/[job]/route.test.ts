@@ -9,8 +9,12 @@ const jobs = vi.hoisted(() => ({
   syncStaleMedia: vi.fn(async () => ({ processed: 5, failed: 0 })),
   syncExternalNews: vi.fn(async () => ({ processed: 2, failed: 0, created: 7 })),
   deleteOldNotifications: vi.fn(async () => ({ processed: 9 })),
+  runReleasesJob: vi.fn(async () => ({ processed: 6, failed: 0 })),
+  runIgdbCatalogJob: vi.fn(async () => ({ processed: 0, failed: 0, status: "disabled" })),
   runHighscoresJob: vi.fn(async () => ({ processed: 37, rows: 120, pruned: 0 })),
 }));
+vi.mock("@/lib/sync/releases", () => ({ runReleasesJob: jobs.runReleasesJob }));
+vi.mock("@/lib/sync/igdb-catalog", () => ({ runIgdbCatalogJob: jobs.runIgdbCatalogJob }));
 vi.mock("@/lib/highscores/job", () => ({ runHighscoresJob: jobs.runHighscoresJob }));
 vi.mock("@/lib/notifications/retention", () => ({ deleteOldNotifications: jobs.deleteOldNotifications }));
 vi.mock("@/lib/sync/catalog", () => ({
@@ -63,12 +67,19 @@ describe("GET /api/cron/[job]", () => {
     ["media", "syncStaleMedia"],
     ["news", "syncExternalNews"],
     ["notifications", "deleteOldNotifications"],
+    ["releases", "runReleasesJob"],
+    ["igdb-catalog", "runIgdbCatalogJob"],
     ["highscores", "runHighscoresJob"],
   ] as const)("runs the %s job with a valid token", async (job, fn) => {
     const res = await call(job, `Bearer ${env.CRON_SECRET}`);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ job, processed: expect.any(Number) });
     expect(jobs[fn]).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes the pages that show releases after the releases job", async () => {
+    await call("releases", `Bearer ${env.CRON_SECRET}`);
+    expect(cache.revalidateTag).toHaveBeenCalledWith("releases", { expire: 0 });
   });
 
   it("news refreshes the cached news views only when headlines were added", async () => {

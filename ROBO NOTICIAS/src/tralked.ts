@@ -155,7 +155,8 @@ const RETRY_AFTER_CAP_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 /** The site refuses `q` shorter than this. */
 const MIN_QUERY_LENGTH = 2;
-const FEED_LIMIT = 200;
+/** `GET /api/v1/articles` page size: a feed of exactly this many articles may be cut. */
+export const FEED_LIMIT = 200;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 

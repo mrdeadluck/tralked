@@ -91,4 +91,11 @@ export const ROUTES: E2ERoute[] = [
   { path: "/mensagens", name: "mensagens-logado", auth: true },
   { path: "/mensagens/Herbalista_Rosa", name: "mensagens-conversa-logado", auth: true },
   { path: "/noticias/25-conquistas-mais-raras-da-steam-em-2026", name: "noticia-logado", auth: true },
+  // Plano 4: releases (F10) and calendar (F8).
+  { path: "/lancamentos", name: "lancamentos" },
+  { path: "/lancamentos/proximos/todas", name: "lancamentos-proximos" },
+  { path: "/calendario", name: "calendario" },
+  { path: "/calendario/2026-01", name: "calendario-mes" },
+  { path: "/calendario?jogador=lucas", name: "calendario-jogador" },
+  { path: "/calendario", name: "calendario-logado", auth: true },
 ];

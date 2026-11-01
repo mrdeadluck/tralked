@@ -10,7 +10,7 @@ import { assemble } from "./assemble.js";
 import { inSlotWindow, localDay, localHour } from "./clock.js";
 import { collectLive, extractText, fetchPage, type FetchFn } from "./collect/index.js";
 import type { Config, Source } from "./config.js";
-import type { ArticleRow, Db, ItemRow, StoryRow } from "./db.js";
+import type { ArticleRow, Db, ItemRow, SpendBucket, StoryRow } from "./db.js";
 import { acquireLock, type Lock } from "./lock.js";
 import { TIER_WEIGHT, isBomb, isExpired, isPublishable, storyScore, type Tier } from "./rank.js";
 import {
@@ -120,9 +120,9 @@ export function isPaused(config: Pick<Config, "DATA_DIR">): boolean {
   return existsSync(join(config.DATA_DIR, "PAUSADO"));
 }
 
-const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
+export const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-function triageOf(item: ItemRow): Triage | null {
+export function triageOf(item: ItemRow): Triage | null {
   if (!item.triage_json) return null;
   try {
     return JSON.parse(item.triage_json) as Triage;
@@ -131,7 +131,7 @@ function triageOf(item: ItemRow): Triage | null {
   }
 }
 
-function parseGames(json: string): string[] {
+export function parseGames(json: string): string[] {
   try {
     const v: unknown = JSON.parse(json);
     return Array.isArray(v) ? v.filter((g): g is string => typeof g === "string") : [];
@@ -141,7 +141,7 @@ function parseGames(json: string): string[] {
 }
 
 /** When the item happened, never in the future: `min(pubDate, now)`, or the fetch time without a date. */
-function itemTime(item: ItemRow, now: Date): number {
+export function itemTime(item: ItemRow, now: Date): number {
   const pub = item.published_at ? Date.parse(item.published_at) : Number.NaN;
   const at = Number.isNaN(pub) ? Date.parse(item.fetched_at) : pub;
   return Math.min(Number.isNaN(at) ? now.getTime() : at, now.getTime());
@@ -194,7 +194,7 @@ function pausedAlert(deps: Pick<PipelineDeps, "db" | "config">, now: Date): void
   );
 }
 
-async function pool<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+export async function pool<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const run = async () => {
     while (next < items.length) await worker(items[next++]!);
@@ -220,7 +220,7 @@ function gameResolver(tralked: Tralked) {
 // Story facts
 // ---------------------------------------------------------------------------------------------
 
-type StoryFacts = {
+export type StoryFacts = {
   items: ItemRow[];
   triages: Triage[];
   score: number;
@@ -232,7 +232,7 @@ type StoryFacts = {
   lastItemAt: number;
 };
 
-function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): StoryFacts {
+export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): StoryFacts {
   const sourcesById = new Map(deps.sources.map((s) => [s.id, s]));
   const items = deps.db.itemsForStory(story.id);
   const withTriage = items.flatMap((item) => {
@@ -265,7 +265,7 @@ function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): StoryFacts 
 }
 
 /** Recomputes score, bomb, rumor, category, games and last item time; keeps headline, status and mode. */
-function recomputeStory(storyId: number, deps: PipelineDeps, now: Date): StoryFacts | null {
+export function recomputeStory(storyId: number, deps: PipelineDeps, now: Date): StoryFacts | null {
   const story = deps.db.storyById(storyId);
   if (!story) return null;
   const facts = storyFacts(story, deps, now);
@@ -352,7 +352,7 @@ function parentOf(story: StoryRow, deps: PipelineDeps): { title: string; blocksT
   return { title, blocksText: blocksText(payload.blocks ?? []), url };
 }
 
-async function storyForWriting(
+export async function storyForWriting(
   story: StoryRow,
   deps: PipelineDeps,
   previous?: StoryForWriting["previous"],
@@ -370,7 +370,7 @@ async function storyForWriting(
   };
 }
 
-const insightsOf = (candidates: StoryForWriting["candidates"]) =>
+export const insightsOf = (candidates: StoryForWriting["candidates"]) =>
   new Map(candidates.flatMap((c) => (c.insights ? [[c.slug, c.insights] as const] : [])));
 
 /** `assemble` options: the Tralked data, and the parent link of a follow-up. */
@@ -672,23 +672,31 @@ async function triageNew(deps: PipelineDeps, report: ColetaReport, now: Date): P
   }
 }
 
-/** Downloads and extracts the article text of kept items (never for title-only items). */
-async function fetchTexts(deps: PipelineDeps, report: ColetaReport): Promise<void> {
-  const pending = deps.db
-    .itemsByStatus("triaged", 100_000)
-    .filter((i) => i.text_unavailable !== 1 && (i.text ?? "").trim() === "");
+/**
+ * Downloads and extracts the article text of the given items that have none yet (never for title-only
+ * items), 6 at a time. Returns how many texts were stored.
+ */
+export async function fetchItemTexts(items: ItemRow[], deps: Pick<PipelineDeps, "db" | "fetchFn" | "log">): Promise<number> {
+  const pending = items.filter((i) => i.text_unavailable !== 1 && (i.text ?? "").trim() === "");
+  let fetched = 0;
   await pool(pending, FETCH_CONCURRENCY, async (item) => {
     try {
       const { text, finalUrl } = await fetchPage(item.url, deps.fetchFn);
       const extracted = extractText(text, finalUrl);
       if (extracted?.text) {
         deps.db.setItemText(item.id, extracted.text);
-        report.textsFetched++;
+        fetched++;
       }
     } catch (error) {
       deps.log?.(`texto indisponível: ${item.url} (${errorMessage(error)})`);
     }
   });
+  return fetched;
+}
+
+/** Downloads and extracts the article text of kept items (never for title-only items). */
+async function fetchTexts(deps: PipelineDeps, report: ColetaReport): Promise<void> {
+  report.textsFetched += await fetchItemTexts(deps.db.itemsByStatus("triaged", 100_000), deps);
 }
 
 /**
@@ -826,7 +834,12 @@ function expireStale(deps: PipelineDeps, report: ColetaReport, now: Date): void 
  * Stories the site already covered: the same game slug and a title match decided by `clusterItems`, with
  * the feed articles passed as open stories. A follow-up never counts as covered by its own parent article.
  */
-async function coveredStories(candidates: StoryRow[], feed: FeedArticle[], deps: PipelineDeps): Promise<Set<number>> {
+export async function coveredStories(
+  candidates: StoryRow[],
+  feed: FeedArticle[],
+  deps: PipelineDeps,
+  bucket: SpendBucket = "live",
+): Promise<Set<number>> {
   const { db, ai, config } = deps;
   const covered = new Set<number>();
   if (candidates.length === 0 || feed.length === 0) return covered;
@@ -845,7 +858,7 @@ async function coveredStories(candidates: StoryRow[], feed: FeedArticle[], deps:
   const feedByKey = new Map(feed.map((a) => [`${FEED_KEY_PREFIX}${a.id}`, a]));
   const open: OpenStory[] = feed.map((a) => ({ key: `${FEED_KEY_PREFIX}${a.id}`, headline: a.title, games: a.games }));
   const items: ClusterItem[] = candidates.map((s) => ({ id: s.id, headlinePt: s.headline, games: slugs.get(s.id)! }));
-  const results = await clusterItems(ai, items, open, "live", { model: config.MODEL_FAST });
+  const results = await clusterItems(ai, items, open, bucket, { model: config.MODEL_FAST });
 
   for (const r of results) {
     const article = r.storyKey ? feedByKey.get(r.storyKey) : undefined;

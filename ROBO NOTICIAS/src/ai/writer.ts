@@ -251,6 +251,11 @@ export type WriteOpts = {
   now?: Date;
   /** Fact-check problems of a previous attempt, appended to the user message. */
   problems?: string[];
+  /**
+   * Server-side fallbacks; defaults to `bucket === "live"`. The backfill's rewrite is a live Messages call
+   * (only the batch must omit fallbacks), so it passes `true`.
+   */
+  fallbacks?: boolean;
 };
 
 export async function writeDraft(ai: Ai, story: StoryForWriting, bucket: SpendBucket, opts: WriteOpts = {}): Promise<Draft> {
@@ -269,10 +274,50 @@ export async function writeDraft(ai: Ai, story: StoryForWriting, bucket: SpendBu
     schema: DraftSchema,
     maxTokens: WRITER_MAX_TOKENS,
     // Live calls fall back server-side on refusals; the Batches API rejects `fallbacks`.
-    fallbacks: bucket === "live",
+    fallbacks: opts.fallbacks ?? bucket === "live",
   });
+  return toDraft(raw);
+}
+
+/** Keeps exactly 3 `pontos` (the schema guarantees at least 3). */
+function toDraft(raw: z.infer<typeof DraftSchema>): Draft {
   const [a, b, c] = raw.pontos;
   return { ...raw, pontos: [a!, b!, c!] };
+}
+
+/**
+ * The backfill's Message Batches request for a story: the same system prompt, user prompt, model, effort,
+ * schema and `maxTokens` as `writeDraft`, without `fallbacks` (the Batches API rejects it).
+ */
+export function writeBatchRequest(
+  ai: Ai,
+  story: StoryForWriting,
+  customId: string,
+  opts: Pick<WriteOpts, "models" | "now"> = {},
+): ReturnType<Ai["batchRequest"]> {
+  const models = opts.models ?? DEFAULT_MODELS;
+  return ai.batchRequest({
+    customId,
+    purpose: "write",
+    model: models.MODEL_WRITER,
+    effort: "high",
+    system: loadStyle(),
+    user: writePrompt(story, opts.now),
+    schema: DraftSchema,
+    maxTokens: WRITER_MAX_TOKENS,
+  });
+}
+
+/** Parses a batch result's text with the writer's schema; null when it is not a valid draft. */
+export function parseDraftText(text: string): Draft | null {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const parsed = DraftSchema.safeParse(json);
+  return parsed.success ? toDraft(parsed.data) : null;
 }
 
 export type WriteResult = { ok: true; draft: Draft } | { ok: false; problems: string[] };

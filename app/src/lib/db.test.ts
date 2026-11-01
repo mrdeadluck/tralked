@@ -32,7 +32,16 @@ describe.skipIf(!reachable)("seeded database", () => {
   it("has the 14 preview games plus 5 name-only stubs of the full Steam catalog", async () => {
     const { prisma } = await import("@/lib/db");
     expect(await prisma.game.count({ where: { stub: false } })).toBe(14);
-    expect(await prisma.game.count({ where: { stub: true } })).toBe(5);
+    // Stubs created by the seeded releases (offline lists) come on top.
+    expect(await prisma.game.count({ where: { stub: true, releases: { none: {} } } })).toBe(5);
+  });
+
+  it("has releases around today from the offline lists, one row per game and platform", async () => {
+    const { prisma } = await import("@/lib/db");
+    expect(await prisma.gameRelease.count({ where: { source: "steam", platform: "PC" } })).toBeGreaterThanOrEqual(10);
+    expect(await prisma.gameRelease.count({ where: { source: "igdb" } })).toBeGreaterThanOrEqual(5);
+    // Old games in Steam's "popular new" list (Hollow Knight) are not releases.
+    expect(await prisma.gameRelease.count({ where: { game: { slug: "hollow-knight" } } })).toBe(0);
   });
 
   it("gives lucas never-played games, Steam playtime details and a wishlist", async () => {

@@ -24,8 +24,10 @@
   --dim-2: #7c7f88;
   --ph: #5d6068;
   --acc: #c6f432;
-  /* Brand purple: the chevron inside the logo emblem. */
+  /* Brand purple for UI marks (rank arrows…): light enough for AA text on the dark surfaces. */
   --brand-2: #a368fa;
+  /* Logo purple: the L of the TLK monogram and of the wordmark (exact logo colour, graphics only). */
+  --logo-purple: #9048fc;
   --discord: #5865f2;
   --ps: oklch(0.74 0.14 255);
   --xbox: oklch(0.74 0.14 145);

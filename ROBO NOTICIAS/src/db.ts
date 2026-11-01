@@ -4,7 +4,11 @@ import { DatabaseSync } from "node:sqlite";
 import { localDay } from "./clock.js";
 import { normalizeUrl } from "./url.js";
 
-export type ItemStatus = "new" | "triaged" | "dropped" | "clustered";
+/**
+ * `bf_new` and `bf_triaged` belong to the backfill only: the live pipeline reads `new` and `triaged`, so it
+ * never triages, fetches or clusters an item the backfill is working on.
+ */
+export type ItemStatus = "new" | "triaged" | "dropped" | "clustered" | "bf_new" | "bf_triaged";
 export type StoryStatus = "open" | "queued" | "written" | "published" | "dropped" | "expired";
 export type StoryMode = "live" | "backfill";
 export type ArticleStatus = "ready" | "published" | "failed" | "archived";
@@ -119,8 +123,26 @@ export interface ArticlePatch {
   publishedAt?: string | null;
 }
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS items (
+const ITEM_STATUSES = "'new','triaged','dropped','clustered','bf_new','bf_triaged'";
+
+const ITEM_COLUMNS = [
+  "id",
+  "url",
+  "source_id",
+  "title",
+  "summary",
+  "published_at",
+  "fetched_at",
+  "content_hash",
+  "text",
+  "status",
+  "triage_json",
+  "publisher",
+  "text_unavailable",
+];
+
+const itemsTable = (name: string) => `
+CREATE TABLE IF NOT EXISTS ${name} (
   id INTEGER PRIMARY KEY,
   url TEXT NOT NULL UNIQUE,
   source_id TEXT NOT NULL,
@@ -130,13 +152,19 @@ CREATE TABLE IF NOT EXISTS items (
   fetched_at TEXT NOT NULL,
   content_hash TEXT,
   text TEXT,
-  status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','triaged','dropped','clustered')),
+  status TEXT NOT NULL DEFAULT 'new' CHECK (status IN (${ITEM_STATUSES})),
   triage_json TEXT,
   publisher TEXT,
   text_unavailable INTEGER NOT NULL DEFAULT 0
-);
+);`;
+
+const ITEM_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
-CREATE INDEX IF NOT EXISTS idx_items_hash ON items(content_hash);
+CREATE INDEX IF NOT EXISTS idx_items_hash ON items(content_hash);`;
+
+const SCHEMA = `
+${itemsTable("items")}
+${ITEM_INDEXES}
 
 CREATE TABLE IF NOT EXISTS stories (
   id INTEGER PRIMARY KEY,
@@ -227,6 +255,36 @@ function addMissingColumns(raw: DatabaseSync): void {
   }
 }
 
+/**
+ * Databases created before the backfill statuses have a narrower CHECK on `items.status`. SQLite cannot
+ * alter a CHECK, so the table is rebuilt (SQLite's documented procedure: foreign keys off so the drop does
+ * not cascade to `story_items`, copy, drop, rename, indexes back), all in one transaction.
+ */
+function widenItemStatuses(raw: DatabaseSync): void {
+  const row = raw.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'").get() as
+    | { sql: string }
+    | undefined;
+  if (!row || row.sql.includes("'bf_triaged'")) return;
+  const cols = ITEM_COLUMNS.join(", ");
+  raw.exec("PRAGMA foreign_keys=OFF");
+  try {
+    raw.exec("BEGIN");
+    try {
+      raw.exec(itemsTable("items_widened"));
+      raw.exec(`INSERT INTO items_widened (${cols}) SELECT ${cols} FROM items`);
+      raw.exec("DROP TABLE items");
+      raw.exec("ALTER TABLE items_widened RENAME TO items");
+      raw.exec(ITEM_INDEXES);
+      raw.exec("COMMIT");
+    } catch (error) {
+      raw.exec("ROLLBACK");
+      throw error;
+    }
+  } finally {
+    raw.exec("PRAGMA foreign_keys=ON");
+  }
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface Db {
@@ -290,6 +348,7 @@ export function openDb(dir: string): Db {
   raw.exec("PRAGMA busy_timeout=5000");
   raw.exec(SCHEMA);
   addMissingColumns(raw);
+  widenItemStatuses(raw);
 
   const iso = (d: Date) => d.toISOString();
   const rows = <T>(sql: string, ...args: (string | number | null)[]) =>

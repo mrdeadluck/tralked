@@ -53,7 +53,7 @@ export function Header({ user, suggestions, notifications, messages }: HeaderPro
 
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-bg/[.94] backdrop-blur-[10px]">
-      <div className="mx-auto flex max-w-[1320px] flex-wrap items-center gap-6 px-5 py-3.5">
+      <div className="mx-auto flex max-w-[1320px] flex-wrap items-center gap-x-5 gap-y-3 px-5 py-3.5">
         <Link href="/" className="flex-none">
           <Logo size={44} />
         </Link>
@@ -63,7 +63,7 @@ export function Header({ user, suggestions, notifications, messages }: HeaderPro
           className="flex gap-1 font-mono text-xs font-medium tracking-[0.08em] uppercase max-nav:hidden"
         >
           {items.map((item) => {
-            const className = `rounded-[2px] px-3 py-[9px] whitespace-nowrap ${
+            const className = `rounded-[2px] px-2 py-[9px] whitespace-nowrap min-[1440px]:px-3 ${
               item.current ? "bg-text text-bg" : "text-text-3 hover:bg-hover hover:text-text"
             }`;
             return item.href === "/jogos" ? (

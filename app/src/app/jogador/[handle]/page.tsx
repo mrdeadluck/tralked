@@ -172,6 +172,13 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
           <TrophyTiers trophies={extras.trophies} />
           <ActivityFeed items={character.recent} now={now} />
+          {/* Plano 4, F8: the same achievements, hours milestones and missions, day by day. */}
+          <Link
+            href={isOwner ? "/calendario" : `/calendario?jogador=${encodeURIComponent(character.handle)}`}
+            className="self-start font-mono text-xs tracking-[0.08em] text-acc uppercase hover:underline hover:underline-offset-4"
+          >
+            {isOwner ? "Meu calendário →" : `Calendário de @${character.handle} →`}
+          </Link>
         </aside>
       </div>
 

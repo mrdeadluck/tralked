@@ -9,7 +9,7 @@ import { getSteam, type SteamOwnedGame } from "@/lib/integrations";
 import { recomputeUser } from "@/lib/progression/recompute";
 import { syncGame } from "./catalog";
 import { settlePlaytime } from "./playtime";
-import { ensureSteamGames } from "./steam-games";
+import { ensureSteamGames, placeholderGames, renamePlaceholderGame } from "./steam-games";
 
 export type SyncUserResult = {
   /** `unlinked`: the Steam account was disconnected (or claimed by another profile) mid-run. */
@@ -295,6 +295,12 @@ async function recordLibrary(
   now: Date,
 ): Promise<Map<number, LibraryEntry>> {
   const ids = await ensureSteamGames(owned.map((g) => ({ appId: g.appId, name: g.name })), { now });
+  // Games still named with a placeholder (`Jogo <appid> da Steam`, or the legacy `Steam App <n>`)
+  // take the name Steam gives in the library (include_appinfo).
+  const named = new Map(owned.flatMap((g) => (g.name ? [[g.appId, g.name] as const] : [])));
+  for (const game of await placeholderGames([...named.keys()])) {
+    await renamePlaceholderGame(game.id, named.get(game.steamAppId)!, now);
+  }
   const stored = new Map(
     (
       await prisma.userGame.findMany({
