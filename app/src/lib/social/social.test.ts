@@ -85,6 +85,15 @@ describe("follows, friendships and blocks", () => {
     expect(await getRelationship(prisma, a.id, b.id)).toMatchObject({ following: true, followedBy: true, friendship: "none" });
   });
 
+  it("orders pairs like JavaScript does, whatever the database locale", async () => {
+    // "Z" < "a" in byte order (the app), but not in en_US collation: the check uses COLLATE "C".
+    n++;
+    const upper = await prisma.user.create({ data: { id: `Zsoc${n}`, handle: `${PREFIX}upper${n}`, displayName: "Z" } });
+    const lower = await prisma.user.create({ data: { id: `asoc${n}`, handle: `${PREFIX}lower${n}`, displayName: "a" } });
+    expect(await requestFriendship(prisma, lower.id, upper.id)).toEqual({ status: "requested" });
+    expect((await sendMessage(prisma, lower.id, upper.id, `oi ${MARK}`)).status).toBe("ok");
+  });
+
   it("asking someone who already asked accepts their request", async () => {
     const a = await user("a");
     const b = await user("b");

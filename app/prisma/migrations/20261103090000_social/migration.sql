@@ -159,11 +159,12 @@ ALTER TABLE "DirectMessage" ADD CONSTRAINT "DirectMessage_senderId_fkey" FOREIGN
 -- AddForeignKey
 ALTER TABLE "Reaction" ADD CONSTRAINT "Reaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Checks Prisma cannot declare: pairs are stored once (lower id first), reactions are +1/-1,
--- nobody follows, befriends or blocks themselves.
-ALTER TABLE "Friendship" ADD CONSTRAINT "Friendship_pair_order_check" CHECK ("userLowId" < "userHighId");
+-- Checks Prisma cannot declare: pairs are stored once (lower id first, in byte order: COLLATE "C"
+-- matches the app's JavaScript string comparison whatever the database locale), reactions are
+-- +1/-1, nobody follows, befriends or blocks themselves.
+ALTER TABLE "Friendship" ADD CONSTRAINT "Friendship_pair_order_check" CHECK ("userLowId" < "userHighId" COLLATE "C");
 ALTER TABLE "Friendship" ADD CONSTRAINT "Friendship_requester_check" CHECK ("requesterId" IN ("userLowId", "userHighId"));
-ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_pair_order_check" CHECK ("userLowId" IS NULL OR "userHighId" IS NULL OR "userLowId" < "userHighId");
+ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_pair_order_check" CHECK ("userLowId" IS NULL OR "userHighId" IS NULL OR "userLowId" < "userHighId" COLLATE "C");
 ALTER TABLE "Reaction" ADD CONSTRAINT "Reaction_value_check" CHECK ("value" IN (1, -1));
 ALTER TABLE "Follow" ADD CONSTRAINT "Follow_not_self_check" CHECK ("followerId" <> "followeeId");
 ALTER TABLE "UserBlock" ADD CONSTRAINT "UserBlock_not_self_check" CHECK ("blockerId" <> "blockedId");
