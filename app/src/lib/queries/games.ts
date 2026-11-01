@@ -117,7 +117,10 @@ export async function listGames(
   const and: Prisma.GameWhereInput[] = [];
   const q = filter.q?.trim();
   const folded = q ? await foldQueryInDb(q) : "";
-  const withStubs = folded.length >= STUB_SEARCH_MIN_LENGTH;
+  // The whole catalog is listed (games with details first, then name-only stubs) unless a filter
+  // needs details (genre, guide, progress) or a too-short search would scan every stub name.
+  const withStubs =
+    !filter.skill && !filter.withGuide && !filter.almost && (!folded || folded.length >= STUB_SEARCH_MIN_LENGTH);
   if (folded) and.push({ searchName: { contains: folded } });
   if (!withStubs) and.push({ stub: false });
   if (filter.skill) and.push({ skills: { some: { skill: filter.skill } } });
@@ -144,7 +147,7 @@ export async function listGames(
 
   const games = await prisma.game.findMany({
     where,
-    // A search lists games with details first; the id keeps pages stable on ties.
+    // Games with details come first; the id keeps pages stable on ties.
     orderBy: [...(withStubs ? [{ stub: "asc" as const }] : []), ...SORT_ORDER[opts.sort ?? "popular"], { id: "asc" }],
     skip: (page - 1) * perPage,
     take: perPage,
@@ -164,7 +167,12 @@ export async function listGames(
       id: game.id,
       slug: game.slug,
       name: game.name,
-      coverUrl: game.coverUrl,
+      // Games still without details show the Steam store header (served by Steam's CDN by appid).
+      coverUrl:
+        game.coverUrl ??
+        (game.steamAppId
+          ? `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/header.jpg`
+          : null),
       platforms: game.platforms,
       skills: asSkills(game.skills.map((s) => s.skill)),
       achievementCount: game.achievementCount,
@@ -175,8 +183,9 @@ export async function listGames(
   };
 }
 
+/** Every game in the catalog, including the ones whose details are still being fetched. */
 export function countGames(): Promise<number> {
-  return prisma.game.count({ where: { stub: false } });
+  return prisma.game.count();
 }
 
 /** How many game pages (and guide pages) the build prerenders; the rest render on first request. */

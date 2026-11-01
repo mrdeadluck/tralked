@@ -75,25 +75,50 @@ describe.skipIf(!reachable)("listGames (seeded database)", () => {
     expect(await listGames({ almost: true })).toMatchObject({ items: [], total: 0 });
   });
 
-  it("lists the whole catalog without filters (stubs left out), with no progress for anonymous visitors", async () => {
+  it("lists the whole catalog without filters (games with details first, then stubs), with no progress for anonymous visitors", async () => {
+    const { prisma } = await import("@/lib/db");
     const { listGames } = await import("./games");
+    const [all, stubs] = await Promise.all([prisma.game.count(), prisma.game.count({ where: { stub: true } })]);
     const { items, total, stubTotal } = await listGames({}, { perPage: 80 });
-    expect(total).toBe(14);
-    expect(items).toHaveLength(14);
-    expect(stubTotal).toBe(0);
-    expect(items.every((c) => c.unlockedCount === null && !c.stub)).toBe(true);
+    expect(total).toBe(all);
+    expect(items).toHaveLength(Math.min(all, 80));
+    expect(stubTotal).toBe(stubs);
+    const firstStub = items.findIndex((c) => c.stub);
+    expect(items.slice(firstStub).every((c) => c.stub)).toBe(true);
+    expect(items.every((c) => c.unlockedCount === null)).toBe(true);
+  });
+
+  it("gives games still without details the Steam store header as cover", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { listGames } = await import("./games");
+    const stub = await prisma.game.findFirst({ where: { stub: true, steamAppId: { not: null }, coverUrl: null } });
+    if (!stub) return;
+    const card = (await listGames({}, { perPage: 80 })).items.find((c) => c.slug === stub.slug);
+    expect(card?.coverUrl).toBe(
+      `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${stub.steamAppId}/header.jpg`,
+    );
   });
 
   it("paginates with stable pages and clamps a page past the end", async () => {
     const { listGames } = await import("./games");
-    const pages = await Promise.all([1, 2, 3].map((page) => listGames({}, { page, perPage: 5, sort: "nome" })));
-    expect(pages.map((p) => p.items.length)).toEqual([5, 5, 4]);
-    const slugs = pages.flatMap((p) => p.items.map((c) => c.slug));
-    expect(new Set(slugs).size).toBe(14);
-    expect(slugs).toEqual([...slugs].sort((a, b) => a.localeCompare(b)));
+    const { prisma } = await import("@/lib/db");
+    const all = await prisma.game.count();
+    const last = Math.ceil(all / 5);
+    const pages = await Promise.all(
+      Array.from({ length: last }, (_, i) => listGames({}, { page: i + 1, perPage: 5, sort: "nome" })),
+    );
+    const items = pages.flatMap((p) => p.items);
+    expect(items).toHaveLength(all);
+    expect(new Set(items.map((c) => c.slug)).size).toBe(all);
+    // Games with details first (by name), then the stubs (by name).
+    const named = (list: typeof items) => list.map((c) => c.name);
+    const full = items.filter((c) => !c.stub);
+    const stubs = items.filter((c) => c.stub);
+    expect(items).toEqual([...full, ...stubs]);
+    expect(named(full)).toEqual([...named(full)].sort((a, b) => a.localeCompare(b)));
     const past = await listGames({}, { page: 99, perPage: 5, sort: "nome" });
-    expect(past.page).toBe(3);
-    expect(past.items.map((c) => c.slug)).toEqual(pages[2].items.map((c) => c.slug));
+    expect(past.page).toBe(last);
+    expect(past.items.map((c) => c.slug)).toEqual(pages[last - 1].items.map((c) => c.slug));
   });
 
   it("filters by published guide, skill, platform and name", async () => {
@@ -143,8 +168,9 @@ describe.skipIf(!reachable)("listGames (seeded database)", () => {
       // "Ação" sorts before "Zação" by name, but the game with details comes first.
       expect(found.items.map((c) => c.slug)).toEqual([`${tag}-full`, `${tag}-stub`]);
       expect(found).toMatchObject({ total: 2, stubTotal: 1 });
-      // Without a search the stub stays out.
-      expect((await listGames({}, { perPage: 80 })).items.map((c) => c.slug)).not.toContain(`${tag}-stub`);
+      // Without a search the stub is listed too, after the games with details.
+      const all = (await listGames({}, { perPage: 80 })).items.map((c) => c.slug);
+      expect(all.indexOf(`${tag}-stub`)).toBeGreaterThan(all.indexOf(`${tag}-full`));
     } finally {
       await prisma.game.deleteMany({ where: { slug: { startsWith: tag } } });
     }
