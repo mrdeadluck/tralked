@@ -1,0 +1,748 @@
+[
+  {
+    "name": "Elden Ring",
+    "steamAppId": 1245620,
+    "wiki": "https://eldenring.wiki.fextralife.com/Elden+Ring+Wiki"
+  },
+  {
+    "name": "Dark Souls III",
+    "steamAppId": 374320,
+    "wiki": "https://darksouls3.wiki.fextralife.com/Dark+Souls+3+Wiki"
+  },
+  {
+    "name": "Dark Souls: Remastered",
+    "steamAppId": 570940,
+    "wiki": "https://darksouls.wiki.fextralife.com/Dark+Souls+Wiki"
+  },
+  {
+    "name": "Sekiro: Shadows Die Twice",
+    "steamAppId": 814380,
+    "wiki": "https://sekiroshadowsdietwice.wiki.fextralife.com/Sekiro+Shadows+Die+Twice+Wiki"
+  },
+  {
+    "name": "Bloodborne",
+    "wiki": "https://bloodborne.wiki.fextralife.com/Bloodborne+Wiki"
+  },
+  {
+    "name": "Demon's Souls",
+    "wiki": "https://en.wikipedia.org/wiki/Demon%27s_Souls_(2020_video_game)"
+  },
+  {
+    "name": "Lies of P",
+    "steamAppId": 1627720,
+    "wiki": "https://liesofp.wiki.fextralife.com/Lies+of+P+Wiki"
+  },
+  {
+    "name": "Armored Core VI: Fires of Rubicon",
+    "steamAppId": 1888160,
+    "wiki": "https://armoredcore6.wiki.fextralife.com/Armored+Core+6+Wiki"
+  },
+  {
+    "name": "Black Myth: Wukong",
+    "steamAppId": 2358720,
+    "wiki": "https://blackmythwukong.wiki.fextralife.com/Black+Myth+Wukong+Wiki"
+  },
+  {
+    "name": "Cyberpunk 2077",
+    "steamAppId": 1091500,
+    "wiki": "https://cyberpunk2077.wiki.fextralife.com/Cyberpunk+2077+Wiki"
+  },
+  {
+    "name": "The Witcher 3: Wild Hunt",
+    "steamAppId": 292030,
+    "wiki": "https://en.wikipedia.org/wiki/The_Witcher_3:_Wild_Hunt"
+  },
+  {
+    "name": "Baldur's Gate 3",
+    "steamAppId": 1086940,
+    "wiki": "https://bg3.wiki/wiki/Baldur%27s_Gate_3"
+  },
+  {
+    "name": "Hogwarts Legacy",
+    "steamAppId": 990080,
+    "wiki": "https://hogwartslegacy.wiki.fextralife.com/Hogwarts+Legacy+Wiki"
+  },
+  {
+    "name": "Starfield",
+    "steamAppId": 1716740,
+    "wiki": "https://starfield.wiki.fextralife.com/Starfield+Wiki"
+  },
+  {
+    "name": "Monster Hunter: World",
+    "steamAppId": 582010,
+    "wiki": "https://monsterhunterworld.wiki.fextralife.com/Monster+Hunter+World+Wiki"
+  },
+  {
+    "name": "Monster Hunter Wilds",
+    "steamAppId": 2246340,
+    "wiki": "https://monsterhunterwilds.wiki.fextralife.com/Monster+Hunter+Wilds+Wiki"
+  },
+  {
+    "name": "Final Fantasy XVI",
+    "steamAppId": 2515020,
+    "wiki": "https://en.wikipedia.org/wiki/Final_Fantasy_XVI"
+  },
+  {
+    "name": "Final Fantasy VII Remake Intergrade",
+    "steamAppId": 1462040,
+    "wiki": "https://finalfantasy7remake.wiki.fextralife.com/Final+Fantasy+VII+Remake+Wiki"
+  },
+  {
+    "name": "Final Fantasy VII Rebirth",
+    "steamAppId": 2909400,
+    "wiki": "https://en.wikipedia.org/wiki/Final_Fantasy_VII_Rebirth"
+  },
+  {
+    "name": "Diablo IV",
+    "steamAppId": 2344520,
+    "wiki": "https://diablo4.wiki.fextralife.com/Diablo+4+Wiki"
+  },
+  {
+    "name": "Red Dead Redemption 2",
+    "steamAppId": 1174180,
+    "wiki": "https://reddeadredemption2.wiki.fextralife.com/Red+Dead+Redemption+2+Wiki"
+  },
+  {
+    "name": "Ghost of Tsushima",
+    "steamAppId": 2215430,
+    "wiki": "https://ghostoftsushima.wiki.fextralife.com/Ghost+of+Tsushima+Wiki"
+  },
+  {
+    "name": "God of War",
+    "steamAppId": 1593500,
+    "wiki": "https://en.wikipedia.org/wiki/God_of_War_(2018_video_game)"
+  },
+  {
+    "name": "God of War Ragnarök",
+    "steamAppId": 2322010,
+    "wiki": "https://en.wikipedia.org/wiki/God_of_War_Ragnar%C3%B6k"
+  },
+  {
+    "name": "Horizon Zero Dawn",
+    "steamAppId": 1151640,
+    "wiki": "https://horizonzerodawn.wiki.fextralife.com/Horizon+Zero+Dawn+Wiki"
+  },
+  {
+    "name": "Horizon Forbidden West",
+    "steamAppId": 2420110,
+    "wiki": "https://en.wikipedia.org/wiki/Horizon_Forbidden_West"
+  },
+  {
+    "name": "Stellar Blade",
+    "steamAppId": 3489700,
+    "wiki": "https://stellarblade.wiki.fextralife.com/Stellar+Blade+Wiki"
+  },
+  {
+    "name": "Kingdom Come: Deliverance II",
+    "steamAppId": 1771300,
+    "wiki": "https://kingdomcomedeliverance2.wiki.fextralife.com/Kingdom+Come+Deliverance+2+Wiki"
+  },
+  {
+    "name": "Divinity: Original Sin 2",
+    "steamAppId": 435150,
+    "wiki": "https://divinityoriginalsin2.wiki.fextralife.com/Divinity+Original+Sin+2+Wiki"
+  },
+  {
+    "name": "Fallout 4",
+    "steamAppId": 377160,
+    "wiki": "https://fallout4.wiki.fextralife.com/Fallout+4+Wiki"
+  },
+  {
+    "name": "DOOM Eternal",
+    "steamAppId": 782330,
+    "wiki": "https://en.wikipedia.org/wiki/Doom_Eternal"
+  },
+  {
+    "name": "No Man's Sky",
+    "steamAppId": 275850,
+    "wiki": "https://en.wikipedia.org/wiki/No_Man%27s_Sky"
+  },
+  {
+    "name": "Valheim",
+    "steamAppId": 892970,
+    "wiki": "https://valheim.wiki.fextralife.com/Valheim+Wiki"
+  },
+  {
+    "name": "NieR:Automata",
+    "steamAppId": 524220,
+    "wiki": "https://en.wikipedia.org/wiki/Nier:_Automata"
+  },
+  {
+    "name": "Palworld",
+    "steamAppId": 1623730,
+    "wiki": "https://palworld.wiki.fextralife.com/Palworld+Wiki"
+  },
+  {
+    "name": "Path of Exile",
+    "steamAppId": 238960,
+    "wiki": "https://www.poewiki.net/wiki/Path_of_Exile"
+  },
+  {
+    "name": "Portal 2",
+    "steamAppId": 620,
+    "wiki": "https://theportalwiki.com/wiki/Portal_2"
+  },
+  {
+    "name": "Factorio",
+    "steamAppId": 427520,
+    "wiki": "https://wiki.factorio.com/Factorio"
+  },
+  {
+    "name": "Minecraft",
+    "wiki": "https://minecraft.wiki/w/Minecraft"
+  },
+  {
+    "name": "Super Smash Bros. Ultimate",
+    "wiki": "https://www.ssbwiki.com/Super_Smash_Bros._Ultimate"
+  },
+  {
+    "name": "Super Mario Odyssey",
+    "wiki": "https://www.mariowiki.com/Super_Mario_Odyssey"
+  },
+  {
+    "name": "Super Mario Bros. Wonder",
+    "wiki": "https://www.mariowiki.com/Super_Mario_Bros._Wonder"
+  },
+  {
+    "name": "Mario Kart 8 Deluxe",
+    "wiki": "https://www.mariowiki.com/Mario_Kart_8_Deluxe"
+  },
+  {
+    "name": "Mario Kart World",
+    "wiki": "https://www.mariowiki.com/Mario_Kart_World"
+  },
+  {
+    "name": "Super Mario 3D World + Bowser's Fury",
+    "wiki": "https://www.mariowiki.com/Super_Mario_3D_World_%2B_Bowser%27s_Fury"
+  },
+  {
+    "name": "Luigi's Mansion 3",
+    "wiki": "https://www.mariowiki.com/Luigi%27s_Mansion_3"
+  },
+  {
+    "name": "Donkey Kong Bananza",
+    "wiki": "https://www.mariowiki.com/Donkey_Kong_Bananza"
+  },
+  {
+    "name": "Hollow Knight",
+    "steamAppId": 367520,
+    "wiki": "https://en.wikipedia.org/wiki/Hollow_Knight"
+  },
+  {
+    "name": "Hollow Knight: Silksong",
+    "steamAppId": 1030300,
+    "wiki": "https://en.wikipedia.org/wiki/Hollow_Knight:_Silksong"
+  },
+  {
+    "name": "Hades",
+    "steamAppId": 1145360,
+    "wiki": "https://en.wikipedia.org/wiki/Hades_(video_game)"
+  },
+  {
+    "name": "Hades II",
+    "steamAppId": 1145350,
+    "wiki": "https://en.wikipedia.org/wiki/Hades_II"
+  },
+  {
+    "name": "Sid Meier's Civilization VI",
+    "steamAppId": 289070,
+    "wiki": "https://en.wikipedia.org/wiki/Civilization_VI"
+  },
+  {
+    "name": "Grand Theft Auto V",
+    "steamAppId": 271590,
+    "wiki": "https://en.wikipedia.org/wiki/Grand_Theft_Auto_V"
+  },
+  {
+    "name": "Grand Theft Auto: San Andreas",
+    "wiki": "https://en.wikipedia.org/wiki/Grand_Theft_Auto:_San_Andreas"
+  },
+  {
+    "name": "Red Dead Redemption",
+    "steamAppId": 2668510,
+    "wiki": "https://en.wikipedia.org/wiki/Red_Dead_Redemption"
+  },
+  {
+    "name": "Marvel's Spider-Man Remastered",
+    "steamAppId": 1817070,
+    "wiki": "https://en.wikipedia.org/wiki/Spider-Man_(2018_video_game)"
+  },
+  {
+    "name": "Marvel's Spider-Man 2",
+    "steamAppId": 2651280,
+    "wiki": "https://en.wikipedia.org/wiki/Spider-Man_2_(2023_video_game)"
+  },
+  {
+    "name": "The Last of Us Part I",
+    "steamAppId": 1888930,
+    "wiki": "https://en.wikipedia.org/wiki/The_Last_of_Us_Part_I"
+  },
+  {
+    "name": "The Last of Us Part II Remastered",
+    "steamAppId": 2531310,
+    "wiki": "https://en.wikipedia.org/wiki/The_Last_of_Us_Part_II"
+  },
+  {
+    "name": "Death Stranding",
+    "steamAppId": 1190460,
+    "wiki": "https://en.wikipedia.org/wiki/Death_Stranding"
+  },
+  {
+    "name": "Uncharted: Legacy of Thieves Collection",
+    "steamAppId": 1659420
+  },
+  {
+    "name": "Ratchet & Clank: Rift Apart",
+    "steamAppId": 1895880,
+    "wiki": "https://en.wikipedia.org/wiki/Ratchet_%26_Clank:_Rift_Apart"
+  },
+  {
+    "name": "Astro Bot",
+    "wiki": "https://en.wikipedia.org/wiki/Astro_Bot_(video_game)"
+  },
+  {
+    "name": "Gran Turismo 7",
+    "wiki": "https://en.wikipedia.org/wiki/Gran_Turismo_7"
+  },
+  {
+    "name": "Clair Obscur: Expedition 33",
+    "steamAppId": 1903340,
+    "wiki": "https://en.wikipedia.org/wiki/Clair_Obscur:_Expedition_33"
+  },
+  {
+    "name": "Mass Effect Legendary Edition",
+    "steamAppId": 1328670,
+    "wiki": "https://en.wikipedia.org/wiki/Mass_Effect_Legendary_Edition"
+  },
+  {
+    "name": "Disco Elysium",
+    "steamAppId": 632470,
+    "wiki": "https://en.wikipedia.org/wiki/Disco_Elysium"
+  },
+  {
+    "name": "Fallout: New Vegas",
+    "steamAppId": 22380,
+    "wiki": "https://en.wikipedia.org/wiki/Fallout:_New_Vegas"
+  },
+  {
+    "name": "The Elder Scrolls V: Skyrim Special Edition",
+    "steamAppId": 489830,
+    "wiki": "https://en.wikipedia.org/wiki/The_Elder_Scrolls_V:_Skyrim"
+  },
+  {
+    "name": "Half-Life 2",
+    "steamAppId": 220,
+    "wiki": "https://en.wikipedia.org/wiki/Half-Life_2"
+  },
+  {
+    "name": "Counter-Strike 2",
+    "steamAppId": 730,
+    "wiki": "https://en.wikipedia.org/wiki/Counter-Strike_2"
+  },
+  {
+    "name": "Dota 2",
+    "steamAppId": 570,
+    "wiki": "https://en.wikipedia.org/wiki/Dota_2"
+  },
+  {
+    "name": "Left 4 Dead 2",
+    "steamAppId": 550,
+    "wiki": "https://en.wikipedia.org/wiki/Left_4_Dead_2"
+  },
+  {
+    "name": "Team Fortress 2",
+    "steamAppId": 440,
+    "wiki": "https://en.wikipedia.org/wiki/Team_Fortress_2"
+  },
+  {
+    "name": "Terraria",
+    "steamAppId": 105600,
+    "wiki": "https://en.wikipedia.org/wiki/Terraria"
+  },
+  {
+    "name": "Stardew Valley",
+    "steamAppId": 413150,
+    "wiki": "https://en.wikipedia.org/wiki/Stardew_Valley"
+  },
+  {
+    "name": "Fortnite",
+    "wiki": "https://en.wikipedia.org/wiki/Fortnite"
+  },
+  {
+    "name": "Apex Legends",
+    "steamAppId": 1172470,
+    "wiki": "https://en.wikipedia.org/wiki/Apex_Legends"
+  },
+  {
+    "name": "Rocket League",
+    "steamAppId": 252950,
+    "wiki": "https://en.wikipedia.org/wiki/Rocket_League"
+  },
+  {
+    "name": "Among Us",
+    "steamAppId": 945360,
+    "wiki": "https://en.wikipedia.org/wiki/Among_Us"
+  },
+  {
+    "name": "Tom Clancy's Rainbow Six Siege",
+    "steamAppId": 359550,
+    "wiki": "https://en.wikipedia.org/wiki/Tom_Clancy%27s_Rainbow_Six_Siege"
+  },
+  {
+    "name": "PUBG: Battlegrounds",
+    "steamAppId": 578080,
+    "wiki": "https://en.wikipedia.org/wiki/PUBG:_Battlegrounds"
+  },
+  {
+    "name": "Destiny 2",
+    "steamAppId": 1085660,
+    "wiki": "https://en.wikipedia.org/wiki/Destiny_2"
+  },
+  {
+    "name": "Borderlands 2",
+    "steamAppId": 49520,
+    "wiki": "https://en.wikipedia.org/wiki/Borderlands_2"
+  },
+  {
+    "name": "DOOM",
+    "steamAppId": 379720,
+    "wiki": "https://en.wikipedia.org/wiki/Doom_(2016_video_game)"
+  },
+  {
+    "name": "Titanfall 2",
+    "steamAppId": 1237970,
+    "wiki": "https://en.wikipedia.org/wiki/Titanfall_2"
+  },
+  {
+    "name": "Subnautica",
+    "steamAppId": 264710,
+    "wiki": "https://en.wikipedia.org/wiki/Subnautica"
+  },
+  {
+    "name": "Don't Starve Together",
+    "steamAppId": 322330
+  },
+  {
+    "name": "RimWorld",
+    "steamAppId": 294100,
+    "wiki": "https://en.wikipedia.org/wiki/RimWorld"
+  },
+  {
+    "name": "Slay the Spire",
+    "steamAppId": 646570,
+    "wiki": "https://en.wikipedia.org/wiki/Slay_the_Spire"
+  },
+  {
+    "name": "Vampire Survivors",
+    "steamAppId": 1794680,
+    "wiki": "https://en.wikipedia.org/wiki/Vampire_Survivors"
+  },
+  {
+    "name": "The Binding of Isaac: Rebirth",
+    "steamAppId": 250900,
+    "wiki": "https://en.wikipedia.org/wiki/The_Binding_of_Isaac:_Rebirth"
+  },
+  {
+    "name": "Undertale",
+    "steamAppId": 391540,
+    "wiki": "https://en.wikipedia.org/wiki/Undertale"
+  },
+  {
+    "name": "Celeste",
+    "steamAppId": 504230,
+    "wiki": "https://en.wikipedia.org/wiki/Celeste_(video_game)"
+  },
+  {
+    "name": "Cuphead",
+    "steamAppId": 268910,
+    "wiki": "https://en.wikipedia.org/wiki/Cuphead"
+  },
+  {
+    "name": "Dead Cells",
+    "steamAppId": 588650,
+    "wiki": "https://en.wikipedia.org/wiki/Dead_Cells"
+  },
+  {
+    "name": "Ori and the Will of the Wisps",
+    "steamAppId": 1057090,
+    "wiki": "https://en.wikipedia.org/wiki/Ori_and_the_Will_of_the_Wisps"
+  },
+  {
+    "name": "Limbo",
+    "steamAppId": 48000,
+    "wiki": "https://en.wikipedia.org/wiki/Limbo_(video_game)"
+  },
+  {
+    "name": "Outer Wilds",
+    "steamAppId": 753640,
+    "wiki": "https://en.wikipedia.org/wiki/Outer_Wilds"
+  },
+  {
+    "name": "It Takes Two",
+    "steamAppId": 1426210,
+    "wiki": "https://en.wikipedia.org/wiki/It_Takes_Two_(video_game)"
+  },
+  {
+    "name": "Assassin's Creed Valhalla",
+    "steamAppId": 2208920,
+    "wiki": "https://en.wikipedia.org/wiki/Assassin%27s_Creed_Valhalla"
+  },
+  {
+    "name": "Assassin's Creed Odyssey",
+    "steamAppId": 812140,
+    "wiki": "https://en.wikipedia.org/wiki/Assassin%27s_Creed_Odyssey"
+  },
+  {
+    "name": "Assassin's Creed II",
+    "steamAppId": 33230,
+    "wiki": "https://en.wikipedia.org/wiki/Assassin%27s_Creed_II"
+  },
+  {
+    "name": "Far Cry 5",
+    "steamAppId": 552520,
+    "wiki": "https://en.wikipedia.org/wiki/Far_Cry_5"
+  },
+  {
+    "name": "Batman: Arkham Knight",
+    "steamAppId": 208650,
+    "wiki": "https://en.wikipedia.org/wiki/Batman:_Arkham_Knight"
+  },
+  {
+    "name": "Star Wars Jedi: Fallen Order",
+    "steamAppId": 1172380,
+    "wiki": "https://en.wikipedia.org/wiki/Star_Wars_Jedi:_Fallen_Order"
+  },
+  {
+    "name": "Persona 5 Royal",
+    "steamAppId": 1687950,
+    "wiki": "https://en.wikipedia.org/wiki/Persona_5"
+  },
+  {
+    "name": "Yakuza 0",
+    "steamAppId": 638970,
+    "wiki": "https://en.wikipedia.org/wiki/Yakuza_0"
+  },
+  {
+    "name": "Sonic Mania",
+    "steamAppId": 584400,
+    "wiki": "https://en.wikipedia.org/wiki/Sonic_Mania"
+  },
+  {
+    "name": "Street Fighter 6",
+    "steamAppId": 1364780,
+    "wiki": "https://en.wikipedia.org/wiki/Street_Fighter_6"
+  },
+  {
+    "name": "Mortal Kombat 1",
+    "steamAppId": 1971870,
+    "wiki": "https://en.wikipedia.org/wiki/Mortal_Kombat_1"
+  },
+  {
+    "name": "Resident Evil 4",
+    "steamAppId": 2050650,
+    "wiki": "https://en.wikipedia.org/wiki/Resident_Evil_4_(2023_video_game)"
+  },
+  {
+    "name": "Resident Evil Village",
+    "steamAppId": 1196590,
+    "wiki": "https://en.wikipedia.org/wiki/Resident_Evil_Village"
+  },
+  {
+    "name": "Resident Evil 2",
+    "steamAppId": 883710,
+    "wiki": "https://en.wikipedia.org/wiki/Resident_Evil_2_(2019_video_game)"
+  },
+  {
+    "name": "Devil May Cry 5",
+    "steamAppId": 601150,
+    "wiki": "https://en.wikipedia.org/wiki/Devil_May_Cry_5"
+  },
+  {
+    "name": "Sea of Thieves",
+    "steamAppId": 1172620,
+    "wiki": "https://en.wikipedia.org/wiki/Sea_of_Thieves"
+  },
+  {
+    "name": "Forza Horizon 5",
+    "steamAppId": 1551360,
+    "wiki": "https://en.wikipedia.org/wiki/Forza_Horizon_5"
+  },
+  {
+    "name": "Halo: The Master Chief Collection",
+    "steamAppId": 976730,
+    "wiki": "https://en.wikipedia.org/wiki/Halo:_The_Master_Chief_Collection"
+  },
+  {
+    "name": "Halo Infinite",
+    "steamAppId": 1240440,
+    "wiki": "https://en.wikipedia.org/wiki/Halo_Infinite"
+  },
+  {
+    "name": "Helldivers 2",
+    "steamAppId": 553850,
+    "wiki": "https://en.wikipedia.org/wiki/Helldivers_2"
+  },
+  {
+    "name": "Lethal Company",
+    "steamAppId": 1966720,
+    "wiki": "https://en.wikipedia.org/wiki/Lethal_Company"
+  },
+  {
+    "name": "Phasmophobia",
+    "steamAppId": 739630,
+    "wiki": "https://en.wikipedia.org/wiki/Phasmophobia_(video_game)"
+  },
+  {
+    "name": "Dead by Daylight",
+    "steamAppId": 381210,
+    "wiki": "https://en.wikipedia.org/wiki/Dead_by_Daylight"
+  },
+  {
+    "name": "Euro Truck Simulator 2",
+    "steamAppId": 227300,
+    "wiki": "https://en.wikipedia.org/wiki/Euro_Truck_Simulator_2"
+  },
+  {
+    "name": "Mafia: Definitive Edition",
+    "steamAppId": 1030840,
+    "wiki": "https://en.wikipedia.org/wiki/Mafia:_Definitive_Edition"
+  },
+  {
+    "name": "Metal Gear Solid V: The Phantom Pain",
+    "steamAppId": 287700,
+    "wiki": "https://en.wikipedia.org/wiki/Metal_Gear_Solid_V:_The_Phantom_Pain"
+  },
+  {
+    "name": "Tomb Raider",
+    "steamAppId": 203160,
+    "wiki": "https://en.wikipedia.org/wiki/Tomb_Raider_(2013_video_game)"
+  },
+  {
+    "name": "Control",
+    "steamAppId": 870780,
+    "wiki": "https://en.wikipedia.org/wiki/Control_(video_game)"
+  },
+  {
+    "name": "Risk of Rain 2",
+    "steamAppId": 632360,
+    "wiki": "https://en.wikipedia.org/wiki/Risk_of_Rain_2"
+  },
+  {
+    "name": "Age of Empires II: Definitive Edition",
+    "steamAppId": 813780,
+    "wiki": "https://en.wikipedia.org/wiki/Age_of_Empires_II:_Definitive_Edition"
+  },
+  {
+    "name": "Crash Bandicoot N. Sane Trilogy",
+    "steamAppId": 731490,
+    "wiki": "https://en.wikipedia.org/wiki/Crash_Bandicoot_N._Sane_Trilogy"
+  },
+  {
+    "name": "Brotato",
+    "steamAppId": 1942280,
+    "wiki": "https://en.wikipedia.org/wiki/Brotato"
+  },
+  {
+    "name": "Balatro",
+    "steamAppId": 2379780,
+    "wiki": "https://en.wikipedia.org/wiki/Balatro_(video_game)"
+  },
+  {
+    "name": "Cult of the Lamb",
+    "steamAppId": 1313140,
+    "wiki": "https://en.wikipedia.org/wiki/Cult_of_the_Lamb"
+  },
+  {
+    "name": "Dying Light",
+    "steamAppId": 239140,
+    "wiki": "https://en.wikipedia.org/wiki/Dying_Light"
+  },
+  {
+    "name": "Dead Space",
+    "steamAppId": 1693980,
+    "wiki": "https://en.wikipedia.org/wiki/Dead_Space_(2023_video_game)"
+  },
+  {
+    "name": "LEGO Star Wars: The Skywalker Saga",
+    "steamAppId": 920210,
+    "wiki": "https://en.wikipedia.org/wiki/Lego_Star_Wars:_The_Skywalker_Saga"
+  },
+  {
+    "name": "BioShock Infinite",
+    "steamAppId": 8870,
+    "wiki": "https://en.wikipedia.org/wiki/BioShock_Infinite"
+  },
+  {
+    "name": "Dandara",
+    "steamAppId": 612390,
+    "wiki": "https://en.wikipedia.org/wiki/Dandara_(video_game)"
+  },
+  {
+    "name": "Horizon Chase Turbo",
+    "steamAppId": 389140,
+    "wiki": "https://en.wikipedia.org/wiki/Horizon_Chase"
+  },
+  {
+    "name": "Blazing Chrome",
+    "steamAppId": 609110,
+    "wiki": "https://en.wikipedia.org/wiki/Blazing_Chrome"
+  },
+  {
+    "name": "Kingdom Two Crowns",
+    "steamAppId": 701160,
+    "wiki": "https://en.wikipedia.org/wiki/Kingdom_Two_Crowns"
+  },
+  {
+    "name": "eFootball",
+    "steamAppId": 1665460,
+    "wiki": "https://en.wikipedia.org/wiki/EFootball"
+  },
+  {
+    "name": "The Legend of Zelda: Breath of the Wild",
+    "wiki": "https://en.wikipedia.org/wiki/The_Legend_of_Zelda:_Breath_of_the_Wild"
+  },
+  {
+    "name": "The Legend of Zelda: Tears of the Kingdom",
+    "wiki": "https://en.wikipedia.org/wiki/The_Legend_of_Zelda:_Tears_of_the_Kingdom"
+  },
+  {
+    "name": "The Legend of Zelda: Echoes of Wisdom",
+    "wiki": "https://en.wikipedia.org/wiki/The_Legend_of_Zelda:_Echoes_of_Wisdom"
+  },
+  {
+    "name": "Animal Crossing: New Horizons",
+    "wiki": "https://en.wikipedia.org/wiki/Animal_Crossing:_New_Horizons"
+  },
+  {
+    "name": "Pokémon Scarlet and Violet",
+    "wiki": "https://en.wikipedia.org/wiki/Pok%C3%A9mon_Scarlet_and_Violet"
+  },
+  {
+    "name": "Pokémon Legends: Arceus",
+    "wiki": "https://en.wikipedia.org/wiki/Pok%C3%A9mon_Legends:_Arceus"
+  },
+  {
+    "name": "Pokémon Legends: Z-A",
+    "wiki": "https://en.wikipedia.org/wiki/Pok%C3%A9mon_Legends:_Z-A"
+  },
+  {
+    "name": "Metroid Dread",
+    "wiki": "https://en.wikipedia.org/wiki/Metroid_Dread"
+  },
+  {
+    "name": "Splatoon 3",
+    "wiki": "https://en.wikipedia.org/wiki/Splatoon_3"
+  },
+  {
+    "name": "Fire Emblem: Three Houses",
+    "wiki": "https://en.wikipedia.org/wiki/Fire_Emblem:_Three_Houses"
+  },
+  {
+    "name": "Kirby and the Forgotten Land",
+    "wiki": "https://en.wikipedia.org/wiki/Kirby_and_the_Forgotten_Land"
+  },
+  {
+    "name": "Pikmin 4",
+    "wiki": "https://en.wikipedia.org/wiki/Pikmin_4"
+  }
+]

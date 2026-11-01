@@ -125,6 +125,37 @@ export interface ArticlePatch {
 
 const ITEM_STATUSES = "'new','triaged','dropped','clustered','bf_new','bf_triaged'";
 
+/**
+ * Pautas Tralked (evergreen pieces on famous games). `ready`, `published`, `failed` and `skipped` (no
+ * catalog game or no material: the game rests 60 days) are shared by both modes; `bf_planned` (sources
+ * gathered, waiting for or inside a batch) and `bf_drafted` (batch draft waiting for the check) belong to
+ * the backfill only.
+ */
+export type PautaStatus = "ready" | "published" | "failed" | "skipped" | "bf_planned" | "bf_drafted";
+const PAUTA_STATUS_LIST = "'ready','published','failed','skipped','bf_planned','bf_drafted'";
+const PAUTA_FORMAT_LIST = "'vale-o-100','mais-raras','perdiveis','iniciantes'";
+
+export interface PautaRow {
+  id: number;
+  game_name: string;
+  game_slug: string | null;
+  format: string | null;
+  status: PautaStatus;
+  mode: StoryMode;
+  /** The local day the pauta belongs to (today for live ones, the backdated day in the backfill). */
+  story_date: string;
+  site_id: string | null;
+  slug: string | null;
+  published_at: string | null;
+  created_at: string;
+  /** The `StoryForWriting` given to the writer (backfill: kept for the check and rewrite). */
+  writing_json: string | null;
+  draft_json: string | null;
+  payload_json: string | null;
+  batch_id: string | null;
+  error: string | null;
+}
+
 const ITEM_COLUMNS = [
   "id",
   "url",
@@ -239,6 +270,27 @@ CREATE TABLE IF NOT EXISTS alerts (
   message TEXT NOT NULL,
   emailed INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS pautas (
+  id INTEGER PRIMARY KEY,
+  game_name TEXT NOT NULL,
+  game_slug TEXT,
+  format TEXT CHECK (format IS NULL OR format IN (${PAUTA_FORMAT_LIST})),
+  status TEXT NOT NULL CHECK (status IN (${PAUTA_STATUS_LIST})),
+  mode TEXT NOT NULL CHECK (mode IN ('live','backfill')),
+  story_date TEXT NOT NULL,
+  site_id TEXT,
+  slug TEXT,
+  published_at TEXT,
+  created_at TEXT NOT NULL,
+  writing_json TEXT,
+  draft_json TEXT,
+  payload_json TEXT,
+  batch_id TEXT,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pautas_status ON pautas(status, published_at);
+CREATE INDEX IF NOT EXISTS idx_pautas_game ON pautas(game_name, story_date);
 `;
 
 /** Columns added after the first release: added to existing databases on open. */
@@ -515,8 +567,13 @@ export function openDb(dir: string): Db {
       const mid = Date.parse(`${day}T12:00:00Z`);
       const from = iso(new Date(mid - 2 * DAY_MS));
       const to = iso(new Date(mid + 2 * DAY_MS));
+      // Pautas count toward the daily cap like news.
       return rows<{ published_at: string }>(
-        "SELECT published_at FROM articles WHERE status = 'published' AND published_at >= ? AND published_at <= ?",
+        `SELECT published_at FROM articles WHERE status = 'published' AND published_at >= ? AND published_at <= ?
+         UNION ALL
+         SELECT published_at FROM pautas WHERE status = 'published' AND published_at >= ? AND published_at <= ?`,
+        from,
+        to,
         from,
         to,
       ).filter((r) => localDay(new Date(r.published_at)) === day).length;

@@ -1,5 +1,12 @@
 import type { Draft, DraftBlock } from "./ai/writer.js";
-import { ARTICLE_PLATFORMS, type ArticlePayload, type ArticlePlatform, type ContentBlock, type Insights } from "./tralked.js";
+import {
+  ARTICLE_PLATFORMS,
+  type ArticleCategory,
+  type ArticlePayload,
+  type ArticlePlatform,
+  type ContentBlock,
+  type Insights,
+} from "./tralked.js";
 import { normalizeUrl } from "./url.js";
 
 /**
@@ -224,7 +231,10 @@ function parentLink(parent: { title: string; url: string }): ContentBlock | null
   return paragraph(`Entenda o caso: [${title}](${url})`);
 }
 
-export function assemble(draft: Draft, story: AssembleStory, opts: AssembleOpts): ArticlePayload {
+/** A writer draft, or a pauta draft whose category was set in code after drafting (GUIAS included). */
+export type AssembleDraft = Omit<Draft, "category"> & { category: ArticleCategory };
+
+export function assemble(draft: AssembleDraft, story: AssembleStory, opts: AssembleOpts): ArticlePayload {
   const blocks: ContentBlock[] = [];
 
   if (opts.updatedAt) blocks.push(paragraph(`*Atualizado às ${timeFmt.format(opts.updatedAt)}*`));
