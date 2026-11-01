@@ -1,0 +1,53 @@
+# Fills in Steam store details (summary, studio, dates, art, achievements) of the whole catalog,
+# straight against the production database, so the Vercel function quota stays for the site.
+# Games players need go first (opened, owned, wished), then the most popular. Each run works up
+# to 5.5 h and stops early once the queue is empty, so the 6-hourly schedule keeps one run going
+# while there is work, and costs about a minute per run afterwards (new Steam releases).
+# Needs the repository secrets DATABASE_URL (Neon, unpooled) and STEAM_API_KEY. Unlimited
+# Actions minutes only while the repository is public: on a private one, run it by hand.
+name: steam-details
+
+on:
+  schedule:
+    - cron: "10 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Hours to work (at most 5.5)"
+        required: true
+        default: "5.5"
+
+# One worker at a time: a run that is still going makes the next one wait.
+concurrency:
+  group: steam-details
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Fill in Steam details
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          STEAM_API_KEY: ${{ secrets.STEAM_API_KEY }}
+          APP_URL: https://tralked.com
+          HOURS: ${{ github.event.inputs.hours || '5.5' }}
+        run: |
+          # Production mode asks for these two; the worker signs nothing, so throwaway values do.
+          export SESSION_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 16)"
+          pnpm steam:details --hours "$HOURS"

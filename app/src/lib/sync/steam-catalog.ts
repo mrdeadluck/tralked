@@ -40,6 +40,10 @@ const MAX_TRAILERS = 2;
 
 const APP_LIST_CURSOR = "steam-applist";
 const POPULARITY_CURSOR = "steamspy-popularity";
+/** Lease of the long-running details worker (scripts/steam-details-worker.ts). */
+const DETAILS_WORKER_CURSOR = "steam-details-worker";
+/** While a worker lease runs, the cron job leaves details to the worker (no game is done twice). */
+export const DETAILS_WORKER_LEASE_MS = 15 * 60_000;
 
 export type AppListCursor = {
   /** Next page starts after this appid (0: a new pass). */
@@ -59,7 +63,8 @@ export type SteamCatalogDeps = {
   now: () => number;
 };
 
-function defaultDeps(): SteamCatalogDeps {
+/** The real Steam, store, SteamSpy and CDN clients (one polite fetch shared by every caller). */
+export function createSteamCatalogDeps(): SteamCatalogDeps {
   return {
     steam: getSteam(),
     politeFetch:
@@ -88,7 +93,7 @@ export type AppListResult = { status: "ok" | "unsupported"; pages: number; apps:
 /** Step 1: imports app-list pages until `deadline` (at least one page when there is time). */
 export async function importSteamAppList(
   deadline: number,
-  deps: Pick<SteamCatalogDeps, "steam" | "now"> = defaultDeps(),
+  deps: Pick<SteamCatalogDeps, "steam" | "now"> = createSteamCatalogDeps(),
   pageSize = APP_LIST_PAGE,
 ): Promise<AppListResult> {
   const result: AppListResult = { status: "ok", pages: 0, apps: 0, passDone: false };
@@ -262,33 +267,67 @@ export async function syncSteamDetails(appId: number, deps: SteamCatalogDeps): P
   return true;
 }
 
-export type DetailsResult = { processed: number; failed: number; skipped?: "offline" };
+export type DetailsResult = { processed: number; failed: number; skipped?: "offline" | "worker" };
 
-/** Step 3: fills in details of the most needed games until `deadline`. */
+const isUniqueViolation = (error: unknown) =>
+  typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002";
+
+/**
+ * Step 3: fills in details of the most needed games until `deadline`, `concurrency` games at a
+ * time (the polite fetch is shared, so the per-host gaps hold however many are in flight).
+ */
 export async function syncCatalogDetails(
   deadline: number,
-  deps: SteamCatalogDeps = defaultDeps(),
+  deps: SteamCatalogDeps = createSteamCatalogDeps(),
   limit = DETAILS_BATCH,
+  concurrency = 1,
 ): Promise<DetailsResult> {
   if (!deps.politeFetch) return { processed: 0, failed: 0, skipped: "offline" };
   let processed = 0;
   let failed = 0;
-  for (const { id, steamAppId } of await detailsCandidates(limit)) {
-    if (deps.now() >= deadline) break;
-    try {
-      await syncSteamDetails(steamAppId, deps);
-      processed++;
-    } catch (error) {
-      failed++;
-      console.error(`Steam details: could not sync app ${steamAppId}`, error);
-      // Back of the queue (a request is not retried forever at the top).
-      await prisma.game.update({
-        where: { id },
-        data: { lastSyncAttemptAt: new Date(deps.now()), detailsRequestedAt: null },
-      });
+  const queue = await detailsCandidates(limit);
+  let next = 0;
+  const work = async () => {
+    while (next < queue.length && deps.now() < deadline) {
+      const { id, steamAppId } = queue[next++];
+      try {
+        try {
+          await syncSteamDetails(steamAppId, deps);
+        } catch (error) {
+          // Two games of the same name renamed at once both chose the free slug: once the other
+          // one is written, this one takes the slug with its appid.
+          if (!isUniqueViolation(error)) throw error;
+          await syncSteamDetails(steamAppId, deps);
+        }
+        processed++;
+      } catch (error) {
+        failed++;
+        console.error(`Steam details: could not sync app ${steamAppId}`, error);
+        // Back of the queue (a request is not retried forever at the top).
+        await prisma.game.update({
+          where: { id },
+          data: { lastSyncAttemptAt: new Date(deps.now()), detailsRequestedAt: null },
+        });
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, queue.length)) }, work));
   return { processed, failed };
+}
+
+/** The details worker holds (or renews) its lease: called before each of its batches. */
+export async function holdDetailsWorkerLease(now = Date.now()): Promise<void> {
+  await writeCursor(DETAILS_WORKER_CURSOR, { until: now + DETAILS_WORKER_LEASE_MS });
+}
+
+/** The details worker is done: the cron job takes details again from its next run. */
+export async function releaseDetailsWorkerLease(): Promise<void> {
+  await writeCursor(DETAILS_WORKER_CURSOR, { until: 0 });
+}
+
+async function detailsWorkerActive(now: number): Promise<boolean> {
+  const lease = await readCursor<{ until: number }>(DETAILS_WORKER_CURSOR);
+  return (lease?.until ?? 0) > now;
 }
 
 export type SteamCatalogResult = {
@@ -301,11 +340,12 @@ export type SteamCatalogResult = {
 
 /**
  * Cron job `steam-catalog`: app list (≤ 40% of the budget), one popularity page, then details
- * until the budget ends. Each step is resumable, so work left over continues next run.
+ * until the budget ends (unless the details worker holds its lease). Each step is resumable, so
+ * work left over continues next run.
  */
 export async function runSteamCatalogJob(
   budgetMs = STEAM_CATALOG_BUDGET_MS,
-  deps: SteamCatalogDeps = defaultDeps(),
+  deps: SteamCatalogDeps = createSteamCatalogDeps(),
 ): Promise<SteamCatalogResult> {
   const start = deps.now();
   const deadline = start + budgetMs;
@@ -326,7 +366,9 @@ export async function runSteamCatalogJob(
       console.error("Steam catalog: popularity refresh failed", error);
     }
   }
-  const details = await syncCatalogDetails(deadline, deps);
+  const details: DetailsResult = (await detailsWorkerActive(deps.now()))
+    ? { processed: 0, failed: 0, skipped: "worker" }
+    : await syncCatalogDetails(deadline, deps);
   return {
     processed: appList.apps + details.processed,
     failed: failed + details.failed,

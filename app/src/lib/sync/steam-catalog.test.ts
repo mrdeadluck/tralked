@@ -107,7 +107,9 @@ describe.skipIf(!reachable)("steam catalog", () => {
     await prisma.game.deleteMany({
       where: { OR: [{ steamAppId: { gte: APP_BASE, lt: APP_BASE + 1000 } }, { steamAppId: DUPLICATE_NAME_APP }] },
     });
-    await prisma.syncCursor.deleteMany({ where: { key: { in: ["steam-applist", "steamspy-popularity"] } } });
+    await prisma.syncCursor.deleteMany({
+      where: { key: { in: ["steam-applist", "steamspy-popularity", "steam-details-worker"] } },
+    });
   }
   beforeAll(cleanup);
   afterAll(async () => {
@@ -212,6 +214,59 @@ describe.skipIf(!reachable)("steam catalog", () => {
     // Art was checked with HEAD before it was written; the store was read in pt-BR.
     expect(calls).toContain(`HEAD ${CDN}/${appId}/library_hero.jpg`);
     expect(calls.some((c) => c.includes("l=brazilian"))).toBe(true);
+  });
+
+  it("works on several games at once for the details worker, and same-name renames do not collide", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { ensureSteamGames } = await import("./steam-games");
+    const { requestGameDetails, syncCatalogDetails } = await import("./steam-catalog");
+    // The fake store names every app "Farol Distante": three stubs race for one slug.
+    const appIds = [APP_BASE + 10, APP_BASE + 11, APP_BASE + 12];
+    const ids = await ensureSteamGames(appIds.map((appId) => ({ appId })));
+    for (const appId of appIds) await requestGameDetails(ids.get(appId)!, new Date(0));
+
+    const networks = new Map(appIds.map((appId) => [appId, fakeNetwork(appId).politeFetch]));
+    let inFlight = 0;
+    let peak = 0;
+    const politeFetch = async (url: string, init?: RequestInit) => {
+      const appId = Number(/(?:appids?=|\/apps\/)(\d+)/.exec(url)?.[1]);
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return await networks.get(appId)!(url, init);
+      } finally {
+        inFlight--;
+      }
+    };
+    const deps = { steam: fakeSteam(), politeFetch, igdb: noIgdb, sgdb: noSgdb, now: Date.now };
+    expect(await syncCatalogDetails(Date.now() + 60_000, deps, 3, 3)).toEqual({ processed: 3, failed: 0 });
+    expect(peak).toBeGreaterThan(1);
+
+    const games = await prisma.game.findMany({ where: { steamAppId: { in: appIds } } });
+    expect(games.map((g) => [g.name, g.stub, g.detailsSyncedAt !== null])).toEqual(
+      appIds.map(() => ["Farol Distante", false, true]),
+    );
+    expect(new Set(games.map((g) => g.slug)).size).toBe(3);
+  });
+
+  it("the cron job leaves details to the worker while its lease holds", async () => {
+    const { ensureSteamGames } = await import("./steam-games");
+    const { holdDetailsWorkerLease, releaseDetailsWorkerLease, requestGameDetails, runSteamCatalogJob } = await import(
+      "./steam-catalog"
+    );
+    const appId = APP_BASE + 20;
+    const ids = await ensureSteamGames([{ appId }]);
+    await requestGameDetails(ids.get(appId)!, new Date(0));
+    const deps = { steam: fakeSteam(), politeFetch: fakeNetwork(appId).politeFetch, igdb: noIgdb, sgdb: noSgdb, now: Date.now };
+
+    await holdDetailsWorkerLease();
+    expect((await runSteamCatalogJob(5_000, deps)).details).toEqual({ processed: 0, failed: 0, skipped: "worker" });
+    await releaseDetailsWorkerLease();
+    expect((await runSteamCatalogJob(5_000, deps)).details.processed).toBeGreaterThan(0);
+    // Each run also turned the popularity page: start the rotation over for the next test.
+    const { prisma } = await import("@/lib/db");
+    await prisma.syncCursor.deleteMany({ where: { key: "steamspy-popularity" } });
   });
 
   it("a failed or empty achievement schema keeps the count the game had; a real name keeps its slug", async () => {
