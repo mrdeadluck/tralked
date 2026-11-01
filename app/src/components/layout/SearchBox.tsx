@@ -45,7 +45,8 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const expanded = open && suggestions.length > 0;
+  // Typing hides "EM ALTA": Enter searches the catalog (/jogos?q=…).
+  const expanded = open && suggestions.length > 0 && value.trim() === "";
 
   function handleFocus() {
     if (skipNextOpen.current) {
@@ -56,7 +57,7 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
   }
 
   // O painel fica aberto enquanto o foco estiver dentro do container.
-  function handleBlur(event: FocusEvent<HTMLDivElement>) {
+  function handleBlur(event: FocusEvent<HTMLFormElement>) {
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }
 
@@ -64,7 +65,7 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
     optionRefs.current[index]?.focus();
   }
 
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  function handleKeyDown(event: KeyboardEvent<HTMLFormElement>) {
     const target = event.target as HTMLElement;
     const optionIndex = optionRefs.current.indexOf(
       target as HTMLAnchorElement,
@@ -106,8 +107,13 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
   }
 
   return (
-    <div
+    <form
       role="search"
+      action="/jogos"
+      method="get"
+      onSubmit={(event) => {
+        if (!value.trim()) event.preventDefault();
+      }}
       onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
@@ -120,6 +126,7 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
         <input
           ref={inputRef}
           type="search"
+          name="q"
           role="combobox"
           aria-expanded={expanded}
           aria-controls={expanded ? listboxId : undefined}
@@ -131,8 +138,8 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
             setOpen(true);
           }}
           autoComplete="off"
-          placeholder="Buscar notícias, jogos, autores"
-          aria-label="Buscar notícias, jogos, autores"
+          placeholder="Buscar jogos"
+          aria-label="Buscar jogos"
           className="min-w-0 flex-1 border-0 bg-transparent text-sm text-text outline-0"
         />
         <span
@@ -182,6 +189,6 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
           </div>
         </div>
       ) : null}
-    </div>
+    </form>
   );
 }
