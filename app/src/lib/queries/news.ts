@@ -671,23 +671,45 @@ export type PressArea = (typeof PRESS_AREAS)[number];
 export const isPressArea = (category: ArticleCategory | null): category is PressArea =>
   (PRESS_AREAS as readonly string[]).includes(category ?? "");
 
-/** Latest external headlines of one feed area, newest first. Same URL guard as getExternalHeadlines. */
+const headlineSelect = {
+  id: true,
+  title: true,
+  url: true,
+  source: true,
+  publishedAt: true,
+  game: { select: { slug: true, name: true } },
+} as const;
+
+/** Absolute https link (feed URLs are untrusted; plain http is not linked from the press lists). */
+const isHttpsUrl = (url: string) => isSafeHttpUrl(url) && url.startsWith("https://");
+
+/** Latest external headlines of one feed area, newest first. Only https links. */
 export async function getAreaHeadlines(area: NewsFeedArea, limit: number): Promise<ExternalHeadline[]> {
   const rows = await prisma.externalNews.findMany({
+    where: { area, url: { startsWith: "https://" } },
+    orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+    take: limit,
+    select: headlineSelect,
+  });
+  return rows.filter((row) => isHttpsUrl(row.url));
+}
+
+/**
+ * Headlines for the "Em circulação" wire ("da imprensa de games"): the Games feeds, plus
+ * Entretenimento/Tecnologia headlines only when they are linked to a catalog game. General tech
+ * and entertainment news stays in its own tab. Same URL guard as getExternalHeadlines.
+ */
+export async function getWireHeadlines(limit: number): Promise<ExternalHeadline[]> {
+  const rows = await prisma.externalNews.findMany({
     where: {
-      area,
-      OR: [{ url: { startsWith: "https://" } }, { url: { startsWith: "http://" } }],
+      AND: [
+        { OR: [{ area: "GAMES" }, { gameId: { not: null } }] },
+        { OR: [{ url: { startsWith: "https://" } }, { url: { startsWith: "http://" } }] },
+      ],
     },
     orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
     take: limit,
-    select: {
-      id: true,
-      title: true,
-      url: true,
-      source: true,
-      publishedAt: true,
-      game: { select: { slug: true, name: true } },
-    },
+    select: headlineSelect,
   });
   return rows.filter((row) => isSafeHttpUrl(row.url));
 }

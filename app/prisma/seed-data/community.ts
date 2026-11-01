@@ -34,7 +34,7 @@ export const AREA_EXTERNAL_NEWS: {
   gameSlug: string | null;
   agoHours: number;
 }[] = [
-  { title: "Série animada de Hades ganha primeiro teaser (exemplo)", url: "https://example.com/tela/hades-serie-animada-teaser", source: "Tela Fictícia", area: "ENTRETENIMENTO", gameSlug: "hades", agoHours: 3 },
+  { title: "Série animada do jogo Hades ganha primeiro teaser (exemplo)", url: "https://example.com/tela/hades-serie-animada-teaser", source: "Tela Fictícia", area: "ENTRETENIMENTO", gameSlug: "hades", agoHours: 3 },
   { title: "Filme de Elden Ring define elenco principal (exemplo)", url: "https://example.com/tela/elden-ring-filme-elenco", source: "Tela Fictícia", area: "ENTRETENIMENTO", gameSlug: "elden-ring", agoHours: 26 },
   { title: "Anime baseado em jogo de luta estreia em janeiro (exemplo)", url: "https://example.org/anime/jogo-de-luta-estreia", source: "Anime Exemplo", area: "ENTRETENIMENTO", gameSlug: null, agoHours: 52 },
   { title: "Nova geração de placas de vídeo promete ray tracing mais barato (exemplo)", url: "https://example.com/bit/placas-de-video-nova-geracao", source: "Bit Exemplo", area: "TECNOLOGIA", gameSlug: null, agoHours: 4 },

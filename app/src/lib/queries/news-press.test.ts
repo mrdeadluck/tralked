@@ -116,6 +116,38 @@ describe.skipIf(!reachable)("press headlines and article games (seeded database)
     expect([...press.ENTRETENIMENTO, ...press.TECNOLOGIA].some((h) => h.game?.slug === "hollow-knight")).toBe(false);
   });
 
+  it("getAreaHeadlines links only https items", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getAreaHeadlines } = await import("./news");
+    const url = "http://example.com/bit/press-http-only-test";
+    await prisma.externalNews.deleteMany({ where: { url } });
+    try {
+      await prisma.externalNews.create({
+        data: { url, title: "Manchete http", source: "Bit Exemplo", area: "TECNOLOGIA", publishedAt: new Date() },
+      });
+      const tec = await getAreaHeadlines("TECNOLOGIA", 10);
+      expect(tec.length).toBeGreaterThan(0);
+      expect(tec.every((h) => h.url.startsWith("https://"))).toBe(true);
+    } finally {
+      await prisma.externalNews.deleteMany({ where: { url } });
+    }
+  });
+
+  it("getWireHeadlines keeps the wire about games: Games feeds plus game-linked press items", async () => {
+    const { getWireHeadlines } = await import("./news");
+    const wire = await getWireHeadlines(50);
+    const titles = wire.map((h) => h.title);
+    // Games feed headlines (Hollow Knight) are on the wire.
+    expect(wire.filter((h) => h.game?.slug === "hollow-knight")).toHaveLength(6);
+    // Press items linked to a catalog game are too...
+    expect(titles).toContain("Série animada do jogo Hades ganha primeiro teaser (exemplo)");
+    expect(titles).toContain("Portátil para PC roda Elden Ring a 60 fps nos testes (exemplo)");
+    // ...but general tech/entertainment news is not.
+    expect(titles).not.toContain("Nova geração de placas de vídeo promete ray tracing mais barato (exemplo)");
+    expect(titles).not.toContain("IA nos estúdios: como equipes de games usam a ferramenta nos bastidores (exemplo)");
+    expect(titles).not.toContain("Anime baseado em jogo de luta estreia em janeiro (exemplo)");
+  });
+
   it("getArticle gives each related game its catalog cover (media cover first) or null", async () => {
     const { prisma } = await import("@/lib/db");
     const { getArticle } = await import("./news");

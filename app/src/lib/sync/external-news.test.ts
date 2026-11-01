@@ -112,6 +112,8 @@ describe.skipIf(!reachable)("syncExternalNews areas (Plan 4 F7)", () => {
   const ENT = `<rss><channel>
 ${areaItem("Anime de Elden Ring é anunciado", "ent-elden")}
 ${areaItem("Série de Fallout renovada para a 3ª temporada", "ent-fallout")}
+${areaItem("Dead Space: filme de terror espacial ganha diretor", "ent-dead-space-film")}
+${areaItem("Filme do jogo Dead Space ganha diretor", "ent-dead-space-game")}
 ${areaItem("Hades: filme sobre mitologia grega estreia", "ent-hades-myth")}
 ${areaItem("Jogos Vorazes: novo filme ganha trailer", "ent-hunger")}
 ${areaItem("Nova placa de vídeo chega às lojas", "ent-gpu")}
@@ -155,8 +157,10 @@ ${areaItem("Banco lança novo aplicativo", "tec-bank")}
       orderBy: { url: "asc" },
     });
     expect(stored.map((n) => [n.url.slice(BASE.length), n.area, n.game?.slug ?? null, n.source])).toEqual([
+      // A catalog name alone neither keeps nor links ("Dead Space: filme..."); with "jogo" it does.
+      // "Série de Fallout" has no gaming signal (Fallout is also an ordinary word): dropped.
+      ["ent-dead-space-game", "ENTRETENIMENTO", "dead-space", "Teste Entretenimento"],
       ["ent-elden", "ENTRETENIMENTO", "elden-ring", "Teste Entretenimento"],
-      ["ent-fallout", "ENTRETENIMENTO", null, "Teste Entretenimento"],
       ["tec-ai", "TECNOLOGIA", null, "Teste Tecnologia"],
       ["tec-gpu", "TECNOLOGIA", null, "Teste Tecnologia"],
     ]);

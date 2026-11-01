@@ -4,17 +4,17 @@ import { useRouter } from "next/navigation";
 import { useId, useState, useTransition, type FormEvent } from "react";
 import { saveFeedAction } from "@/app/admin/feeds/actions";
 import { NEWS_FEED_AREA_HINT, NEWS_FEED_AREA_LABEL, NEWS_FEED_AREAS, toNewsFeedArea, type NewsFeedArea } from "@/lib/news/areas";
-import { HINT, INPUT, LABEL, SELECT, SMALL_BUTTON } from "./ui";
+import { BUTTON_TONE, HINT, INPUT, LABEL, SELECT, SMALL_BUTTON_SHAPE } from "./ui";
 
 type Feed = { id: string; name: string; url: string; active: boolean; area: string };
 
 /** Create (no `feed`) or edit an RSS feed. The URL must be https; the area decides what is kept. */
-export function FeedForm({ feed, defaultArea = "GAMES" }: { feed?: Feed; defaultArea?: NewsFeedArea }) {
+export function FeedForm({ feed }: { feed?: Feed }) {
   const router = useRouter();
   const id = useId();
   const [name, setName] = useState(feed?.name ?? "");
   const [url, setUrl] = useState(feed?.url ?? "");
-  const [area, setArea] = useState<NewsFeedArea>(feed ? toNewsFeedArea(feed.area) : defaultArea);
+  const [area, setArea] = useState<NewsFeedArea>(feed ? toNewsFeedArea(feed.area) : "GAMES");
   const [notice, setNotice] = useState<{ ok: boolean; text: string; field?: string } | null>(null);
   const [pending, start] = useTransition();
 
@@ -90,7 +90,7 @@ export function FeedForm({ feed, defaultArea = "GAMES" }: { feed?: Feed; default
         {NEWS_FEED_AREA_HINT[area]}
       </p>
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" disabled={pending} className={`${SMALL_BUTTON} h-11 border-acc text-acc hover:bg-acc hover:text-bg`}>
+        <button type="submit" disabled={pending} className={`${SMALL_BUTTON_SHAPE} h-11 ${BUTTON_TONE.primary}`}>
           {pending ? "Salvando…" : feed ? "Salvar feed" : "Adicionar feed"}
         </button>
         <p aria-live="polite" className="text-[14px]">

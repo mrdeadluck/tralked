@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { CAN_LOGIN, loginAsDemo, sql } from "./helpers";
 
 /*
@@ -32,7 +32,7 @@ test("home: the Tecnologia tab lists press headlines marked as external", async 
   await expect(press).toContainText("abre em nova aba");
 
   await tabs.getByRole("tab", { name: /^Entretenimento/ }).click();
-  await expect(panel.getByRole("link", { name: /Série animada de Hades/ }).first()).toContainText("Fonte externa: Tela Fictícia");
+  await expect(panel.getByRole("link", { name: /Série animada do jogo Hades/ }).first()).toContainText("Fonte externa: Tela Fictícia");
 });
 
 test("/noticias?categoria=entretenimento: the filter shows the area's press headlines", async ({ page }) => {
@@ -41,7 +41,7 @@ test("/noticias?categoria=entretenimento: the filter shows the area's press head
   const press = page.getByRole("region", { name: "Na imprensa: Entretenimento" });
   await expect(press.getByRole("listitem")).toHaveCount(3);
   const first = press.getByRole("link").first();
-  await expect(first).toContainText("Série animada de Hades ganha primeiro teaser (exemplo)");
+  await expect(first).toContainText("Série animada do jogo Hades ganha primeiro teaser (exemplo)");
   await expect(first).toContainText("Fonte externa: Tela Fictícia");
   await expect(first).toHaveAttribute("target", "_blank");
   // No technology headline in the entertainment filter.
@@ -121,9 +121,42 @@ test.describe("admin feeds per area", () => {
     // The example host does not resolve: the SSRF guard refuses it, nothing is saved.
     await expect(form.getByRole("alert")).toContainText("não leva a um site público");
     expect(await sql(`select 1 from "NewsFeed" where url = $1`, [URL])).toHaveLength(0);
-    // Off the button: axe would otherwise measure its hover colors mid-transition.
-    await page.mouse.move(0, 0);
-    await page.waitForTimeout(400);
+    // The pointer is still on the primary button: axe checks its hovered colors.
     await expectNoBlockingViolations(page);
+    expect(await hoverContrast(form.getByRole("button", { name: "Adicionar feed" }))).toBeGreaterThanOrEqual(4.5);
+    // Danger tone (Excluir) keeps readable text on hover too.
+    expect(await hoverContrast(tec.getByRole("button", { name: /^Excluir o feed / }).first())).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+/** Contrast ratio of a button's text against its own (or the page's) background while hovered. */
+async function hoverContrast(button: Locator): Promise<number> {
+  await button.hover();
+  return button.evaluate((el) => {
+    // Any CSS color (rgb, oklch...) to [r, g, b, alpha 0-255], through a 1px canvas.
+    const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+    const rgb = (c: string) => {
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = c;
+      ctx.fillRect(0, 0, 1, 1);
+      return Array.from(ctx.getImageData(0, 0, 1, 1).data);
+    };
+    const lum = ([r, g, b]: number[]) => {
+      const f = (v: number) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    let bgEl: Element | null = el;
+    let bg = getComputedStyle(el).backgroundColor;
+    // Transparent: the first ancestor with a background.
+    while (bgEl && (rgb(bg)[3] === 0 || bg === "transparent")) {
+      bgEl = bgEl.parentElement;
+      bg = bgEl ? getComputedStyle(bgEl).backgroundColor : "rgb(11, 12, 15)";
+    }
+    const a = lum(rgb(getComputedStyle(el).color));
+    const b = lum(rgb(bg));
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  });
+}

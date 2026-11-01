@@ -627,13 +627,13 @@ export async function runSeed() {
         });
       }
       // Plan 4 F7: the curated Entretenimento/Tecnologia feeds, paused so dev and tests never
-      // fetch the internet (`pnpm news:feeds` adds them active on a real database). An edit made
-      // in the admin (active, name) is kept on a re-seed.
+      // fetch the internet (`pnpm news:feeds` adds them active on a real database). A feed that
+      // already exists is left as the admin set it (active, name, area) on a re-seed.
       for (const f of RECOMMENDED_FEEDS) {
         await tx.newsFeed.upsert({
           where: { url: f.url },
           create: { name: f.name, url: f.url, area: f.area, active: false },
-          update: { area: f.area },
+          update: {},
         });
       }
       for (const n of AREA_EXTERNAL_NEWS) {

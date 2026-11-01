@@ -17,7 +17,7 @@ import {
   articleStory,
   buildNewsTabs,
   buildWireItems,
-  getExternalHeadlines,
+  getWireHeadlines,
   getHomeNews,
   getLatestArticles,
   getMostRead,
@@ -36,7 +36,7 @@ async function WireSection() {
   cacheLife("minutes");
   cacheTag(NEWS_TAG);
 
-  const [articles, external] = await Promise.all([getLatestArticles(10), getExternalHeadlines(6)]);
+  const [articles, external] = await Promise.all([getLatestArticles(10), getWireHeadlines(6)]);
   const items = buildWireItems(articles, external, new Date());
   return (
     <NewsWire

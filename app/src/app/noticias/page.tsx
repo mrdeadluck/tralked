@@ -12,7 +12,7 @@ import {
   buildWireItems,
   CATEGORIES,
   categoryFromSlug,
-  getExternalHeadlines,
+  getWireHeadlines,
   getLatestArticles,
   getMostRead,
   getNewsIndex,
@@ -42,7 +42,7 @@ async function FrontSection() {
 
   const [articles, external, mostRead, press] = await Promise.all([
     getLatestArticles(30),
-    getExternalHeadlines(6),
+    getWireHeadlines(6),
     getMostRead(5),
     getPressHeadlines(6),
   ]);

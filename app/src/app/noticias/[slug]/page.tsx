@@ -7,6 +7,7 @@ import { Comments } from "@/components/community/Comments";
 import { AdSlot } from "@/components/ui/AdSlot";
 import { ArticleBody } from "@/components/news/ArticleBody";
 import { ArticleTags } from "@/components/news/ArticleTags";
+import { GameCoverThumb } from "@/components/news/GameCoverThumb";
 import { Blocks } from "@/lib/content/render";
 import { isSafeHttpUrl } from "@/lib/content/url";
 import { JsonLd, newsArticleJsonLd } from "@/lib/seo/json-ld";
@@ -81,14 +82,11 @@ function RelatedGames({ article }: { article: ArticleFull }) {
             className="flex items-center gap-4 rounded-[4px] border border-line bg-surface p-3 transition-colors hover:border-line-2"
           >
             <span className="block h-16 w-12 flex-none overflow-hidden rounded-[2px]">
-              <GameArt
+              <GameCoverThumb
+                coverUrl={game.coverUrl}
+                variant="card"
                 seed={hashSeed(game.slug)}
                 hues={artHues(game.slug, game.slug)}
-                imageUrl={game.coverUrl}
-                figure
-                light
-                width={120}
-                height={160}
               />
             </span>
             <span className="flex min-w-0 flex-col gap-1">
@@ -113,7 +111,8 @@ function RelatedGames({ article }: { article: ArticleFull }) {
 
 /**
  * Plan 4 F12: chips right under the headline, one per related game, with its catalog cover and
- * the links to the game page and the 100% guide. A game without a cover (stub) shows only its name.
+ * the links to the game page and the 100% guide. A game without a cover (stub), or whose cover
+ * fails to load, shows only its name.
  */
 function GameChips({ article }: { article: ArticleFull }) {
   if (article.games.length === 0) return null;
@@ -127,20 +126,12 @@ function GameChips({ article }: { article: ArticleFull }) {
           key={game.slug}
           className="flex min-h-11 items-center gap-2.5 rounded-[3px] border border-line bg-surface py-1 pr-3 pl-1"
         >
-          {game.coverUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- remote catalog hosts are not configured for next/image
-            <img
-              src={game.coverUrl}
-              alt=""
-              width={27}
-              height={36}
-              loading="lazy"
-              decoding="async"
-              className="h-9 w-[27px] flex-none rounded-[2px] object-cover"
-            />
-          ) : (
-            <span className="w-1.5" aria-hidden="true" />
-          )}
+          <GameCoverThumb
+            coverUrl={game.coverUrl}
+            variant="chip"
+            seed={hashSeed(game.slug)}
+            hues={artHues(game.slug, game.slug)}
+          />
           <span className="text-[14px] font-bold">{game.name}</span>
           <span className="flex gap-3 pl-1">
             <Link href={`/jogos/${game.slug}`} aria-label={`Ver jogo: ${game.name}`} className={gameLink}>

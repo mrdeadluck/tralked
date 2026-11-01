@@ -6,7 +6,7 @@ import { classifyHeadline, toNewsFeedArea, type CatalogMatch } from "@/lib/news/
 /** Names shorter than this (normalized) only match with their exact case: "HK", "RE4". */
 const SHORT_NAME = 4;
 
-type GameNames = { gameId: string; names: { text: string; short: boolean; multiWord: boolean }[] };
+type GameNames = { gameId: string; names: { text: string; short: boolean }[] };
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -18,10 +18,9 @@ export function loadMatcher(games: { id: string; name: string; aliases: string[]
       .filter(Boolean)
       .map((n) => {
         const normalized = normalizeTitle(n);
-        const multiWord = normalized.includes(" ");
         return normalized.length < SHORT_NAME
-          ? { text: n, short: true, multiWord }
-          : { text: normalized, short: false, multiWord };
+          ? { text: n, short: true }
+          : { text: normalized, short: false };
       })
       .filter((n) => n.text.length > 0),
   }));
@@ -33,7 +32,7 @@ export function loadMatcher(games: { id: string; name: string; aliases: string[]
    */
   return (title: string): CatalogMatch | null => {
     const normalized = ` ${normalizeTitle(title)} `;
-    let best: { gameId: string; length: number; multiWord: boolean } | null = null;
+    let best: { gameId: string; length: number } | null = null;
     let tie = false;
     for (const game of list) {
       for (const name of game.names) {
@@ -43,14 +42,14 @@ export function loadMatcher(games: { id: string; name: string; aliases: string[]
         if (!hit) continue;
         const length = name.text.length;
         if (!best || length > best.length) {
-          best = { gameId: game.gameId, length, multiWord: name.multiWord };
+          best = { gameId: game.gameId, length };
           tie = false;
         } else if (length === best.length && best.gameId !== game.gameId) {
           tie = true;
         }
       }
     }
-    return best && !tie ? { gameId: best.gameId, multiWord: best.multiWord } : null;
+    return best && !tie ? { gameId: best.gameId } : null;
   };
 }
 

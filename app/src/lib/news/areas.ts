@@ -8,17 +8,21 @@ import { normalizeTitle } from "@/lib/integrations/title-match";
  * The rule, per area (titles only: feeds never give us more than title, link and date):
  * - GAMES: the title names a catalog game (name or alias, see sync/external-news.ts). Unchanged
  *   since Plan 2.
- * - ENTRETENIMENTO (anime, movies, series): only what relates to games. Kept when the title has a
- *   gaming term (`jogo`, `game`, `videogame`, `PlayStation`, ...) or a game franchise known for
- *   adaptations (`The Last of Us`, `Arcane`, `Sonic`, ...), or names a catalog game whose name
- *   has two or more words (`Elden Ring`; a one-word name such as `Hades` or `Control` alone is
- *   too ambiguous outside a games feed). Known false friends (`Jogos Vorazes`, `Game of Thrones`,
- *   `Round 6`, `Jogos Olímpicos`) are removed from the title before the terms are searched.
+ * - ENTRETENIMENTO (anime, movies, series): only what relates to games. Kept only when the title
+ *   has a gaming signal: a gaming term (`jogo`, `game`, `videogame`, `PlayStation`, `Steam Deck`,
+ *   ...) or an unambiguous game franchise (`The Last of Us`, `Pokémon`, `Resident Evil`, ...).
+ *   Known false friends (`Jogos Vorazes`, `Jogos Mortais`, `O Jogo da Imitação`, `Game of
+ *   Thrones`, `Round 6`, `está em jogo`, ...) are removed from the title before searching.
+ *   Names that are also ordinary words or people (`Steam`, `Fallout`, `Kirby`, `Halo`, `Control`,
+ *   `Hades`, `Cyberpunk`, `Yakuza`, `Sonic`, `Arcane`, ...) are not signals: they only count when
+ *   another gaming signal is in the same title ("Série de Fallout" alone is dropped; "Fallout
+ *   ganha jogo novo" is kept). A catalog game name is never a signal on its own either (the film
+ *   "Ready or Not 2" is not the game Ready or Not).
  * - TECNOLOGIA (hardware, PC, consoles, AI): everything the entertainment rule keeps, plus
  *   hardware and AI terms (`GPU`, `placa de vídeo`, `Ryzen`, `IA`, `inteligência artificial`,
  *   `ChatGPT`, ...).
- * A headline kept by a gaming term or a multi-word catalog name is also linked to that game, so it
- * shows on the game page too; one kept only by a hardware/AI term is not linked to any game.
+ * In these two areas a headline is linked to a catalog game (and shows on its page) only when it
+ * also has a gaming signal; one kept only by a hardware/AI term is never linked to a game.
  */
 
 export const NEWS_FEED_AREAS = ["GAMES", "ENTRETENIMENTO", "TECNOLOGIA"] as const;
@@ -34,7 +38,7 @@ export const NEWS_FEED_AREA_LABEL: Record<NewsFeedArea, string> = {
 export const NEWS_FEED_AREA_HINT: Record<NewsFeedArea, string> = {
   GAMES: "Só manchetes que citam um jogo do catálogo; aparecem na página do jogo e no \"Em circulação\".",
   ENTRETENIMENTO:
-    "Animes, filmes e séries: só manchetes ligadas a games (termos como jogo/game, franquias de games ou um jogo do catálogo).",
+    "Animes, filmes e séries: só manchetes com um sinal claro de games no título (termos como jogo/game ou franquias de games).",
   TECNOLOGIA: "Hardware, PC, consoles e IA: manchetes ligadas a games ou com termos de hardware e inteligência artificial.",
 };
 
@@ -64,6 +68,37 @@ const FALSE_FRIENDS = [
   "jogo do brasil",
   "jogos da copa",
   "jogo da selecao",
+  // Films, series and idioms (pt-BR and English).
+  "jogos mortais",
+  "o jogo da imitacao",
+  "jogo da imitacao",
+  "the imitation game",
+  "jogo perigoso",
+  "jogo duplo",
+  "jogo sujo",
+  "jogo limpo",
+  "jogo de poder",
+  "jogos de poder",
+  "jogo de cintura",
+  "em jogo",
+  "o jogo virou",
+  "abrir o jogo",
+  "fora de jogo",
+  "jogo do amor",
+  "molly s game",
+  "game night",
+  "game plan",
+  "game day",
+  "end game",
+  "big game",
+  "long game",
+  "blame game",
+  "waiting game",
+  "numbers game",
+  "mind games",
+  "name of the game",
+  "ahead of the game",
+  "commonwealth games",
 ];
 
 /** Gaming words and platforms (normalized, whole words). */
@@ -88,8 +123,8 @@ const GAMING_TERMS = [
   "nintendo",
   "nintendo switch",
   "switch 2",
-  "steam",
   "steam deck",
+  "steam machine",
   "dlc",
   "speedrun",
 ];
@@ -97,10 +132,8 @@ const GAMING_TERMS = [
 /** Game franchises often adapted to anime, movies and series (normalized, whole words). */
 const GAME_FRANCHISES = [
   "the last of us",
-  "fallout",
-  "arcane",
+  "sonic the hedgehog",
   "league of legends",
-  "sonic",
   "super mario",
   "mario bros",
   "zelda",
@@ -113,17 +146,13 @@ const GAME_FRANCHISES = [
   "tomb raider",
   "lara croft",
   "assassin s creed",
-  "halo",
   "god of war",
-  "uncharted",
   "minecraft",
   "fortnite",
   "final fantasy",
   "metal gear",
   "devil may cry",
   "castlevania",
-  "cyberpunk",
-  "the witcher",
   "borderlands",
   "five nights at freddy s",
   "fnaf",
@@ -136,19 +165,16 @@ const GAME_FRANCHISES = [
   "pac man",
   "tetris",
   "donkey kong",
-  "kirby",
   "metroid",
   "warcraft",
   "starcraft",
   "overwatch",
-  "diablo",
   "hollow knight",
   "cuphead",
   "elden ring",
   "dark souls",
   "bloodborne",
   "like a dragon",
-  "yakuza",
   "danganronpa",
   "tekken",
   "splinter cell",
@@ -280,11 +306,13 @@ export function mentionsTech(title: string): boolean {
 }
 
 /** A catalog game found in a headline title by the name matcher of the sync job. */
-export type CatalogMatch = { gameId: string; /** The matched name or alias has two or more words. */ multiWord: boolean };
+export type CatalogMatch = { gameId: string };
 
 /**
  * Whether a feed headline is kept, and the game it is linked to (see the rule at the top).
- * Returns null when the headline does not belong to the area.
+ * Returns null when the headline does not belong to the area. Outside GAMES, the catalog match is
+ * used only to link a headline that already has a gaming signal: a name alone ("Ready or Not",
+ * "Control", "Hades") neither keeps nor links it.
  */
 export function classifyHeadline(
   area: NewsFeedArea,
@@ -292,9 +320,7 @@ export function classifyHeadline(
   match: CatalogMatch | null,
 ): { gameId: string | null } | null {
   if (area === "GAMES") return match ? { gameId: match.gameId } : null;
-  const gaming = mentionsGaming(title);
-  if (gaming) return { gameId: match?.gameId ?? null };
-  if (match?.multiWord) return { gameId: match.gameId };
+  if (mentionsGaming(title)) return { gameId: match?.gameId ?? null };
   if (area === "TECNOLOGIA" && mentionsTech(title)) return { gameId: null };
   return null;
 }
