@@ -133,7 +133,7 @@ describe("templates", () => {
     for (const mail of all) {
       expect(mail.subject).toMatch(/Tralked/);
       expect(mail.html).toContain("TRAL");
-      expect(mail.text).toContain("Seu ecossistema gamer");
+      expect(mail.text).toContain("Gaming Hub");
       expect(mail.link).toMatch(/^http/);
     }
     // The Google sign-up welcome (no confirmation) points at Conexões.

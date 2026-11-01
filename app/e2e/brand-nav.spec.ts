@@ -21,9 +21,9 @@ test.describe("brand and navigation", () => {
   test("the slogan is in the header, the footer and the page title", async ({ page }) => {
     await page.goto("/");
     // The site's own banner and footer (articles on the page may have their own <header>).
-    await expect(page.locator("body > header")).toContainText("Tralked — Seu ecossistema gamer");
-    await expect(page.locator("body > footer")).toContainText("Tralked — Seu ecossistema gamer");
-    await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /ecossistema gamer/);
+    await expect(page.locator("body > header")).toContainText("Tralked — Gaming Hub");
+    await expect(page.locator("body > footer")).toContainText("Tralked — Gaming Hub");
+    await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /Gaming Hub/);
   });
 
   test("Jogos menu: opens on hover, Steam / PC first, and filters the catalog", async ({ page }) => {

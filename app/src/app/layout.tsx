@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(env.APP_URL),
   title: SLOGAN,
   description:
-    "Seu ecossistema gamer: notícias de games, guias de conquistas 100%, a sua biblioteca e a sua ficha de personagem.",
+    "Gaming Hub: notícias de games, guias de conquistas 100%, a sua biblioteca e a sua ficha de personagem.",
   openGraph: { siteName: "Tralked", locale: "pt_BR", type: "website" },
 };
 
