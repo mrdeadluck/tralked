@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { openDb, type Db } from "../src/db.js";
 
@@ -142,5 +143,50 @@ describe("source health and alerts", () => {
     db.addAlert("budget", "over budget");
     expect(db.alerts()).toHaveLength(1);
     expect(db.alerts()[0]?.emailed).toBe(0);
+  });
+});
+
+describe("pipeline helpers", () => {
+  it("adds the newer columns to a database created before them", () => {
+    const dir = mkdtempSync(join(tmpdir(), "robo-db-old-"));
+    const old = new DatabaseSync(join(dir, "robo.db"));
+    old.exec(`
+      CREATE TABLE items (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE, source_id TEXT NOT NULL, title TEXT NOT NULL,
+        summary TEXT, published_at TEXT, fetched_at TEXT NOT NULL, content_hash TEXT, text TEXT,
+        status TEXT NOT NULL DEFAULT 'new', triage_json TEXT);
+      CREATE TABLE stories (id INTEGER PRIMARY KEY, key TEXT NOT NULL UNIQUE, headline TEXT NOT NULL, category TEXT NOT NULL,
+        score REAL NOT NULL DEFAULT 0, bomb INTEGER NOT NULL DEFAULT 0, rumor INTEGER NOT NULL DEFAULT 0,
+        games_json TEXT NOT NULL DEFAULT '[]', first_seen_at TEXT NOT NULL, last_item_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open', mode TEXT NOT NULL DEFAULT 'live', story_date TEXT);
+      INSERT INTO items (url, source_id, title, fetched_at) VALUES ('https://old.test/a', 'ign', 'old', '2026-10-01T00:00:00Z');
+    `);
+    old.close();
+
+    const migrated = openDb(dir);
+    expect(migrated.itemsByStatus("new")[0]).toMatchObject({ title: "old", publisher: null, text_unavailable: 0 });
+    migrated.insertItemIfNew({ url: "https://news.google.com/x", sourceId: "gnews", title: "t", publisher: "Eurogamer", textUnavailable: true });
+    expect(migrated.itemsByStatus("new")[1]).toMatchObject({ publisher: "Eurogamer", text_unavailable: 1 });
+    const id = migrated.upsertStory({ key: "k", headline: "h", category: "GAMES", score: 1, bomb: false, rumor: false, gamesJson: "[]", mode: "live", parentArticleId: 7 });
+    expect(migrated.storyById(id)?.parent_article_id).toBe(7);
+    migrated.close();
+  });
+
+  it("lists a story's items, finds stories by key and follow-ups by parent article", () => {
+    db.insertItemIfNew(item("https://ign.com/a"));
+    db.insertItemIfNew(item("https://ign.com/b"));
+    const [a, b] = db.itemsByStatus("new");
+    const base = { headline: "h", category: "GAMES", score: 1, bomb: false, rumor: false, gamesJson: "[]", mode: "live" as const };
+    const parent = db.upsertStory({ ...base, key: "parent" });
+    db.attachItem(parent, b!.id);
+    db.attachItem(parent, a!.id);
+    db.setItemText(a!.id, "texto");
+    expect(db.itemsForStory(parent).map((i) => [i.id, i.text])).toEqual([
+      [a!.id, "texto"],
+      [b!.id, null],
+    ]);
+    const article = db.saveArticle({ storyId: parent, payloadJson: "{}", status: "published" });
+    const follow = db.upsertStory({ ...base, key: "follow", parentArticleId: article });
+    expect(db.storyByKey("follow")?.id).toBe(follow);
+    expect(db.followUpsOf(article).map((s) => s.id)).toEqual([follow]);
   });
 });

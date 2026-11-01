@@ -4,6 +4,7 @@ import { FamilyAlmost } from "@/components/family/FamilyAlmost";
 import { FamilyLibrary } from "@/components/family/FamilyLibrary";
 import { FamilyMembers } from "@/components/family/FamilyMembers";
 import { FamilyRanking } from "@/components/family/FamilyRanking";
+import { FamilySummary } from "@/components/family/FamilySummary";
 import { CreateFamilyForm } from "@/components/family/CreateFamilyForm";
 import { InvitePanel } from "@/components/family/InvitePanel";
 import { LeaveFamilyButton } from "@/components/family/LeaveFamilyButton";
@@ -15,7 +16,7 @@ import { SKILLS } from "@/lib/engine/types";
 import {
   almostThere,
   FAMILY_NAME_MAX,
-  getFamilyLibrary,
+  getFamilyLibraryView,
   getFamilyOverviewForUser,
   getFamilyRanking,
   MAX_FAMILY_MEMBERS,
@@ -28,10 +29,10 @@ export const metadata: Metadata = {
     "Junte as bibliotecas Steam de quem joga com você: veja quem tem cada jogo, o ranking da família e o que está perto do 100%.",
 };
 
-export default function FamiliaPage() {
+export default function FamiliaPage({ searchParams }: PageProps<"/familia">) {
   return (
     <Suspense fallback={<p className="py-10 font-mono text-xs text-dim">Carregando a família…</p>}>
-      <FamiliaContent />
+      <FamiliaContent searchParams={searchParams} />
     </Suspense>
   );
 }
@@ -48,7 +49,7 @@ function Intro({ children }: { children?: React.ReactNode }) {
   );
 }
 
-async function FamiliaContent() {
+async function FamiliaContent({ searchParams }: Pick<PageProps<"/familia">, "searchParams">) {
   const user = await getSessionUser();
 
   if (!user) {
@@ -86,14 +87,15 @@ async function FamiliaContent() {
   }
 
   const skillIds = SKILLS.map((s) => s.id);
-  const [library, rankingLists] = await Promise.all([
-    getFamilyLibrary(family.id),
+  const [view, rankingLists, params] = await Promise.all([
+    getFamilyLibraryView(family.id),
     Promise.all(["geral" as const, ...skillIds].map((key) => getFamilyRanking(family.id, key))),
+    searchParams,
   ]);
   const rankings: Record<string, FamilyRankingRow[]> = Object.fromEntries(
     ["geral", ...skillIds].map((key, index) => [key, rankingLists[index]]),
   );
-  const almost = almostThere(library);
+  const almost = almostThere(view.entries);
   const isOwner = family.ownerId === user.id;
 
   return (
@@ -103,7 +105,12 @@ async function FamiliaContent() {
           title={family.name}
           aside={`${family.members.length} ${family.members.length === 1 ? "membro" : "membros"}`}
         />
-        <FamilyLibrary entries={library} />
+        <FamilySummary view={view} meId={user.id} />
+      </section>
+
+      <section id="biblioteca">
+        <SectionHead title="Biblioteca da família" aside="Todas as plataformas" />
+        <FamilyLibrary view={view} searchParams={params} />
       </section>
 
       <div className="grid gap-10 nav:grid-cols-[minmax(0,1fr)_360px]">
