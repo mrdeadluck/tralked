@@ -3,7 +3,8 @@
 # Games players need go first (opened, owned, wished), then the most popular. Each run works up
 # to 5.5 h and stops early once the queue is empty, so the 6-hourly schedule keeps one run going
 # while there is work, and costs about a minute per run afterwards (new Steam releases).
-# Needs the repository secrets DATABASE_URL (Neon, unpooled) and STEAM_API_KEY. Unlimited
+# Needs the repository secrets DATABASE_URL (Neon, unpooled) and STEAM_API_KEY; SGDB_API_KEY and
+# IGDB_CLIENT_ID/IGDB_CLIENT_SECRET are optional (cover fallbacks). Unlimited
 # Actions minutes only while the repository is public: on a private one, run it by hand.
 name: steam-details
 
@@ -45,6 +46,10 @@ jobs:
           NODE_ENV: production
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           STEAM_API_KEY: ${{ secrets.STEAM_API_KEY }}
+          # Optional: portrait covers for games Steam has none of (empty secrets leave them off).
+          SGDB_API_KEY: ${{ secrets.SGDB_API_KEY }}
+          IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
+          IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
           APP_URL: https://tralked.com
           HOURS: ${{ github.event.inputs.hours || '5.5' }}
         run: |
