@@ -11,6 +11,7 @@ import { isSafeHttpUrl } from "@/lib/content/url";
 import { prisma } from "@/lib/db";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
+import { foldQueryInDb } from "@/lib/search/normalize";
 
 const SKILL_IDS = new Set<string>(SKILLS.map((s) => s.id));
 
@@ -63,23 +64,79 @@ export type GameCard = {
   /** Null when the visitor is anonymous or does not own the game. */
   unlockedCount: number | null;
   hasGuide: boolean;
+  /** Name-only entry of the full catalog (found by name search only): "detalhes em breve". */
+  stub: boolean;
 };
 
-export async function listGames(filter: GameFilter, userId?: string): Promise<GameCard[]> {
-  // "Almost" is relative to someone's progress: no user, no result.
-  if (filter.almost && !userId) return [];
+/** Orders of /jogos: most popular (default), name, newest release first. */
+export const CATALOG_SORTS = ["popular", "nome", "lancamento"] as const;
+export type CatalogSort = (typeof CATALOG_SORTS)[number];
 
-  // Name-only stubs of the full Steam catalog stay out until their details are fetched.
-  const where: Prisma.GameWhereInput = { stub: false };
-  if (filter.skill) where.skills = { some: { skill: filter.skill } };
-  if (filter.withGuide) where.guide = { is: { status: "published" } };
-  if (filter.platform) Object.assign(where, platformWhere(filter.platform));
+const SORT_ORDER: Record<CatalogSort, Prisma.GameOrderByWithRelationInput[]> = {
+  popular: [{ popularity: "desc" }, { users: { _count: "desc" } }, { name: "asc" }],
+  nome: [{ name: "asc" }],
+  lancamento: [{ releaseDate: { sort: "desc", nulls: "last" } }, { name: "asc" }],
+};
+
+export type CatalogPage = {
+  items: GameCard[];
+  /** Games matching the filters (all pages). */
+  total: number;
+  /** Clamped to the last page. */
+  page: number;
+  /** Matching stubs (only a name search finds them). */
+  stubTotal: number;
+};
+
+/**
+ * One page of the catalog (/jogos). Without a search, name-only stubs of the full catalog stay out
+ * until their details are fetched; a name search (accents, case and punctuation ignored, over the
+ * trigram index of `searchName`) finds them too, after the games with details.
+ */
+export async function listGames(
+  filter: GameFilter,
+  opts: { page?: number; perPage?: number; sort?: CatalogSort } = {},
+  userId?: string,
+): Promise<CatalogPage> {
+  const perPage = opts.perPage ?? 40;
+  const requested = Math.max(1, Math.floor(opts.page ?? 1));
+  const empty: CatalogPage = { items: [], total: 0, page: 1, stubTotal: 0 };
+  // "Almost" is relative to someone's progress: no user, no result.
+  if (filter.almost && !userId) return empty;
+
+  const and: Prisma.GameWhereInput[] = [];
   const q = filter.q?.trim();
-  if (q) where.name = { contains: q, mode: "insensitive" };
+  const folded = q ? await foldQueryInDb(q) : "";
+  if (folded) and.push({ searchName: { contains: folded } });
+  else and.push({ stub: false });
+  if (filter.skill) and.push({ skills: { some: { skill: filter.skill } } });
+  if (filter.withGuide) and.push({ guide: { is: { status: "published" } } });
+  if (filter.platform) and.push(platformWhere(filter.platform));
+  if (filter.almost && userId) {
+    // Steam progress against the Steam total, from the player's own library (bounded).
+    const owned = await prisma.userGame.findMany({
+      where: { userId, platform: "steam", unlockedCount: { gt: 0 } },
+      select: { gameId: true, unlockedCount: true, game: { select: { achievementCount: true } } },
+    });
+    const ids = owned.filter((r) => isAlmostComplete(r.unlockedCount, r.game.achievementCount)).map((r) => r.gameId);
+    if (ids.length === 0) return empty;
+    and.push({ id: { in: ids } });
+  }
+  const where: Prisma.GameWhereInput = { AND: and };
+
+  const [total, stubTotal] = await Promise.all([
+    prisma.game.count({ where }),
+    folded ? prisma.game.count({ where: { AND: [...and, { stub: true }] } }) : Promise.resolve(0),
+  ]);
+  if (total === 0) return empty;
+  const page = Math.min(requested, Math.max(1, Math.ceil(total / perPage)));
 
   const games = await prisma.game.findMany({
     where,
-    orderBy: { name: "asc" },
+    // A search lists games with details first; the id keeps pages stable on ties.
+    orderBy: [...(folded ? [{ stub: "asc" as const }] : []), ...SORT_ORDER[opts.sort ?? "popular"], { id: "asc" }],
+    skip: (page - 1) * perPage,
+    take: perPage,
     include: {
       skills: true,
       guide: { select: { status: true } },
@@ -88,26 +145,23 @@ export async function listGames(filter: GameFilter, userId?: string): Promise<Ga
     },
   });
 
-  const cards = games.map<GameCard>((game) => ({
-    id: game.id,
-    slug: game.slug,
-    name: game.name,
-    coverUrl: game.coverUrl,
-    platforms: game.platforms,
-    skills: asSkills(game.skills.map((s) => s.skill)),
-    achievementCount: game.achievementCount,
-    unlockedCount: game.users?.[0]?.unlockedCount ?? null,
-    hasGuide: game.guide?.status === "published",
-  }));
-
-  const filtered = filter.almost
-    ? cards.filter(
-        (c) => c.unlockedCount !== null && isAlmostComplete(c.unlockedCount, c.achievementCount),
-      )
-    : cards;
-
-  // Games with a full guide first, then alphabetical (the query is already sorted by name).
-  return filtered.sort((a, b) => Number(b.hasGuide) - Number(a.hasGuide));
+  return {
+    total,
+    page,
+    stubTotal,
+    items: games.map<GameCard>((game) => ({
+      id: game.id,
+      slug: game.slug,
+      name: game.name,
+      coverUrl: game.coverUrl,
+      platforms: game.platforms,
+      skills: asSkills(game.skills.map((s) => s.skill)),
+      achievementCount: game.achievementCount,
+      unlockedCount: game.users?.[0]?.unlockedCount ?? null,
+      hasGuide: game.guide?.status === "published",
+      stub: game.stub,
+    })),
+  };
 }
 
 export function countGames(): Promise<number> {

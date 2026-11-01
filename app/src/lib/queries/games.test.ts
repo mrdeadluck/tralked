@@ -44,7 +44,7 @@ describe.skipIf(!reachable)("listGames (seeded database)", () => {
     const { listGames } = await import("./games");
     const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
 
-    const cards = await listGames({ almost: true }, lucas.id);
+    const cards = (await listGames({ almost: true }, { perPage: 80 }, lucas.id)).items;
 
     expect(cards.length).toBeGreaterThan(0);
     for (const card of cards) {
@@ -72,30 +72,74 @@ describe.skipIf(!reachable)("listGames (seeded database)", () => {
 
   it("returns nothing for { almost: true } without a user", async () => {
     const { listGames } = await import("./games");
-    expect(await listGames({ almost: true })).toEqual([]);
+    expect(await listGames({ almost: true })).toMatchObject({ items: [], total: 0 });
   });
 
-  it("lists the whole catalog without filters, with no progress for anonymous visitors", async () => {
+  it("lists the whole catalog without filters (stubs left out), with no progress for anonymous visitors", async () => {
     const { listGames } = await import("./games");
-    const cards = await listGames({});
-    expect(cards).toHaveLength(14);
-    expect(cards.every((c) => c.unlockedCount === null)).toBe(true);
+    const { items, total, stubTotal } = await listGames({}, { perPage: 80 });
+    expect(total).toBe(14);
+    expect(items).toHaveLength(14);
+    expect(stubTotal).toBe(0);
+    expect(items.every((c) => c.unlockedCount === null && !c.stub)).toBe(true);
+  });
+
+  it("paginates with stable pages and clamps a page past the end", async () => {
+    const { listGames } = await import("./games");
+    const pages = await Promise.all([1, 2, 3].map((page) => listGames({}, { page, perPage: 5, sort: "nome" })));
+    expect(pages.map((p) => p.items.length)).toEqual([5, 5, 4]);
+    const slugs = pages.flatMap((p) => p.items.map((c) => c.slug));
+    expect(new Set(slugs).size).toBe(14);
+    expect(slugs).toEqual([...slugs].sort((a, b) => a.localeCompare(b)));
+    const past = await listGames({}, { page: 99, perPage: 5, sort: "nome" });
+    expect(past.page).toBe(3);
+    expect(past.items.map((c) => c.slug)).toEqual(pages[2].items.map((c) => c.slug));
   });
 
   it("filters by published guide, skill, platform and name", async () => {
     const { listGames } = await import("./games");
 
-    const withGuide = await listGames({ withGuide: true });
+    const withGuide = (await listGames({ withGuide: true })).items;
     expect(withGuide.map((c) => c.slug)).toEqual(["hollow-knight"]);
 
-    const soulslike = await listGames({ skill: "soulslike" });
+    const soulslike = (await listGames({ skill: "soulslike" })).items;
     expect(soulslike.length).toBeGreaterThan(0);
     expect(soulslike.every((c) => c.skills.includes("soulslike"))).toBe(true);
 
-    const pc = await listGames({ platform: "PC" });
+    const pc = (await listGames({ platform: "PC" })).items;
     expect(pc.every((c) => c.platforms.includes("PC"))).toBe(true);
 
-    const byName = await listGames({ q: "hollow" });
+    const byName = (await listGames({ q: "hollow" })).items;
     expect(byName.map((c) => c.slug)).toEqual(["hollow-knight"]);
+  });
+
+  it("searches names ignoring accents, case and punctuation, stubs included after the games with details", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { listGames } = await import("./games");
+
+    expect((await listGames({ q: "BALDURS gate" })).items.map((c) => c.slug)).toEqual(["baldurs-gate-3"]);
+
+    // Seeded stubs: "Lanterna do Farol" (only a search finds it), marked as a stub.
+    const lantern = await listGames({ q: "lantérna" });
+    expect(lantern.items.map((c) => [c.slug, c.stub])).toEqual([["lanterna-do-farol", true]]);
+    expect(lantern.stubTotal).toBe(1);
+
+    const tag = `srch${Date.now().toString(36)}`;
+    try {
+      await prisma.game.createMany({
+        data: [
+          { slug: `${tag}-stub`, name: `Ação ${tag} Stub`, platforms: ["PC"], achievementCount: 0, stub: true },
+          { slug: `${tag}-full`, name: `Zação ${tag} Completo`, platforms: ["PC"], achievementCount: 0 },
+        ],
+      });
+      const found = await listGames({ q: `acao ${tag.toUpperCase()}` }, { sort: "nome" });
+      // "Ação" sorts before "Zação" by name, but the game with details comes first.
+      expect(found.items.map((c) => c.slug)).toEqual([`${tag}-full`, `${tag}-stub`]);
+      expect(found).toMatchObject({ total: 2, stubTotal: 1 });
+      // Without a search the stub stays out.
+      expect((await listGames({}, { perPage: 80 })).items.map((c) => c.slug)).not.toContain(`${tag}-stub`);
+    } finally {
+      await prisma.game.deleteMany({ where: { slug: { startsWith: tag } } });
+    }
   });
 });
