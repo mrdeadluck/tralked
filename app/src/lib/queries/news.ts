@@ -14,6 +14,8 @@ import { toLocalDay } from "@/lib/engine/streak";
 import { NEWS_FEED_AREA_LABEL, type NewsFeedArea } from "@/lib/news/areas";
 import { timeAgo } from "@/lib/time-ago";
 
+import { companyArt, withCompanyArt } from "./company-art";
+
 // Plain, testable queries. Caching is applied by the calling components ("use cache").
 
 /** Cache tags: every public news view uses NEWS_TAG; an article page also uses its own tag. */
@@ -249,11 +251,12 @@ export async function getHomeNews(): Promise<HomeNews> {
   ]);
   // No main highlight (unfeatured or archived by the newsroom): the newest article takes its place.
   const hero = main ?? latest[0] ?? side[0] ?? null;
-  return {
-    hero: hero ? toCard(hero) : null,
-    side: side.filter((a) => a.id !== hero?.id).map(toCard),
-    latest: latest.filter((a) => a.id !== hero?.id).map(toCard),
-  };
+  const [heroCards, sideCards, latestCards] = await Promise.all([
+    withCompanyArt(hero ? [toCard(hero)] : []),
+    withCompanyArt(side.filter((a) => a.id !== hero?.id).map(toCard)),
+    withCompanyArt(latest.filter((a) => a.id !== hero?.id).map(toCard)),
+  ]);
+  return { hero: heroCards[0] ?? null, side: sideCards, latest: latestCards };
 }
 
 /** Latest published articles (any highlight level). */
@@ -264,7 +267,7 @@ export async function getLatestArticles(limit: number): Promise<ArticleCard[]> {
     take: limit,
     select: cardSelect,
   });
-  return rows.map(toCard);
+  return withCompanyArt(rows.map(toCard));
 }
 
 /** Latest published articles about one game (ArticleGame links or the legacy single game). */
@@ -275,7 +278,7 @@ export async function getArticlesForGame(gameId: string, limit: number): Promise
     take: limit,
     select: cardSelect,
   });
-  return rows.map(toCard);
+  return withCompanyArt(rows.map(toCard));
 }
 
 /** "Mais lidas": there is no view counter yet, so reader reactions (likes + comments) rank them. */
@@ -286,7 +289,7 @@ export async function getMostRead(limit: number): Promise<ArticleCard[]> {
     take: limit,
     select: cardSelect,
   });
-  return rows.map(toCard);
+  return withCompanyArt(rows.map(toCard));
 }
 
 /**
@@ -330,7 +333,7 @@ export async function getNewsIndex(input: {
     take: input.pageSize,
     select: cardSelect,
   });
-  return { articles: rows.map(toCard), category: input.category, page, pageCount, total };
+  return { articles: await withCompanyArt(rows.map(toCard)), category: input.category, page, pageCount, total };
 }
 
 /** The first cover image of a game's media (Plan 4 F12: chips and cards of the article page). */
@@ -385,7 +388,9 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     blocks,
     source: row.source,
     reviewed: row.reviewedAt !== null,
-    heroUrl: gameRows.map((g) => g.heroUrl ?? g.coverUrl).find((url) => url) ?? null,
+    heroUrl:
+      gameRows.map((g) => g.heroUrl ?? g.coverUrl).find((url) => url) ??
+      (await companyArt(`${row.title} ${row.subtitle ?? ""}`)),
     game: games[0] ?? null,
     games,
     achievements,
