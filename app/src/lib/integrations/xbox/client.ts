@@ -196,7 +196,17 @@ export function createXboxClient({
         });
         if (body === "private") return "private";
         if (body === null) continue;
-        for (const [titleId, value] of parseMinutesPlayed(body)) minutes.set(titleId, value);
+        const parsed = parseMinutesPlayed(body);
+        if (parsed.size === 0) {
+          // Shape check when nothing came back (keys and stat names only, no personal data).
+          const first = body.statlistscollection?.[0]?.stats?.[0];
+          console.warn(
+            `Xbox stats: no MinutesPlayed for ${batch.length} title(s) (keys: ${Object.keys(body).join(",")}; first stat: ${
+              first ? `${first.name}/${typeof first.value}` : "none"
+            })`,
+          );
+        }
+        for (const [titleId, value] of parsed) minutes.set(titleId, value);
       }
       return minutes;
     },

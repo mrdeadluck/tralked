@@ -192,10 +192,9 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
   // Play time is a separate list (one request per 200 games), read on every sync unless the run is
   // out of time (the next one reads it). Hidden gaming history or an outage only leaves play time
   // out: trophies still import.
-  if (options.deadline !== undefined && (options.now ?? Date.now)() >= options.deadline) {
-    result.partial = true;
-    return result;
-  }
+  // Play time is one request per 200 games: read even when the trophies ran out of time, so hours
+  // do not wait for a big first import to finish.
+  if (options.deadline !== undefined && (options.now ?? Date.now)() >= options.deadline) result.partial = true;
   try {
     const games = await psn.getPlayedGames(account.externalId);
     if (games !== "private") {
