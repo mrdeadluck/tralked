@@ -755,20 +755,17 @@ describe("failures", () => {
     expect(h.db.alerts().map((a) => a.kind)).toContain("orcamento");
   });
 
-  it("a failed check drops the story, raises an alert and tries the next story once", async () => {
+  it("a failed check drops the story, raises an alert and tries the next ones, up to 4 rejections an hour", async () => {
     const h = harness(local("2026-10-31T10:00"));
-    const a = seedQueued(h, "A", { score: 90 });
-    const b = seedQueued(h, "B", { score: 80 });
-    const c = seedQueued(h, "C", { score: 70 });
+    const ids = ["A", "B", "C", "D", "E"].map((name, i) => seedQueued(h, name, { score: 90 - i * 5 }));
     h.fake.state.checkOk = false;
 
     const result = await h.publica();
     expect(result.published).toBeNull();
     const status = (id: number) => stories(h.db).find((s) => s.id === id)!.status;
-    expect(status(a)).toBe("dropped");
-    expect(status(b)).toBe("dropped");
-    expect(status(c)).toBe("queued");
-    expect(h.db.alerts().filter((x) => x.kind === "checagem")).toHaveLength(2);
+    expect(ids.slice(0, 4).map(status)).toEqual(["dropped", "dropped", "dropped", "dropped"]);
+    expect(status(ids[4]!)).toBe("queued");
+    expect(h.db.alerts().filter((x) => x.kind === "checagem")).toHaveLength(4);
     expect(h.site.created).toHaveLength(0);
   });
 });

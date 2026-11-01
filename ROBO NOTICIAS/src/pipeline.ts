@@ -80,6 +80,9 @@ export const MIN_TEXT_CHARS = 400;
 export const hasRealText = (text: string | null | undefined) => (text ?? "").trim().length >= MIN_TEXT_CHARS;
 
 const LAST_SLOT_KEY = "publica.lastSlot";
+/** Stories a publishing slot may try, and rejections it accepts before giving the hour up. */
+const SLOT_ATTEMPTS = 5;
+const SLOT_REJECTIONS = 4;
 /** News older than this when published is dated when it broke (see publishStory). */
 const OLD_STORY_MS = 12 * 3_600_000;
 const FETCH_CONCURRENCY = 6;
@@ -1176,7 +1179,7 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
     }
 
     let rejected = 0;
-    for (let attempt = 0; attempt < 3 && rejected < 2; attempt++) {
+    for (let attempt = 0; attempt < SLOT_ATTEMPTS && rejected < SLOT_REJECTIONS; attempt++) {
       const story = nextQueued(deps, now);
       if (!story) return { published: null, reason: rejected === 0 ? "fila vazia" : "checagem reprovou a história; fila vazia" };
       try {
@@ -1192,7 +1195,7 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
         throw error;
       }
     }
-    return { published: null, reason: "checagem reprovou duas histórias seguidas" };
+    return { published: null, reason: `checagem reprovou ${rejected} histórias seguidas` };
   });
   return ran?.value ?? { published: null, reason: "outra publicação em andamento" };
 }
