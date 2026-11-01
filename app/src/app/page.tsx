@@ -10,6 +10,7 @@ import { HeroSide } from "@/components/news/HeroSide";
 import { NewsTabs } from "@/components/news/NewsTabs";
 import { NewsWire } from "@/components/news/NewsWire";
 import type { ArticleView } from "@/components/news/ArticleTags";
+import { HomeFeedCard } from "@/components/social/HomeFeedCard";
 import { Card } from "@/components/ui/Card";
 import { SectionHead } from "@/components/ui/SectionHead";
 import { getSessionUser } from "@/lib/auth/session";
@@ -127,6 +128,9 @@ export default function Home() {
           <DiscordCard />
           <Suspense fallback={sidebarFallback}>
             <QuestSection />
+          </Suspense>
+          <Suspense fallback={null}>
+            <HomeFeedCard />
           </Suspense>
           <RankingSection />
           <EditorialCard />

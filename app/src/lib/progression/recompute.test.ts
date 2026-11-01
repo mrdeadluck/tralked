@@ -289,6 +289,7 @@ describe.skipIf(!reachable)("recomputeUser", () => {
       sabedoria: { points: 0, level: 1 },
       resistencia: { points: 50, level: 2 }, // round(10 * 10h^0.7)
       acervo: { points: 10, level: 1 }, // 1 game played
+      carisma: { points: 0, level: 1 }, // no likes, helpful replies or friends
     });
   });
 

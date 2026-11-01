@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Db } from "./limits";
 import { containsHtml, normalizeText } from "./text";
 
-export const REPORT_TARGETS = ["comment", "post", "photo", "thread", "article", "guide", "user"] as const;
+export const REPORT_TARGETS = ["comment", "post", "photo", "thread", "article", "guide", "user", "message"] as const;
 export type ReportTargetType = (typeof REPORT_TARGETS)[number];
 
 /** Preset reasons shown in the report form (pt-BR, stored as written). */
@@ -32,9 +32,18 @@ export type ReportInput = z.output<typeof reportSchema>;
 
 export type ReportResult = { status: "ok" } | { status: "already_reported" } | { status: "not_found" };
 
-async function targetExists(db: Db, type: ReportTargetType, id: string): Promise<boolean> {
+async function targetExists(db: Db, type: ReportTargetType, id: string, reporterId: string): Promise<boolean> {
   const where = { where: { id }, select: { id: true } } as const;
   switch (type) {
+    case "message": {
+      // A private message can only be reported by its recipient (it is private to the two).
+      const message = await db.directMessage.findUnique({
+        where: { id },
+        select: { senderId: true, conversation: { select: { userLowId: true, userHighId: true } } },
+      });
+      if (!message || message.senderId === reporterId) return false;
+      return message.conversation.userLowId === reporterId || message.conversation.userHighId === reporterId;
+    }
     case "comment":
       return (await db.comment.findUnique(where)) !== null;
     case "post":
@@ -57,7 +66,7 @@ async function targetExists(db: Db, type: ReportTargetType, id: string): Promise
  * report per target: repeating it changes nothing.
  */
 export async function createReport(db: Db, reporterId: string, input: ReportInput): Promise<ReportResult> {
-  if (!(await targetExists(db, input.targetType, input.targetId))) return { status: "not_found" };
+  if (!(await targetExists(db, input.targetType, input.targetId, reporterId))) return { status: "not_found" };
 
   const open = await db.report.findFirst({
     where: { reporterId, targetType: input.targetType, targetId: input.targetId, status: "open" },

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { AccountMenu, accountLinks, type AccountUser } from "./AccountMenu";
 import { GamesMenu } from "./GamesMenu";
+import { MessagesLink } from "./MessagesLink";
 import { MobileDrawer } from "./MobileDrawer";
 import { NavLink } from "./NavLink";
 import { NotificationBell, type BellProps } from "./NotificationBell";
@@ -34,9 +35,11 @@ type HeaderProps = {
   suggestions?: SearchSuggestion[];
   /** The logged-in user's bell (unread count + latest notifications). */
   notifications?: BellProps;
+  /** Conversations with unread private messages (Plano 4, F9). */
+  messages?: { unread: number };
 };
 
-export function Header({ user, suggestions, notifications }: HeaderProps) {
+export function Header({ user, suggestions, notifications, messages }: HeaderProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -81,6 +84,7 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
         <SearchBox suggestions={suggestions} />
 
         <div className="ml-auto flex items-center gap-2.5">
+          {user && messages ? <MessagesLink unread={messages.unread} /> : null}
           {user && notifications ? <NotificationBell {...notifications} /> : null}
           {user ? (
             <AccountMenu user={user} />

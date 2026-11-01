@@ -44,6 +44,13 @@ const PATHS: Record<AttributeId, ReactNode> = {
       <path d="m16 8 3.5-1 3 13.5-3.5 1z" />
     </>
   ),
+  // Two speech balloons: conversation and goodwill.
+  carisma: (
+    <>
+      <path d="M3 4h12v8H8l-3 3v-3H3z" />
+      <path d="M17 8h4v8h-2v3l-3-3h-6v-2" />
+    </>
+  ),
 };
 
 type AttributeIconProps = Omit<SVGProps<SVGSVGElement>, "children"> & { name: AttributeId };

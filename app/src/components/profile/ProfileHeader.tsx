@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ProfileSocial } from "@/components/social/ProfileSocial";
 import type { ProfileSummary } from "@/lib/profile/queries";
 import { formatHours } from "./format";
 import { profilePath } from "./ProfileTabs";
@@ -33,6 +34,9 @@ export function ProfileHeader({ summary, section }: { summary: ProfileSummary; s
         <Stat label="Horas jogadas" value={formatHours(summary.playtimeMin)} />
         <Stat label="Jogos" value={summary.gamesOwned.toLocaleString("pt-BR")} />
       </dl>
+      <div className="w-full">
+        <ProfileSocial user={{ id: summary.userId, handle: summary.handle, displayName: summary.displayName }} />
+      </div>
     </header>
   );
 }

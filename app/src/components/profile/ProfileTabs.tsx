@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-export type ProfileTabId = "ficha" | "jogos" | "conquistas" | "estatisticas" | "desejos";
+export type ProfileTabId = "ficha" | "jogos" | "conquistas" | "estatisticas" | "desejos" | "amigos";
 
 const TABS: { id: ProfileTabId; label: string; path: string }[] = [
   { id: "ficha", label: "Ficha", path: "" },
@@ -8,6 +8,7 @@ const TABS: { id: ProfileTabId; label: string; path: string }[] = [
   { id: "conquistas", label: "Conquistas", path: "/conquistas" },
   { id: "estatisticas", label: "Estatísticas", path: "/estatisticas" },
   { id: "desejos", label: "Lista de desejos", path: "/desejos" },
+  { id: "amigos", label: "Amigos", path: "/amigos" },
 ];
 
 export const profilePath = (handle: string, tab: ProfileTabId = "ficha") =>

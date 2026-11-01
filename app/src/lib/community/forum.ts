@@ -6,6 +6,9 @@ import { withinRateLimit, type Db } from "./limits";
 import { notify, preview } from "./notify";
 import { postBodySchema, slugify, threadTitleSchema } from "./text";
 import { awardForumSolvedXp, FORUM_SOLVED_XP } from "./xp";
+import { notifyMentions } from "@/lib/social/mentions";
+import { isBlockedEither } from "@/lib/social/relations";
+import { replyParentId } from "@/lib/social/threads";
 
 /** Threads per listing page. */
 export const THREADS_PER_PAGE = 20;
@@ -177,6 +180,12 @@ export type PostView = {
   createdAt: Date;
   editedAt: Date | null;
   author: AuthorView;
+  /** Post this one answers (threaded reply, 2 levels at most); null for the thread's own flow. */
+  parentId: string | null;
+  likeCount: number;
+  dislikeCount: number;
+  /** Marked "Útil" by the author of the post it answers. */
+  helpful: boolean;
 };
 
 export type ThreadDetail = {
@@ -211,13 +220,29 @@ export async function getThread(id: string): Promise<ThreadDetail | null> {
       posts: {
         where: { status: "visible" },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        select: { id: true, body: true, createdAt: true, editedAt: true, author: authorSelect },
+        select: postSelect,
       },
     },
   });
   if (!thread) return null;
-  const { status, ...rest } = thread;
-  return { ...rest, locked: status === "locked" };
+  const { status, posts, ...rest } = thread;
+  return { ...rest, posts: posts.map(toPostView), locked: status === "locked" };
+}
+
+const postSelect = {
+  id: true,
+  body: true,
+  createdAt: true,
+  editedAt: true,
+  parentId: true,
+  likeCount: true,
+  dislikeCount: true,
+  helpfulAt: true,
+  author: authorSelect,
+} satisfies Prisma.ForumPostSelect;
+
+function toPostView({ helpfulAt, ...post }: Prisma.ForumPostGetPayload<{ select: typeof postSelect }>): PostView {
+  return { ...post, helpful: helpfulAt !== null };
 }
 
 /** Recently active thread ids, for generateStaticParams. */
@@ -236,6 +261,8 @@ export const newThreadSchema = z.object({
 export const newPostSchema = z.object({
   threadId: z.string().min(1).max(64),
   body: postBodySchema,
+  /** Answer to this post of the thread (threaded reply). */
+  parentId: z.string().min(1).max(64).optional(),
 });
 
 export const markSolvedSchema = z.object({
@@ -282,9 +309,14 @@ export type CreatePostResult =
   | { status: "ok"; post: PostView }
   | { status: "not_found" }
   | { status: "locked" }
+  | { status: "blocked" }
   | { status: "rate_limited" };
 
-/** Replies to an open thread and notifies its author. */
+/**
+ * Replies to an open thread, or to one of its posts when `parentId` is set (2 levels at most,
+ * refused when the replied-to author and the user blocked each other). Notifies the thread author
+ * (and the replied-to author) and @mentioned users.
+ */
 export async function createPost(
   db: Db,
   userId: string,
@@ -297,22 +329,53 @@ export async function createPost(
   });
   if (!thread) return { status: "not_found" };
   if (thread.status === "locked") return { status: "locked" };
+
+  let parent: { id: string; authorId: string | null } | null = null;
+  if (input.parentId) {
+    const replied = await db.forumPost.findFirst({
+      where: { id: input.parentId, threadId: input.threadId, status: "visible" },
+      select: { id: true, authorId: true, parentId: true, parent: { select: { parentId: true, authorId: true } } },
+    });
+    if (!replied) return { status: "not_found" };
+    if (replied.authorId && (await isBlockedEither(db, userId, replied.authorId))) return { status: "blocked" };
+    const parentId = replyParentId(replied.id, replied.parentId, replied.parent?.parentId ?? null);
+    parent = { id: parentId, authorId: parentId === replied.id ? replied.authorId : (replied.parent?.authorId ?? null) };
+  }
   if (!(await withinRateLimit(db, "post", userId, now))) return { status: "rate_limited" };
 
   const post = await db.forumPost.create({
-    data: { threadId: input.threadId, authorId: userId, body: input.body, createdAt: now },
-    select: { id: true, body: true, createdAt: true, editedAt: true, author: authorSelect },
+    data: { threadId: input.threadId, authorId: userId, body: input.body, createdAt: now, parentId: parent?.id ?? null },
+    select: postSelect,
   });
   await db.forumThread.update({ where: { id: input.threadId }, data: { lastPostAt: now } });
+  const handle = post.author?.handle ?? "alguém";
+  const href = `/forum/t/${input.threadId}#post-${post.id}`;
+  if (parent && parent.authorId !== thread.authorId) {
+    await notify(db, {
+      userId: parent.authorId,
+      actorId: userId,
+      kind: "forum_reply",
+      title: `@${handle} respondeu sua mensagem em "${preview(thread.title)}"`,
+      body: preview(input.body),
+      href,
+    });
+  }
   await notify(db, {
     userId: thread.authorId,
     actorId: userId,
     kind: "forum_reply",
-    title: `@${post.author?.handle ?? "alguém"} respondeu "${preview(thread.title)}"`,
+    title: `@${handle} respondeu "${preview(thread.title)}"`,
     body: preview(input.body),
-    href: `/forum/t/${input.threadId}#post-${post.id}`,
+    href,
   });
-  return { status: "ok", post };
+  await notifyMentions(db, {
+    authorId: userId,
+    authorHandle: handle,
+    text: input.body,
+    href,
+    skip: [thread.authorId, parent?.authorId ?? null],
+  });
+  return { status: "ok", post: toPostView(post) };
 }
 
 export type MarkSolvedResult =

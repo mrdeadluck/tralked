@@ -13,6 +13,8 @@ const PRIVILEGED_ROLES = ["admin", "editor"];
 /** Links of the account menu (besides "Sair"); Admin only for admin/editor. */
 export function accountLinks(role: string): AccountLink[] {
   const links: AccountLink[] = [
+    { href: "/feed", label: "Feed" },
+    { href: "/mensagens", label: "Mensagens" },
     { href: "/conta", label: "Conta" },
     { href: "/conta/conexoes", label: "Conexões" },
   ];

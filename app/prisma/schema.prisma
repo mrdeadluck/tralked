@@ -6,7 +6,7 @@
 //   User.role       admin | editor | author | user
 //   TrophyTier      bronze | silver | gold | platinum            (PSN only)
 //   Attribute       vigor | precisao | gloria | colecao | exploracao | constancia | sabedoria |
-//                   resistencia | acervo
+//                   resistencia | acervo | carisma
 //   GameMedia.kind  video | screenshot | artwork | cover | hero | logo
 //   GameMedia.source igdb | sgdb | steam | rawg | fixture
 //   Article.status  draft | review | published | archived
@@ -14,8 +14,10 @@
 //   Guide.status    draft | review | published
 //   Comment target  article | guide | photo | thread
 //   Comment.status  visible | hidden | removed | deleted (by its author: body cleared, placeholder kept)
-//   Report target   article | guide | photo | thread | comment | post | user
+//   Report target   article | guide | photo | thread | comment | post | user | message
 //   Report.status   open | resolved | dismissed
+//   Reaction target comment | post;  Reaction.value  1 (curtir) | -1 (descurtir)
+//   User.dmPolicy   everyone | following | friends
 //   Thread.status   open | locked | hidden | removed
 //   Post.status     visible | hidden | removed
 //   Photo.status    visible | hidden | removed
@@ -23,10 +25,12 @@
 //   Ingestion kind  article | guide
 //   Ingestion status created | updated | rejected
 //   Notification.kind level_up | skill_up | attribute_up | comment_reply | forum_reply |
-//                   thread_solved | photo_like | content_published | report_resolved | system
+//                   thread_solved | photo_like | content_published | report_resolved | system |
+//                   comment_like | comment_helpful | mention | follow | friend_request | friend_accept
 //
-// Deleting a User (LGPD): personal data cascades; authored content (guides, tips, revisions,
-// comments, forum threads/posts, photos, reports, API keys) is kept with its author set to null.
+// Deleting a User (LGPD): personal data cascades (follows, friendships, blocks, reactions); authored
+// content (guides, tips, revisions, comments, forum threads/posts, photos, reports, API keys, private
+// messages already delivered) is kept with its author set to null.
 
 generator client {
   provider = "prisma-client"
@@ -104,6 +108,21 @@ model User {
   notifications  Notification[]
   passwordResets PasswordResetToken[]
   wishlist       WishlistItem[]
+
+  // Social (Plano 4, F9)
+  /// Who may start a private conversation with this user: everyone | following (people this user
+  /// follows) | friends. Replies inside an existing conversation follow the same rule.
+  dmPolicy          String         @default("everyone")
+  following         Follow[]       @relation("Following")
+  followers         Follow[]       @relation("Followers")
+  friendshipsLow    Friendship[]   @relation("FriendshipLow")
+  friendshipsHigh   Friendship[]   @relation("FriendshipHigh")
+  blocking          UserBlock[]    @relation("Blocking")
+  blockedBy         UserBlock[]    @relation("BlockedBy")
+  conversationsLow  Conversation[] @relation("ConversationLow")
+  conversationsHigh Conversation[] @relation("ConversationHigh")
+  messagesSent      DirectMessage[]
+  reactions         Reaction[]
 }
 
 /// A "set a new password" link (forgot password, or `pnpm user:invite`). Only the SHA-256 of the
@@ -393,6 +412,11 @@ model GameOpen {
 ///   playtime       -> `${platform}:${gameId}:${hours}` (hours milestone of real platform playtime,
 ///                     5 h and up, within per-user caps, dated at payment: lib/engine/playtime.ts,
 ///                     lib/sync/playtime.ts; platform steam | psn | xbox | retro)
+///   comment_liked  -> `${comment|post}:${itemId}:${likerUserId}` (a like received on a comment or
+///                     forum post; low value, capped per receiver and per pair per day:
+///                     lib/social/rewards.ts; voided when the item is removed or deleted)
+///   comment_helpful -> `${comment|post}:${itemId}` (reply marked helpful by the parent's author;
+///                     daily-capped; voided like comment_liked)
 ///   seed           -> 'baseline' (synthetic entry, development seed data only)
 /// Fraud release (admin "Liberar") writes `achievement` / `platinum` entries exactly as the syncs
 /// do, and restores entries voided earlier instead of creating new ones.
@@ -441,7 +465,7 @@ model SkillProgress {
 }
 
 /// Character attributes: vigor | precisao | gloria | colecao | exploracao | constancia | sabedoria |
-/// resistencia | acervo
+/// resistencia | acervo | carisma
 model AttributeProgress {
   userId    String
   attribute String
@@ -792,10 +816,21 @@ model Comment {
   status     String    @default("visible")
   createdAt  DateTime  @default(now())
   editedAt   DateTime?
+  /// Reply to this comment (same target). Threads go 2 levels deep: a comment, its replies, and
+  /// replies to those; answering a 2nd-level reply adds a sibling (lib/social/threads.ts).
+  parentId     String?
+  /// Reaction counters (Reaction rows with targetType = comment), kept in step by lib/social/reactions.ts.
+  likeCount    Int       @default(0)
+  dislikeCount Int       @default(0)
+  /// When the author of the parent comment marked this reply as helpful (`comment_helpful` XP).
+  helpfulAt    DateTime?
   author     User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  parent     Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies    Comment[] @relation("CommentReplies")
 
   @@index([targetType, targetId, createdAt])
   @@index([authorId, createdAt])
+  @@index([parentId, createdAt])
 }
 
 model Report {
@@ -863,9 +898,18 @@ model ForumPost {
   editedAt  DateTime?
   /// visible | hidden | removed
   status    String       @default("visible")
+  /// Reply to another post of the same thread (2 levels deep, like comments).
+  parentId     String?
+  /// Reaction counters (Reaction rows with targetType = post).
+  likeCount    Int          @default(0)
+  dislikeCount Int          @default(0)
+  /// When the author of the parent post marked this reply as helpful (`comment_helpful` XP).
+  helpfulAt    DateTime?
   thread    ForumThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
   author    User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
   solves    ForumThread? @relation("SolvedPost")
+  parent    ForumPost?   @relation("PostReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies   ForumPost[]  @relation("PostReplies")
 
   @@index([threadId, createdAt])
   @@index([authorId, createdAt])
@@ -958,7 +1002,8 @@ model Notification {
   id        String    @id @default(cuid())
   userId    String
   /// level_up | skill_up | attribute_up | comment_reply | forum_reply | thread_solved |
-  /// photo_like | content_published | report_resolved | system
+  /// photo_like | content_published | report_resolved | system | comment_like | comment_helpful |
+  /// mention | follow | friend_request | friend_accept
   kind      String
   title     String
   body      String?
@@ -969,6 +1014,108 @@ model Notification {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt, createdAt])
+}
+
+// ---------- Social (Plano 4, F9) ----------
+// Pairs of users are stored once, in string order of their ids (`userLowId` < `userHighId`).
+
+/// "Seguir": no approval. A friend is always a follower (sending a request follows; accepting makes
+/// both follow); ending a friendship keeps the follows.
+model Follow {
+  followerId String
+  followeeId String
+  createdAt  DateTime @default(now())
+  follower   User     @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  followee   User     @relation("Followers", fields: [followeeId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followeeId])
+  @@index([followeeId, createdAt])
+  @@index([followerId, createdAt])
+}
+
+/// Friendship of a pair (not tied to the family). `acceptedAt` null = request from `requesterId`
+/// waiting for the other user; declining or ending it deletes the row.
+model Friendship {
+  userLowId   String
+  userHighId  String
+  /// One of the two users: who sent the request.
+  requesterId String
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  userLow     User      @relation("FriendshipLow", fields: [userLowId], references: [id], onDelete: Cascade)
+  userHigh    User      @relation("FriendshipHigh", fields: [userHighId], references: [id], onDelete: Cascade)
+
+  @@id([userLowId, userHighId])
+  @@index([userHighId])
+  @@index([requesterId, createdAt])
+}
+
+/// "Bloquear": no private messages either way, no replies to the blocker's comments/posts, no
+/// mention notifications, no follows or friendship between the two.
+model UserBlock {
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   User     @relation("Blocking", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("BlockedBy", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+/// 1:1 private conversation (plain text, never public or cached). Per-side state uses the
+/// `low`/`high` prefix of the side's user. A side set to null is a deleted account: its messages
+/// stay with `senderId` null ("Conta removida") until the other side deletes the conversation too.
+model Conversation {
+  id            String          @id @default(cuid())
+  userLowId     String?
+  userHighId    String?
+  lastMessageAt DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+  /// The side has messages it has not opened yet.
+  lowUnread     Boolean         @default(false)
+  highUnread    Boolean         @default(false)
+  /// "Apagar conversa para mim": messages up to this time are gone for the side, and the
+  /// conversation leaves its inbox (`*Hidden`) until a new message arrives.
+  lowClearedAt  DateTime?
+  highClearedAt DateTime?
+  lowHidden     Boolean         @default(false)
+  highHidden    Boolean         @default(false)
+  userLow       User?           @relation("ConversationLow", fields: [userLowId], references: [id], onDelete: SetNull)
+  userHigh      User?           @relation("ConversationHigh", fields: [userHighId], references: [id], onDelete: SetNull)
+  messages      DirectMessage[]
+
+  @@unique([userLowId, userHighId])
+  @@index([userLowId, lastMessageAt])
+  @@index([userHighId, lastMessageAt])
+}
+
+model DirectMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String?
+  /// Plain text (no HTML); links are rendered as safe external anchors.
+  body           String
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User?        @relation(fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@index([senderId, createdAt])
+}
+
+/// "Curtir" (+1) or "descurtir" (-1) on a comment (targetType comment) or forum post (post). One per
+/// user and target; the target's likeCount/dislikeCount mirror these rows.
+model Reaction {
+  userId     String
+  targetType String
+  targetId   String
+  value      Int
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, targetType, targetId])
+  @@index([targetType, targetId])
 }
 
 // ---------- Family ----------

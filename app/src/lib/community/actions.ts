@@ -30,6 +30,7 @@ import { RATE_LIMIT_MESSAGES, takeLikeToggle } from "./limits";
 import { createReport, reportSchema } from "./reports";
 import { recomputeQuietly } from "./xp";
 import { articleTag, NEWS_TAG } from "@/lib/queries/news";
+import { socialViewerState, type SocialViewerState } from "@/lib/social/viewer-state";
 
 /** Common failure shapes; `message` is pt-BR and ready to show. */
 export type Failure =
@@ -42,6 +43,7 @@ export type Failure =
 const UNAUTHENTICATED: Failure = { status: "unauthenticated", message: "Entre na sua conta para continuar." };
 const NOT_FOUND: Failure = { status: "not_found", message: "Isso não existe mais ou foi removido." };
 const FORBIDDEN: Failure = { status: "forbidden", message: "Você não pode fazer isso." };
+const BLOCKED: Failure = { status: "forbidden", message: "Não é possível responder a essa pessoa." };
 
 function invalid(error: z.ZodError): Failure {
   const issue = error.issues[0];
@@ -61,12 +63,13 @@ async function prepare<S extends z.ZodType>(schema: S, raw: unknown) {
 
 const moreCommentsSchema = commentTargetSchema.extend({ cursor: z.string().min(1).max(64) });
 
-/** Next page of comments (public: no login needed). */
-export async function loadMoreComments(raw: unknown): Promise<CommentPage | Failure> {
+/** Next page of comments (public: no login needed), with the visitor's reactions and blocks. */
+export async function loadMoreComments(raw: unknown): Promise<(CommentPage & { viewerState: SocialViewerState }) | Failure> {
   const parsed = moreCommentsSchema.safeParse(raw);
   if (!parsed.success) return invalid(parsed.error);
   const { targetType, targetId, cursor } = parsed.data;
-  return listComments(prisma, targetType, targetId, cursor);
+  const [page, user] = await Promise.all([listComments(prisma, targetType, targetId, cursor), getSessionUser()]);
+  return { ...page, viewerState: await socialViewerState(prisma, user?.id ?? null, "comment", page.comments) };
 }
 
 export async function postComment(raw: unknown): Promise<{ status: "ok"; comment: CommentView } | Failure> {
@@ -74,6 +77,7 @@ export async function postComment(raw: unknown): Promise<{ status: "ok"; comment
   if (!ready.ok) return ready.failure;
   const result = await createComment(prisma, ready.user.id, ready.data);
   if (result.status === "not_found") return NOT_FOUND;
+  if (result.status === "blocked") return BLOCKED;
   if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.comment };
   if (ready.data.targetType === "photo") updateTag(photoTag(ready.data.targetId));
   if (result.articleSlug) refreshArticleCount(result.articleSlug);
@@ -100,9 +104,10 @@ const idSchema = z.object({ id: z.string().min(1).max(64) });
 export async function removeComment(raw: unknown): Promise<{ status: "ok" } | Failure> {
   const ready = await prepare(idSchema, raw);
   if (!ready.ok) return ready.failure;
-  const result = await deleteComment(prisma, ready.user.id, ready.data.id);
+  const result = await prisma.$transaction((tx) => deleteComment(tx, ready.user.id, ready.data.id));
   if (result.status === "not_found") return NOT_FOUND;
   if (result.status === "forbidden") return FORBIDDEN;
+  if (result.xpVoided) await recomputeQuietly(ready.user.id);
   if (result.articleSlug) refreshArticleCount(result.articleSlug);
   if (result.photoId) updateTag(photoTag(result.photoId));
   return { status: "ok" };
@@ -152,6 +157,7 @@ export async function replyToThread(raw: unknown): Promise<{ status: "ok"; post:
   const result = await prisma.$transaction((tx) => createPost(tx, ready.user.id, ready.data));
   if (result.status === "not_found") return NOT_FOUND;
   if (result.status === "locked") return { status: "forbidden", message: "Este tópico está trancado." };
+  if (result.status === "blocked") return BLOCKED;
   if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.post };
   updateTag(threadTag(ready.data.threadId));
   updateTag(FORUM_TAG);

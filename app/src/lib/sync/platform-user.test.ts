@@ -152,7 +152,7 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
     expect(stats.totalXp).toBe(ledger.reduce((sum, e) => sum + e.xp, 0));
     const attributes = await prisma.attributeProgress.findMany({ where: { userId: user.id } });
-    expect(attributes).toHaveLength(9);
+    expect(attributes).toHaveLength(10);
     const gloria = attributes.find((a) => a.attribute === "gloria")!;
     // Native tiers: HK platinum 15 + 2 gold 10 + 2 silver 4 + 3 bronze 3 = 32;
     // Hades 1 silver + 3 bronze = 5; Astro Bot 2 bronze = 2 -> 39 glory points x 10.

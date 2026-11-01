@@ -29,6 +29,38 @@ export function HeartIcon({ filled = false, ...props }: SVGProps<SVGSVGElement> 
   );
 }
 
+export function ThumbUpIcon({ filled = false, ...props }: SVGProps<SVGSVGElement> & { filled?: boolean }) {
+  return (
+    <Icon {...props} fill={filled ? "currentColor" : "none"}>
+      <path d="M7 10v10H3V10Zm0 0 4-7c1.7 0 2.5 1 2.2 2.6L12.6 9H19a2 2 0 0 1 2 2.3l-1.2 6.9A2 2 0 0 1 17.8 20H7" />
+    </Icon>
+  );
+}
+
+export function ThumbDownIcon({ filled = false, ...props }: SVGProps<SVGSVGElement> & { filled?: boolean }) {
+  return (
+    <Icon {...props} fill={filled ? "currentColor" : "none"}>
+      <path d="M17 14V4h4v10Zm0 0-4 7c-1.7 0-2.5-1-2.2-2.6l.6-3.4H5a2 2 0 0 1-2-2.3l1.2-6.9A2 2 0 0 1 6.2 4H17" />
+    </Icon>
+  );
+}
+
+export function ReplyIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M10 5 4 11l6 6M4 11h10a6 6 0 0 1 6 6v2" />
+    </Icon>
+  );
+}
+
+export function MailIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M3 5h18v14H3Zm0 0 9 8 9-8" />
+    </Icon>
+  );
+}
+
 export function CommentIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>

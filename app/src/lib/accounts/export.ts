@@ -24,6 +24,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
       lastSyncedAt: true,
       despertarShownAt: true,
       caseIntroOff: true,
+      dmPolicy: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -67,6 +68,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     notifications,
     family,
     apiKeys,
+    social,
   ] = await Promise.all([
     prisma.linkedAccount.findMany({
       where: { ...mine, linkedAt: { not: null } },
@@ -204,6 +206,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
       where: { createdById: userId },
       select: { name: true, prefix: true, scopes: true, createdAt: true, revokedAt: true },
     }),
+    exportSocial(userId),
   ]);
 
   return {
@@ -229,6 +232,58 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     newsletter,
     family: family ? { name: family.family.name, role: family.role, joinedAt: family.joinedAt } : null,
     apiKeys,
+    social,
+  };
+}
+
+/**
+ * Social data (F9) that is the user's own doing: who they follow, friendships and requests they
+ * are part of, who they blocked (public handles of those accounts), their reactions and the private
+ * messages they SENT. Followers (other people's choice) are only counted; messages received
+ * (written by others) are not exported.
+ */
+async function exportSocial(userId: string) {
+  const handleOf = { select: { handle: true } } as const;
+  const [following, followers, friendships, blocked, reactions, messagesSent] = await Promise.all([
+    prisma.follow.findMany({
+      where: { followerId: userId },
+      select: { createdAt: true, followee: handleOf },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.follow.count({ where: { followeeId: userId } }),
+    prisma.friendship.findMany({
+      where: { OR: [{ userLowId: userId }, { userHighId: userId }] },
+      select: { requesterId: true, createdAt: true, acceptedAt: true, userLowId: true, userLow: handleOf, userHigh: handleOf },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.userBlock.findMany({
+      where: { blockerId: userId },
+      select: { createdAt: true, blocked: handleOf },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.reaction.findMany({
+      where: { userId },
+      select: { targetType: true, targetId: true, value: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.directMessage.findMany({
+      where: { senderId: userId },
+      select: { conversationId: true, body: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+  return {
+    following: following.map((f) => ({ handle: f.followee.handle, since: f.createdAt })),
+    followersCount: followers,
+    friendships: friendships.map((f) => ({
+      handle: (f.userLowId === userId ? f.userHigh : f.userLow).handle,
+      status: f.acceptedAt ? "friends" : f.requesterId === userId ? "request_sent" : "request_received",
+      requestedAt: f.createdAt,
+      acceptedAt: f.acceptedAt,
+    })),
+    blocked: blocked.map((b) => ({ handle: b.blocked.handle, since: b.createdAt })),
+    reactions,
+    messagesSent,
   };
 }
 

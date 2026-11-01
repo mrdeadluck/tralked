@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import { getBell } from "@/lib/notifications/inbox";
 import { getTrendingSuggestions } from "@/lib/queries/header";
+import { unreadConversations } from "@/lib/social/messages";
 import { timeAgo } from "@/lib/time-ago";
 import { Header } from "./Header";
 
@@ -12,15 +13,16 @@ async function HeaderWithUser() {
     getSessionUser(),
     getTrendingSuggestions(),
   ]);
-  const [stats, bell] = user
+  const [stats, bell, unreadMessages] = user
     ? await Promise.all([
         prisma.userStats.findUnique({
           where: { userId: user.id },
           select: { level: true },
         }),
         getBell(user.id),
+        unreadConversations(prisma, user.id),
       ])
-    : [null, null];
+    : [null, null, 0];
   const now = new Date();
   return (
     <Header
@@ -30,6 +32,7 @@ async function HeaderWithUser() {
           : undefined
       }
       suggestions={suggestions}
+      messages={user ? { unread: unreadMessages } : undefined}
       notifications={
         bell
           ? {

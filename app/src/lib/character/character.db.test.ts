@@ -125,6 +125,7 @@ describe.skipIf(!reachable)("character sheet v2", () => {
       "sabedoria",
       "resistencia",
       "acervo",
+      "carisma",
     ]);
     expect(extras.attributes[0]).toMatchObject({ level: 3, points: 138, current: 38, span: 125, source: "horas jogadas" });
     expect(extras.attributes[1]).toMatchObject({ level: 1, points: 0 });

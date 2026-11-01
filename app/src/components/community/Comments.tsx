@@ -3,6 +3,7 @@ import { SectionHead } from "@/components/ui/SectionHead";
 import { findCommentTarget, listComments, type CommentTargetType } from "@/lib/community/comments";
 import { currentViewer } from "@/lib/community/viewer";
 import { prisma } from "@/lib/db";
+import { socialViewerState } from "@/lib/social/viewer-state";
 import { CommentsClient } from "./CommentsClient";
 
 type CommentsProps = {
@@ -44,12 +45,14 @@ async function CommentsIsland({ targetType, targetId }: { targetType: CommentTar
   if (!target) {
     return <p className="text-[15px] text-muted">Os comentários estão fechados aqui.</p>;
   }
+  const viewerState = await socialViewerState(prisma, viewer?.id ?? null, "comment", page.comments);
   return (
     <CommentsClient
       targetType={targetType}
       targetId={targetId}
       initial={page}
       viewer={viewer}
+      viewerState={viewerState}
       returnTo={`${target.href}#comentarios`}
     />
   );

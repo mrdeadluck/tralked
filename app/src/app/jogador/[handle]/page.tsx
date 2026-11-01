@@ -17,6 +17,7 @@ import { Card } from "@/components/ui/Card";
 import { getSessionUser } from "@/lib/auth/session";
 import { pendingDespertar } from "@/lib/character/despertar";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
+import { ProfileSocial } from "@/components/social/ProfileSocial";
 import { getCharacterSheetExtras } from "@/lib/character/sheet";
 import { getTotalPlaytimeMin } from "@/lib/profile/queries";
 import { getCharacter, hoursUntilDailyReset, type PlayerHeader } from "@/lib/queries/players";
@@ -80,6 +81,9 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
           {header.displayName}
         </h1>
         <p className="mt-4 text-muted">Este perfil é privado.</p>
+        <div className="mt-5 flex justify-center text-left">
+          <ProfileSocial user={{ id: header.id, handle: header.handle, displayName: header.displayName }} />
+        </div>
       </Card>
     );
   }
@@ -126,6 +130,8 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
           </Link>
         </p>
       ) : null}
+
+      <ProfileSocial user={{ id: header.id, handle: header.handle, displayName: header.displayName }} />
 
       <ProfileTabs handle={character.handle} active="ficha" />
 

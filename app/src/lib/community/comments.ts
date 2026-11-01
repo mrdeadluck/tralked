@@ -3,6 +3,10 @@ import type { Db } from "./limits";
 import { withinRateLimit } from "./limits";
 import { notify, preview } from "./notify";
 import { commentBodySchema } from "./text";
+import { notifyMentions } from "@/lib/social/mentions";
+import { isBlockedEither } from "@/lib/social/relations";
+import { replyParentId } from "@/lib/social/threads";
+import { voidItemSocialXp } from "@/lib/social/xp";
 
 export const COMMENT_TARGETS = ["article", "guide", "photo", "thread"] as const;
 export type CommentTargetType = (typeof COMMENT_TARGETS)[number];
@@ -22,6 +26,16 @@ export type CommentView = {
   author: AuthorView;
   /** Deleted by its author: the row stays (rate limits keep counting it) and shows "Comentário apagado". */
   deleted: boolean;
+  /** Comment this one answers (null for a top-level comment). */
+  parentId: string | null;
+  likeCount: number;
+  dislikeCount: number;
+  /** Marked "Útil" by the author of the comment it answers. */
+  helpful: boolean;
+  /** 0 for a top-level comment, 1 and 2 for replies (lib/social/threads.ts). */
+  depth: number;
+  /** Replies, oldest first (2 levels at most). */
+  replies: CommentView[];
 };
 
 /** Status of a comment its author deleted (the others are visible | hidden | removed). */
@@ -33,17 +47,27 @@ const commentSelect = {
   status: true,
   createdAt: true,
   editedAt: true,
+  parentId: true,
+  likeCount: true,
+  dislikeCount: true,
+  helpfulAt: true,
   author: { select: { id: true, handle: true, displayName: true, avatarUrl: true } },
 } as const;
 
-function toView(row: {
+type CommentRow = {
   id: string;
   body: string;
   status: string;
   createdAt: Date;
   editedAt: Date | null;
+  parentId: string | null;
+  likeCount: number;
+  dislikeCount: number;
+  helpfulAt: Date | null;
   author: AuthorView;
-}): CommentView {
+};
+
+function toView(row: CommentRow, depth = 0, replies: CommentView[] = []): CommentView {
   const deleted = row.status === DELETED_STATUS;
   return {
     id: row.id,
@@ -52,8 +76,17 @@ function toView(row: {
     editedAt: deleted ? null : row.editedAt,
     author: deleted ? null : row.author,
     deleted,
+    parentId: row.parentId,
+    likeCount: deleted ? 0 : row.likeCount,
+    dislikeCount: deleted ? 0 : row.dislikeCount,
+    helpful: !deleted && row.helpfulAt !== null,
+    depth,
+    replies,
   };
 }
+
+/** Replies loaded per level of a page of comments (oldest first). */
+const REPLIES_PER_LEVEL = 300;
 
 export type CommentPage = { comments: CommentView[]; nextCursor: string | null; total: number };
 
@@ -62,7 +95,11 @@ export const commentTargetSchema = z.object({
   targetId: z.string().min(1).max(64),
 });
 
-export const newCommentSchema = commentTargetSchema.extend({ body: commentBodySchema });
+export const newCommentSchema = commentTargetSchema.extend({
+  body: commentBodySchema,
+  /** Answer to this comment (threaded reply). */
+  parentId: z.string().min(1).max(64).optional(),
+});
 export const editCommentSchema = z.object({ id: z.string().min(1).max(64), body: commentBodySchema });
 
 export const authorSelect = {
@@ -112,9 +149,10 @@ export async function findCommentTarget(
 }
 
 /**
- * One page of comments, newest first: visible ones plus "Comentário apagado" placeholders for
- * those their authors deleted. `total` counts only visible comments.
- * `cursor` is the id of the last comment already shown.
+ * One page of top-level comments, newest first, each with its replies (oldest first, 2 levels):
+ * visible ones plus "Comentário apagado" placeholders for those their authors deleted. Replies of
+ * a hidden or removed comment go with it. `total` counts every visible comment, replies included.
+ * `cursor` is the id of the last top-level comment already shown.
  */
 export async function listComments(
   db: Db,
@@ -123,9 +161,10 @@ export async function listComments(
   cursor?: string | null,
   take: number = COMMENTS_PAGE_SIZE,
 ): Promise<CommentPage> {
+  const shown = { in: ["visible", DELETED_STATUS] };
   const [rows, total] = await Promise.all([
     db.comment.findMany({
-      where: { targetType, targetId, status: { in: ["visible", DELETED_STATUS] } },
+      where: { targetType, targetId, parentId: null, status: shown },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: take + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -134,8 +173,32 @@ export async function listComments(
     db.comment.count({ where: { targetType, targetId, status: "visible" } }),
   ]);
   const page = rows.slice(0, take);
+  const level = (parentIds: string[]) =>
+    parentIds.length === 0
+      ? Promise.resolve([] as CommentRow[])
+      : db.comment.findMany({
+          where: { targetType, targetId, parentId: { in: parentIds }, status: shown },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          take: REPLIES_PER_LEVEL,
+          select: commentSelect,
+        });
+  const first = await level(page.map((c) => c.id));
+  const second = await level(first.map((c) => c.id));
+  const childrenOf = (rows: CommentRow[], parentId: string) => rows.filter((r) => r.parentId === parentId);
   return {
-    comments: page.map(toView),
+    comments: page.map((root) =>
+      toView(
+        root,
+        0,
+        childrenOf(first, root.id).map((reply) =>
+          toView(
+            reply,
+            1,
+            childrenOf(second, reply.id).map((r) => toView(r, 2)),
+          ),
+        ),
+      ),
+    ),
     nextCursor: rows.length > take ? page[page.length - 1].id : null,
     total,
   };
@@ -177,9 +240,15 @@ export async function recountAllArticleComments(db: Db): Promise<number> {
 export type CreateCommentResult =
   | { status: "ok"; comment: CommentView; articleSlug?: string }
   | { status: "not_found" }
+  | { status: "blocked" }
   | { status: "rate_limited" };
 
-/** Posts a comment (visible right away; moderators can hide it later). Input must be validated. */
+/**
+ * Posts a comment, or a reply when `parentId` is set (visible right away; moderators can hide it
+ * later). A reply goes at most 2 levels deep (lib/social/threads.ts) and is refused when the
+ * replied-to author and the user blocked each other. Notifies the photo owner (top-level comment
+ * on a photo), the replied-to author and @mentioned users. Input must be validated.
+ */
 export async function createComment(
   db: Db,
   userId: string,
@@ -187,31 +256,74 @@ export async function createComment(
 ): Promise<CreateCommentResult> {
   const target = await findCommentTarget(db, input.targetType, input.targetId);
   if (!target) return { status: "not_found" };
+
+  let parent: { id: string; authorId: string | null } | null = null;
+  if (input.parentId) {
+    const replied = await db.comment.findFirst({
+      where: { id: input.parentId, targetType: input.targetType, targetId: input.targetId, status: "visible" },
+      select: { id: true, authorId: true, parentId: true, parent: { select: { parentId: true, authorId: true } } },
+    });
+    if (!replied) return { status: "not_found" };
+    if (replied.authorId && (await isBlockedEither(db, userId, replied.authorId))) return { status: "blocked" };
+    const parentId = replyParentId(replied.id, replied.parentId, replied.parent?.parentId ?? null);
+    parent = { id: parentId, authorId: parentId === replied.id ? replied.authorId : (replied.parent?.authorId ?? null) };
+  }
   if (!(await withinRateLimit(db, "comment", userId))) return { status: "rate_limited" };
 
   const comment = await db.comment.create({
-    data: { authorId: userId, targetType: input.targetType, targetId: input.targetId, body: input.body },
+    data: {
+      authorId: userId,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      body: input.body,
+      parentId: parent?.id ?? null,
+    },
     select: commentSelect,
   });
-  if (input.targetType === "photo") {
+  const handle = comment.author?.handle ?? "alguém";
+  const href = `${target.href}#comentario-${comment.id}`;
+  if (parent) {
+    await notify(db, {
+      userId: parent.authorId,
+      actorId: userId,
+      kind: "comment_reply",
+      title: `@${handle} respondeu seu comentário`,
+      body: preview(input.body),
+      href,
+    });
+  } else if (input.targetType === "photo") {
     await notify(db, {
       userId: target.ownerId,
       actorId: userId,
       kind: "comment_reply",
-      title: `@${comment.author?.handle ?? "alguém"} comentou na sua foto`,
+      title: `@${handle} comentou na sua foto`,
       body: preview(input.body),
       href: target.href,
     });
   }
+  await notifyMentions(db, {
+    authorId: userId,
+    authorHandle: handle,
+    text: input.body,
+    href,
+    skip: [parent ? parent.authorId : input.targetType === "photo" ? target.ownerId : null],
+  });
+  const view = toView(comment, parent ? await depthUnder(db, parent.id) : 0);
   if (input.targetType === "article") {
     const articleSlug = await syncArticleComments(db, input.targetId);
-    if (articleSlug) return { status: "ok", comment: toView(comment), articleSlug };
+    if (articleSlug) return { status: "ok", comment: view, articleSlug };
   }
-  return { status: "ok", comment: toView(comment) };
+  return { status: "ok", comment: view };
+}
+
+/** Depth of a new reply under `parentId`: 1 under a top-level comment, otherwise 2. */
+async function depthUnder(db: Db, parentId: string): Promise<number> {
+  const parent = await db.comment.findUnique({ where: { id: parentId }, select: { parentId: true } });
+  return parent?.parentId ? 2 : 1;
 }
 
 export type OwnCommentResult =
-  | { status: "ok"; articleSlug?: string; photoId?: string }
+  | { status: "ok"; articleSlug?: string; photoId?: string; xpVoided?: number }
   | { status: "not_found" }
   | { status: "forbidden" };
 
@@ -241,8 +353,9 @@ export async function editComment(
 /**
  * Deletes the user's own visible comment: the text is cleared and the row is kept with status
  * `deleted` (shown as "Comentário apagado"), so deleting does not reset the comment rate limit.
+ * The likes and helpful mark it earned stop counting (`xpVoided`: recompute the user when > 0).
  */
-export async function deleteComment(db: Db, userId: string, id: string): Promise<OwnCommentResult> {
+export async function deleteComment(db: Db, userId: string, id: string, now: Date = new Date()): Promise<OwnCommentResult> {
   const check = await ownComment(db, userId, id);
   if (check !== "ok") return { status: check };
   const deleted = await db.comment.update({
@@ -250,11 +363,13 @@ export async function deleteComment(db: Db, userId: string, id: string): Promise
     data: { status: DELETED_STATUS, body: "" },
     select: { targetType: true, targetId: true },
   });
+  const voided = await voidItemSocialXp(db, "comment", id, userId, now);
+  const xp = voided > 0 ? { xpVoided: voided } : {};
   if (deleted.targetType === "article") {
     const articleSlug = await syncArticleComments(db, deleted.targetId);
-    if (articleSlug) return { status: "ok", articleSlug };
+    if (articleSlug) return { status: "ok", articleSlug, ...xp };
   }
   // The photo page caches its comment count (photo:<id>).
-  if (deleted.targetType === "photo") return { status: "ok", photoId: deleted.targetId };
-  return { status: "ok" };
+  if (deleted.targetType === "photo") return { status: "ok", photoId: deleted.targetId, ...xp };
+  return { status: "ok", ...xp };
 }

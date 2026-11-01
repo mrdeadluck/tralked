@@ -15,7 +15,7 @@ import {
 } from "./attributes";
 
 describe("ATTRIBUTES", () => {
-  it("has the 9 attributes in order with pt-BR names and descriptions", () => {
+  it("has the 10 attributes in order with pt-BR names and descriptions", () => {
     expect(ATTRIBUTES.map((a) => a.id)).toEqual([
       "vigor",
       "precisao",
@@ -26,6 +26,7 @@ describe("ATTRIBUTES", () => {
       "sabedoria",
       "resistencia",
       "acervo",
+      "carisma",
     ]);
     expect(ATTRIBUTES.map((a) => a.name)).toEqual([
       "Vigor",
@@ -37,6 +38,7 @@ describe("ATTRIBUTES", () => {
       "Sabedoria",
       "Resistência",
       "Acervo",
+      "Carisma",
     ]);
     for (const a of ATTRIBUTES) expect(a.description.length).toBeGreaterThan(10);
   });
@@ -151,6 +153,9 @@ describe("computeAttributes", () => {
       sabioPoints: 310,
       solvedAnswers: 3,
       publishedGuides: 2,
+      likesReceived: 12,
+      helpfulReplies: 2,
+      friends: 3,
     });
 
     expect(result).toEqual({
@@ -163,6 +168,7 @@ describe("computeAttributes", () => {
       sabedoria: { points: 630, level: 6 },
       resistencia: { points: 181, level: 3 }, // 3750 min = 62.5 h
       acervo: { points: 40, level: 2 }, // 4 played games
+      carisma: { points: 140, level: 3 }, // 12 likes * 5 + 2 helpful * 25 + 3 friends * 10
     });
   });
 

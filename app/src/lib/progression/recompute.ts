@@ -269,7 +269,7 @@ async function attributeInput(
   streak: { activeDays: number; bestStreak: number },
   sabioPoints: number,
 ): Promise<AttributeInput> {
-  const [userGames, tainted, solvedAnswers, publishedGuides] = await Promise.all([
+  const [userGames, tainted, solvedAnswers, publishedGuides, social] = await Promise.all([
     prisma.userGame.findMany({
       where: { userId },
       select: { gameId: true, platform: true, playtimeMin: true, completedAt: true },
@@ -287,6 +287,7 @@ async function attributeInput(
       },
     }),
     prisma.guide.count({ where: { authorId: userId, status: "published" } }),
+    carismaInput(userId),
   ]);
 
   type GameAcc = { playtimeMin: number; unlocked: AttributeInput["games"][number]["unlocked"]; completed: boolean };
@@ -341,7 +342,23 @@ async function attributeInput(
     sabioPoints,
     solvedAnswers,
     publishedGuides,
+    ...social,
   };
+}
+
+/**
+ * Carisma's sources (F9): paid (non-voided) likes and helpful marks received, from the ledger, so
+ * the anti-abuse caps apply to the attribute too, and accepted friendships.
+ */
+async function carismaInput(userId: string) {
+  const [likesReceived, helpfulReplies, friends] = await Promise.all([
+    prisma.xpLedgerEntry.count({ where: { userId, source: "comment_liked", voidedAt: null } }),
+    prisma.xpLedgerEntry.count({ where: { userId, source: "comment_helpful", voidedAt: null } }),
+    prisma.friendship.count({
+      where: { acceptedAt: { not: null }, OR: [{ userLowId: userId }, { userHighId: userId }] },
+    }),
+  ]);
+  return { likesReceived, helpfulReplies, friends };
 }
 
 /**

@@ -75,7 +75,7 @@ describe.skipIf(!reachable)("seeded database", () => {
     });
     expect(users).toHaveLength(handles.length);
     for (const user of users) {
-      expect(user._count.attributes, user.handle).toBe(9);
+      expect(user._count.attributes, user.handle).toBe(10);
       // The seed user never triggers the first-sync "Despertar" sequence.
       expect(user.despertarShownAt, user.handle).not.toBeNull();
     }

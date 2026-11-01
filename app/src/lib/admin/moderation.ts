@@ -6,6 +6,8 @@ import { FORUM_TAG, GALLERY_TAG, photoTag, threadTag } from "@/lib/community/cac
 import { REPORT_TARGETS } from "@/lib/community/reports";
 import { prisma } from "@/lib/db";
 import { getStorage, type Storage } from "@/lib/storage";
+import type { SocialItemKind } from "@/lib/engine/social";
+import { voidItemSocialXp } from "@/lib/social/xp";
 
 /**
  * Moderation of community content (comments, forum posts and threads, gallery photos) and the
@@ -13,8 +15,9 @@ import { getStorage, type Storage } from "@/lib/storage";
  *
  * - "Ocultar" (hide) is reversible ("Restaurar") and keeps any XP the content earned.
  * - "Remover" (remove) is final: the content never comes back, and the XP it earned is voided in
- *   the ledger (gallery photo XP, and the "Resolveu" XP of a forum answer), then the author is
- *   recomputed. Voided entries are kept, so the decision stays auditable. A removed photo's image
+ *   the ledger (gallery photo XP, the "Resolveu" XP of a forum answer, and the likes/helpful XP of
+ *   comments and posts — including those of a removed photo's comments and a removed thread's
+ *   posts), then the authors are recomputed. Voided entries are kept, so the decision stays auditable. A removed photo's image
  *   file is deleted from storage too (hiding keeps it: a hidden photo can come back).
  * - Hiding or removing resolves the target's open reports.
  * - Targets that no longer exist are reported as such (reports may outlive their target).
@@ -114,12 +117,18 @@ export async function moderateContent(
     let unsolveThreadId: string | null = null;
     /** Article whose comment count follows this comment's status. */
     let articleCommentOf: string | null = null;
+    /** Comments and posts whose likes/helpful XP go when the content is removed (F9). */
+    let socialItems: { kind: SocialItemKind; id: string; authorId: string | null }[] = [];
 
     switch (targetType) {
       case "comment": {
-        const comment = await tx.comment.findUnique({ where: { id: targetId }, select: { status: true, targetType: true, targetId: true } });
+        const comment = await tx.comment.findUnique({
+          where: { id: targetId },
+          select: { status: true, targetType: true, targetId: true, authorId: true },
+        });
         if (!comment) return NOT_FOUND;
         current = comment.status;
+        socialItems = [{ kind: "comment", id: targetId, authorId: comment.authorId }];
         if (comment.targetType === "photo") tags.push(photoTag(comment.targetId), GALLERY_TAG);
         if (comment.targetType === "thread") tags.push(threadTag(comment.targetId));
         if (comment.targetType === "article") articleCommentOf = comment.targetId;
@@ -132,6 +141,10 @@ export async function moderateContent(
         photoUrl = photo.url;
         tags.push(photoTag(targetId), GALLERY_TAG);
         earned = [photo.authorId, "photo_approved", targetId];
+        // Its comments leave with it.
+        socialItems = (
+          await tx.comment.findMany({ where: { targetType: "photo", targetId }, select: { id: true, authorId: true } })
+        ).map((c) => ({ kind: "comment" as const, ...c }));
         break;
       }
       case "post": {
@@ -142,6 +155,7 @@ export async function moderateContent(
         if (!post) return NOT_FOUND;
         current = post.status;
         tags.push(threadTag(post.threadId), FORUM_TAG);
+        socialItems = [{ kind: "post", id: targetId, authorId: post.authorId }];
         if (post.solves) {
           // The answer no longer stands: its "Resolveu" XP goes and the thread author may mark another.
           earned = [post.authorId, "forum_solved", targetId];
@@ -158,6 +172,9 @@ export async function moderateContent(
         current = thread.status;
         tags.push(threadTag(targetId), FORUM_TAG);
         if (thread.solvedPost) earned = [thread.solvedPost.authorId, "forum_solved", thread.solvedPost.id];
+        socialItems = (
+          await tx.forumPost.findMany({ where: { threadId: targetId }, select: { id: true, authorId: true } })
+        ).map((p) => ({ kind: "post" as const, ...p }));
         break;
       }
     }
@@ -193,6 +210,11 @@ export async function moderateContent(
         const [authorId, source, sourceKey] = earned;
         voided = await voidEntries(tx, authorId, source, sourceKey, now);
         if (voided > 0 && authorId) recompute.push(authorId);
+      }
+      for (const item of socialItems) {
+        const count = await voidItemSocialXp(tx, item.kind, item.id, item.authorId, now);
+        voided += count;
+        if (count > 0 && item.authorId && !recompute.includes(item.authorId)) recompute.push(item.authorId);
       }
       if (unsolveThreadId) {
         await tx.forumThread.update({ where: { id: unsolveThreadId }, data: { solvedPostId: null } });
@@ -259,7 +281,7 @@ const byId = <T extends { id: string }>(rows: T[]) => new Map(rows.map((r) => [r
 async function targetSummaries(refs: { targetType: string; targetId: string }[]) {
   const ids = (type: string) => [...new Set(refs.filter((r) => r.targetType === type).map((r) => r.targetId))];
   const author = { select: { handle: true } } as const;
-  const [comments, posts, photos, threads, articles, guides, users] = await Promise.all([
+  const [comments, posts, photos, threads, articles, guides, users, messages] = await Promise.all([
     prisma.comment.findMany({ where: { id: { in: ids("comment") } }, select: { id: true, body: true, status: true, targetType: true, targetId: true, author } }),
     prisma.forumPost.findMany({ where: { id: { in: ids("post") } }, select: { id: true, body: true, status: true, threadId: true, author } }),
     prisma.photo.findMany({ where: { id: { in: ids("photo") } }, select: { id: true, caption: true, status: true, author } }),
@@ -267,6 +289,12 @@ async function targetSummaries(refs: { targetType: string; targetId: string }[])
     prisma.article.findMany({ where: { id: { in: ids("article") } }, select: { id: true, title: true, slug: true, status: true } }),
     prisma.guide.findMany({ where: { id: { in: ids("guide") } }, select: { id: true, status: true, game: { select: { name: true, slug: true } } } }),
     prisma.user.findMany({ where: { id: { in: ids("user") } }, select: { id: true, handle: true, displayName: true } }),
+    // Reported private messages: the moderators see only the reported message (never the rest of
+    // the conversation), to decide on its sender.
+    prisma.directMessage.findMany({
+      where: { id: { in: ids("message") } },
+      select: { id: true, body: true, sender: { select: { handle: true } } },
+    }),
   ]);
   const maps = {
     comment: byId(comments),
@@ -276,6 +304,7 @@ async function targetSummaries(refs: { targetType: string; targetId: string }[])
     article: byId(articles),
     guide: byId(guides),
     user: byId(users),
+    message: byId(messages),
   };
   return (type: string, id: string): TargetSummary | null => {
     switch (type) {
@@ -319,6 +348,18 @@ async function targetSummaries(refs: { targetType: string; targetId: string }[])
       case "user": {
         const u = maps.user.get(id);
         return u ? { text: `${u.displayName} (@${u.handle})`, author: u.handle, status: null, href: `/jogador/${u.handle}`, moderatable: null } : null;
+      }
+      case "message": {
+        const m = maps.message.get(id);
+        return m
+          ? {
+              text: `Mensagem privada: ${m.body}`,
+              author: m.sender?.handle ?? null,
+              status: null,
+              href: m.sender ? `/jogador/${m.sender.handle}` : null,
+              moderatable: null,
+            }
+          : null;
       }
       default:
         return null;

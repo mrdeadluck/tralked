@@ -1,4 +1,5 @@
 import type { SkillId } from "./types";
+import { carismaPoints } from "./social";
 import { gloryPoints, type TrophyTier } from "./trophies";
 
 export type AttributeId =
@@ -10,7 +11,8 @@ export type AttributeId =
   | "constancia"
   | "sabedoria"
   | "resistencia"
-  | "acervo";
+  | "acervo"
+  | "carisma";
 
 export const ATTRIBUTES: { id: AttributeId; name: string; description: string }[] = [
   {
@@ -62,6 +64,12 @@ export const ATTRIBUTES: { id: AttributeId; name: string; description: string }[
     name: "Acervo",
     description:
       "Cresce com os jogos que você jogou; jogos que você tem e nunca jogou valem metade.",
+  },
+  {
+    id: "carisma",
+    name: "Carisma",
+    description:
+      "Cresce com as curtidas que seus comentários recebem, as respostas marcadas como úteis e os amigos.",
   },
 ];
 
@@ -140,6 +148,10 @@ export type AttributeInput = {
   sabioPoints: number;
   solvedAnswers: number;
   publishedGuides: number;
+  /** Social (F9): paid `comment_liked` and `comment_helpful` entries, accepted friendships. */
+  likesReceived?: number;
+  helpfulReplies?: number;
+  friends?: number;
 };
 
 /**
@@ -169,6 +181,7 @@ export function computeAttributes(input: AttributeInput): Record<AttributeId, At
     ),
     resistencia: resistenciaPoints(games.reduce((sum, g) => sum + Math.max(0, g.playtimeMin), 0)),
     acervo: acervoPoints(played, games.length - played),
+    carisma: carismaPoints(input.likesReceived ?? 0, input.helpfulReplies ?? 0, input.friends ?? 0),
   };
 
   const result = {} as Record<AttributeId, AttributeResult>;

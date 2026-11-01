@@ -9,8 +9,14 @@ import { DeleteAccountForm } from "@/components/account/DeleteAccountForm";
 import { EmailStatus } from "@/components/account/EmailStatus";
 import { ProfileForm } from "@/components/account/ProfileForm";
 import { PageHead } from "@/components/community/PageHead";
+import { DmPolicyForm } from "@/components/social/DmPolicyForm";
+import { PersonActions } from "@/components/social/PersonActions";
+import { PersonList } from "@/components/social/PersonList";
 import { getSessionUser } from "@/lib/auth/session";
+import { prisma } from "@/lib/db";
 import { mailAvailable } from "@/lib/mail/mailer";
+import { DM_POLICIES, type DmPolicy } from "@/lib/social/messages";
+import { listBlocked } from "@/lib/social/relations";
 
 export const metadata: Metadata = {
   title: "Conta · Tralked",
@@ -46,12 +52,29 @@ function Section({ title, lede, children }: { title: string; lede?: string; chil
 async function ContaContent() {
   const user = await getSessionUser();
   if (!user) return <AccountLogin returnTo="/conta" />;
+  const blocked = await listBlocked(prisma, user.id);
 
   return (
     <>
       <AccountNav current="/conta" />
       <Section title="Perfil" lede={`Você aparece como ${user.displayName} (@${user.handle}).`}>
         <ProfileForm bio={user.bio ?? ""} profilePublic={user.profilePublic} handle={user.handle} />
+      </Section>
+
+      <Section title="Mensagens e bloqueios" lede="Quem pode falar com você em particular, e quem você bloqueou.">
+        <div id="mensagens" className="flex scroll-mt-24 flex-col gap-6">
+          <DmPolicyForm policy={(DM_POLICIES as readonly string[]).includes(user.dmPolicy) ? (user.dmPolicy as DmPolicy) : "everyone"} />
+          <div className="flex flex-col gap-3">
+            <h3 className="text-[15px] font-bold">Bloqueados</h3>
+            <PersonList
+              people={blocked}
+              label="Pessoas bloqueadas"
+              empty="Você não bloqueou ninguém. Para bloquear, use o botão Bloquear no perfil ou na conversa."
+              sinceLabel="bloqueado em"
+              action={(p) => <PersonActions userId={p.id} handle={p.handle} ops={["unblock"]} />}
+            />
+          </div>
+        </div>
       </Section>
 
       <Section title="Capinha dos jogos" lede="A animação de abrir o lacre na primeira visita a cada jogo.">
@@ -69,8 +92,8 @@ async function ContaContent() {
         <div className="flex flex-col items-start gap-3">
           <p className="max-w-[60ch] text-[14.5px] text-text-2">
             Inclui perfil, contas conectadas, biblioteca, conquistas, histórico de XP, missões,
-            comentários, posts, fotos, curtidas e notificações. Só os seus dados, nunca os de
-            outras pessoas.
+            comentários, posts, fotos, curtidas, quem você segue, amizades, bloqueios, reações, as
+            mensagens que você enviou e notificações. Só os seus dados, nunca os de outras pessoas.
           </p>
           {/* A route handler download, so a plain anchor (not next/link). */}
           <a

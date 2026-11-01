@@ -10,9 +10,11 @@ export type DeletedAccount = {
 
 /**
  * LGPD account deletion. Personal data (profile, linked accounts, library, unlocks, XP ledger,
- * skills, attributes, missions, likes, votes, notifications, family membership) is removed by
- * the schema's cascades. Authored content (guides, tips, comments, forum threads and posts,
- * photos, reports) stays with its author set to null, so it shows as an anonymous author.
+ * skills, attributes, missions, likes, votes, notifications, family membership, follows,
+ * friendships, blocks, comment reactions) is removed by the schema's cascades. Authored content
+ * (guides, tips, comments, forum threads and posts, photos, reports, private messages already
+ * delivered) stays with its author set to null, so it shows as an anonymous author; a private
+ * conversation the other side had already deleted (or nobody is left in) is deleted entirely.
  *
  * Before the delete: the user leaves their family (ownership passes to the oldest member, an
  * empty family is removed), photo like and tip vote counters drop by the user's likes and votes,
@@ -50,11 +52,31 @@ export async function deleteAccount(userId: string): Promise<DeletedAccount | nu
         data: { votes: { decrement: 1 } },
       });
     }
+    // Reactions (F9) cascade away too: the comments' and posts' counters drop with them.
+    const reactions = await tx.reaction.findMany({ where: { userId }, select: { targetType: true, targetId: true, value: true } });
+    for (const kind of ["comment", "post"] as const) {
+      for (const value of [1, -1] as const) {
+        const ids = reactions.filter((r) => r.targetType === kind && r.value === value).map((r) => r.targetId);
+        if (ids.length === 0) continue;
+        const field = value === 1 ? "likeCount" : "dislikeCount";
+        const where = { id: { in: ids }, [field]: { gt: 0 } };
+        const data = { [field]: { decrement: 1 } };
+        if (kind === "comment") await tx.comment.updateMany({ where, data });
+        else await tx.forumPost.updateMany({ where, data });
+      }
+    }
     // Newsletter addresses are stored lowercased and trimmed (newsletterEmailSchema).
     if (user.email) {
       await tx.newsletterSubscriber.deleteMany({ where: { email: user.email.trim().toLowerCase() } });
     }
     await tx.user.delete({ where: { id: userId } });
+    // Private conversations keep the messages for the other side (sender shown as "Conta
+    // removida"); one nobody is left in, or the other side had already deleted, goes for good.
+    await tx.conversation.deleteMany({ where: { userLowId: null, userHighId: null } });
+    await tx.$executeRaw`
+      DELETE FROM "Conversation" c
+      WHERE (c."userLowId" IS NULL AND c."highClearedAt" IS NOT NULL AND c."highClearedAt" >= c."lastMessageAt")
+         OR (c."userHighId" IS NULL AND c."lowClearedAt" IS NOT NULL AND c."lowClearedAt" >= c."lastMessageAt")`;
     return liked;
   });
 

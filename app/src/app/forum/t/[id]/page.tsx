@@ -10,6 +10,8 @@ import { recentThreadIds, type ThreadDetail } from "@/lib/community/forum";
 import { formatWhen, plural } from "@/lib/community/format";
 import { preview } from "@/lib/community/notify";
 import { currentViewer } from "@/lib/community/viewer";
+import { prisma } from "@/lib/db";
+import { socialViewerState } from "@/lib/social/viewer-state";
 
 export async function generateStaticParams() {
   const ids = await recentThreadIds(20);
@@ -88,5 +90,6 @@ function ThreadFacts({ thread, replies }: { thread: ThreadDetail; replies: numbe
 
 async function ThreadIsland({ thread }: { thread: ThreadDetail }) {
   const viewer = await currentViewer();
-  return <ThreadView thread={thread} viewer={viewer} />;
+  const viewerState = await socialViewerState(prisma, viewer?.id ?? null, "post", thread.posts);
+  return <ThreadView thread={thread} viewer={viewer} viewerState={viewerState} />;
 }
