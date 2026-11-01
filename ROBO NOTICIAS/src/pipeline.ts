@@ -122,7 +122,7 @@ export function isPaused(config: Pick<Config, "DATA_DIR">): boolean {
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-function triageOf(item: ItemRow): Triage | null {
+export function triageOf(item: ItemRow): Triage | null {
   if (!item.triage_json) return null;
   try {
     return JSON.parse(item.triage_json) as Triage;
@@ -141,7 +141,7 @@ function parseGames(json: string): string[] {
 }
 
 /** When the item happened, never in the future: `min(pubDate, now)`, or the fetch time without a date. */
-function itemTime(item: ItemRow, now: Date): number {
+export function itemTime(item: ItemRow, now: Date): number {
   const pub = item.published_at ? Date.parse(item.published_at) : Number.NaN;
   const at = Number.isNaN(pub) ? Date.parse(item.fetched_at) : pub;
   return Math.min(Number.isNaN(at) ? now.getTime() : at, now.getTime());
@@ -194,7 +194,7 @@ function pausedAlert(deps: Pick<PipelineDeps, "db" | "config">, now: Date): void
   );
 }
 
-async function pool<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+export async function pool<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const run = async () => {
     while (next < items.length) await worker(items[next++]!);
@@ -220,7 +220,7 @@ function gameResolver(tralked: Tralked) {
 // Story facts
 // ---------------------------------------------------------------------------------------------
 
-type StoryFacts = {
+export type StoryFacts = {
   items: ItemRow[];
   triages: Triage[];
   score: number;
@@ -232,7 +232,7 @@ type StoryFacts = {
   lastItemAt: number;
 };
 
-function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): StoryFacts {
+export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): StoryFacts {
   const sourcesById = new Map(deps.sources.map((s) => [s.id, s]));
   const items = deps.db.itemsForStory(story.id);
   const withTriage = items.flatMap((item) => {
@@ -265,7 +265,7 @@ function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): StoryFacts 
 }
 
 /** Recomputes score, bomb, rumor, category, games and last item time; keeps headline, status and mode. */
-function recomputeStory(storyId: number, deps: PipelineDeps, now: Date): StoryFacts | null {
+export function recomputeStory(storyId: number, deps: PipelineDeps, now: Date): StoryFacts | null {
   const story = deps.db.storyById(storyId);
   if (!story) return null;
   const facts = storyFacts(story, deps, now);
@@ -352,7 +352,7 @@ function parentOf(story: StoryRow, deps: PipelineDeps): { title: string; blocksT
   return { title, blocksText: blocksText(payload.blocks ?? []), url };
 }
 
-async function storyForWriting(
+export async function storyForWriting(
   story: StoryRow,
   deps: PipelineDeps,
   previous?: StoryForWriting["previous"],
@@ -370,7 +370,7 @@ async function storyForWriting(
   };
 }
 
-const insightsOf = (candidates: StoryForWriting["candidates"]) =>
+export const insightsOf = (candidates: StoryForWriting["candidates"]) =>
   new Map(candidates.flatMap((c) => (c.insights ? [[c.slug, c.insights] as const] : [])));
 
 /** `assemble` options: the Tralked data, and the parent link of a follow-up. */
