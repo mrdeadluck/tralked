@@ -7,6 +7,7 @@ import { Comments } from "@/components/community/Comments";
 import { AdSlot } from "@/components/ui/AdSlot";
 import { ArticleBody } from "@/components/news/ArticleBody";
 import { ArticleTags } from "@/components/news/ArticleTags";
+import { GameCoverThumb } from "@/components/news/GameCoverThumb";
 import { Blocks } from "@/lib/content/render";
 import { isSafeHttpUrl } from "@/lib/content/url";
 import { JsonLd, newsArticleJsonLd } from "@/lib/seo/json-ld";
@@ -59,6 +60,14 @@ export async function generateMetadata({
 
 const sectionTitle = "text-[22px] leading-none font-black font-stretch-[125%] tracking-[-0.03em] uppercase";
 
+/** Plan 4 F12: links to a game related to the article (targets at least 24px tall). */
+const gameLink =
+  "inline-flex min-h-6 items-center font-mono text-[11px] tracking-[0.08em] text-acc uppercase underline-offset-[3px] hover:underline";
+
+/**
+ * "Jogo desta notícia" at the end: the catalog cover (generated art when the game has none, e.g.
+ * a stub) and both ways out: the game page and, when there is one, the 100% guide.
+ */
 function RelatedGames({ article }: { article: ArticleFull }) {
   if (article.games.length === 0) return null;
   return (
@@ -68,25 +77,75 @@ function RelatedGames({ article }: { article: ArticleFull }) {
       </h2>
       <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3 p-0">
         {article.games.map((game) => (
-          <li key={game.slug}>
-            <Link
-              href={`/jogos/${game.slug}${game.hasGuide ? "/guia" : ""}`}
-              className="group flex items-center gap-4 rounded-[4px] border border-line bg-surface p-3 transition-colors hover:border-acc"
-            >
-              <span className="block h-16 w-12 flex-none overflow-hidden rounded-[2px]">
-                <GameArt seed={hashSeed(game.slug)} hues={artHues(game.slug, game.slug)} figure light width={120} height={160} />
+          <li
+            key={game.slug}
+            className="flex items-center gap-4 rounded-[4px] border border-line bg-surface p-3 transition-colors hover:border-line-2"
+          >
+            <span className="block h-16 w-12 flex-none overflow-hidden rounded-[2px]">
+              <GameCoverThumb
+                coverUrl={game.coverUrl}
+                variant="card"
+                seed={hashSeed(game.slug)}
+                hues={artHues(game.slug, game.slug)}
+              />
+            </span>
+            <span className="flex min-w-0 flex-col gap-1">
+              <b className="truncate text-[17px] font-extrabold">{game.name}</b>
+              <span className="flex flex-wrap gap-x-4">
+                <Link href={`/jogos/${game.slug}`} aria-label={`Ver jogo: ${game.name}`} className={gameLink}>
+                  Ver jogo →
+                </Link>
+                {game.hasGuide ? (
+                  <Link href={`/jogos/${game.slug}/guia`} aria-label={`Abrir guia 100% de ${game.name}`} className={gameLink}>
+                    Abrir guia 100% →
+                  </Link>
+                ) : null}
               </span>
-              <span className="flex min-w-0 flex-col gap-1">
-                <b className="truncate text-[17px] font-extrabold">{game.name}</b>
-                <span className="font-mono text-[11px] tracking-[0.08em] text-acc uppercase">
-                  {game.hasGuide ? "Abrir guia 100%" : "Ver jogo"} →
-                </span>
-              </span>
-            </Link>
+            </span>
           </li>
         ))}
       </ul>
     </section>
+  );
+}
+
+/**
+ * Plan 4 F12: chips right under the headline, one per related game, with its catalog cover and
+ * the links to the game page and the 100% guide. A game without a cover (stub), or whose cover
+ * fails to load, shows only its name.
+ */
+function GameChips({ article }: { article: ArticleFull }) {
+  if (article.games.length === 0) return null;
+  return (
+    <ul
+      aria-label={article.games.length > 1 ? "Jogos desta notícia" : "Jogo desta notícia"}
+      className="m-0 flex list-none flex-wrap gap-2 p-0"
+    >
+      {article.games.map((game) => (
+        <li
+          key={game.slug}
+          className="flex min-h-11 items-center gap-2.5 rounded-[3px] border border-line bg-surface py-1 pr-3 pl-1"
+        >
+          <GameCoverThumb
+            coverUrl={game.coverUrl}
+            variant="chip"
+            seed={hashSeed(game.slug)}
+            hues={artHues(game.slug, game.slug)}
+          />
+          <span className="text-[14px] font-bold">{game.name}</span>
+          <span className="flex gap-3 pl-1">
+            <Link href={`/jogos/${game.slug}`} aria-label={`Ver jogo: ${game.name}`} className={gameLink}>
+              Ver jogo
+            </Link>
+            {game.hasGuide ? (
+              <Link href={`/jogos/${game.slug}/guia`} aria-label={`Guia 100% de ${game.name}`} className={gameLink}>
+                Guia 100%
+              </Link>
+            ) : null}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -139,6 +198,7 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
           {article.title}
         </h1>
         {article.subtitle ? <p className="text-lg text-text-3">{article.subtitle}</p> : null}
+        <GameChips article={article} />
         <div className="flex flex-wrap gap-3.5 font-mono text-xs text-dim">
           {/* Robot articles are signed "Equipe Tralked", not a user handle. */}
           <span className="text-text-2">{article.authorLabel}</span>

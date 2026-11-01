@@ -20,6 +20,8 @@ export const ROUTES: E2ERoute[] = [
   { path: "/noticias", name: "noticias" },
   { path: "/noticias?categoria=guias&pagina=1", name: "noticias-guias" },
   { path: "/noticias?pagina=2", name: "noticias-pagina-2" },
+  { path: "/noticias?categoria=entretenimento", name: "noticias-entretenimento" },
+  { path: "/noticias?categoria=tecnologia", name: "noticias-tecnologia" },
   { path: "/noticias/25-conquistas-mais-raras-da-steam-em-2026", name: "noticia" },
   { path: "/noticias/hollow-knight-guia-100-por-cento-em-7-etapas", name: "noticia-jogo" },
   { path: "/highscores", name: "highscores" },

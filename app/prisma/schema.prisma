@@ -705,10 +705,13 @@ model ExternalNews {
   source      String
   publishedAt DateTime
   fetchedAt   DateTime @default(now())
+  /// Area of the feed it came from: GAMES | ENTRETENIMENTO | TECNOLOGIA (src/lib/news/areas.ts).
+  area        String   @default("GAMES")
   game        Game?    @relation(fields: [gameId], references: [id], onDelete: SetNull)
 
   @@index([gameId, publishedAt])
   @@index([publishedAt])
+  @@index([area, publishedAt])
 }
 
 /// RSS feed configured in the admin.
@@ -717,6 +720,8 @@ model NewsFeed {
   name   String
   url    String  @unique
   active Boolean @default(true)
+  /// GAMES | ENTRETENIMENTO | TECNOLOGIA: which headlines are kept and which tab shows them.
+  area   String  @default("GAMES")
 }
 
 // ---------- Community ----------
