@@ -5,11 +5,13 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 import { createAi, type Ai, type StructuredOpts } from "../src/ai/client.js";
 import { loadStyle, writePrompt, type Draft } from "../src/ai/writer.js";
-import { dayQuotas, runRetroativo, storyFromJson, type BackfillDeps, type BatchApi } from "../src/backfill.js";
+import { backfillWindow, dayQuotas, estimateRequestUsd, runRetroativo, storyFromJson, type BackfillDeps, type BatchApi } from "../src/backfill.js";
+import { formatRetroativo } from "../src/commands/retroativo.js";
+import { runColeta } from "../src/pipeline.js";
 import { localDay, localHour } from "../src/clock.js";
 import { loadConfig, type Source } from "../src/config.js";
 import { openDb, type Db, type StoryRow } from "../src/db.js";
-import { articleKey, slugify, TralkedError, type ArticlePayload, type Tralked } from "../src/tralked.js";
+import { articleKey, slugify, TralkedError, type ArticlePayload, type FeedArticle, type Tralked } from "../src/tralked.js";
 
 // America/Sao_Paulo is UTC-3 all year (no DST since 2019).
 const local = (wall: string) => new Date(`${wall}:00-03:00`);
@@ -134,18 +136,33 @@ const errored = (customId: string): BatchResponse =>
 
 const expiredResult = (customId: string): BatchResponse => ({ custom_id: customId, result: { type: "expired" } }) as BatchResponse;
 
-function fakeBatches() {
+type ListedBatch = {
+  id: string;
+  created_at: string;
+  processing_status: string;
+  request_counts: { processing: number; succeeded: number; errored: number; canceled: number; expired: number };
+};
+
+function fakeBatches(clock: { now: Date }) {
   const state = {
     submitted: [] as BatchRequest[][],
+    createdAt: [] as Date[],
     /** `retrieve` answers `in_progress` this many times before `ended`. */
     pollsBeforeEnd: 0,
     retrieveError: null as Error | null,
+    /** "after": the API creates the batch, then the robot dies before reading the id. "before": it never reaches the API. */
+    createCrash: null as "before" | "after" | null,
+    /** Batches of other jobs on the same account, listed with ours. */
+    foreign: [] as ListedBatch[],
     /** Builds the results from the submitted requests (default: every request succeeds, in reverse order). */
     respond: (requests: BatchRequest[]): BatchResponse[] =>
       [...requests].reverse().map((r) => succeeded(r.custom_id, draftFor(`Matéria ${r.custom_id}`))),
   };
   const create = vi.fn(async (params: { requests: BatchRequest[] }) => {
+    if (state.createCrash === "before") throw new Error("crash before create");
     state.submitted.push(params.requests);
+    state.createdAt.push(clock.now);
+    if (state.createCrash === "after") throw new Error("crash after create");
     return { id: `msgbatch_${state.submitted.length}` };
   });
   const retrieve = vi.fn(async (id: string) => {
@@ -161,8 +178,20 @@ function fakeBatches() {
       for (const r of responses) yield r;
     })();
   });
-  const api: BatchApi = { create, retrieve, results };
-  return { api, state, create, retrieve, results };
+  const list = vi.fn((_params?: { limit?: number }) => {
+    const ours: ListedBatch[] = state.submitted.map((reqs, i) => ({
+      id: `msgbatch_${i + 1}`,
+      created_at: state.createdAt[i]!.toISOString(),
+      processing_status: "in_progress",
+      request_counts: { processing: reqs.length, succeeded: 0, errored: 0, canceled: 0, expired: 0 },
+    }));
+    const all = [...ours, ...state.foreign].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    return (async function* () {
+      for (const b of all) yield b;
+    })();
+  });
+  const api: BatchApi = { create, retrieve, results, list };
+  return { api, state, create, retrieve, results, list };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -173,12 +202,16 @@ function fakeSite() {
   const callsByKey = new Map<string, number>();
   const articlesByKey = new Map<string, { id: string; payload: ArticlePayload }>();
   const order: { key: string; payload: ArticlePayload }[] = [];
-  const state = { failOnCall: 0, failWith: null as Error | null, calls: 0 };
+  const state = { failOnCall: 0, failWith: null as Error | null, calls: 0, feed: [] as FeedArticle[], feedError: null as Error | null, feedSince: [] as Date[] };
   const tralked: Tralked = {
     findGame: async (name) => ({ slug: slugify(name), name }),
     insights: async () => null,
     dossier: async () => null,
-    recentArticles: async () => [],
+    recentArticles: async (since) => {
+      state.feedSince.push(since);
+      if (state.feedError) throw state.feedError;
+      return state.feed;
+    },
     createArticle: async (payload, key) => {
       state.calls++;
       callsByKey.set(key, (callsByKey.get(key) ?? 0) + 1);
@@ -211,7 +244,7 @@ function harness(start = NOW) {
   const real = createAi({ client: {} as Anthropic, db, config, now: () => clock.now });
   const fake = fakeStructured(facts);
   const ai: Ai = { ...real, structured: fake.structured as unknown as Ai["structured"] };
-  const batches = fakeBatches();
+  const batches = fakeBatches(clock);
   const site = fakeSite();
   const sleep = vi.fn(async (_ms: number) => {});
   const fetchFn = vi.fn(async (input: string) => {
@@ -499,10 +532,13 @@ describe("escrever", () => {
     const h = harness();
     const id = seedStory(h, "2026-09-01", "Hades II recebe arma nova");
     h.db.recordSpend("backfill", "triage", "claude-haiku-5-5", 70, NOW);
+    const findGame = vi.spyOn(h.site.tralked, "findGame");
 
     const result = await runRetroativo(h.deps, "escrever");
     expect(result.stopped).toBe("orcamento");
     expect(h.batches.create).not.toHaveBeenCalled();
+    // `assertBudget` runs before anything is built (no game lookups, no requests).
+    expect(findGame).not.toHaveBeenCalled();
     expect(h.db.storyById(id)!.status).toBe("queued");
     expect(h.db.alerts().filter((a) => a.kind === "orcamento")).toHaveLength(1);
 
@@ -630,7 +666,7 @@ describe("escrever", () => {
       expect(w.bucket).toBe("backfill");
       expect(w.model).toBe(h.config.MODEL_WRITER);
       expect(w.effort).toBe("high");
-      expect(w.fallbacks).toBe(false);
+      expect(w.fallbacks).toBe(true); // a live call: server-side fallbacks (only the batch omits them)
       expect(w.user).toContain("Correções obrigatórias");
     }
     expect(h.db.articleForStory(a)!.status).toBe("ready");
@@ -661,6 +697,143 @@ describe("escrever", () => {
     const fetched = h.fetchFn.mock.calls.map((c) => c[0]);
     expect(fetched).not.toContain(h.db.itemsForStory(d1[3]!)[0]!.url);
     expect(fetched).not.toContain(h.db.itemsForStory(d2[0]!)[0]!.url);
+  });
+
+  it("drops stories the site already covered before the quotas, so the quota goes to the next story", async () => {
+    const h = harness();
+    // 2 slots for 2 days: without the coverage drop, day 1 (2 stories) would get 1 slot and give it to the covered one.
+    h.config.BACKFILL_TOTAL = 2;
+    const covered = seedStory(h, "2026-09-01", "Hades II recebe arma nova", { score: 95 });
+    const next = seedStory(h, "2026-09-01", "Hades II ganha modo foto", { score: 80 });
+    // Another fact about the same game, and the same title about another game: neither counts as coverage.
+    const otherFact = seedStory(h, "2026-09-02", "Hades II chega ao Switch", { score: 70 });
+    h.site.state.feed = [
+      { id: "ed-1", slug: "arma", title: "Hades II recebe arma nova", category: "GAMES", publishedAt: local("2026-09-01T15:00").toISOString(), source: "editorial", games: ["hades-ii"] },
+      { id: "ed-2", slug: "switch", title: "Hades II chega ao Switch", category: "GAMES", publishedAt: local("2026-09-02T15:00").toISOString(), source: "editorial", games: ["outro-jogo"] },
+    ];
+
+    const result = await runRetroativo(h.deps, "escrever");
+    expect(result.covered).toBe(1);
+    expect(h.db.storyById(covered)!.status).toBe("dropped");
+    expect(h.db.storyById(next)!.status).toBe("written");
+    expect(h.db.storyById(otherFact)!.status).toBe("written");
+    // The feed reaches back to the start of the backfill window, read once.
+    expect(h.site.state.feedSince).toEqual([backfillWindow(NOW, h.config.BACKFILL_DAYS).from]);
+    // Coverage clustering is backfill spend on the fast model.
+    const coverage = h.fake.calls.filter((c) => c.purpose === "cluster");
+    expect(coverage.length).toBeGreaterThan(0);
+    for (const c of coverage) {
+      expect(c.bucket).toBe("backfill");
+      expect(c.model).toBe(h.config.MODEL_FAST);
+    }
+    // Quotas were computed after the drop: day 1 keeps its 1 slot for the next story.
+    expect(JSON.parse(h.db.getMeta("retroativo.cotas")!)).toEqual({ "2026-09-01": 1, "2026-09-02": 1 });
+  });
+
+  it("stops without choosing anything when the site feed cannot be read", async () => {
+    const h = harness();
+    const id = seedStory(h, "2026-09-01", "Alfa");
+    h.site.state.feedError = new TralkedError(503, "unavailable", "down");
+    const result = await runRetroativo(h.deps, "escrever");
+    expect(result.stopped).toBe("api");
+    expect(h.db.storyById(id)!.status).toBe("open");
+    expect(h.batches.create).not.toHaveBeenCalled();
+    expect(h.db.getMeta("retroativo.cotas")).toBeUndefined();
+    expect(h.db.alerts().map((a) => a.kind)).toEqual(["api"]);
+  });
+
+  it("trims the lowest-scored stories until the estimated batch cost fits the budget", async () => {
+    // Measure the estimate of each request with plenty of budget.
+    const scores = [90, 80, 70];
+    const h = harness();
+    const ids = scores.map((s, i) => seedStory(h, "2026-09-01", `Pauta ${i}`, { score: s }));
+    h.config.BACKFILL_BUDGET_USD = 1000;
+    await runRetroativo(h.deps, "escrever");
+    const requests = h.batches.state.submitted[0]!;
+    const cost = new Map(requests.map((r) => [Number(r.custom_id.replace("story-", "")), estimateRequestUsd(r, h.config.MODEL_WRITER)]));
+    // Upper bound: chars/4 input + max_tokens/2 output at batch prices.
+    const r0 = requests[0]!;
+    const chars = (r0.params.system as { text: string }[])[0]!.text.length + (r0.params.messages[0]!.content as string).length;
+    expect(estimateRequestUsd(r0, "claude-opus-5-5")).toBeCloseTo(((Math.ceil(chars / 4) * 4 + 8000 * 20) / 1e6) * 0.5, 9);
+
+    // Fresh run: spent so far leaves room for the two best stories only.
+    const t = harness();
+    const tIds = scores.map((s, i) => seedStory(t, "2026-09-01", `Pauta ${i}`, { score: s }));
+    const twoBest = cost.get(ids[0]!)! + cost.get(ids[1]!)!;
+    t.db.recordSpend("backfill", "triage", "claude-haiku-5-5", 10, NOW);
+    t.config.BACKFILL_BUDGET_USD = 10 + twoBest + cost.get(ids[2]!)! / 2;
+    const result = await runRetroativo(t.deps, "escrever");
+    expect(result.trimmed).toBe(1);
+    expect(t.batches.state.submitted[0]!.map((r) => r.custom_id).sort()).toEqual([`story-${tIds[0]}`, `story-${tIds[1]}`].sort());
+    expect(t.db.storyById(tIds[2]!)!.status).toBe("queued"); // left for a later run
+
+    // Nothing fits: one orcamento alert, no batch.
+    const n = harness();
+    seedStory(n, "2026-09-01", "Pauta 0", { score: 90 });
+    n.db.recordSpend("backfill", "triage", "claude-haiku-5-5", 69.99, NOW);
+    const stopped = await runRetroativo(n.deps, "escrever");
+    expect(stopped.stopped).toBe("orcamento");
+    expect(n.batches.create).not.toHaveBeenCalled();
+    expect(n.db.alerts().filter((a) => a.kind === "orcamento")).toHaveLength(1);
+    await runRetroativo(n.deps, "escrever");
+    expect(n.db.alerts().filter((a) => a.kind === "orcamento")).toHaveLength(1);
+  });
+
+  it("a crash after the API created the batch is reconciled through batches.list, never paid twice", async () => {
+    const h = harness();
+    const a = seedStory(h, "2026-09-01", "Alfa");
+    const b = seedStory(h, "2026-09-02", "Bravo");
+    // Another job's batch with the same size, created earlier, must not be taken.
+    h.batches.state.foreign.push({
+      id: "msgbatch_other",
+      created_at: new Date(NOW.getTime() - 60 * 60 * 1000).toISOString(),
+      processing_status: "in_progress",
+      request_counts: { processing: 2, succeeded: 0, errored: 0, canceled: 0, expired: 0 },
+    });
+    h.batches.state.createCrash = "after";
+    await expect(runRetroativo(h.deps, "escrever")).rejects.toThrow("crash after create");
+    expect(h.db.getMeta("retroativo.enviando")).toContain("pendente-");
+
+    h.batches.state.createCrash = null;
+    await runRetroativo(h.deps, "escrever");
+    expect(h.batches.create).toHaveBeenCalledTimes(1);
+    expect(h.batches.list).toHaveBeenCalledTimes(1);
+    expect(h.batches.retrieve).toHaveBeenLastCalledWith("msgbatch_1");
+    expect(h.db.articleForStory(a)!.status).toBe("ready");
+    expect(h.db.articleForStory(b)!.status).toBe("ready");
+    expect(h.db.getMeta("retroativo.enviando")).toBe("");
+  });
+
+  it("a crash before the batch reached the API resubmits once the list shows nothing", async () => {
+    const h = harness();
+    const a = seedStory(h, "2026-09-01", "Alfa");
+    h.batches.state.createCrash = "before";
+    await expect(runRetroativo(h.deps, "escrever")).rejects.toThrow("crash before create");
+
+    h.batches.state.createCrash = null;
+    await runRetroativo(h.deps, "escrever");
+    expect(h.batches.list).toHaveBeenCalledTimes(1);
+    expect(h.batches.create).toHaveBeenCalledTimes(2);
+    expect(h.batches.state.submitted).toHaveLength(1);
+    expect(h.db.articleForStory(a)!.status).toBe("ready");
+  });
+
+  it("logs and raises one api alert for days with stories but no stored quota", async () => {
+    const h = harness();
+    const log = vi.fn();
+    h.deps.log = log;
+    h.db.setMeta("retroativo.cotas", JSON.stringify({ "2026-09-01": 1 }));
+    const kept = seedStory(h, "2026-09-01", "Alfa");
+    const late1 = seedStory(h, "2026-09-05", "Bravo");
+    const late2 = seedStory(h, "2026-09-06", "Charlie");
+    await runRetroativo(h.deps, "escrever");
+    expect(h.db.storyById(kept)!.status).toBe("written");
+    expect(h.db.storyById(late1)!.status).toBe("dropped");
+    expect(h.db.storyById(late2)!.status).toBe("dropped");
+    const alerts = h.db.alerts().filter((a) => a.kind === "api");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.message).toContain("2026-09-05, 2026-09-06");
+    expect(log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes("nenhuma cota"))).toHaveLength(2);
   });
 
   it("the stored writing context round-trips dates", () => {
@@ -777,12 +950,73 @@ describe("descobrir, triar and agrupar", () => {
 
   it("items the live pipeline already holds are not taken over by the backfill", async () => {
     const h = harness();
-    h.db.insertItemIfNew({ url: "https://ign.test/live", sourceId: "ign", title: "Live item", publishedAt: local("2026-10-30T10:00").toISOString() }, NOW);
-    h.files.set("https://ign.test/sitemap-index.xml", urlset([{ url: "https://ign.test/live", title: "Live item", at: local("2026-10-30T10:00") }]));
+    h.db.insertItemIfNew({ url: "https://ign.test/live", sourceId: "ign", title: "Live item", publishedAt: local("2026-10-28T10:00").toISOString() }, NOW);
+    h.files.set("https://ign.test/sitemap-index.xml", urlset([{ url: "https://ign.test/live", title: "Live item", at: local("2026-10-28T10:00") }]));
     h.facts.set("Live item", { headline: "Item ao vivo", importance: 60 });
     await runRetroativo(h.deps, "descobrir");
     await runRetroativo(h.deps, "triar");
     expect(h.fake.calls.filter((c) => c.purpose === "triage")).toHaveLength(0);
+  });
+
+  it("the window ends where yesterday starts: yesterday's and today's facts stay with the live pipeline", async () => {
+    const h = harness(); // 2026-10-31 10:00 local
+    h.files.set(
+      "https://ign.test/sitemap-index.xml",
+      urlset([
+        { url: "https://ign.test/before-yesterday", title: "Antes de ontem", at: local("2026-10-29T23:59") },
+        { url: "https://ign.test/yesterday", title: "Ontem cedo", at: local("2026-10-30T00:00") },
+        { url: "https://ign.test/today", title: "Hoje", at: local("2026-10-31T08:00") },
+        { url: "https://ign.test/first-day", title: "Primeiro dia", at: local("2026-08-01T00:00") },
+        { url: "https://ign.test/too-old", title: "Velho demais", at: local("2026-07-31T23:59") },
+      ]),
+    );
+    // 90 full local days: 08-01 .. 10-29 (31 + 30 + 29).
+    expect(backfillWindow(NOW, 90)).toEqual({ from: local("2026-08-01T00:00"), to: new Date(local("2026-10-30T00:00").getTime() - 1) });
+    await runRetroativo(h.deps, "descobrir");
+    const urls = (h.db.raw.prepare("SELECT url FROM items ORDER BY url").all() as { url: string }[]).map((x) => x.url);
+    expect(urls).toEqual(["https://ign.test/before-yesterday", "https://ign.test/first-day"]);
+  });
+
+  it("a live coleta between triar and agrupar never touches the backfill items, and agrupar still clusters them", async () => {
+    const h = harness();
+    h.files.set(
+      "https://ign.test/sitemap-index.xml",
+      urlset([
+        { url: "https://ign.test/a", title: "Old news A", at: local("2026-10-28T10:00") },
+        { url: "https://ign.test/b", title: "Old news B", at: local("2026-10-28T11:00") },
+      ]),
+    );
+    h.files.set("https://ign.test/a", "<html><body><article><p>texto</p></article></body></html>");
+    h.files.set("https://ign.test/b", "<html><body><article><p>texto</p></article></body></html>");
+    h.facts.set("Old news A", { headline: "Fato antigo", importance: 95 });
+    h.facts.set("Old news B", { headline: "Fato antigo", importance: 95 });
+    await runRetroativo(h.deps, "descobrir");
+    // Right after discovery, the live pipeline sees nothing new.
+    expect(h.db.itemsByStatus("new")).toHaveLength(0);
+    await runRetroativo(h.deps, "triar");
+    expect(h.db.itemsByStatus("bf_triaged").map((i) => i.url)).toEqual(["https://ign.test/a", "https://ign.test/b"]);
+
+    const callsBefore = h.fake.calls.length;
+    h.fetchFn.mockClear();
+    h.clock.now = local("2026-10-31T10:30");
+    const report = await runColeta(h.deps);
+    expect(report.triaged + report.clustered + report.newStories + report.textsFetched).toBe(0);
+    expect(h.fake.calls.length).toBe(callsBefore); // no live AI call
+    expect(h.db.spentTotal("live")).toBe(0);
+    const fetched = h.fetchFn.mock.calls.map((c) => c[0]);
+    expect(fetched).not.toContain("https://ign.test/a");
+    expect(fetched).not.toContain("https://ign.test/b");
+    expect(stories(h.db)).toHaveLength(0);
+    expect(h.db.itemsByStatus("bf_triaged")).toHaveLength(2);
+
+    await runRetroativo(h.deps, "agrupar");
+    const created = stories(h.db);
+    expect(created.map((s) => [s.mode, s.story_date, s.status])).toEqual([["backfill", "2026-10-28", "open"]]);
+    expect(h.db.itemsForStory(created[0]!.id)).toHaveLength(2);
+
+    // And the next live coleta leaves the backfill story alone too.
+    await runColeta(h.deps);
+    expect(stories(h.db).map((s) => [s.mode, s.status])).toEqual([["backfill", "open"]]);
   });
 });
 
@@ -817,5 +1051,16 @@ describe("runRetroativo with no phase", () => {
     await runRetroativo(h.deps);
     expect(h.site.order).toHaveLength(2);
     expect(h.batches.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("formatRetroativo", () => {
+  it("stamps the report with the injected clock and shows coverage and trimming", async () => {
+    const h = harness();
+    const report = await runRetroativo(h.deps, "publicar");
+    const text = formatRetroativo({ ...report, covered: 3, trimmed: 2 }, h.clock.now);
+    expect(text.split("\n")[0]).toBe(`retroativo ${NOW.toISOString()}: fases publicar`);
+    expect(text).toContain("3 já cobertas pelo site");
+    expect(text).toContain("2 fora pelo teto");
   });
 });

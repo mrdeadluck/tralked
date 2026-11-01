@@ -1,21 +1,24 @@
 import { join } from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { checkDraft } from "./ai/checker.js";
-import { BudgetExceededError, RefusalError } from "./ai/client.js";
+import { BudgetExceededError, RefusalError, costUsd } from "./ai/client.js";
 import { clusterItems, storyKeyOf, type ClusterItem, type OpenStory } from "./ai/cluster.js";
 import { TRIAGE_CHUNK, triageItems, type Triage, type TriageInput } from "./ai/triage.js";
 import { parseDraftText, sourcesText, writeBatchRequest, writeDraft, type Draft, type StoryForWriting } from "./ai/writer.js";
-import { assemble } from "./assemble.js";
-import { localDay, randomTimeOn } from "./clock.js";
-import { collectBackfill, collectLive, extractText, fetchPage, type RawItem } from "./collect/index.js";
-import type { Db, ItemRow, StoryRow } from "./db.js";
 import { alert, alertOncePerDay } from "./alerts.js";
+import { assemble } from "./assemble.js";
+import { localDay, localStartOfDay, randomTimeOn } from "./clock.js";
+import { collectBackfill, collectLive, type RawItem } from "./collect/index.js";
+import type { Db, ItemRow, StoryRow } from "./db.js";
 import {
   OPEN_STORIES_CAP,
+  coveredStories,
+  errorMessage,
+  fetchItemTexts,
   insightsOf,
   isPaused,
   itemTime,
-  pool,
+  parseGames,
   recomputeStory,
   storyFacts,
   storyForWriting,
@@ -23,7 +26,7 @@ import {
   type PipelineDeps,
 } from "./pipeline.js";
 import { isPublishable, type Tier } from "./rank.js";
-import { TralkedError, articleKey, type ArticlePayload } from "./tralked.js";
+import { TralkedError, articleKey, type ArticlePayload, type FeedArticle } from "./tralked.js";
 import { normalizeUrl } from "./url.js";
 
 /**
@@ -52,17 +55,29 @@ export const BATCH_POLL_MS = 60_000;
 export const PUBLISH_INTERVAL_MS = 2_000;
 /** A backdated time is at least this far in the past (the site refuses future times). */
 const PAST_MARGIN_MS = 5 * 60 * 1000;
-const FETCH_CONCURRENCY = 6;
 const DISCOVERED_KEY = "retroativo.descoberto";
 const QUOTAS_KEY = "retroativo.cotas";
+/** Set before `batches.create` and cleared once the batch id is stored: `{ id, at, count }`. */
+const SUBMITTING_KEY = "retroativo.enviando";
+/** Clock skew allowed when matching a listed batch's `created_at` with the marker's time. */
+const RECONCILE_SKEW_MS = 5 * 60 * 1000;
 /** Site errors that concern one article only (the rest stop the run). */
 const ARTICLE_ERRORS = new Set([400, 404, 409, 422]);
 
+type BatchRequest = Anthropic.Messages.Batches.BatchCreateParams.Request;
+
 /** The slice of the Anthropic Message Batches API the backfill uses (`client.messages.batches`). */
 export type BatchApi = {
-  create(params: { requests: Anthropic.Messages.Batches.BatchCreateParams.Request[] }): Promise<{ id: string }>;
+  create(params: { requests: BatchRequest[] }): Promise<{ id: string }>;
   retrieve(id: string): Promise<{ id: string; processing_status: string }>;
   results(id: string): Promise<AsyncIterable<Anthropic.Messages.Batches.MessageBatchIndividualResponse>>;
+  /** Newest first, auto-paginated. */
+  list(params?: { limit?: number }): AsyncIterable<{
+    id: string;
+    created_at: string;
+    processing_status: string;
+    request_counts: { processing: number; succeeded: number; errored: number; canceled: number; expired: number };
+  }>;
 };
 
 export type BackfillDeps = PipelineDeps & {
@@ -80,8 +95,12 @@ export type RetroativoReport = {
   kept: number;
   clustered: number;
   newStories: number;
+  /** Backfill stories dropped because the site already covered the fact. */
+  covered: number;
   selected: number;
   submitted: number;
+  /** Queued stories left out of the batch so its estimated cost fits the budget. */
+  trimmed: number;
   batchId: string | null;
   drafted: number;
   ready: number;
@@ -102,8 +121,10 @@ const emptyReport = (): RetroativoReport => ({
   kept: 0,
   clustered: 0,
   newStories: 0,
+  covered: 0,
   selected: 0,
   submitted: 0,
+  trimmed: 0,
   batchId: null,
   drafted: 0,
   ready: 0,
@@ -231,8 +252,6 @@ const backfillStories = (db: Db, status: StoryRow["status"]) =>
 // Small helpers
 // ---------------------------------------------------------------------------------------------
 
-const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
 /** Same message prefix as the live commands' alert, so one `pausado` alert a day covers them all. */
 function pausedAlert(deps: BackfillDeps): void {
   alertOncePerDay(
@@ -247,15 +266,6 @@ function pausedAlert(deps: BackfillDeps): void {
 /** The calendar day before/after `day` ("YYYY-MM-DD"). */
 function shiftDay(day: string, days: number): string {
   return new Date(Date.parse(`${day}T12:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
-}
-
-function parseGames(json: string): string[] {
-  try {
-    const v: unknown = JSON.parse(json);
-    return Array.isArray(v) ? v.filter((g): g is string => typeof g === "string") : [];
-  } catch {
-    return [];
-  }
 }
 
 /** The writer's "today" for a backfill story: mid-afternoon on the story's own day. */
@@ -320,50 +330,67 @@ export function backdatedTime(day: string, now: Date, rand: () => number): Date 
 // ---------------------------------------------------------------------------------------------
 
 /**
+ * The backfill window: the `BACKFILL_DAYS` local days that end where yesterday starts. Yesterday's and
+ * today's facts belong to the live pipeline.
+ */
+export function backfillWindow(now: Date, days: number): { from: Date; to: Date } {
+  const today = localDay(now);
+  return {
+    from: localStartOfDay(shiftDay(today, -1 - days)),
+    to: new Date(localStartOfDay(shiftDay(today, -1)).getTime() - 1),
+  };
+}
+
+/**
  * Each active source's backfill sitemap (child sitemaps followed); RSS sources without a sitemap, or whose
- * sitemap failed without yielding anything, are read from their feed instead. Only items published in the
- * last `BACKFILL_DAYS` days are kept. Newly stored items are tracked as backfill items; URLs the live
- * pipeline already holds stay with it.
+ * sitemap failed without yielding anything, are read from their feed instead. Only items inside
+ * `backfillWindow` are kept. Newly stored items get the backfill-only status `bf_new` in the same
+ * transaction as their insert, so the live pipeline never sees them; URLs it already holds stay with it.
  */
 async function descobrir(deps: BackfillDeps, report: RetroativoReport): Promise<void> {
   const { db, config } = deps;
   const now = deps.now();
-  const from = new Date(now.getTime() - config.BACKFILL_DAYS * DAY_MS);
+  const { from, to } = backfillWindow(now, config.BACKFILL_DAYS);
   const active = deps.sources.filter((s) => s.active);
 
-  const sitemaps = await collectBackfill(active, from, now, deps.fetchFn);
+  const sitemaps = await collectBackfill(active, from, to, deps.fetchFn);
   const withItems = new Set(sitemaps.items.map((i) => i.sourceId));
   const sitemapFailed = new Set(sitemaps.failures.map((f) => f.sourceId));
   const fallback = active.filter(
     (s) => s.kind === "rss" && (!s.backfill || (sitemapFailed.has(s.id) && !withItems.has(s.id))),
   );
   const feeds = fallback.length > 0 ? await collectLive(fallback, deps.fetchFn, now) : { items: [], failures: [] };
-  const inWindow = (i: RawItem) => i.publishedAt !== null && i.publishedAt >= from && i.publishedAt <= now;
+  const inWindow = (i: RawItem) => i.publishedAt !== null && i.publishedAt >= from && i.publishedAt <= to;
   const items = [...sitemaps.items, ...feeds.items.filter(inWindow)];
 
   const failures = [...sitemaps.failures, ...feeds.failures];
   report.sourceFailures += failures.length;
   for (const f of failures) deps.log?.(`retroativo: fonte ${f.sourceId} com falha (${f.error})`);
 
+  const claim = db.raw.prepare("UPDATE items SET status = 'bf_new' WHERE url = ? AND status = 'new'");
   const track = db.raw.prepare("INSERT OR IGNORE INTO backfill_items (item_id) SELECT id FROM items WHERE url = ?");
-  for (const item of items) {
-    report.discovered++;
-    const inserted = db.insertItemIfNew(
-      {
-        url: item.url,
-        sourceId: item.sourceId,
-        title: item.title,
-        summary: item.summary,
-        publishedAt: item.publishedAt?.toISOString() ?? null,
-        publisher: item.publisher ?? null,
-        textUnavailable: item.textUnavailable === true,
-      },
-      now,
-    );
-    if (!inserted) continue;
-    track.run(normalizeUrl(item.url));
-    report.inserted++;
-  }
+  tx(db, () => {
+    for (const item of items) {
+      report.discovered++;
+      const inserted = db.insertItemIfNew(
+        {
+          url: item.url,
+          sourceId: item.sourceId,
+          title: item.title,
+          summary: item.summary,
+          publishedAt: item.publishedAt?.toISOString() ?? null,
+          publisher: item.publisher ?? null,
+          textUnavailable: item.textUnavailable === true,
+        },
+        now,
+      );
+      if (!inserted) continue;
+      const url = normalizeUrl(item.url);
+      claim.run(url);
+      track.run(url);
+      report.inserted++;
+    }
+  });
   db.setMeta(DISCOVERED_KEY, now.toISOString());
 }
 
@@ -372,19 +399,14 @@ async function descobrir(deps: BackfillDeps, report: RetroativoReport): Promise<
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Triages the backfill items not triaged yet: `new` ones, and ones the live pipeline dropped untriaged as
- * stale. 50 per call, each chunk saved before the next (a budget stop loses nothing). Unanswered items
- * stay as they are for the next run.
+ * Triages the `bf_new` items, 50 per call, each chunk saved before the next (a budget stop loses nothing).
+ * Kept items become `bf_triaged` (invisible to the live pipeline), the others `dropped`. Unanswered items
+ * stay `bf_new` for the next run.
  */
 async function triar(deps: BackfillDeps, report: RetroativoReport): Promise<void> {
   const { db, config } = deps;
   const sourcesById = new Map(deps.sources.map((s) => [s.id, s]));
-  const pending = all<ItemRow>(
-    db,
-    `SELECT items.* FROM items JOIN backfill_items b ON b.item_id = items.id
-     WHERE items.status = 'new' OR (items.status = 'dropped' AND items.triage_json IS NULL)
-     ORDER BY items.id`,
-  );
+  const pending = db.itemsByStatus("bf_new", 1_000_000);
   const inputs: TriageInput[] = pending.flatMap((item) => {
     const source = sourcesById.get(item.source_id);
     return source ? [{ id: item.id, title: item.title, summary: item.summary, source }] : [];
@@ -393,7 +415,7 @@ async function triar(deps: BackfillDeps, report: RetroativoReport): Promise<void
     const triages = await triageItems(deps.ai, inputs.slice(i, i + TRIAGE_CHUNK), "backfill", { model: config.MODEL_FAST });
     tx(db, () => {
       for (const t of triages) {
-        db.setItemStatus(t.id, t.keep ? "triaged" : "dropped", JSON.stringify(t));
+        db.setItemStatus(t.id, t.keep ? "bf_triaged" : "dropped", JSON.stringify(t));
         report.triaged++;
         if (t.keep) report.kept++;
       }
@@ -405,19 +427,30 @@ async function triar(deps: BackfillDeps, report: RetroativoReport): Promise<void
 // agrupar
 // ---------------------------------------------------------------------------------------------
 
-/** Stories open while clustering `day`: backfill stories of that day and the day before, and live stories of those days. */
+/**
+ * Stories open while clustering `day`: backfill stories of that day and the day before, and live stories
+ * first seen or last fed during those two local days (stored times are UTC ISO strings, so the range is
+ * compared in SQL).
+ */
 function openStoriesFor(db: Db, day: string): OpenStory[] {
   const prev = shiftDay(day, -1);
-  const days = new Set([prev, day]);
-  return all<StoryRow>(db, "SELECT * FROM stories WHERE story_date IN (?, ?) OR mode = 'live'", prev, day)
-    .filter((s) =>
-      s.mode === "backfill"
-        ? s.story_date !== null && days.has(s.story_date)
-        : days.has(localDay(new Date(s.first_seen_at))) || days.has(localDay(new Date(s.last_item_at))),
-    )
-    .sort((a, b) => Date.parse(b.last_item_at) - Date.parse(a.last_item_at))
-    .slice(0, OPEN_STORIES_CAP)
-    .map((s) => ({ key: s.key, headline: s.headline, games: parseGames(s.games_json) }));
+  const from = localStartOfDay(prev).toISOString();
+  const to = localStartOfDay(shiftDay(day, 1)).toISOString();
+  return all<StoryRow>(
+    db,
+    `SELECT * FROM stories
+     WHERE (mode = 'backfill' AND story_date IN (?, ?))
+        OR (mode = 'live' AND ((first_seen_at >= ? AND first_seen_at < ?) OR (last_item_at >= ? AND last_item_at < ?)))
+     ORDER BY last_item_at DESC, id DESC
+     LIMIT ?`,
+    prev,
+    day,
+    from,
+    to,
+    from,
+    to,
+    OPEN_STORIES_CAP,
+  ).map((s) => ({ key: s.key, headline: s.headline, games: parseGames(s.games_json) }));
 }
 
 /**
@@ -428,11 +461,7 @@ function openStoriesFor(db: Db, day: string): OpenStory[] {
 async function agrupar(deps: BackfillDeps, report: RetroativoReport): Promise<void> {
   const { db, config } = deps;
   const now = deps.now();
-  const items = all<ItemRow>(
-    db,
-    `SELECT items.* FROM items JOIN backfill_items b ON b.item_id = items.id
-     WHERE items.status = 'triaged' AND items.triage_json IS NOT NULL`,
-  );
+  const items = db.itemsByStatus("bf_triaged", 1_000_000);
   const byDay = new Map<string, { item: ItemRow; t: Triage; at: number }[]>();
   for (const item of items) {
     const t = triageOf(item);
@@ -500,32 +529,49 @@ function couldBePublishable(story: StoryRow, deps: BackfillDeps): boolean {
   });
 }
 
-/** Quotas computed once (from the open stories after clustering) and stored, so a resumed run keeps them. */
-function quotasFor(deps: BackfillDeps): Map<string, number> {
-  const saved = deps.db.getMeta(QUOTAS_KEY);
+/**
+ * Quotas computed once and stored, so a resumed run keeps them. Before counting, the open backfill
+ * stories the site already covered are dropped (anti-goal: never repeat what the newsroom published),
+ * with the live pipeline's matching (game slug plus title clustering) in bucket `backfill`.
+ * Returns null when the site feed cannot be read: nothing is selected in this run.
+ */
+async function quotasFor(deps: BackfillDeps, report: RetroativoReport): Promise<Map<string, number> | null> {
+  const { db, config } = deps;
+  const saved = db.getMeta(QUOTAS_KEY);
   if (saved) return new Map(Object.entries(JSON.parse(saved) as Record<string, number>));
-  const counts = new Map<string, number>();
-  for (const story of backfillStories(deps.db, "open")) {
-    if (story.story_date && couldBePublishable(story, deps)) counts.set(story.story_date, (counts.get(story.story_date) ?? 0) + 1);
-  }
-  const quotas = dayQuotas(counts, deps.config.BACKFILL_TOTAL, deps.config.MAX_PER_DAY);
-  if (quotas.size > 0) deps.db.setMeta(QUOTAS_KEY, JSON.stringify(Object.fromEntries(quotas)));
-  return quotas;
-}
+  const open = backfillStories(db, "open");
+  if (open.length === 0) return new Map();
 
-async function fetchTexts(stories: StoryRow[], deps: BackfillDeps): Promise<void> {
-  const items = stories
-    .flatMap((s) => deps.db.itemsForStory(s.id))
-    .filter((i) => i.text_unavailable !== 1 && (i.text ?? "").trim() === "");
-  await pool(items, FETCH_CONCURRENCY, async (item) => {
-    try {
-      const { text, finalUrl } = await fetchPage(item.url, deps.fetchFn);
-      const extracted = extractText(text, finalUrl);
-      if (extracted?.text) deps.db.setItemText(item.id, extracted.text);
-    } catch (error) {
-      deps.log?.(`retroativo: texto indisponível: ${item.url} (${errorMessage(error)})`);
-    }
+  const now = deps.now();
+  let feed: FeedArticle[];
+  try {
+    feed = await deps.tralked.recentArticles(backfillWindow(now, config.BACKFILL_DAYS).from);
+  } catch (error) {
+    if (!(error instanceof TralkedError)) throw error;
+    alertOncePerDay(
+      db,
+      "api",
+      `Retroativo: erro da API do site ao ler as matérias publicadas: ${error.status} ${error.message}. Nada foi escolhido para escrever.`,
+      now,
+      "Retroativo: erro da API",
+    );
+    report.stopped = "api";
+    return null;
+  }
+  const covered = await coveredStories(open, feed, deps, "backfill");
+  tx(db, () => {
+    for (const id of covered) if (db.setStoryStatusIf(id, "dropped", ["open"])) report.covered++;
   });
+  if (covered.size > 0) deps.log?.(`retroativo: ${covered.size} histórias já cobertas pelo site, descartadas`);
+
+  const counts = new Map<string, number>();
+  for (const story of open) {
+    if (covered.has(story.id) || !story.story_date || !couldBePublishable(story, deps)) continue;
+    counts.set(story.story_date, (counts.get(story.story_date) ?? 0) + 1);
+  }
+  const quotas = dayQuotas(counts, config.BACKFILL_TOTAL, config.MAX_PER_DAY);
+  if (quotas.size > 0) db.setMeta(QUOTAS_KEY, JSON.stringify(Object.fromEntries(quotas)));
+  return quotas;
 }
 
 const countOf = (db: Db, sql: string, ...args: (string | number)[]) =>
@@ -535,14 +581,18 @@ const countOf = (db: Db, sql: string, ...args: (string | number)[]) =>
  * Per day (oldest first): the open backfill stories are ranked by score and the best ones become `queued`
  * up to the day's quota; their texts are fetched as they are picked, and a story that is not publishable
  * once fetched (R15) gives its place to the next. The rest of the day's open stories are dropped. The day
- * never goes over `MAX_PER_DAY` counting articles already published on it.
+ * never goes over `MAX_PER_DAY` counting articles already published on it. A day with candidates but no
+ * stored quota (clustered after the quotas were fixed) is logged and reported in one `api` alert.
+ * Returns false when the run must stop (site feed unavailable).
  */
-async function selectStories(deps: BackfillDeps, report: RetroativoReport): Promise<void> {
+async function selectStories(deps: BackfillDeps, report: RetroativoReport): Promise<boolean> {
   const { db, config } = deps;
   const now = deps.now();
-  const quotas = quotasFor(deps);
+  const quotas = await quotasFor(deps, report);
+  if (!quotas) return false;
   const open = backfillStories(db, "open");
   const days = [...new Set(open.map((s) => s.story_date).filter((d): d is string => d !== null))].sort();
+  const withoutQuota: string[] = [];
 
   for (const day of days) {
     const ofDay = open.filter((s) => s.story_date === day);
@@ -560,12 +610,19 @@ async function selectStories(deps: BackfillDeps, report: RetroativoReport): Prom
     const allowed = Math.max(0, Math.min((quotas.get(day) ?? 0) - taken, config.MAX_PER_DAY - otherPublished - taken));
 
     const ranked = ofDay.filter((s) => couldBePublishable(s, deps)).sort((a, b) => b.score - a.score || a.id - b.id);
+    if (!quotas.has(day) && ranked.length > 0) {
+      withoutQuota.push(day);
+      deps.log?.(`retroativo: ${day} tem ${ranked.length} histórias e nenhuma cota guardada; descartadas`);
+    }
     const selected: StoryRow[] = [];
     let next = 0;
     while (selected.length < allowed && next < ranked.length) {
       const slice = ranked.slice(next, next + allowed - selected.length);
       next += slice.length;
-      await fetchTexts(slice, deps);
+      await fetchItemTexts(
+        slice.flatMap((s) => db.itemsForStory(s.id)),
+        { db, fetchFn: deps.fetchFn, log: (line) => deps.log?.(`retroativo: ${line}`) },
+      );
       for (const s of slice) if (storyFacts(s, deps, now).publishable) selected.push(s);
     }
 
@@ -575,38 +632,166 @@ async function selectStories(deps: BackfillDeps, report: RetroativoReport): Prom
     });
     report.selected += selected.length;
   }
+
+  if (withoutQuota.length > 0) {
+    alert(
+      db,
+      "api",
+      `Retroativo: ${withoutQuota.length} dia(s) com histórias e sem cota guardada (${withoutQuota.join(", ")}); as histórias desses dias foram descartadas. As cotas são fixadas na primeira escolha.`,
+      now,
+    );
+  }
+  return true;
 }
 
-/** Submits ONE batch with every queued backfill story not yet sent; the batch id is stored with the stories. */
+/** Characters of a prompt part (string, or text blocks). */
+function promptChars(part: unknown): number {
+  if (typeof part === "string") return part.length;
+  if (Array.isArray(part)) return part.reduce((sum: number, p) => sum + promptChars(p), 0);
+  if (part && typeof part === "object") {
+    const o = part as { text?: unknown; content?: unknown };
+    return promptChars(o.text) + promptChars(o.content);
+  }
+  return 0;
+}
+
+/**
+ * Upper-bound estimate of one batch request: prompt characters / 4 input tokens and `max_tokens / 2` output
+ * tokens, at batch prices for `model`.
+ */
+export function estimateRequestUsd(request: BatchRequest, model: string): number {
+  const p = request.params;
+  const input = Math.ceil((promptChars(p.system) + promptChars(p.messages)) / 4);
+  return costUsd(model, { input_tokens: input, output_tokens: Math.ceil(p.max_tokens / 2) }, true);
+}
+
+type SubmitMarker = { id: string; at: string; count: number };
+
+function readMarker(db: Db): SubmitMarker | null {
+  const raw = db.getMeta(SUBMITTING_KEY);
+  return raw ? (JSON.parse(raw) as SubmitMarker) : null;
+}
+
+/** Stores the batch id: the batch row, the drafts moved from the marker to it, the marker cleared. */
+function adoptBatch(deps: BackfillDeps, marker: SubmitMarker, batchId: string): void {
+  const { db } = deps;
+  tx(db, () => {
+    db.raw.prepare("INSERT INTO backfill_batches (id, submitted_at, status) VALUES (?, ?, 'submitted')").run(batchId, marker.at);
+    db.raw.prepare("UPDATE backfill_drafts SET batch_id = ? WHERE batch_id = ?").run(batchId, marker.id);
+    db.setMeta(SUBMITTING_KEY, "");
+  });
+}
+
+/**
+ * A run that crashed between `batches.create` and storing the id left a marker. The batch is looked up with
+ * `batches.list` (newest first): created at most `RECONCILE_SKEW_MS` before the marker, with the marker's
+ * request count, not already known, and, when it has ended, only our `story-<id>` custom ids. The oldest
+ * match is adopted; with none, the marker and its draft rows are removed so the stories are submitted again.
+ */
+async function reconcileSubmission(deps: BackfillDeps): Promise<void> {
+  const { db } = deps;
+  const marker = readMarker(db);
+  if (!marker) return;
+  const since = Date.parse(marker.at) - RECONCILE_SKEW_MS;
+  const ours = new Set(
+    all<{ story_id: number }>(db, "SELECT story_id FROM backfill_drafts WHERE batch_id = ?", marker.id).map((r) => customIdOf(r.story_id)),
+  );
+  const known = (id: string) => db.raw.prepare("SELECT 1 AS x FROM backfill_batches WHERE id = ?").get(id) !== undefined;
+
+  let found: string | null = null;
+  for await (const b of deps.batches.list({ limit: 20 })) {
+    if (Date.parse(b.created_at) < since) break;
+    const c = b.request_counts;
+    if (c.processing + c.succeeded + c.errored + c.canceled + c.expired !== marker.count || known(b.id)) continue;
+    if (b.processing_status === "ended") {
+      let match = true;
+      for await (const r of await deps.batches.results(b.id)) {
+        if (!ours.has(r.custom_id)) {
+          match = false;
+          break;
+        }
+      }
+      if (!match) continue;
+    }
+    found = b.id; // keep going: the oldest match is the one this marker created
+  }
+
+  if (found) {
+    adoptBatch(deps, marker, found);
+    deps.log?.(`retroativo: lote ${found} recuperado (a execução anterior caiu antes de guardar o id)`);
+    return;
+  }
+  tx(db, () => {
+    db.raw.prepare("DELETE FROM backfill_drafts WHERE batch_id = ?").run(marker.id);
+    db.setMeta(SUBMITTING_KEY, "");
+  });
+  deps.log?.("retroativo: nenhum lote da execução anterior encontrado; as histórias serão enviadas de novo");
+}
+
+/**
+ * Submits ONE batch with the queued backfill stories not yet sent. The estimated cost must fit what is left
+ * of the backfill budget: the lowest-scored stories are left out (still `queued`, for a later run) until it
+ * fits; when none fits, one `orcamento` alert and the run stops. A marker is saved before `create` and
+ * replaced by the batch id right after, so a crash in between is reconciled instead of paid twice.
+ */
 async function submitBatch(deps: BackfillDeps, report: RetroativoReport): Promise<string | null> {
   const { db, ai, config } = deps;
   const toWrite = all<StoryRow>(
     db,
     `SELECT s.* FROM stories s LEFT JOIN backfill_drafts d ON d.story_id = s.id
      WHERE s.mode = 'backfill' AND s.status = 'queued' AND d.story_id IS NULL
-     ORDER BY s.story_date, s.id`,
+     ORDER BY s.score DESC, s.id`,
   );
   if (toWrite.length === 0) return null;
 
   // `batchRequest` does not check the budget: stop here, before building or submitting anything.
   ai.assertBudget("backfill");
 
-  const entries: { story: StoryRow; writing: StoryForWriting; request: ReturnType<typeof writeBatchRequest> }[] = [];
+  const entries: { story: StoryRow; writing: StoryForWriting; request: BatchRequest; usd: number }[] = [];
   for (const story of toWrite) {
     const writing = await storyForWriting(story, deps);
     const request = writeBatchRequest(ai, writing, customIdOf(story.id), { models: config, now: storyNow(story, deps) });
-    entries.push({ story, writing, request });
+    entries.push({ story, writing, request, usd: estimateRequestUsd(request, config.MODEL_WRITER) });
   }
 
-  const batch = await deps.batches.create({ requests: entries.map((e) => e.request) });
-  const at = deps.now().toISOString();
+  // Highest score first: what does not fit is the least relevant.
+  const left = config.BACKFILL_BUDGET_USD - db.spentTotal("backfill");
+  const kept: typeof entries = [];
+  let total = 0;
+  for (const e of entries) {
+    if (total + e.usd > left) break;
+    kept.push(e);
+    total += e.usd;
+  }
+  report.trimmed += entries.length - kept.length;
+  const now = deps.now();
+  if (kept.length === 0) {
+    alertOncePerDay(
+      db,
+      "orcamento",
+      `Retroativo: teto de US$ ${config.BACKFILL_BUDGET_USD} não comporta nem uma matéria (restam US$ ${left.toFixed(2)}, estimativa US$ ${entries[0]!.usd.toFixed(2)} por matéria). Aumente BACKFILL_BUDGET_USD e rode de novo.`,
+      now,
+      "Retroativo: teto",
+    );
+    report.stopped = "orcamento";
+    return null;
+  }
+  if (kept.length < entries.length) {
+    deps.log?.(
+      `retroativo: lote reduzido a ${kept.length} de ${entries.length} matérias (estimativa US$ ${total.toFixed(2)}, restam US$ ${left.toFixed(2)})`,
+    );
+  }
+
+  const marker: SubmitMarker = { id: `pendente-${now.toISOString()}`, at: now.toISOString(), count: kept.length };
   tx(db, () => {
-    db.raw.prepare("INSERT INTO backfill_batches (id, submitted_at, status) VALUES (?, ?, 'submitted')").run(batch.id, at);
+    db.setMeta(SUBMITTING_KEY, JSON.stringify(marker));
     const insert = db.raw.prepare("INSERT INTO backfill_drafts (story_id, batch_id, writing_json, status) VALUES (?, ?, ?, 'submitted')");
-    for (const e of entries) insert.run(e.story.id, batch.id, JSON.stringify(e.writing));
+    for (const e of kept) insert.run(e.story.id, marker.id, JSON.stringify(e.writing));
   });
-  report.submitted += entries.length;
-  deps.log?.(`retroativo: lote ${batch.id} enviado com ${entries.length} matérias`);
+  const batch = await deps.batches.create({ requests: kept.map((e) => e.request) });
+  adoptBatch(deps, marker, batch.id);
+  report.submitted += kept.length;
+  deps.log?.(`retroativo: lote ${batch.id} enviado com ${kept.length} matérias (estimativa US$ ${total.toFixed(2)})`);
   return batch.id;
 }
 
@@ -698,7 +883,13 @@ async function checkDrafts(deps: BackfillDeps, report: RetroativoReport): Promis
     try {
       const first = await checkDraft(ai, final, sources, "backfill", check);
       if (!first.ok) {
-        const second = await writeDraft(ai, writing, "backfill", { models: config, now: storyNow(story, deps), problems: first.problems });
+        // A live Messages call: it uses server-side fallbacks like every live writer call (only the batch omits them).
+        const second = await writeDraft(ai, writing, "backfill", {
+          models: config,
+          now: storyNow(story, deps),
+          problems: first.problems,
+          fallbacks: true,
+        });
         const verdict = await checkDraft(ai, second, sources, "backfill", check);
         final = verdict.ok ? second : null;
         problems = verdict.problems;
@@ -730,12 +921,13 @@ async function escrever(deps: BackfillDeps, report: RetroativoReport): Promise<v
   const failedBefore = report.failed;
   try {
     // A batch submitted by an earlier (crashed or stopped) run is polled, never resubmitted.
+    await reconcileSubmission(deps);
     let batchId =
       (db.raw.prepare("SELECT id FROM backfill_batches WHERE status = 'submitted' ORDER BY submitted_at LIMIT 1").get() as
         | { id: string }
         | undefined)?.id ?? null;
     if (!batchId) {
-      await selectStories(deps, report);
+      if (!(await selectStories(deps, report))) return;
       batchId = await submitBatch(deps, report);
     }
     if (batchId) {

@@ -251,6 +251,11 @@ export type WriteOpts = {
   now?: Date;
   /** Fact-check problems of a previous attempt, appended to the user message. */
   problems?: string[];
+  /**
+   * Server-side fallbacks; defaults to `bucket === "live"`. The backfill's rewrite is a live Messages call
+   * (only the batch must omit fallbacks), so it passes `true`.
+   */
+  fallbacks?: boolean;
 };
 
 export async function writeDraft(ai: Ai, story: StoryForWriting, bucket: SpendBucket, opts: WriteOpts = {}): Promise<Draft> {
@@ -269,7 +274,7 @@ export async function writeDraft(ai: Ai, story: StoryForWriting, bucket: SpendBu
     schema: DraftSchema,
     maxTokens: WRITER_MAX_TOKENS,
     // Live calls fall back server-side on refusals; the Batches API rejects `fallbacks`.
-    fallbacks: bucket === "live",
+    fallbacks: opts.fallbacks ?? bucket === "live",
   });
   return toDraft(raw);
 }

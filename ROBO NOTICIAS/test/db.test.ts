@@ -171,6 +171,44 @@ describe("pipeline helpers", () => {
     migrated.close();
   });
 
+  it("widens the item status CHECK of an older database for the backfill statuses, keeping rows and links", () => {
+    const dir = mkdtempSync(join(tmpdir(), "robo-db-check-"));
+    const old = new DatabaseSync(join(dir, "robo.db"));
+    old.exec(`
+      PRAGMA foreign_keys=ON;
+      CREATE TABLE items (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE, source_id TEXT NOT NULL, title TEXT NOT NULL,
+        summary TEXT, published_at TEXT, fetched_at TEXT NOT NULL, content_hash TEXT, text TEXT,
+        status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','triaged','dropped','clustered')), triage_json TEXT,
+        publisher TEXT, text_unavailable INTEGER NOT NULL DEFAULT 0);
+      CREATE INDEX idx_items_status ON items(status);
+      CREATE TABLE stories (id INTEGER PRIMARY KEY, key TEXT NOT NULL UNIQUE, headline TEXT NOT NULL, category TEXT NOT NULL,
+        score REAL NOT NULL DEFAULT 0, bomb INTEGER NOT NULL DEFAULT 0, rumor INTEGER NOT NULL DEFAULT 0,
+        games_json TEXT NOT NULL DEFAULT '[]', first_seen_at TEXT NOT NULL, last_item_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open', mode TEXT NOT NULL DEFAULT 'live', story_date TEXT, parent_article_id INTEGER);
+      CREATE TABLE story_items (story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE, PRIMARY KEY (story_id, item_id));
+      INSERT INTO items (url, source_id, title, fetched_at, status, triage_json, text) VALUES ('https://old.test/a', 'ign', 'old', '2026-10-01T00:00:00Z', 'clustered', '{"x":1}', 'texto');
+      INSERT INTO stories (key, headline, category, first_seen_at, last_item_at) VALUES ('k', 'h', 'GAMES', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z');
+      INSERT INTO story_items (story_id, item_id) VALUES (1, 1);
+    `);
+    expect(() => old.exec("UPDATE items SET status = 'bf_triaged'")).toThrow();
+    old.close();
+
+    const migrated = openDb(dir);
+    expect(migrated.itemsForStory(1)).toMatchObject([{ id: 1, title: "old", status: "clustered", triage_json: '{"x":1}', text: "texto" }]);
+    migrated.insertItemIfNew({ url: "https://new.test/b", sourceId: "ign", title: "b" });
+    migrated.setItemStatus(2, "bf_triaged");
+    expect(migrated.itemsByStatus("bf_triaged").map((i) => i.id)).toEqual([2]);
+    expect(() => migrated.raw.exec("UPDATE items SET status = 'nonsense' WHERE id = 2")).toThrow();
+    const indexes = (migrated.raw.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'items'").all() as { name: string }[]).map((r) => r.name);
+    expect(indexes).toEqual(expect.arrayContaining(["idx_items_status", "idx_items_hash"]));
+    expect((migrated.raw.prepare("PRAGMA foreign_keys").get() as { foreign_keys: number }).foreign_keys).toBe(1);
+    expect(migrated.raw.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    migrated.close();
+    // Opening again does not rebuild anything.
+    openDb(dir).close();
+  });
+
   it("lists a story's items, finds stories by key and follow-ups by parent article", () => {
     db.insertItemIfNew(item("https://ign.com/a"));
     db.insertItemIfNew(item("https://ign.com/b"));

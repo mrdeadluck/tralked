@@ -6,13 +6,13 @@ import { runIfMain } from "./run.js";
 
 const USAGE = `Uso: pnpm retroativo [${PHASES.join(" | ")}]  (sem fase: roda todas, retomando de onde parou)`;
 
-export function formatRetroativo(r: RetroativoReport): string {
+export function formatRetroativo(r: RetroativoReport, now: Date): string {
   return [
-    `retroativo ${new Date().toISOString()}: fases ${r.ran.join(", ") || "nenhuma"}`,
+    `retroativo ${now.toISOString()}: fases ${r.ran.join(", ") || "nenhuma"}`,
     `  descobrir: ${r.discovered} itens achados, ${r.inserted} novos, ${r.sourceFailures} falhas de fonte`,
     `  triar: ${r.triaged} respondidos, ${r.kept} mantidos`,
     `  agrupar: ${r.clustered} itens agrupados, ${r.newStories} histórias novas`,
-    `  escrever: ${r.selected} escolhidas, ${r.submitted} enviadas no lote${r.batchId ? ` ${r.batchId}` : ""}, ${r.drafted} rascunhos, ${r.ready} prontas, ${r.failed} falhas`,
+    `  escrever: ${r.covered} já cobertas pelo site, ${r.selected} escolhidas, ${r.submitted} enviadas no lote (${r.trimmed} fora pelo teto)${r.batchId ? ` ${r.batchId}` : ""}, ${r.drafted} rascunhos, ${r.ready} prontas, ${r.failed} falhas`,
     `  publicar: ${r.published} publicadas, ${r.publishFailed} recusadas pelo site${r.paused ? " (PAUSADO)" : ""}`,
     ...(r.stopped ? [`  interrompido: ${r.stopped}`] : []),
   ].join("\n");
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
       },
       arg as Phase | undefined,
     );
-    console.log(formatRetroativo(report));
+    console.log(formatRetroativo(report, deps.now()));
   } finally {
     await sendPendingAlerts(deps.db, deps.config, deps.fetchFn);
     deps.db.close();

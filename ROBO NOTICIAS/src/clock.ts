@@ -50,6 +50,11 @@ function localToDate(day: string, hour: number, minute: number): Date {
   return guess;
 }
 
+/** The instant local midnight (00:00 America/Sao_Paulo) starts the "YYYY-MM-DD" day. */
+export function localStartOfDay(day: string): Date {
+  return localToDate(day, 0, 0);
+}
+
 /** Uniform random minute within 06:00-23:59 local on `day`. */
 export function randomTimeOn(day: string, rand: () => number = Math.random): Date {
   const first = 6 * 60;
