@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyHeadline, mentionsGaming, mentionsTech, toNewsFeedArea } from "./areas";
+import { AREA_EXTERNAL_NEWS, HK_EXTERNAL_NEWS } from "../../../prisma/seed-data/community";
 
 const hades = { gameId: "g-hades" };
 const eldenRing = { gameId: "g-elden" };
@@ -45,7 +46,46 @@ describe("mentionsGaming", () => {
     expect(mentionsGaming("Squid Game: Netflix anuncia reality")).toBe(false);
     expect(mentionsGaming("Jogos Olímpicos de inverno na TV")).toBe(false);
     expect(mentionsGaming("O que está em jogo na nova temporada")).toBe(false);
+    expect(mentionsGaming("Final da série: o futuro dos heróis está em jogo")).toBe(false);
+    expect(mentionsGaming("Vidas estão em jogo no novo thriller")).toBe(false);
+    expect(mentionsGaming("Diretor vai colocar em jogo a própria carreira")).toBe(false);
+    expect(mentionsGaming("Filme vai pôr em jogo a amizade dos protagonistas")).toBe(false);
     expect(mentionsGaming("Game of Thrones ganha jogo para PS5")).toBe(true);
+  });
+
+  it("keeps adaptations 'baseado em jogo' / 'inspirado em jogo' (only the 'at stake' idiom is dropped)", () => {
+    expect(mentionsGaming("Anime baseado em jogo de luta estreia em janeiro")).toBe(true);
+    expect(mentionsGaming("Filme baseado em jogo da Capcom ganha trailer")).toBe(true);
+    expect(mentionsGaming("Série inspirada em jogo ganha data")).toBe(true);
+  });
+});
+
+describe("seeded example headlines", () => {
+  it("every seeded headline passes its area's rule and links the seeded game", () => {
+    for (const n of AREA_EXTERNAL_NEWS) {
+      const match = n.gameSlug ? { gameId: n.gameSlug } : null;
+      expect(classifyHeadline(n.area, n.title, match), n.title).toEqual({ gameId: n.gameSlug });
+    }
+    for (const n of HK_EXTERNAL_NEWS) {
+      expect(classifyHeadline("GAMES", n.title, { gameId: "hollow-knight" }), n.title).toEqual({ gameId: "hollow-knight" });
+    }
+  });
+
+  it("each seeded press headline stays out of the other press area unless it fits that rule too", () => {
+    const expected: Record<string, { ENTRETENIMENTO: boolean; TECNOLOGIA: boolean }> = {
+      "Série animada do jogo Hades ganha primeiro teaser (exemplo)": { ENTRETENIMENTO: true, TECNOLOGIA: true },
+      "Filme de Elden Ring define elenco principal (exemplo)": { ENTRETENIMENTO: true, TECNOLOGIA: true },
+      "Anime baseado em jogo de luta estreia em janeiro (exemplo)": { ENTRETENIMENTO: true, TECNOLOGIA: true },
+      "Nova geração de placas de vídeo promete ray tracing mais barato (exemplo)": { ENTRETENIMENTO: false, TECNOLOGIA: true },
+      "IA nos estúdios: como equipes de games usam a ferramenta nos bastidores (exemplo)": { ENTRETENIMENTO: true, TECNOLOGIA: true },
+      "Portátil para PC roda Elden Ring a 60 fps nos testes (exemplo)": { ENTRETENIMENTO: true, TECNOLOGIA: true },
+    };
+    expect(Object.keys(expected).sort()).toEqual(AREA_EXTERNAL_NEWS.map((n) => n.title).sort());
+    for (const n of AREA_EXTERNAL_NEWS) {
+      for (const area of ["ENTRETENIMENTO", "TECNOLOGIA"] as const) {
+        expect(classifyHeadline(area, n.title, null) !== null, `${area}: ${n.title}`).toBe(expected[n.title][area]);
+      }
+    }
   });
 });
 
