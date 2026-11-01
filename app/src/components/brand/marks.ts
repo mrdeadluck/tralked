@@ -1,18 +1,19 @@
 /*
  * Tralked brand marks, built from the approved logo (assets/brand/tralked-logo-tlk-source.png):
  * every letter is the logo's own glyph, re-spaced with one constant gap (22 units) so no space is
- * wider than another. The TLK monogram reuses the wordmark's T, L and K (same height, upright T).
+ * wider than another.
  * Colours come from the caller: white parts take the text colour, the L the logo purple, the K the
  * accent.
  */
 
-/** "TLK" monogram: white T (`t`), purple L (`l`), lime K (`k`). */
+/** "TLK" monogram (the game-controller symbol): white T (`t`, bar tip pointing up), purple L (`l`),
+ * lime K (`k`). Every gap between pieces is exactly 12 units; all pieces share the top line. */
 export const EMBLEM = {
-  width: 583,
-  height: 219,
-  t: "M193 0 51 0 0 52 52 52 52 218 110 218 110 53 149 53Z",
-  l: "M215 0 215 134 258 218 352 218 352 165 274 165 274 0Z",
-  k: "M374 0 374 218 432 218 432 141 504 218 583 218 471 102 578 0 505 0 432 68 432 0Z",
+  width: 444,
+  height: 235,
+  t: "M4 0 142 0 142 55 59 55ZM142 67 91 67 91 93 0 184 0 235 53 235 142 133Z",
+  l: "M154 0 154 158 305 158 305 146 274 109 212 109 212 0Z",
+  k: "M224 0 224 97 280.7 97 394.3 235 444 235 444 182 342 73 283 73 283 0ZM443.8 -0.8 370.8 -0.8 309.8 61.2 348.8 61.2 355.8 69.2 374.8 69.2Z",
 } as const;
 
 /** "TRALKED" wordmark: `d` draws T R A E D (even-odd, for the counters), `l` the purple L, `k` the lime K. */
