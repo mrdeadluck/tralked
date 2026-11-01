@@ -243,7 +243,17 @@ export function NewsWire({
       // Geometry can change without a resize (fonts, the stylesheet or art arriving after the first
       // measure): stale offsets put the cards off screen while the caption still names one, so the
       // cards are measured again about once a second.
-      if (++frames % 60 === 0) measure();
+      if (++frames % 60 === 0) {
+        measure();
+        // Self-heal (what the arrow buttons did by hand): with no card on the stage, the strip goes
+        // back to the first original under the lens.
+        const box = stage.getBoundingClientRect();
+        const onStage = cards.some((card) => {
+          const r = card.getBoundingClientRect();
+          return r.width > 0 && r.right > box.left && r.left < box.right;
+        });
+        if (!onStage && geo[first] && !drag && !glide) x = centred(first);
+      }
       if (glide) {
         const k = Math.min(1, (t - glide.t0) / GLIDE_MS);
         const e = 1 - Math.pow(1 - k, 3);
@@ -351,8 +361,22 @@ export function NewsWire({
     ro.observe(track);
     ro.observe(stage);
     frame = requestAnimationFrame(tick);
+    // A reload (scroll restored, fonts and art arriving late) could leave stale offsets: measure again
+    // once the page and its fonts are ready, and when it comes back from the back/forward cache.
+    let disposed = false;
+    const settle = () => {
+      if (disposed) return;
+      measure();
+      if (geo[first]) wrap();
+    };
+    void document.fonts?.ready.then(settle);
+    window.addEventListener("load", settle);
+    window.addEventListener("pageshow", settle);
 
     return () => {
+      disposed = true;
+      window.removeEventListener("load", settle);
+      window.removeEventListener("pageshow", settle);
       if (geo[first]) phase.current = x - centred(first);
       cancelAnimationFrame(frame);
       io.disconnect();
