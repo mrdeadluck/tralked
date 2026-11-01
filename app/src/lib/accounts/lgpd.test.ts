@@ -33,6 +33,7 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
 
   async function cleanup() {
     const { prisma } = await import("@/lib/db");
+    await prisma.conversation.deleteMany({ where: { messages: { some: { body: { contains: MARK } } } } });
     await prisma.comment.deleteMany({ where: { body: { contains: MARK } } });
     await prisma.forumThread.deleteMany({ where: { title: { contains: MARK } } });
     await prisma.photo.deleteMany({ where: { caption: { contains: MARK } } });
@@ -171,6 +172,66 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
     ]) {
       expect(json).not.toContain(foreign);
     }
+  });
+
+  it("exports the user's own social data, never the messages others wrote", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { exportUserData } = await import("./export");
+    const { acceptFriendship, blockUser, follow, requestFriendship } = await import("@/lib/social/relations");
+    const { sendMessage } = await import("@/lib/social/messages");
+    const a = await newUser("sa");
+    const b = await newUser("sb");
+    const c = await newUser("sc");
+    const d = await newUser("sd");
+    await follow(prisma, a.id, b.id);
+    await follow(prisma, b.id, a.id);
+    await requestFriendship(prisma, a.id, c.id);
+    await acceptFriendship(prisma, c.id, a.id);
+    await blockUser(prisma, a.id, d.id);
+    const bComment = await prisma.comment.create({
+      data: { authorId: b.id, targetType: "photo", targetId: "x", body: `comentário de sb ${MARK}` },
+    });
+    await prisma.reaction.create({ data: { userId: a.id, targetType: "comment", targetId: bComment.id, value: 1 } });
+    expect((await sendMessage(prisma, a.id, b.id, `mensagem de sa ${MARK}`)).status).toBe("ok");
+    expect((await sendMessage(prisma, b.id, a.id, `mensagem de sb ${MARK}`)).status).toBe("ok");
+
+    const data = await exportUserData(a.id);
+    expect(data!.user).toMatchObject({ dmPolicy: "everyone" });
+    expect(data!.social.following.map((f) => f.handle).sort()).toEqual([b.handle, c.handle].sort());
+    expect(data!.social.followersCount).toBe(2);
+    expect(data!.social.friendships).toEqual([expect.objectContaining({ handle: c.handle, status: "friends" })]);
+    expect(data!.social.blocked).toEqual([expect.objectContaining({ handle: d.handle })]);
+    expect(data!.social.reactions).toEqual([expect.objectContaining({ targetId: bComment.id, value: 1 })]);
+    expect(data!.social.messagesSent.map((m) => m.body)).toEqual([`mensagem de sa ${MARK}`]);
+    expect(JSON.stringify(data)).not.toContain("mensagem de sb");
+  });
+
+  it("deleting an account drops its reactions from the counters and keeps delivered messages anonymous", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { deleteAccount } = await import("./delete");
+    const { sendMessage, clearConversation, openConversation } = await import("@/lib/social/messages");
+    const { follow } = await import("@/lib/social/relations");
+    const gone = await newUser("sg");
+    const stays = await newUser("sh");
+    await follow(prisma, gone.id, stays.id);
+    const target = await prisma.comment.create({
+      data: { authorId: stays.id, targetType: "photo", targetId: "y", body: `alvo ${MARK}`, likeCount: 1, dislikeCount: 0 },
+    });
+    await prisma.reaction.create({ data: { userId: gone.id, targetType: "comment", targetId: target.id, value: 1 } });
+    const sent = await sendMessage(prisma, gone.id, stays.id, `até logo ${MARK}`);
+    if (sent.status !== "ok") throw new Error("send failed");
+
+    await deleteAccount(gone.id);
+    expect(await prisma.comment.findUniqueOrThrow({ where: { id: target.id } })).toMatchObject({ likeCount: 0 });
+    expect(await prisma.reaction.count({ where: { userId: gone.id } })).toBe(0);
+    expect(await prisma.follow.count({ where: { followerId: gone.id } })).toBe(0);
+    const message = await prisma.directMessage.findUniqueOrThrow({ where: { id: sent.message.id } });
+    expect(message).toMatchObject({ senderId: null, body: `até logo ${MARK}` });
+    // The other side still reads it, and deleting it for themselves removes the conversation for good.
+    const conversation = await prisma.conversation.findUniqueOrThrow({ where: { id: sent.conversationId } });
+    expect([conversation.userLowId, conversation.userHighId]).toContain(null);
+    expect(await clearConversation(prisma, stays.id, sent.conversationId)).toEqual({ status: "ok", deleted: true });
+    expect((await openConversation(prisma, stays.id, gone.id)).messages).toEqual([]);
   });
 
   it("the notifications cron deletes notifications older than 90 days", async () => {

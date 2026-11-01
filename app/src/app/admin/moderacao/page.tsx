@@ -37,6 +37,7 @@ const TARGET_LABEL: Record<string, string> = {
   article: "Notícia",
   guide: "Guia",
   user: "Perfil",
+  message: "Mensagem privada",
 };
 
 export default async function ModerationPage({ searchParams }: PageProps<"/admin/moderacao">) {

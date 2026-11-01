@@ -235,7 +235,7 @@ Feeds sugeridos (conferidos em 31/10/2026: https, RSS válido, sem redirecioname
 
 ## SEO, privacidade e páginas de sistema
 
-- `sitemap.xml` (jogos, guias publicados, notícias publicadas, tópicos visíveis do fórum e páginas fixas) e `robots.txt` (bloqueia `/admin`, `/conta`, `/api`, `/notificacoes`, `/newsletter` e `/confirmar-email`) usam `APP_URL` como origem pública: defina a URL de produção também no build, porque os dois arquivos são gerados nele.
+- `sitemap.xml` (jogos, guias publicados, notícias publicadas, tópicos visíveis do fórum e páginas fixas) e `robots.txt` (bloqueia `/admin`, `/conta`, `/api`, `/notificacoes`, `/newsletter`, `/confirmar-email`, `/mensagens` e `/feed`) usam `APP_URL` como origem pública: defina a URL de produção também no build, porque os dois arquivos são gerados nele.
 - JSON-LD com `src/lib/seo/json-ld.tsx`: `NewsArticle` nas notícias, `HowTo` nos guias e o helper `videoGameJsonLd()` para a página do jogo (`<JsonLd data={videoGameJsonLd(game)} />`). O texto vai escapado (`<`, `>`, `&`), então título de usuário ou robô nunca fecha o `<script>`.
 - Imagem padrão de compartilhamento: `src/app/opengraph-image.tsx`, com a fonte Archivo Expanded em `assets/fonts` (licença OFL em `assets/fonts/OFL.txt`).
 - `/privacidade`, `/termos` e `/licencas`. O e-mail de contato `contato@tralked.example` é **provisório** (`src/lib/legal/contact.ts`); troque antes do lançamento.
@@ -244,6 +244,25 @@ Feeds sugeridos (conferidos em 31/10/2026: https, RSS válido, sem redirecioname
 - Newsletter com confirmação dupla: o formulário grava `NewsletterSubscriber` sem confirmação. Ainda não há provedor de e-mail: **fora de produção o link de confirmação sai no console do servidor** (`[newsletter] Link de confirmação ...`); em produção o endereço só fica registrado e o formulário diz "Inscrição registrada". O link (`/newsletter/confirmar?email=&token=`) vale 7 dias (token = validade + HMAC do e-mail com `SESSION_SECRET`) e só abre a página: a confirmação é um POST pelo botão "Confirmar inscrição", então leitores de e-mail que pré-abrem links não confirmam nada. Limites em memória por instância: 5 inscrições por IP a cada 10 min e 1 e-mail por endereço a cada 10 min. Futuro: provedor por env (`EMAIL_PROVIDER_API_KEY`, `EMAIL_FROM`), ligado em `deliver()` de `src/lib/newsletter/subscribe.ts`.
 - `Article.comments` (contagem nos cards e no topo da notícia) é recontado a cada comentário criado, apagado pelo autor ou ocultado/removido/restaurado pela moderação. Para consertar contadores antigos: `DATABASE_URL=... pnpm comments:recount` (só atualiza os que divergem; o seed também reconta).
 - Notificações: sino no topo (não lidas + as 8 últimas, "marcar todas como lidas") e `/notificacoes` com paginação. Cada notificação vive 90 dias (cron `notifications`).
+
+## Social (Plano 4, F9)
+
+Código em `src/lib/social/` (regras puras de recompensa em `src/lib/engine/social.ts`), telas em `/feed`, `/mensagens`, `/mensagens/<handle>`, `/jogador/<handle>/amigos` e na seção "Mensagens e bloqueios" de `/conta`.
+
+- **Seguir** não pede aprovação. **Amizade** é pedido + aceite e não mexe na família. Amigo é sempre seguidor: mandar o pedido já segue a pessoa; aceitar faz os dois se seguirem; desfazer a amizade mantém os dois seguindo (cada um decide se para). Pedir amizade a quem já te pediu aceita o pedido dela. Até 20 pedidos por dia. O perfil mostra seguidores, seguindo e amigos (a lista só para perfis públicos ou para o dono); os botões Seguir / Adicionar amigo / Mensagem / Bloquear / Denunciar ficam no topo de cada seção do perfil.
+- **Bloquear** desfaz follows e amizade (ou pedido) nos dois sentidos e, enquanto durar, ninguém dos dois manda mensagem, segue ou pede amizade ao outro; o bloqueado não responde comentários/posts de quem bloqueou, e menções entre os dois não notificam. Comentários de quem está num bloqueio com você aparecem recolhidos ("ver mesmo assim"). A lista de bloqueados (com "Desbloquear") fica em `/conta`.
+- **Mensagens privadas**: conversa 1:1, só texto (HTML recusado; links `http(s)` viram âncoras seguras com `rel="nofollow ugc noopener noreferrer"`), até 2.000 caracteres. Limites: 10 mensagens por minuto, 300 por dia e 20 conversas novas por dia. "Quem pode me mandar mensagem" em `/conta`: qualquer pessoa, só quem eu sigo, ou só amigos. "Apagar conversa para mim" esconde o histórico só de quem apagou (a conversa volta à caixa com a próxima mensagem); quando os dois apagaram, a conversa some do banco. Mensagens recebidas podem ser denunciadas (a moderação vê só a mensagem denunciada). O envelope do topo mostra quantas conversas têm mensagens não lidas; a conversa aberta pergunta ao servidor a cada 15 s (sem tempo real). Nada disso é público nem vai para cache (páginas dinâmicas, por usuário, `noindex`).
+- **Comentários sociais** em notícias, guias, fotos e fórum: curtir/descurtir (clicar de novo desfaz) e responder em fio até 2 níveis (responder uma resposta de 2º nível cria uma irmã, com o `@autor` no começo). Quem escreveu o comentário/post respondido pode marcar a resposta como **Útil**. @menções notificam (até 5 por texto). Notificações novas: `comment_like` (uma por item enquanto não lida), `comment_helpful`, `mention`, `follow`, `friend_request`, `friend_accept`.
+- **Recompensas (ledger)** — números exatos, também em `src/lib/engine/social.ts`:
+  - `comment_liked` = **5 XP** para o autor por curtida **recebida**; quem curte não ganha nada; curtir o próprio comentário é recusado. Teto de **10 curtidas pagas por dia** para quem recebe (50 XP) e de **3 por dia por par** de pessoas, somando os dois sentidos (troca de curtidas para de render na 3ª). Uma curtida paga uma vez por pessoa e item: descurtir e curtir de novo não paga de novo, e desfazer a curtida não tira o XP. `sourceKey = <comment|post>:<id>:<quem curtiu>`.
+  - `comment_helpful` = **20 XP** para o autor da resposta marcada como Útil; não vale na própria resposta; teto de **3 por dia** para quem recebe e **1 por dia por par**. `sourceKey = <comment|post>:<id>`.
+  - **Descurtidas nunca tiram XP.** Item com **5 descurtidas a mais que curtidas** fica recolhido ("ver mesmo assim").
+  - **Comentário/post removido anula o XP que gerou**: "Remover" na moderação (também os comentários de uma foto removida e os posts de um tópico removido) e o autor apagando o próprio comentário anulam as entradas `comment_liked`/`comment_helpful` daquele item (ficam no ledger com `voidedAt`); "Ocultar" mantém.
+  - Dias em America/Sao_Paulo. As curtidas e marcações do seed são só exemplo (contadores), sem XP.
+- **Carisma** (atributo novo, na ficha): 5 pontos por curtida paga recebida, 25 por resposta útil e 10 por amigo (até 50 amigos), contando só entradas não anuladas do ledger — herda os tetos acima. Recalculado no recompute (ao receber XP social, ao virar ou deixar de ser amigo); amigos de uma conta excluída saem do Carisma no próximo recompute de cada um.
+- **Feed** (`/feed`, e o cartão "De quem você segue" na home para quem segue alguém): conquistas raras (até 5% dos jogadores), jogos em 100%, marcos de horas a partir de 10 h, matérias publicadas e fotos de quem você segue, 20 por página (até 10 páginas). Só atividade de perfis públicos (matérias publicadas são públicas de qualquer forma); quem está num bloqueio com você fica de fora.
+- **LGPD**: a exportação traz quem você segue, quantos te seguem, amizades e pedidos, bloqueios, suas reações, as mensagens que **você** enviou e `dmPolicy` (nunca o texto de mensagens recebidas). Excluir a conta apaga follows, amizades, bloqueios e reações (os contadores dos comentários/posts caem junto); mensagens já entregues ficam para a outra pessoa como "Conta removida" até ela apagar a conversa (conversa sem ninguém, ou já apagada pelo outro lado, é removida).
+- Highscores de Carisma: não há tabela própria (fica para depois); o atributo aparece na ficha.
 
 ## Scripts
 
@@ -334,8 +353,9 @@ prisma/               schema, migrations e seed
 src/app/              rotas (App Router)
   /                   home com notícias, ranking e missão diária
   jogos/[slug]        página do jogo e /guia (guia 100% com votos)
-  jogador/[handle]    perfil público (ficha); /jogos, /conquistas, /estatisticas e /desejos (lista de desejos)
-                      são as seções; /jogador/me redireciona para o seu
+  jogador/[handle]    perfil público (ficha); /jogos, /conquistas, /estatisticas, /desejos (lista de desejos)
+                      e /amigos (amigos, seguidores, seguindo, pedidos) são as seções; /jogador/me redireciona
+  feed, mensagens     feed de quem você segue; mensagens privadas (caixa e conversa por @handle)
   highscores          rankings: nível, /horas, /conquistas, /raras, /platinas, /acervo (+ /<plataforma>), /genero/<habilidade>
   familia             modo família e convites; biblioteca da família paginada, com busca e filtros
   noticias/[slug]     artigos
@@ -354,6 +374,7 @@ src/lib/
   accounts/           conexões de Steam/PSN/Xbox/RA: connect.ts (salvar sem código), link.ts (reivindicar
                       com código, desvincular), steam-link.ts (Steam e contas antigas) + Server Actions
   progression/       recálculo de XP/habilidades a partir do ledger e chaves de período
+  social/             seguir, amizade, bloqueio, mensagens privadas, reações, respostas em fio, feed
   queries/            consultas ao banco usadas pelas páginas
   auth/               sessão (jose), e-mail + senha (scrypt), limites de tentativas, links de definir senha,
                       login Google (OAuth + PKCE), confirmação de e-mail (link assinado)

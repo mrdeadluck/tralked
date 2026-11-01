@@ -82,7 +82,7 @@ export function ReactionBar(props: ReactionBarProps) {
           onClick={() => click(1)}
           disabled={pending || busy}
           aria-pressed={state.mine === 1}
-          aria-label={`Curtir (${state.likes})`}
+          aria-label={`Curtir ${what} (${state.likes})`}
           className={`${BUTTON} ${state.mine === 1 ? "border-acc bg-acc text-bg" : "border-line-2 text-text-3 hover:border-text hover:text-text"}`}
         >
           <ThumbUpIcon filled={state.mine === 1} width={14} height={14} />
@@ -93,7 +93,7 @@ export function ReactionBar(props: ReactionBarProps) {
           onClick={() => click(-1)}
           disabled={pending || busy}
           aria-pressed={state.mine === -1}
-          aria-label={`Descurtir (${state.dislikes})`}
+          aria-label={`Descurtir ${what} (${state.dislikes})`}
           className={`${BUTTON} ${state.mine === -1 ? "border-text bg-text text-bg" : "border-line-2 text-text-3 hover:border-text hover:text-text"}`}
         >
           <ThumbDownIcon filled={state.mine === -1} width={14} height={14} />

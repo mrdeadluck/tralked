@@ -51,6 +51,15 @@ import {
 import steamWishlist from "../src/lib/integrations/steam/__fixtures__/wishlist.json";
 import { FEED_ACHIEVEMENTS, GAMES, GAME_SLUG_BY_PREVIEW_ID, LUCAS_STEAM_PLAYTIME, STUB_GAMES } from "./seed-data/games";
 import { HK_GUIDE } from "./seed-data/guides";
+import {
+  COMMENT_REACTIONS,
+  COMMENT_REPLIES,
+  CONVERSATION,
+  FOLLOWS,
+  FRIENDSHIPS,
+  POST_REACTIONS,
+  POST_REPLIES,
+} from "./seed-data/social";
 import { ARTICLES, AUTHOR_HANDLES } from "./seed-data/news";
 import {
   FAMILY_MEMBER_HANDLES,
@@ -845,6 +854,88 @@ export async function runSeed() {
         };
         await tx.comment.upsert({ where: { id: c.id }, create: { id: c.id, ...comment }, update: comment });
       }
+
+      // ---------- Social (F9) ----------
+      await tx.follow.createMany({
+        data: FOLLOWS.map(([follower, followed]) => ({ followerId: uid(follower), followeeId: uid(followed) })),
+        skipDuplicates: true,
+      });
+      for (const f of FRIENDSHIPS) {
+        const [a, b] = [uid(f.from), uid(f.to)];
+        const pair = a < b ? { userLowId: a, userHighId: b } : { userLowId: b, userHighId: a };
+        const row = { requesterId: a, createdAt: hoursAgo(f.agoHours), acceptedAt: f.accepted ? hoursAgo(f.agoHours - 1) : null };
+        await tx.friendship.upsert({ where: { userLowId_userHighId: pair }, create: { ...pair, ...row }, update: row });
+      }
+      for (const r of COMMENT_REPLIES) {
+        const parent = await tx.comment.findUniqueOrThrow({ where: { id: r.parentId }, select: { targetType: true, targetId: true } });
+        const reply = {
+          authorId: uid(r.authorHandle),
+          targetType: parent.targetType,
+          targetId: parent.targetId,
+          parentId: r.parentId,
+          body: r.body,
+          status: "visible",
+          createdAt: hoursAgo(r.agoHours),
+          editedAt: null,
+          helpfulAt: r.helpful ? hoursAgo(r.agoHours - 0.05) : null,
+        };
+        await tx.comment.upsert({ where: { id: r.id }, create: { id: r.id, ...reply }, update: reply });
+      }
+      for (const p of POST_REPLIES) {
+        const post = {
+          threadId: p.threadId,
+          parentId: p.parentId,
+          authorId: uid(p.authorHandle),
+          body: p.body,
+          status: "visible",
+          createdAt: hoursAgo(p.agoHours),
+          editedAt: null,
+        };
+        await tx.forumPost.upsert({ where: { id: p.id }, create: { id: p.id, ...post }, update: post });
+      }
+      const reactions = [
+        ...COMMENT_REACTIONS.map(([handle, id, value]) => ({ userId: uid(handle), targetType: "comment", targetId: id, value })),
+        ...POST_REACTIONS.map(([handle, id, value]) => ({ userId: uid(handle), targetType: "post", targetId: id, value })),
+      ];
+      await tx.reaction.createMany({ data: reactions, skipDuplicates: true });
+      // Counters mirror the rows (recounted, so reseeding never drifts).
+      for (const [kind, ids] of [
+        ["comment", [...new Set(COMMENT_REACTIONS.map(([, id]) => id))]],
+        ["post", [...new Set(POST_REACTIONS.map(([, id]) => id))]],
+      ] as const) {
+        for (const id of ids) {
+          const [likeCount, dislikeCount] = await Promise.all([
+            tx.reaction.count({ where: { targetType: kind, targetId: id, value: 1 } }),
+            tx.reaction.count({ where: { targetType: kind, targetId: id, value: -1 } }),
+          ]);
+          if (kind === "comment") await tx.comment.update({ where: { id }, data: { likeCount, dislikeCount } });
+          else await tx.forumPost.update({ where: { id }, data: { likeCount, dislikeCount } });
+        }
+      }
+      {
+        const [a, b] = CONVERSATION.between.map(uid);
+        const pair = a < b ? { userLowId: a, userHighId: b } : { userLowId: b, userHighId: a };
+        const last = CONVERSATION.messages.at(-1)!;
+        const lucasSide = pair.userLowId === lucasId ? "low" : "high";
+        const conversation = {
+          ...pair,
+          createdAt: hoursAgo(CONVERSATION.messages[0].agoHours),
+          lastMessageAt: hoursAgo(last.agoHours),
+          lowUnread: lucasSide === "low",
+          highUnread: lucasSide === "high",
+          lowClearedAt: null,
+          highClearedAt: null,
+          lowHidden: false,
+          highHidden: false,
+        };
+        await tx.conversation.deleteMany({ where: { ...pair, id: { not: CONVERSATION.id } } });
+        await tx.conversation.upsert({ where: { id: CONVERSATION.id }, create: { id: CONVERSATION.id, ...conversation }, update: conversation });
+        for (const m of CONVERSATION.messages) {
+          const message = { conversationId: CONVERSATION.id, senderId: uid(m.from), body: m.body, createdAt: hoursAgo(m.agoHours) };
+          await tx.directMessage.upsert({ where: { id: m.id }, create: { id: m.id, ...message }, update: message });
+        }
+      }
+
       for (const r of REPORTS) {
         const report = {
           reporterId: uid(r.reporterHandle),

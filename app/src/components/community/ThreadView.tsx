@@ -199,6 +199,7 @@ function PostItem(props: Shared & { node: TreeNode<PostView>; parentAuthorId: st
             type="button"
             onClick={() => setReplying((v) => !v)}
             aria-expanded={replying}
+            aria-label={`Responder a ${who}`}
             className="inline-flex h-8 cursor-pointer items-center gap-1.5 font-mono text-[11px] tracking-[0.06em] text-dim uppercase hover:text-text"
           >
             <ReplyIcon width={13} height={13} /> Responder

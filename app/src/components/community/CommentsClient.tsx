@@ -247,6 +247,7 @@ function CommentItem(props: CommentItemProps) {
               type="button"
               onClick={() => setMode(mode === "reply" ? "view" : "reply")}
               aria-expanded={mode === "reply"}
+              aria-label={`Responder a ${who}`}
               className={`${ACTION} inline-flex h-8 items-center gap-1.5`}
             >
               <ReplyIcon width={13} height={13} /> Responder

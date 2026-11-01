@@ -146,7 +146,8 @@ test.describe("community", () => {
     await expect(page.locator("#comentarios").getByText(text)).toBeVisible();
     await expect(box).toHaveValue("");
 
-    const like = page.getByRole("button", { name: /^Curtir/ });
+    // The photo's own like button (comments have their own "Curtir comentário" buttons).
+    const like = page.getByRole("button", { name: /^Curtir \d+ curtida/ });
     const pressed = (await like.getAttribute("aria-pressed")) === "true";
     const before = Number((await like.textContent())?.match(/\d+/)?.[0]);
     // The button flips at once (optimistic); wait for the Server Action itself before reloading,
@@ -158,7 +159,7 @@ test.describe("community", () => {
     await expect(like).toContainText(String(before + (pressed ? -1 : 1)));
     // The like is stored: it survives a reload.
     await page.reload();
-    await expect(page.getByRole("button", { name: /^Curtir/ })).toHaveAttribute("aria-pressed", String(!pressed));
+    await expect(page.getByRole("button", { name: /^Curtir \d+ curtida/ })).toHaveAttribute("aria-pressed", String(!pressed));
   });
 
   test("forum: a player opens a thread, another replies, the author marks it as solved", async ({ page }) => {
@@ -177,7 +178,7 @@ test.describe("community", () => {
     await page.goto(threadUrl);
     const reply = `Use o amuleto da carapaça e fique à esquerda. (${run})`;
     await page.getByRole("textbox", { name: "Sua resposta" }).fill(reply);
-    await page.getByRole("button", { name: "Responder" }).click();
+    await page.getByRole("button", { name: "Responder", exact: true }).click();
     await expect(page.getByRole("article", { name: "Resposta de @Herbalista_Rosa" })).toContainText(reply);
     // Only the thread author can mark a reply.
     await expect(page.getByRole("button", { name: "Esta resolveu" })).toHaveCount(0);

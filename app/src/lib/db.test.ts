@@ -347,6 +347,11 @@ describe.skipIf(!reachable)("seeded database", () => {
       reports: await prisma.report.count(),
       notifications: await prisma.notification.count(),
       apiKeys: await prisma.apiKey.count(),
+      follows: await prisma.follow.count(),
+      friendships: await prisma.friendship.count(),
+      reactions: await prisma.reaction.count(),
+      conversations: await prisma.conversation.count(),
+      directMessages: await prisma.directMessage.count(),
     });
     const before = await snapshot();
     await runSeed();

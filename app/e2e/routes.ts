@@ -80,4 +80,15 @@ export const ROUTES: E2ERoute[] = [
   { path: "/newsletter/confirmar?email=x%40exemplo.com&token=nope", name: "newsletter-confirmar" },
   { path: "/confirmar-email?token=nope", name: "confirmar-email-invalido" },
   { path: "/confirmar-email?resultado=confirmed", name: "confirmar-email-resultado" },
+  // Social (Plano 4, F9).
+  { path: "/jogador/lucas/amigos", name: "jogador-amigos" },
+  { path: "/jogador/lucas/amigos?lista=seguidores", name: "jogador-seguidores" },
+  { path: "/jogador/lucas/amigos", name: "jogador-amigos-logado", auth: true },
+  { path: "/jogador/Herbalista_Rosa", name: "jogador-outro-logado", auth: true },
+  { path: "/feed", name: "feed" },
+  { path: "/feed", name: "feed-logado", auth: true },
+  { path: "/mensagens", name: "mensagens" },
+  { path: "/mensagens", name: "mensagens-logado", auth: true },
+  { path: "/mensagens/Herbalista_Rosa", name: "mensagens-conversa-logado", auth: true },
+  { path: "/noticias/25-conquistas-mais-raras-da-steam-em-2026", name: "noticia-logado", auth: true },
 ];

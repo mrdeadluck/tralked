@@ -107,7 +107,6 @@ export function SocialButtons({ user, counts, relationship, loggedIn, isOwner, l
               disabled={busy}
               onClick={() => run(() => friendAction({ userId: user.id, op: "cancel" }), "Pedido cancelado.")}
               className={SECONDARY}
-              aria-label="Pedido de amizade enviado. Cancelar pedido"
             >
               Pedido enviado · cancelar
             </button>
@@ -136,9 +135,14 @@ export function SocialButtons({ user, counts, relationship, loggedIn, isOwner, l
               </button>
             </span>
           ) : (
-            <button type="button" onClick={() => setConfirm("unfriend")} className={SECONDARY} aria-label="Amigos. Desfazer amizade">
-              Amigos ✓
-            </button>
+            <>
+              <span className="inline-flex h-10 items-center gap-1.5 rounded-[2px] border border-acc px-3 font-mono text-[11px] font-bold tracking-[0.1em] text-acc uppercase">
+                Amigos <span aria-hidden="true">✓</span>
+              </span>
+              <button type="button" onClick={() => setConfirm("unfriend")} className={QUIET}>
+                Desfazer amizade
+              </button>
+            </>
           )}
 
           <Link href={`/mensagens/${encodeURIComponent(user.handle)}`} className={SECONDARY}>

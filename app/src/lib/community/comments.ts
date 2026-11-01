@@ -267,6 +267,9 @@ export async function createComment(
     if (replied.authorId && (await isBlockedEither(db, userId, replied.authorId))) return { status: "blocked" };
     const parentId = replyParentId(replied.id, replied.parentId, replied.parent?.parentId ?? null);
     parent = { id: parentId, authorId: parentId === replied.id ? replied.authorId : (replied.parent?.authorId ?? null) };
+  } else if (target.ownerId && (await isBlockedEither(db, userId, target.ownerId))) {
+    // A comment on someone's photo answers its owner.
+    return { status: "blocked" };
   }
   if (!(await withinRateLimit(db, "comment", userId))) return { status: "rate_limited" };
 

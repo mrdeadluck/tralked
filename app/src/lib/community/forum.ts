@@ -340,6 +340,9 @@ export async function createPost(
     if (replied.authorId && (await isBlockedEither(db, userId, replied.authorId))) return { status: "blocked" };
     const parentId = replyParentId(replied.id, replied.parentId, replied.parent?.parentId ?? null);
     parent = { id: parentId, authorId: parentId === replied.id ? replied.authorId : (replied.parent?.authorId ?? null) };
+  } else if (thread.authorId && (await isBlockedEither(db, userId, thread.authorId))) {
+    // A reply in the thread's own flow answers its author.
+    return { status: "blocked" };
   }
   if (!(await withinRateLimit(db, "post", userId, now))) return { status: "rate_limited" };
 
