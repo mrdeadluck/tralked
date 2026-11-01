@@ -66,13 +66,17 @@ test.describe("social", () => {
 
     await loginAs(page, "Lenhador_Bento");
     await page.goto("/");
+    // Desktop: the avatar of the account menu carries the count; narrow screens get the envelope.
+    await expect(page.getByRole("group", { name: "Conta" }).getByRole("button")).toContainText("1 conversa não lida");
+    await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByRole("link", { name: /^Mensagens, 1 conversa não lida/ })).toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/mensagens");
     await page.getByRole("link", { name: /Mercador/ }).first().click();
     await expect(page.getByRole("list", { name: "Mensagens com @Mercador_Anselmo" })).toContainText(`(${run})`);
     await expectNoBlockingAxe(page);
     await page.goto("/mensagens");
-    await expect(page.getByRole("link", { name: /^Mensagens$/ })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Conta" }).getByRole("button")).not.toContainText("não lida");
 
     // "Só amigos" in /conta: the other one can no longer write.
     await page.goto("/conta#mensagens");

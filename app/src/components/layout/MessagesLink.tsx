@@ -11,15 +11,21 @@ function EnvelopeIcon() {
 
 const countLabel = (n: number) => (n > 99 ? "99+" : String(n));
 
-/** Header link to /mensagens with the number of conversations that have unread messages. */
+export const messagesLabel = (unread: number) =>
+  unread > 0 ? `Mensagens, ${unread} ${unread === 1 ? "conversa não lida" : "conversas não lidas"}` : "Mensagens";
+
+/**
+ * Header link to /mensagens with the number of conversations that have unread messages, on narrow
+ * screens (the drawer layout). With the desktop nav the header row (max 1320 px) has no room for a
+ * fourth control: there the account menu carries the count (badge on the avatar and on its
+ * "Mensagens" item).
+ */
 export function MessagesLink({ unread }: { unread: number }) {
-  const label =
-    unread > 0 ? `Mensagens, ${unread} ${unread === 1 ? "conversa não lida" : "conversas não lidas"}` : "Mensagens";
   return (
     <Link
       href="/mensagens"
-      aria-label={label}
-      className="relative grid size-10 place-items-center rounded-[2px] border border-line-2 bg-surface-2 text-text-3 hover:border-acc hover:text-text"
+      aria-label={messagesLabel(unread)}
+      className="relative grid size-10 place-items-center rounded-[2px] border border-line-2 bg-surface-2 text-text-3 hover:border-acc hover:text-text nav:hidden"
     >
       <EnvelopeIcon />
       {unread > 0 ? (

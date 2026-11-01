@@ -87,7 +87,7 @@ export function Header({ user, suggestions, notifications, messages }: HeaderPro
           {user && messages ? <MessagesLink unread={messages.unread} /> : null}
           {user && notifications ? <NotificationBell {...notifications} /> : null}
           {user ? (
-            <AccountMenu user={user} />
+            <AccountMenu user={user} unreadMessages={messages?.unread ?? 0} />
           ) : (
             <Link
               href={LOGIN_HREF}

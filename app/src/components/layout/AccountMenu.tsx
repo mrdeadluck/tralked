@@ -26,7 +26,7 @@ const LINK_CLASS =
   "flex min-h-11 items-center px-3.5 py-2 font-mono text-xs tracking-[0.08em] text-text-3 uppercase hover:bg-hover hover:text-text";
 
 /** Disclosure menu on the avatar: closes with Escape, outside click or after navigating. */
-export function AccountMenu({ user }: { user: AccountUser }) {
+export function AccountMenu({ user, unreadMessages = 0 }: { user: AccountUser; unreadMessages?: number }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -66,10 +66,19 @@ export function AccountMenu({ user }: { user: AccountUser }) {
           <small className="text-[10px] tracking-[0.1em] text-dim uppercase">{user.handle}</small>
           <b className="text-[13px]">NV {user.level}</b>
         </span>
-        <span
-          aria-hidden="true"
-          className="size-10 flex-none rounded-full border-2 border-acc bg-[repeating-linear-gradient(135deg,#1a1c22_0_5px,#22242b_5px_10px)]"
-        />
+        <span className="relative flex-none">
+          <span
+            aria-hidden="true"
+            className="block size-10 rounded-full border-2 border-acc bg-[repeating-linear-gradient(135deg,#1a1c22_0_5px,#22242b_5px_10px)]"
+          />
+          {unreadMessages > 0 ? (
+            // The desktop header has no envelope (see MessagesLink): the avatar carries the count.
+            <span className="absolute -top-1 -right-1 grid h-4.5 min-w-4.5 place-items-center rounded-full bg-acc px-1 font-mono text-[10px] font-bold text-bg tabular-nums">
+              {unreadMessages > 99 ? "99+" : unreadMessages}
+              <span className="sr-only"> {unreadMessages === 1 ? "conversa não lida" : "conversas não lidas"}</span>
+            </span>
+          ) : null}
+        </span>
       </button>
       <div
         id={panelId}
@@ -79,6 +88,12 @@ export function AccountMenu({ user }: { user: AccountUser }) {
         {accountLinks(user.role).map((link) => (
           <Link key={link.href} href={link.href} onClick={() => setOpen(false)} className={LINK_CLASS}>
             {link.label}
+            {link.href === "/mensagens" && unreadMessages > 0 ? (
+              <span className="ml-2 rounded-full bg-acc px-1.5 font-bold text-bg tabular-nums">
+                {unreadMessages}
+                <span className="sr-only"> não lidas</span>
+              </span>
+            ) : null}
           </Link>
         ))}
         <LogoutForm buttonClassName={`${LINK_CLASS} w-full cursor-pointer text-left`} />
