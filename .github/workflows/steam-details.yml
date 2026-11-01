@@ -1,6 +1,8 @@
-# Fills in Steam store details (summary, studio, dates, art, achievements) of the whole catalog,
-# straight against the production database, so the Vercel function quota stays for the site.
-# Games players need go first (opened, owned, wished), then the most popular. Each run works up
+# Fills in Steam store details (summary, studio, dates, art, achievements) of the catalog games
+# players need and the most popular ones, straight against the production database, so the Vercel
+# function quota stays for the site.
+# Games players need (opened, owned, wished), then the most popular; the long tail is filled only
+# when someone opens its page (the free database holds 1 GB). Each run works up
 # to 5.5 h and stops early once the queue is empty, so the 6-hourly schedule keeps one run going
 # while there is work, and costs about a minute per run afterwards (new Steam releases).
 # Needs the repository secrets DATABASE_URL (Neon, unpooled) and STEAM_API_KEY; SGDB_API_KEY and

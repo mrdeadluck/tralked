@@ -22,8 +22,9 @@ import { writeCatalogGame, type CatalogMedia } from "./write-catalog-game";
  * 3. Details: store page in pt-BR (summary, developer, dates, score; never the price), SteamSpy
  *    tags (skills), achievement schema and rarity, and art from the Steam CDN by appid
  *    (library 600×900 cover, hero, logo: each checked with a HEAD before it is written; IGDB or
- *    SteamGridDB cover when Steam has none). Games someone needs go first: requested (a player
- *    opened the page), then owned or wished by a player, then the most popular.
+ *    SteamGridDB cover when Steam has none). Only games someone needs: requested (a player
+ *    opened the page), then owned or wished by a player, then the most popular (SteamSpy's 10k
+ *    most owned). The long tail stays name-only until someone opens it (database size).
  *
  * Nothing here runs during a page render: pages only read the database.
  */
@@ -140,7 +141,10 @@ export async function refreshPopularity(politeFetch: PoliteFetch): Promise<numbe
   return rows.length;
 }
 
-/** Games waiting for details, most needed first: requested, then owned or wished, then popular. */
+/**
+ * Games waiting for details, most needed first: requested, then owned or wished, then popular
+ * (SteamSpy's most owned). Nothing else: the rest of the catalog only when a player asks for it.
+ */
 async function detailsCandidates(limit: number): Promise<{ id: string; steamAppId: number }[]> {
   const base = { steamAppId: { not: null }, detailsSyncedAt: null } satisfies Prisma.GameWhereInput;
   const select = { id: true, steamAppId: true } as const;
@@ -168,10 +172,13 @@ async function detailsCandidates(limit: number): Promise<{ id: string; steamAppI
       }),
     );
   }
+  // The long tail (no player, outside SteamSpy's most owned) waits until someone opens its page:
+  // full details of every Steam app would not fit the database (~20 KB of achievements and media
+  // per game), and those pages already show the name and the store header.
   if (picked.size < limit) {
     add(
       await prisma.game.findMany({
-        where: { ...base, id: { notIn: [...picked.keys()] } },
+        where: { ...base, id: { notIn: [...picked.keys()] }, popularity: { gt: 0 } },
         orderBy: order,
         take: limit - picked.size,
         select,

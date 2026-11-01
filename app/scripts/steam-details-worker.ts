@@ -1,8 +1,9 @@
 /**
  * Fills in Steam store details (summary, studio, dates, art, achievements) of the catalog for hours
  * on end, straight against the database: the queue the `steam-catalog` cron job drains ~10 games at
- * a time. Games players need go first (opened, owned, wished), then the most popular. Several games
- * are in flight at once, while one polite fetch keeps the store at one request every 1.5 s.
+ * a time. Games players need (opened, owned, wished), then SteamSpy's most owned; the long tail
+ * waits until someone opens its page (database size). Several games are in flight at once, while
+ * one polite fetch keeps the store at one request every 1.5 s.
  * While it works it holds a lease, so the cron job leaves details to it (no game is done twice).
  * Stops when the time is up, the queue is empty, or a whole batch fails (Steam refusing us).
  *
@@ -47,7 +48,7 @@ if (steamMode() !== "api") {
 const waiting = { steamAppId: { not: null }, detailsSyncedAt: null } as const;
 const counts = async () => ({
   requested: await prisma.game.count({ where: { ...waiting, detailsRequestedAt: { not: null } } }),
-  total: await prisma.game.count({ where: waiting }),
+  popular: await prisma.game.count({ where: { ...waiting, popularity: { gt: 0 } } }),
 });
 
 const deps = createSteamCatalogDeps();
@@ -59,7 +60,7 @@ let exitCode = 0;
 
 const before = await counts();
 log.info(
-  `Steam details for "${db.name}": ${before.total} games waiting (${before.requested} requested by players). ` +
+  `Steam details for "${db.name}": ${before.requested} requested by players and ${before.popular} popular games waiting. ` +
     `${concurrency} at a time, batches of ${batch}, up to ${hours} h. Log: ${log.file}`,
 );
 
@@ -74,7 +75,7 @@ try {
     const perHour = Math.round((processed / Math.max(elapsed, 1)) * 3_600_000);
     log.info(
       `+${result.processed} ok, ${result.failed} failed · ${processed} done in ${formatDuration(elapsed)} ` +
-        `(~${perHour}/h) · waiting ${left.total} (${left.requested} requested)`,
+        `(~${perHour}/h) · waiting: ${left.requested} requested, ${left.popular} popular`,
     );
     if (result.processed === 0 && result.failed === 0) {
       log.info("Queue empty: nothing left to fill in.");

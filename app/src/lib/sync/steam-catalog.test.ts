@@ -250,6 +250,22 @@ describe.skipIf(!reachable)("steam catalog", () => {
     expect(new Set(games.map((g) => g.slug)).size).toBe(3);
   });
 
+  it("leaves the long tail (no player, not popular) for when someone opens it", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { ensureSteamGames } = await import("./steam-games");
+    const { syncCatalogDetails } = await import("./steam-catalog");
+    const [tail, popular] = [APP_BASE + 30, APP_BASE + 31];
+    await ensureSteamGames([{ appId: tail }, { appId: popular }]);
+    await prisma.game.update({ where: { steamAppId: popular }, data: { popularity: 5_000 } });
+    const deps = { steam: fakeSteam(), politeFetch: fakeNetwork(popular).politeFetch, igdb: noIgdb, sgdb: noSgdb, now: Date.now };
+    await syncCatalogDetails(Date.now() + 60_000, deps, 200, 4);
+    const games = await prisma.game.findMany({ where: { steamAppId: { in: [tail, popular] } }, orderBy: { steamAppId: "asc" } });
+    expect(games.map((g) => [g.steamAppId, g.detailsSyncedAt !== null])).toEqual([
+      [tail, false],
+      [popular, true],
+    ]);
+  });
+
   it("the cron job leaves details to the worker while its lease holds", async () => {
     const { ensureSteamGames } = await import("./steam-games");
     const { holdDetailsWorkerLease, releaseDetailsWorkerLease, requestGameDetails, runSteamCatalogJob } = await import(
