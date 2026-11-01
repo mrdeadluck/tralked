@@ -76,7 +76,7 @@ describe("IGDB catalog reads", () => {
         // New shape: date_format is an id of /date_formats (here 11 = day, 12 = quarter 4).
         { id: 5, date: 1_790_000_000, date_format: 11, human: "Sep 21, 2026", platform: 167, game: record },
         { id: 6, date: 1_790_000_000, date_format: 12, platform: 48, game: record },
-        // Old shape: the category enum wins when present.
+        // Deprecated category next to date_format: date_format wins (category no longer tracks it).
         { id: 7, date: 1_790_000_000, category: 6, date_format: 11, platform: 48, game: record },
         // Unknown id, or neither field: never an exact day.
         { id: 8, date: 1_790_000_000, date_format: 99, platform: 48, game: record },
@@ -103,7 +103,7 @@ describe("IGDB catalog reads", () => {
     expect(rows.map((r) => [r.id, r.precision])).toEqual([
       [5, "day"],
       [6, "q4"],
-      [7, "q4"],
+      [7, "day"],
       [8, "tbd"],
       [9, "tbd"],
     ]);

@@ -39,6 +39,7 @@ import {
   storyForWriting,
   triageOf,
   type PipelineDeps,
+  hasRealText,
 } from "./pipeline.js";
 import { isPublishable, type Tier } from "./rank.js";
 import { FEED_LIMIT, TralkedError, articleKey, type ArticlePayload, type FeedArticle } from "./tralked.js";
@@ -564,7 +565,8 @@ function couldBePublishable(story: StoryRow, deps: BackfillDeps): boolean {
     tiers: items.map((i): Tier => tierOf.get(i.source_id) ?? "outro"),
     sourceCount: new Set(items.map((i) => i.source_id)).size,
     rumor: story.rumor === 1,
-    hasFullText: items.some((i) => i.text_unavailable !== 1),
+    // Texts are fetched only for the chosen stories, so here a page that may have text counts.
+    hasFullText: items.some((i) => i.text_unavailable !== 1 && (i.text === null || hasRealText(i.text))),
   });
 }
 

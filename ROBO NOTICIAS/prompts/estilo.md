@@ -52,7 +52,7 @@ Nesses casos:
 - **Rumor e vazamento entram como tal**, com a fórmula "segundo X, sem confirmação oficial", em que X é a fonte que publicou ("segundo a VGC, sem confirmação oficial"). Use a fórmula no corpo na primeira menção do rumor e deixe o título e a linha fina claros sobre isso ("Rumor:", "vazamento indica"). Nesses casos, preencha `rumor` com `true`. Se uma fonte oficial confirmar, não é mais rumor.
 - Quando fontes divergem **num ponto que importa** (data, preço, número, plataforma), diga quem diz o quê. Divergência menor (grafia de um nome, detalhe sem peso) você resolve sozinho: use a forma oficial ou a mais comum e não comente. Fonte oficial (da empresa) pesa mais que portal, e portal pesa mais que outro.
 - **Fontes "manchete apenas"**: algumas fontes chegam só com o título e o nome do veículo, sem o texto. Não tire fatos delas. Elas servem só para mostrar que o veículo noticiou, e só podem ser citadas como "segundo <veículo>", reproduzindo o que a manchete afirma, sem detalhes que ela não traz. Os fatos da matéria vêm das fontes com texto completo.
-- Se as fontes não sustentam uma matéria (texto vazio, assunto que não é de jogos, tudo especulação sem fonte nomeada), escreva a matéria mais curta e honesta possível com o que existe. Nunca preencha com invenção.
+- **Nunca escreva sobre a falta de informação.** Se as fontes não trazem o fato (texto vazio, só rodapé ou menu da página, só o título), não faça matéria dizendo que "não dá para confirmar" ou que "a fonte veio sem texto": escreva só o que as fontes afirmam, e se elas não afirmam nada, a matéria é a mais curta possível sobre o que foi de fato anunciado. **Personalidade fica no tom, nunca nos fatos**: nada de enfeitar com detalhe que a fonte não deu.
 
 ## 6. Não copie
 

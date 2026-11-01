@@ -72,6 +72,13 @@ export const MAX_UPDATES_PER_DAY = 3;
 /** Held by whoever publishes (`publica`, and `coleta` for bombs); stale after 30 min. */
 export const PUBLISH_LOCK_FILE = "publica.lock";
 /** Meta key holding the last local slot (`YYYY-MM-DD HH`) in which `publica` published. */
+/**
+ * A source counts as text only with a real article body: a page that gave just its footer or menu
+ * (Steam News pages without the post) wrote a story about missing information.
+ */
+export const MIN_TEXT_CHARS = 400;
+export const hasRealText = (text: string | null | undefined) => (text ?? "").trim().length >= MIN_TEXT_CHARS;
+
 const LAST_SLOT_KEY = "publica.lastSlot";
 /** News older than this when published is dated when it broke (see publishStory). */
 const OLD_STORY_MS = 12 * 3_600_000;
@@ -275,7 +282,7 @@ export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): Stor
   const rumor =
     triages.some((t) => t.rumor) && !withTriage.some(({ item, t }) => tierOf(item) === "oficial" && !t.rumor);
   // R15: at least one source with extracted text (title-only Google News items have none).
-  const hasFullText = items.some((i) => i.text_unavailable !== 1 && (i.text ?? "").trim() !== "");
+  const hasFullText = items.some((i) => i.text_unavailable !== 1 && hasRealText(i.text));
   const top = [...triages].sort((a, b) => b.importance - a.importance)[0];
   const stats = { maxImportance, tiers, sourceCount, rumor };
   return {

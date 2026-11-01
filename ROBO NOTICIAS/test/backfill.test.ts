@@ -292,7 +292,7 @@ function seedStory(
   const url = `https://news.test/${++seq}/${slugify(headline)}`;
   const at = local(`${day}T12:00`);
   h.db.insertItemIfNew(
-    { url, sourceId: opts.sourceId ?? "ign", title: headline, publishedAt: at.toISOString(), text: opts.text === undefined ? `${headline}. Texto completo.` : opts.text },
+    { url, sourceId: opts.sourceId ?? "ign", title: headline, publishedAt: at.toISOString(), text: opts.text === undefined ? `${headline}. Texto completo. ${"Detalhes da matéria. ".repeat(25)}` : opts.text },
     at,
   );
   const item = h.db.raw.prepare("SELECT id FROM items WHERE url = ?").get(url) as { id: number };

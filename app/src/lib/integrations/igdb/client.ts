@@ -253,17 +253,20 @@ export function createIgdbClient({
           `limit ${clampLimit(limit)}; offset ${Math.max(0, Math.floor(offset))};`,
       );
       // `date_format` is a reference into /date_formats: its ids are resolved once per client.
-      const needsFormats = rows.some((r) => typeof r.category !== "number" && typeof r.date_format === "number");
+      // `category` is deprecated and no longer tracks the real precision (every console release came
+      // back as a bare year): `date_format` wins, and a `human` text with a day ("Nov 05, 2026") is a day.
+      const needsFormats = rows.some((r) => typeof r.date_format === "number");
       const formats = needsFormats ? await dateFormats() : new Map<number, IgdbDatePrecision>();
       return rows.flatMap((row) => {
         const game = row.game && typeof row.game === "object" ? toCatalogGame(row.game) : null;
         if (!game || typeof row.platform !== "number") return [];
-        const precision =
-          typeof row.category === "number"
-            ? precisionFromCategory(row.category)
-            : typeof row.date_format === "number"
-              ? (formats.get(row.date_format) ?? "tbd")
+        const fromFields =
+          typeof row.date_format === "number"
+            ? (formats.get(row.date_format) ?? "tbd")
+            : typeof row.category === "number"
+              ? precisionFromCategory(row.category)
               : "tbd";
+        const precision: IgdbDatePrecision = HUMAN_DAY.test(row.human ?? "") ? "day" : fromFields;
         return [{ id: row.id, platform: row.platform, date: row.date, precision, human: row.human, game }];
       });
     },
@@ -318,6 +321,9 @@ export function precisionFromFormat(format: string | undefined): IgdbDatePrecisi
   if (quarter) return `q${quarter[1]}` as IgdbDatePrecision;
   return "tbd";
 }
+
+/** A `human` release date that names a day: "Nov 05, 2026" or "2026-11-05". */
+const HUMAN_DAY = /^(?:[A-Z][a-z]{2} \d{1,2}, \d{4}|\d{4}-\d{2}-\d{2})$/;
 
 /** Largest page IGDB serves. */
 const MAX_LIMIT = 500;
