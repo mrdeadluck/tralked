@@ -16,11 +16,11 @@ describe("storyScore", () => {
     expect(storyScore({ maxImportance: 50, tiers: ["outro", "oficial", "portal"], sourceCount: 1, rumor: false })).toBe(70);
   });
 
-  it("adds 5 per extra source, capped at 4 extra sources", () => {
+  it("adds 5 per extra source, capped at 7 extra sources (coverage is the engagement we can see)", () => {
     expect(storyScore({ maxImportance: 50, tiers: ["outro"], sourceCount: 2, rumor: false })).toBe(55);
     expect(storyScore({ maxImportance: 50, tiers: ["outro"], sourceCount: 5, rumor: false })).toBe(70);
-    expect(storyScore({ maxImportance: 50, tiers: ["outro"], sourceCount: 6, rumor: false })).toBe(70);
-    expect(storyScore({ maxImportance: 50, tiers: ["outro"], sourceCount: 12, rumor: false })).toBe(70);
+    expect(storyScore({ maxImportance: 50, tiers: ["outro"], sourceCount: 8, rumor: false })).toBe(85);
+    expect(storyScore({ maxImportance: 50, tiers: ["outro"], sourceCount: 12, rumor: false })).toBe(85);
   });
 
   it("subtracts 15 for a rumor", () => {

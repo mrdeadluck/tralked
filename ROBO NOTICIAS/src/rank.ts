@@ -18,7 +18,8 @@ const HOUR_MS = 60 * 60 * 1000;
 
 export function storyScore(s: StoryStats): number {
   const tierWeight = Math.max(0, ...s.tiers.map((t) => TIER_WEIGHT[t]));
-  const extraSources = Math.max(0, Math.min(s.sourceCount - 1, 4));
+  // Coverage is the engagement we can see: every outlet (and Reddit hot list) that picked the story up.
+  const extraSources = Math.max(0, Math.min(s.sourceCount - 1, 7));
   return s.maxImportance + tierWeight + extraSources * 5 - (s.rumor ? 15 : 0);
 }
 

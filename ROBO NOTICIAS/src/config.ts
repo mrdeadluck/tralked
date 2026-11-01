@@ -49,6 +49,11 @@ const SourceSchema = z.object({
   listingSelector: z.string().optional(),
   /** Item links are Google News redirect URLs; the collector must resolve the publisher URL. */
   linkResolve: z.literal("google-news").optional(),
+  /**
+   * Engagement signal only (Reddit hot lists): its items count toward a story's sources and score,
+   * never give text to the writer and never show in "Fontes".
+   */
+  signalOnly: z.boolean().optional(),
   active: z.boolean(),
 }).refine((s) => s.linkResolve !== "google-news" || (URL.canParse(s.url) && new URL(s.url).hostname === "news.google.com"), {
   message: 'linkResolve "google-news" requires a news.google.com url',

@@ -193,6 +193,8 @@ function sourceBlocks(sources: { name: string; url: string }[]): ContentBlock[] 
   for (const source of sources) {
     const url = source.url.trim();
     if (!isHttps(url) || /[\s()]/.test(url)) continue;
+    // Reddit threads are an engagement signal (signal-only sources), never a source of the article.
+    if (/^https:\/\/([a-z0-9-]+\.)?reddit\.com\//i.test(url)) continue;
     const key = normalizeUrl(url);
     if (seen.has(key)) continue;
     const name = plain(source.name).replace(/[[\]]/g, "") || new URL(url).hostname;

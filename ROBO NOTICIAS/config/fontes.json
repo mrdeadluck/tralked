@@ -47,5 +47,10 @@
   { "id": "verge", "name": "The Verge", "kind": "rss", "url": "https://www.theverge.com/rss/index.xml", "tier": "portal", "category": "TECNOLOGIA", "gamingFilter": true, "backfill": { "kind": "sitemap", "url": "https://www.theverge.com/sitemaps" }, "active": true },
   { "id": "ars-technica-gaming", "name": "Ars Technica (gaming)", "kind": "rss", "url": "https://feeds.arstechnica.com/arstechnica/gaming", "tier": "portal", "category": "GAMES", "gamingFilter": false, "active": true },
   { "id": "ars-technica", "name": "Ars Technica (technology)", "kind": "rss", "url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "tier": "portal", "category": "TECNOLOGIA", "gamingFilter": true, "active": true },
-  { "id": "tomshardware", "name": "Tom's Hardware", "kind": "rss", "url": "https://www.tomshardware.com/feeds/all", "tier": "portal", "category": "TECNOLOGIA", "gamingFilter": true, "active": true }
+  { "id": "tomshardware", "name": "Tom's Hardware", "kind": "rss", "url": "https://www.tomshardware.com/feeds/all", "tier": "portal", "category": "TECNOLOGIA", "gamingFilter": true, "active": true },
+  { "id": "reddit-games", "name": "Reddit r/Games (em alta)", "kind": "rss", "url": "https://www.reddit.com/r/Games/hot/.rss?limit=50", "tier": "outro", "category": "GAMES", "gamingFilter": true, "signalOnly": true, "active": true },
+  { "id": "reddit-pcgaming", "name": "Reddit r/pcgaming (em alta)", "kind": "rss", "url": "https://www.reddit.com/r/pcgaming/hot/.rss?limit=50", "tier": "outro", "category": "GAMES", "gamingFilter": true, "signalOnly": true, "active": true },
+  { "id": "reddit-ps5", "name": "Reddit r/PS5 (em alta)", "kind": "rss", "url": "https://www.reddit.com/r/PS5/hot/.rss?limit=50", "tier": "outro", "category": "GAMES", "gamingFilter": true, "signalOnly": true, "active": true },
+  { "id": "reddit-xbox", "name": "Reddit r/XboxSeriesX (em alta)", "kind": "rss", "url": "https://www.reddit.com/r/XboxSeriesX/hot/.rss?limit=50", "tier": "outro", "category": "GAMES", "gamingFilter": true, "signalOnly": true, "active": true },
+  { "id": "reddit-switch", "name": "Reddit r/NintendoSwitch (em alta)", "kind": "rss", "url": "https://www.reddit.com/r/NintendoSwitch/hot/.rss?limit=50", "tier": "outro", "category": "GAMES", "gamingFilter": true, "signalOnly": true, "active": true }
 ]

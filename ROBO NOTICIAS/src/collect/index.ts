@@ -158,6 +158,8 @@ async function collectSource(source: Source, fetchFn: FetchFn, now: Date, timeou
   if (source.kind === "rss") {
     const { text } = await fetchPage(source.url, fetchFn, timeoutMs);
     const items = parseFeed(text, source.id);
+    // Signal-only sources (Reddit hot lists) are titles that say what players talk about, never text.
+    if (source.signalOnly) return items.map((item) => ({ ...item, textUnavailable: true as const }));
     return source.linkResolve === "google-news" ? resolveGoogleNews(items, fetchFn, timeoutMs) : items;
   }
 
