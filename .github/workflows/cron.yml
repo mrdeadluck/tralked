@@ -5,11 +5,12 @@ name: cron
 
 on:
   schedule:
-    - cron: "*/30 * * * *" # users
-    - cron: "20 * * * *"   # steam-catalog, news, platforms
-    - cron: "50 * * * *"   # igdb-catalog
-    - cron: "40 */6 * * *" # releases, media
-    - cron: "5 3 * * *"    # catalog, rarity, highscores, notifications
+    # Sized for the 2,000 free Actions minutes/month of a private repo (~1,650 min/month):
+    # each run is billed in whole minutes and the users sync takes ~4 min.
+    - cron: "15 */6 * * *"  # users (libraries, achievements, hours); players also have "Sincronizar agora"
+    - cron: "20 1-23/2 * * *" # steam-catalog, news, platforms, igdb-catalog
+    - cron: "40 */6 * * *"  # releases, media
+    - cron: "5 3 * * *"     # catalog, rarity, highscores, notifications
   workflow_dispatch:
     inputs:
       jobs:
@@ -30,9 +31,8 @@ jobs:
           MANUAL: ${{ github.event.inputs.jobs }}
         run: |
           case "$SCHEDULE" in
-            "*/30 * * * *") JOBS="users" ;;
-            "20 * * * *") JOBS="steam-catalog news platforms" ;;
-            "50 * * * *") JOBS="igdb-catalog" ;;
+            "15 */6 * * *") JOBS="users" ;;
+            "20 1-23/2 * * *") JOBS="steam-catalog news platforms igdb-catalog" ;;
             "40 */6 * * *") JOBS="releases media" ;;
             "5 3 * * *") JOBS="catalog rarity highscores notifications" ;;
             *) JOBS="$MANUAL" ;;
