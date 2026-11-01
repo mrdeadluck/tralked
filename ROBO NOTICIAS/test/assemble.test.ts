@@ -99,8 +99,6 @@ describe("assemble", () => {
     const payload = assemble(draft(), story, { ...opts(), updatedAt: new Date("2026-10-31T17:05:00Z") });
     expect(outline(payload.blocks)).toEqual([
       "p:*Atualizado às 14:05*",
-      "h2:Em 3 pontos",
-      "list:A versão 1.6 saiu hoje. | Tem um modo de desafio. | É grátis para quem tem o jogo.",
       "p:A Team Cherry lançou nesta sexta a versão 1.6 de Hollow Knight.",
       "h2:O que muda",
       "list:Modo de desafio | Correções",
@@ -123,7 +121,7 @@ describe("assemble", () => {
 
   it("has no update note without updatedAt", () => {
     const payload = assemble(draft(), story, opts());
-    expect(outline(payload.blocks)[0]).toBe("h2:Em 3 pontos");
+    expect(outline(payload.blocks)[0]).toBe("p:A Team Cherry lançou nesta sexta a versão 1.6 de Hollow Knight.");
   });
 
   it("writes the update note in São Paulo time", () => {
@@ -131,12 +129,10 @@ describe("assemble", () => {
     expect(payload.blocks[0]).toEqual({ type: "paragraph", text: "*Atualizado às 14:05*" });
   });
 
-  it("links a follow-up's earlier article right after Em 3 pontos", () => {
+  it("links a follow-up's earlier article before the body", () => {
     const parent = { title: "Hollow Knight [1.5] **sai** hoje", url: "https://tralked.com/noticias/hollow-knight-1-5" };
     const payload = assemble(draft(), story, { ...opts(), parent });
-    expect(outline(payload.blocks)[0]).toBe("h2:Em 3 pontos");
-    expect(payload.blocks[1]?.type).toBe("list");
-    expect(payload.blocks[2]).toEqual({
+    expect(payload.blocks[0]).toEqual({
       type: "paragraph",
       text: "Entenda o caso: [Hollow Knight 1.5 sai hoje](https://tralked.com/noticias/hollow-knight-1-5)",
     });

@@ -670,8 +670,7 @@ describe("updates and follow-ups", () => {
     const check = h.fake.calls.filter((c) => c.purpose === "check").at(-1)!;
     expect(check.user).toContain("Matéria anterior do Tralked");
     const blocks = h.site.created[1]!.payload.blocks;
-    const pontos = blocks.findIndex((b) => b.type === "heading" && b.text === "Em 3 pontos");
-    expect(blocks[pontos + 2]).toEqual({
+    expect(blocks[0]).toEqual({
       type: "paragraph",
       text: "Entenda o caso: [Matéria do robô](https://tralked.com/noticias/materia-1)",
     });

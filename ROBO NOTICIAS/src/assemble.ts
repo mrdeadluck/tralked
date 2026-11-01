@@ -218,7 +218,7 @@ export type AssembleStory = {
 export type AssembleOpts = {
   insights: Map<string, Insights>;
   updatedAt?: Date;
-  /** Follow-ups: the earlier article of the case, linked right after "Em 3 pontos" (https only). */
+  /** Follow-ups: the earlier article of the case, linked before the body (https only). */
   parent?: { title: string; url: string };
 };
 
@@ -239,9 +239,8 @@ export function assemble(draft: AssembleDraft, story: AssembleStory, opts: Assem
 
   if (opts.updatedAt) blocks.push(paragraph(`*Atualizado às ${timeFmt.format(opts.updatedAt)}*`));
 
-  const pontos = listItems(draft.pontos);
-  if (pontos.length > 0) blocks.push(heading("Em 3 pontos"), list(pontos));
-
+  // The 3 points stay in the draft (the checker reads them) but are not shown: Lucas found the
+  // block redundant under the deck.
   const link = opts.parent ? parentLink(opts.parent) : null;
   if (link) blocks.push(link);
 
