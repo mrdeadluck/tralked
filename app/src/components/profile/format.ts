@@ -8,8 +8,9 @@ const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
 /** "12 de mar. de 2026". */
 export const formatDate = (date: Date) => dateFormatter.format(date);
 
-/** Whole hours, for headers and totals: "1.234 h". */
-export const formatHours = (minutes: number) => `${Math.floor(Math.max(0, minutes) / 60).toLocaleString("pt-BR")} h`;
+/** Whole hours, for headers and totals: "1.234 h" (non-breaking space: the unit never wraps alone). */
+export const formatHours = (minutes: number) =>
+  `${Math.floor(Math.max(0, minutes) / 60).toLocaleString("pt-BR")} h`;
 
 /** "0,4%", "12%": global unlock percentage. */
 export function formatGlobalPct(pct: number): string {

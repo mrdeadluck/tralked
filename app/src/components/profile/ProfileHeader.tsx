@@ -29,18 +29,25 @@ export function ProfileHeader({ summary, section }: { summary: ProfileSummary; s
           @{summary.handle} · <span className="text-acc">{summary.vocation}</span> · Nível {summary.level}
         </p>
       </div>
-      <dl className="m-0 flex w-full gap-px overflow-hidden rounded-[2px] border border-line bg-line min-[641px]:w-auto [&>div]:flex-1">
-        <div className="bg-surface px-4 py-2.5">
-          <dt className="font-mono text-[10px] tracking-[0.12em] text-dim-2 uppercase">Horas jogadas</dt>
-          <dd className="m-0 text-xl font-extrabold font-stretch-[112%] tabular-nums">{formatHours(summary.playtimeMin)}</dd>
-        </div>
-        <div className="bg-surface px-4 py-2.5">
-          <dt className="font-mono text-[10px] tracking-[0.12em] text-dim-2 uppercase">Jogos</dt>
-          <dd className="m-0 text-xl font-extrabold font-stretch-[112%] tabular-nums">
-            {summary.gamesOwned.toLocaleString("pt-BR")}
-          </dd>
-        </div>
+      <dl className="m-0 flex w-full gap-px overflow-hidden rounded-[2px] border border-line bg-line min-[641px]:w-auto">
+        <Stat label="Horas jogadas" value={formatHours(summary.playtimeMin)} />
+        <Stat label="Jogos" value={summary.gamesOwned.toLocaleString("pt-BR")} />
       </dl>
     </header>
+  );
+}
+
+/** One header number: value and unit never wrap; 5+ digit values use a slightly smaller size. */
+function Stat({ label, value }: { label: string; value: string }) {
+  const digits = value.replace(/\D/g, "").length;
+  return (
+    <div className="min-w-0 flex-1 bg-surface px-4 py-2.5 min-[641px]:flex-none">
+      <dt className="font-mono text-[10px] tracking-[0.12em] whitespace-nowrap text-dim-2 uppercase">{label}</dt>
+      <dd
+        className={`m-0 font-extrabold font-stretch-[112%] whitespace-nowrap tabular-nums ${digits >= 5 ? "text-lg" : "text-xl"}`}
+      >
+        {value}
+      </dd>
+    </div>
   );
 }
