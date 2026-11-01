@@ -839,28 +839,31 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(ledger.filter((e) => e.source === "platinum")).toHaveLength(1);
   });
 
-  it("records never-played games as owned but does not read their achievements", async () => {
+  it("reads a game Steam reports at 0 minutes once (old games have unlocks), then not again", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");
     const played = newAppId();
     const unplayed = newAppId();
-    steamState.api = fakeSteam({
+    const fake = fakeSteam({
       [played]: { pcts: pctsOf(2), playtimeMin: 300, unlocks: { A0: new Date("2024-01-01T10:00:00Z") } },
       [unplayed]: { pcts: pctsOf(2), playtimeMin: 0, unlocks: { A0: new Date("2024-01-02T10:00:00Z") } },
-    }).api;
+    });
+    steamState.api = fake.api;
     const user = await newUser();
 
-    expect(await syncUser(user.id)).toMatchObject({ status: "ok", newUnlocks: 1 });
+    // Both games' unlocks come in: the one at 0 minutes is read once.
+    expect(await syncUser(user.id)).toMatchObject({ status: "ok", newUnlocks: 2 });
     const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: unplayed } });
-    expect(game.stub).toBe(true);
     const owned = await prisma.userGame.findUniqueOrThrow({
       where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
     });
-    expect(owned).toMatchObject({ playtimeMin: 0, unlockedCount: 0, checkedPlaytimeMin: null });
-    // No hours, no playtime XP.
+    expect(owned).toMatchObject({ playtimeMin: 0, checkedPlaytimeMin: 0 });
+    // Still no hours and no playtime XP for it.
     expect(
       await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "playtime", sourceKey: { contains: game.id } } }),
     ).toBe(0);
+    // Next sync: nothing new, the game at 0 is not read again.
+    expect(await syncUser(user.id)).toMatchObject({ status: "ok", newUnlocks: 0 });
   });
 
   it("pays each hours milestone once, only for real playtime, and survives re-syncs", async () => {

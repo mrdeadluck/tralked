@@ -513,14 +513,16 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
     ? await catalogProbeCandidates(userId, user.lastSyncedAt, startedAt, options.probeAll)
     : library;
   const budgetMs = options.probeBudgetMs ?? PROBE_BUDGET_MS;
-  // Games never played have no unlocks; skipping them saves most of a big library's API calls.
+  // Steam reports 0 minutes for many games that do have unlocks (played before 2009, through another
+  // launcher): a game at 0 is read once (never checked), then only again if its playtime moves.
   // When Steam hides playtime every game reports 0, so then every owned game is a candidate.
   const playtimeKnown = candidates.some((g) => g.playtimeMin > 0);
   // A library game is read again only when played since its last read (playtime moved), so a
-  // re-sync of a big library reads just the games played lately; the most recent first.
+  // re-sync of a big library reads just the games played lately; the most recent first, games at 0
+  // last.
   const owned = playtimeKnown
     ? candidates
-        .filter((g) => g.playtimeMin > 0)
+        .filter((g) => g.playtimeMin > 0 || libraryEntries.get(g.appId)?.checkedPlaytimeMin == null)
         .filter((g) => probing || options.probeAll || libraryEntries.get(g.appId)?.checkedPlaytimeMin !== g.playtimeMin)
         .sort((a, b) => (b.lastPlayedAt?.getTime() ?? 0) - (a.lastPlayedAt?.getTime() ?? 0))
     : candidates;
