@@ -78,11 +78,22 @@ Resumo da sessão de 31/10 a 02/11 com o Lucas (dono da Ludai Labs): o que está
 ## Pendências, por prioridade
 
 1. **A sincronização tem que funcionar para qualquer usuário, não só para o Lucas.** É o ponto principal levantado por ele.
-   - O **diguzz** tem PSN com 707 jogos e Xbox com 81, e a **primeira importação ainda não terminou** (`lastSyncedAt` nulo), porque bibliotecas grandes levam muitas rodadas de 50 s, com 5 contas por rodada.
-   - Proposta: um **worker de primeira importação** no GitHub Actions, como o de detalhes da Steam, que importe contas novas ou incompletas sem o limite de 50 s, e deixar o cron só para atualizações.
+   - O **diguzz** tem PSN com 707 jogos e Xbox com 81, e a primeira importação dele não tinha terminado (`lastSyncedAt` nulo).
+   - **Feito em 01/11 (commit 256dfea):** worker de primeira importação `pnpm platforms:import` no GitHub Actions (`.github/workflows/platform-import.yml`, de hora em hora às :22), sem o limite de 50 s.
+     - Pega conexões PSN/Xbox/RA com `lastSyncedAt` nulo e bibliotecas Steam cuja última sincronização acabou o tempo (marcador `SyncCursor steam-backlog:<userId>`).
+     - Uma fila por plataforma, com fatias de 5 min por conta, e uma trava com as contas em andamento, que o cron pula.
+     - Detalhes no `app/README.md`, seção "Primeiras importações".
+   - **Falta:** os segredos `PSN_NPSSO`, `XBOX_OPENXBL_KEY`, `RA_USERNAME` e `RA_API_KEY` no GitHub. Sem eles o worker só faz a Steam (a primeira rodada achou 0 pendências na Steam).
+     - O Lucas preenche `C:\projetos\Nova pasta\.env.chaves` (o modelo já está criado) e roda o `subir-chaves.sh`. O script foi recriado no scratchpad da sessão de 01/11. Se tiver sumido, recrie: ele lê KEY=valor, faz `gh secret set` sem mostrar o valor e apaga o arquivo.
+     - Depois, disparar com `gh workflow run platform-import.yml -f hours=2` e acompanhar o diguzz.
 2. **Reconhecer o mesmo jogo com nomes diferentes** entre PSN, Xbox, Steam e IGDB: apóstrofo curvo (Marvel’s), ō/o (Yōtei), ™, edições.
-   - Exemplo: o Wolverine do Lucas tem 23,7 h e 0 troféus. Pode ser o nome diferente ou troféus ocultos no perfil.
-   - Exemplo: há **dois Ghost of Yōtei** (`ghost-of-yotei` e `ghost-of-yotei-317627`).
+   - **Feito em 01/11 (commit f6dffb7):**
+     - `findStubByName` também compara pelo nome dobrado da busca (`searchName`, índice trigram);
+     - um título com edição de loja ("Digital Deluxe Edition", GOTY) cai no jogo base (`withoutEdition`);
+     - a busca no IGDB manda apóstrofo reto. Os jogos listados já casavam por `normalizeTitle`.
+   - **Falta investigar com o banco de produção** (a leitura foi bloqueada pelo modo automático nesta sessão):
+     - o Wolverine do Lucas tem 23,7 h e 0 troféus. Pode ser o nome diferente ou troféus ocultos no perfil;
+     - há **dois Ghost of Yōtei** (`ghost-of-yotei` e `ghost-of-yotei-317627`).
 3. **Juntar jogos repetidos** de Steam, PSN e Xbox numa página com todas as plataformas.
 4. **Página do jogo sem troféus quando ninguém no Tralked tem o jogo** (ex.: Yōtei). A Sony só entrega a lista de troféus a partir da conta de um jogador. Avaliar ler as definições de troféus pelo `npCommunicationId` com a conta de serviço, quando ele for conhecido.
 5. **Botão "Verificar agora"** para PSN, Xbox e RetroAchievements. Hoje só aparece "não verificada", embora as conquistas contem normalmente.
