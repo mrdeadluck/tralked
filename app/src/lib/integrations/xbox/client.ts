@@ -48,6 +48,24 @@ type StatsResponse = {
   }[];
 };
 
+type StatsBody = (xuid: string, titleIds: string[]) => Record<string, unknown>;
+
+/** Request shapes for Xbox Live user stats through OpenXBL, most likely first (see getMinutesPlayed). */
+const STATS_BODIES: StatsBody[] = [
+  (xuid, ids) => ({
+    arrangebyfield: "xuid",
+    xuids: [xuid],
+    groups: ids.map((titleId) => ({ name: "Hero", titleId })),
+    stats: ids.map((titleId) => ({ name: "MinutesPlayed", titleId })),
+  }),
+  (xuid, ids) => ({ arrangebyfield: "xuid", xuids: [xuid], stats: ids.map((titleId) => ({ name: "MinutesPlayed", titleId })) }),
+  (xuid, ids) => ({ arrangebyfield: "xuid", xuids: [xuid], stats: ids.map((titleid) => ({ name: "MinutesPlayed", titleid })) }),
+  (xuid, ids) => ({ xuids: [xuid], stats: ids.map((titleId) => ({ name: "MinutesPlayed", titleId })) }),
+  (xuid, ids) => ({ arrangebyfield: "xuid", xuids: [Number(xuid)], stats: ids.map((titleId) => ({ name: "MinutesPlayed", titleId: Number(titleId) })) }),
+];
+/** Index of the shape OpenXBL accepted last (kept for the life of the server instance). */
+let statsShape = 0;
+
 /** Titles per stats request (one batch request covers many titles). */
 const STATS_BATCH = 25;
 
@@ -183,36 +201,35 @@ export function createXboxClient({
     },
 
     async getMinutesPlayed(xuid, titleIds): Promise<Map<string, number> | "private"> {
-      // OpenXBL forwards this batch to Xbox Live user stats: the "Hero" (featured) stat
-      // MinutesPlayed that every title has, as Exophase reads it.
+      // OpenXBL forwards this batch to Xbox Live user stats ("MinutesPlayed", as Exophase reads it).
+      // Its accepted body shape is not documented: the shapes below are tried in turn and the first
+      // one OpenXBL accepts is kept for the following requests.
       const minutes = new Map<string, number>();
       for (let i = 0; i < titleIds.length; i += STATS_BATCH) {
         const batch = titleIds.slice(i, i + STATS_BATCH);
-        const body = await get<StatsResponse>("/player/stats", "stats", {
-          arrangebyfield: "xuid",
-          xuids: [xuid],
-          groups: batch.map((titleId) => ({ name: "Hero", titleId })),
-          stats: batch.map((titleId) => ({ name: "MinutesPlayed", titleId })),
-        });
-        if (body === "private") return "private";
-        if (body === null) continue;
+        let lastError = "";
+        let answered = false;
+        for (let k = 0; k < STATS_BODIES.length && !answered; k++) {
+          const shape = (statsShape + k) % STATS_BODIES.length;
+          const body = await get<StatsResponse>("/player/stats", "stats", STATS_BODIES[shape](xuid, batch));
+          if (body === "private") return "private";
+          if (body === null) {
+            answered = true;
+            continue;
+          }
+          const error = body as { ErrorType?: unknown; Description?: unknown };
+          if (error.ErrorType !== undefined) {
+            lastError = `${String(error.ErrorType)} ${String(error.Description ?? "").slice(0, 120)}`;
+            continue;
+          }
+          if (shape !== statsShape) console.warn(`Xbox stats: body shape ${shape} accepted`);
+          statsShape = shape;
+          answered = true;
+          for (const [titleId, value] of parseMinutesPlayed(body)) minutes.set(titleId, value);
+        }
         // OpenXBL relays Xbox Live errors as { ErrorType, Description }: a failure, so the titles are
         // asked again next time instead of being remembered as having no minutes.
-        const error = body as { ErrorType?: unknown; Description?: unknown };
-        if (error.ErrorType !== undefined) {
-          throw new Error(`Xbox stats refused: ${String(error.ErrorType)} ${String(error.Description ?? "").slice(0, 200)}`);
-        }
-        const parsed = parseMinutesPlayed(body);
-        if (parsed.size === 0) {
-          // Shape check when nothing came back (keys and stat names only, no personal data).
-          const first = body.statlistscollection?.[0]?.stats?.[0];
-          console.warn(
-            `Xbox stats: no MinutesPlayed for ${batch.length} title(s) (keys: ${Object.keys(body).join(",")}; first stat: ${
-              first ? `${first.name}/${typeof first.value}` : "none"
-            })`,
-          );
-        }
-        for (const [titleId, value] of parsed) minutes.set(titleId, value);
+        if (!answered) throw new Error(`Xbox stats refused every body shape: ${lastError}`);
       }
       return minutes;
     },
