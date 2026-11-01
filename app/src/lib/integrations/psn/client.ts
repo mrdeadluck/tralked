@@ -121,8 +121,9 @@ export function parsePlayDuration(value: string | undefined): number | null {
 }
 
 export class PsnAuthError extends Error {
-  constructor(step: string, status?: number) {
-    super(`PSN authentication failed at ${step}${status ? ` (HTTP ${status})` : ""}`);
+  /** `reason`: Sony's OAuth error code (e.g. `login_required`), never the NPSSO or a token. */
+  constructor(step: string, status?: number, reason?: string) {
+    super(`PSN authentication failed at ${step}${status ? ` (HTTP ${status})` : ""}${reason ? `: ${reason}` : ""}`);
     this.name = "PsnAuthError";
   }
 }
@@ -170,9 +171,11 @@ export function createPsnClient({
       signal: timeoutSignal(),
     });
     const location = res.headers.get("location") ?? "";
-    const code = location.includes("?") ? new URLSearchParams(location.split("?")[1]).get("code") : null;
-    // No code: the NPSSO expired or is invalid (a new one must be put in PSN_NPSSO).
-    if (!code) throw new PsnAuthError("authorize", res.status);
+    const query = new URLSearchParams(location.includes("?") ? location.split("?")[1] : "");
+    const code = query.get("code");
+    // No code: the NPSSO expired or is invalid (a new one must be put in PSN_NPSSO). Sony's error
+    // code (only word characters kept) says which.
+    if (!code) throw new PsnAuthError("authorize", res.status, query.get("error")?.replace(/\W/g, "").slice(0, 40) || undefined);
     await requestTokens(
       {
         code,

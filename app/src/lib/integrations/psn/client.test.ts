@@ -257,6 +257,8 @@ describe("psn client", () => {
     });
     const authError = await badNpsso.client.getTitles("1").catch((e: Error) => e);
     expect(authError).toBeInstanceOf(PsnAuthError);
+    // Sony's reason is kept, so an expired NPSSO is told apart from other refusals.
+    expect((authError as Error).message).toBe("PSN authentication failed at authorize (HTTP 302): login_required");
     expect(String((authError as Error).message)).not.toContain(NPSSO);
 
     const serverError = setup(() => json({}, 500));
