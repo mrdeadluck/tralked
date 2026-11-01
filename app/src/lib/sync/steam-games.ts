@@ -129,6 +129,49 @@ export async function steamGameIds(appIds: number[]): Promise<Map<number, string
   return result;
 }
 
+/**
+ * pg_advisory_xact_lock key taken by whatever creates or adopts name-only catalog rows that are
+ * matched by name (IGDB stubs in lib/sync/igdb-games.ts, and their adoption below).
+ */
+export const CATALOG_CREATE_LOCK = 0x16db_ca7a;
+
+/**
+ * Steam apps that are an IGDB game of the console catalog (Plano 4, F10): a game with an IGDB id,
+ * no appid and PC among its platforms, whose name is the app's name (Postgres lower() on both
+ * sides, like the index). Only when that game is the ONLY catalog game of that name and the app the
+ * only one of the batch with it: "Chess" or "Solitaire" with namesakes is never adopted. The game
+ * (stub or already listed by the IGDB details step) takes the appid and leaves `detailsSyncedAt`
+ * empty, so the Steam details job fills in its store page, instead of a second row being created.
+ * Returns appid → game id of the adopted games.
+ */
+async function adoptIgdbStubs(tx: Prisma.TransactionClient, apps: [number, string][]): Promise<Map<number, string>> {
+  const adopted = new Map<number, string>();
+  const part = apps.filter(([appId, name]) => !isPlaceholderName(name, appId));
+  if (part.length === 0) return adopted;
+  const pairs = await tx.$queryRaw<{ appId: number; id: string }[]>`
+    WITH apps AS (
+      SELECT a AS app_id, lower(n) AS key
+      FROM unnest(${part.map(([appId]) => appId)}::int[], ${part.map(([, name]) => name)}::text[]) AS t(a, n)
+    ),
+    lone_apps AS (SELECT key, min(app_id) AS app_id FROM apps GROUP BY key HAVING count(*) = 1),
+    named AS (
+      SELECT lower(g.name) AS key, count(*) AS games, min(g.id) AS id,
+             bool_and(g."steamAppId" IS NULL AND g."igdbId" IS NOT NULL AND 'PC' = ANY(g.platforms)) AS adoptable
+      FROM "Game" g JOIN lone_apps a ON lower(g.name) = a.key
+      GROUP BY lower(g.name)
+    )
+    SELECT a.app_id AS "appId", n.id FROM lone_apps a JOIN named n ON n.key = a.key
+    WHERE n.games = 1 AND n.adoptable`;
+  for (const { appId, id } of pairs) {
+    const updated = await tx.$executeRaw`
+      UPDATE "Game" SET "steamAppId" = ${appId}::int, "detailsSyncedAt" = NULL, "updatedAt" = now()
+      WHERE id = ${id} AND "steamAppId" IS NULL
+        AND NOT EXISTS (SELECT 1 FROM "Game" WHERE "steamAppId" = ${appId}::int)`;
+    if (updated === 1) adopted.set(appId, id);
+  }
+  return adopted;
+}
+
 export type EnsureOptions = {
   /** New games are queued first for the details job (someone needs them now). */
   requestDetails?: boolean;
@@ -136,7 +179,8 @@ export type EnsureOptions = {
 };
 
 /**
- * Makes sure every app is in the catalog and returns appid → game id. Apps not there yet become
+ * Makes sure every app is in the catalog and returns appid → game id. An app that is a game of the
+ * IGDB console catalog (adoptIgdbStubs) gives that game its appid. Other apps not there yet become
  * name-only stubs (`stub` true: unlisted until the details job fills them in) with a unique slug:
  * the name's slug, or `<slug>-<appid>` when another game (or another app of the batch) has it.
  * Idempotent and safe to run concurrently: existing games are never touched, and an app created
@@ -155,30 +199,53 @@ export async function ensureSteamGames(
   const ids = await steamGameIds([...unique.keys()]);
   const missing = [...unique].filter(([appId]) => !ids.has(appId));
 
-  for (const part of chunks(missing)) {
-    const bases = part.map(([appId, name]) => ({ appId, name, base: steamSlugBase(name, appId) }));
-    const taken = new Set(
-      (
-        await prisma.game.findMany({
-          where: { slug: { in: [...new Set(bases.map((b) => b.base))] } },
-          select: { slug: true },
-        })
-      ).map((g) => g.slug),
-    );
-    const data = bases.map(({ appId, name, base }) => {
-      const slug = taken.has(base) ? `${base}-${appId}` : base;
-      taken.add(slug);
-      return {
-        slug,
-        name,
-        steamAppId: appId,
-        platforms: ["PC"],
-        achievementCount: 0,
-        stub: true,
-        ...(requestDetails && { detailsRequestedAt: now }),
-      };
-    });
-    await prisma.game.createMany({ data, skipDuplicates: true });
+  for (const chunk of chunks(missing)) {
+    const rowsFor = async (db: Prisma.TransactionClient | typeof prisma, part: [number, string][]) => {
+      const bases = part.map(([appId, name]) => ({ appId, name, base: steamSlugBase(name, appId) }));
+      const taken = new Set(
+        (await db.game.findMany({ where: { slug: { in: [...new Set(bases.map((b) => b.base))] } }, select: { slug: true } })).map(
+          (g) => g.slug,
+        ),
+      );
+      return bases.map(({ appId, name, base }) => {
+        const slug = taken.has(base) ? `${base}-${appId}` : base;
+        taken.add(slug);
+        return {
+          slug,
+          name,
+          steamAppId: appId,
+          platforms: ["PC"],
+          achievementCount: 0,
+          stub: true,
+          ...(requestDetails && { detailsRequestedAt: now }),
+        };
+      });
+    };
+    // Under the catalog lock (Plano 4, F10): an IGDB game that is this app takes its appid, and
+    // the rest are created before the lock is released, so an IGDB import running at the same
+    // time (it re-checks names under the same lock) finds them instead of adding the game again.
+    let adopted = new Map<number, string>();
+    let data: Awaited<ReturnType<typeof rowsFor>>;
+    try {
+      ({ adopted, data } = await prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CATALOG_CREATE_LOCK}::bigint)`;
+          const taken = await adoptIgdbStubs(tx, chunk);
+          const rows = await rowsFor(tx, chunk.filter(([appId]) => !taken.has(appId)));
+          await tx.game.createMany({ data: rows, skipDuplicates: true });
+          return { adopted: taken, data: rows };
+        },
+        { timeout: 60_000, maxWait: 20_000 },
+      ));
+    } catch (error) {
+      // An appid adopted elsewhere meanwhile: no adoption for this chunk, plain creation.
+      if (!isUniqueViolation(error)) throw error;
+      adopted = new Map();
+      data = await rowsFor(prisma, chunk);
+      await prisma.game.createMany({ data, skipDuplicates: true });
+    }
+    for (const [appId, id] of adopted) ids.set(appId, id);
+    const part = chunk.filter(([appId]) => !adopted.has(appId));
 
     // Skipped rows: the app was created meanwhile (fine), or its slug was (retried with the appid).
     const created = await steamGameIds(part.map(([appId]) => appId));

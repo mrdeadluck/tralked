@@ -11,6 +11,8 @@ const COLUMNS = [
     links: [
       { href: "/", label: "Notícias" },
       { href: "/jogos", label: "Jogos e guias" },
+      { href: "/lancamentos", label: "Lançamentos" },
+      { href: "/calendario", label: "Calendário" },
       { href: "/jogador/me", label: "Personagem" },
     ],
   },

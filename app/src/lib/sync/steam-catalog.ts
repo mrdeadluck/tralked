@@ -336,10 +336,18 @@ export async function runSteamCatalogJob(
   };
 }
 
-/** A player opened the page of a game without details: the details job takes it first. */
+/**
+ * A player opened the page of a game without details: the details job takes it first (Steam games
+ * here; IGDB-only stubs of the console catalog in lib/sync/igdb-catalog.ts).
+ */
 export async function requestGameDetails(gameId: string, now: Date = new Date()): Promise<void> {
   await prisma.game.updateMany({
-    where: { id: gameId, steamAppId: { not: null }, detailsSyncedAt: null, detailsRequestedAt: null },
+    where: {
+      id: gameId,
+      OR: [{ steamAppId: { not: null } }, { stub: true, igdbId: { not: null } }],
+      detailsSyncedAt: null,
+      detailsRequestedAt: null,
+    },
     data: { detailsRequestedAt: now },
   });
 }
