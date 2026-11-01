@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -7,8 +7,8 @@ import type { Draft } from "../src/ai/writer.js";
 import { inSlotWindow, localDay } from "../src/clock.js";
 import { loadConfig, type Source } from "../src/config.js";
 import { openDb, type Db, type StoryRow } from "../src/db.js";
-import { runColeta, runPublica, type PipelineDeps } from "../src/pipeline.js";
-import { slugify, updateKey, type ArticlePatch, type ArticlePayload, type FeedArticle, type Tralked } from "../src/tralked.js";
+import { publishStory, runColeta, runPublica, type PipelineDeps } from "../src/pipeline.js";
+import { TralkedError, slugify, updateKey, type ArticlePatch, type ArticlePayload, type FeedArticle, type Tralked } from "../src/tralked.js";
 
 // ---------------------------------------------------------------------------------------------
 // Clock: America/Sao_Paulo is UTC-3 all year (no DST since 2019).
@@ -94,11 +94,21 @@ const DRAFT: Draft = {
 
 function fakeAi(facts: Map<string, Fact>) {
   const calls: StructuredOpts<unknown>[] = [];
-  const state = { checkOk: true, writeError: null as Error | null };
+  const state = {
+    checkOk: true,
+    writeError: null as Error | null,
+    triageError: null as Error | null,
+    novelty: { hasNewFacts: true, newFacts: ["A Supergiant confirmou o patch para sexta-feira."] },
+    /** Forces items with this headline into the open story with this key (when it is open). */
+    route: new Map<string, string>(),
+    /** Resolves when released: lets a test hold the writer mid-call. */
+    writeGate: null as Promise<void> | null,
+  };
 
   const structured = vi.fn(async (opts: StructuredOpts<unknown>) => {
     calls.push(opts);
     if (opts.purpose === "triage") {
+      if (state.triageError) throw state.triageError;
       const items = JSON.parse(opts.user.slice(opts.user.indexOf("\n") + 1)) as { id: number; title: string }[];
       return opts.schema.parse({
         items: items.flatMap((it) => {
@@ -126,7 +136,8 @@ function fakeAi(facts: Map<string, Fact>) {
       const items = JSON.parse(itemsPart!) as { id: number; headlinePt: string }[];
       const groups = new Map<string, { storyKey: string | null; headline: string | null; itemIds: number[] }>();
       for (const it of items) {
-        const match = open.find((o) => o.headline === it.headlinePt);
+        const routed = state.route.get(it.headlinePt);
+        const match = (routed ? open.find((o) => o.key === routed) : undefined) ?? open.find((o) => o.headline === it.headlinePt);
         const k = match ? `open:${match.key}` : `new:${it.headlinePt}`;
         const g = groups.get(k) ?? { storyKey: match?.key ?? null, headline: match ? null : it.headlinePt, itemIds: [] };
         g.itemIds.push(it.id);
@@ -135,12 +146,14 @@ function fakeAi(facts: Map<string, Fact>) {
       return opts.schema.parse({ groups: [...groups.values()] });
     }
     if (opts.purpose === "write" || opts.purpose === "write-retry") {
+      if (state.writeGate) await state.writeGate;
       if (state.writeError) throw state.writeError;
       return opts.schema.parse(DRAFT);
     }
     if (opts.purpose === "check") {
       return opts.schema.parse(state.checkOk ? { ok: true, problems: [] } : { ok: false, problems: ["Data errada."] });
     }
+    if (opts.purpose === "novelty") return opts.schema.parse(state.novelty);
     throw new Error(`unexpected purpose ${opts.purpose}`);
   });
 
@@ -154,12 +167,15 @@ function fakeAi(facts: Map<string, Fact>) {
 function fakeTralked() {
   const created: { payload: ArticlePayload; key: string }[] = [];
   const patches: { id: string; patch: ArticlePatch; key: string }[] = [];
-  const state = { feed: [] as FeedArticle[] };
+  const state = { feed: [] as FeedArticle[], feedError: null as Error | null };
   const tralked: Tralked = {
     findGame: async (name) => ({ slug: slugify(name), name }),
     insights: async () => null,
     dossier: async () => null,
-    recentArticles: async () => state.feed,
+    recentArticles: async () => {
+      if (state.feedError) throw state.feedError;
+      return state.feed;
+    },
     createArticle: async (payload, key) => {
       created.push({ payload, key });
       const n = created.length;
@@ -244,11 +260,16 @@ type H = ReturnType<typeof harness>;
 const stories = (db: Db) => db.raw.prepare("SELECT * FROM stories ORDER BY id").all() as unknown as StoryRow[];
 
 /** A queued live story backed by one full-text portal item. */
-function seedQueued(h: H, headline: string, opts: { score?: number; firstSeenAt?: Date; bomb?: boolean } = {}): number {
+function seedQueued(
+  h: H,
+  headline: string,
+  opts: { score?: number; firstSeenAt?: Date; itemAt?: Date; bomb?: boolean; status?: StoryRow["status"] } = {},
+): number {
   const seen = opts.firstSeenAt ?? h.clock.now;
+  const itemAt = opts.itemAt ?? seen;
   const url = `https://news.test/seed/${slugify(headline)}`;
   h.db.insertItemIfNew(
-    { url, sourceId: "ign", title: headline, publishedAt: seen.toISOString(), text: `${headline}. Texto completo da fonte.` },
+    { url, sourceId: "ign", title: headline, publishedAt: itemAt.toISOString(), text: `${headline}. Texto completo da fonte.` },
     seen,
   );
   const item = h.db.raw.prepare("SELECT id FROM items WHERE url = ?").get(url) as { id: number };
@@ -264,8 +285,8 @@ function seedQueued(h: H, headline: string, opts: { score?: number; firstSeenAt?
       rumor: false,
       gamesJson: '["Hades II"]',
       mode: "live",
-      status: "queued",
-      lastItemAt: seen.toISOString(),
+      status: opts.status ?? "queued",
+      lastItemAt: itemAt.toISOString(),
     },
     seen,
   );
@@ -531,9 +552,74 @@ describe("updates and follow-ups", () => {
     expect(h.site.created).toHaveLength(1);
     expect(h.db.publishedCountOn("2026-10-31")).toBe(1);
 
-    // The writer got the published article as context.
+    // The novelty check ran first on the fast model, with the published text and the new item.
+    const novelty = h.fake.calls.find((c) => c.purpose === "novelty")!;
+    expect(novelty.model).toBe(h.config.MODEL_FAST);
+    expect(novelty.effort).toBe("low");
+    expect(novelty.user).toContain("materia_publicada");
+    expect(novelty.user).toContain("Hades II weapon patch notes");
+    // The writer got the published article as context, and the new facts to add.
     const update = h.fake.calls.filter((c) => c.purpose === "write").at(-1)!;
     expect(update.user).toContain("materia_anterior");
+    expect(update.user).toContain("A Supergiant confirmou o patch para sexta-feira.");
+    expect(h.db.updateTimes(stories(h.db)[0]!.id)).toHaveLength(1);
+  });
+
+  it("repeated coverage without a new fact makes no PATCH and no rewrite", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    const fact = await publishedStory(h);
+    h.fake.state.novelty = { hasNewFacts: false, newFacts: [] };
+    const writesBefore = h.fake.calls.filter((c) => c.purpose === "write").length;
+
+    h.at(local("2026-10-31T14:00"));
+    h.post("pub", "Hades II gets a new weapon, again", { ...fact, importance: 60 });
+    const report = await h.coleta();
+    expect(report.updated).toBe(0);
+    expect(h.fake.calls.filter((c) => c.purpose === "novelty")).toHaveLength(1);
+    expect(h.fake.calls.filter((c) => c.purpose === "write")).toHaveLength(writesBefore);
+    expect(h.site.patches).toHaveLength(0);
+  });
+
+  it("waits 60 min between changes, and carries held-back items into the next update", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    const fact = await publishedStory(h); // published at 10:00
+
+    h.at(local("2026-10-31T10:30"));
+    h.post("pub", "Hades II patch date confirmed", { ...fact, importance: 60 });
+    await h.coleta();
+    expect(h.site.patches).toHaveLength(0); // 30 min after publication
+    expect(h.fake.calls.filter((c) => c.purpose === "novelty")).toHaveLength(0);
+
+    h.at(local("2026-10-31T11:00"));
+    h.post("blog", "Hades II patch is out", { ...fact, importance: 60 });
+    await h.coleta();
+    expect(h.site.patches).toHaveLength(1);
+    const novelty = h.fake.calls.filter((c) => c.purpose === "novelty").at(-1)!;
+    expect(novelty.user).toContain("Hades II patch date confirmed");
+    expect(novelty.user).toContain("Hades II patch is out");
+
+    h.at(local("2026-10-31T11:59"));
+    h.post("kotaku", "Hades II patch notes detailed", { ...fact, importance: 60 });
+    await h.coleta();
+    expect(h.site.patches).toHaveLength(1); // 59 min after the update
+
+    h.at(local("2026-10-31T12:00"));
+    h.post("ign", "Hades II patch fixes crash", { ...fact, importance: 60 });
+    await h.coleta();
+    expect(h.site.patches).toHaveLength(2);
+  });
+
+  it("updates a story at most 3 times a day", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    const fact = await publishedStory(h);
+    const sources = ["pub", "blog", "pub", "blog"];
+    for (const [i, hour] of ["11", "12", "13", "14"].entries()) {
+      h.at(local(`2026-10-31T${hour}:00`));
+      h.post(sources[i]!, `Hades II novidade ${hour}`, { ...fact, importance: 60 });
+      await h.coleta();
+    }
+    expect(h.site.patches).toHaveLength(3);
+    expect(h.db.publishedCountOn("2026-10-31")).toBe(1);
   });
 
   it("a minor same-day item (importance < 50) does not trigger an update", async () => {
@@ -566,6 +652,49 @@ describe("updates and follow-ups", () => {
     expect((await h.publica()).published).toBe("site-2");
     expect(h.db.articleForStory(followUp.id)?.parent_article_id).toBe(parentArticle.id);
     expect(h.db.publishedCountOn("2026-11-01")).toBe(1);
+
+    // Linked to the earlier article: the writer saw it as context, and the link follows "Em 3 pontos".
+    const write = h.fake.calls.filter((c) => c.purpose === "write").at(-1)!;
+    expect(write.user).toContain("caso_anterior");
+    expect(write.user).toContain("Matéria do robô");
+    const check = h.fake.calls.filter((c) => c.purpose === "check").at(-1)!;
+    expect(check.user).toContain("Matéria anterior do Tralked");
+    const blocks = h.site.created[1]!.payload.blocks;
+    const pontos = blocks.findIndex((b) => b.type === "heading" && b.text === "Em 3 pontos");
+    expect(blocks[pontos + 2]).toEqual({
+      type: "paragraph",
+      text: "Entenda o caso: [Matéria do robô](https://tralked.com/noticias/materia-1)",
+    });
+  });
+
+  it("starts no second follow-up while one is pending or once one was created today", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    const fact = await publishedStory(h);
+    const parent = stories(h.db)[0]!;
+    const route = (headline: string) => h.fake.state.route.set(headline, parent.key);
+
+    h.at(local("2026-11-01T09:00"));
+    route("GTA rebalance");
+    h.post("ign", "Hades II weapon rebalance", { ...fact, headline: "GTA rebalance", importance: 75 });
+    expect((await h.coleta()).followUps).toBe(1);
+    const followUp = stories(h.db).find((s) => s.parent_article_id !== null)!;
+    expect(followUp.status).toBe("queued");
+
+    // Still queued: a new item about the parent joins it.
+    h.at(local("2026-11-01T09:30"));
+    route("Outro desenvolvimento");
+    h.post("kotaku", "Hades II rebalance detailed", { ...fact, headline: "Outro desenvolvimento", importance: 80 });
+    expect((await h.coleta()).followUps).toBe(0);
+    expect(h.db.itemIdsForStory(followUp.id)).toHaveLength(2);
+
+    // Published today: no new follow-up of the same parent until tomorrow.
+    h.at(local("2026-11-01T10:00"));
+    expect((await h.publica()).published).toBe("site-2");
+    h.at(local("2026-11-01T14:00"));
+    route("Terceiro desenvolvimento");
+    h.post("pub", "Hades II rebalance reverted", { ...fact, headline: "Terceiro desenvolvimento", importance: 85 });
+    expect((await h.coleta()).followUps).toBe(0);
+    expect(stories(h.db).filter((s) => s.parent_article_id !== null)).toHaveLength(1);
   });
 
   it("a later-day item below 70 creates no follow-up", async () => {
@@ -662,5 +791,176 @@ describe("expiry", () => {
     const report = await h.coleta();
     expect(report.expired).toBe(1);
     expect(stories(h.db).find((s) => s.id === old)!.status).toBe("expired");
+  });
+});
+
+describe("concurrency", () => {
+  it("two concurrent claims of one story make one write", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    const id = seedQueued(h, "Uma história");
+    const story = h.db.storyById(id)!;
+    const results = await Promise.all([publishStory(story, h.deps), publishStory(story, h.deps)]);
+    expect(results.filter((r) => r !== null)).toEqual(["site-1"]);
+    expect(h.fake.calls.filter((c) => c.purpose === "write")).toHaveLength(1);
+    expect(h.site.created).toHaveLength(1);
+  });
+
+  it("holds the cap at 14 + 1 with two publishers at once", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    seedPublished(h, minutesBefore(h.clock.now, 14));
+    seedQueued(h, "Primeira", { score: 90 });
+    seedQueued(h, "Segunda", { score: 80 });
+    const results = await Promise.all([h.publica({ agora: true }), h.publica({ agora: true })]);
+    expect(results.map((r) => r.published).filter(Boolean)).toEqual(["site-1"]);
+    expect(results.map((r) => r.reason)).toContain("outra publicação em andamento");
+    expect(h.db.publishedCountOn("2026-10-31")).toBe(15);
+  });
+
+  it("re-checks the cap inside the lock: a bomb waiting on publica does not make the 16th", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    seedPublished(h, minutesBefore(h.clock.now, 14));
+    seedQueued(h, "Na fila", { score: 60 });
+    const fact: Fact = { headline: "GTA 6 ganha data de lançamento", importance: 95, games: ["Grand Theft Auto VI"] };
+    h.post("pub", "GTA VI release date announced", fact);
+    h.post("ign", "GTA 6 tem data de lançamento", fact);
+    h.post("kotaku", "GTA 6 finally has a release date", fact);
+    // Hold the writer so publica keeps the lock while coleta reaches its bomb step.
+    let release!: () => void;
+    h.fake.state.writeGate = new Promise<void>((r) => (release = r));
+    const publica = h.publica({ agora: true });
+    const coleta = h.coleta();
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    const [p, c] = await Promise.all([publica, coleta]);
+    expect(p.published).toBe("site-1");
+    expect(c.published).toEqual([]);
+    expect(h.site.created).toHaveLength(1);
+    expect(h.db.publishedCountOn("2026-10-31")).toBe(15);
+  });
+
+  it("publishes at most one article per local hour, but bombs are exempt", async () => {
+    const h = harness(local("2026-10-31T10:05"));
+    seedQueued(h, "Primeira", { score: 90 });
+    seedQueued(h, "Segunda", { score: 80 });
+    expect((await h.publica()).published).toBe("site-1");
+
+    h.at(local("2026-10-31T10:40"));
+    const again = await h.publica({ agora: true });
+    expect(again.published).toBeNull();
+    expect(again.reason).toMatch(/neste horário/);
+
+    h.at(local("2026-10-31T10:45"));
+    const fact: Fact = { headline: "GTA 6 ganha data de lançamento", importance: 95, games: ["Grand Theft Auto VI"] };
+    h.post("pub", "GTA VI release date announced", fact);
+    h.post("ign", "GTA 6 tem data de lançamento", fact);
+    h.post("kotaku", "GTA 6 finally has a release date", fact);
+    expect((await h.coleta()).published).toEqual(["site-2"]);
+
+    h.at(local("2026-10-31T11:00"));
+    expect((await h.publica()).published).toBe("site-3");
+  });
+
+  it("respects a fresh publish lock, takes over a stale one and requeues the story it left written", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    const id = seedQueued(h, "Uma história");
+    const lockPath = join(h.dir, "publica.lock");
+    writeFileSync(lockPath, JSON.stringify({ pid: 1, at: new Date(h.clock.now.getTime() - 5 * 60 * 1000).toISOString(), token: "x" }));
+    expect((await h.publica()).reason).toBe("outra publicação em andamento");
+
+    // The crashed run had claimed the story and left a 31-min-old lock.
+    h.db.setStoryStatus(id, "written");
+    writeFileSync(lockPath, JSON.stringify({ pid: 1, at: new Date(h.clock.now.getTime() - 31 * 60 * 1000).toISOString(), token: "x" }));
+    expect((await h.publica()).published).toBe("site-1");
+    expect(existsSync(lockPath)).toBe(false);
+  });
+});
+
+describe("coverage and feed", () => {
+  it("does not re-check a queued story whose article is already written (ready)", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    const id = seedQueued(h, "Hades II recebe arma nova");
+    h.db.saveArticle({ storyId: id, payloadJson: JSON.stringify({ title: "x", blocks: [] }), status: "ready" });
+    h.site.state.feed = [
+      { id: "ed-1", slug: "x", title: "Hades II recebe arma nova", category: "GAMES", publishedAt: h.clock.now.toISOString(), source: "editorial", games: ["hades-ii"] },
+    ];
+    const report = await h.coleta();
+    expect(report.covered).toBe(0);
+    expect(h.db.storyById(id)!.status).toBe("queued");
+    expect(h.fake.calls.filter((c) => c.purpose === "cluster")).toHaveLength(0);
+  });
+
+  it("a feed failure queues nothing new but does not stop the run", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    h.site.state.feedError = new TralkedError(503, "unavailable", "fora do ar");
+    h.post("ign", "Hades II ganha arma nova", { headline: "Hades II recebe arma nova", importance: 60 });
+    h.post("kotaku", "Hades II adds a new weapon", { headline: "Hades II recebe arma nova", importance: 60 });
+    const report = await h.coleta();
+    expect(report.feedUnavailable).toBe(true);
+    expect(report.stopped).toBeNull();
+    expect(report.queued).toBe(0);
+    expect(stories(h.db)[0]!.status).toBe("open");
+    expect(h.db.alerts().map((a) => a.kind)).toContain("api");
+
+    h.site.state.feedError = null;
+    h.at(local("2026-10-31T09:30"));
+    expect((await h.coleta()).queued).toBe(1);
+  });
+});
+
+describe("expiry from the earliest item", () => {
+  it("a story first seen now but built on a 30-hour-old item is expired, never picked", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    const id = seedQueued(h, "Velha", { score: 60, itemAt: new Date(h.clock.now.getTime() - 30 * HOUR) });
+    expect((await h.publica()).published).toBeNull();
+    expect(h.db.storyById(id)!.status).toBe("expired");
+  });
+
+  it("coleta never queues a story whose items are already past the expiry window", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    // Score 45 + 10 (portal) + 5 (second source) = 60 < 70: the 24 h window applies.
+    const old = new Date(h.clock.now.getTime() - 30 * HOUR);
+    h.post("ign", "Hades II ganha arma nova", { headline: "Hades II recebe arma nova", importance: 45 }, { pub: old });
+    h.post("kotaku", "Hades II adds a new weapon", { headline: "Hades II recebe arma nova", importance: 45 }, { pub: old });
+    const report = await h.coleta();
+    expect(report.queued).toBe(0);
+    expect(stories(h.db)[0]!.status).toBe("expired");
+  });
+});
+
+describe("coleta: budget and absorbing", () => {
+  it("a budget error during triage stops the run, keeps the items new and raises one alert", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    h.fake.state.triageError = new BudgetExceededError("live", 5.2, 5);
+    h.post("ign", "Hades II ganha arma nova", { headline: "Hades II recebe arma nova", importance: 60 });
+    const report = await h.coleta();
+    expect(report.stopped).toBe("orcamento");
+    expect(report.inserted).toBe(1);
+    expect(h.db.itemsByStatus("new")).toHaveLength(1);
+    h.at(local("2026-10-31T09:30"));
+    await h.coleta();
+    expect(h.db.alerts().filter((a) => a.kind === "orcamento")).toHaveLength(1);
+
+    h.fake.state.triageError = null;
+    h.at(local("2026-10-31T10:00"));
+    await h.coleta();
+    expect(h.db.itemsByStatus("new")).toHaveLength(0);
+  });
+
+  it("dropped and expired stories absorb new items without being re-queued", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    const dropped = seedQueued(h, "História descartada", { status: "dropped" });
+    const expiredId = seedQueued(h, "História vencida", { status: "expired" });
+    h.post("pub", "Dropped story follow", { headline: "História descartada", importance: 95 });
+    h.post("ign", "Dropped story again", { headline: "História descartada", importance: 95 });
+    h.post("kotaku", "Expired story follow", { headline: "História vencida", importance: 95 });
+    const report = await h.coleta();
+    expect(report.newStories).toBe(0);
+    expect(report.queued).toBe(0);
+    expect(report.published).toEqual([]);
+    expect(h.db.storyById(dropped)!.status).toBe("dropped");
+    expect(h.db.storyById(expiredId)!.status).toBe("expired");
+    expect(h.db.itemIdsForStory(dropped)).toHaveLength(3);
+    expect(h.db.itemIdsForStory(expiredId)).toHaveLength(2);
+    expect(h.site.created).toHaveLength(0);
   });
 });

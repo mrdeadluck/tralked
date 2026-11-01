@@ -2,13 +2,15 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { BudgetExceededError, RefusalError, type Ai } from "./ai/client.js";
 import { clusterItems, openStories, storyKeyOf, type ClusterItem, type OpenStory } from "./ai/cluster.js";
+import { checkNovelty } from "./ai/novelty.js";
 import { CATEGORIES, triageItems, type Triage, type TriageInput } from "./ai/triage.js";
 import { writeAndCheck, type StoryForWriting, type StorySource } from "./ai/writer.js";
 import { assemble } from "./assemble.js";
-import { inSlotWindow, localDay } from "./clock.js";
+import { inSlotWindow, localDay, localHour } from "./clock.js";
 import { collectLive, extractText, fetchPage, type FetchFn } from "./collect/index.js";
 import type { Config, Source } from "./config.js";
-import type { Db, ItemRow, StoryRow } from "./db.js";
+import type { ArticleRow, Db, ItemRow, StoryRow } from "./db.js";
+import { acquireLock, type Lock } from "./lock.js";
 import { TIER_WEIGHT, isBomb, isExpired, isPublishable, storyScore, type Tier } from "./rank.js";
 import {
   TralkedError,
@@ -47,6 +49,13 @@ export const FOLLOW_UP_MIN_IMPORTANCE = 70;
 export const JITTER_MAX_MS = 12 * 60 * 1000;
 /** Sources given to the writer, full-text and higher tiers first (keeps the Opus prompt bounded). */
 export const MAX_WRITER_SOURCES = 8;
+/** A story's article is updated at most once an hour (counting from publication) and 3 times a local day. */
+export const UPDATE_MIN_GAP_MS = 60 * 60 * 1000;
+export const MAX_UPDATES_PER_DAY = 3;
+/** Held by whoever publishes (`publica`, and `coleta` for bombs); stale after 30 min. */
+export const PUBLISH_LOCK_FILE = "publica.lock";
+/** Meta key holding the last local slot (`YYYY-MM-DD HH`) in which `publica` published. */
+const LAST_SLOT_KEY = "publica.lastSlot";
 const FETCH_CONCURRENCY = 6;
 const FEED_KEY_PREFIX = "feed-";
 
@@ -94,6 +103,8 @@ export type ColetaReport = {
   published: string[];
   /** Same-day updates PATCHed. */
   updated: number;
+  /** The site feed could not be read: nothing new was queued in this run (the run went on). */
+  feedUnavailable: boolean;
   /** Why the run stopped early, when it did (budget, site API). */
   stopped: string | null;
 };
@@ -133,6 +144,37 @@ function itemTime(item: ItemRow, now: Date): number {
   const pub = item.published_at ? Date.parse(item.published_at) : Number.NaN;
   const at = Number.isNaN(pub) ? Date.parse(item.fetched_at) : pub;
   return Math.min(Number.isNaN(at) ? now.getTime() : at, now.getTime());
+}
+
+/**
+ * When the story started: its earliest item time (`min(pubDate, now)`), so old items cannot pass as fresh
+ * news. Falls back to `first_seen_at` for a story without items.
+ */
+function storyStartedAt(story: StoryRow, db: Db, now: Date): Date {
+  const times = db.itemsForStory(story.id).map((i) => itemTime(i, now));
+  return times.length > 0 ? new Date(Math.min(...times)) : new Date(story.first_seen_at);
+}
+
+function expired(story: StoryRow, db: Db, now: Date): boolean {
+  return isExpired({ score: story.score, firstSeenAt: storyStartedAt(story, db, now) }, now);
+}
+
+/** Local slot (São Paulo day and hour) used for the one-article-per-hour rule of `publica`. */
+const slotOf = (d: Date) => `${localDay(d)} ${String(localHour(d)).padStart(2, "0")}`;
+
+/** Runs `fn` holding the publish lock; returns `null` without running it when another run holds the lock. */
+async function withPublishLock<T>(deps: PipelineDeps, fn: () => Promise<T>): Promise<{ value: T } | null> {
+  const lock: Lock | null = acquireLock(join(deps.config.DATA_DIR, PUBLISH_LOCK_FILE), deps.now());
+  if (!lock) return null;
+  try {
+    // Holding the lock, no one else is writing: a `written` live story is left over from a crashed run.
+    for (const story of deps.db.storiesByStatus("written", 100_000)) {
+      if (story.mode === "live") deps.db.setStoryStatusIf(story.id, "queued", ["written"]);
+    }
+    return { value: await fn() };
+  } finally {
+    lock.release();
+  }
 }
 
 /** One alert of a kind per local day (budget alerts would otherwise repeat every run). */
@@ -285,11 +327,31 @@ async function candidatesFor(story: StoryRow, tralked: Tralked): Promise<StoryFo
   return out;
 }
 
+const parsePayload = (article: ArticleRow): Partial<ArticlePayload> => {
+  try {
+    return JSON.parse(article.payload_json) as Partial<ArticlePayload>;
+  } catch {
+    return {};
+  }
+};
+
+/** A follow-up's parent article: its text for the writer and its public URL for the "Entenda o caso" link. */
+function parentOf(story: StoryRow, deps: PipelineDeps): { title: string; blocksText: string; url: string | null } | null {
+  if (story.parent_article_id === null) return null;
+  const article = deps.db.articleById(story.parent_article_id);
+  if (!article) return null;
+  const payload = parsePayload(article);
+  const title = payload.title ?? deps.db.storyById(article.story_id)?.headline ?? "";
+  const url = article.slug ? new URL(`/noticias/${encodeURIComponent(article.slug)}`, deps.config.TRALKED_API_URL).toString() : null;
+  return { title, blocksText: blocksText(payload.blocks ?? []), url };
+}
+
 async function storyForWriting(
   story: StoryRow,
   deps: PipelineDeps,
   previous?: StoryForWriting["previous"],
 ): Promise<StoryForWriting> {
+  const parent = parentOf(story, deps);
   return {
     id: story.id,
     headline: story.headline,
@@ -298,11 +360,22 @@ async function storyForWriting(
     sources: writerSources(deps.db.itemsForStory(story.id), deps.sources),
     candidates: await candidatesFor(story, deps.tralked),
     ...(previous ? { previous } : {}),
+    ...(parent ? { parent: { title: parent.title, blocksText: parent.blocksText } } : {}),
   };
 }
 
 const insightsOf = (candidates: StoryForWriting["candidates"]) =>
   new Map(candidates.flatMap((c) => (c.insights ? [[c.slug, c.insights] as const] : [])));
+
+/** `assemble` options: the Tralked data, and the parent link of a follow-up. */
+function assembleOpts(story: StoryRow, writing: StoryForWriting, deps: PipelineDeps, updatedAt?: Date) {
+  const parent = parentOf(story, deps);
+  return {
+    insights: insightsOf(writing.candidates),
+    ...(updatedAt ? { updatedAt } : {}),
+    ...(parent?.url && parent.title ? { parent: { title: parent.title, url: parent.url } } : {}),
+  };
+}
 
 /** Plain text of an article's blocks, given to the writer as the previous version on an update. */
 export function blocksText(blocks: ContentBlock[]): string {
@@ -327,144 +400,193 @@ export function blocksText(blocks: ContentBlock[]): string {
     .join("\n\n");
 }
 
-/**
- * Writes, checks and publishes one story.
- * - Returns the site article id when published.
- * - Returns null when the check failed twice or the writer refused: the story is `dropped` and an alert raised.
- * - Throws `BudgetExceededError` (alert raised, story stays `queued`) and `TralkedError` (alert raised; the
- *   story stays queued unless the site refused the article for good) so the caller stops the run.
- * The checked payload is saved as `ready` before the POST, so a failed POST never pays for a second draft.
- */
-export async function publishStory(story: StoryRow, deps: PipelineDeps): Promise<string | null> {
+/** `published`: on the site. `rejected`: check failed twice or refused, story dropped. `busy`: someone else claimed it. */
+type PublishOutcome = { kind: "published"; id: string } | { kind: "rejected" } | { kind: "busy" };
+
+async function publishOne(story: StoryRow, deps: PipelineDeps): Promise<PublishOutcome> {
   const { db, ai, tralked, config } = deps;
   const now = deps.now();
-  const saved = db.articleForStory(story.id);
-  if (saved?.status === "published" && saved.site_id) {
-    db.setStoryStatus(story.id, "published");
-    return saved.site_id;
-  }
+  // Atomic claim: only one run may write a given story.
+  if (!db.setStoryStatusIf(story.id, "written", ["queued"])) return { kind: "busy" };
 
-  let payload: ArticlePayload;
-  if (saved?.status === "ready") {
-    payload = JSON.parse(saved.payload_json) as ArticlePayload;
-  } else {
-    const writing = await storyForWriting(story, deps);
-    let result: Awaited<ReturnType<typeof writeAndCheck>>;
-    try {
-      result = await writeAndCheck(ai, writing, "live", { models: config, now });
-    } catch (error) {
-      if (error instanceof BudgetExceededError) {
-        budgetAlert(db, error, now);
+  try {
+    const saved = db.articleForStory(story.id);
+    if (saved?.status === "published" && saved.site_id) {
+      db.setStoryStatus(story.id, "published");
+      return { kind: "published", id: saved.site_id };
+    }
+
+    let payload: ArticlePayload;
+    if (saved?.status === "ready") {
+      payload = JSON.parse(saved.payload_json) as ArticlePayload;
+    } else {
+      const writing = await storyForWriting(story, deps);
+      let result: Awaited<ReturnType<typeof writeAndCheck>>;
+      try {
+        result = await writeAndCheck(ai, writing, "live", { models: config, now });
+      } catch (error) {
+        if (error instanceof BudgetExceededError) budgetAlert(db, error, now);
+        if (error instanceof RefusalError) {
+          db.setStoryStatus(story.id, "dropped");
+          db.addAlert("recusa", `História ${story.id} "${story.headline}": ${error.message}`, now);
+          return { kind: "rejected" };
+        }
         throw error;
       }
-      if (error instanceof RefusalError) {
+      if (!result.ok) {
         db.setStoryStatus(story.id, "dropped");
-        db.addAlert("recusa", `História ${story.id} "${story.headline}": ${error.message}`, now);
-        return null;
+        db.addAlert(
+          "checagem",
+          `História ${story.id} "${story.headline}" reprovada duas vezes na checagem: ${result.problems.join(" | ")}`,
+          now,
+        );
+        return { kind: "rejected" };
+      }
+      payload = assemble(result.draft, writing, assembleOpts(story, writing, deps));
+      db.saveArticle(
+        { storyId: story.id, payloadJson: JSON.stringify(payload), status: "ready", parentArticleId: story.parent_article_id },
+        now,
+      );
+    }
+
+    let created: { id: string; slug: string };
+    try {
+      created = await tralked.createArticle(payload, articleKey("live", story.id));
+    } catch (error) {
+      if (error instanceof TralkedError) {
+        const permanent = error.status >= 400 && error.status < 500 && error.status !== 429;
+        db.addAlert("api", `Falha ao publicar a história ${story.id} "${story.headline}": ${error.status} ${error.message}`, now);
+        if (permanent) {
+          db.markArticle(story.id, { status: "failed" }, now);
+          db.setStoryStatus(story.id, "dropped");
+        }
       }
       throw error;
     }
-    if (!result.ok) {
-      db.setStoryStatus(story.id, "dropped");
-      db.addAlert(
-        "checagem",
-        `História ${story.id} "${story.headline}" reprovada duas vezes na checagem: ${result.problems.join(" | ")}`,
-        now,
-      );
-      return null;
-    }
-    payload = assemble(result.draft, writing, { insights: insightsOf(writing.candidates) });
-    db.saveArticle(
-      { storyId: story.id, payloadJson: JSON.stringify(payload), status: "ready", parentArticleId: story.parent_article_id },
-      now,
-    );
-  }
 
-  let created: { id: string; slug: string };
-  try {
-    created = await tralked.createArticle(payload, articleKey("live", story.id));
+    const publishedAt = deps.now();
+    db.saveArticle(
+      {
+        storyId: story.id,
+        payloadJson: JSON.stringify(payload),
+        status: "published",
+        siteId: created.id,
+        slug: created.slug,
+        publishedAt: publishedAt.toISOString(),
+        parentArticleId: story.parent_article_id,
+      },
+      publishedAt,
+    );
+    db.setStoryStatus(story.id, "published");
+    deps.log?.(`publicada: história ${story.id} → ${created.id} (${payload.title})`);
+    return { kind: "published", id: created.id };
   } catch (error) {
-    if (error instanceof TralkedError) {
-      const permanent = error.status >= 400 && error.status < 500 && error.status !== 429;
-      db.addAlert("api", `Falha ao publicar a história ${story.id} "${story.headline}": ${error.status} ${error.message}`, now);
-      if (permanent) {
-        db.markArticle(story.id, { status: "failed" }, now);
-        db.setStoryStatus(story.id, "dropped");
-      }
-    }
+    // Budget, transient site errors and anything unexpected: back to the queue (final states stay).
+    db.setStoryStatusIf(story.id, "queued", ["written"]);
     throw error;
   }
-
-  const publishedAt = deps.now();
-  db.saveArticle(
-    {
-      storyId: story.id,
-      payloadJson: JSON.stringify(payload),
-      status: "published",
-      siteId: created.id,
-      slug: created.slug,
-      publishedAt: publishedAt.toISOString(),
-      parentArticleId: story.parent_article_id,
-    },
-    publishedAt,
-  );
-  db.setStoryStatus(story.id, "published");
-  deps.log?.(`publicada: história ${story.id} → ${created.id} (${payload.title})`);
-  return created.id;
 }
 
 /**
- * Same-day update: rewrites the article with the previous version as context and PATCHes it with the
- * "Atualizado às" note. Does not touch `published_at`, so the day count is unchanged. Returns true when
- * patched. The idempotency key's counter is the story's item count, which only grows.
+ * Claims, writes, checks and publishes one story. Callers hold the publish lock.
+ * - Returns the site article id when published.
+ * - Returns null when the check failed twice or the writer refused (the story is `dropped` and an alert
+ *   raised), or when another run already claimed the story.
+ * - Throws `BudgetExceededError` (alert raised, story back to `queued`) and `TralkedError` (alert raised; back
+ *   to `queued` unless the site refused the article for good) so the caller stops the run.
+ * The checked payload is saved as `ready` before the POST, so a failed POST never pays for a second draft.
+ */
+export async function publishStory(story: StoryRow, deps: PipelineDeps): Promise<string | null> {
+  const outcome = await publishOne(story, deps);
+  return outcome.kind === "published" ? outcome.id : null;
+}
+
+/**
+ * Same-day update, only for a relevant new fact:
+ * - at least `UPDATE_MIN_GAP_MS` since publication or the last update, and at most `MAX_UPDATES_PER_DAY` a day;
+ * - a cheap novelty call (fast model) on the items that arrived since then must find new facts;
+ * - the writer then rewrites the article with the previous version and those facts, and it is PATCHed with
+ *   the "Atualizado às" note. `published_at` is untouched, so the day count does not change.
+ * Returns true when patched. The idempotency key's counter is the story's item count, which only grows.
  */
 async function updateStory(story: StoryRow, deps: PipelineDeps): Promise<boolean> {
   const { db, ai, tralked, config } = deps;
   const now = deps.now();
   const article = db.articleForStory(story.id);
-  if (!article?.site_id || article.status !== "published") return false;
-  const previousPayload = JSON.parse(article.payload_json) as Partial<ArticlePayload>;
-  const writing = await storyForWriting(story, deps, {
-    title: previousPayload.title ?? story.headline,
-    blocksText: blocksText(previousPayload.blocks ?? []),
-  });
+  if (!article?.site_id || !article.published_at || article.status !== "published") return false;
+
+  const updates = db.updateTimes(story.id);
+  const today = localDay(now);
+  if (updates.filter((at) => localDay(new Date(at)) === today).length >= MAX_UPDATES_PER_DAY) {
+    deps.log?.(`atualização adiada (limite de ${MAX_UPDATES_PER_DAY} por dia): história ${story.id}`);
+    return false;
+  }
+  const lastChange = Math.max(Date.parse(article.published_at), ...updates.map((at) => Date.parse(at)));
+  if (now.getTime() - lastChange < UPDATE_MIN_GAP_MS) {
+    deps.log?.(`atualização adiada (menos de 60 min desde a última mudança): história ${story.id}`);
+    return false;
+  }
+
+  // Everything that arrived since the article last changed, including items a gap or the cap held back.
+  const pending = db.itemsForStory(story.id).filter((i) => Date.parse(i.fetched_at) > lastChange);
+  if (pending.length === 0) return false;
+  const previousPayload = parsePayload(article);
+  const previousTitle = previousPayload.title ?? story.headline;
+  const previousText = blocksText(previousPayload.blocks ?? []);
 
   let result: Awaited<ReturnType<typeof writeAndCheck>>;
   try {
+    const novelty = await checkNovelty(
+      ai,
+      {
+        articleTitle: previousTitle,
+        articleText: previousText,
+        items: pending.map((i) => ({ title: i.title, text: i.text_unavailable === 1 ? "" : (i.text ?? i.summary ?? "") })),
+      },
+      "live",
+      { model: config.MODEL_FAST },
+    );
+    if (!novelty.hasNewFacts) {
+      deps.log?.(`sem fato novo: história ${story.id}`);
+      return false;
+    }
+    const writing = await storyForWriting(story, deps, {
+      title: previousTitle,
+      blocksText: previousText,
+      newFacts: novelty.newFacts,
+    });
     result = await writeAndCheck(ai, writing, "live", { models: config, now });
-  } catch (error) {
-    if (error instanceof BudgetExceededError) {
-      budgetAlert(db, error, now);
+    if (!result.ok) {
+      db.addAlert(
+        "checagem",
+        `Atualização da história ${story.id} "${story.headline}" reprovada duas vezes na checagem: ${result.problems.join(" | ")}`,
+        now,
+      );
+      return false;
+    }
+
+    const payload = assemble(result.draft, writing, assembleOpts(story, writing, deps, now));
+    const { status: _status, ...patch } = payload;
+    try {
+      await tralked.patchArticle(article.site_id, patch, updateKey(article.site_id, db.itemIdsForStory(story.id).length));
+    } catch (error) {
+      if (error instanceof TralkedError) {
+        db.addAlert("api", `Falha ao atualizar a matéria ${article.site_id}: ${error.status} ${error.message}`, now);
+      }
       throw error;
     }
+    db.saveArticle({ storyId: story.id, payloadJson: JSON.stringify(payload), status: "published" }, now);
+    db.recordUpdate(story.id, now);
+    deps.log?.(`atualizada: história ${story.id} (${article.site_id})`);
+    return true;
+  } catch (error) {
+    if (error instanceof BudgetExceededError) budgetAlert(db, error, now);
     if (error instanceof RefusalError) {
       db.addAlert("recusa", `Atualização da história ${story.id} "${story.headline}": ${error.message}`, now);
       return false;
     }
     throw error;
   }
-  if (!result.ok) {
-    db.addAlert(
-      "checagem",
-      `Atualização da história ${story.id} "${story.headline}" reprovada duas vezes na checagem: ${result.problems.join(" | ")}`,
-      now,
-    );
-    return false;
-  }
-
-  const payload = assemble(result.draft, writing, { insights: insightsOf(writing.candidates), updatedAt: now });
-  const { status: _status, ...patch } = payload;
-  try {
-    await tralked.patchArticle(article.site_id, patch, updateKey(article.site_id, db.itemIdsForStory(story.id).length));
-  } catch (error) {
-    if (error instanceof TralkedError) {
-      db.addAlert("api", `Falha ao atualizar a matéria ${article.site_id}: ${error.status} ${error.message}`, now);
-    }
-    throw error;
-  }
-  db.saveArticle({ storyId: story.id, payloadJson: JSON.stringify(payload), status: "published" }, now);
-  deps.log?.(`atualizada: história ${story.id} (${article.site_id})`);
-  return true;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -488,6 +610,7 @@ const emptyReport = (): ColetaReport => ({
   expired: 0,
   published: [],
   updated: 0,
+  feedUnavailable: false,
   stopped: null,
 });
 
@@ -616,9 +739,12 @@ async function clusterTriaged(deps: PipelineDeps, report: ColetaReport, now: Dat
 }
 
 /**
- * For published stories that got new items: same-day ones with `importance >= 50` are returned for an
- * update; earlier-day ones with `importance >= 70` get a follow-up story (an open follow-up of the same
- * article absorbs them instead of starting another).
+ * For published stories that got new items:
+ * - same-day ones with `importance >= 50` are returned as update candidates (`updateStory` then requires
+ *   a relevant new fact, the 60-min gap and the daily cap);
+ * - earlier-day ones with `importance >= 70` get a follow-up story. An `open` or `queued` follow-up of the
+ *   same article absorbs the items instead; no new follow-up starts while one is being written or when one
+ *   was already created today.
  */
 function planUpdatesAndFollowUps(
   touched: Map<number, ItemRow[]>,
@@ -647,7 +773,12 @@ function planUpdatesAndFollowUps(
     }
     if (top.t.importance < FOLLOW_UP_MIN_IMPORTANCE) continue;
 
-    const pending = db.followUpsOf(article.id).find((s) => s.status === "open" || s.status === "queued");
+    const existing = db.followUpsOf(article.id);
+    const pending = existing.find((s) => s.status === "open" || s.status === "queued");
+    if (!pending) {
+      const blocked = existing.some((s) => s.status === "written" || localDay(new Date(s.first_seen_at)) === today);
+      if (blocked) continue;
+    }
     const followUpId =
       pending?.id ??
       db.upsertStory(
@@ -673,14 +804,12 @@ function planUpdatesAndFollowUps(
   return updates;
 }
 
+/** Expires live `open`/`queued` stories, counting age from their earliest item. */
 function expireStale(deps: PipelineDeps, report: ColetaReport, now: Date): void {
   for (const status of ["open", "queued"] as const) {
     for (const story of deps.db.storiesByStatus(status, 100_000)) {
-      if (story.mode !== "live") continue;
-      if (isExpired({ score: story.score, firstSeenAt: new Date(story.first_seen_at) }, now)) {
-        deps.db.setStoryStatus(story.id, "expired");
-        report.expired++;
-      }
+      if (story.mode !== "live" || !expired(story, deps.db, now)) continue;
+      if (deps.db.setStoryStatusIf(story.id, "expired", ["open", "queued"])) report.expired++;
     }
   }
 }
@@ -715,25 +844,24 @@ async function coveredStories(candidates: StoryRow[], feed: FeedArticle[], deps:
     if (!article) continue;
     const story = candidates.find((s) => s.id === r.id);
     if (!story) continue;
-    if (story.parent_article_id !== null) {
-      const parent = db.raw.prepare("SELECT site_id FROM articles WHERE id = ?").get(story.parent_article_id) as
-        | { site_id: string | null }
-        | undefined;
-      if (parent?.site_id === article.id) continue;
-    }
+    if (story.parent_article_id !== null && db.articleById(story.parent_article_id)?.site_id === article.id) continue;
     if ((slugs.get(story.id) ?? []).some((slug) => article.games.includes(slug))) covered.add(story.id);
   }
   return covered;
 }
 
-/** Drops covered stories, then queues the publishable open ones. Queued stories are re-checked each run. */
+/**
+ * Drops covered stories, then queues the publishable open ones. Queued stories are re-checked each run,
+ * except those with a `ready` article (already written and paid for). Status changes are conditional, so
+ * a story a publisher claimed meanwhile is left alone.
+ */
 async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date): Promise<void> {
   const { db } = deps;
   const open = db
     .storiesByStatus("open", 100_000)
     .filter((s) => s.mode === "live" && storyFacts(s, deps, now).publishable);
   const queued = db.storiesByStatus("queued", 100_000).filter((s) => s.mode === "live");
-  const candidates = [...open, ...queued];
+  const candidates = [...open, ...queued].filter((s) => db.articleForStory(s.id)?.status !== "ready");
   if (candidates.length === 0) return;
 
   let feed: FeedArticle[];
@@ -743,7 +871,7 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
     // Without the feed we cannot tell what the site already covered: queue nothing new this run.
     if (error instanceof TralkedError) {
       db.addAlert("api", `Falha ao ler as matérias recentes do site: ${error.status} ${error.message}`, now);
-      report.stopped = "api";
+      report.feedUnavailable = true;
       return;
     }
     throw error;
@@ -752,11 +880,9 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
   const covered = await coveredStories(candidates, feed, deps);
   for (const story of candidates) {
     if (covered.has(story.id)) {
-      db.setStoryStatus(story.id, "dropped");
-      report.covered++;
+      if (db.setStoryStatusIf(story.id, "dropped", ["open", "queued"])) report.covered++;
     } else if (story.status === "open") {
-      db.setStoryStatus(story.id, "queued");
-      report.queued++;
+      if (db.setStoryStatusIf(story.id, "queued", ["open"])) report.queued++;
     }
   }
 }
@@ -764,15 +890,21 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
 /** Bombs go out right away, even outside the slot window, while today's count is under the cap. */
 async function publishBombs(deps: PipelineDeps, report: ColetaReport): Promise<void> {
   const { db, config } = deps;
-  const bombs = db.storiesByStatus("queued", 100_000).filter((s) => s.mode === "live" && s.bomb === 1);
-  for (const story of bombs) {
-    if (db.publishedCountOn(localDay(deps.now())) >= config.MAX_PER_DAY) {
-      deps.log?.(`bomba na fila (limite diário atingido): história ${story.id}`);
-      return;
+  const hasBombs = () => db.storiesByStatus("queued", 100_000).some((s) => s.mode === "live" && s.bomb === 1);
+  if (!hasBombs()) return;
+  const ran = await withPublishLock(deps, async () => {
+    const bombs = db.storiesByStatus("queued", 100_000).filter((s) => s.mode === "live" && s.bomb === 1);
+    for (const story of bombs) {
+      // Re-checked inside the lock: a concurrent `publica` may have just published.
+      if (db.publishedCountOn(localDay(deps.now())) >= config.MAX_PER_DAY) {
+        deps.log?.(`bomba na fila (limite diário atingido): história ${story.id}`);
+        return;
+      }
+      const outcome = await publishOne(story, deps);
+      if (outcome.kind === "published") report.published.push(outcome.id);
     }
-    const id = await publishStory(story, deps);
-    if (id) report.published.push(id);
-  }
+  });
+  if (!ran) deps.log?.("bombas na fila: outra publicação em andamento, ficam para a próxima coleta");
 }
 
 export async function runColeta(deps: PipelineDeps): Promise<ColetaReport> {
@@ -819,8 +951,8 @@ export async function runColeta(deps: PipelineDeps): Promise<ColetaReport> {
 function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
   for (const story of deps.db.storiesByStatus("queued", 100_000)) {
     if (story.mode !== "live") continue;
-    if (isExpired({ score: story.score, firstSeenAt: new Date(story.first_seen_at) }, now)) {
-      deps.db.setStoryStatus(story.id, "expired");
+    if (expired(story, deps.db, now)) {
+      deps.db.setStoryStatusIf(story.id, "expired", ["queued"]);
       continue;
     }
     return story;
@@ -835,32 +967,45 @@ function refusal(deps: PipelineDeps, now: Date): string | null {
     return `fora da grade (${config.SLOT_FIRST_HOUR}h–${config.SLOT_LAST_HOUR}h, horário de Brasília)`;
   }
   if (db.publishedCountOn(localDay(now)) >= config.MAX_PER_DAY) return `limite diário de ${config.MAX_PER_DAY} matérias atingido`;
+  if (db.getMeta(LAST_SLOT_KEY) === slotOf(now)) return "já houve publicação neste horário";
   return null;
 }
 
+/**
+ * One slot: refuses when paused, outside 06–23, at the daily cap or when this local hour already had a
+ * `publica` article (bombs are exempt); waits 0–12 min (not with `--agora`); then, holding the publish
+ * lock, re-checks and publishes the best queued story, trying the next one once after a failed check.
+ */
 export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
   const before = refusal(deps, deps.now());
   if (before) return { published: null, reason: before };
 
   if (!deps.agora) await deps.sleep(Math.floor(deps.rand() * JITTER_MAX_MS));
 
-  // A bomb or a pause may have happened during the wait.
-  const now = deps.now();
-  const after = refusal(deps, now);
-  if (after) return { published: null, reason: after };
+  const ran = await withPublishLock(deps, async (): Promise<PublicaResult> => {
+    // A bomb, a pause or another publisher may have acted during the wait.
+    const now = deps.now();
+    const after = refusal(deps, now);
+    if (after) return { published: null, reason: after };
 
-  // On a failed check the story is dropped and the next one gets one try.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const story = nextQueued(deps, now);
-    if (!story) return { published: null, reason: attempt === 0 ? "fila vazia" : "checagem reprovou a história; fila vazia" };
-    try {
-      const id = await publishStory(story, deps);
-      if (id) return { published: id, reason: `publicada a história ${story.id}: ${story.headline}` };
-    } catch (error) {
-      if (error instanceof BudgetExceededError) return { published: null, reason: `orçamento diário esgotado (${error.message})` };
-      if (error instanceof TralkedError) return { published: null, reason: `erro da API do site: ${error.status} ${error.message}` };
-      throw error;
+    let rejected = 0;
+    for (let attempt = 0; attempt < 3 && rejected < 2; attempt++) {
+      const story = nextQueued(deps, now);
+      if (!story) return { published: null, reason: rejected === 0 ? "fila vazia" : "checagem reprovou a história; fila vazia" };
+      try {
+        const outcome = await publishOne(story, deps);
+        if (outcome.kind === "published") {
+          deps.db.setMeta(LAST_SLOT_KEY, slotOf(now));
+          return { published: outcome.id, reason: `publicada a história ${story.id}: ${story.headline}` };
+        }
+        if (outcome.kind === "rejected") rejected++;
+      } catch (error) {
+        if (error instanceof BudgetExceededError) return { published: null, reason: `orçamento diário esgotado (${error.message})` };
+        if (error instanceof TralkedError) return { published: null, reason: `erro da API do site: ${error.status} ${error.message}` };
+        throw error;
+      }
     }
-  }
-  return { published: null, reason: "checagem reprovou duas histórias seguidas" };
+    return { published: null, reason: "checagem reprovou duas histórias seguidas" };
+  });
+  return ran?.value ?? { published: null, reason: "outra publicação em andamento" };
 }

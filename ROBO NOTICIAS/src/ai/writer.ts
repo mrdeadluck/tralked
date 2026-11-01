@@ -61,8 +61,10 @@ export type StoryForWriting = {
   rumor: boolean;
   sources: StorySource[];
   candidates: { slug: string; name: string; insights: Insights | null }[];
-  /** Set when updating an article that is already published. */
-  previous?: { title: string; blocksText: string };
+  /** Set when updating an article that is already published; `newFacts` are the facts the update adds. */
+  previous?: { title: string; blocksText: string; newFacts?: string[] };
+  /** Set on a follow-up: the earlier article of the same case, context only (linked by `assemble`). */
+  parent?: { title: string; blocksText: string };
 };
 
 export type Models = Pick<Config, "MODEL_WRITER" | "MODEL_FAST">;
@@ -190,12 +192,26 @@ export function writePrompt(story: StoryForWriting, now: Date = new Date()): str
     ].join("\n"),
   );
 
+  if (story.parent) {
+    parts.push(
+      [
+        "## Suíte de uma matéria anterior",
+        `<caso_anterior titulo="${attr(story.parent.title)}">\n${body(story.parent.blocksText)}\n</caso_anterior>`,
+        "Esta matéria é a continuação de um caso que o Tralked já publicou (acima, só como contexto). Escreva uma matéria nova sobre o desenvolvimento trazido pelas fontes: o fato novo vai para o título, a linha fina e o começo do corpo. Não repita a matéria anterior; retome o caso em no máximo uma frase. O link para a matéria anterior é acrescentado automaticamente.",
+      ].join("\n\n"),
+    );
+  }
+
   if (story.previous) {
+    const newFacts = story.previous.newFacts ?? [];
     parts.push(
       [
         "## Atualização",
         `<materia_anterior titulo="${attr(story.previous.title)}">\n${body(story.previous.blocksText)}\n</materia_anterior>`,
         "Esta matéria já foi publicada. Reescreva-a inteira e acrescente os fatos novos das fontes acima: o fato novo vai para o título, a linha fina e o começo do corpo; o que continua válido permanece.",
+        ...(newFacts.length > 0
+          ? [`Fatos novos a acrescentar (confira cada um nas fontes):\n${newFacts.map((f) => `- ${body(f)}`).join("\n")}`]
+          : []),
       ].join("\n\n"),
     );
   }
@@ -206,13 +222,16 @@ export function writePrompt(story: StoryForWriting, now: Date = new Date()): str
 
 /** The sources as plain text for the fact-checker, escaped like the writer's source bodies. */
 export function sourcesText(story: StoryForWriting): string {
-  return story.sources
-    .map((s) =>
-      isHeadlineOnly(s)
-        ? `[${body(s.name)}] manchete apenas (${dateOf(s.publishedAt)}): ${body(s.title ?? s.text)}`
-        : `[${body(s.name)}] (${s.tier}, ${dateOf(s.publishedAt)}, ${body(s.url)})\n${body(s.text)}`,
-    )
-    .join("\n\n");
+  const sources = story.sources.map((s) =>
+    isHeadlineOnly(s)
+      ? `[${body(s.name)}] manchete apenas (${dateOf(s.publishedAt)}): ${body(s.title ?? s.text)}`
+      : `[${body(s.name)}] (${s.tier}, ${dateOf(s.publishedAt)}, ${body(s.url)})\n${body(s.text)}`,
+  );
+  // A follow-up may recap the case in one sentence: the checker needs the earlier article to verify it.
+  if (story.parent) {
+    sources.push(`[Matéria anterior do Tralked] ${body(story.parent.title)}\n${body(story.parent.blocksText)}`);
+  }
+  return sources.join("\n\n");
 }
 
 function feedbackOf(problems: string[]): string {

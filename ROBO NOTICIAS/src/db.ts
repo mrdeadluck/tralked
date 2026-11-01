@@ -192,6 +192,18 @@ CREATE TABLE IF NOT EXISTS source_health (
   last_error TEXT
 );
 
+CREATE TABLE IF NOT EXISTS article_updates (
+  id INTEGER PRIMARY KEY,
+  story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_article_updates_story ON article_updates(story_id);
+
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY,
   at TEXT NOT NULL,
@@ -235,6 +247,8 @@ export interface Db {
   itemIdsForStory(storyId: number): number[];
   storiesByStatus(status: StoryStatus, limit?: number): StoryRow[];
   setStoryStatus(id: number, status: StoryStatus): void;
+  /** Changes the status only when it is currently one of `from`; true when the row changed (atomic claim). */
+  setStoryStatusIf(id: number, status: StoryStatus, from: StoryStatus[]): boolean;
   storyById(id: number): StoryRow | undefined;
   storyByKey(key: string): StoryRow | undefined;
   /** Follow-up stories of an article, newest first. */
@@ -249,6 +263,13 @@ export interface Db {
   saveArticle(article: ArticleInput, now?: Date): number;
   markArticle(storyId: number, patch: ArticlePatch, now?: Date): void;
   articleForStory(storyId: number): ArticleRow | undefined;
+  articleById(id: number): ArticleRow | undefined;
+  /** Same-day updates (PATCH) of a story's article. */
+  recordUpdate(storyId: number, at?: Date): void;
+  updateTimes(storyId: number): string[];
+
+  getMeta(key: string): string | undefined;
+  setMeta(key: string, value: string): void;
 
   markSourceOk(sourceId: string, now?: Date): void;
   markSourceError(sourceId: string, message: string, now?: Date): void;
@@ -383,6 +404,14 @@ export function openDb(dir: string): Db {
       raw.prepare("UPDATE stories SET status = ? WHERE id = ?").run(status, id);
     },
 
+    setStoryStatusIf(id, status, from) {
+      if (from.length === 0) return false;
+      const result = raw
+        .prepare(`UPDATE stories SET status = ? WHERE id = ? AND status IN (${from.map(() => "?").join(", ")})`)
+        .run(status, id, ...from);
+      return Number(result.changes) === 1;
+    },
+
     storyById(id) {
       return one<StoryRow>("SELECT * FROM stories WHERE id = ?", id);
     },
@@ -474,6 +503,28 @@ export function openDb(dir: string): Db {
 
     articleForStory(storyId) {
       return one<ArticleRow>("SELECT * FROM articles WHERE story_id = ?", storyId);
+    },
+
+    articleById(id) {
+      return one<ArticleRow>("SELECT * FROM articles WHERE id = ?", id);
+    },
+
+    recordUpdate(storyId, at = new Date()) {
+      raw.prepare("INSERT INTO article_updates (story_id, at) VALUES (?, ?)").run(storyId, iso(at));
+    },
+
+    updateTimes(storyId) {
+      return rows<{ at: string }>("SELECT at FROM article_updates WHERE story_id = ? ORDER BY at", storyId).map((r) => r.at);
+    },
+
+    getMeta(key) {
+      return one<{ value: string }>("SELECT value FROM meta WHERE key = ?", key)?.value;
+    },
+
+    setMeta(key, value) {
+      raw
+        .prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .run(key, value);
     },
 
     markSourceOk(sourceId, now = new Date()) {
