@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { checkDraft } from "./ai/checker.js";
 import { BudgetExceededError, RefusalError, costUsd } from "./ai/client.js";
-import { clusterItems, storyKeyOf, type ClusterItem, type OpenStory } from "./ai/cluster.js";
+import { CLUSTER_CHUNK, clusterItems, storyKeyOf, type ClusterItem, type OpenStory } from "./ai/cluster.js";
 import { TRIAGE_CHUNK, triageItems, type Triage, type TriageInput } from "./ai/triage.js";
 import { parseDraftText, sourcesText, writeBatchRequest, writeDraft, type Draft, type StoryForWriting } from "./ai/writer.js";
 import { alert, alertOncePerDay } from "./alerts.js";
@@ -26,7 +26,7 @@ import {
   type PipelineDeps,
 } from "./pipeline.js";
 import { isPublishable, type Tier } from "./rank.js";
-import { TralkedError, articleKey, type ArticlePayload, type FeedArticle } from "./tralked.js";
+import { FEED_LIMIT, TralkedError, articleKey, type ArticlePayload, type FeedArticle } from "./tralked.js";
 import { normalizeUrl } from "./url.js";
 
 /**
@@ -558,7 +558,24 @@ async function quotasFor(deps: BackfillDeps, report: RetroativoReport): Promise<
     report.stopped = "api";
     return null;
   }
-  const covered = await coveredStories(open, feed, deps, "backfill");
+  if (feed.length >= FEED_LIMIT) {
+    deps.log?.(`retroativo: o feed do site veio com ${feed.length} matérias (o limite); as mais antigas podem faltar na checagem`);
+    alert(
+      db,
+      "api",
+      `Retroativo: cobertura do site limitada a ${FEED_LIMIT} matérias; matérias mais antigas da janela podem não ter sido checadas.`,
+      now,
+    );
+  }
+
+  // Only stories that could be published are checked. Each slice is its own call against the same feed:
+  // every prompt is the feed plus at most CLUSTER_CHUNK stories, and a story counts as covered only when it
+  // joins a feed article (stories never accumulate across slices).
+  const candidates = open.filter((s) => couldBePublishable(s, deps));
+  const covered = new Set<number>();
+  for (let i = 0; i < candidates.length; i += CLUSTER_CHUNK) {
+    for (const id of await coveredStories(candidates.slice(i, i + CLUSTER_CHUNK), feed, deps, "backfill")) covered.add(id);
+  }
   tx(db, () => {
     for (const id of covered) if (db.setStoryStatusIf(id, "dropped", ["open"])) report.covered++;
   });

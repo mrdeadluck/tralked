@@ -730,6 +730,64 @@ describe("escrever", () => {
     expect(JSON.parse(h.db.getMeta("retroativo.cotas")!)).toEqual({ "2026-09-01": 1, "2026-09-02": 1 });
   });
 
+  it("checks coverage in slices of 40 publishable candidates, each against the same feed only", async () => {
+    const h = harness();
+    // Room for every story (at most 4 a day), so only coverage drops anything.
+    h.config.BACKFILL_TOTAL = 1000;
+    h.config.BACKFILL_BUDGET_USD = 1000;
+    const ids = Array.from({ length: 100 }, (_, i) =>
+      seedStory(h, `2026-09-${String((i % 28) + 1).padStart(2, "0")}`, `Pauta ${i}`, { score: 50 + (i % 40) }),
+    );
+    // A single "outro" source is never publishable: it is not even sent to the coverage check.
+    const unpublishable = seedStory(h, "2026-09-01", "Pauta de blog", { sourceId: "blog" });
+    const coveredIdx = [3, 41, 50, 77, 99];
+    const article = (n: number, title: string, games: string[]): FeedArticle => ({
+      id: `ed-${n}`, slug: `ed-${n}`, title, category: "GAMES", publishedAt: local("2026-09-10T12:00").toISOString(), source: "editorial", games,
+    });
+    h.site.state.feed = [
+      ...coveredIdx.map((i) => article(i, `Pauta ${i}`, ["hades-ii"])),
+      article(1000, "Pauta 10", ["outro-jogo"]), // same title, another game: not coverage
+      ...Array.from({ length: 20 }, (_, n) => article(2000 + n, `Outra matéria ${n}`, ["hades-ii"])),
+    ];
+
+    const result = await runRetroativo(h.deps, "escrever");
+    expect(result.covered).toBe(5);
+    for (const [i, id] of ids.entries()) {
+      expect([i, h.db.storyById(id)!.status]).toEqual([i, coveredIdx.includes(i) ? "dropped" : "written"]);
+    }
+
+    const coverageCalls = h.fake.calls.filter((c) => c.purpose === "cluster");
+    expect(coverageCalls).toHaveLength(3); // 40 + 40 + 20
+    const seen: number[] = [];
+    for (const c of coverageCalls) {
+      const [openPart, itemsPart] = c.user.split("\n\nNew items:\n");
+      const open = JSON.parse(openPart!.replace("Open stories:\n", "")) as { key: string }[];
+      const items = JSON.parse(itemsPart!) as { id: number }[];
+      expect(items.length).toBeLessThanOrEqual(40);
+      // The feed and nothing else: no story opened by an earlier slice.
+      expect(open.map((o) => o.key).sort()).toEqual(h.site.state.feed.map((a) => `feed-${a.id}`).sort());
+      seen.push(...items.map((it) => it.id));
+    }
+    expect(seen.sort((a, b) => a - b)).toEqual([...ids].sort((a, b) => a - b));
+    expect(seen).not.toContain(unpublishable);
+    // A full-size feed was not returned: no limit alert.
+    expect(h.db.alerts().filter((a) => a.message.includes("limitada"))).toHaveLength(0);
+  });
+
+  it("logs and raises one api alert when the site feed comes back at its 200-article limit", async () => {
+    const h = harness();
+    const log = vi.fn();
+    h.deps.log = log;
+    seedStory(h, "2026-09-01", "Alfa");
+    h.site.state.feed = Array.from({ length: 200 }, (_, n) => ({
+      id: `ed-${n}`, slug: `ed-${n}`, title: `Matéria ${n}`, category: "GAMES", publishedAt: local("2026-10-01T12:00").toISOString(), source: "editorial" as const, games: [],
+    }));
+    await runRetroativo(h.deps, "escrever");
+    const limited = h.db.alerts().filter((a) => a.kind === "api" && a.message.includes("cobertura do site limitada a 200 matérias"));
+    expect(limited).toHaveLength(1);
+    expect(log.mock.calls.some((c) => String(c[0]).includes("200 matérias"))).toBe(true);
+  });
+
   it("stops without choosing anything when the site feed cannot be read", async () => {
     const h = harness();
     const id = seedStory(h, "2026-09-01", "Alfa");
