@@ -14,7 +14,7 @@ import { toLocalDay } from "@/lib/engine/streak";
 import { NEWS_FEED_AREA_LABEL, type NewsFeedArea } from "@/lib/news/areas";
 import { timeAgo } from "@/lib/time-ago";
 
-import { companyArt, withCompanyArt } from "./company-art";
+import { companyArt, pickIndex, withCompanyArt } from "./company-art";
 
 // Plain, testable queries. Caching is applied by the calling components ("use cache").
 
@@ -128,7 +128,15 @@ export type TodayMission = {
 
 const PUBLISHED = { status: "published" } as const;
 
-const gameSelect = { slug: true, name: true, heroUrl: true, coverUrl: true } as const;
+/** A game's portrait cover and its first screenshots: articles of one game take turns among them. */
+const SCENE_MEDIA = {
+  where: { kind: { in: ["cover", "screenshot"] }, url: { not: null } },
+  orderBy: [{ kind: "asc" as const }, { order: "asc" as const }],
+  take: 9,
+  select: { url: true as const, kind: true as const },
+};
+
+const gameSelect = { slug: true, name: true, heroUrl: true, coverUrl: true, media: SCENE_MEDIA } as const;
 
 const cardSelect = {
   id: true,
@@ -152,7 +160,29 @@ const cardSelect = {
   games: { select: { game: { select: gameSelect } }, orderBy: { gameId: "asc" } },
 } as const;
 
-type GameRow = { slug: string; name: string; heroUrl: string | null; coverUrl: string | null };
+type GameRow = {
+  slug: string;
+  name: string;
+  heroUrl: string | null;
+  coverUrl: string | null;
+  media: { url: string | null; kind: string }[];
+};
+
+/**
+ * Wide art of an article's first game that has any: its hero or one of its screenshots, picked by
+ * the article slug, so three stories of the same game do not all show the same image. Portrait
+ * cover only when there is nothing wide.
+ */
+function gameScene(games: GameRow[], seed: string): string | null {
+  for (const g of games) {
+    const wide = [g.heroUrl, ...g.media.filter((m) => m.kind === "screenshot").map((m) => m.url)].filter(
+      (url): url is string => Boolean(url && url.startsWith("https://")),
+    );
+    if (wide.length > 0) return wide[pickIndex(seed, wide.length)];
+    if (g.coverUrl) return g.coverUrl;
+  }
+  return null;
+}
 
 type CardRow = {
   id: string;
@@ -215,7 +245,7 @@ function toCard(row: CardRow): ArticleCard {
     imageLabel: row.imageLabel,
     imageUrl:
       (firstImage?.type === "image" ? firstImage.url : null) ??
-      games.map((g) => g.heroUrl ?? g.coverUrl).find((url) => url) ??
+      gameScene(games, row.slug) ??
       null,
     authorHandle: row.author.handle,
     authorLabel: authorLabel(row.source, row.author.handle),
@@ -337,13 +367,6 @@ export async function getNewsIndex(input: {
 }
 
 /** The first cover image of a game's media (Plan 4 F12: chips and cards of the article page). */
-const COVER_MEDIA = {
-  where: { kind: "cover", url: { not: null } },
-  orderBy: { order: "asc" },
-  take: 1,
-  select: { url: true },
-} as const;
-
 export async function getArticle(slug: string): Promise<ArticleFull | null> {
   const row = await prisma.article.findUnique({
     // Drafts, articles in review and archived ones are not public.
@@ -352,10 +375,10 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
       ...cardSelect,
       source: true,
       reviewedAt: true,
-      game: { select: { ...gameSelect, id: true, guide: { select: { status: true } }, media: COVER_MEDIA } },
+      game: { select: { ...gameSelect, id: true, guide: { select: { status: true } } } },
       games: {
         select: {
-          game: { select: { ...gameSelect, id: true, guide: { select: { status: true } }, media: COVER_MEDIA } },
+          game: { select: { ...gameSelect, id: true, guide: { select: { status: true } } } },
         },
         orderBy: { gameId: "asc" },
       },
@@ -374,7 +397,7 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     name: g.name,
     hasGuide: g.guide?.status === "published",
     // The catalog's cover art (as on the game page): media cover first, then Game.coverUrl.
-    coverUrl: safeImageUrl(g.media[0]?.url) ?? safeImageUrl(g.coverUrl),
+    coverUrl: safeImageUrl(g.media.find((m) => m.kind === "cover")?.url) ?? safeImageUrl(g.coverUrl),
   }));
 
   const [achievements, externalNews] = await Promise.all([
@@ -389,7 +412,7 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     source: row.source,
     reviewed: row.reviewedAt !== null,
     heroUrl:
-      gameRows.map((g) => g.heroUrl ?? g.coverUrl).find((url) => url) ??
+      gameScene(gameRows, row.slug) ??
       (await companyArt(`${row.title} ${row.subtitle ?? ""}`, row.slug)),
     game: games[0] ?? null,
     games,
