@@ -22,6 +22,26 @@ export const HK_EXTERNAL_NEWS: { title: string; url: string; source: string; ago
   { title: "Trilha sonora de Hollow Knight volta às plataformas de streaming", url: "https://example.org/games/hollow-knight-trilha-sonora", source: "Revista Fictícia", agoHours: 150 },
 ];
 
+/**
+ * Plan 4 F7: example headlines of the Entretenimento and Tecnologia feed areas (fictional
+ * sources, example.com links), so their tabs and archive filters have press items offline.
+ */
+export const AREA_EXTERNAL_NEWS: {
+  title: string;
+  url: string;
+  source: string;
+  area: "ENTRETENIMENTO" | "TECNOLOGIA";
+  gameSlug: string | null;
+  agoHours: number;
+}[] = [
+  { title: "Série animada do jogo Hades ganha primeiro teaser (exemplo)", url: "https://example.com/tela/hades-serie-animada-teaser", source: "Tela Fictícia", area: "ENTRETENIMENTO", gameSlug: "hades", agoHours: 3 },
+  { title: "Filme de Elden Ring define elenco principal (exemplo)", url: "https://example.com/tela/elden-ring-filme-elenco", source: "Tela Fictícia", area: "ENTRETENIMENTO", gameSlug: "elden-ring", agoHours: 26 },
+  { title: "Anime baseado em jogo de luta estreia em janeiro (exemplo)", url: "https://example.org/anime/jogo-de-luta-estreia", source: "Anime Exemplo", area: "ENTRETENIMENTO", gameSlug: null, agoHours: 52 },
+  { title: "Nova geração de placas de vídeo promete ray tracing mais barato (exemplo)", url: "https://example.com/bit/placas-de-video-nova-geracao", source: "Bit Exemplo", area: "TECNOLOGIA", gameSlug: null, agoHours: 4 },
+  { title: "IA nos estúdios: como equipes de games usam a ferramenta nos bastidores (exemplo)", url: "https://example.org/chip/ia-nos-estudios-de-games", source: "Chip Fictício", area: "TECNOLOGIA", gameSlug: null, agoHours: 30 },
+  { title: "Portátil para PC roda Elden Ring a 60 fps nos testes (exemplo)", url: "https://example.com/bit/portatil-elden-ring-60-fps", source: "Bit Exemplo", area: "TECNOLOGIA", gameSlug: "elden-ring", agoHours: 75 },
+];
+
 export const FORUM_CATEGORIES = [
   { slug: "geral", name: "Geral", description: "Conversa sobre jogos, conquistas e o que você está jogando.", order: 0 },
   { slug: "ajuda", name: "Ajuda e conquistas", description: "Dúvidas sobre conquistas, troféus e rotas de 100%.", order: 1 },

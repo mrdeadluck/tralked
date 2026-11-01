@@ -5,7 +5,7 @@ import type { GuideForEdit } from "@/lib/admin/guides";
 import { GUIDE_NOTE_CATEGORIES } from "@/lib/content/guide-schema";
 import { BlockEditor } from "./BlockEditor";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, TrashIcon } from "./icons";
-import { HINT, INPUT, LABEL, SELECT, SMALL_BUTTON, TEXTAREA } from "./ui";
+import { HINT, INPUT, LABEL, SELECT, SMALL_BUTTON, SMALL_BUTTON_DANGER, TEXTAREA } from "./ui";
 
 /*
  * The list sections of the guide editor: achievement notes, collectibles and sources. Each is a
@@ -74,7 +74,7 @@ function RowTools({ index, count, noun, onMove, onRemove }: {
       </button>
       <button
         type="button"
-        className={`${SMALL_BUTTON} hover:border-nin hover:text-nin`}
+        className={SMALL_BUTTON_DANGER}
         aria-label={`Remover ${noun} ${index + 1}`}
         onClick={onRemove}
       >

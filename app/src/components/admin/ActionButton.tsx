@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { SMALL_BUTTON } from "./ui";
+import { BUTTON_TONE, SMALL_BUTTON_SHAPE } from "./ui";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -19,12 +19,6 @@ type ActionButtonProps<I> = {
   /** Shown after success (the list refreshes either way). */
   done?: string;
 };
-
-const TONES = {
-  default: "",
-  danger: "hover:border-nin hover:text-nin",
-  primary: "border-acc text-acc hover:bg-acc hover:text-bg",
-} as const;
 
 /** One admin action on one row: runs the Server Action, then refreshes the page's data. */
 export function ActionButton<I>({ action, input, label, ariaLabel, confirm, tone = "default", done }: ActionButtonProps<I>) {
@@ -53,7 +47,7 @@ export function ActionButton<I>({ action, input, label, ariaLabel, confirm, tone
         onClick={run}
         disabled={pending}
         aria-label={ariaLabel}
-        className={`${SMALL_BUTTON} ${TONES[tone]}`}
+        className={`${SMALL_BUTTON_SHAPE} h-9 ${BUTTON_TONE[tone]}`}
       >
         {pending ? `${label}…` : label}
       </button>

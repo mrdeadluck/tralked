@@ -19,7 +19,7 @@ import {
   type SourceDraft,
 } from "./GuideListsEditor";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, TrashIcon } from "./icons";
-import { AdminSection, HINT, INPUT, LABEL, SELECT, SMALL_BUTTON, TEXTAREA } from "./ui";
+import { AdminSection, HINT, INPUT, LABEL, SELECT, SMALL_BUTTON, SMALL_BUTTON_DANGER, TEXTAREA } from "./ui";
 
 /** `id`: the stored step (readers' checkmarks follow it); none for a step added in this session. */
 type StepDraft = { key: string; id?: string; title: string; hours: string; achievements: string; body: BlockDraft[] };
@@ -250,7 +250,7 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
                   </button>
                   <button
                     type="button"
-                    className={`${SMALL_BUTTON} hover:border-nin hover:text-nin`}
+                    className={SMALL_BUTTON_DANGER}
                     aria-label={`Remover etapa ${i + 1}`}
                     onClick={() => {
                       const prompt = step.id

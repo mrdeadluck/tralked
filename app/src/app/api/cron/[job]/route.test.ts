@@ -19,6 +19,11 @@ vi.mock("@/lib/sync/user", () => ({ syncStaleUsers: jobs.syncStaleUsers }));
 vi.mock("@/lib/sync/platform-user", () => ({ syncStalePlatformAccounts: jobs.syncStalePlatformAccounts }));
 vi.mock("@/lib/sync/media", () => ({ syncStaleMedia: jobs.syncStaleMedia }));
 vi.mock("@/lib/sync/external-news", () => ({ syncExternalNews: jobs.syncExternalNews }));
+const cache = vi.hoisted(() => ({ revalidateTag: vi.fn() }));
+vi.mock("next/cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/cache")>()),
+  revalidateTag: cache.revalidateTag,
+}));
 
 import { GET } from "./route";
 
@@ -61,5 +66,15 @@ describe("GET /api/cron/[job]", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ job, processed: expect.any(Number) });
     expect(jobs[fn]).toHaveBeenCalledTimes(1);
+  });
+
+  it("news refreshes the cached news views only when headlines were added", async () => {
+    await call("news", `Bearer ${env.CRON_SECRET}`);
+    expect(cache.revalidateTag).toHaveBeenCalledWith("news", "max");
+
+    cache.revalidateTag.mockClear();
+    jobs.syncExternalNews.mockResolvedValueOnce({ processed: 2, failed: 0, created: 0 });
+    await call("news", `Bearer ${env.CRON_SECRET}`);
+    expect(cache.revalidateTag).not.toHaveBeenCalled();
   });
 });

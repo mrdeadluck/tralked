@@ -4,6 +4,7 @@ import { plainText } from "@/lib/content/schema";
 import { assertPublicHost, resolveHost, type ResolveHost } from "@/lib/integrations/rss";
 import { prisma } from "@/lib/db";
 import { SKILLS, type SkillId } from "@/lib/engine/types";
+import { NEWS_FEED_AREAS } from "@/lib/news/areas";
 
 /**
  * Game overrides from the admin: the skills (genres) a game trains and its aliases (used to match
@@ -150,6 +151,8 @@ export const feedSchema = z.strictObject({
     .url({ protocol: /^https$/, hostname: z.regexes.domain, error: "Use o endereço https:// do feed RSS" })
     .max(2048),
   active: z.boolean(),
+  /** Plan 4 F7: which headlines are kept and which tab shows them. Omitted: GAMES on create, unchanged on edit. */
+  area: z.enum(NEWS_FEED_AREAS, { error: "Escolha a área do feed" }).optional(),
 });
 export type FeedInput = z.output<typeof feedSchema>;
 export const feedIdSchema = z.strictObject({ id: FEED_ID });
@@ -169,7 +172,7 @@ export async function saveFeed(
   } catch {
     return { ok: false, error: "Esse endereço não leva a um site público (rede interna ou domínio inexistente).", field: "url" };
   }
-  const data = { name: input.name, url: input.url, active: input.active };
+  const data = { name: input.name, url: input.url, active: input.active, ...(input.area ? { area: input.area } : {}) };
   try {
     if (input.id) {
       const { count } = await prisma.newsFeed.updateMany({ where: { id: input.id }, data });
@@ -190,5 +193,5 @@ export async function deleteFeed(id: string): Promise<{ ok: true } | { ok: false
 }
 
 export async function listFeeds() {
-  return prisma.newsFeed.findMany({ orderBy: [{ active: "desc" }, { name: "asc" }] });
+  return prisma.newsFeed.findMany({ orderBy: [{ area: "asc" }, { active: "desc" }, { name: "asc" }] });
 }
