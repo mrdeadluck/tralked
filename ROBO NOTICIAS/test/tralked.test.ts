@@ -167,6 +167,15 @@ describe("repairs", () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
+  it("suffixes a pauta's slug with pauta-<id> on a 409 slug_conflict", async () => {
+    const { client, fetchFn } = setup(
+      errorReply(409, "slug_conflict", [{ path: "/slug", message: "Slug em uso" }]),
+      reply(201, { ...created, url: `${BASE}/noticias/hades-2-chega-ao-switch-pauta-7` }),
+    );
+    await client.createArticle(payload, "robo-pauta-live-7");
+    expect(bodyOf(fetchFn, 1).slug).toBe("hades-2-chega-ao-switch-pauta-7");
+  });
+
   it("gives up when the suffixed slug conflicts too", async () => {
     const conflict = () => errorReply(409, "slug_conflict", [{ path: "/slug", message: "Slug em uso" }]);
     const { client, fetchFn } = setup(conflict(), conflict());

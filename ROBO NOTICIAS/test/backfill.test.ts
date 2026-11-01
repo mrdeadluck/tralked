@@ -5,7 +5,17 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 import { createAi, type Ai, type StructuredOpts } from "../src/ai/client.js";
 import { loadStyle, writePrompt, type Draft } from "../src/ai/writer.js";
-import { backfillWindow, dayQuotas, estimateRequestUsd, runRetroativo, storyFromJson, type BackfillDeps, type BatchApi } from "../src/backfill.js";
+import {
+  BACKFILL_PAUTAS,
+  backfillWindow,
+  dayQuotas,
+  estimateRequestUsd,
+  runRetroativo,
+  storyFromJson,
+  type BackfillDeps,
+  type BatchApi,
+} from "../src/backfill.js";
+import type { FamousGame } from "../src/pautas.js";
 import { formatRetroativo } from "../src/commands/retroativo.js";
 import { runColeta } from "../src/pipeline.js";
 import { localDay, localHour } from "../src/clock.js";
@@ -1112,13 +1122,157 @@ describe("runRetroativo with no phase", () => {
   });
 });
 
+// ---------------------------------------------------------------------------------------------
+// Pautas Tralked in the backfill
+// ---------------------------------------------------------------------------------------------
+
+describe("pautas in the backfill", () => {
+  type PautaRowLite = { id: number; game_name: string; game_slug: string; format: string; status: string; mode: string; story_date: string; batch_id: string | null };
+  const pautaRows = (db: Db) => db.raw.prepare("SELECT * FROM pautas WHERE status != 'skipped' ORDER BY story_date, id").all() as unknown as PautaRowLite[];
+
+  /** `n` famous games, each in the catalog with 12 achievements and a Steam page. */
+  function famous(h: H, n: number): FamousGame[] {
+    const list = Array.from({ length: n }, (_, i) => ({ name: `Jogo Famoso ${i + 1}`, steamAppId: 1000 + i }));
+    const byslug = new Map(list.map((g) => [slugify(g.name), g]));
+    h.site.tralked.dossier = async (slug) => {
+      const g = byslug.get(slug);
+      if (!g) return null;
+      return {
+        game: { slug, name: g.name, steamAppId: g.steamAppId, summary: null, developer: null, publisher: null, releaseDate: "2020-01-01", platforms: ["PC"], criticScore: null, timeToBeatCompleteMin: 1200, achievementCount: 12 },
+        tralked: { players: 5, avgPlaytimeMin: 600, completedPlayers: 1 },
+        achievements: Array.from({ length: 12 }, (_, k) => ({ platform: "steam", apiName: `A${k}`, name: `C${k}`, description: `Faça ${k}.`, globalPct: 1 + k })),
+      };
+    };
+    for (const g of list) {
+      h.files.set(
+        `https://store.steampowered.com/api/appdetails?appids=${g.steamAppId}&l=brazilian`,
+        JSON.stringify({ [String(g.steamAppId)]: { success: true, data: { name: g.name, about_the_game: "<p>Um jogo famoso.</p>" } } }),
+      );
+    }
+    h.deps.famousGames = list;
+    return list;
+  }
+
+  /** Every local day of the backfill window, oldest first. */
+  function windowDays(): string[] {
+    const { from, to } = backfillWindow(NOW, 90);
+    const days: string[] = [];
+    for (let t = from.getTime() + 12 * 3600_000; t <= to.getTime(); t += 24 * 3600_000) days.push(localDay(new Date(t)));
+    return days;
+  }
+
+  it(`plans exactly ${BACKFILL_PAUTAS} pautas, one per day, writes them in the news batch and publishes them backdated, oldest first`, async () => {
+    const h = harness();
+    famous(h, 150);
+    const news = seedStory(h, "2026-09-01", "Notícia do dia");
+
+    const written = await runRetroativo(h.deps, "escrever");
+    expect(written.stopped).toBeNull();
+    expect(written.pautasPlanned).toBe(BACKFILL_PAUTAS);
+    const rows = pautaRows(h.db);
+    expect(BACKFILL_PAUTAS).toBe(90);
+    expect(rows).toHaveLength(90);
+    expect(rows.map((r) => r.story_date)).toEqual(windowDays());
+    // No game twice within 60 days.
+    const dayMs = 24 * 3600_000;
+    for (const a of rows) {
+      for (const b of rows) {
+        if (a.id === b.id || a.game_name !== b.game_name) continue;
+        expect(Math.abs(Date.parse(a.story_date) - Date.parse(b.story_date)) / dayMs).toBeGreaterThanOrEqual(60);
+      }
+    }
+    expect(rows.every((r) => r.mode === "backfill" && r.status === "ready")).toBe(true);
+
+    // ONE batch with the news and the pautas; the pauta requests mirror the batch writer (no fallbacks).
+    expect(h.batches.create).toHaveBeenCalledTimes(1);
+    const requests = h.batches.state.submitted[0]!;
+    expect(requests.map((r) => r.custom_id).sort()).toEqual([`story-${news}`, ...rows.map((r) => `pauta-${r.id}`)].sort());
+    const pautaRequest = requests.find((r) => r.custom_id.startsWith("pauta-"))!;
+    expect((pautaRequest.params.system as { text: string }[])[0]!.text).toContain("Pautas Tralked");
+    expect(pautaRequest.params).not.toHaveProperty("fallbacks");
+    expect(pautaRequest.params.max_tokens).toBeLessThanOrEqual(16000);
+    // Their usage is recorded at batch prices like the news.
+    expect(h.db.raw.prepare("SELECT COUNT(*) AS n FROM spend WHERE purpose = 'write-batch'").get()).toEqual({ n: 91 });
+
+    const published = await runRetroativo(h.deps, "publicar");
+    expect(published.pautasPublished).toBe(90);
+    expect(published.published).toBe(1);
+    const sent = h.site.order;
+    expect(sent).toHaveLength(91);
+    const days = sent.map((o) => localDay(new Date(o.payload.publishedAt!)));
+    expect(days).toEqual([...days].sort()); // oldest first, news and pautas together
+    for (const o of sent.filter((s) => s.key.startsWith("robo-pauta-"))) {
+      const row = rows.find((r) => o.key === `robo-pauta-backfill-${r.id}`)!;
+      expect(localDay(new Date(o.payload.publishedAt!))).toBe(row.story_date);
+      expect(localHour(new Date(o.payload.publishedAt!))).toBeGreaterThanOrEqual(6);
+      expect(o.payload.games).toEqual([{ slug: row.game_slug }]);
+      expect(o.payload.category).toBe(row.format === "vale-o-100" || row.format === "mais-raras" ? "GAMES" : "GUIAS");
+    }
+    expect(pautaRows(h.db).every((r) => r.status === "published")).toBe(true);
+    expect(h.db.publishedCountOn("2026-09-01")).toBe(2);
+
+    // Done: nothing is planned, submitted or sent again.
+    await runRetroativo(h.deps);
+    expect(h.site.order).toHaveLength(91);
+    expect(h.batches.create).toHaveBeenCalledTimes(1);
+    expect(pautaRows(h.db)).toHaveLength(90);
+  });
+
+  it("never plans a pauta on a day that would go over 15 articles", async () => {
+    const h = harness();
+    famous(h, 150);
+    // 09-01 has 20 publishable stories: the news quota keeps one place for the day's pauta (14 + 1 = 15).
+    for (let i = 0; i < 20; i++) seedStory(h, "2026-09-01", `Notícia ${i}`, { score: 50 + i });
+    // 09-02 already has 15 articles on the site: no pauta there.
+    for (let i = 0; i < 15; i++) {
+      const at = local(`2026-09-02T${String(7 + i).padStart(2, "0")}:00`);
+      const id = h.db.upsertStory({ key: `full-${i}`, headline: `Cheio ${i}`, category: "GAMES", score: 50, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", lastItemAt: at.toISOString() }, at);
+      h.db.saveArticle({ storyId: id, payloadJson: "{}", status: "published", siteId: `full-${i}`, publishedAt: at.toISOString() }, at);
+    }
+
+    await runRetroativo(h.deps, "escrever");
+    const rows = pautaRows(h.db);
+    expect(rows.map((r) => r.story_date)).not.toContain("2026-09-02");
+    expect(rows.filter((r) => r.story_date === "2026-09-01")).toHaveLength(1);
+    expect(rows).toHaveLength(89);
+    const newsOnFirst = stories(h.db).filter((s) => s.mode === "backfill" && s.story_date === "2026-09-01" && s.status === "written");
+    expect(newsOnFirst).toHaveLength(14);
+
+    await runRetroativo(h.deps, "publicar");
+    expect(h.db.publishedCountOn("2026-09-01")).toBe(15);
+    expect(h.db.publishedCountOn("2026-09-02")).toBe(15);
+    for (const day of windowDays()) expect(h.db.publishedCountOn(day)).toBeLessThanOrEqual(15);
+  });
+
+  it("pautas are part of the pre-submit cost estimate: what does not fit stays planned for a later batch", async () => {
+    // Measure one pauta request with plenty of budget.
+    const m = harness();
+    famous(m, 150);
+    await runRetroativo(m.deps, "escrever");
+    const first = m.batches.state.submitted[0]!.find((r) => r.custom_id === `pauta-${pautaRows(m.db)[0]!.id}`)!;
+    const one = estimateRequestUsd(first, m.config.MODEL_WRITER);
+
+    const h = harness();
+    famous(h, 150);
+    h.db.recordSpend("backfill", "triage", "claude-haiku-5-5", 10, NOW);
+    h.config.BACKFILL_BUDGET_USD = 10 + one * 1.5;
+    const result = await runRetroativo(h.deps, "escrever");
+    expect(result.trimmed).toBe(89);
+    expect(h.batches.state.submitted[0]!.map((r) => r.custom_id)).toEqual([`pauta-${pautaRows(h.db)[0]!.id}`]);
+    const left = pautaRows(h.db).filter((r) => r.status === "bf_planned");
+    expect(left).toHaveLength(89);
+    expect(left.every((r) => r.batch_id === null)).toBe(true);
+  });
+});
+
 describe("formatRetroativo", () => {
   it("stamps the report with the injected clock and shows coverage and trimming", async () => {
     const h = harness();
     const report = await runRetroativo(h.deps, "publicar");
-    const text = formatRetroativo({ ...report, covered: 3, trimmed: 2 }, h.clock.now);
+    const text = formatRetroativo({ ...report, covered: 3, trimmed: 2, pautasPlanned: 90, pautasReady: 88, pautasPublished: 87 }, h.clock.now);
     expect(text.split("\n")[0]).toBe(`retroativo ${NOW.toISOString()}: fases publicar`);
     expect(text).toContain("3 já cobertas pelo site");
     expect(text).toContain("2 fora pelo teto");
+    expect(text).toContain("pautas: 90 planejadas, 88 prontas, 87 publicadas");
   });
 });

@@ -20,7 +20,7 @@ const COLORS = {
 
 const SANS = "'Helvetica Neue',Helvetica,Arial,sans-serif";
 const MONO = "ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace";
-export const SLOGAN = "Tralked — Seu ecossistema gamer";
+export const SLOGAN = "Tralked — Gaming Hub";
 
 export function escapeHtml(value: string): string {
   return value

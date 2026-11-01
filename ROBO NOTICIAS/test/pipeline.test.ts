@@ -7,8 +7,18 @@ import type { Draft } from "../src/ai/writer.js";
 import { inSlotWindow, localDay } from "../src/clock.js";
 import { loadConfig, type Source } from "../src/config.js";
 import { openDb, type Db, type StoryRow } from "../src/db.js";
+import { recordPauta } from "../src/pautas.js";
 import { publishStory, runColeta, runPublica, type PipelineDeps } from "../src/pipeline.js";
-import { TralkedError, slugify, updateKey, type ArticlePatch, type ArticlePayload, type FeedArticle, type Tralked } from "../src/tralked.js";
+import {
+  TralkedError,
+  slugify,
+  updateKey,
+  type ArticlePatch,
+  type ArticlePayload,
+  type Dossier,
+  type FeedArticle,
+  type Tralked,
+} from "../src/tralked.js";
 
 // ---------------------------------------------------------------------------------------------
 // Clock: America/Sao_Paulo is UTC-3 all year (no DST since 2019).
@@ -997,5 +1007,200 @@ describe("alerts", () => {
     const fonte = h.db.alerts().filter((a) => a.kind === "fonte");
     expect(fonte).toHaveLength(1);
     expect(fonte[0]!.message).toContain("Blog Qualquer");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Pautas Tralked in the publish slot
+// ---------------------------------------------------------------------------------------------
+
+describe("publica: pautas", () => {
+  const STEAM = "https://store.steampowered.com/api/appdetails?appids=367520&l=brazilian";
+
+  function dossier(slug: string, name: string): Dossier {
+    return {
+      game: {
+        slug,
+        name,
+        steamAppId: 367520,
+        summary: "Metroidvania.",
+        developer: "Team Cherry",
+        publisher: "Team Cherry",
+        releaseDate: "2017-02-24",
+        platforms: ["PC"],
+        criticScore: 87,
+        timeToBeatCompleteMin: 3720,
+        achievementCount: 12,
+      },
+      tralked: { players: 10, avgPlaytimeMin: 2400, completedPlayers: 2 },
+      achievements: Array.from({ length: 12 }, (_, i) => ({
+        platform: "steam",
+        apiName: `ACH_${i}`,
+        name: `Conquista ${i}`,
+        description: `Faça ${i}.`,
+        globalPct: 1 + i,
+      })),
+    };
+  }
+
+  /** Turns pautas on: one famous game whose catalog page, dossier and Steam text are all available. */
+  function withPautas(h: H): void {
+    h.deps.famousGames = [{ name: "Hollow Knight", steamAppId: 367520 }];
+    h.site.tralked.dossier = async (slug) => (slug === "hollow-knight" ? dossier(slug, "Hollow Knight") : null);
+    const base = h.fetchFn.getMockImplementation()!;
+    h.fetchFn.mockImplementation(async (input: string) =>
+      input === STEAM
+        ? new Response(JSON.stringify({ "367520": { success: true, data: { name: "Hollow Knight", about_the_game: "<p>Explore cavernas.</p>" } } }), { status: 200 })
+        : base(input),
+    );
+  }
+
+  type PautaRowLite = { status: string; mode: string; site_id: string | null; story_date: string; game_slug: string | null };
+  const pautaRows = (db: Db) => db.raw.prepare("SELECT * FROM pautas ORDER BY id").all() as unknown as PautaRowLite[];
+  const isPauta = (key: string | undefined) => /^robo-pauta-live-\d+$/.test(key ?? "");
+
+  /** Pautas already published today, at the given instants. */
+  function seedPublishedPautas(h: H, times: Date[]): void {
+    times.forEach((t, i) =>
+      recordPauta(
+        h.db,
+        {
+          gameName: `Antigo ${i}`,
+          gameSlug: `antigo-${i}`,
+          format: "iniciantes",
+          status: "published",
+          mode: "live",
+          storyDate: localDay(t),
+          siteId: `old-pauta-${i}`,
+          publishedAt: t.toISOString(),
+        },
+        t,
+      ),
+    );
+  }
+
+  it("with a top news score of 80 it publishes the news", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    withPautas(h);
+    seedQueued(h, "Notícia forte", { score: 80 });
+    const result = await h.publica();
+    expect(result.published).toBe("site-1");
+    expect(h.site.created[0]!.key).toMatch(/^robo-live-story-\d+$/);
+    expect(pautaRows(h.db)).toHaveLength(0);
+  });
+
+  it("with a top news score of 55 it publishes a pauta through the lock, the slot rule and the cap", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    withPautas(h);
+    const news = seedQueued(h, "Notícia fraca", { score: 55 });
+    const result = await h.publica();
+    expect(result.published).toBe("site-1");
+    expect(result.reason).toMatch(/pauta/);
+    const sent = h.site.created[0]!;
+    expect(isPauta(sent.key)).toBe(true);
+    expect(sent.payload.games).toEqual([{ slug: "hollow-knight" }]);
+    expect(["GAMES", "GUIAS"]).toContain(sent.payload.category);
+    expect(JSON.stringify(sent.payload.blocks)).toContain("https://tralked.com/jogos/hollow-knight");
+    expect(h.sleep).toHaveBeenCalledTimes(1); // the same jitter as news
+    // The pauta writer gets the pauta prompt on top of the house style.
+    const write = h.fake.calls.find((c) => c.purpose === "write")!;
+    expect(write.system).toContain("Pautas Tralked");
+    expect(write.fallbacks).toBe(true);
+
+    expect(pautaRows(h.db)).toMatchObject([
+      { status: "published", mode: "live", site_id: "site-1", story_date: "2026-10-31", game_slug: "hollow-knight" },
+    ]);
+    expect(h.db.storyById(news)!.status).toBe("queued");
+    expect(h.db.publishedCountOn("2026-10-31")).toBe(1);
+
+    // One article per hour, pauta or not.
+    h.at(local("2026-10-31T10:40"));
+    expect((await h.publica()).reason).toMatch(/neste horário/);
+    expect(h.site.created).toHaveLength(1);
+  });
+
+  it("at 20:00 with no pauta yet today it publishes a pauta even when the news scores 80", async () => {
+    const h = harness(local("2026-10-31T20:00"));
+    withPautas(h);
+    seedQueued(h, "Notícia forte", { score: 80 });
+    await h.publica();
+    expect(isPauta(h.site.created[0]?.key)).toBe(true);
+
+    // 19:00 is not the pauta hour: news wins.
+    const early = harness(local("2026-10-31T19:00"));
+    withPautas(early);
+    seedQueued(early, "Notícia forte", { score: 80 });
+    await early.publica();
+    expect(early.site.created[0]!.key).toMatch(/^robo-live-story-/);
+
+    // 21:00 with one pauta already out: news at 80 wins.
+    const later = harness(local("2026-10-31T21:00"));
+    withPautas(later);
+    seedPublishedPautas(later, [local("2026-10-31T09:10")]);
+    seedQueued(later, "Notícia forte", { score: 80 });
+    await later.publica();
+    expect(later.site.created[0]!.key).toMatch(/^robo-live-story-/);
+  });
+
+  it("refuses a third pauta in one day", async () => {
+    const h = harness(local("2026-10-31T15:00"));
+    withPautas(h);
+    seedPublishedPautas(h, [local("2026-10-31T08:10"), local("2026-10-31T11:10")]);
+    seedQueued(h, "Notícia fraca", { score: 55 });
+    await h.publica();
+    expect(h.site.created[0]!.key).toMatch(/^robo-live-story-/);
+
+    h.at(local("2026-10-31T16:00"));
+    const result = await h.publica();
+    expect(result.published).toBeNull();
+    expect(result.reason).toMatch(/fila vazia/);
+    expect(h.site.created).toHaveLength(1);
+    expect(pautaRows(h.db)).toHaveLength(2);
+  });
+
+  it("pautas count toward the daily cap of 15", async () => {
+    const h = harness(local("2026-10-31T15:00"));
+    withPautas(h);
+    seedPublished(h, minutesBefore(local("2026-10-31T14:00"), 13));
+    seedPublishedPautas(h, [local("2026-10-31T09:10")]);
+    expect(h.db.publishedCountOn("2026-10-31")).toBe(14);
+    // An empty queue: the slot goes to a pauta, the 15th article of the day.
+    await h.publica();
+    expect(isPauta(h.site.created[0]?.key)).toBe(true);
+    expect(h.db.publishedCountOn("2026-10-31")).toBe(15);
+
+    h.at(local("2026-10-31T16:00"));
+    seedQueued(h, "Notícia fraca", { score: 55 });
+    const result = await h.publica();
+    expect(result.published).toBeNull();
+    expect(result.reason).toMatch(/limite/);
+  });
+
+  it("falls back to news when no pauta can be made, and never makes one without the famous games list", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    withPautas(h);
+    h.site.tralked.dossier = async () => null; // the game is not in the catalog
+    seedQueued(h, "Notícia fraca", { score: 55 });
+    await h.publica();
+    expect(h.site.created[0]!.key).toMatch(/^robo-live-story-/);
+    expect(pautaRows(h.db)).toMatchObject([{ status: "skipped", game_slug: null }]);
+
+    const plain = harness(local("2026-10-31T10:00"));
+    seedQueued(plain, "Notícia fraca", { score: 55 });
+    await plain.publica();
+    expect(plain.site.created[0]!.key).toMatch(/^robo-live-story-/);
+  });
+
+  it("a bomb is unaffected by pautas", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    withPautas(h);
+    const fact: Fact = { headline: "GTA 6 ganha data de lançamento", importance: 95, games: ["Grand Theft Auto VI"] };
+    h.post("pub", "GTA VI release date announced", fact);
+    h.post("ign", "GTA 6 tem data de lançamento", fact);
+    h.post("kotaku", "GTA 6 finally has a release date", fact);
+    const report = await h.coleta();
+    expect(report.published).toEqual(["site-1"]);
+    expect(h.site.created[0]!.key).toMatch(/^robo-live-story-/);
+    expect(pautaRows(h.db)).toHaveLength(0);
   });
 });

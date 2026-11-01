@@ -14,6 +14,7 @@ export function formatRetroativo(r: RetroativoReport, now: Date): string {
     `  agrupar: ${r.clustered} itens agrupados, ${r.newStories} histórias novas`,
     `  escrever: ${r.covered} já cobertas pelo site, ${r.selected} escolhidas, ${r.submitted} enviadas no lote (${r.trimmed} fora pelo teto)${r.batchId ? ` ${r.batchId}` : ""}, ${r.drafted} rascunhos, ${r.ready} prontas, ${r.failed} falhas`,
     `  publicar: ${r.published} publicadas, ${r.publishFailed} recusadas pelo site${r.paused ? " (PAUSADO)" : ""}`,
+    `  pautas: ${r.pautasPlanned} planejadas, ${r.pautasReady} prontas, ${r.pautasPublished} publicadas`,
     ...(r.stopped ? [`  interrompido: ${r.stopped}`] : []),
   ].join("\n");
 }

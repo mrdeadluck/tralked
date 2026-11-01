@@ -65,6 +65,8 @@ export type StoryForWriting = {
   previous?: { title: string; blocksText: string; newFacts?: string[] };
   /** Set on a follow-up: the earlier article of the same case, context only (linked by `assemble`). */
   parent?: { title: string; blocksText: string };
+  /** Pautas Tralked: the format's instructions and title, added to the user message. */
+  formatBrief?: string;
 };
 
 export type Models = Pick<Config, "MODEL_WRITER" | "MODEL_FAST">;
@@ -216,8 +218,15 @@ export function writePrompt(story: StoryForWriting, now: Date = new Date()): str
     );
   }
 
+  if (story.formatBrief) parts.push(`## Formato desta pauta\n\n${story.formatBrief}`);
+
   parts.push("Escreva a matéria seguindo o manual de redação.");
   return parts.join("\n\n");
+}
+
+/** The system prompt: the editorial manual, plus an addendum (Pautas Tralked) when given. */
+function systemPrompt(extra?: string): string {
+  return extra ? `${loadStyle()}\n\n${extra}` : loadStyle();
 }
 
 /** The sources as plain text for the fact-checker, escaped like the writer's source bodies. */
@@ -256,6 +265,8 @@ export type WriteOpts = {
    * (only the batch must omit fallbacks), so it passes `true`.
    */
   fallbacks?: boolean;
+  /** Appended to the editorial manual in the system prompt (Pautas Tralked). */
+  systemExtra?: string;
 };
 
 export async function writeDraft(ai: Ai, story: StoryForWriting, bucket: SpendBucket, opts: WriteOpts = {}): Promise<Draft> {
@@ -269,7 +280,7 @@ export async function writeDraft(ai: Ai, story: StoryForWriting, bucket: SpendBu
     purpose: retry ? "write-retry" : "write",
     model: models.MODEL_WRITER,
     effort: "high",
-    system: loadStyle(),
+    system: systemPrompt(opts.systemExtra),
     user,
     schema: DraftSchema,
     maxTokens: WRITER_MAX_TOKENS,
@@ -293,7 +304,7 @@ export function writeBatchRequest(
   ai: Ai,
   story: StoryForWriting,
   customId: string,
-  opts: Pick<WriteOpts, "models" | "now"> = {},
+  opts: Pick<WriteOpts, "models" | "now" | "systemExtra"> = {},
 ): ReturnType<Ai["batchRequest"]> {
   const models = opts.models ?? DEFAULT_MODELS;
   return ai.batchRequest({
@@ -301,7 +312,7 @@ export function writeBatchRequest(
     purpose: "write",
     model: models.MODEL_WRITER,
     effort: "high",
-    system: loadStyle(),
+    system: systemPrompt(opts.systemExtra),
     user: writePrompt(story, opts.now),
     schema: DraftSchema,
     maxTokens: WRITER_MAX_TOKENS,

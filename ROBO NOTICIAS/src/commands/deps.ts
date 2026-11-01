@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createAi } from "../ai/client.js";
 import { loadConfig, loadSources } from "../config.js";
 import { openDb } from "../db.js";
+import { loadFamousGames } from "../pautas.js";
 import type { PipelineDeps } from "../pipeline.js";
 import { createTralked } from "../tralked.js";
 
@@ -20,7 +21,10 @@ export function opsDeps() {
   };
 }
 
-/** The real dependencies of the live commands:.env config, fontes.json, SQLite, Anthropic and the site API. */
+/**
+ * The real dependencies of the live commands: .env config, fontes.json, jogos-famosos.json (Pautas
+ * Tralked), SQLite, Anthropic and the site API.
+ */
 export function realDeps(): PipelineDeps {
   const config = loadConfig();
   const db = openDb(config.DATA_DIR);
@@ -34,5 +38,6 @@ export function realDeps(): PipelineDeps {
     now,
     fetchFn: (input, init) => fetch(input, init),
     log: (line) => console.log(line),
+    famousGames: loadFamousGames(),
   };
 }

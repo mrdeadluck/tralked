@@ -12,6 +12,22 @@ import { collectLive, extractText, fetchPage, type FetchFn } from "./collect/ind
 import type { Config, Source } from "./config.js";
 import type { ArticleRow, Db, ItemRow, SpendBucket, StoryRow } from "./db.js";
 import { acquireLock, type Lock } from "./lock.js";
+import {
+  PautaRejectedError,
+  chooseFormat,
+  gatherPautaSources,
+  markPauta,
+  pautaById,
+  pautaKey,
+  pautaPayload,
+  pautaStory,
+  pautasPublishedOn,
+  pickPautaGame,
+  recentFormats,
+  recordPauta,
+  writePauta,
+  type FamousGame,
+} from "./pautas.js";
 import { TIER_WEIGHT, isBomb, isExpired, isPublishable, storyScore, type Tier } from "./rank.js";
 import {
   TralkedError,
@@ -59,6 +75,13 @@ export const PUBLISH_LOCK_FILE = "publica.lock";
 const LAST_SLOT_KEY = "publica.lastSlot";
 const FETCH_CONCURRENCY = 6;
 const FEED_KEY_PREFIX = "feed-";
+/** Pautas Tralked: at most 2 a day (inside `MAX_PER_DAY`), in a slot whose best queued news scores below 60. */
+export const MAX_PAUTAS_PER_DAY = 2;
+export const PAUTA_SCORE_BELOW = 60;
+/** From this local hour, a day without a pauta gives the slot to one, whatever the news score. */
+export const PAUTA_HOUR = 20;
+/** Games tried in one slot before it falls back to news (each costs only fetches, no AI). */
+const PAUTA_GAME_ATTEMPTS = 3;
 
 // ---------------------------------------------------------------------------------------------
 // Types
@@ -74,6 +97,8 @@ export type PipelineDeps = {
   fetchFn: FetchFn;
   /** Progress lines; silent by default. */
   log?: (line: string) => void;
+  /** `config/jogos-famosos.json`: Pautas Tralked are made only when it is given and not empty. */
+  famousGames?: FamousGame[];
 };
 
 export type PublicaDeps = PipelineDeps & {
@@ -998,9 +1023,117 @@ function refusal(deps: PipelineDeps, now: Date): string | null {
 }
 
 /**
+ * Whether this slot goes to a Pauta Tralked: fewer than 2 pautas today, and either the best queued news
+ * scores below 60 (or there is none), or it is 20:00 or later and no pauta went out today.
+ */
+function wantsPauta(deps: PublicaDeps, now: Date): boolean {
+  if (!deps.famousGames || deps.famousGames.length === 0) return false;
+  const today = pautasPublishedOn(deps.db, localDay(now));
+  if (today >= MAX_PAUTAS_PER_DAY) return false;
+  const best = nextQueued(deps, now);
+  return best === null || best.score < PAUTA_SCORE_BELOW || (localHour(now) >= PAUTA_HOUR && today === 0);
+}
+
+/**
+ * Writes and publishes one live pauta (callers hold the publish lock and checked the cap and the slot).
+ * A `ready` pauta left by a failed POST goes out first, so it is never paid twice. Otherwise a game is
+ * drawn (`pickPautaGame`); one out of the catalog or without material for any format is recorded as
+ * `skipped` (it rests 60 days) and the next is tried. Returns null when no pauta was published, so the slot
+ * falls back to news: no game, a site error while gathering, or a draft the check or the model refused
+ * (recorded `failed`, with an alert). Budget errors and site errors on the POST are thrown.
+ */
+async function publishLivePauta(deps: PublicaDeps, now: Date): Promise<{ id: string; title: string } | null> {
+  const { db, ai, config } = deps;
+  const today = localDay(now);
+  let row = db.raw.prepare("SELECT * FROM pautas WHERE mode = 'live' AND status = 'ready' ORDER BY id LIMIT 1").get() as
+    | ReturnType<typeof pautaById>
+    | undefined;
+
+  for (let attempt = 0; !row && attempt < PAUTA_GAME_ATTEMPTS; attempt++) {
+    const entry = pickPautaGame(db, deps.famousGames ?? [], now, deps.rand);
+    if (!entry) return null;
+    let sources: Awaited<ReturnType<typeof gatherPautaSources>>;
+    try {
+      sources = await gatherPautaSources(entry, { tralked: deps.tralked, fetchFn: deps.fetchFn, log: deps.log });
+    } catch (error) {
+      if (!(error instanceof TralkedError)) throw error;
+      deps.log?.(`pauta: erro da API do site ao montar "${entry.name}" (${error.status} ${error.message}); o horário fica com a notícia`);
+      return null;
+    }
+    const skip = (gameSlug: string | null, reason: string) => {
+      recordPauta(db, { gameName: entry.name, gameSlug, format: null, status: "skipped", mode: "live", storyDate: today, error: reason }, now);
+      deps.log?.(`pauta: "${entry.name}" pulado (${reason})`);
+    };
+    if (!sources.dossier || !sources.slug) {
+      skip(null, "fora do catálogo do Tralked");
+      continue;
+    }
+    const format = chooseFormat(sources, recentFormats(db), deps.rand);
+    if (!format) {
+      skip(sources.slug, "sem material para nenhum formato");
+      continue;
+    }
+
+    const story = pautaStory(sources, format);
+    const failed = (error: string) =>
+      recordPauta(db, { gameName: entry.name, gameSlug: sources.slug, format, status: "failed", mode: "live", storyDate: today, error }, now);
+    let draft: Awaited<ReturnType<typeof writePauta>>;
+    try {
+      draft = await writePauta(ai, sources, format, "live", { models: config, now });
+    } catch (error) {
+      if (error instanceof PautaRejectedError) {
+        failed(error.message);
+        alert(db, "checagem", error.message, now);
+        return null;
+      }
+      if (error instanceof RefusalError) {
+        failed(error.message);
+        alert(db, "recusa", `Pauta "${story.headline}": ${error.message}`, now);
+        return null;
+      }
+      if (error instanceof BudgetExceededError) budgetAlert(db, error, now);
+      throw error;
+    }
+    const payload = pautaPayload(draft, story);
+    const id = recordPauta(
+      db,
+      {
+        gameName: entry.name,
+        gameSlug: sources.slug,
+        format,
+        status: "ready",
+        mode: "live",
+        storyDate: today,
+        writingJson: JSON.stringify(story),
+        payloadJson: JSON.stringify(payload),
+      },
+      now,
+    );
+    row = pautaById(db, id);
+  }
+  if (!row?.payload_json) return null;
+
+  const payload = JSON.parse(row.payload_json) as ArticlePayload;
+  let created: { id: string; slug: string };
+  try {
+    created = await deps.tralked.createArticle(payload, pautaKey("live", row.id));
+  } catch (error) {
+    if (error instanceof TralkedError) {
+      alert(db, "api", `Falha ao publicar a pauta ${row.id} "${payload.title}": ${error.status} ${error.message}`, now);
+      if (error.status >= 400 && error.status < 500 && error.status !== 429) markPauta(db, row.id, { status: "failed", error: error.message });
+    }
+    throw error;
+  }
+  markPauta(db, row.id, { status: "published", siteId: created.id, slug: created.slug, publishedAt: deps.now().toISOString() });
+  deps.log?.(`publicada: pauta ${row.id} → ${created.id} (${payload.title})`);
+  return { id: created.id, title: payload.title };
+}
+
+/**
  * One slot: refuses when paused, outside 06–23, at the daily cap or when this local hour already had a
  * `publica` article (bombs are exempt); waits 0–12 min (not with `--agora`); then, holding the publish
- * lock, re-checks and publishes the best queued story, trying the next one once after a failed check.
+ * lock, re-checks and publishes a Pauta Tralked when the slot is one (`wantsPauta`; news when no pauta can
+ * be made), else the best queued story, trying the next one once after a failed check.
  */
 export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
   const before = refusal(deps, deps.now());
@@ -1013,6 +1146,21 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
     const now = deps.now();
     const after = refusal(deps, now);
     if (after) return { published: null, reason: after };
+
+    if (wantsPauta(deps, now)) {
+      try {
+        const pauta = await publishLivePauta(deps, now);
+        if (pauta) {
+          deps.db.setMeta(LAST_SLOT_KEY, slotOf(now));
+          return { published: pauta.id, reason: `publicada a pauta: ${pauta.title}` };
+        }
+        deps.log?.("pauta: nenhuma pauta possível agora; o horário fica com a notícia");
+      } catch (error) {
+        if (error instanceof BudgetExceededError) return { published: null, reason: `orçamento diário esgotado (${error.message})` };
+        if (error instanceof TralkedError) return { published: null, reason: `erro da API do site: ${error.status} ${error.message}` };
+        throw error;
+      }
+    }
 
     let rejected = 0;
     for (let attempt = 0; attempt < 3 && rejected < 2; attempt++) {

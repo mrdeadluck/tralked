@@ -201,9 +201,15 @@ function badGameIndexes(error: TralkedError): number[] | null {
   return indexes;
 }
 
-/** The story id out of a creation key (`robo-<mode>-story-<id>`); the whole key when it differs. */
+/**
+ * The slug suffix out of a creation key: the story id of `robo-<mode>-story-<id>`, `pauta-<id>` for a
+ * pauta (`robo-pauta-<mode>-<id>`), the whole key otherwise.
+ */
 function storyIdOf(idempotencyKey: string): string {
-  return /-story-(.+)$/.exec(idempotencyKey)?.[1] ?? idempotencyKey;
+  const story = /-story-(.+)$/.exec(idempotencyKey)?.[1];
+  if (story) return story;
+  const pauta = /^robo-pauta-(?:live|backfill)-(.+)$/.exec(idempotencyKey)?.[1];
+  return pauta ? `pauta-${pauta}` : idempotencyKey;
 }
 
 function lastPathSegment(url: string): string {

@@ -9,7 +9,22 @@ import { alert, alertOncePerDay } from "./alerts.js";
 import { assemble } from "./assemble.js";
 import { localDay, localStartOfDay, randomTimeOn } from "./clock.js";
 import { collectBackfill, collectLive, type RawItem } from "./collect/index.js";
-import type { Db, ItemRow, StoryRow } from "./db.js";
+import type { Db, ItemRow, PautaRow, StoryRow } from "./db.js";
+import {
+  chooseFormat,
+  finishPautaDraft,
+  gatherPautaSources,
+  loadPautaStyle,
+  markPauta,
+  pautaBatchRequest,
+  pautaKey,
+  pautaPayload,
+  pautaStory,
+  pickPautaGame,
+  recentFormats,
+  recordPauta,
+  type PautaFormat,
+} from "./pautas.js";
 import {
   OPEN_STORIES_CAP,
   coveredStories,
@@ -63,6 +78,10 @@ const SUBMITTING_KEY = "retroativo.enviando";
 const RECONCILE_SKEW_MS = 5 * 60 * 1000;
 /** Site errors that concern one article only (the rest stop the run). */
 const ARTICLE_ERRORS = new Set([400, 404, 409, 422]);
+/** Pautas Tralked in the backfill: one a day across the window, on top of the news (approved in the spec). */
+export const BACKFILL_PAUTAS = 90;
+/** Games tried for one day's pauta in a run before the day is left for a later run (fetches only, no AI). */
+const PAUTA_GAME_ATTEMPTS = 5;
 
 type BatchRequest = Anthropic.Messages.Batches.BatchCreateParams.Request;
 
@@ -107,6 +126,10 @@ export type RetroativoReport = {
   failed: number;
   published: number;
   publishFailed: number;
+  /** Pautas Tralked: planned (sources gathered) in this run, checked and ready, published backdated. */
+  pautasPlanned: number;
+  pautasReady: number;
+  pautasPublished: number;
   paused: boolean;
   /** Why the run stopped early (budget, site API), when it did. */
   stopped: string | null;
@@ -131,6 +154,9 @@ const emptyReport = (): RetroativoReport => ({
   failed: 0,
   published: 0,
   publishFailed: 0,
+  pautasPlanned: 0,
+  pautasReady: 0,
+  pautasPublished: 0,
   paused: false,
   stopped: null,
 });
@@ -279,6 +305,19 @@ function storyIdOf(customId: string): number | null {
   const m = /^story-(\d+)$/.exec(customId);
   return m ? Number(m[1]) : null;
 }
+
+/** A pauta's request in the same batch as the news (ruling: custom_id `pauta-<id>`). */
+const pautaCustomId = (pautaId: number) => `pauta-${pautaId}`;
+
+function pautaIdOf(customId: string): number | null {
+  const m = /^pauta-(\d+)$/.exec(customId);
+  return m ? Number(m[1]) : null;
+}
+
+/** The writer's "today" for a backfill pauta: mid-afternoon on its day, like a backfill story. */
+const pautaNow = (row: Pick<PautaRow, "story_date">) => randomTimeOn(row.story_date, () => 0.5);
+
+const pautasEnabled = (deps: BackfillDeps) => (deps.famousGames?.length ?? 0) > 0;
 
 /** A `StoryForWriting` stored as JSON (dates as ISO strings), back to its runtime shape. */
 export function storyFromJson(json: string): StoryForWriting {
@@ -586,7 +625,9 @@ async function quotasFor(deps: BackfillDeps, report: RetroativoReport): Promise<
     if (covered.has(story.id) || !story.story_date || !couldBePublishable(story, deps)) continue;
     counts.set(story.story_date, (counts.get(story.story_date) ?? 0) + 1);
   }
-  const quotas = dayQuotas(counts, config.BACKFILL_TOTAL, config.MAX_PER_DAY);
+  // With pautas on, every day keeps one place for its pauta: news quota + pauta <= MAX_PER_DAY.
+  const newsPerDay = config.MAX_PER_DAY - (pautasEnabled(deps) ? 1 : 0);
+  const quotas = dayQuotas(counts, config.BACKFILL_TOTAL, newsPerDay);
   if (quotas.size > 0) db.setMeta(QUOTAS_KEY, JSON.stringify(Object.fromEntries(quotas)));
   return quotas;
 }
@@ -623,8 +664,17 @@ async function selectStories(deps: BackfillDeps, report: RetroativoReport): Prom
       "SELECT COUNT(*) AS n FROM stories WHERE mode = 'backfill' AND story_date = ? AND status = 'published'",
       day,
     );
+    // Published pautas are in `publishedCountOn`; a pauta planned or written for the day takes its place too.
     const otherPublished = Math.max(0, db.publishedCountOn(day) - backfillPublished);
-    const allowed = Math.max(0, Math.min((quotas.get(day) ?? 0) - taken, config.MAX_PER_DAY - otherPublished - taken));
+    const pendingPautas = countOf(
+      db,
+      "SELECT COUNT(*) AS n FROM pautas WHERE mode = 'backfill' AND story_date = ? AND status IN ('bf_planned','bf_drafted','ready')",
+      day,
+    );
+    const allowed = Math.max(
+      0,
+      Math.min((quotas.get(day) ?? 0) - taken, config.MAX_PER_DAY - otherPublished - pendingPautas - taken),
+    );
 
     const ranked = ofDay.filter((s) => couldBePublishable(s, deps)).sort((a, b) => b.score - a.score || a.id - b.id);
     if (!quotas.has(day) && ranked.length > 0) {
@@ -661,6 +711,92 @@ async function selectStories(deps: BackfillDeps, report: RetroativoReport): Prom
   return true;
 }
 
+/** Every local day of the backfill window, oldest first. */
+function windowDays(deps: BackfillDeps): string[] {
+  const { from, to } = backfillWindow(deps.now(), deps.config.BACKFILL_DAYS);
+  const days: string[] = [];
+  for (let day = localDay(from), last = localDay(to); day <= last; day = shiftDay(day, 1)) days.push(day);
+  return days;
+}
+
+/** Articles a backfill day already has or will have: chosen backfill news, plus what the site published on it. */
+function articlesOnDay(db: Db, day: string): number {
+  const news = countOf(
+    db,
+    "SELECT COUNT(*) AS n FROM stories WHERE mode = 'backfill' AND story_date = ? AND status IN ('queued','written','published')",
+    day,
+  );
+  const newsPublished = countOf(
+    db,
+    "SELECT COUNT(*) AS n FROM stories WHERE mode = 'backfill' AND story_date = ? AND status = 'published'",
+    day,
+  );
+  const pautas = countOf(
+    db,
+    "SELECT COUNT(*) AS n FROM pautas WHERE story_date = ? AND status IN ('bf_planned','bf_drafted','ready')",
+    day,
+  );
+  return news + Math.max(0, db.publishedCountOn(day) - newsPublished) + pautas;
+}
+
+/**
+ * Plans the backfill's Pautas Tralked: one per window day, oldest first, up to `BACKFILL_PAUTAS`, after the
+ * news are chosen, and only on a day that stays within `MAX_PER_DAY` with it. For each day a game is drawn
+ * as of that day (60-day rule by date); one out of the catalog or without material for any format is
+ * `skipped` and the next is tried. A planned pauta keeps its writer input, and the batch writes it.
+ * A day that already had a pauta (planned, written, published or failed) is never planned again.
+ */
+async function planPautas(deps: BackfillDeps, report: RetroativoReport): Promise<void> {
+  if (!pautasEnabled(deps)) return;
+  const { db, config } = deps;
+  const list = deps.famousGames ?? [];
+  let planned = countOf(db, "SELECT COUNT(*) AS n FROM pautas WHERE mode = 'backfill' AND status != 'skipped'");
+
+  for (const day of windowDays(deps)) {
+    if (planned >= BACKFILL_PAUTAS) break;
+    if (countOf(db, "SELECT COUNT(*) AS n FROM pautas WHERE mode = 'backfill' AND story_date = ? AND status != 'skipped'", day) > 0) continue;
+    if (articlesOnDay(db, day) + 1 > config.MAX_PER_DAY) {
+      deps.log?.(`retroativo: ${day} já tem ${config.MAX_PER_DAY} matérias; sem pauta nesse dia`);
+      continue;
+    }
+    const asOf = randomTimeOn(day, () => 0.5);
+    for (let attempt = 0; attempt < PAUTA_GAME_ATTEMPTS; attempt++) {
+      const entry = pickPautaGame(db, list, asOf, deps.rand);
+      if (!entry) break;
+      let sources: Awaited<ReturnType<typeof gatherPautaSources>>;
+      try {
+        sources = await gatherPautaSources(entry, { tralked: deps.tralked, fetchFn: deps.fetchFn, log: deps.log });
+      } catch (error) {
+        if (!(error instanceof TralkedError)) throw error;
+        alertOncePerDay(
+          db,
+          "api",
+          `Retroativo: erro da API do site ao montar as pautas: ${error.status} ${error.message}`,
+          deps.now(),
+          "Retroativo: erro da API",
+        );
+        report.stopped = "api";
+        return;
+      }
+      const base = { gameName: entry.name, mode: "backfill" as const, storyDate: day };
+      if (!sources.dossier || !sources.slug) {
+        recordPauta(db, { ...base, gameSlug: null, format: null, status: "skipped", error: "fora do catálogo do Tralked" }, deps.now());
+        continue;
+      }
+      const format = chooseFormat(sources, recentFormats(db, day), deps.rand);
+      if (!format) {
+        recordPauta(db, { ...base, gameSlug: sources.slug, format: null, status: "skipped", error: "sem material para nenhum formato" }, deps.now());
+        continue;
+      }
+      const writing = pautaStory(sources, format);
+      recordPauta(db, { ...base, gameSlug: sources.slug, format, status: "bf_planned", writingJson: JSON.stringify(writing) }, deps.now());
+      planned++;
+      report.pautasPlanned++;
+      break;
+    }
+  }
+}
+
 /** Characters of a prompt part (string, or text blocks). */
 function promptChars(part: unknown): number {
   if (typeof part === "string") return part.length;
@@ -695,6 +831,7 @@ function adoptBatch(deps: BackfillDeps, marker: SubmitMarker, batchId: string): 
   tx(db, () => {
     db.raw.prepare("INSERT INTO backfill_batches (id, submitted_at, status) VALUES (?, ?, 'submitted')").run(batchId, marker.at);
     db.raw.prepare("UPDATE backfill_drafts SET batch_id = ? WHERE batch_id = ?").run(batchId, marker.id);
+    db.raw.prepare("UPDATE pautas SET batch_id = ? WHERE batch_id = ?").run(batchId, marker.id);
     db.setMeta(SUBMITTING_KEY, "");
   });
 }
@@ -710,9 +847,10 @@ async function reconcileSubmission(deps: BackfillDeps): Promise<void> {
   const marker = readMarker(db);
   if (!marker) return;
   const since = Date.parse(marker.at) - RECONCILE_SKEW_MS;
-  const ours = new Set(
-    all<{ story_id: number }>(db, "SELECT story_id FROM backfill_drafts WHERE batch_id = ?", marker.id).map((r) => customIdOf(r.story_id)),
-  );
+  const ours = new Set([
+    ...all<{ story_id: number }>(db, "SELECT story_id FROM backfill_drafts WHERE batch_id = ?", marker.id).map((r) => customIdOf(r.story_id)),
+    ...all<{ id: number }>(db, "SELECT id FROM pautas WHERE batch_id = ?", marker.id).map((r) => pautaCustomId(r.id)),
+  ]);
   const known = (id: string) => db.raw.prepare("SELECT 1 AS x FROM backfill_batches WHERE id = ?").get(id) !== undefined;
 
   let found: string | null = null;
@@ -740,16 +878,22 @@ async function reconcileSubmission(deps: BackfillDeps): Promise<void> {
   }
   tx(db, () => {
     db.raw.prepare("DELETE FROM backfill_drafts WHERE batch_id = ?").run(marker.id);
+    db.raw.prepare("UPDATE pautas SET batch_id = NULL WHERE batch_id = ?").run(marker.id);
     db.setMeta(SUBMITTING_KEY, "");
   });
   deps.log?.("retroativo: nenhum lote da execução anterior encontrado; as histórias serão enviadas de novo");
 }
 
+type BatchEntry =
+  | { kind: "story"; story: StoryRow; writing: StoryForWriting; request: BatchRequest; usd: number }
+  | { kind: "pauta"; pauta: PautaRow; request: BatchRequest; usd: number };
+
 /**
- * Submits ONE batch with the queued backfill stories not yet sent. The estimated cost must fit what is left
- * of the backfill budget: the lowest-scored stories are left out (still `queued`, for a later run) until it
- * fits; when none fits, one `orcamento` alert and the run stops. A marker is saved before `create` and
- * replaced by the batch id right after, so a crash in between is reconciled instead of paid twice.
+ * Submits ONE batch with the queued backfill stories and the planned pautas not yet sent (`story-<id>` and
+ * `pauta-<id>`). The estimated cost of all of them must fit what is left of the backfill budget: news go
+ * first by score, then pautas by day, and what does not fit is left out (still `queued`/`bf_planned`, for a
+ * later run); when nothing fits, one `orcamento` alert and the run stops. A marker is saved before `create`
+ * and replaced by the batch id right after, so a crash in between is reconciled instead of paid twice.
  */
 async function submitBatch(deps: BackfillDeps, report: RetroativoReport): Promise<string | null> {
   const { db, ai, config } = deps;
@@ -759,19 +903,28 @@ async function submitBatch(deps: BackfillDeps, report: RetroativoReport): Promis
      WHERE s.mode = 'backfill' AND s.status = 'queued' AND d.story_id IS NULL
      ORDER BY s.score DESC, s.id`,
   );
-  if (toWrite.length === 0) return null;
+  const pautasToWrite = all<PautaRow>(
+    db,
+    "SELECT * FROM pautas WHERE mode = 'backfill' AND status = 'bf_planned' AND batch_id IS NULL ORDER BY story_date, id",
+  );
+  if (toWrite.length === 0 && pautasToWrite.length === 0) return null;
 
   // `batchRequest` does not check the budget: stop here, before building or submitting anything.
   ai.assertBudget("backfill");
 
-  const entries: { story: StoryRow; writing: StoryForWriting; request: BatchRequest; usd: number }[] = [];
+  const entries: BatchEntry[] = [];
   for (const story of toWrite) {
     const writing = await storyForWriting(story, deps);
     const request = writeBatchRequest(ai, writing, customIdOf(story.id), { models: config, now: storyNow(story, deps) });
-    entries.push({ story, writing, request, usd: estimateRequestUsd(request, config.MODEL_WRITER) });
+    entries.push({ kind: "story", story, writing, request, usd: estimateRequestUsd(request, config.MODEL_WRITER) });
+  }
+  for (const pauta of pautasToWrite) {
+    const writing = storyFromJson(pauta.writing_json ?? "{}");
+    const request = pautaBatchRequest(ai, writing, pautaCustomId(pauta.id), { models: config, now: pautaNow(pauta) });
+    entries.push({ kind: "pauta", pauta, request, usd: estimateRequestUsd(request, config.MODEL_WRITER) });
   }
 
-  // Highest score first: what does not fit is the least relevant.
+  // News by score, then pautas by day: what does not fit is the least relevant.
   const left = config.BACKFILL_BUDGET_USD - db.spentTotal("backfill");
   const kept: typeof entries = [];
   let total = 0;
@@ -803,7 +956,11 @@ async function submitBatch(deps: BackfillDeps, report: RetroativoReport): Promis
   tx(db, () => {
     db.setMeta(SUBMITTING_KEY, JSON.stringify(marker));
     const insert = db.raw.prepare("INSERT INTO backfill_drafts (story_id, batch_id, writing_json, status) VALUES (?, ?, ?, 'submitted')");
-    for (const e of kept) insert.run(e.story.id, marker.id, JSON.stringify(e.writing));
+    const claimPauta = db.raw.prepare("UPDATE pautas SET batch_id = ? WHERE id = ?");
+    for (const e of kept) {
+      if (e.kind === "story") insert.run(e.story.id, marker.id, JSON.stringify(e.writing));
+      else claimPauta.run(marker.id, e.pauta.id);
+    }
   });
   const batch = await deps.batches.create({ requests: kept.map((e) => e.request) });
   adoptBatch(deps, marker, batch.id);
@@ -832,10 +989,18 @@ function failStory(deps: BackfillDeps, storyId: number, reason: string, report: 
   deps.log?.(`retroativo: história ${storyId} falhou (${reason})`);
 }
 
+/** Marks a pauta's writing as failed. No alert here (one summary per run). */
+function failPauta(deps: BackfillDeps, pautaId: number, reason: string, report: RetroativoReport): void {
+  markPauta(deps.db, pautaId, { status: "failed", error: reason });
+  report.failed++;
+  deps.log?.(`retroativo: pauta ${pautaId} falhou (${reason})`);
+}
+
 /**
- * Reads the ended batch's results, matched to stories by `custom_id` only. Each result is saved with its
- * usage (batch prices) in one transaction, so a crash midway never records anything twice. A result that
- * errored, expired, was refused or does not parse as a Draft fails that story; so does a missing result.
+ * Reads the ended batch's results, matched by `custom_id` only (`story-<id>` and `pauta-<id>`). Each result
+ * is saved with its usage (batch prices) in one transaction, so a crash midway never records anything twice.
+ * A result that errored, expired, was refused or does not parse as a Draft fails that story or pauta; so
+ * does a missing result.
  */
 async function collectResults(deps: BackfillDeps, batchId: string, report: RetroativoReport): Promise<void> {
   const { db, ai, config } = deps;
@@ -844,38 +1009,67 @@ async function collectResults(deps: BackfillDeps, batchId: string, report: Retro
       (r) => r.story_id,
     ),
   );
-  if (pending.size > 0) {
+  const pendingPautas = new Set(
+    all<{ id: number }>(db, "SELECT id FROM pautas WHERE batch_id = ? AND status = 'bf_planned'", batchId).map((r) => r.id),
+  );
+
+  /** Saves one result: the draft through `save`, or a failure through `fail`. */
+  const handle = (
+    result: Anthropic.Messages.Batches.MessageBatchIndividualResponse["result"],
+    fail: (reason: string) => void,
+    save: (draft: Draft) => void,
+  ) => {
+    if (result.type !== "succeeded") {
+      fail(result.type === "errored" ? `erro no lote: ${result.error.error.message}` : `lote: ${result.type}`);
+      return;
+    }
+    const message = result.message;
+    ai.recordBatchUsage(config.MODEL_WRITER, message.usage, "write-batch");
+    if (message.stop_reason === "refusal") {
+      fail("o modelo recusou");
+      return;
+    }
+    const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+    const draft = parseDraftText(text);
+    if (!draft) {
+      fail(`resposta fora do formato (stop_reason ${String(message.stop_reason)})`);
+      return;
+    }
+    save(draft);
+    report.drafted++;
+  };
+
+  if (pending.size + pendingPautas.size > 0) {
     for await (const response of await deps.batches.results(batchId)) {
       const storyId = storyIdOf(response.custom_id);
-      if (storyId === null || !pending.has(storyId)) continue;
-      pending.delete(storyId);
-      const result = response.result;
-      tx(db, () => {
-        if (result.type !== "succeeded") {
-          const reason = result.type === "errored" ? `erro no lote: ${result.error.error.message}` : `lote: ${result.type}`;
-          failStory(deps, storyId, reason, report);
-          return;
-        }
-        const message = result.message;
-        ai.recordBatchUsage(config.MODEL_WRITER, message.usage, "write-batch");
-        if (message.stop_reason === "refusal") {
-          failStory(deps, storyId, "o modelo recusou", report);
-          return;
-        }
-        const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-        const draft = parseDraftText(text);
-        if (!draft) {
-          failStory(deps, storyId, `resposta fora do formato (stop_reason ${String(message.stop_reason)})`, report);
-          return;
-        }
-        db.raw
-          .prepare("UPDATE backfill_drafts SET status = 'drafted', draft_json = ? WHERE story_id = ?")
-          .run(JSON.stringify(draft), storyId);
-        report.drafted++;
-      });
+      const pautaId = pautaIdOf(response.custom_id);
+      if (storyId !== null && pending.has(storyId)) {
+        pending.delete(storyId);
+        tx(db, () =>
+          handle(
+            response.result,
+            (reason) => failStory(deps, storyId, reason, report),
+            (draft) =>
+              db.raw
+                .prepare("UPDATE backfill_drafts SET status = 'drafted', draft_json = ? WHERE story_id = ?")
+                .run(JSON.stringify(draft), storyId),
+          ),
+        );
+      } else if (pautaId !== null && pendingPautas.has(pautaId)) {
+        pendingPautas.delete(pautaId);
+        tx(db, () =>
+          handle(
+            response.result,
+            (reason) => failPauta(deps, pautaId, reason, report),
+            (draft) =>
+              db.raw.prepare("UPDATE pautas SET status = 'bf_drafted', draft_json = ? WHERE id = ?").run(JSON.stringify(draft), pautaId),
+          ),
+        );
+      }
     }
     tx(db, () => {
       for (const storyId of pending) failStory(deps, storyId, "sem resultado no lote", report);
+      for (const pautaId of pendingPautas) failPauta(deps, pautaId, "sem resultado no lote", report);
     });
   }
   db.raw.prepare("UPDATE backfill_batches SET status = 'processed' WHERE id = ?").run(batchId);
@@ -931,6 +1125,55 @@ async function checkDrafts(deps: BackfillDeps, report: RetroativoReport): Promis
     });
     report.ready++;
   }
+  await checkPautaDrafts(deps, report);
+}
+
+/**
+ * The same check for the pautas' batch drafts: checked live (fast model), rewritten once through the live
+ * writer with the pauta addendum and fallbacks, checked again. A passing draft gets the format's title,
+ * category and game in code, is assembled and saved as `ready`.
+ */
+async function checkPautaDrafts(deps: BackfillDeps, report: RetroativoReport): Promise<void> {
+  const { db, ai, config } = deps;
+  const rows = all<PautaRow>(db, "SELECT * FROM pautas WHERE mode = 'backfill' AND status = 'bf_drafted' ORDER BY story_date, id");
+  for (const row of rows) {
+    if (!row.draft_json || !row.writing_json || !row.format) continue;
+    const writing = storyFromJson(row.writing_json);
+    const sources = sourcesText(writing);
+    const check = { model: config.MODEL_FAST, candidates: writing.candidates };
+
+    let final: Draft | null = JSON.parse(row.draft_json) as Draft;
+    let problems: string[] = [];
+    try {
+      const first = await checkDraft(ai, final, sources, "backfill", check);
+      if (!first.ok) {
+        const second = await writeDraft(ai, writing, "backfill", {
+          models: config,
+          now: pautaNow(row),
+          problems: first.problems,
+          fallbacks: true,
+          systemExtra: loadPautaStyle(),
+        });
+        const verdict = await checkDraft(ai, second, sources, "backfill", check);
+        final = verdict.ok ? second : null;
+        problems = verdict.problems;
+      }
+    } catch (error) {
+      if (error instanceof RefusalError) {
+        failPauta(deps, row.id, "o modelo recusou a reescrita", report);
+        continue;
+      }
+      throw error;
+    }
+
+    if (!final) {
+      failPauta(deps, row.id, `checagem reprovou duas vezes: ${problems.join(" | ")}`, report);
+      continue;
+    }
+    const payload = pautaPayload(finishPautaDraft(final, writing, row.format as PautaFormat), writing);
+    markPauta(db, row.id, { status: "ready", payloadJson: JSON.stringify(payload) });
+    report.pautasReady++;
+  }
 }
 
 async function escrever(deps: BackfillDeps, report: RetroativoReport): Promise<void> {
@@ -945,6 +1188,9 @@ async function escrever(deps: BackfillDeps, report: RetroativoReport): Promise<v
         | undefined)?.id ?? null;
     if (!batchId) {
       if (!(await selectStories(deps, report))) return;
+      // After the news are chosen, so a pauta only takes a day that still has room for it.
+      await planPautas(deps, report);
+      if (report.stopped) return;
       batchId = await submitBatch(deps, report);
     }
     if (batchId) {
@@ -959,7 +1205,7 @@ async function escrever(deps: BackfillDeps, report: RetroativoReport): Promise<v
       alert(
         db,
         "checagem",
-        `Retroativo: ${failed} história(s) não viraram matéria (lote com erro, expirado ou fora do formato, ou checagem reprovada duas vezes).`,
+        `Retroativo: ${failed} história(s) ou pauta(s) não viraram matéria (lote com erro, expirado ou fora do formato, ou checagem reprovada duas vezes).`,
         deps.now(),
       );
     }
@@ -995,43 +1241,107 @@ async function publishReady(deps: BackfillDeps, report: RetroativoReport, refuse
     deps.log?.("retroativo: PAUSADO, nada publicado");
     return;
   }
-  const ready = all<StoryRow>(
+  const stories = all<StoryRow>(
     db,
     `SELECT s.* FROM stories s JOIN articles a ON a.story_id = s.id
      WHERE s.mode = 'backfill' AND a.status = 'ready' AND s.story_date IS NOT NULL
      ORDER BY s.story_date, s.id`,
   );
+  const pautas = all<PautaRow>(db, "SELECT * FROM pautas WHERE mode = 'backfill' AND status = 'ready' ORDER BY story_date, id");
+
+  /** One article to publish: how to read its saved payload, save it again, and mark it failed or published. */
+  type Job = {
+    day: string;
+    label: string;
+    key: string;
+    payload: () => ArticlePayload | null;
+    save: (payload: ArticlePayload, now: Date) => void;
+    fail: (now: Date) => void;
+    done: (payload: ArticlePayload, created: { id: string; slug: string }) => void;
+  };
+  const storyJobs: Job[] = stories.map((story) => ({
+    day: story.story_date!,
+    label: `história ${story.id}`,
+    key: articleKey("backfill", story.id),
+    payload: () => {
+      const article = db.articleForStory(story.id);
+      return article?.status === "ready" ? (JSON.parse(article.payload_json) as ArticlePayload) : null;
+    },
+    save: (payload, now) => db.saveArticle({ storyId: story.id, payloadJson: JSON.stringify(payload), status: "ready" }, now),
+    fail: (now) => {
+      db.markArticle(story.id, { status: "failed" }, now);
+      db.setStoryStatus(story.id, "dropped");
+    },
+    done: (payload, created) => {
+      db.saveArticle(
+        {
+          storyId: story.id,
+          payloadJson: JSON.stringify(payload),
+          status: "published",
+          siteId: created.id,
+          slug: created.slug,
+          publishedAt: new Date(payload.publishedAt!).toISOString(),
+        },
+        deps.now(),
+      );
+      db.setStoryStatus(story.id, "published");
+      report.published++;
+    },
+  }));
+  const pautaJobs: Job[] = pautas.map((pauta) => ({
+    day: pauta.story_date,
+    label: `pauta ${pauta.id}`,
+    key: pautaKey("backfill", pauta.id),
+    payload: () => {
+      const row = db.raw.prepare("SELECT status, payload_json FROM pautas WHERE id = ?").get(pauta.id) as
+        | { status: string; payload_json: string | null }
+        | undefined;
+      return row?.status === "ready" && row.payload_json ? (JSON.parse(row.payload_json) as ArticlePayload) : null;
+    },
+    save: (payload) => markPauta(db, pauta.id, { payloadJson: JSON.stringify(payload) }),
+    fail: () => markPauta(db, pauta.id, { status: "failed", error: "recusada pelo site" }),
+    done: (payload, created) => {
+      markPauta(db, pauta.id, {
+        status: "published",
+        siteId: created.id,
+        slug: created.slug,
+        publishedAt: new Date(payload.publishedAt!).toISOString(),
+        payloadJson: JSON.stringify(payload),
+      });
+      report.pautasPublished++;
+    },
+  }));
+  // Oldest day first, the day's news before its pauta (a stable sort keeps each list's order).
+  const jobs = [...storyJobs, ...pautaJobs].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
 
   let sent = 0;
-  for (const story of ready) {
+  for (const job of jobs) {
     if (isPaused(config)) {
       report.paused = true;
       pausedAlert(deps);
       return;
     }
-    const article = db.articleForStory(story.id);
-    if (article?.status !== "ready") continue;
+    const payload = job.payload();
+    if (!payload) continue;
     const now = deps.now();
-    const payload = JSON.parse(article.payload_json) as ArticlePayload;
     if (!payload.publishedAt) {
-      const at = backdatedTime(story.story_date!, now, deps.rand);
-      if (!at) continue; // today's story before 06:05: a later run publishes it
+      const at = backdatedTime(job.day, now, deps.rand);
+      if (!at) continue; // today's article before 06:05: a later run publishes it
       payload.publishedAt = isoWithOffset(at);
-      db.saveArticle({ storyId: story.id, payloadJson: JSON.stringify(payload), status: "ready" }, now);
+      job.save(payload, now);
     }
 
     if (sent > 0) await deps.sleep(PUBLISH_INTERVAL_MS);
     sent++;
     let created: { id: string; slug: string };
     try {
-      created = await deps.tralked.createArticle(payload, articleKey("backfill", story.id));
+      created = await deps.tralked.createArticle(payload, job.key);
     } catch (error) {
       if (!(error instanceof TralkedError)) throw error;
       if (ARTICLE_ERRORS.has(error.status)) {
-        db.markArticle(story.id, { status: "failed" }, now);
-        db.setStoryStatus(story.id, "dropped");
+        job.fail(now);
         report.publishFailed++;
-        refused.push(`${story.id} (${error.status} ${error.message})`);
+        refused.push(`${job.label} (${error.status} ${error.message})`);
         continue;
       }
       alertOncePerDay(db, "api", `Retroativo: erro da API do site ao publicar: ${error.status} ${error.message}`, now, "Retroativo: erro da API");
@@ -1039,20 +1349,8 @@ async function publishReady(deps: BackfillDeps, report: RetroativoReport, refuse
       return;
     }
 
-    db.saveArticle(
-      {
-        storyId: story.id,
-        payloadJson: JSON.stringify(payload),
-        status: "published",
-        siteId: created.id,
-        slug: created.slug,
-        publishedAt: new Date(payload.publishedAt).toISOString(),
-      },
-      deps.now(),
-    );
-    db.setStoryStatus(story.id, "published");
-    report.published++;
-    deps.log?.(`retroativo: publicada a história ${story.id} (${story.story_date}) → ${created.id}`);
+    job.done(payload, created);
+    deps.log?.(`retroativo: publicada a ${job.label} (${job.day}) → ${created.id}`);
   }
 }
 
