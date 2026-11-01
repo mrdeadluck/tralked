@@ -228,7 +228,12 @@ export function createPsnClient({
       },
       signal: timeoutSignal(),
     });
-    if (res.status === 403) return "private";
+    if (res.status === 403) {
+      const body = await res.text().catch(() => "");
+      // Sony's reason (an error code and message, no personal data) tells privacy from other refusals.
+      console.warn(`PSN ${what}: HTTP 403 ${body.slice(0, 200)}`);
+      return "private";
+    }
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`PSN ${what} failed with HTTP ${res.status}`);
     return (await res.json()) as T;

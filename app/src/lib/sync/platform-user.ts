@@ -438,7 +438,12 @@ export async function syncPlatformAccount(
       maxTitles: options.maxTitles,
     },
   );
-  if (library === "private") return unchanged("private");
+  if (library === "private") {
+    // The platform refused the service account (HTTP 403): shown in the logs so a profile that looks
+    // public elsewhere can be told apart from a bug here.
+    console.warn(`Platform sync: ${platform} refused to show the library of user ${userId} (private)`);
+    return unchanged("private");
+  }
   for (const failure of library.failures) {
     console.error(
       `Platform sync: could not read ${platform} title ${failure.externalId} for user ${userId}`,
