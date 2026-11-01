@@ -82,22 +82,23 @@ export function ReactionBar(props: ReactionBarProps) {
           onClick={() => click(1)}
           disabled={pending || busy}
           aria-pressed={state.mine === 1}
-          aria-label={`Curtir ${what} (${state.likes})`}
           className={`${BUTTON} ${state.mine === 1 ? "border-acc bg-acc text-bg" : "border-line-2 text-text-3 hover:border-text hover:text-text"}`}
         >
           <ThumbUpIcon filled={state.mine === 1} width={14} height={14} />
-          <span aria-hidden="true">{state.likes}</span>
+          {/* The name keeps the visible count ("Curtir comentário de @x: 3"). */}
+          <span className="sr-only">Curtir {what}: </span>
+          <span>{state.likes}</span>
         </button>
         <button
           type="button"
           onClick={() => click(-1)}
           disabled={pending || busy}
           aria-pressed={state.mine === -1}
-          aria-label={`Descurtir ${what} (${state.dislikes})`}
           className={`${BUTTON} ${state.mine === -1 ? "border-text bg-text text-bg" : "border-line-2 text-text-3 hover:border-text hover:text-text"}`}
         >
           <ThumbDownIcon filled={state.mine === -1} width={14} height={14} />
-          <span aria-hidden="true">{state.dislikes}</span>
+          <span className="sr-only">Descurtir {what}: </span>
+          <span>{state.dislikes}</span>
         </button>
       </div>
       {message === "login" ? (

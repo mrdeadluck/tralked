@@ -252,6 +252,16 @@ describe("threads, mentions and blocks", () => {
     });
     expect(refused).toEqual({ status: "blocked" });
   });
+
+  it("a blocked user cannot reply in the blocker's forum thread", async () => {
+    const owner = await user("dono");
+    const blocked = await user("bloqueado");
+    const thread = await prisma.forumThread.create({
+      data: { authorId: owner.id, title: `Bloqueio ${MARK}`, slug: "bloqueio", posts: { create: { authorId: owner.id, body: "abertura" } } },
+    });
+    await blockUser(prisma, owner.id, blocked.id);
+    expect(await createPost(prisma, blocked.id, { threadId: thread.id, body: "oi" })).toEqual({ status: "blocked" });
+  });
 });
 
 describe("private messages", () => {
