@@ -89,10 +89,16 @@ export function createXboxClient({
       ...(body !== undefined && { body: JSON.stringify(body) }),
       signal: timeoutSignal(),
     });
-    if (res.status === 403) return "private";
-    if (res.status === 404) return null;
+    if (res.status === 403 || res.status === 404) {
+      // What OpenXBL answered (its error text, no personal data) tells a typo from an outage.
+      const text = await res.text().catch(() => "");
+      console.warn(`Xbox ${what}: HTTP ${res.status} ${text.slice(0, 200)}`);
+      return res.status === 403 ? "private" : null;
+    }
     if (!res.ok) throw new Error(`Xbox ${what} failed with HTTP ${res.status}`);
-    return (await res.json()) as T;
+    const json = (await res.json()) as T & { content?: T };
+    // Some OpenXBL answers come wrapped in `content`.
+    return (json && typeof json === "object" && json.content && typeof json.content === "object" ? json.content : json) as T;
   }
 
   return {
@@ -101,12 +107,23 @@ export function createXboxClient({
         people?: { xuid?: string; id?: string; gamertag?: string; modernGamertag?: string }[];
       }>(`/search/${encodeURIComponent(gamertag)}`, "search");
       if (search === null || search === "private") return null;
-      const wanted = gamertag.toLowerCase();
-      const person = (search.people ?? []).find(
-        (p) => p.gamertag?.toLowerCase() === wanted || p.modernGamertag?.toLowerCase() === wanted,
+      const wanted = gamertag.toLowerCase().replace(/\s+/g, "");
+      const people = search.people ?? [];
+      const person = people.find(
+        (p) =>
+          p.gamertag?.toLowerCase().replace(/\s+/g, "") === wanted ||
+          p.modernGamertag?.toLowerCase().replace(/\s+/g, "") === wanted,
       );
       const xuid = person?.xuid ?? person?.id;
-      if (!person || !xuid) return null;
+      if (!person || !xuid) {
+        console.warn(
+          `Xbox search: no exact match among ${people.length} result(s) (keys: ${Object.keys(search).join(",")}; first: ${people
+            .slice(0, 3)
+            .map((p) => p.modernGamertag ?? p.gamertag)
+            .join(", ")})`,
+        );
+        return null;
+      }
 
       const account = await get<{ profileUsers?: { id: string; settings?: Setting[] }[] }>(
         `/account/${encodeURIComponent(xuid)}`,
