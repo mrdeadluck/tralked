@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import type { CronJob } from "@/lib/cron/schedules";
 import { env } from "@/lib/env";
+import { runHighscoresJob } from "@/lib/highscores/job";
 import { deleteOldNotifications } from "@/lib/notifications/retention";
 import { refreshRarity, syncCatalog } from "@/lib/sync/catalog";
 import { syncExternalNews } from "@/lib/sync/external-news";
@@ -18,7 +19,8 @@ import { syncStaleUsers } from "@/lib/sync/user";
  * - users: at most 50 Steam users and 50 s in all (STALE_USERS_BUDGET_MS; each user's catalog
  *   probing gets what is left, at most 45 s);
  * - platforms: at most 5 PSN/Xbox/RA accounts and 50 s in all;
- * - steam-catalog: 50 s in all (app list ≤ 40%, one SteamSpy page, store details with the rest).
+ * - steam-catalog: 50 s in all (app list ≤ 40%, one SteamSpy page, store details with the rest);
+ * - highscores: one indexed top-200 read and one insert per board (about 40 boards).
  * Work left over goes first in the next run. Schedules: CRON_SCHEDULES in @/lib/cron/schedules
  * (and the README).
  */
@@ -35,6 +37,8 @@ const JOBS: Record<CronJob, () => Promise<{ processed: number; failed?: number }
   notifications: () => deleteOldNotifications(),
   // Hourly: full Steam catalog (app list, popularity, details), 50 s in all.
   "steam-catalog": () => runSteamCatalogJob(),
+  // Daily, just after midnight in Sao Paulo: rank snapshot of every board (the highscores arrows).
+  highscores: () => runHighscoresJob(),
 };
 
 function isAuthorized(request: NextRequest): boolean {

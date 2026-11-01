@@ -80,6 +80,8 @@ model User {
   skills         SkillProgress[]
   attributes     AttributeProgress[]
   stats          UserStats?
+  rankStats      UserRankStats[]
+  rankSnapshots  RankSnapshot[]
   missions       Mission[]
   gameOpens      GameOpen[]
   guidesWritten  Guide[]
@@ -453,6 +455,56 @@ model UserStats {
 
   @@index([totalXp])
   @@index([level])
+}
+
+/// Highscores (Plano 4, F6): the totals behind each ranking, one row per user and scope
+/// (`all` = every platform merged, or one of steam | psn | xbox | retro). Rewritten by every
+/// recompute (lib/highscores/stats.ts) from the library and the valid unlocks, so a ranking is an
+/// indexed read instead of an aggregate over the ledger or the unlocks.
+model UserRankStats {
+  userId                String
+  scope                 String
+  /// Playtime the platforms report, in minutes.
+  playtimeMin           Int      @default(0)
+  /// Valid (non-suspicious) unlocks.
+  achievements          Int      @default(0)
+  /// Valid unlocks at most 20% global rarity (rara, épica, lendária).
+  rareAchievements      Int      @default(0)
+  /// Valid unlocks at most 3% global rarity (lendária).
+  legendaryAchievements Int      @default(0)
+  /// Valid 100% completions (distinct games for `all`).
+  perfectGames          Int      @default(0)
+  gamesOwned            Int      @default(0)
+  /// Games with playtime or a valid unlock.
+  gamesPlayed           Int      @default(0)
+  /// Acervo points (engine/attributes `acervoPoints`: 10 per played game, 5 per never played).
+  acervo                Int      @default(0)
+  updatedAt             DateTime @updatedAt
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, scope])
+  @@index([scope, playtimeMin])
+  @@index([scope, achievements])
+  @@index([scope, rareAchievements, legendaryAchievements])
+  @@index([scope, perfectGames])
+  @@index([scope, acervo])
+}
+
+/// Highscores (Plano 4, F6): each board's ranking (top positions) as of the first snapshot of a
+/// day (America/Sao_Paulo, `day` = YYYY-MM-DD), taken by the daily `highscores` cron. The rank
+/// arrows compare today's rank with the latest earlier snapshot. Pruned after 14 days.
+model RankSnapshot {
+  /// Board key (lib/highscores/boards.ts `boardKey`), e.g. `nivel`, `horas:all`, `genero:rpg`.
+  board     String
+  day       String
+  userId    String
+  rank      Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([board, day, userId])
+  @@index([day])
+  @@index([userId])
 }
 
 model Mission {

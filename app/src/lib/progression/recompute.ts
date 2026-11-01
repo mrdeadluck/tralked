@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { rankStatsWrites } from "@/lib/highscores/write";
 import { ATTRIBUTES, computeAttributes, type AttributeInput } from "@/lib/engine/attributes";
 import {
   generateMissions,
@@ -345,8 +346,8 @@ async function attributeInput(
 
 /**
  * Rebuilds everything derived from the XP ledger and the unlocks for one user: missions
- * (create, progress, payment), SkillProgress, AttributeProgress, total XP, level, vocation and
- * streak. Voided ledger entries and suspicious unlocks are left out. Safe to run any number of
+ * (create, progress, payment), SkillProgress, AttributeProgress, total XP, level, vocation,
+ * streak and the highscores totals (UserRankStats). Voided ledger entries and suspicious unlocks are left out. Safe to run any number of
  * times, also concurrently: the ledger is only ever appended to with unique keys.
  */
 export async function recomputeUser(userId: string, now: Date = new Date()): Promise<void> {
@@ -377,8 +378,10 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
     streakBest: streak.best,
     shields: streak.shields,
   };
+  const rankStats = await rankStatsWrites(userId, unlocks);
 
   await prisma.$transaction([
+    ...rankStats,
     ...SKILLS.map(({ id }) =>
       prisma.skillProgress.upsert({
         where: { userId_skill: { userId, skill: id } },

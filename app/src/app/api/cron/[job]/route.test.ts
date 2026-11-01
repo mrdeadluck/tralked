@@ -9,7 +9,9 @@ const jobs = vi.hoisted(() => ({
   syncStaleMedia: vi.fn(async () => ({ processed: 5, failed: 0 })),
   syncExternalNews: vi.fn(async () => ({ processed: 2, failed: 0, created: 7 })),
   deleteOldNotifications: vi.fn(async () => ({ processed: 9 })),
+  runHighscoresJob: vi.fn(async () => ({ processed: 37, rows: 120, pruned: 0 })),
 }));
+vi.mock("@/lib/highscores/job", () => ({ runHighscoresJob: jobs.runHighscoresJob }));
 vi.mock("@/lib/notifications/retention", () => ({ deleteOldNotifications: jobs.deleteOldNotifications }));
 vi.mock("@/lib/sync/catalog", () => ({
   syncCatalog: jobs.syncCatalog,
@@ -56,6 +58,7 @@ describe("GET /api/cron/[job]", () => {
     ["media", "syncStaleMedia"],
     ["news", "syncExternalNews"],
     ["notifications", "deleteOldNotifications"],
+    ["highscores", "runHighscoresJob"],
   ] as const)("runs the %s job with a valid token", async (job, fn) => {
     const res = await call(job, `Bearer ${env.CRON_SECRET}`);
     expect(res.status).toBe(200);
