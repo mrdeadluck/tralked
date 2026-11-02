@@ -31,8 +31,9 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin,
       stats.pendingReview > 0 ? `+${formatNumber(stats.pendingReview)} em análise` : undefined,
     ],
     ["Jogos 100%", formatNumber(stats.perfectGames)],
-    ["Platinas", formatNumber(stats.platinums)],
-    ["Lendárias", formatNumber(stats.legendary)],
+    // Same rule and function as the Troféus card: a 100% per platform, or the PSN platinum trophy.
+    ["Platinas", formatNumber(stats.platinums), "em todas as plataformas"],
+    ["Lendárias", formatNumber(stats.legendary), "até 3% dos jogadores"],
     ["Ranking geral", stats.rank === null ? "—" : `#${formatNumber(stats.rank)}`],
   ];
 
@@ -64,12 +65,27 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin,
               {platforms.map((p) => (
                 <li
                   key={p.platform}
-                  title={`${PLATFORM_LABEL[p.platform]}: ${p.handle}${p.verified ? "" : " (conexão não verificada)"}`}
+                  title={`${PLATFORM_LABEL[p.platform]}: ${p.handle}${p.verified ? " (conta verificada)" : ""}`}
                 >
+                  {/* Verified accounts earn a check; the others stay plain, without an alarm. */}
                   <Chip color={PLATFORM_TOKEN[p.platform]}>
                     {PLATFORM_LABEL[p.platform]}
                     <span className="sr-only">: {p.handle}</span>
-                    {p.verified ? null : <span className="text-muted"> · não verificada</span>}
+                    {p.verified ? (
+                      <>
+                        <svg
+                          viewBox="0 0 12 12"
+                          aria-hidden="true"
+                          className="ml-1 inline-block size-3 align-[-1px] text-acc"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M2.5 6.5 5 9l4.5-6" />
+                        </svg>
+                        <span className="sr-only"> (verificada)</span>
+                      </>
+                    ) : null}
                   </Chip>
                 </li>
               ))}
@@ -78,8 +94,11 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin,
             <Chip>Nenhuma plataforma conectada</Chip>
           )}
           {isOwner && platforms.some((p) => !p.verified) ? (
-            <Link href="/conta/conexoes" className="ml-1 text-acc underline-offset-[3px] hover:underline">
-              Verificar contas →
+            <Link
+              href="/conta/conexoes"
+              className="ml-1 inline-flex min-h-6 items-center text-text-3 normal-case tracking-normal underline decoration-line-2 underline-offset-[3px] hover:text-acc hover:decoration-current"
+            >
+              Verificar contas
             </Link>
           ) : null}
         </div>

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { formatAgo } from "@/components/character/format";
 import { formatHours } from "@/components/profile/format";
-import { Placeholder } from "@/components/ui/Placeholder";
+import { GameCover } from "@/components/games/GameCover";
 import { SectionHead } from "@/components/ui/SectionHead";
 import type { RecentlyPlayedGame } from "@/lib/library/queries";
 import { PLATFORM_LABEL, PLATFORM_TOKEN } from "./platforms";
@@ -25,14 +25,15 @@ export function RecentlyPlayed({ games, now, libraryHref }: RecentlyPlayedProps)
                 href={`/jogos/${game.slug}`}
                 className="flex h-full flex-col overflow-hidden rounded-[4px] border border-line bg-surface hover:border-line-2"
               >
-                {game.coverUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- capa externa (Steam/IGDB/SteamGridDB)
-                  <img src={game.coverUrl} alt={`Capa de ${game.name}`} className="aspect-[3/4] w-full object-cover" />
-                ) : (
-                  <div className="[&>div]:rounded-none">
-                    <Placeholder label={`capa: ${game.name.toLowerCase()}`} />
-                  </div>
-                )}
+                <GameCover
+                  name={game.name}
+                  coverUrl={game.coverUrl}
+                  steamAppId={game.steamAppId}
+                  wideUrl={game.heroUrl}
+                  ratio="3 / 4"
+                  alt=""
+                  className="rounded-none"
+                />
                 <div className="flex flex-1 flex-col gap-1 px-3 pt-2.5 pb-3">
                   <h3 className="line-clamp-2 text-[14px] leading-[1.2] font-bold">{game.name}</h3>
                   <p className="mt-auto font-mono text-xs text-dim">

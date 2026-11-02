@@ -20,7 +20,10 @@ export function TrophyTiers({ trophies }: { trophies: TrophySummary }) {
   const total = trophies.byPlatform.reduce((sum, p) => sum + p.unlocks, 0);
   return (
     <Card>
-      <CardHead title="Troféus" aside={`${formatNumber(total)} ${total === 1 ? "conquista" : "conquistas"}`} />
+      <CardHead
+        title="Troféus"
+        aside={`${formatNumber(total)} ${total === 1 ? "conquista" : "conquistas"}`}
+      />
       <ul
         aria-label="Troféus por nível"
         className="m-0 mt-4 grid list-none grid-cols-4 gap-px border border-line bg-line p-0"
@@ -37,6 +40,9 @@ export function TrophyTiers({ trophies }: { trophies: TrophySummary }) {
           </li>
         ))}
       </ul>
+      <p className="mt-2 font-mono text-xs text-dim">
+        Todas as plataformas somadas. Platina: o troféu de platina da PSN ou um 100% nas outras.
+      </p>
       {trophies.byPlatform.length > 0 ? (
         <dl className="m-0 mt-4 flex flex-col gap-2">
           {trophies.byPlatform.map(({ platform, unlocks }) => (

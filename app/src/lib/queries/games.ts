@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
 import { foldQueryInDb } from "@/lib/search/normalize";
+import { loadTimeTo100, type TimeTo100 } from "./time-to-100";
 
 const SKILL_IDS = new Set<string>(SKILLS.map((s) => s.id));
 
@@ -227,6 +228,9 @@ export type GameDetail = {
   platforms: string[];
   skills: SkillId[];
   achievementCount: number;
+  /** Wide art (the booklet cover of the guide head) and IGDB's 100% time. */
+  heroUrl: string | null;
+  timeToBeatCompleteMin: number | null;
   /** Null when the visitor is anonymous or does not own the game. */
   progress: { unlockedCount: number; playtimeMin: number } | null;
   /** Present only for published guides. */
@@ -277,6 +281,8 @@ export async function getGame(slug: string, userId?: string): Promise<GameDetail
     platforms: game.platforms,
     skills: asSkills(game.skills.map((s) => s.skill)),
     achievementCount: game.achievementCount,
+    heroUrl: safeImageUrl(game.heroUrl),
+    timeToBeatCompleteMin: game.timeToBeatCompleteMin,
     progress: owned ? { unlockedCount: owned.unlockedCount, playtimeMin: owned.playtimeMin } : null,
     generatedAt: new Date(),
     guide: guide
@@ -312,8 +318,12 @@ export type Collectible = z.infer<typeof collectiblesSchema>[number];
 
 export type GuideFacts = {
   difficulty: number;
-  hoursMin: number;
-  hoursMax: number;
+  /**
+   * Time to 100%, the same number and source as the game page (Tralked players' median, else
+   * IGDB). The editor's own hours range (Guide.hoursMin/hoursMax) is not shown: it was no
+   * measurement of the community.
+   */
+  timeTo100: TimeTo100 | null;
   playthroughs: string;
   missables: number;
   online: number;
@@ -520,8 +530,7 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
     game: { ...game, guide: game.guide },
     facts: {
       difficulty: guide.difficulty,
-      hoursMin: guide.hoursMin,
-      hoursMax: guide.hoursMax,
+      timeTo100: await loadTimeTo100(game.id, game.timeToBeatCompleteMin),
       playthroughs: guide.playthroughs,
       missables: guide.missables,
       online: guide.online,

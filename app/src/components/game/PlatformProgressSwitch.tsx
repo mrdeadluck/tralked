@@ -50,37 +50,46 @@ export function PlatformProgressSwitch({
         label="TRALKED · DISCO 1"
         platLabel={view.platLabel}
       >
-        <fieldset className="gpx gp-veil" style={delay(".26s")}>
-          <legend className="sr-only">Progresso por plataforma</legend>
-          <div className="gpx-row">
-            {views.map((v) => (
-              <label
-                key={v.id}
-                className="gpx-opt"
-                data-all={v.color ? undefined : ""}
-                data-done={v.completed ? "" : undefined}
-                style={v.color ? ({ "--c": v.color } as CSSProperties) : undefined}
-              >
-                <input
-                  type="radio"
-                  name={`${id}-plataforma`}
-                  value={v.id}
-                  checked={v.id === view.id}
-                  onChange={() => setSelected(v.id)}
-                />
-                <span>{v.label}</span>
-                <span className="gpx-val">{v.badge ?? `${v.pct}%`}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        {views.length > 1 ? (
+          <fieldset className="gpx gp-veil" style={delay(".26s")}>
+            <legend className="sr-only">{view.catalog ? "Conquistas por plataforma" : "Progresso por plataforma"}</legend>
+            <div className="gpx-row">
+              {views.map((v) => (
+                <label
+                  key={v.id}
+                  className="gpx-opt"
+                  data-all={v.color ? undefined : ""}
+                  data-done={v.completed ? "" : undefined}
+                  style={v.color ? ({ "--c": v.color } as CSSProperties) : undefined}
+                >
+                  <input
+                    type="radio"
+                    name={`${id}-plataforma`}
+                    value={v.id}
+                    checked={v.id === view.id}
+                    onChange={() => setSelected(v.id)}
+                  />
+                  <span>{v.label}</span>
+                  <span className="gpx-val">{v.badge ?? `${v.pct}%`}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
         <div className="gpg gp-veil" style={delay(".3s")} aria-live="polite">
-          <b>
-            {fmt(view.unlocked)}
-            <span>/</span>
-            {fmt(view.total)}
-          </b>
-          <p>{view.detail}</p>
+          {view.catalog ? (
+            <b>{fmt(view.total)}</b>
+          ) : (
+            <b>
+              {fmt(view.unlocked)}
+              <span>/</span>
+              {fmt(view.total)}
+            </b>
+          )}
+          <p>
+            {view.detail}
+            {view.link ? <a href={view.link.href}>{view.link.label}</a> : null}
+          </p>
         </div>
         <TrophyGrid values={view.trophies} label={view.trophiesLabel} style={delay(".38s")} />
       </DiscProgress>

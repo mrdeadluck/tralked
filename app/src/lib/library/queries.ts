@@ -247,6 +247,9 @@ export type RecentlyPlayedGame = {
   slug: string;
   name: string;
   coverUrl: string | null;
+  /** Cover fallbacks (lib/case-art): Steam's portrait art, then the hero shown whole. */
+  steamAppId: number | null;
+  heroUrl: string | null;
   platform: PlatformId;
   playtimeMin: number;
   lastPlayedAt: Date;
@@ -266,7 +269,7 @@ export async function getRecentlyPlayed(userId: string, limit = 6): Promise<Rece
       platform: true,
       playtimeMin: true,
       lastPlayedAt: true,
-      game: { select: { slug: true, name: true, coverUrl: true, stub: true } },
+      game: { select: { slug: true, name: true, coverUrl: true, steamAppId: true, heroUrl: true, stub: true } },
     },
   });
   const games = new Map<string, RecentlyPlayedGame>();
@@ -277,6 +280,8 @@ export async function getRecentlyPlayed(userId: string, limit = 6): Promise<Rece
       slug: row.game.slug,
       name: row.game.name,
       coverUrl: row.game.coverUrl,
+      steamAppId: row.game.steamAppId,
+      heroUrl: row.game.heroUrl,
       platform: asPlatform(row.platform),
       playtimeMin: row.playtimeMin,
       lastPlayedAt: row.lastPlayedAt,

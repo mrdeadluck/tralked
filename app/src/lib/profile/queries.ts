@@ -1,4 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
+import { rarityCounts } from "@/lib/character/counts";
 import { prisma } from "@/lib/db";
 import type { PlatformId } from "@/lib/engine/trophies";
 import type { RarityTier } from "@/lib/engine/types";
@@ -218,7 +219,7 @@ export type ProfileStats = {
 };
 
 export async function getProfileStats(userId: string): Promise<ProfileStats> {
-  const [playtime, library, completions, byPlatform, byYear, byRarity] = await Promise.all([
+  const [playtime, library, completions, byPlatform, byYear, rarity] = await Promise.all([
     getPlaytimeTotals(userId),
     getUserLibrary(userId),
     validCompletions(userId),
@@ -232,25 +233,14 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
       FROM "UserAchievement" ua
       WHERE ua."userId" = ${userId} AND ua.suspicious = false
       GROUP BY 1 ORDER BY 1`,
-    prisma.$queryRaw<{ tier: RarityTier; count: number }[]>`
-      SELECT CASE
-          WHEN coalesce(a."globalPct", 50) <= 3 THEN 'lendaria'
-          WHEN coalesce(a."globalPct", 50) <= 8 THEN 'epica'
-          WHEN coalesce(a."globalPct", 50) <= 20 THEN 'rara'
-          WHEN coalesce(a."globalPct", 50) <= 50 THEN 'incomum'
-          ELSE 'comum' END AS tier,
-        count(*)::int AS count
-      FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId"
-      WHERE ua."userId" = ${userId} AND ua.suspicious = false
-      GROUP BY 1`,
+    // The sheet's "Lendárias" reads the same function (lib/character/counts).
+    rarityCounts(userId),
   ]);
 
   const started = library.filter((g) => g.completionPct !== null && g.unlockedCount > 0);
   const averageCompletion =
     started.length > 0 ? Math.round(started.reduce((sum, g) => sum + (g.completionPct ?? 0), 0) / started.length) : null;
   const platformCount = new Map(byPlatform.map((r) => [r.platform, r.count]));
-  const rarityCounts: Record<RarityTier, number> = { comum: 0, incomum: 0, rara: 0, epica: 0, lendaria: 0 };
-  for (const r of byRarity) rarityCounts[r.tier] = r.count;
 
   return {
     playtime,
@@ -263,6 +253,6 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
       count: platformCount.get(platform)!,
     })),
     achievementsByYear: byYear,
-    rarityCounts,
+    rarityCounts: rarity,
   };
 }

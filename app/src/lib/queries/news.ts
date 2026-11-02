@@ -221,10 +221,14 @@ function relatedGames(row: Pick<CardRow, "game" | "games">): GameRow[] {
   return games;
 }
 
-/** Public byline of robot articles. The internal author handle stays "Robô <key name>". */
-export const BOT_BYLINE = "Equipe Tralked";
+/**
+ * Public byline of robot articles: it says a robot wrote it, as the newsroom card promises ("Cada
+ * notícia diz quem escreveu: alguém da redação ou um robô"). The internal author handle stays
+ * "Robô <key name>".
+ */
+export const BOT_BYLINE = "Robô Tralked";
 
-/** Byline: robot articles are signed by the newsroom team; people get the "@" of their handle. */
+/** Byline: robot articles are signed as the robot; people get the "@" of their handle. */
 export function authorLabel(source: string | null, handle: string): string {
   return source === "bot" ? BOT_BYLINE : `@${handle}`;
 }
@@ -326,6 +330,21 @@ export async function getLatestArticles(limit: number): Promise<ArticleCard[]> {
 export async function getArticlesForGame(gameId: string, limit: number): Promise<ArticleCard[]> {
   const rows = await prisma.article.findMany({
     where: { ...PUBLISHED, OR: [{ gameId }, { games: { some: { gameId } } }] },
+    orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+    take: limit,
+    select: cardSelect,
+  });
+  return withCompanyArt(rows.map(toCard));
+}
+
+/**
+ * Stories about other games of the same studio (the game page's fallback while a game has no news
+ * of its own). One indexed query on the game links, newest first.
+ */
+export async function getArticlesForStudio(developer: string, excludeGameId: string, limit: number): Promise<ArticleCard[]> {
+  const studio = { developer, id: { not: excludeGameId } };
+  const rows = await prisma.article.findMany({
+    where: { ...PUBLISHED, OR: [{ game: studio }, { games: { some: { game: studio } } }] },
     orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
     take: limit,
     select: cardSelect,
