@@ -25,7 +25,7 @@ export type ContentBlock =
   | { type: "list"; ordered: boolean; items: string[] }
   | { type: "quote"; text: string; author?: string }
   | { type: "image"; url: string; alt: string; credit: string }
-  | { type: "video"; youtubeId: string }
+  | { type: "video"; youtubeId: string; title?: string }
   | { type: "callout"; tone: "info" | "aviso" | "spoiler"; text: string }
   | { type: "table"; header: string[]; rows: string[][] }
   | { type: "achievement"; apiName: string; platform?: "steam" | "psn" | "xbox" | "retro" }
@@ -99,6 +99,15 @@ export type Dossier = {
   achievements: { platform: string; apiName: string; name: string; description: string | null; globalPct: number | null }[];
 };
 
+/** `GET /api/v1/games/{slug}/media`: the catalog's wide images (https) and YouTube videos of a game. */
+export type GameMedia = {
+  game: { slug: string; name: string; developer: string | null; publisher: string | null };
+  /** Hero first, then screenshots, then artworks. */
+  images: { url: string; kind: "hero" | "screenshot" | "artwork"; width: number | null; height: number | null; source: string | null }[];
+  /** The main trailer first. */
+  videos: { youtubeId: string }[];
+};
+
 export type ApiIssue = { path: string; message: string };
 
 export class TralkedError extends Error {
@@ -121,6 +130,7 @@ export type Tralked = {
   findGame(name: string): Promise<GameHit | null>;
   insights(slug: string): Promise<Insights | null>;
   dossier(slug: string): Promise<Dossier | null>;
+  media(slug: string): Promise<GameMedia | null>;
   recentArticles(since: Date): Promise<FeedArticle[]>;
   createArticle(payload: ArticlePayload, idempotencyKey: string): Promise<{ id: string; url: string; slug: string }>;
   patchArticle(id: string, patch: ArticlePatch, idempotencyKey: string): Promise<void>;
@@ -202,6 +212,24 @@ function badGameIndexes(error: TralkedError): number[] | null {
 }
 
 /**
+ * Indexes of the `image`/`video` blocks a 422 complains about, or null when any issue is about something
+ * else. Media blocks are decoration added by code (catalog art, trailers): an article must never be lost
+ * because the site refused one (a URL it does not take, a field an older site version does not know).
+ */
+function badMediaIndexes(error: TralkedError, blocks: ContentBlock[]): number[] | null {
+  if (error.status !== 422 || error.issues.length === 0) return null;
+  const indexes: number[] = [];
+  for (const issue of error.issues) {
+    const match = /^\/blocks\/(\d+)(?:\/|$)/.exec(issue.path);
+    const index = match ? Number(match[1]) : -1;
+    const type = blocks[index]?.type;
+    if (type !== "image" && type !== "video") return null;
+    indexes.push(index);
+  }
+  return indexes;
+}
+
+/**
  * The slug suffix out of a creation key: the story id of `robo-<mode>-story-<id>`, `pauta-<id>` for a
  * pauta (`robo-pauta-<mode>-<id>`), the whole key otherwise.
  */
@@ -277,6 +305,12 @@ export function createTralked(options: { baseUrl: string; key: string; fetchFn?:
     } catch (error) {
       if (!(error instanceof TralkedError)) throw error;
 
+      const badMedia = badMediaIndexes(error, payload.blocks);
+      if (badMedia) {
+        const blocks = payload.blocks.filter((_, index) => !badMedia.includes(index));
+        return call("POST", "/api/v1/articles", { body: { ...payload, blocks }, idempotencyKey });
+      }
+
       const bad = badGameIndexes(error);
       if (bad && payload.games) {
         const games = payload.games.filter((_, index) => !bad.includes(index));
@@ -311,6 +345,8 @@ export function createTralked(options: { baseUrl: string; key: string; fetchFn?:
     insights: (slug) => getOrNull<Insights>(`/api/v1/games/${encodeURIComponent(slug)}/insights`),
 
     dossier: (slug) => getOrNull<Dossier>(`/api/v1/games/${encodeURIComponent(slug)}/dossie`),
+
+    media: (slug) => getOrNull<GameMedia>(`/api/v1/games/${encodeURIComponent(slug)}/media`),
 
     async recentArticles(since) {
       // toISOString is always UTC with a Z: a "+hh:mm" offset would need %2B on the wire.

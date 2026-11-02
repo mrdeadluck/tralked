@@ -25,6 +25,7 @@ export type BlockDraft = {
   /** quote author, image credit */
   author: string;
   url: string;
+  /** image alt text, video title */
   alt: string;
   /** YouTube id or URL */
   video: string;
@@ -89,7 +90,7 @@ export function draftFromBlock(block: ContentBlock): BlockDraft {
     case "image":
       return { ...draft, url: block.url, alt: block.alt, author: block.credit };
     case "video":
-      return { ...draft, video: block.youtubeId };
+      return { ...draft, video: block.youtubeId, alt: block.title ?? "" };
     case "callout":
       return { ...draft, text: block.text, tone: block.tone };
     case "table":
@@ -124,7 +125,7 @@ export function blockFromDraft(draft: BlockDraft): unknown {
     case "image":
       return { type: "image", url: draft.url.trim(), alt: draft.alt, credit: draft.author };
     case "video":
-      return { type: "video", youtubeId: youtubeIdFrom(draft.video) };
+      return { type: "video", youtubeId: youtubeIdFrom(draft.video), ...(draft.alt.trim() ? { title: draft.alt } : {}) };
     case "callout":
       return { type: "callout", tone: draft.tone, text: draft.text };
     case "table":

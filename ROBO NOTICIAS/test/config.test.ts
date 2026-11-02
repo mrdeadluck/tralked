@@ -103,6 +103,24 @@ describe("loadSources", () => {
     expect(run).not.toThrow(TypeError);
   });
 
+  const ytUrl = "https://www.youtube.com/feeds/videos.xml?channel_id=UC-2Y8dQb0S6DtpxNgAKoJKA";
+
+  it("accepts video on a YouTube channel feed and rejects it anywhere else", () => {
+    expect(loadSources(writeSources([{ ...validSource, url: ytUrl, video: true, lang: "en" }]))[0]?.video).toBe(true);
+    expect(() => loadSources(writeSources([{ ...validSource, video: true }]))).toThrow(/video/);
+    const playlist = "https://www.youtube.com/feeds/videos.xml?playlist_id=PL123";
+    expect(() => loadSources(writeSources([{ ...validSource, url: playlist, video: true }]))).toThrow(/video/);
+    expect(() => loadSources(writeSources([{ ...validSource, lang: "de" }]))).toThrow(/lang/);
+  });
+
+  it("real file: every video source is an active-or-not channel feed with a unique channel", () => {
+    const videos = loadSources().filter((s) => s.video);
+    expect(videos.length).toBeGreaterThanOrEqual(15);
+    const channels = videos.map((s) => new URL(s.url).searchParams.get("channel_id"));
+    expect(new Set(channels).size).toBe(channels.length);
+    for (const s of videos) expect(s.tier).toBe("oficial");
+  });
+
   it("rejects duplicate ids", () => {
     expect(() => loadSources(writeSources([validSource, validSource]))).toThrow(/duplicate/i);
   });

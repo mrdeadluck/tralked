@@ -217,18 +217,22 @@ function Block({
         </figure>
       );
     case "video":
+      // Privacy-enhanced embed (youtube-nocookie.com), loaded only near the viewport, 16:9 at any width.
       return (
-        <div className="my-4 aspect-video overflow-hidden rounded-[3px] bg-surface">
-          <iframe
-            src={`https://www.youtube-nocookie.com/embed/${block.youtubeId}`}
-            title="Vídeo do YouTube"
-            loading="lazy"
-            allow="accelerometer; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            referrerPolicy="strict-origin-when-cross-origin"
-            className="size-full border-0"
-          />
-        </div>
+        <figure className="my-4 flex flex-col gap-2">
+          <div className="aspect-video overflow-hidden rounded-[3px] bg-surface">
+            <iframe
+              src={`https://www.youtube-nocookie.com/embed/${block.youtubeId}`}
+              title={block.title ? `Vídeo do YouTube: ${block.title}` : "Vídeo do YouTube"}
+              loading="lazy"
+              allow="accelerometer; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+              className="size-full border-0"
+            />
+          </div>
+          {block.title ? <figcaption className="font-mono text-xs text-dim">{block.title}</figcaption> : null}
+        </figure>
       );
     case "callout": {
       const style = { "--c": CALLOUT_COLOR[block.tone] } as CSSProperties;

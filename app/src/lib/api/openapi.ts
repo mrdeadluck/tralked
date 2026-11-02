@@ -243,6 +243,21 @@ export function openApiDocument(): JsonSchema {
           },
         },
       },
+      "/api/v1/games/{slug}/media": {
+        get: {
+          tags: ["Catálogo"],
+          summary: "Imagens e vídeos de um jogo",
+          description:
+            "Qualquer chave ativa. A mídia oficial que o catálogo guarda (IGDB, SteamGridDB, Steam), para ilustrar matérias: até 12 imagens largas https (banner, capturas de tela, artes; nunca a capa em retrato) e até 6 IDs de vídeos do YouTube. Responde 404 para um stub do catálogo.",
+          parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": { description: "Mídia do jogo.", content: json(ref("GameMedia")) },
+            "401": writeErrors["401"],
+            "404": errorResponse("Jogo não encontrado."),
+            "429": writeErrors["429"],
+          },
+        },
+      },
       "/api/v1/games/{slug}/dossie": {
         get: {
           tags: ["Catálogo"],
@@ -364,6 +379,39 @@ export function openApiDocument(): JsonSchema {
                   globalPct: { type: "number" },
                 },
               },
+            },
+          },
+        },
+        GameMedia: {
+          type: "object",
+          properties: {
+            game: {
+              type: "object",
+              properties: {
+                slug: { type: "string" },
+                name: { type: "string" },
+                developer: { type: ["string", "null"] },
+                publisher: { type: ["string", "null"] },
+              },
+            },
+            images: {
+              type: "array",
+              description: "Banner primeiro, depois capturas de tela e artes, na ordem do catálogo. Só https.",
+              items: {
+                type: "object",
+                properties: {
+                  url: { type: "string", format: "uri" },
+                  kind: { type: "string", enum: ["hero", "screenshot", "artwork"] },
+                  width: { type: ["integer", "null"] },
+                  height: { type: ["integer", "null"] },
+                  source: { type: ["string", "null"], description: "igdb, sgdb, steam…; nulo para o banner." },
+                },
+              },
+            },
+            videos: {
+              type: "array",
+              description: "Vídeos do YouTube, o trailer principal primeiro.",
+              items: { type: "object", properties: { youtubeId: { type: "string" } } },
             },
           },
         },

@@ -30,6 +30,8 @@ export interface ItemRow {
   publisher: string | null;
   /** 1 when the item has no fetchable article page (unresolved Google News link): title-only. */
   text_unavailable: number;
+  /** YouTube video id when the item is an official channel's video (`video: true` sources). */
+  video_id: string | null;
 }
 
 export interface StoryRow {
@@ -87,6 +89,7 @@ export interface NewItem {
   text?: string | null;
   publisher?: string | null;
   textUnavailable?: boolean;
+  videoId?: string | null;
 }
 
 export interface StoryInput {
@@ -170,6 +173,7 @@ const ITEM_COLUMNS = [
   "triage_json",
   "publisher",
   "text_unavailable",
+  "video_id",
 ];
 
 const itemsTable = (name: string) => `
@@ -186,7 +190,8 @@ CREATE TABLE IF NOT EXISTS ${name} (
   status TEXT NOT NULL DEFAULT 'new' CHECK (status IN (${ITEM_STATUSES})),
   triage_json TEXT,
   publisher TEXT,
-  text_unavailable INTEGER NOT NULL DEFAULT 0
+  text_unavailable INTEGER NOT NULL DEFAULT 0,
+  video_id TEXT
 );`;
 
 const ITEM_INDEXES = `
@@ -298,6 +303,7 @@ const ADDED_COLUMNS: [table: string, column: string, ddl: string][] = [
   ["items", "publisher", "TEXT"],
   ["items", "text_unavailable", "INTEGER NOT NULL DEFAULT 0"],
   ["stories", "parent_article_id", "INTEGER"],
+  ["items", "video_id", "TEXT"],
 ];
 
 function addMissingColumns(raw: DatabaseSync): void {
@@ -421,8 +427,8 @@ export function openDb(dir: string): Db {
       }
       raw
         .prepare(
-          `INSERT INTO items (url, source_id, title, summary, published_at, fetched_at, content_hash, text, status, publisher, text_unavailable)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`,
+          `INSERT INTO items (url, source_id, title, summary, published_at, fetched_at, content_hash, text, status, publisher, text_unavailable, video_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`,
         )
         .run(
           url,
@@ -435,6 +441,7 @@ export function openDb(dir: string): Db {
           item.text ?? null,
           item.publisher ?? null,
           item.textUnavailable ? 1 : 0,
+          item.videoId ?? null,
         );
       return true;
     },

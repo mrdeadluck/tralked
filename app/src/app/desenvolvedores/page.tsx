@@ -117,6 +117,7 @@ const ENDPOINTS: { method: string; path: string; scope: string; does: string }[]
   { method: "PATCH", path: "/api/v1/guides/{id}", scope: "guides:write", does: "Atualiza um guia desta chave e salva uma nova versão." },
   { method: "GET", path: "/api/v1/games", scope: "qualquer chave", does: "Procura jogos por nome, slug, steamAppId ou igdbId." },
   { method: "GET", path: "/api/v1/games/{slug}/insights", scope: "qualquer chave", does: "Dados agregados do jogo no Tralked: jogadores, tempo médio e conquistas mais raras. Sem dados de usuários." },
+  { method: "GET", path: "/api/v1/games/{slug}/media", scope: "qualquer chave", does: "Imagens largas (banner, capturas de tela, artes) e IDs de vídeos do YouTube do jogo, para ilustrar matérias." },
   { method: "GET", path: "/api/v1/openapi.json", scope: "pública", does: "Descrição OpenAPI 3.1 de toda a API." },
   { method: "GET", path: "/api/v1/schemas/article.json", scope: "pública", does: "JSON Schema do corpo de uma notícia." },
   { method: "GET", path: "/api/v1/schemas/guide.json", scope: "pública", does: "JSON Schema do corpo de um guia." },

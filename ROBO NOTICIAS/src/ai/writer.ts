@@ -67,6 +67,11 @@ export type StoryForWriting = {
   parent?: { title: string; blocksText: string };
   /** Pautas Tralked: the format's instructions and title, added to the user message. */
   formatBrief?: string;
+  /**
+   * The official video embedded in the article (a YouTube channel item of the story). `only`: the story
+   * has no text source besides the video (a video story: new trailer or gameplay).
+   */
+  video?: { youtubeId: string; title: string; channel: string; only: boolean };
 };
 
 export type Models = Pick<Config, "MODEL_WRITER" | "MODEL_FAST">;
@@ -214,6 +219,18 @@ export function writePrompt(story: StoryForWriting, now: Date = new Date()): str
         ...(newFacts.length > 0
           ? [`Fatos novos a acrescentar (confira cada um nas fontes):\n${newFacts.map((f) => `- ${body(f)}`).join("\n")}`]
           : []),
+      ].join("\n\n"),
+    );
+  }
+
+  if (story.video) {
+    parts.push(
+      [
+        "## Vídeo oficial",
+        `O vídeo "${body(story.video.title)}", do canal oficial ${body(story.video.channel)} no YouTube, aparece embutido na matéria logo depois do primeiro parágrafo; ele é acrescentado automaticamente, não escreva link nem código para ele.`,
+        story.video.only
+          ? "Esta é uma matéria sobre o vídeo (um trailer ou gameplay novo): o fato é o lançamento do vídeo. Conte o que ele apresenta a partir do título e da descrição na fonte do canal. Não descreva cenas, falas ou duração que não estejam nesse texto, e não diga que o texto é curto ou que faltam detalhes."
+          : "O vídeo complementa a notícia; pode mencioná-lo numa frase (\"o trailer, logo abaixo, mostra...\") só com o que a descrição dele sustenta.",
       ].join("\n\n"),
     );
   }

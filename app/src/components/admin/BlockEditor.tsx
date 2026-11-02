@@ -292,9 +292,14 @@ function BlockFields({ draft, base, onPatch }: { draft: BlockDraft; base: string
       );
     case "video":
       return (
-        <Field id={`${base}-video`} label="Vídeo do YouTube" hint="Cole o link ou o ID de 11 caracteres.">
-          <input id={`${base}-video`} value={draft.video} onChange={(e) => onPatch({ video: e.target.value })} className={INPUT} />
-        </Field>
+        <>
+          <Field id={`${base}-video`} label="Vídeo do YouTube" hint="Cole o link ou o ID de 11 caracteres.">
+            <input id={`${base}-video`} value={draft.video} onChange={(e) => onPatch({ video: e.target.value })} className={INPUT} />
+          </Field>
+          <Field id={`${base}-video-title`} label="Título do vídeo" hint="Opcional. Aparece abaixo do vídeo e é lido por leitores de tela.">
+            <input id={`${base}-video-title`} value={draft.alt} onChange={(e) => onPatch({ alt: e.target.value })} className={INPUT} />
+          </Field>
+        </>
       );
     case "callout":
       return (

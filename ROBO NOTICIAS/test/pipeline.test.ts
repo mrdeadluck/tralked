@@ -17,6 +17,7 @@ import {
   type ArticlePayload,
   type Dossier,
   type FeedArticle,
+  type GameMedia,
   type Tralked,
 } from "../src/tralked.js";
 
@@ -52,6 +53,16 @@ const SOURCES: Source[] = [
   src("gnews", "Eurogamer (via Google News)", "portal", {
     url: "https://news.google.com/rss/search?q=eurogamer",
     linkResolve: "google-news",
+  }),
+  src("yt", "PlayStation (YouTube channel)", "oficial", {
+    url: "https://www.youtube.com/feeds/videos.xml?channel_id=UC-2Y8dQb0S6DtpxNgAKoJKA",
+    video: true,
+    lang: "en",
+  }),
+  src("ytbr", "PlayStation Brasil (YouTube channel)", "oficial", {
+    url: "https://www.youtube.com/feeds/videos.xml?channel_id=UC6i4mzH3OPrZV0p64zoz-Ww",
+    video: true,
+    lang: "pt",
   }),
 ];
 
@@ -177,11 +188,21 @@ function fakeAi(facts: Map<string, Fact>) {
 function fakeTralked() {
   const created: { payload: ArticlePayload; key: string }[] = [];
   const patches: { id: string; patch: ArticlePatch; key: string }[] = [];
-  const state = { feed: [] as FeedArticle[], feedError: null as Error | null };
+  const state = {
+    feed: [] as FeedArticle[],
+    feedError: null as Error | null,
+    /** Catalog media by game slug (`GET /api/v1/games/{slug}/media`). */
+    media: new Map<string, GameMedia>(),
+    mediaError: null as Error | null,
+  };
   const tralked: Tralked = {
     findGame: async (name) => ({ slug: slugify(name), name }),
     insights: async () => null,
     dossier: async () => null,
+    media: async (slug) => {
+      if (state.mediaError) throw state.mediaError;
+      return state.media.get(slug) ?? null;
+    },
     recentArticles: async () => {
       if (state.feedError) throw state.feedError;
       return state.feed;
@@ -260,8 +281,8 @@ function harness(start = local("2026-10-31T10:00")) {
       clock.now = d;
     },
     coleta: () => runColeta(deps),
-    publica: (over: { rand?: () => number; agora?: boolean } = {}) =>
-      runPublica({ ...deps, sleep, rand: over.rand ?? (() => 0.5), agora: over.agora }),
+    publica: (over: { rand?: () => number; agora?: boolean; foraDoHorario?: boolean; ignorarLimite?: boolean } = {}) =>
+      runPublica({ ...deps, sleep, rand: over.rand ?? (() => 0.5), ...over }),
   };
 }
 
@@ -349,6 +370,51 @@ describe("publica: slot window", () => {
     const result = await h.publica({ agora: true });
     expect(result.published).toBe("site-1");
     expect(h.sleep).not.toHaveBeenCalled();
+  });
+
+  it("--fora-do-horario publishes at 02:00 local without waiting, once per hour", async () => {
+    const h = harness(local("2026-10-31T02:00"));
+    seedQueued(h, "Hades II recebe arma nova");
+    seedQueued(h, "Hades II ganha modo novo");
+    const result = await h.publica({ foraDoHorario: true });
+    expect(result.published).toBe("site-1");
+    expect(h.sleep).not.toHaveBeenCalled();
+    expect(h.db.publishedCountOn("2026-10-31")).toBe(1);
+    expect((await h.publica({ foraDoHorario: true })).reason).toMatch(/neste horário/);
+  });
+
+  it("--fora-do-horario still honors the daily cap; --ignorar-limite overrides it", async () => {
+    const h = harness(local("2026-10-31T23:30"));
+    h.at(local("2026-11-01T01:00"));
+    seedPublished(h, minutesBefore(h.clock.now, 15));
+    seedQueued(h, "Hades II recebe arma nova");
+    expect((await h.publica({ foraDoHorario: true })).reason).toMatch(/limite/);
+    expect(h.site.created).toHaveLength(0);
+    const forced = await h.publica({ foraDoHorario: true, ignorarLimite: true });
+    expect(forced.published).toBe("site-1");
+  });
+
+  it("--ignorar-limite alone still refuses outside the window", async () => {
+    const h = harness(local("2026-10-31T03:00"));
+    seedQueued(h, "Hades II recebe arma nova");
+    const result = await h.publica({ ignorarLimite: true });
+    expect(result.published).toBeNull();
+    expect(result.reason).toMatch(/--fora-do-horario/);
+  });
+});
+
+describe("publica: command flags", () => {
+  it("parses the flags; --fora-do-horario implies --agora; unknown flags throw", async () => {
+    const { parsePublicaArgs } = await import("../src/commands/publica.js");
+    expect(parsePublicaArgs([])).toEqual({ agora: false, foraDoHorario: false, ignorarLimite: false });
+    expect(parsePublicaArgs(["--agora"])).toEqual({ agora: true, foraDoHorario: false, ignorarLimite: false });
+    expect(parsePublicaArgs(["--fora-do-horario"])).toEqual({ agora: true, foraDoHorario: true, ignorarLimite: false });
+    expect(parsePublicaArgs(["--agora", "--fora-do-horario", "--ignorar-limite"])).toEqual({
+      agora: true,
+      foraDoHorario: true,
+      ignorarLimite: true,
+    });
+    expect(() => parsePublicaArgs(["--fora-de-horario"])).toThrow();
   });
 });
 
@@ -624,7 +690,7 @@ describe("updates and follow-ups", () => {
     const fact = await publishedStory(h);
     const sources = ["pub", "blog", "pub", "blog"];
     for (const [i, hour] of ["11", "12", "13", "14"].entries()) {
-      h.at(local(`2026-10-31T${hour}:00`));
+      h.at(local(`2026-10-31T${String(hour).padStart(2, "0")}:00`));
       h.post(sources[i]!, `Hades II novidade ${hour}`, { ...fact, importance: 60 });
       await h.coleta();
     }
@@ -1198,5 +1264,157 @@ describe("publica: pautas", () => {
     expect(report.published).toEqual(["site-1"]);
     expect(h.site.created[0]!.key).toMatch(/^robo-live-story-/);
     expect(pautaRows(h.db)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Media: official videos and catalog art
+// ---------------------------------------------------------------------------------------------
+
+describe("video stories (official YouTube channels)", () => {
+  const watch = (id: string) => `https://www.youtube.com/watch?v=${id}`;
+  const trailer: Fact = { headline: "Hades II ganha trailer de lançamento", importance: 70 };
+
+  it("collects only trailers and gameplay, queues a relevant one and publishes it with the video after the lede", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    h.post("yt", "Hades II - Launch Trailer | PS5 Games", trailer, { url: watch("AAAAAAAAAAA") });
+    h.post("yt", "Hades II Launch Livestream", { headline: "Live", importance: 80 }, { url: watch("BBBBBBBBBBB") });
+    h.post("yt", "Hades II is out now #shorts", { headline: "Short", importance: 80 }, { url: "https://www.youtube.com/shorts/CCCCCCCCCCC" });
+    const report = await h.coleta();
+    expect(report.inserted).toBe(1);
+    expect(report.queued).toBe(1);
+    const item = h.db.raw.prepare("SELECT video_id, text_unavailable FROM items").get() as { video_id: string; text_unavailable: number };
+    expect({ ...item }).toEqual({ video_id: "AAAAAAAAAAA", text_unavailable: 1 });
+    // The watch page is never downloaded.
+    expect(h.fetchFn.mock.calls.some(([u]) => String(u).startsWith("https://www.youtube.com/watch"))).toBe(false);
+
+    h.at(local("2026-10-31T10:00"));
+    expect((await h.publica()).published).toBe("site-1");
+    const { blocks } = h.site.created[0]!.payload;
+    expect(blocks[0]).toEqual({ type: "paragraph", text: "Texto da matéria." });
+    expect(blocks[1]).toEqual({ type: "video", youtubeId: "AAAAAAAAAAA", title: "Hades II - Launch Trailer | PS5 Games" });
+    expect(blocks.filter((b) => b.type === "video" || b.type === "image")).toHaveLength(1);
+
+    const write = h.fake.calls.find((c) => c.purpose === "write")!;
+    expect(write.user).toContain("## Vídeo oficial");
+    expect(write.user).toContain("Esta é uma matéria sobre o vídeo");
+    expect(write.user).toContain("Título do vídeo: Hades II - Launch Trailer | PS5 Games");
+    expect(write.user).not.toContain("Fontes de manchete apenas");
+  });
+
+  it("does not queue a video below importance 60", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    h.post("yt", "Small Game - Trailer", { headline: "Jogo pequeno ganha trailer", importance: 55, games: ["Small Game"] }, { url: watch("AAAAAAAAAAA") });
+    const report = await h.coleta();
+    expect(report.queued).toBe(0);
+    expect(stories(h.db)[0]!.status).toBe("open");
+  });
+
+  it("drops a video story when the site published about the game in the last 24 h", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    h.site.state.feed = [
+      { id: "ed-1", slug: "x", title: "Outra coisa de Hades II", category: "GAMES", publishedAt: local("2026-10-31T01:00").toISOString(), source: "bot", games: ["hades-ii"] },
+    ];
+    h.post("yt", "Hades II - Launch Trailer", trailer, { url: watch("AAAAAAAAAAA") });
+    const report = await h.coleta();
+    expect(report.videoDuplicates).toBe(1);
+    expect(report.queued).toBe(0);
+    expect(stories(h.db)[0]!.status).toBe("dropped");
+  });
+
+  it("merges the video into a queued text story about the same game, which then embeds it", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    h.post("ign", "Hades II sai da versão antecipada", { headline: "Hades II sai do acesso antecipado", importance: 75 });
+    await h.coleta();
+    h.at(local("2026-10-31T09:30"));
+    h.post("yt", "Hades II - Launch Trailer", trailer, { url: watch("AAAAAAAAAAA") });
+    const report = await h.coleta();
+    expect(report.videoDuplicates).toBe(1);
+    const [text, video] = stories(h.db);
+    expect(text!.status).toBe("queued");
+    expect(video!.status).toBe("dropped");
+    expect(h.db.itemsForStory(text!.id).some((i) => i.video_id === "AAAAAAAAAAA")).toBe(true);
+
+    h.at(local("2026-10-31T10:00"));
+    await h.publica();
+    expect(h.site.created[0]!.payload.blocks[1]).toMatchObject({ type: "video", youtubeId: "AAAAAAAAAAA" });
+    const write = h.fake.calls.find((c) => c.purpose === "write")!;
+    expect(write.user).toContain("O vídeo complementa a notícia");
+  });
+
+  it("the same trailer on two channels becomes one story that embeds the pt channel's video", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    h.post("yt", "Hades II - Launch Trailer", trailer, { url: watch("AAAAAAAAAAA") });
+    h.post("ytbr", "Hades II - Trailer de Lançamento", { ...trailer, headline: "Trailer de lançamento de Hades II" }, { url: watch("BBBBBBBBBBB") });
+    const report = await h.coleta();
+    expect(report.queued + report.videoDuplicates).toBe(2);
+    expect(stories(h.db).filter((s) => s.status === "queued")).toHaveLength(1);
+
+    h.at(local("2026-10-31T10:00"));
+    await h.publica();
+    expect(h.site.created[0]!.payload.blocks[1]).toMatchObject({ type: "video", youtubeId: "BBBBBBBBBBB" });
+  });
+
+  it("publishes at most 4 video stories a day; text news still goes out", async () => {
+    const h = harness(local("2026-10-31T08:00"));
+    const games = ["Alpha", "Beta", "Gama", "Delta", "Epsilon"];
+    games.forEach((g, i) =>
+      h.post("yt", `${g} - Official Trailer`, { headline: `${g} ganha trailer`, importance: 70, games: [g] }, { url: watch(`${"V".repeat(10)}${i}`) }),
+    );
+    await h.coleta();
+    for (let hour = 9; hour <= 12; hour++) {
+      h.at(local(`2026-10-31T${String(hour).padStart(2, "0")}:00`));
+      expect((await h.publica()).published).not.toBeNull();
+    }
+    h.at(local("2026-10-31T12:30"));
+    h.post("ign", "Hades II ganha arma nova", { headline: "Hades II recebe arma nova", importance: 50 });
+    await h.coleta();
+    h.at(local("2026-10-31T13:00"));
+    const fifth = await h.publica();
+    expect(fifth.reason).toContain("Hades II recebe arma nova");
+    h.at(local("2026-10-31T14:00"));
+    expect((await h.publica()).reason).toBe("fila vazia");
+    expect(stories(h.db).filter((s) => s.status === "queued")).toHaveLength(1);
+  });
+});
+
+describe("catalog media for articles without their own", () => {
+  const media = (over: Partial<GameMedia> = {}): GameMedia => ({
+    game: { slug: "hades-ii", name: "Hades II", developer: "Supergiant Games", publisher: "Supergiant Games" },
+    images: [
+      { url: "https://images.igdb.com/igdb/image/upload/t_1080p/hero.jpg", kind: "hero", width: null, height: null, source: null },
+      { url: "https://images.igdb.com/igdb/image/upload/t_1080p/s1.jpg", kind: "screenshot", width: 1920, height: 1080, source: "igdb" },
+      { url: "https://images.igdb.com/igdb/image/upload/t_1080p/s2.jpg", kind: "screenshot", width: 1920, height: 1080, source: "igdb" },
+    ],
+    videos: [{ youtubeId: "TTTTTTTTTTT" }],
+    ...over,
+  });
+
+  it("adds a screenshot after the lede and the game's trailer after the body", async () => {
+    const h = harness();
+    h.site.state.media.set("hades-ii", media());
+    const id = seedQueued(h, "Hades II recebe arma nova");
+    await h.publica({ agora: true });
+    const { blocks } = h.site.created[0]!.payload;
+    expect(blocks[1]).toEqual({
+      type: "image",
+      url: `https://images.igdb.com/igdb/image/upload/t_1080p/s${(id % 2) + 1}.jpg`,
+      alt: "Cena de Hades II",
+      credit: "Divulgação/Supergiant Games",
+    });
+    expect(blocks[2]).toEqual({ type: "video", youtubeId: "TTTTTTTTTTT", title: "Vídeo de Hades II" });
+    expect(blocks.at(-2)).toEqual({ type: "heading", level: 2, text: "Fontes" });
+  });
+
+  it("publishes without media when the catalog has none or fails", async () => {
+    const h = harness();
+    seedQueued(h, "Hades II recebe arma nova");
+    await h.publica({ agora: true });
+    expect(h.site.created[0]!.payload.blocks.some((b) => b.type === "image" || b.type === "video")).toBe(false);
+
+    const failing = harness();
+    failing.site.state.mediaError = new TralkedError(500, "server_error", "boom");
+    seedQueued(failing, "Hades II recebe arma nova");
+    expect((await failing.publica({ agora: true })).published).toBe("site-1");
   });
 });
