@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { createContext, useContext, useState, useTransition, type ReactNode } from "react";
 import { loginHref } from "@/components/guide/format";
 import { loadMoreComments, postComment, removeComment, updateComment } from "@/lib/community/actions";
 import type { CommentPage, CommentTargetType, CommentView } from "@/lib/community/comments";
 import { formatWhen, plural } from "@/lib/community/format";
 import type { MyReaction } from "@/lib/community/reaction-rules";
+import { REACTION_GIVEN_XP } from "@/lib/community/rewards";
 import type { Viewer } from "@/lib/community/viewer";
 import { CommentModActions } from "@/components/moderation/CommentModActions";
 import { DiscussionLockToggle, LockedNotice } from "@/components/moderation/DiscussionLock";
@@ -16,6 +17,9 @@ import { ReplyIcon } from "./reaction-icons";
 import { ReportButton } from "./ReportButton";
 import { TextComposer } from "./TextComposer";
 import { UserText } from "./UserText";
+
+/** Comments whose first reaction still pays the viewer XP (shared with every CommentItem). */
+const XpOpenContext = createContext<ReadonlySet<string>>(new Set());
 
 type CommentsClientProps = {
   targetType: CommentTargetType;
@@ -33,6 +37,7 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
   const [cursor, setCursor] = useState(initial.nextCursor);
   const [total, setTotal] = useState(initial.total);
   const [mine, setMine] = useState(initial.mine ?? {});
+  const [xpOpen, setXpOpen] = useState<ReadonlySet<string>>(() => new Set(initial.xpOpen ?? []));
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, startLoading] = useTransition();
 
@@ -55,6 +60,7 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
       setLoadError(null);
       setComments((list) => [...list, ...result.comments.filter((c) => !list.some((x) => x.id === c.id))]);
       setMine((m) => ({ ...m, ...result.mine }));
+      setXpOpen((open) => new Set([...open, ...(result.xpOpen ?? [])]));
       setCursor(result.nextCursor);
     });
   }
@@ -70,6 +76,7 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
   }
 
   return (
+    <XpOpenContext value={xpOpen}>
     <div className="flex flex-col gap-5">
       {viewer?.moderator ? (
         <div className="flex justify-end">
@@ -154,6 +161,7 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
         </p>
       ) : null}
     </div>
+    </XpOpenContext>
   );
 }
 
@@ -193,6 +201,9 @@ function CommentItem({
   const [error, setError] = useState<string | null>(null);
   const [busy, startTransition] = useTransition();
   const own = viewer !== null && comment.author?.id === viewer.id;
+  // Reacting to your own comment pays nothing, so it never promises XP.
+  const xpOpen = useContext(XpOpenContext);
+  const xpHint = !own && xpOpen.has(comment.id) ? REACTION_GIVEN_XP : undefined;
 
   async function saveEdit(body: string) {
     const result = await updateComment({ id: comment.id, body });
@@ -265,6 +276,7 @@ function CommentItem({
             returnTo={returnTo}
             size="sm"
             what={`o ${what}`}
+            xpHint={xpHint}
           />
           {onReply ? (
             <button type="button" onClick={onReply} className={`${ACTION} inline-flex min-h-6 items-center gap-1.5`}>

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Chip } from "@/components/ui/Chip";
-import { Placeholder } from "@/components/ui/Placeholder";
-import { RemoteImg } from "@/components/ui/RemoteImg";
+import { GameCover } from "@/components/games/GameCover";
 import { Ring } from "@/components/ui/Ring";
 import { SectionHead } from "@/components/ui/SectionHead";
 import type { CharacterAlmostGame } from "@/lib/queries/players";
@@ -28,20 +27,17 @@ export function AlmostThere({ games }: AlmostThereProps) {
               href={`/jogos/${game.slug}`}
               className="flex flex-col overflow-hidden rounded-[4px] border border-line bg-surface hover:border-line-2"
             >
-              {game.coverUrl ? (
-                <RemoteImg
-                  url={game.coverUrl}
-                  width={400}
-                  height={250}
-                  sizes="(max-width: 640px) calc(100vw - 40px), 400px"
-                  alt={`Capa de ${game.name}`}
-                  className="aspect-[16/10] h-auto w-full object-cover"
-                />
-              ) : (
-                <div className="[&>div]:rounded-none">
-                  <Placeholder label={`capa: ${game.name.toLowerCase()}`} />
-                </div>
-              )}
+              <GameCover
+                name={game.name}
+                coverUrl={game.coverUrl}
+                steamAppId={game.steamAppId}
+                wideUrl={game.heroUrl}
+                ratio="16 / 10"
+                alt=""
+                className="rounded-none"
+                width={400}
+                sizes="(max-width: 640px) calc(100vw - 40px), 400px"
+              />
               <div className="flex flex-1 flex-col gap-2.5 px-4 pt-3.5 pb-4">
                 <div className="flex flex-wrap items-center gap-1.5">
                   {game.skills.map((skill) => (
@@ -56,7 +52,7 @@ export function AlmostThere({ games }: AlmostThereProps) {
                 </h3>
                 <div className="mt-auto flex items-center justify-between gap-2.5 font-mono text-xs text-dim">
                   <span>
-                    <b className="text-text">{game.unlocked}</b> / {game.total} conquistas
+                    <b className="text-text">{game.unlocked}</b> / {game.total} {game.total === 1 ? "conquista" : "conquistas"}
                   </span>
                   <Ring value={game.percent} />
                 </div>

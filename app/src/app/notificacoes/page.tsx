@@ -5,6 +5,7 @@ import { AccountLogin } from "@/components/account/AccountLogin";
 import { PageHead } from "@/components/community/PageHead";
 import { Pager, pageParam } from "@/components/community/Pager";
 import { MarkAllReadButton } from "@/components/layout/MarkAllReadButton";
+import { NotificationKindIcon } from "@/components/layout/NotificationKindIcon";
 import { getSessionUser } from "@/lib/auth/session";
 import { getInbox, type NotificationView } from "@/lib/notifications/inbox";
 import { NOTIFICATION_RETENTION_DAYS } from "@/lib/notifications/retention";
@@ -41,8 +42,8 @@ async function Inbox({ searchParams }: { searchParams: PageProps<"/notificacoes"
   if (inbox.total === 0) {
     return (
       <p className="max-w-[60ch] text-[15.5px] text-muted">
-        Nada por aqui ainda. Quando alguém responder um comentário seu, curtir uma foto ou quando você
-        subir de nível, o aviso aparece aqui e no sino do topo.
+        Nada por aqui ainda. Quando alguém responder ou curtir o que você postou, quando você subir de
+        nível, concluir uma missão ou alguém te passar no ranking, o aviso aparece aqui e no sino do topo.
       </p>
     );
   }
@@ -76,8 +77,13 @@ async function Inbox({ searchParams }: { searchParams: PageProps<"/notificacoes"
 
 function Row({ item, when }: { item: NotificationView; when: string }) {
   const content = (
-    <span className="grid grid-cols-[10px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1">
-      <span aria-hidden="true" className={`mt-[9px] size-2 rounded-full ${item.read ? "bg-track" : "bg-acc"}`} />
+    <span className="grid grid-cols-[36px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1">
+      <span className="relative">
+        <NotificationKindIcon kind={item.kind} size={36} dim={item.read} />
+        {item.read ? null : (
+          <span aria-hidden="true" className="absolute -top-1 -right-1 size-2.5 rounded-full bg-acc ring-2 ring-bg" />
+        )}
+      </span>
       <span className="flex min-w-0 flex-col gap-1">
         <span className={`text-[16px] leading-snug ${item.read ? "text-text-3" : "font-bold text-text"}`}>
           {item.title}

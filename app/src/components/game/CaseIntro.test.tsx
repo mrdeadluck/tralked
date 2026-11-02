@@ -34,6 +34,7 @@ Object.assign(HTMLDialogElement.prototype, {
 beforeEach(() => {
   reduceMotion = false;
   localStorage.clear();
+  sessionStorage.clear();
   markOpened.mockClear();
   setCaseIntro.mockClear();
   vi.stubGlobal(
@@ -121,6 +122,20 @@ describe("CaseIntro", () => {
     expect(stage).not.toHaveClass("gpc-on");
     expect(root).not.toHaveAttribute("data-intro");
     expect(localStorage.getItem(KEY)).toBe("1");
+  });
+
+  it("plays on its own once per session: the next new game of the visit opens at once", () => {
+    const first = renderIntro();
+    expect(first.stage).toHaveClass("gpc-on");
+    fireEvent.click(screen.getByRole("button", { name: "Pular" }));
+    first.unmount();
+    document.getElementById("gp-root")?.remove();
+    localStorage.clear(); // another game: never opened here
+    const { root, stage } = renderIntro();
+    expect(stage).toBeNull();
+    expect(root).not.toHaveAttribute("data-intro");
+    // Not marked as opened: a later visit still unseals this game.
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 
   it("second visit on this browser: the case is not even mounted", () => {
@@ -260,6 +275,7 @@ describe("CaseIntro", () => {
       first.unmount();
       document.getElementById("gp-root")?.remove();
       localStorage.clear();
+      sessionStorage.clear(); // a new visit: the intro may play on its own again
 
       const second = renderIntro();
       fireEvent.click(screen.getByRole("button", { name: "Abrir o lacre" }));
@@ -286,7 +302,7 @@ describe("AttributesGained", () => {
   };
 
   it("logged in: what this game added, by attribute", () => {
-    render(<AttributesGained attributes={attrs} loggedIn genre="Soulslike" aside="Steam · 141 h jogadas" loginHref="/login" />);
+    render(<AttributesGained attributes={attrs} loggedIn genre="Soulslike" aside="Steam · 141 h jogadas" loginHref="/login" sample={attrs} gameName="Hollow Knight" />);
     expect(screen.getByText("120k")).toBeInTheDocument();
     expect(screen.getByText("+286")).toBeInTheDocument();
     expect(screen.getByText("141 horas jogadas viram resistência.")).toBeInTheDocument();
@@ -294,13 +310,26 @@ describe("AttributesGained", () => {
     expect(screen.getByText("Steam · 141 h jogadas")).toBeInTheDocument();
   });
 
-  it("logged out: a hidden sample character instead of dashes, and an invitation to sign in", () => {
-    render(<AttributesGained attributes={null} loggedIn={false} genre="Soulslike" aside={null} loginHref="/login" />);
+  it("logged out: the game's own 100% as a hidden sample instead of dashes, and an invitation to sign in", () => {
+    const sample = { ...attrs, vigor: 340 };
+    render(
+      <AttributesGained attributes={null} loggedIn={false} genre="Soulslike" aside={null} loginHref="/login" sample={sample} gameName="Hollow Knight" />,
+    );
     expect(screen.queryByText("—")).toBeNull();
     expect(screen.getByText("Veja o seu personagem")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Entrar e conectar" })).toHaveAttribute("href", "/login");
     expect(screen.getByRole("link", { name: "Entre para ver os seus" })).toHaveAttribute("href", "/login");
     // The sample is only an illustration: out of the accessibility tree.
     expect(screen.getByText("+340").closest("[aria-hidden=true]")).not.toBeNull();
+  });
+
+  it("a game without achievements: no sample and no zeros, the hours are what counts", () => {
+    render(
+      <AttributesGained attributes={null} loggedIn={false} genre={null} aside={null} loginHref="/login" sample={null} gameName="Gravhounds" />,
+    );
+    expect(screen.getByText("Sem conquistas: aqui vale o tempo jogado")).toBeInTheDocument();
+    expect(screen.queryByText("Veja o seu personagem")).toBeNull();
+    expect(screen.queryByText("0")).toBeNull();
+    expect(screen.getByRole("link", { name: "Entrar e conectar" })).toHaveAttribute("href", "/login");
   });
 });

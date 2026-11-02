@@ -5,6 +5,8 @@ import { toLocalDay } from "@/lib/engine/streak";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
 import { levelFromXp, rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import type { MissionCondition } from "@/lib/engine/missions";
+import { nativePlatinums, platinumCount, rarityCounts } from "@/lib/character/counts";
+import { genreName, primaryGenre } from "@/lib/engine/genres";
 import { getRank } from "@/lib/highscores/queries";
 import { validCompletions } from "@/lib/progression/completions";
 import { dailyPeriodKey, weeklyPeriodKey } from "@/lib/progression/periods";
@@ -48,9 +50,13 @@ export type CharacterAlmostGame = {
   slug: string;
   name: string;
   coverUrl: string | null;
+  /** Cover fallbacks (lib/case-art): Steam's portrait art, then the hero shown whole. */
+  steamAppId: number | null;
+  heroUrl: string | null;
   unlocked: number;
   total: number;
   percent: number;
+  /** The game's genre (lib/engine/genres `primaryGenre`), at most one. */
   skills: string[];
   hasGuide: boolean;
 };
@@ -77,8 +83,12 @@ export type Character = {
     pendingReview: number;
     /** Distinct games with a valid 100% on any platform. */
     perfectGames: number;
-    /** Distinct games whose platinum trophy (PSN) the user unlocked, valid unlocks only. */
+    /**
+     * Platinums across every platform, as the Troféus card counts them (lib/character/counts
+     * `platinumCount`): native platinum trophies plus 100% on platforms without one.
+     */
     platinums: number;
+    /** Valid unlocks of rarity "lendária" (≤ 3%), as the statistics page (`rarityCounts`). */
     legendary: number;
     /** Rank among public profiles; null when the profile is private. */
     rank: number | null;
@@ -162,7 +172,8 @@ export async function getCharacter(
     achievements,
     pendingReview,
     completions,
-    legendary,
+    rarity,
+    platinumPairs,
     rankRow,
     missions,
     recent,
@@ -173,9 +184,9 @@ export async function getCharacter(
     db.userAchievement.count({ where: { userId: user.id, suspicious: false } }),
     db.userAchievement.count({ where: { userId: user.id, suspicious: true, fraudReview: null } }),
     validCompletions(user.id, db),
-    db.userAchievement.count({
-      where: { userId: user.id, suspicious: false, achievement: { globalPct: { lte: 3 } } },
-    }),
+    // Same functions as the statistics page and the Troféus card (lib/character/counts).
+    rarityCounts(user.id, db),
+    nativePlatinums(user.id, db),
     user.profilePublic ? getRank(user.id, { metric: "nivel" }, db) : Promise.resolve(null),
     db.mission.findMany({
       where: {
@@ -213,6 +224,8 @@ export async function getCharacter(
             slug: true,
             name: true,
             coverUrl: true,
+            steamAppId: true,
+            heroUrl: true,
             achievementCount: true,
             skills: { select: { skill: true } },
             guide: { select: { status: true } },
@@ -243,7 +256,6 @@ export async function getCharacter(
     .sort((a, b) => b.level - a.level || b.points - a.points);
   const sabio = skillRows.filter((s) => s.id === "sabio");
 
-  const skillName = new Map(SKILLS.map((s) => [s.id as string, s.name]));
   // Distinct games with a valid 100% on any platform (one game on Steam and PSN is one game).
   const perfect = new Set(completions.map((c) => c.gameId));
   const counts = new Map(validByGame.map((r) => [`${r.gameId}:${r.platform}`, r]));
@@ -262,17 +274,15 @@ export async function getCharacter(
       slug: row.game.slug,
       name: row.game.name,
       coverUrl: row.game.coverUrl,
+      steamAppId: row.game.steamAppId,
+      heroUrl: row.game.heroUrl,
       unlocked,
       total,
       percent: Math.floor((unlocked / total) * 100),
-      skills: row.game.skills.map((s) => skillName.get(s.skill) ?? s.skill),
+      skills: [primaryGenre(row.game.skills.map((s) => s.skill))].flatMap((g) => (g ? [genreName(g)] : [])),
       hasGuide: row.game.guide?.status === "published",
     });
   }
-  const [platinumRow] = await prisma.$queryRaw<{ count: number }[]>`
-    SELECT count(DISTINCT a."gameId")::int AS count
-    FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId"
-    WHERE ua."userId" = ${user.id} AND ua.suspicious = false AND a."trophyTier" = 'platinum'`;
   const almostThere = [...closest.values()]
     .sort((a, b) => b.unlocked / b.total - a.unlocked / a.total)
     .slice(0, 6);
@@ -293,8 +303,8 @@ export async function getCharacter(
       achievements,
       pendingReview,
       perfectGames: perfect.size,
-      platinums: platinumRow?.count ?? 0,
-      legendary,
+      platinums: platinumCount(platinumPairs, completions),
+      legendary: rarity.lendaria,
       rank: rankRow,
     },
     streak: {

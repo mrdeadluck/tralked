@@ -9,8 +9,11 @@ import {
   RELEASE_FILTERS,
   RELEASE_TABS,
   RELEASES_TAG,
+  todayUtc,
+  weekHighlights,
   type ReleaseFilter,
   type ReleaseTab,
+  type ReleaseView,
 } from "@/lib/queries/releases";
 import { RELEASE_PLATFORM_COLOR, RELEASE_PLATFORM_LABEL } from "@/lib/releases/platforms";
 
@@ -18,7 +21,8 @@ const filterLabel = (f: ReleaseFilter) => (f === "TODAS" ? "Todas" : RELEASE_PLA
 export const releasesHref = (tab: ReleaseTab, filter: ReleaseFilter) => `/lancamentos/${tab}/${filter.toLowerCase()}`;
 
 /**
- * /lancamentos: the full list of a tab and platform, grouped by day. Tabs and filters are plain
+ * /lancamentos: the full list of a tab and platform, biggest releases first: the week's
+ * highlights as large cases, then everything else on the compact shelf, each with its date. Tabs and filters are plain
  * links to static pages (`/lancamentos/<aba>/<plataforma>`), so everything works without JavaScript.
  */
 export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: ReleaseFilter }) {
@@ -26,15 +30,47 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
   cacheLife("hours");
   cacheTag(RELEASES_TAG);
 
-  const { releases, consolesOff } = await getReleaseList(tab, filter, new Date());
-  const groups: { label: string; items: typeof releases }[] = [];
-  for (const r of releases) {
-    const label = r.day ? r.dateText : "Data a definir";
-    const last = groups[groups.length - 1];
-    if (last && last.label === label) last.items.push(r);
-    else groups.push({ label, items: [r] });
-  }
+  const now = new Date();
+  const { releases, consolesOff } = await getReleaseList(tab, filter, now);
+  // Biggest first (lib/releases/heat.ts): the week's biggest as large cases, then the rest.
+  const highlights = releases.length > 6 ? weekHighlights(releases, tab, todayUtc(now).key) : null;
+  const picked = new Set(highlights?.picks.map((r) => r.gameId));
+  const rest = releases.filter((r) => !picked.has(r.gameId));
   const tabInfo = RELEASE_TABS.find((t) => t.id === tab)!;
+  const item = (r: ReleaseView) => (
+    <CaseItem
+      key={r.gameId}
+      href={`/jogos/${r.slug}`}
+      slug={r.slug}
+      name={r.name}
+      art={caseArt({
+        coverUrl: r.coverUrl,
+        steamAppId: steamAppIdFromUrl(r.capsuleUrl),
+        wideUrl: r.capsuleUrl,
+        portraitChecked: !r.stub,
+      })}
+    >
+      <span className="cs-name">{r.name}</span>
+      <span className="cs-meta">
+        {r.day ? (
+          <time dateTime={r.day}>
+            <b>{r.dateText}</b>
+            {r.relative ? ` · ${r.relative}` : ""}
+          </time>
+        ) : (
+          <b>{r.dateText}</b>
+        )}
+      </span>
+      <span className="cs-meta">
+        {r.platforms.map((p) => (
+          <Chip key={p} color={RELEASE_PLATFORM_COLOR[p]}>
+            {RELEASE_PLATFORM_LABEL[p]}
+          </Chip>
+        ))}
+        {r.stub ? <span>detalhes em breve</span> : null}
+      </span>
+    </CaseItem>
+  );
 
   return (
     <div key="releases-list" className="flex w-full flex-col gap-8">
@@ -80,43 +116,26 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
       <p className="-mt-4 font-mono text-xs tracking-[0.06em] text-dim">
         {releases.length} {releases.length === 1 ? "JOGO" : "JOGOS"} · {tabInfo.hint.toUpperCase()} · {filterLabel(filter).toUpperCase()}
       </p>
-      {groups.length > 0 ? (
-        <ol className="m-0 flex list-none flex-col gap-6 p-0">
-          {groups.map((g) => (
-            <li key={g.label} className="flex flex-col gap-4">
-              <h2 className="border-b border-line pb-2 font-mono text-[12px] tracking-[0.08em] text-text-3 uppercase">
-                {g.label}
-                {g.items[0].relative ? <span className="ml-2 text-dim normal-case">{g.items[0].relative}</span> : null}
+      {releases.length > 0 ? (
+        <>
+          {highlights ? (
+            <section aria-labelledby="destaques" className="flex flex-col gap-4">
+              <h2 id="destaques" className="text-[22px] leading-none font-black font-stretch-[125%] tracking-[-0.03em] uppercase">
+                {highlights.week ? "Destaques da semana" : "Destaques"}
               </h2>
-              <CaseShelf>
-                {g.items.map((r) => (
-                  <CaseItem
-                    key={r.gameId}
-                    href={`/jogos/${r.slug}`}
-                    slug={r.slug}
-                    name={r.name}
-                    art={caseArt({
-                      coverUrl: r.coverUrl,
-                      steamAppId: steamAppIdFromUrl(r.capsuleUrl),
-                      wideUrl: r.capsuleUrl,
-                      portraitChecked: !r.stub,
-                    })}
-                  >
-                    <span className="cs-name">{r.name}</span>
-                    <span className="cs-meta">
-                      {r.platforms.map((p) => (
-                        <Chip key={p} color={RELEASE_PLATFORM_COLOR[p]}>
-                          {RELEASE_PLATFORM_LABEL[p]}
-                        </Chip>
-                      ))}
-                      {r.stub ? <span>detalhes em breve</span> : null}
-                    </span>
-                  </CaseItem>
-                ))}
+              <CaseShelf size="lg" label={highlights.week ? "Destaques da semana" : "Destaques"}>
+                {highlights.picks.map(item)}
               </CaseShelf>
-            </li>
-          ))}
-        </ol>
+            </section>
+          ) : null}
+          <section aria-labelledby="todos-lancamentos" className="flex flex-col gap-4">
+            <h2 id="todos-lancamentos" className="border-b border-line pb-2 font-mono text-[12px] tracking-[0.08em] text-text-3 uppercase">
+              {highlights ? "Mais lançamentos" : "Lançamentos"}
+              <span className="ml-2 text-dim normal-case">dos mais populares aos menos</span>
+            </h2>
+            <CaseShelf>{rest.map(item)}</CaseShelf>
+          </section>
+        </>
       ) : (
         <p className="py-6 text-[15px] text-muted">
           {tab === "ultimos" ? "Nenhum lançamento nos últimos 30 dias" : "Nenhum lançamento previsto para os próximos 90 dias"}{" "}

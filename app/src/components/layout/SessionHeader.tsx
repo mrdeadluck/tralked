@@ -34,8 +34,9 @@ async function HeaderWithUser() {
         bell
           ? {
               unread: bell.unread,
-              items: bell.items.map(({ id, title, body, href, read, createdAt }) => ({
+              items: bell.items.map(({ id, kind, title, body, href, read, createdAt }) => ({
                 id,
+                kind,
                 title,
                 body,
                 href,
@@ -53,9 +54,9 @@ async function HeaderWithUser() {
 function HeaderFallback() {
   return (
     // usePathname (aria-current) pode suspender em rotas dinâmicas com Cache Components.
-    // Same height as the header it stands for (it wraps to two rows below 1150 px), so the page
-    // does not jump when the header streams in.
-    <Suspense fallback={<div className="h-[127px] border-b border-line nav:h-[123px] min-[1150px]:h-[71px]" />}>
+    // Same height as the header it stands for (measured: 65 px on phones, 115 px where the desktop
+    // nav wraps the search to a second row, 900–1044 px, then 73 px), so the page does not jump.
+    <Suspense fallback={<div className="h-[65px] border-b border-line nav:h-[115px] min-[1045px]:h-[73px]" />}>
       <Header />
     </Suspense>
   );

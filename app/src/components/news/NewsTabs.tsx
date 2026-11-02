@@ -30,7 +30,7 @@ const CSS = `
 .tkt-tab { position: relative; height: 44px; padding: 0 14px; border: 0; background: none; font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); cursor: pointer; white-space: nowrap; }
 .tkt-tab:hover, .tkt-tab[aria-selected="true"] { color: var(--text); }
 .tkt-tab:focus-visible { outline-offset: -2px; }
-.tkt-tab sup { font-size: 9px; color: var(--dim); margin-left: 4px; }
+.tkt-tab sup { font-size: 12px; letter-spacing: 0; color: var(--dim); margin-left: 5px; vertical-align: baseline; position: relative; top: -0.35em; }
 .tkt:not([data-ready]) .tkt-tab[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--acc); }
 .tkt-ink { position: absolute; bottom: 0; height: 2px; background: var(--acc); left: 0; width: 0; transition: left .45s cubic-bezier(.5,0,.2,1), width .45s cubic-bezier(.5,0,.2,1); }
 .tkt-panel { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr) minmax(260px, .9fr); grid-template-rows: auto auto; gap: 18px 24px; }
@@ -69,6 +69,8 @@ const CSS = `
 .tkt-empty { grid-column: 1 / -1; padding: 40px 0; color: var(--muted); }
 .tkt-more { grid-column: 1 / -1; justify-self: start; font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--acc); }
 .tkt-more:hover { text-decoration: underline; text-underline-offset: 3px; }
+.tkt-nolead .tkt-sec { grid-column: auto; grid-row: 1; min-height: 250px; }
+@container (max-width: 600px) { .tkt-nolead .tkt-sec { grid-row: auto; min-height: 220px; } }
 @container (max-width: 1000px) {
   .tkt-panel { grid-template-columns: 1fr 1fr; }
   .tkt-lead { grid-column: 1 / -1; grid-row: auto; min-height: 380px; }
@@ -128,33 +130,47 @@ function Meta({ story }: { story: StoryCard }) {
 
 const delay = (i: number) => ({ "--i": i }) as CSSProperties;
 
-function Panel({ tab, mostRead, mostReadTitle }: { tab: NewsTab; mostRead: StoryCard[]; mostReadTitle: string }) {
+function Panel({
+  tab,
+  mostRead,
+  mostReadTitle,
+  withLead,
+}: {
+  tab: NewsTab;
+  mostRead: StoryCard[];
+  mostReadTitle: string;
+  withLead: boolean;
+}) {
   if (tab.stories.length === 0) {
     return <p className="tkt-empty">Nenhuma notícia nesta categoria ainda.</p>;
   }
-  const [lead, ...rest] = tab.stories;
+  // Without a lead (the home, whose headline sits right above), the panel opens on two cards.
+  const lead = withLead ? tab.stories[0] : null;
+  const rest = withLead ? tab.stories.slice(1) : tab.stories;
   const secondary = rest.slice(0, 2);
   // Eleven stories in all: the lead, two secondary and a compact list of the next eight.
   const more = rest.slice(2, 10);
   return (
     <>
-      <StoryLink story={lead} className="tkt-lead" style={delay(0)}>
-        <GameArt
-          className="tkt-art"
-          seed={lead.seed}
-          hues={lead.hues}
-          imageUrl={lead.imageUrl}
-          figure
-          light
-          width={900}
-          height={640}
-          sizes="(max-width: 1000px) calc(100vw - 40px), 640px"
-        />
-        <span className="tkt-kick">{lead.kicker}</span>
-        <h3>{lead.title}</h3>
-        {lead.excerpt ? <p>{lead.excerpt}</p> : null}
-        <Meta story={lead} />
-      </StoryLink>
+      {lead ? (
+        <StoryLink story={lead} className="tkt-lead" style={delay(0)}>
+          <GameArt
+            className="tkt-art"
+            seed={lead.seed}
+            hues={lead.hues}
+            imageUrl={lead.imageUrl}
+            figure
+            light
+            width={900}
+            height={640}
+            sizes="(max-width: 1000px) calc(100vw - 40px), 640px"
+          />
+          <span className="tkt-kick">{lead.kicker}</span>
+          <h3>{lead.title}</h3>
+          {lead.excerpt ? <p>{lead.excerpt}</p> : null}
+          <Meta story={lead} />
+        </StoryLink>
+      ) : null}
       {secondary.map((story, i) => (
         <StoryLink key={story.id} story={story} className="tkt-sec" style={delay(i + 1)}>
           <GameArt
@@ -224,12 +240,15 @@ export function NewsTabs({
   mostRead: allMostRead,
   mostReadTitle = "Mais lidas",
   label = "Categorias de notícias",
+  withLead = true,
 }: {
   tabs: NewsTab[];
   mostRead: StoryCard[];
   mostReadTitle?: string;
   /** Accessible name of the tab list. */
   label?: string;
+  /** Open each panel on a big lead story (false where a headline already sits above). */
+  withLead?: boolean;
 }) {
   const tabs = allTabs.map((tab) => ({ ...tab, stories: safeStories(tab.stories) }));
   const mostRead = safeStories(allMostRead);
@@ -336,12 +355,12 @@ export function NewsTabs({
       </div>
       <div
         id={panelId}
-        className="tkt-panel"
+        className={withLead ? "tkt-panel" : "tkt-panel tkt-nolead"}
         role="tabpanel"
         aria-labelledby={tabId(current.id)}
         data-phase={phase}
       >
-        <Panel tab={current} mostRead={mostRead} mostReadTitle={mostReadTitle} />
+        <Panel tab={current} mostRead={mostRead} mostReadTitle={mostReadTitle} withLead={withLead} />
       </div>
     </div>
   );

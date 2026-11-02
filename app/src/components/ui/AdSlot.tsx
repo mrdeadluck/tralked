@@ -13,6 +13,14 @@ export const AD_FORMATS = {
 
 export type AdFormat = keyof typeof AD_FORMATS;
 
+/**
+ * Whether ad slots render at all. No ad provider is wired yet, so an empty "Publicidade" box
+ * would only be dead space: pages skip the slot until `NEXT_PUBLIC_ADS_ENABLED=1`.
+ */
+export function adsEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_ADS_ENABLED === "1";
+}
+
 export function AdSlot({ format = "leaderboard", className = "" }: { format?: AdFormat; className?: string }) {
   return (
     <aside aria-label="Publicidade" data-ad-slot={format} className={`flex w-full flex-col gap-1.5 ${className}`}>

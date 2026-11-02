@@ -45,7 +45,7 @@ export function AccountMenu({ user }: { user: AccountUser }) {
       ref={rootRef}
       role="group"
       aria-label="Conta"
-      className="relative max-nav:hidden"
+      className="relative"
       onKeyDown={(event) => {
         if (event.key === "Escape" && open) {
           setOpen(false);
@@ -59,9 +59,10 @@ export function AccountMenu({ user }: { user: AccountUser }) {
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((value) => !value)}
-        className="flex cursor-pointer items-center gap-2.5"
+        className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[2px]"
       >
-        <span className="flex flex-col items-end font-mono leading-[1.2]">
+        {/* Phones show only the avatar; the handle and level stay for screen readers. */}
+        <span className="flex flex-col items-end font-mono leading-[1.2] max-nav:sr-only">
           <small className="text-xs tracking-[0.1em] text-dim uppercase">{user.handle}</small>
           <b className="text-[13px]">NV {user.level}</b>
         </span>

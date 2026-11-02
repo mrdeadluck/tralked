@@ -13,6 +13,7 @@ import { SKILLS, type SkillId, type SkillState } from "@/lib/engine/types";
 import { vocationFor } from "@/lib/engine/vocation";
 import { playtimeGameId } from "@/lib/engine/playtime";
 import { levelFromXp } from "@/lib/engine/xp";
+import { notifyLevelUp, notifyMissionDone } from "@/lib/notifications/progress";
 import { dailyPeriodKey, isoWeekKey, weeklyPeriodKey } from "./periods";
 import { skillPointTotals, skillsFromLedger, type LedgerSkillEntry } from "./skills-from-ledger";
 
@@ -224,6 +225,8 @@ async function applyMissions(userId: string, now: Date, topSkills: SkillId[]): P
           ],
           skipDuplicates: true,
         });
+        // Return trigger: the bell says so even when the mission completed in a background sync.
+        await notifyMissionDone(tx, userId, mission, now);
         completedAny = true;
       });
     }
@@ -379,6 +382,9 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
     shields: streak.shields,
   };
   const rankStats = await rankStatsWrites(userId, unlocks);
+  // Level before this rebuild: a rise becomes a `level_up` notification. No row yet means the
+  // first import, which the "Despertar" sequence celebrates instead.
+  const previous = await prisma.userStats.findUnique({ where: { userId }, select: { level: true } });
 
   await prisma.$transaction([
     ...rankStats,
@@ -402,6 +408,9 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
       update: stats,
     }),
   ]);
+  if (previous && stats.level > previous.level) {
+    await notifyLevelUp(prisma, userId, previous.level, stats.level, now);
+  }
 }
 
 /**

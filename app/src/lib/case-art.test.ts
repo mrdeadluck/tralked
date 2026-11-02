@@ -19,6 +19,8 @@ describe("caseArt", () => {
     const hashed = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/4115450/aef06490c9a4ad912142fe3b766ee08a2b38ef80/capsule_231x87.jpg?t=1";
     expect(caseArt({ steamAppId: 4115450, wideUrl: hashed })).toEqual([{ url: hashed, wide: true }]);
     expect(caseArt({ steamAppId: 10, portraitChecked: true })).toEqual([{ url: steamHeaderUrl(10), wide: true }]);
+    // A hashed capsule stored as the "cover" (stubs) also rules the guess out.
+    expect(caseArt({ coverUrl: hashed, steamAppId: 4115450 })[0]).toEqual({ url: hashed, wide: true });
     // Plain (older) asset folders still try the portrait first.
     const plain = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/capsule_231x87.jpg";
     expect(caseArt({ steamAppId: 10, wideUrl: plain })[0]).toEqual({ url: steamPortraitUrl(10), wide: false });

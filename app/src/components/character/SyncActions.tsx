@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import { markDespertarShownAction, syncNow } from "@/app/jogador/[handle]/actions";
 import { LevelUpOverlay } from "@/components/fx/LevelUpOverlay";
-import { Toasts, useToasts } from "@/components/fx/Toasts";
+import { announceReward, announceToast } from "@/components/fx/reward-bus";
 import { useSound } from "@/components/fx/useSound";
 import { Button } from "@/components/ui/Button";
 import { SKILLS } from "@/lib/engine/types";
@@ -26,7 +26,8 @@ const noopSubscribe = () => () => {};
 export function SyncActions({ lastSyncedLabel, despertarSteps = null }: SyncActionsProps) {
   const router = useRouter();
   const sound = useSound();
-  const { toasts, push } = useToasts();
+  // Toasts go to the site-wide RewardHost (root layout): one stack for every reward.
+  const push = announceToast;
   const [syncing, startSync] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [levelUp, setLevelUp] = useState<{ from: number; to: number } | null>(null);
@@ -64,6 +65,17 @@ export function SyncActions({ lastSyncedLabel, despertarSteps = null }: SyncActi
       } else {
         push({ title: "Tudo em dia", text: "Nenhuma conquista nova", icon: "trophy" });
       }
+      // The level up has its own overlay here (with the Despertar), so the reward is XP only.
+      // Mission rewards get their own toast below, so they are taken out of the sync's total.
+      const missionXp = result.missionsDone.reduce((sum, m) => sum + m.rewardXp, 0);
+      const syncXp = result.xpGained - missionXp;
+      announceReward(syncXp > 0 ? { xpGained: syncXp, reason: "Sincronização" } : null);
+      result.missionsDone.forEach((mission, index) => {
+        setTimeout(() => {
+          push({ title: "Missão concluída", text: mission.title, icon: "mission", key: `mission:${mission.title}` });
+          announceReward({ xpGained: mission.rewardXp, reason: "Missão" });
+        }, 300 + index * 350);
+      });
 
       result.skillUps.forEach((id, index) => {
         setTimeout(() => {
@@ -120,7 +132,6 @@ export function SyncActions({ lastSyncedLabel, despertarSteps = null }: SyncActi
         )}
       </p>
 
-      <Toasts toasts={toasts} />
       {hydrated && despertar ? (
         <DespertarOverlay
           steps={despertar}

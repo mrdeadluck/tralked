@@ -1,5 +1,6 @@
 import { skillNeed } from "@/lib/engine/skills";
 import { levelFromXp } from "@/lib/engine/xp";
+import { formatCompact, formatExact } from "@/lib/xp-format";
 import type { Board, Metric } from "./boards";
 import type { RankedPlayer } from "./queries";
 
@@ -15,7 +16,16 @@ export type RowDisplay = {
   /** 0..1 */
   bar: number;
   barLabel: string;
+  /** Big XP values show abbreviated ("312 mil"); the exact one goes in `valueTitle`. */
+  compact?: boolean;
+  valueTitle?: string;
+  /** Exact numbers behind the detail line (tooltip). */
+  detailTitle?: string;
 };
+
+/** The big number of a row as shown: "312 mil" on XP boards, "1.234" elsewhere. */
+export const shownValue = (display: RowDisplay) =>
+  display.compact ? formatCompact(display.value) : display.value.toLocaleString("pt-BR");
 
 const hours = (minutes: number) => Math.floor(minutes / 60);
 
@@ -29,16 +39,29 @@ export function rowDisplay(board: Board, p: RankedPlayer, leaderValue: number): 
     barLabel: `${label} de @${p.handle} em relação ao primeiro colocado`,
   });
   switch (board.metric) {
-    case "nivel": {
+    case "nivel":
+    case "novatos": {
+      // The level is the score; the total XP (millions, past the first levels) only in the tooltip.
       const progress = levelFromXp(p.totalXp);
+      const pct = Math.floor(Math.min(1, progress.fraction) * 100);
       return {
         value: p.value,
         unit: "nível",
-        detail: `${fmt(p.totalXp)} XP`,
+        detail: `${pct}% do nível ${p.value + 1}`,
+        detailTitle: `${formatExact(p.totalXp)} XP no total`,
         bar: Math.min(1, progress.fraction),
         barLabel: `XP de @${p.handle} para o nível ${p.value + 1}`,
       };
     }
+    case "semana":
+      return {
+        value: p.value,
+        unit: "XP",
+        detail: `Nível ${p.level}`,
+        compact: true,
+        valueTitle: `${formatExact(p.value)} XP nos últimos 7 dias`,
+        ...relative("XP da semana"),
+      };
     case "genero": {
       const need = skillNeed(p.value);
       return {
@@ -87,14 +110,16 @@ export function rowDisplay(board: Board, p: RankedPlayer, leaderValue: number): 
   }
 }
 
-const GAP_UNIT: Record<Exclude<Metric, "nivel" | "genero" | "horas" | "conquistas">, [string, string]> = {
+type CountedMetric = Exclude<Metric, "nivel" | "semana" | "novatos" | "genero" | "horas" | "conquistas">;
+
+const GAP_UNIT: Record<CountedMetric, [string, string]> = {
   raras: ["conquista rara", "conquistas raras"],
   platinas: ["jogo em 100%", "jogos em 100%"],
   acervo: ["ponto de Acervo", "pontos de Acervo"],
 };
 
 /** What breaks a tie on each board after the main value (see STAT_FIELDS in queries.ts). */
-const TIE_BREAK_UNIT: Record<Exclude<Metric, "nivel" | "genero" | "horas" | "conquistas">, [string, string]> = {
+const TIE_BREAK_UNIT: Record<CountedMetric, [string, string]> = {
   raras: ["lendária", "lendárias"],
   platinas: ["conquista", "conquistas"],
   acervo: ["jogo na biblioteca", "jogos na biblioteca"],
@@ -110,10 +135,17 @@ export function gapText(board: Board, me: RankedPlayer, above: RankedPlayer): st
     `${n === 1 ? "Falta" : "Faltam"} ${fmt(n)} ${plural(n, one, many)}`;
   const reach = (text: string) => `${text} para alcançar ${who}`;
   const byName = `${TIED} ${who} (o desempate é pelo nome)`;
+  /** "Faltam 1,2 mi XP": XP gaps run into the millions, so they are abbreviated. */
+  const xpGap = (xp: number) => `${xp === 1 ? "Falta" : "Faltam"} ${formatCompact(xp)} XP`;
   switch (board.metric) {
-    case "nivel": {
+    case "nivel":
+    case "novatos": {
       const xp = above.totalXp - me.totalXp;
-      return xp > 0 ? reach(amount(xp, "XP", "XP")) : byName;
+      return xp > 0 ? reach(xpGap(xp)) : byName;
+    }
+    case "semana": {
+      const xp = above.value - me.value;
+      return xp > 0 ? reach(xpGap(xp)) : `${TIED} ${who} na semana`;
     }
     case "genero": {
       const levels = above.value - me.value;

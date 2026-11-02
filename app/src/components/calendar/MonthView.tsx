@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { RemoteImg } from "@/components/ui/RemoteImg";
 import { byDay, EVENT_KIND_LABEL, type CalendarEvent, type CalendarEventKind } from "@/lib/calendar/events";
 import {
   addMonths,
@@ -143,9 +144,30 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject,
                       const key = keyOf(month, day);
                       const list = days.get(key) ?? [];
                       const today = key === todayKey;
+                      // The day's biggest release lends its cover to the cell (a big launch, more of it).
+                      const lead = list[0]?.kind === "release" && list[0].imageUrl ? list[0] : null;
                       return (
-                        <td key={weekday} className={`h-[104px] border border-line align-top ${today ? "bg-surface-2" : ""}`}>
-                          <div className="flex h-full flex-col gap-1 p-1.5">
+                        <td
+                          key={weekday}
+                          className={`relative h-[104px] overflow-hidden border border-line align-top ${today ? "bg-surface-2" : ""}`}
+                        >
+                          {lead ? (
+                            <>
+                              <RemoteImg
+                                url={lead.imageUrl!}
+                                alt=""
+                                width={240}
+                                height={240}
+                                sizes="(max-width: 640px) 50vw, 240px"
+                                className={`absolute inset-0 size-full object-cover ${lead.big ? "opacity-60" : "opacity-30"}`}
+                              />
+                              <span
+                                aria-hidden="true"
+                                className="absolute inset-0 bg-[linear-gradient(180deg,rgba(11,12,15,.25),rgba(11,12,15,.94)_62%)]"
+                              />
+                            </>
+                          ) : null}
+                          <div className="relative flex h-full flex-col gap-1 p-1.5">
                             <a
                               href={`#${dayId(key)}`}
                               data-day={key}
@@ -161,7 +183,12 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject,
                             </a>
                             <ul aria-hidden="true" className="m-0 flex min-w-0 list-none flex-col gap-0.5 p-0">
                               {list.slice(0, PER_CELL).map((e, i) => (
-                                <li key={i} className="flex min-w-0 items-center gap-1 text-xs leading-tight text-text-3">
+                                <li
+                                  key={i}
+                                  className={`flex min-w-0 items-center gap-1 text-xs leading-tight ${
+                                    e.big ? "font-bold text-text" : "text-text-3"
+                                  }`}
+                                >
                                   <span className="size-1.5 shrink-0 rounded-full" style={{ background: KIND_COLOR[e.kind] }} />
                                   <span className="truncate">{e.title}</span>
                                 </li>
@@ -199,22 +226,42 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject,
                     {key > todayKey ? <span className="mt-1 block text-dim">em breve</span> : null}
                   </h3>
                   <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
-                    {(days.get(key) ?? []).map((e, i) => (
-                      <li key={i} className="flex min-w-0 gap-2.5">
-                        <span aria-hidden="true" className="mt-[7px] size-2 shrink-0 rounded-full" style={{ background: KIND_COLOR[e.kind] }} />
-                        <span className="flex min-w-0 flex-col">
-                          <span className="font-mono text-xs tracking-[0.08em] text-dim uppercase">{EVENT_KIND_LABEL[e.kind]}</span>
-                          {e.href ? (
-                            <Link href={e.href} className="font-bold leading-snug hover:text-acc">
-                              {e.title}
-                            </Link>
+                    {(days.get(key) ?? []).map((e, i) => {
+                      // The day's biggest release leads with its cover; the rest stay a compact list.
+                      const cover = i === 0 && e.kind === "release" && e.imageUrl ? e.imageUrl : null;
+                      const size = e.kind !== "release" ? "font-bold" : e.big ? "text-[17px] font-extrabold" : "text-[14.5px] font-semibold";
+                      return (
+                        <li key={i} className={`flex min-w-0 gap-2.5 ${cover ? "items-center" : ""}`}>
+                          {cover ? (
+                            <RemoteImg
+                              url={cover}
+                              alt=""
+                              width={e.big ? 72 : 52}
+                              height={e.big ? 96 : 69}
+                              sizes={e.big ? "72px" : "52px"}
+                              shape="fit"
+                              className={`aspect-[3/4] shrink-0 rounded-[2px] border object-cover ${e.big ? "w-[72px] border-acc" : "w-[52px] border-line"}`}
+                            />
                           ) : (
-                            <span className="font-bold leading-snug">{e.title}</span>
+                            <span aria-hidden="true" className="mt-[7px] size-2 shrink-0 rounded-full" style={{ background: KIND_COLOR[e.kind] }} />
                           )}
-                          {e.detail ? <span className="text-[13.5px] text-muted">{e.detail}</span> : null}
-                        </span>
-                      </li>
-                    ))}
+                          <span className="flex min-w-0 flex-col">
+                            <span className="font-mono text-xs tracking-[0.08em] text-dim uppercase">
+                              {EVENT_KIND_LABEL[e.kind]}
+                              {e.big ? <span className="text-acc"> · destaque</span> : null}
+                            </span>
+                            {e.href ? (
+                              <Link href={e.href} className={`${size} leading-snug hover:text-acc`}>
+                                {e.title}
+                              </Link>
+                            ) : (
+                              <span className={`${size} leading-snug`}>{e.title}</span>
+                            )}
+                            {e.detail ? <span className="text-[13.5px] text-muted">{e.detail}</span> : null}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </li>
               );

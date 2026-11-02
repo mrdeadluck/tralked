@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { BIG_RELEASE_HEAT, releaseHeat } from "@/lib/releases/heat";
 import { RELEASE_PLATFORMS, RELEASE_PLATFORM_LABEL, type ReleasePlatform } from "@/lib/releases/platforms";
 import { dayKey, instantBounds, monthParam, utcBounds, utcDayKey, type Month } from "./month";
 
@@ -20,8 +21,12 @@ export type CalendarEvent = {
   /** Short context: category, platforms, rarest achievement… */
   detail: string | null;
   href: string | null;
-  /** Sort weight inside a day (higher first). */
+  /** Sort weight inside a day (higher first). Releases: their heat (lib/releases/heat.ts). */
   weight: number;
+  /** Releases: the game's portrait cover, when the catalog has one. */
+  imageUrl?: string | null;
+  /** Releases: a big launch (drawn heavier). */
+  big?: boolean;
 };
 
 export const EVENT_KIND_LABEL: Record<CalendarEventKind, string> = {
@@ -58,6 +63,10 @@ export function byDay(events: CalendarEvent[]): Map<string, CalendarEvent[]> {
   return map;
 }
 
+/** The popularity signals of a game that size a release (lib/releases/heat.ts). */
+const HEAT_FIELDS = { popularity: true, steamReviewTotal: true, steamPlayers: { select: { current: true } } } as const;
+type HeatGame = { popularity: number; steamReviewTotal: number | null; steamPlayers: { current: number } | null };
+
 const inMonth = (month: Month) => {
   const prefix = `${monthParam(month)}-`;
   return (day: string) => day.startsWith(prefix);
@@ -77,13 +86,20 @@ export async function getPublicMonth(month: Month): Promise<CalendarEvent[]> {
     }),
     prisma.gameRelease.findMany({
       where: { date: { gte: days.start, lt: days.end } },
-      select: { gameId: true, platform: true, date: true, score: true, game: { select: { slug: true, name: true } } },
+      select: {
+        gameId: true,
+        platform: true,
+        date: true,
+        score: true,
+        source: true,
+        game: { select: { slug: true, name: true, coverUrl: true, ...HEAT_FIELDS } },
+      },
       orderBy: { score: "desc" },
       take: MONTH_RELEASE_LIMIT,
     }),
     prisma.game.findMany({
       where: { stub: false, releaseDate: { gte: days.start, lt: days.end } },
-      select: { id: true, slug: true, name: true, platforms: true, releaseDate: true, popularity: true },
+      select: { id: true, slug: true, name: true, platforms: true, releaseDate: true, coverUrl: true, ...HEAT_FIELDS },
       orderBy: [{ popularity: "desc" }, { name: "asc" }],
       take: MONTH_RELEASE_LIMIT,
     }),
@@ -102,14 +118,33 @@ export async function getPublicMonth(month: Month): Promise<CalendarEvent[]> {
     }));
 
   // One entry per game and day: GameRelease rows (per platform) merged, then catalog dates.
-  const releaseByKey = new Map<string, { slug: string; name: string; day: string; platforms: Set<ReleasePlatform>; score: number }>();
+  type Entry = {
+    slug: string;
+    name: string;
+    day: string;
+    coverUrl: string | null;
+    platforms: Set<ReleasePlatform>;
+    steamList: number[];
+    igdb: number[];
+    game: HeatGame;
+  };
+  const releaseByKey = new Map<string, Entry>();
   for (const r of releases) {
     if (!r.date) continue;
     const day = utcDayKey(r.date);
     const key = `${r.gameId}:${day}`;
-    const entry = releaseByKey.get(key) ?? { slug: r.game.slug, name: r.game.name, day, platforms: new Set(), score: 0 };
+    const entry: Entry = releaseByKey.get(key) ?? {
+      slug: r.game.slug,
+      name: r.game.name,
+      day,
+      coverUrl: r.game.coverUrl,
+      platforms: new Set(),
+      steamList: [],
+      igdb: [],
+      game: r.game,
+    };
     entry.platforms.add(r.platform as ReleasePlatform);
-    entry.score = Math.max(entry.score, r.score);
+    (r.source === "igdb" ? entry.igdb : entry.steamList).push(r.score);
     releaseByKey.set(key, entry);
   }
   const releasedGames = new Set([...releases].map((r) => r.gameId));
@@ -120,18 +155,30 @@ export async function getPublicMonth(month: Month): Promise<CalendarEvent[]> {
       slug: g.slug,
       name: g.name,
       day,
+      coverUrl: g.coverUrl,
       platforms: new Set(g.platforms.filter((p): p is ReleasePlatform => (RELEASE_PLATFORMS as readonly string[]).includes(p))),
-      score: Math.min(999, Math.round(Math.log10(1 + g.popularity) * 50)),
+      steamList: [],
+      igdb: [],
+      game: g,
     });
   }
   for (const r of releaseByKey.values()) {
+    const heat = releaseHeat({
+      steamList: r.steamList,
+      igdb: r.igdb,
+      reviews: r.game.steamReviewTotal,
+      owners: r.game.popularity,
+      players: r.game.steamPlayers?.current,
+    });
     events.push({
       kind: "release",
       day: r.day,
       title: r.name,
       detail: platformsText([...r.platforms]),
       href: `/jogos/${r.slug}`,
-      weight: r.score,
+      weight: heat,
+      imageUrl: r.coverUrl,
+      big: heat >= BIG_RELEASE_HEAT,
     });
   }
   return events;

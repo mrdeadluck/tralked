@@ -1,17 +1,19 @@
 import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { Suspense } from "react";
+import { InviteStrip, PlayerStrip } from "@/components/home/PlayerStrip";
 import { CommunityRanking } from "@/components/news/CommunityRanking";
-import { DailyQuestCard } from "@/components/news/DailyQuestCard";
 import { DiscordCard } from "@/components/news/DiscordCard";
 import { EditorialCard } from "@/components/news/EditorialCard";
 import { HeroMain } from "@/components/news/HeroMain";
+import { MostReadCard } from "@/components/news/MostReadCard";
 import { NewsTabs } from "@/components/news/NewsTabs";
 import { NewsWire } from "@/components/news/NewsWire";
 import type { ArticleView } from "@/components/news/ArticleTags";
-import { Card } from "@/components/ui/Card";
 import { SectionHead } from "@/components/ui/SectionHead";
 import { getSessionUser } from "@/lib/auth/session";
+import { dailyPeriodKey } from "@/lib/progression/periods";
+import { getHomePlayerCached } from "@/lib/queries/home-player";
 import {
   articleStory,
   buildNewsTabs,
@@ -20,7 +22,6 @@ import {
   getHomeNews,
   getHomeRanking,
   getPressHeadlines,
-  getTodayMission,
   getTopPlayers,
   NEWS_TAG,
   withPressHeadlines,
@@ -30,15 +31,16 @@ import { getReleasesCard, RELEASES_TAG } from "@/lib/queries/releases";
 import { ReleasesCard } from "@/components/releases/ReleasesCard";
 import { timeAgo } from "@/lib/time-ago";
 
-/** Stories of the "Últimas" tab the panel shows: the lead, two secondary and eight more. */
-const LATEST_SHOWN = 11;
+/** Stories of the "Últimas" tab the home panel shows: two cards and eight more (no second lead). */
+const LATEST_SHOWN = 10;
 
 /**
- * The headline and the latest news, cached. One headline only, and no story repeats: "Últimas"
- * leaves out the headline, and "Mais visualizadas" (or, before there are views, "Mais lidas")
- * leaves out everything already on screen.
+ * The home's news, read once and cached: the news column and the "Mais lidas" card of the side
+ * column share this entry. One headline only, and no story repeats: "Últimas" leaves out the
+ * headline, and "Mais visualizadas" (or, before there are views, "Mais lidas") leaves out
+ * everything already on screen.
  */
-async function NewsSection() {
+async function homeNews() {
   "use cache";
   cacheLife("minutes");
   cacheTag(NEWS_TAG);
@@ -48,11 +50,20 @@ async function NewsSection() {
     getHomeRanking(20),
     getPressHeadlines(6),
   ]);
-  const mostRead = ranking.articles;
+  const shown = new Set([hero?.id, ...latest.slice(0, LATEST_SHOWN).map((a) => a.id)]);
+  const mostRead = ranking.articles.filter((a) => !shown.has(a.id)).slice(0, 5);
+  return { hero, latest, press, mostRead, mostReadTitle: ranking.title };
+}
+
+/** The headline and the latest news. */
+async function NewsSection() {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(NEWS_TAG);
+
+  const { hero, latest, press } = await homeNews();
   const now = new Date();
   const view = (a: ArticleCard): ArticleView => ({ ...a, timeAgo: timeAgo(a.publishedAt, now) });
-  const shown = new Set([hero?.id, ...latest.slice(0, LATEST_SHOWN).map((a) => a.id)]);
-  const unseenMostRead = mostRead.filter((a) => !shown.has(a.id)).slice(0, 5);
   return (
     <div key="news" className="flex min-w-0 flex-[1_1_600px] flex-col gap-12">
       {hero ? (
@@ -61,12 +72,12 @@ async function NewsSection() {
         </section>
       ) : null}
       <section aria-label="Últimas notícias" className="flex min-w-0 flex-col gap-1">
-        <SectionHead title="Últimas notícias" aside={<Link href="/noticias">Todas as notícias →</Link>} />
+        <SectionHead title="Últimas notícias" />
         {latest.length > 0 ? (
           <NewsTabs
+            withLead={false}
             tabs={withPressHeadlines(buildNewsTabs(latest, now), press, now)}
-            mostRead={unseenMostRead.map((a) => articleStory(a, now))}
-            mostReadTitle={ranking.title}
+            mostRead={[]}
           />
         ) : hero ? null : (
           <p className="py-6 text-[15px] text-muted">Nenhuma notícia publicada ainda.</p>
@@ -111,6 +122,18 @@ async function ReleasesSection() {
   );
 }
 
+/** "Mais lidas" in the side column, beside the news it does not repeat. */
+async function MostReadSection() {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(NEWS_TAG);
+
+  const { mostRead, mostReadTitle } = await homeNews();
+  if (mostRead.length === 0) return null;
+  const now = new Date();
+  return <MostReadCard key="most-read" title={mostReadTitle} stories={mostRead.map((a) => articleStory(a, now))} />;
+}
+
 async function RankingSection() {
   "use cache";
   cacheLife("minutes");
@@ -118,55 +141,49 @@ async function RankingSection() {
   return <CommunityRanking players={await getTopPlayers(5)} />;
 }
 
-/** Below the ranking: the way in is connecting a Steam account. */
-function SteamInvite() {
-  return (
-    <div className="rounded-[4px] border border-dashed border-line-2 p-4 text-[14px] text-muted">
-      <p>Conecte sua Steam e entre no ranking da comunidade.</p>
-      <Link
-        href="/conta/conexoes"
-        className="mt-3 inline-flex min-h-11 items-center rounded-[4px] bg-acc px-[18px] text-[14px] font-extrabold text-bg"
-      >
-        Conectar a Steam
-      </Link>
-    </div>
-  );
-}
-
-/** Depends on the session cookie, so it renders at request time. */
-async function QuestSection() {
+/**
+ * "Sua partida" for a signed-in player (cached per player for a minute), the invitation for a
+ * visitor. Depends on the session cookie, so it renders at request time.
+ */
+async function PlayerSection() {
   const user = await getSessionUser();
-  const mission = user ? await getTodayMission(user.id, new Date()) : null;
-  return <DailyQuestCard mission={mission} loggedIn={user !== null} />;
+  const player = user ? await getHomePlayerCached(user.id, dailyPeriodKey(new Date())) : null;
+  return player ? <PlayerStrip player={player} /> : <InviteStrip />;
 }
 
-const sidebarFallback = <Card className="h-40" aria-hidden="true" />;
+/**
+ * Holds the strip's place while it streams, so the news below does not jump: the invitation's
+ * height (most visitors), which on wide screens is also the player strip's.
+ */
+const stripFallback = (
+  <div aria-hidden="true" className="h-[108px] rounded-[4px] border border-line bg-surface max-lg:h-[156px] max-sm:h-[216px]" />
+);
 
 /*
  * The news and the wire are cached, so they render in the static shell itself, outside any
  * <Suspense>: a boundary that resolves after the shell is streamed as a hidden <div> that only a
  * script reveals, which would leave the home empty without JavaScript (and for crawlers that do
- * not run it). Only the per-visitor quest card streams behind its own boundary. No JSX is passed
- * into a cached component (React would re-validate it as a keyless list in development).
+ * not run it). Only the per-visitor strip at the top streams behind its own boundary. No JSX is
+ * passed into a cached component (React would re-validate it as a keyless list in development).
  */
 export default function Home() {
   return (
-    <div className="flex flex-col gap-12">
+    <div className="flex flex-col gap-10">
+      <Suspense fallback={stripFallback}>
+        <PlayerSection />
+      </Suspense>
       <div className="flex flex-wrap items-start gap-12">
         {/* One headline and the news on the left; only releases and the ranking on the right. */}
         <NewsSection />
-        <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
+        <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-8">
           <ReleasesSection />
           <RankingSection />
-          <SteamInvite />
+          <MostReadSection />
         </aside>
       </div>
       <WireSection />
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] items-start gap-5">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] items-start gap-5">
         <DiscordCard />
-        <Suspense fallback={sidebarFallback}>
-          <QuestSection />
-        </Suspense>
         <EditorialCard />
       </div>
     </div>

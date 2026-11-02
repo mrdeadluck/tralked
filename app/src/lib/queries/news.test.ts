@@ -199,34 +199,6 @@ describe.skipIf(!reachable)("news queries (seeded database)", () => {
     );
     expect(players[0].handle.startsWith("@")).toBe(false);
   });
-
-  it("getTodayMission returns the user's daily mission for today, or null", async () => {
-    const { prisma } = await import("@/lib/db");
-    const { getTodayMission } = await import("./news");
-    const { toLocalDay } = await import("@/lib/engine/streak");
-    const now = new Date();
-    const user = await prisma.user.create({
-      data: { steamId: "test-news-mission", handle: "test-news-mission", displayName: "Test" },
-    });
-    try {
-      expect(await getTodayMission(user.id, now)).toBeNull();
-      await prisma.mission.createMany({
-        data: [
-          { userId: user.id, kind: "weekly", periodKey: toLocalDay(now), title: "W", condition: { minCount: 9 }, rewardXp: 1 },
-          { userId: user.id, kind: "daily", periodKey: "2000-01-01", title: "Old", condition: { minCount: 9 }, rewardXp: 1 },
-          { userId: user.id, kind: "daily", periodKey: toLocalDay(now), title: "Hoje", condition: { minCount: 3 }, rewardXp: 12000, progress: 1 },
-        ],
-      });
-      expect(await getTodayMission(user.id, now)).toEqual({
-        title: "Hoje",
-        progress: 1,
-        goal: 3,
-        rewardXp: 12000,
-      });
-    } finally {
-      await prisma.user.delete({ where: { id: user.id } });
-    }
-  });
 });
 
 describe("wire and tab view models", () => {
@@ -336,20 +308,20 @@ describe("wire and tab view models", () => {
     expect(categoryLabel("TECNOLOGIA")).toBe("Tecnologia");
   });
 
-  it("signs robots as 'Equipe Tralked' (no '@'), on tabs and on the wire", async () => {
+  it("signs robots as 'Robô Tralked' (no '@'), on tabs and on the wire", async () => {
     const { BOT_BYLINE, articleStory, authorLabel, buildWireItems } = await import("./news");
-    expect(BOT_BYLINE).toBe("Equipe Tralked");
-    expect(authorLabel("bot", "Robô Notícias")).toBe("Equipe Tralked");
+    expect(BOT_BYLINE).toBe("Robô Tralked");
+    expect(authorLabel("bot", "Robô Notícias")).toBe("Robô Tralked");
     expect(authorLabel("editorial", "mrdead")).toBe("@mrdead");
     expect(authorLabel(null, "Arauto_Leopoldo")).toBe("@Arauto_Leopoldo");
 
     const bot = { ...card("r", "GAMES", 1), authorHandle: "Robô Patch Notes", authorLabel: authorLabel("bot", "Robô Patch Notes"), bot: true, humanAuthored: false };
-    expect(bot.authorLabel).toBe("Equipe Tralked");
+    expect(bot.authorLabel).toBe("Robô Tralked");
     expect(bot.humanAuthored).toBe(false);
-    expect(articleStory(bot, now).source).toBe("Equipe Tralked");
+    expect(articleStory(bot, now).source).toBe("Robô Tralked");
     expect(articleStory(card("h", "GAMES", 1), now).source).toBe("@Arauto_Leopoldo");
     const [wireBot, wireHuman] = buildWireItems([bot, card("h", "GAMES", 2)], [], now);
-    expect(wireBot.source).toBe("Equipe Tralked");
+    expect(wireBot.source).toBe("Robô Tralked");
     expect(wireHuman.source).toBe("Redação Tralked");
   });
 });

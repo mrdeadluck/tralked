@@ -20,7 +20,13 @@ vi.mock("./reactions", async (importOriginal) => ({
 const { reactTo } = await import("./engagement-actions");
 const { takeLikeToggle } = await import("./limits");
 
-const OK = { status: "ok", mine: 1, counts: { likes: 3, dislikes: 1 }, xp: { given: 5, received: 10 } };
+const OK = {
+  status: "ok",
+  mine: 1,
+  counts: { likes: 3, dislikes: 1 },
+  xp: { given: 5, received: 10 },
+  levelUp: null,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -34,6 +40,7 @@ describe("reactTo", () => {
       status: "ok",
       mine: 1,
       counts: { likes: 3, dislikes: 1 },
+      reward: { xpGained: 5, reason: "Curtida", skill: null, levelUp: null },
     });
     expect(react).toHaveBeenCalledWith(tx, "tag-user", "photo", "p1", 1);
     expect(updateTag.mock.calls).toEqual([["photo:p1"]]);
@@ -43,6 +50,16 @@ describe("reactTo", () => {
       expect((await reactTo({ targetType, targetId: "x1", value: -1 })).status).toBe("ok");
     }
     expect(updateTag).not.toHaveBeenCalled();
+  });
+
+  it("hands back the XP the reactor earned, with the level up, or no reward at all", async () => {
+    getSessionUser.mockResolvedValue({ id: "reward-user", handle: "eu" });
+    react.mockResolvedValueOnce({ ...OK, xp: { given: 5, received: 0 }, levelUp: { from: 9, to: 10 } });
+    expect(await reactTo({ targetType: "comment", targetId: "c9", value: -1 })).toMatchObject({
+      reward: { xpGained: 5, reason: "Reação", levelUp: { from: 9, to: 10 } },
+    });
+    react.mockResolvedValueOnce({ ...OK, xp: { given: 0, received: 10 } });
+    expect(await reactTo({ targetType: "comment", targetId: "c9", value: 1 })).toMatchObject({ reward: null });
   });
 
   it("allows 30 reaction clicks per minute, then refuses without touching the database", async () => {

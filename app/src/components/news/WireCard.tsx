@@ -60,7 +60,7 @@ function body(item: WireItem): ReactNode {
     case "paper":
       return (
         <>
-          <div className="tkw-hl">{item.title}</div>
+          <div className="tkw-hl" lang={item.lang}>{item.title}</div>
           <div className="tkw-img">{art(440, 380, true)}</div>
           <Leader left={item.kicker} right={item.when} />
           <span className="tkw-meta" aria-hidden="true">
@@ -72,7 +72,7 @@ function body(item: WireItem): ReactNode {
       return (
         <>
           <div className="tkw-a1">
-            <div className="tkw-hl">{item.title}</div>
+            <div className="tkw-hl" lang={item.lang}>{item.title}</div>
           </div>
           <div className="tkw-a2" />
           <div className="tkw-a3">
@@ -94,7 +94,7 @@ function body(item: WireItem): ReactNode {
         <>
           <div className="tkw-top">
             <span className="tkw-thin" aria-hidden="true">{item.thin ?? "nova////\nnotícia"}</span>
-            <span className="tkw-hl">{item.title}</span>
+            <span className="tkw-hl" lang={item.lang}>{item.title}</span>
           </div>
           <div className="tkw-img">
             {art(600, 520)}
@@ -109,7 +109,7 @@ function body(item: WireItem): ReactNode {
       return (
         <>
           {art(600, 740, true)}
-          <span className="tkw-tag">{item.title}</span>
+          <span className="tkw-tag" lang={item.lang}>{item.title}</span>
           <span className="tkw-giant" aria-hidden="true">
             {item.giant ?? item.kicker}
           </span>
@@ -118,7 +118,7 @@ function body(item: WireItem): ReactNode {
     case "dark":
       return (
         <>
-          <div className="tkw-hl">{item.title}</div>
+          <div className="tkw-hl" lang={item.lang}>{item.title}</div>
           <div className="tkw-img">
             {art(600, 480)}
             <span className="tkw-meta" aria-hidden="true">

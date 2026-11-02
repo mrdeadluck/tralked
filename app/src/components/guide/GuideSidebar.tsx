@@ -52,7 +52,9 @@ export function GuideSidebar({ guide, loggedIn, returnTo, pending = false }: Gui
     ...(guide.collectibles.length > 0
       ? [{ id: "g-colet", label: "Coletáveis", count: guide.collectibles.length }]
       : []),
-    { id: "g-dicas", label: "Dicas da comunidade", count: guide.tips.length },
+    guide.tips.length > 0
+      ? { id: "g-dicas", label: "Dicas da comunidade", count: guide.tips.length }
+      : { id: "g-dicas", label: "Deixe a primeira dica" },
     ...(guide.revisions.length > 0
       ? [{ id: "g-rev", label: "Revisões", count: guide.revisions.length }]
       : []),

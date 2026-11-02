@@ -160,7 +160,15 @@ describe("BackdropLoop", () => {
       onScreen(true);
       expect(JSON.parse(posted.at(-1)!)).toMatchObject({ event: "command", func: "playVideo" });
       fromPlayer({ event: "infoDelivery", info: { playerState: 1 } });
+      // The embed's start-up chrome is never shown: it fades in only after a few seconds of play.
+      expect(container.querySelector(".gpb")).not.toHaveAttribute("data-on");
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
       expect(container.querySelector(".gpb")).toHaveAttribute("data-on");
+      // Paused, buffering or ended (the player then draws its buttons): hidden at once.
+      fromPlayer({ event: "onStateChange", info: 2 });
+      expect(container.querySelector(".gpb")).not.toHaveAttribute("data-on");
       // Messages from anywhere else are ignored.
       act(() => {
         window.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ event: "onReady" }), origin: "https://evil.example.com" }));

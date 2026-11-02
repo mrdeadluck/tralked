@@ -22,6 +22,14 @@ export function steamAppIdFromUrl(url: string | null | undefined): number | null
 }
 
 /**
+ * Wide store art stored as a "cover" (games still without details keep the Steam header or a
+ * capsule): known by its file name, so it is shown whole instead of cropped like a portrait.
+ */
+export function isWideArt(url: string | null | undefined): boolean {
+  return Boolean(url && /\/(?:header|capsule_[^/]*|library_hero)\.(?:jpg|png|webp)(?:[?#]|$)|\/hero\//i.test(url));
+}
+
+/**
  * Steam keeps the art of newer apps under a hashed folder (`…/apps/<id>/<sha1>/capsule_231x87.jpg`);
  * those apps have nothing at the plain `…/apps/<id>/library_600x900.jpg` (it 404s).
  */
@@ -51,8 +59,12 @@ export function caseArt({
   const add = (url: string | null | undefined, wide: boolean) => {
     if (url && !sources.some((s) => s.url === url)) sources.push({ url, wide });
   };
-  add(coverUrl, false);
-  if (steamAppId && !portraitChecked && !isHashedSteamAsset(wideUrl)) add(steamPortraitUrl(steamAppId), false);
+  // A stored "cover" that is really wide store art goes after Steam's portrait, with the wide art.
+  const wideCover = isWideArt(coverUrl);
+  if (!wideCover) add(coverUrl, false);
+  const hashed = isHashedSteamAsset(wideUrl) || (wideCover && isHashedSteamAsset(coverUrl));
+  if (steamAppId && !portraitChecked && !hashed) add(steamPortraitUrl(steamAppId), false);
+  if (wideCover) add(coverUrl, true);
   add(wideUrl ?? (steamAppId ? steamHeaderUrl(steamAppId) : null), true);
   return sources;
 }

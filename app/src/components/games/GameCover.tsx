@@ -1,54 +1,41 @@
-"use client";
-
-import { useState } from "react";
-import { Placeholder } from "@/components/ui/Placeholder";
-import { RemoteImg } from "@/components/ui/RemoteImg";
+import { CoverArt } from "@/components/art/CoverArt";
+import { caseArt, steamAppIdFromUrl } from "@/lib/case-art";
 
 type GameCoverProps = {
   name: string;
   coverUrl: string | null;
+  /** Steam app id, when known: Steam's portrait art joins the fallback chain. */
+  steamAppId?: number | null;
+  /** Wide art (hero, store header) tried after the covers, shown whole over its blur. */
+  wideUrl?: string | null;
   /** CSS aspect-ratio. Defaults to the preview's 16 / 10. */
   ratio?: string;
-  /** Lists and grids: load the image only near the viewport. */
+  /** Lists and grids load the image only near the viewport (always the case now). */
   lazy?: boolean;
+  /** Alt text; default "Capa de <name>". */
+  alt?: string;
+  /** Classes of the box; default rounded corners. */
+  className?: string;
   /** Widest the cover renders (CSS px) and its `sizes`, for the CDN copy to request. */
   width?: number;
   sizes?: string;
 };
 
-/** "3 / 4" → 0.75; anything unreadable counts as wide. */
-function ratioOf(ratio: string): number {
-  const [w, h] = ratio.split("/").map((part) => Number(part.trim()));
-  return w > 0 && h > 0 ? w / h : 16 / 10;
-}
-
 /**
- * Cover art when we have it (catalog art, or the Steam store header for games still without
- * details), otherwise — or when the image fails to load — the striped placeholder.
+ * A game's cover through the shared fallback chain (lib/case-art + CoverArt): stored cover, then
+ * Steam's portrait art, then wide art shown whole, then generated art with the game's name.
  */
 export function GameCover({
   name,
   coverUrl,
+  steamAppId,
+  wideUrl,
   ratio = "16 / 10",
-  lazy = false,
+  alt,
+  className = "rounded-[3px]",
   width = 320,
   sizes = "(max-width: 640px) 50vw, 320px",
 }: GameCoverProps) {
-  const [failed, setFailed] = useState(false);
-  if (!coverUrl || failed) return <Placeholder label={`capa: ${name.toLowerCase()}`} ratio={ratio} />;
-  const aspect = ratioOf(ratio);
-  return (
-    <RemoteImg
-      url={coverUrl}
-      width={width}
-      height={Math.round(width / aspect)}
-      sizes={sizes}
-      shape={aspect < 1 ? "fit" : "wide"}
-      alt={`Capa de ${name}`}
-      loading={lazy ? "lazy" : "eager"}
-      onFail={() => setFailed(true)}
-      style={{ aspectRatio: ratio }}
-      className="block h-auto w-full rounded-[3px] object-cover"
-    />
-  );
+  const sources = caseArt({ coverUrl, steamAppId: steamAppId ?? steamAppIdFromUrl(coverUrl), wideUrl });
+  return <CoverArt name={name} sources={sources} ratio={ratio} alt={alt} className={className} width={width} sizes={sizes} />;
 }

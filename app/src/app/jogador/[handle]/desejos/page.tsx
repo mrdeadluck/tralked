@@ -7,7 +7,6 @@ import { formatDate } from "@/components/profile/format";
 import { PrivateProfile, SectionSkeleton } from "@/components/profile/PrivateProfile";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { profilePath, ProfileTabs } from "@/components/profile/ProfileTabs";
-import { Chip } from "@/components/ui/Chip";
 import { Pagination } from "@/components/ui/Pagination";
 import { getUserWishlist } from "@/lib/library/queries";
 import { paginate, parsePagination, perPageParam } from "@/lib/pagination";
@@ -78,11 +77,6 @@ async function ProfileWishlist({
                     {item.name}
                   </Link>
                 </h3>
-                {item.stub ? (
-                  <span>
-                    <Chip plain>Detalhes em breve</Chip>
-                  </span>
-                ) : null}
                 {item.addedAt ? (
                   <p className="mt-auto font-mono text-xs text-dim">Adicionado em {formatDate(item.addedAt)}</p>
                 ) : null}

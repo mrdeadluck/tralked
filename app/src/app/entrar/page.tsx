@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { AuthColumns, GoogleButton, TEXT_LINK } from "@/components/auth/AuthPage";
+import { AuthColumns, AuthNotes, GoogleButton, TEXT_LINK } from "@/components/auth/AuthPage";
 import { LoginForm } from "@/components/auth/LoginForm";
 import { PageHead } from "@/components/community/PageHead";
+import { OnboardingSteps, SampleCharacterCard } from "@/components/onboarding/SampleCharacter";
 import { googleLoginEnabled } from "@/lib/auth/google";
 import { sanitizeReturnTo } from "@/lib/auth/return-to";
 import { getSessionUser } from "@/lib/auth/session";
@@ -24,7 +25,7 @@ const ERRORS: Record<string, string> = {
 
 export default function EntrarPage({ searchParams }: PageProps<"/entrar">) {
   return (
-    <div className="mx-auto flex w-full max-w-[880px] flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-8">
       <PageHead title="Entrar" lede="Entre com o e-mail e a senha da sua conta do Tralked." />
       {/* The fallback keeps the form's room (taller with the Google button), so the footer does not jump. */}
       <Suspense
@@ -55,21 +56,26 @@ async function EntrarContent({ searchParams }: { searchParams: PageProps<"/entra
     <AuthColumns
       aside={
         <>
-          <p>
-            Ainda não tem conta?{" "}
-            <Link href={signupHref} className={TEXT_LINK}>
-              Crie a sua
-            </Link>
-            . Depois você conecta Steam, PlayStation, Xbox e RetroAchievements em Conexões.
-          </p>
-          <p>
-            Já usava o Tralked entrando pela Steam? Crie uma conta e conecte a mesma Steam: o Tralked
-            encontra o seu histórico (XP, conquistas e @) e passa para a conta nova.
-          </p>
-          <p className="text-muted">
-            O Tralked só pede a senha do Tralked. Nunca digite aqui a senha da Steam, da PSN, do Xbox ou do
-            Google.
-          </p>
+          <SampleCharacterCard />
+          <OnboardingSteps />
+          <AuthNotes>
+            <p>
+              <b className="text-text">Ainda não tem conta?</b>{" "}
+              <Link href={signupHref} className={TEXT_LINK}>
+                Crie a sua
+              </Link>{" "}
+              e conecte Steam, PlayStation, Xbox ou RetroAchievements: a ficha se monta sozinha com as suas
+              conquistas.
+            </p>
+            <p>
+              Já usava o Tralked entrando pela Steam? Crie uma conta e conecte a mesma Steam: o Tralked
+              encontra o seu histórico (XP, conquistas e @) e passa para a conta nova.
+            </p>
+            <p className="text-muted">
+              O Tralked só pede a senha do Tralked. Nunca digite aqui a senha da Steam, da PSN, do Xbox ou do
+              Google.
+            </p>
+          </AuthNotes>
         </>
       }
     >

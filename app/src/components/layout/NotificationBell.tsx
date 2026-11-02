@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { markAllReadAction, markReadAction } from "@/lib/notifications/actions";
+import { NotificationKindIcon } from "./NotificationKindIcon";
 
 export type BellItem = {
   id: string;
+  /** Notification.kind: picks the icon (level_up, like, rank_passed…). */
+  kind?: string;
   title: string;
   body: string | null;
   /** Same-site path, or null when the notification has no link. */
@@ -106,7 +109,7 @@ export function NotificationBell({ unread: serverUnread, items: serverItems }: B
         aria-controls={panelId}
         aria-label={label}
         onClick={() => setOpen((value) => !value)}
-        className="relative grid size-10 cursor-pointer place-items-center rounded-[2px] border border-line-2 bg-surface-2 text-text-3 hover:border-acc hover:text-text"
+        className="relative grid size-11 cursor-pointer place-items-center rounded-[2px] border border-line-2 bg-surface-2 text-text-3 hover:border-acc hover:text-text"
       >
         <BellIcon />
         {unread > 0 ? (
@@ -147,18 +150,23 @@ export function NotificationBell({ unread: serverUnread, items: serverItems }: B
         ) : null}
         {items.length === 0 ? (
           <p className="px-4 py-6 text-[14px] text-muted">
-            Nada por aqui ainda. Respostas, curtidas e subidas de nível aparecem neste sino.
+            Nada por aqui ainda. Respostas, curtidas, missões, subidas de nível e quem te passou no ranking aparecem neste sino.
           </p>
         ) : (
           <ul className="m-0 max-h-[min(440px,70vh)] list-none overflow-y-auto p-0">
             {items.map((item) => {
               const content = (
                 <>
-                  <span className="flex items-start gap-2.5">
-                    <span
-                      aria-hidden="true"
-                      className={`mt-[7px] size-1.5 flex-none rounded-full ${item.read ? "bg-transparent" : "bg-acc"}`}
-                    />
+                  <span className="flex items-start gap-3">
+                    <span className="relative mt-0.5 flex-none">
+                      <NotificationKindIcon kind={item.kind ?? "system"} size={30} dim={item.read} />
+                      {item.read ? null : (
+                        <span
+                          aria-hidden="true"
+                          className="absolute -top-1 -right-1 size-2 rounded-full bg-acc ring-2 ring-surface"
+                        />
+                      )}
+                    </span>
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <span className={`text-[14px] leading-snug ${item.read ? "text-text-3" : "font-bold text-text"}`}>
                         {item.title}

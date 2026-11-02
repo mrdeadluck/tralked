@@ -26,40 +26,49 @@ test.describe("brand and navigation", () => {
     await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /Gaming Hub/);
   });
 
-  test("Jogos menu: opens on hover, Steam / PC first, and filters the catalog", async ({ page }) => {
+  test("Jogos menu: opens on hover, sections then platforms, and filters the catalog", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
     const nav = page.getByRole("navigation", { name: "Seções" });
-    const toggle = nav.getByRole("button", { name: "Jogos por plataforma" });
+    const toggle = nav.getByRole("button", { name: "Jogos", exact: true });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await nav.getByRole("link", { name: "Jogos", exact: true }).hover();
+    await toggle.hover();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     const options = nav.locator(`#${await toggle.getAttribute("aria-controls")} li a`);
-    await expect(options.first()).toContainText("Steam / PC");
-    expect((await options.allInnerTexts()).map((t) => t.split("\n")[0])).toEqual(["Steam / PC", "PlayStation", "Xbox", "Nintendo", "Retro"]);
+    expect((await options.allInnerTexts()).map((t) => t.split("\n")[0])).toEqual([
+      "Catálogo",
+      "Lançamentos",
+      "Calendário",
+      "Guias 100%",
+      "Steam / PC",
+      "PlayStation",
+      "Xbox",
+      "Nintendo",
+      "Retro",
+    ]);
     await expectNoBlockingAxe(page);
     // Moving the pointer down into the panel keeps it open.
-    await options.nth(4).hover();
-    await options.nth(4).click();
+    await options.nth(8).hover();
+    await options.nth(8).click();
     await expect(page).toHaveURL(/\/jogos\?plataforma=RETRO$/);
     await expect(
       page.getByRole("group", { name: "Filtrar por plataforma" }).getByRole("link", { name: "Retro", exact: true }),
     ).toHaveAttribute("aria-current", "true");
   });
 
-  test("Jogos menu by keyboard: focus opens it, Tab walks into it, Esc closes it", async ({ page }) => {
+  test("Jogos menu by keyboard: Enter opens it, Tab walks into it, Esc closes it", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/forum");
     const nav = page.getByRole("navigation", { name: "Seções" });
-    const toggle = nav.getByRole("button", { name: "Jogos por plataforma" });
+    const toggle = nav.getByRole("button", { name: "Jogos", exact: true });
     await nav.getByRole("link", { name: "Notícias" }).focus();
     await page.keyboard.press("Tab");
-    await expect(nav.getByRole("link", { name: "Jogos", exact: true })).toBeFocused();
+    await expect(toggle).toBeFocused();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await page.keyboard.press("Enter");
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await page.keyboard.press("Tab");
-    await expect(toggle).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.locator(":focus")).toContainText("Steam / PC");
+    await expect(page.locator(":focus")).toContainText("Catálogo");
     await page.keyboard.press("Escape");
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(toggle).toBeFocused();

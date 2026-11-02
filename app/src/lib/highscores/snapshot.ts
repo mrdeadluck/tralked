@@ -29,16 +29,18 @@ export async function takeRankSnapshots(
   now = new Date(),
   db: Db = prisma,
   { prune = true } = {},
-): Promise<{ processed: number; rows: number; pruned: number }> {
+): Promise<{ processed: number; rows: number; pruned: number; fresh: string[] }> {
   const day = toLocalDay(now);
   let rows = 0;
+  /** Boards whose snapshot of today this run took (the "te passou" notifications read them). */
+  const fresh: string[] = [];
   const boards = allBoards();
   for (const board of boards) {
     const key = boardKey(board);
-    rows += await inTransaction(db, async (tx) => {
+    const taken = await inTransaction(db, async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rank-snapshot:${key}:${day}`}))`;
       if (await tx.rankSnapshot.findFirst({ where: { board: key, day }, select: { rank: true } })) return 0;
-      const ranking = await getRanking(board, SNAPSHOT_SIZE, tx);
+      const ranking = await getRanking(board, SNAPSHOT_SIZE, tx, now);
       if (ranking.length === 0) return 0;
       const { count } = await tx.rankSnapshot.createMany({
         data: ranking.map((r) => ({ board: key, day, userId: r.userId, rank: r.rank })),
@@ -46,11 +48,13 @@ export async function takeRankSnapshots(
       });
       return count;
     });
+    rows += taken;
+    if (taken > 0) fresh.push(key);
   }
   let pruned = 0;
   if (prune) {
     const oldest = toLocalDay(new Date(now.getTime() - SNAPSHOT_RETENTION_DAYS * DAY_MS));
     ({ count: pruned } = await db.rankSnapshot.deleteMany({ where: { day: { lt: oldest } } }));
   }
-  return { processed: boards.length, rows, pruned };
+  return { processed: boards.length, rows, pruned, fresh };
 }

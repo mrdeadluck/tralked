@@ -6,20 +6,23 @@ import type { WireItem } from "@/lib/queries/news";
 import { WireCard } from "./WireCard";
 
 /*
- * "Em circulação": the moving news wire of preview/tralked-jogo.html. Cards drift left under a
- * fixed central frame; the card under the frame is in focus. Pause button, drag, arrows (buttons
- * and keyboard), and it stops on hover, on keyboard focus and when off screen.
+ * "Em circulação": the moving news wire of preview/tralked-jogo.html. The card in focus rests
+ * exactly inside the fixed central frame; every few seconds the strip glides one card left and
+ * the next one settles in the frame (it never drifts between positions, so the frame always
+ * holds a card). Pause button, drag, arrows (buttons and keyboard), and it stops on hover, on
+ * keyboard focus and when off screen.
  * Reduced motion: starts paused and moves instantly instead of gliding.
  * Without JS it is a static, scrollable-by-focus row of links.
  */
 
-const SPEED = 38; // px/s, as in the preview
-const GLIDE_MS = 600;
+/** How long a card rests in the frame before the next one glides in. */
+const DWELL_MS = 4200;
+const GLIDE_MS = 700;
 const GAP = 18;
 
 // Colors below are the approved preview's paper/ink tones for the wire cards only.
 const CSS = `
-.tkw { --wire-bg: #17171a; --paper: var(--text); --paper-hi: #f6f5ef; --ink: var(--bg); --ink-2: #5f626a; --acc-ink: #4f6a00;
+.tkw { --wire-bg: #17171a; --paper: var(--text); --paper-hi: #f6f5ef; --ink: var(--bg); --ink-2: #464950; --acc-ink: #4f6a00;
   --mono: var(--font-jetbrains-mono), ui-monospace, Consolas, monospace;
   position: relative; width: 100vw; margin-left: calc(50% - 50vw); background: var(--wire-bg);
   border-block: 1px solid var(--border); padding: 48px 0 30px; overflow: clip; }
@@ -39,13 +42,13 @@ body:has(.tkw) { overflow-x: clip; }
 .tkw-pause:hover { background: var(--acc); }
 .tkw-pause svg { width: 14px; height: 14px; }
 .tkw-nav { display: flex; gap: 6px; flex: none; }
-.tkw-btn { width: 36px; height: 36px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); border-radius: 2px; display: grid; place-items: center; cursor: pointer; }
+.tkw-btn { width: 44px; height: 44px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); border-radius: 2px; display: grid; place-items: center; cursor: pointer; }
 .tkw-btn:hover { border-color: var(--text); }
 .tkw-btn svg { width: 16px; height: 16px; }
 .tkw-focus { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tkw-focus b { color: var(--text); font-weight: 500; }
 
-.tkw-card { flex: 0 0 300px; height: 370px; position: relative; border-radius: 2px; overflow: hidden; display: flex; flex-direction: column; transform: scale(.93); filter: saturate(.7) brightness(.78); transition: transform .6s cubic-bezier(.2,.8,.2,1), filter .6s; -webkit-user-drag: none; }
+.tkw-card { flex: 0 0 300px; height: 370px; position: relative; border-radius: 2px; overflow: hidden; display: flex; flex-direction: column; transform: scale(.93); filter: saturate(.7) brightness(.84); transition: transform .6s cubic-bezier(.2,.8,.2,1), filter .6s; -webkit-user-drag: none; }
 .tkw-card[data-focus] { transform: scale(1); filter: none; }
 .tkw-card:focus-visible { outline: 2px solid var(--acc); outline-offset: 4px; }
 .tkw-art { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
@@ -83,7 +86,7 @@ body:has(.tkw) { overflow-x: clip; }
 
 .tkw-portrait { background: var(--bg); color: var(--text); }
 .tkw-portrait .tkw-art { filter: grayscale(1) contrast(1.15); position: absolute; inset: 0; }
-.tkw-portrait .tkw-tag { position: absolute; left: 50%; top: 46%; translate: -50% 0; max-width: 84%; width: max-content; text-align: center; font-family: var(--mono); font-size: 11px; line-height: 1.4; background: rgba(236,236,230,.92); color: var(--ink); padding: 2px 6px; letter-spacing: .08em; text-transform: uppercase; }
+.tkw-portrait .tkw-tag { position: absolute; left: 50%; top: 46%; translate: -50% 0; max-width: 84%; width: max-content; text-align: center; font-family: var(--mono); font-size: 12px; line-height: 1.4; background: rgba(236,236,230,.92); color: var(--ink); padding: 2px 6px; letter-spacing: .08em; text-transform: uppercase; }
 .tkw-portrait .tkw-giant { position: absolute; left: -4px; right: -40px; bottom: -10px; font-weight: 900; font-stretch: 125%; font-size: 66px; line-height: .85; letter-spacing: -0.04em; color: rgba(236,236,230,.86); mix-blend-mode: difference; white-space: nowrap; text-transform: none; }
 
 .tkw-dark { background: var(--bg); color: var(--text); }
@@ -180,6 +183,8 @@ export function NewsWire({
     let drag: { x0: number; start: number; moved: number; id: number } | null = null;
     let glide: Glide | null = null;
     let last = 0;
+    /** Time the focused card has rested in the frame (ms). */
+    let rest = 0;
     let current: HTMLElement | null = null;
     let frame = 0;
     // Card geometry relative to the track (transforms don't change it); refreshed on resize.
@@ -253,6 +258,11 @@ export function NewsWire({
           return r.width > 0 && r.right > box.left && r.left < box.right;
         });
         if (!onStage && geo[first] && !drag && !glide) x = centred(first);
+        // Keep the resting card exactly in the frame when the geometry moved under it.
+        else if (current && !drag && !glide) {
+          const to = centred(cards.indexOf(current));
+          if (Math.abs(to - x) > 0.5) glide = { from: x, to, t0: t };
+        }
       }
       if (glide) {
         const k = Math.min(1, (t - glide.t0) / GLIDE_MS);
@@ -260,7 +270,8 @@ export function NewsWire({
         x = glide.from + (glide.to - glide.from) * e;
         if (k >= 1) glide = null;
       } else if (!drag && !pausedRef.current && !hover && !focusInside && visible) {
-        x -= SPEED * dt;
+        rest += dt * 1000;
+        if (rest >= DWELL_MS) step(1);
       }
       render();
       frame = requestAnimationFrame(tick);
@@ -268,6 +279,7 @@ export function NewsWire({
 
     /** Glides the original of item `index` under the lens, along the shortest way round the loop. */
     const glideToItem = (index: number) => {
+      rest = 0;
       const to = centred(first + index);
       if (readReduce()) {
         glide = null;
@@ -285,6 +297,11 @@ export function NewsWire({
     const glideTo = (card: HTMLElement) => glideToItem(itemOf(card));
     const step = (dir: 1 | -1) => glideToItem((itemOf(current) + dir + count) % count);
     api.current = { step };
+    // The server render leaves the strip at its start: settle the first card into the frame.
+    if (phase.current === null) {
+      mark();
+      glideToItem(0);
+    }
 
     const onEnter = (e: PointerEvent) => {
       if (e.pointerType === "mouse") hover = true;

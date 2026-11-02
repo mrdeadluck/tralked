@@ -9,14 +9,16 @@ import {
   vigorPoints,
 } from "@/lib/engine/attributes";
 import { PLAYTIME_MILESTONES_H, playtimeSourceKey } from "@/lib/engine/playtime";
-import { applySkillPoints, skillNeed } from "@/lib/engine/skills";
+import { orderedGenres } from "@/lib/engine/genres";
+import { applySkillPoints, skillNeed, skillPointsFor } from "@/lib/engine/skills";
 import { trophyTierFromRarity, type PlatformId, type TrophyTier } from "@/lib/engine/trophies";
 import { SKILLS, type SkillId } from "@/lib/engine/types";
-import { rarityTier } from "@/lib/engine/xp";
+import { platinumBonus, rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { platinumSourceKey } from "@/lib/progression/recompute";
 import { skillPointTotals } from "@/lib/progression/skills-from-ledger";
 import { timeAgo } from "@/lib/time-ago";
 import { gameTag } from "./games-cached";
+import { loadTimeTo100, type TimeTo100 } from "./time-to-100";
 import {
   artHues,
   articleStory,
@@ -24,6 +26,7 @@ import {
   categoryLabel,
   CATEGORIES,
   getArticlesForGame,
+  getArticlesForStudio,
   getExternalHeadlines,
   hashSeed,
   NEWS_TAG,
@@ -81,6 +84,9 @@ export type SimilarGame = {
   slug: string;
   name: string;
   coverUrl: string | null;
+  /** Cover fallbacks (lib/case-art). */
+  steamAppId: number | null;
+  heroUrl: string | null;
   hues: Hues;
   seed: number;
   genre: string;
@@ -107,16 +113,23 @@ export type GameProfile = {
   /** Background loop of the booklet; null without any trailer. */
   backdrop: BackdropVideo;
   achievements: {
-    /** Steam achievement count (the catalog headline). */
+    /** Steam achievement count. */
     steam: number;
-    byPlatform: { platform: PlatformId; total: number }[];
-    /** Steam achievements unlocked by at most 3% of players. */
-    legendary: number;
-    /** Every trophy of the game by tier (native tier, else from rarity; one platinum per platform). */
-    tiers: TierCounts;
+    /** Each platform with achievements, in PLATFORM_ORDER, with its own tiers (never summed). */
+    byPlatform: CatalogPlatform[];
+    /**
+     * The platform the page headlines (ficha, disc, trophy grid): Steam when it has a count, else
+     * the first platform with achievements. Null for a game without achievements.
+     */
+    main: CatalogPlatform | null;
   };
-  /** Hours to 100%: Tralked players who completed it, else the catalog estimate. */
-  timeTo100: { minutes: number; players: number } | null;
+  /** Hours to 100%: Tralked players who completed it, else IGDB (see `TimeTo100`). */
+  timeTo100: TimeTo100 | null;
+  /**
+   * What a 100% on the main platform would give a new character (logged-out preview of "O que
+   * este jogo deu ao seu personagem"), from the game's own achievements; null without any.
+   */
+  sample: GameAttributes | null;
   /** IGDB times to beat (minutes): rushed, main story, 100%; null when IGDB has none. */
   timesToBeat: { hastyMin: number | null; normalMin: number | null; completeMin: number | null } | null;
   /** Steam user reviews (all languages); null when not read yet or none. */
@@ -125,7 +138,14 @@ export type GameProfile = {
   guide: { missables: number } | null;
   videos: GameVideo[];
   shots: GameShot[];
-  news: { wire: WireItem[]; tabs: NewsTab[]; mostRead: StoryCard[]; count: number };
+  news: {
+    wire: WireItem[];
+    tabs: NewsTab[];
+    mostRead: StoryCard[];
+    count: number;
+    /** While the game has no stories of its own: the newest ones about its studio's other games. */
+    studio: { name: string; stories: StoryCard[] } | null;
+  };
   gallery: { photos: PhotoCardView[]; total: number };
   similar: SimilarGame[];
 };
@@ -158,12 +178,102 @@ export function tierOf(a: { trophyTier: string | null; globalPct: number | null 
 }
 
 const skillName = (id: SkillId) => SKILLS.find((s) => s.id === id)?.name ?? id;
-const genresOf = (skills: SkillId[]) => skills.filter((s) => s !== "sabio");
+/** Genre skills, most specific first (lib/engine/genres): the first one is the game's genre. */
+const genresOf = (skills: SkillId[]) => orderedGenres(skills);
 
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+// ---------- The game's numbers (one source for the ficha, the disc, the trophy grid, the guide) ----------
+
+/** One platform's achievements in the catalog, with its trophies by tier. */
+export type CatalogPlatform = {
+  platform: PlatformId;
+  total: number;
+  /**
+   * Its trophies by tier: native tier (PSN), else from the global rarity, an unknown rarity
+   * counting as bronze (as the engine does). Gold + silver + bronze (+ a native platinum) add up
+   * to `total`; on a platform without a native platinum, the 100% itself is its one platinum.
+   */
+  tiers: TierCounts;
+  /** The platform has a platinum trophy of its own (PSN), counted in `total`. */
+  nativePlatinum: boolean;
+  /** Achievements unlocked by at most 3% of players (rarity "lendária"). */
+  legendary: number;
+};
+
+type AchievementRow = { platform: string; globalPct: number | null; trophyTier: string | null };
+
+/**
+ * Per-platform achievements of a game, in PLATFORM_ORDER. Steam's total is the catalog count (its
+ * rows may be partial: the missing ones have no known rarity, so they count as bronze).
+ */
+export function catalogPlatforms(rows: AchievementRow[], steamCount: number): CatalogPlatform[] {
+  const out: CatalogPlatform[] = [];
+  for (const platform of PLATFORM_ORDER) {
+    const mine = rows.filter((r) => r.platform === platform);
+    const total = platform === "steam" && steamCount > 0 ? Math.max(steamCount, mine.length) : mine.length;
+    if (total === 0) continue;
+    const tiers = emptyTiers();
+    for (const row of mine) tiers[tierOf(row)]++;
+    tiers.bronze += total - mine.length;
+    const nativePlatinum = tiers.platinum > 0;
+    if (!nativePlatinum) tiers.platinum = 1;
+    out.push({
+      platform,
+      total,
+      tiers,
+      nativePlatinum,
+      legendary: mine.filter((r) => r.globalPct !== null && rarityTier(r.globalPct) === "lendaria").length,
+    });
+  }
+  return out;
+}
+
+/** The headline platform: Steam when it has achievements, else the first one (null: none). */
+export function mainPlatform(list: CatalogPlatform[]): CatalogPlatform | null {
+  return list.find((p) => p.platform === "steam") ?? list[0] ?? null;
+}
+
+export { timeTo100Label, type TimeTo100 } from "./time-to-100";
+
+/**
+ * What a 100% on `main` would give a character starting from scratch, by the same formulas as the
+ * attribute recompute: XP of its achievements plus the platinum bonus, Vigor from the time to 100%,
+ * Precisão from its rare ones, Glória from its trophies, Coleção for the 100%, and the levels of
+ * its genre. Rows of other platforms are ignored; a Steam total larger than its rows counts the
+ * missing ones at an unknown rarity.
+ */
+export function completionSample(
+  main: CatalogPlatform | null,
+  rows: AchievementRow[],
+  minutes: number | null,
+  genre: SkillId | null,
+  /** Skills of the game sharing each achievement's points (as the recompute splits them). */
+  skillCount = 1,
+): GameAttributes | null {
+  if (!main) return null;
+  const mine = rows.filter((r) => r.platform === main.platform);
+  const pcts = [...mine.map((r) => r.globalPct), ...Array.from({ length: main.total - mine.length }, () => null)];
+  const xps = pcts.map((p) => xpForAchievement(p));
+  const xp = xps.reduce((acc, v) => acc + v, 0) + platinumBonus(xps);
+  const tiersList: TrophyTier[] = (["platinum", "gold", "silver", "bronze"] as const).flatMap((t) =>
+    Array.from({ length: main.tiers[t] }, () => t),
+  );
+  let skill: GameAttributes["skill"] = null;
+  if (genre) {
+    const points = xps.reduce((acc, v) => acc + skillPointsFor(v, Math.max(1, skillCount)), 0);
+    const { state, levelsGained } = applySkillPoints({ level: 1, points: 0 }, points);
+    skill = { id: genre, name: skillName(genre), level: state.level, levelsFromGame: levelsGained };
+  }
+  return {
+    xp,
+    hours: minutes ? Math.max(1, Math.round(minutes / 60)) : 0,
+    vigor: minutes ? vigorPoints([minutes]) : 0,
+    precisao: precisaoPoints(pcts.map((globalPct) => ({ globalPct, hardcore: false }))),
+    rareCount: pcts.filter((p) => p !== null && p <= 5).length,
+    gloria: gloriaPoints(tiersList),
+    colecao: colecaoPoints(1),
+    completed: true,
+    skill,
+  };
 }
 
 const VIDEO_SOURCE: Record<string, string> = {
@@ -315,51 +425,29 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
   const art = { ...images, disc: discLabelArt(game.media, images) };
   const hues = artHues(slug, slug);
 
-  const [achievementRows, completions, articles, external, gallery, similar] = await Promise.all([
+  const [achievementRows, timeTo100, articles, external, gallery, similar] = await Promise.all([
     prisma.achievement.findMany({
       where: { gameId: game.id },
       select: { platform: true, globalPct: true, trophyTier: true },
     }),
-    prisma.userGame.findMany({
-      where: { gameId: game.id, completedAt: { not: null }, playtimeMin: { gt: 0 } },
-      select: { userId: true, playtimeMin: true },
-    }),
+    loadTimeTo100(game.id, game.timeToBeatCompleteMin),
     getArticlesForGame(game.id, 12),
     getExternalHeadlines(8, [slug]),
     listPhotos({ gameSlug: slug, page: 1 }),
     loadSimilar(game.id, skills),
   ]);
 
-  // Per-platform totals: Steam uses the catalog count (its rows may be partial), others their rows.
-  const counts = new Map<PlatformId, number>();
-  for (const row of achievementRows) {
-    const p = row.platform as PlatformId;
-    counts.set(p, (counts.get(p) ?? 0) + 1);
-  }
-  if (game.achievementCount > 0) counts.set("steam", game.achievementCount);
-  const byPlatform = PLATFORM_ORDER.filter((p) => (counts.get(p) ?? 0) > 0).map((platform) => ({
-    platform,
-    total: counts.get(platform)!,
-  }));
-
-  const tiers = emptyTiers();
-  const nativePlatinum = new Set<string>();
-  for (const row of achievementRows) {
-    const tier = tierOf(row);
-    tiers[tier]++;
-    if (tier === "platinum") nativePlatinum.add(row.platform);
-  }
-  for (const { platform } of byPlatform) if (!nativePlatinum.has(platform)) tiers.platinum++;
-
-  // One time per player: the fastest completed platform.
-  const bestByUser = new Map<string, number>();
-  for (const c of completions) bestByUser.set(c.userId, Math.min(bestByUser.get(c.userId) ?? Infinity, c.playtimeMin));
-  const times = [...bestByUser.values()];
-  const timeTo100 = times.length
-    ? { minutes: median(times), players: times.length }
-    : game.timeToBeatCompleteMin
-      ? { minutes: game.timeToBeatCompleteMin, players: 0 }
-      : null;
+  // Per-platform totals and tiers: Steam uses the catalog count (its rows may be partial).
+  const byPlatform = catalogPlatforms(achievementRows, game.achievementCount);
+  const main = mainPlatform(byPlatform);
+  const genres = genresOf(skills);
+  const sample = completionSample(
+    main,
+    achievementRows,
+    timeTo100?.minutes ?? game.timeToBeatNormalMin ?? null,
+    genres[0] ?? null,
+    genres.length,
+  );
 
   // Most viewed first (lifetime views: a game has few articles), then reader reactions, then newest.
   const mostRead = [...articles]
@@ -371,6 +459,10 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
     )
     .slice(0, 5)
     .map((a) => articleStory(a, now));
+
+  const studioName = game.developer ?? game.publisher;
+  const studioArticles =
+    articles.length + external.length === 0 && studioName ? await getArticlesForStudio(studioName, game.id, 4) : [];
 
   const imageRows = game.media.filter((m) => m.kind === "screenshot" || m.kind === "artwork");
   // Generated illustrations stand in only for a game without any real image (seed fixtures);
@@ -397,19 +489,13 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
     criticScore: game.criticScore,
     platforms: game.platforms,
     skills,
-    genres: genresOf(skills).map(skillName),
+    genres: genres.map(skillName),
     art,
     hues,
     seed: hashSeed(slug),
-    achievements: {
-      steam: game.achievementCount,
-      byPlatform,
-      legendary: achievementRows.filter(
-        (a) => a.platform === "steam" && a.globalPct !== null && rarityTier(a.globalPct) === "lendaria",
-      ).length,
-      tiers,
-    },
+    achievements: { steam: game.achievementCount, byPlatform, main },
     timeTo100,
+    sample,
     timesToBeat:
       game.timeToBeatHastyMin || game.timeToBeatNormalMin || game.timeToBeatCompleteMin
         ? {
@@ -436,6 +522,10 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
       tabs: buildGameNewsTabs(articles, external, now, art.hero),
       mostRead,
       count: articles.length + external.length,
+      studio:
+        studioName && studioArticles.length > 0
+          ? { name: studioName, stories: studioArticles.map((a) => articleStory(a, now)) }
+          : null,
     },
     gallery: { photos: gallery.photos.slice(0, 9), total: gallery.total },
     similar,
@@ -458,6 +548,8 @@ async function loadSimilar(gameId: string, skills: SkillId[]): Promise<SimilarGa
       slug: true,
       name: true,
       coverUrl: true,
+      heroUrl: true,
+      steamAppId: true,
       skills: { select: { skill: true } },
       media: { where: { kind: "cover", url: { not: null } }, orderBy: { order: "asc" }, take: 1, select: { url: true } },
     },
@@ -470,6 +562,8 @@ async function loadSimilar(gameId: string, skills: SkillId[]): Promise<SimilarGa
     slug: r.slug,
     name: r.name,
     coverUrl: safeMediaUrl(r.media[0]?.url) ?? safeMediaUrl(r.coverUrl),
+    steamAppId: r.steamAppId,
+    heroUrl: safeMediaUrl(r.heroUrl),
     hues: artHues(r.slug, r.slug),
     seed: hashSeed(r.slug),
     genre: skillName(genresOf(r.skills).find((s) => genres.includes(s)) ?? r.skills[0]),

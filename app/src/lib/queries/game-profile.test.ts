@@ -4,7 +4,10 @@ import {
   backdropVideo,
   bestProgress,
   buildGameNewsTabs,
+  catalogPlatforms,
+  completionSample,
   discLabelArt,
+  mainPlatform,
   platformProgress,
   playableVideos,
   rankSimilar,
@@ -25,6 +28,55 @@ async function databaseReachable(): Promise<boolean> {
     await client.end().catch(() => {});
   }
 }
+
+describe("the game's numbers (one source per figure)", () => {
+  // Hollow Knight shape: 63 on Steam (only 3 rows read), 4 PSN trophies with a platinum, 1 Xbox.
+  const rows = [
+    { platform: "steam", globalPct: 2, trophyTier: null },
+    { platform: "steam", globalPct: 15, trophyTier: null },
+    { platform: "steam", globalPct: 60, trophyTier: null },
+    { platform: "psn", globalPct: null, trophyTier: "platinum" },
+    { platform: "psn", globalPct: null, trophyTier: "gold" },
+    { platform: "psn", globalPct: null, trophyTier: "bronze" },
+    { platform: "psn", globalPct: null, trophyTier: "bronze" },
+    { platform: "xbox", globalPct: 40, trophyTier: null },
+  ];
+
+  it("keeps each platform's tiers apart, adding up to that platform's own total", () => {
+    const list = catalogPlatforms(rows, 63);
+    expect(list.map((p) => [p.platform, p.total])).toEqual([
+      ["steam", 63],
+      ["psn", 4],
+      ["xbox", 1],
+    ]);
+    const [steam, psn, xbox] = list;
+    // Steam: the 60 rows not read yet have no known rarity, so they count as bronze.
+    expect(steam.tiers).toEqual({ platinum: 1, gold: 1, silver: 1, bronze: 61 });
+    expect(steam.nativePlatinum).toBe(false);
+    expect(steam.legendary).toBe(1);
+    expect(psn.tiers).toEqual({ platinum: 1, gold: 1, silver: 0, bronze: 2 });
+    expect(psn.nativePlatinum).toBe(true);
+    expect(xbox.tiers).toEqual({ platinum: 1, gold: 0, silver: 0, bronze: 1 });
+    expect(mainPlatform(list)?.platform).toBe("steam");
+    expect(mainPlatform(catalogPlatforms(rows.filter((r) => r.platform === "psn"), 0))?.platform).toBe("psn");
+    expect(mainPlatform(catalogPlatforms([], 0))).toBeNull();
+  });
+
+  it("a logged-out sample is this game's own 100%, and none without achievements", () => {
+    const main = mainPlatform(catalogPlatforms(rows, 3))!;
+    const sample = completionSample(main, rows, 50 * 60, "soulslike", 2)!;
+    expect(sample.hours).toBe(50);
+    expect(sample.rareCount).toBe(1);
+    expect(sample.precisao).toBe(30);
+    expect(sample.colecao).toBe(250);
+    expect(sample.skill).toMatchObject({ id: "soulslike", name: "Soulslike" });
+    // Another game gives other numbers: nothing is a fixed illustration.
+    const other = completionSample(mainPlatform(catalogPlatforms(rows.slice(2, 3), 1))!, rows.slice(2, 3), null, null)!;
+    expect(other.xp).toBeLessThan(sample.xp);
+    expect(other.vigor).toBe(0);
+    expect(completionSample(null, [], 600, null)).toBeNull();
+  });
+});
 
 describe("game profile helpers", () => {
   it("only lets https and same-site media URLs through", () => {
@@ -231,11 +283,18 @@ describe.skipIf(!reachable)("game profile (seeded database)", () => {
     expect(profile).not.toBeNull();
     const p = profile!;
     expect(p.name).toBe("Hollow Knight");
-    expect(p.achievements.byPlatform).toEqual([
+    expect(p.achievements.byPlatform.map(({ platform, total }) => ({ platform, total }))).toEqual([
       { platform: "steam", total: 63 },
       { platform: "psn", total: 8 },
       { platform: "xbox", total: 7 },
     ]);
+    // The page headlines one platform; its tiers add up to its own total, never the sum of all.
+    expect(p.achievements.main?.platform).toBe("steam");
+    for (const pl of p.achievements.byPlatform) {
+      const native = pl.nativePlatinum ? pl.tiers.platinum : 0;
+      expect(pl.tiers.gold + pl.tiers.silver + pl.tiers.bronze + native).toBe(pl.total);
+    }
+    expect(p.sample?.colecao).toBe(250);
     // Seed fixtures have no file: no playable video, generated art for the images.
     expect(p.videos).toEqual([]);
     expect(p.shots).toHaveLength(6);
@@ -247,7 +306,7 @@ describe.skipIf(!reachable)("game profile (seeded database)", () => {
     expect(p.similar.map((g) => g.slug)).toContain("celeste");
     expect(p.similar.map((g) => g.slug)).not.toContain("hollow-knight");
     // lucas completed it on PSN in 80 h: the Tralked time to 100%.
-    expect(p.timeTo100).toEqual({ minutes: 4800, players: 1 });
+    expect(p.timeTo100).toEqual({ minutes: 4800, source: "tralked", players: 1 });
   });
 
   it("once a game has real images, the generated placeholders are left out", async () => {

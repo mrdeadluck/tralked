@@ -8,7 +8,8 @@ import { sizedImage } from "@/lib/images/sized";
 
 /** A case is 140–200 px wide (CaseShelf's grid): request that size from the CDN. */
 const CASE_WIDTH = 200;
-const CASE_SIZES = "200px";
+/** Up to 260 px in the bigger highlights row (`CaseShelf size="lg"`). */
+const CASE_SIZES = "260px";
 
 type Attempt = { src: string; srcSet?: string; wide: boolean };
 
@@ -36,7 +37,8 @@ export function CaseCover({ name, art, seed, hues }: { name: string; art: CaseAr
   // An image that 404'd before React attached onError is "complete" with no pixels.
   useEffect(() => {
     const el = img.current;
-    if (el && el.complete && el.naturalWidth === 0) setIndex((i) => i + 1);
+    // currentSrc: the browser did request it (a lazy image not requested yet is not a failure).
+    if (el && el.complete && el.currentSrc && el.naturalWidth === 0) setIndex((i) => i + 1);
   }, [index]);
 
   if (!source) {
