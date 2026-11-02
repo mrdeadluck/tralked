@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { formatCompact } from "@/lib/xp-format";
 
 type CountUpProps = {
   value: number;
@@ -8,17 +9,22 @@ type CountUpProps = {
   delay?: number;
   duration?: number;
   className?: string;
+  /** Abbreviate big numbers ("312 mil"): XP boards. */
+  compact?: boolean;
+  /** Tooltip (the exact value when `compact`). */
+  title?: string;
 };
 
-const format = (n: number) => n.toLocaleString("pt-BR");
+const full = (n: number) => n.toLocaleString("pt-BR");
 
 /**
  * A number that counts up from zero the first time it is on screen. The server renders the final
  * value (no JS: static), screen readers only ever get the final value, and with
  * prefers-reduced-motion it never moves.
  */
-export function CountUp({ value, delay = 0, duration = 1100, className }: CountUpProps) {
+export function CountUp({ value, delay = 0, duration = 1100, className, compact = false, title }: CountUpProps) {
   const ref = useRef<HTMLSpanElement>(null);
+  const format = compact ? formatCompact : full;
 
   useEffect(() => {
     const el = ref.current;
@@ -56,15 +62,15 @@ export function CountUp({ value, delay = 0, duration = 1100, className }: CountU
       cancelAnimationFrame(frame);
       el.textContent = format(value);
     };
-  }, [value, delay, duration]);
+  }, [value, delay, duration, format]);
 
   return (
-    <span className={className}>
+    <span className={className} title={title}>
       {/* Keyed by value: the effect rewrites this node's text, so a new value gets a fresh node. */}
       <span key={value} ref={ref} aria-hidden="true">
         {format(value)}
       </span>
-      <span className="sr-only">{format(value)}</span>
+      <span className="sr-only">{full(value)}</span>
     </span>
   );
 }

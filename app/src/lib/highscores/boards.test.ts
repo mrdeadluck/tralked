@@ -20,6 +20,16 @@ describe("boardFromPath", () => {
     expect(boardFromPath("genero", "x")).toBeNull();
   });
 
+  it("reads the reachable boards (Esta semana, Novatos), which take no filter", () => {
+    expect(boardFromPath("semana")).toEqual({ metric: "semana" });
+    expect(boardFromPath("novatos")).toEqual({ metric: "novatos" });
+    expect(boardFromPath("semana", "psn")).toBeNull();
+    expect(boardFromKey("novatos")).toEqual({ metric: "novatos" });
+    expect(boardFromKey("semana:all")).toBeNull();
+    expect(boardHref({ metric: "semana" })).toBe("/highscores/semana");
+    expect(boardTitle({ metric: "novatos" })).toBe("Novatos");
+  });
+
   it("rejects anything else", () => {
     expect(boardFromPath("nivel")).toBeNull();
     expect(boardFromPath("nope")).toBeNull();
@@ -36,7 +46,7 @@ describe("boardFromPath", () => {
 describe("board keys and links", () => {
   it("round-trips every board through its key and its link", () => {
     const boards = allBoards();
-    expect(boards).toHaveLength(1 + 5 * 5 + SKILLS.length);
+    expect(boards).toHaveLength(3 + 5 * 5 + SKILLS.length);
     expect(new Set(boards.map(boardKey)).size).toBe(boards.length);
     for (const board of boards) {
       expect(boardFromKey(boardKey(board))).toEqual(board);

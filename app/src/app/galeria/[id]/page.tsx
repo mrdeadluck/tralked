@@ -14,7 +14,8 @@ import { UserText } from "@/components/community/UserText";
 import { getPhotoCached, listPhotosCached } from "@/lib/community/cached";
 import { formatWhen } from "@/lib/community/format";
 import { recentPhotoIds, type PhotoDetail } from "@/lib/community/gallery";
-import { myReactions, type MyReaction } from "@/lib/community/reactions";
+import { myReactions, reactionXpOpen, type MyReaction } from "@/lib/community/reactions";
+import { REACTION_GIVEN_XP } from "@/lib/community/rewards";
 import { currentViewer } from "@/lib/community/viewer";
 import { prisma } from "@/lib/db";
 
@@ -134,9 +135,11 @@ type ActionsProps = {
   pending?: boolean;
   /** Moderators get "Ocultar" and "Remover" (checked again on the server). */
   moderator?: boolean;
+  /** XP the viewer's first reaction would pay (see ReactionButtons). */
+  xpHint?: number;
 };
 
-function PhotoActions({ photo, mine, loggedIn, returnTo, pending, moderator = false }: ActionsProps) {
+function PhotoActions({ photo, mine, loggedIn, returnTo, pending, moderator = false, xpHint }: ActionsProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -150,6 +153,7 @@ function PhotoActions({ photo, mine, loggedIn, returnTo, pending, moderator = fa
           returnTo={returnTo}
           what="esta foto"
           pending={pending}
+          xpHint={xpHint}
         />
         <ReportButton
           targetType="photo"
@@ -167,9 +171,23 @@ function PhotoActions({ photo, mine, loggedIn, returnTo, pending, moderator = fa
 
 async function PhotoActionsIsland({ photo, returnTo }: { photo: PhotoDetail; returnTo: string }) {
   const viewer = await currentViewer();
-  const mine = viewer ? (await myReactions(prisma, viewer.id, "photo", [photo.id]))[photo.id] : undefined;
+  const [mine, xpOpen] = viewer
+    ? await Promise.all([
+        myReactions(prisma, viewer.id, "photo", [photo.id]).then((m) => m[photo.id]),
+        reactionXpOpen(prisma, viewer.id, "photo", [photo.id]),
+      ])
+    : [undefined, [] as string[]];
+  // Reacting to your own photo pays nothing.
+  const own = viewer !== null && photo.author?.id === viewer.id;
   return (
-    <PhotoActions photo={photo} mine={mine ?? 0} loggedIn={viewer !== null} returnTo={returnTo} moderator={viewer?.moderator} />
+    <PhotoActions
+      photo={photo}
+      mine={mine ?? 0}
+      loggedIn={viewer !== null}
+      returnTo={returnTo}
+      moderator={viewer?.moderator}
+      xpHint={!own && xpOpen.length > 0 ? REACTION_GIVEN_XP : undefined}
+    />
   );
 }
 

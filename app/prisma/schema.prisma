@@ -553,6 +553,8 @@ model XpLedgerEntry {
 
   @@unique([userId, source, sourceKey])
   @@index([userId, createdAt])
+  /// Highscores "Esta semana": every player's XP of the last 7 days.
+  @@index([createdAt])
 }
 
 model SkillProgress {
@@ -1186,7 +1188,8 @@ model Notification {
   id        String    @id @default(cuid())
   userId    String
   /// level_up | skill_up | attribute_up | comment_reply | forum_reply | thread_solved |
-  /// photo_like | content_published | report_resolved | moderation | system
+  /// photo_like | content_published | report_resolved | moderation | system |
+  /// mission_done | streak_risk | rank_passed | like (aggregated: comment, article, guide)
   kind      String
   title     String
   body      String?

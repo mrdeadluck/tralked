@@ -1,5 +1,6 @@
 import { Suspense } from "react";
-import { reactionCounts, myReactions } from "@/lib/community/reactions";
+import { findReactionTarget, reactionCounts, myReactions, reactionXpOpen } from "@/lib/community/reactions";
+import { REACTION_GIVEN_XP } from "@/lib/community/rewards";
 import { currentViewer } from "@/lib/community/viewer";
 import { prisma } from "@/lib/db";
 import { ReactionButtons } from "./ReactionButtons";
@@ -44,9 +45,15 @@ export function ReactionBar({ targetType, targetId, prompt, what, returnTo }: Re
 
 async function LiveReactions({ targetType, targetId, what, returnTo }: Omit<ReactionBarProps, "prompt">) {
   const viewer = await currentViewer();
-  const [counts, mine] = await Promise.all([
+  const [counts, mine, xpOpen] = await Promise.all([
     reactionCounts(prisma, targetType, targetId),
     viewer ? myReactions(prisma, viewer.id, targetType, [targetId]) : Promise.resolve({} as Record<string, 1 | -1>),
+    // Reacting to your own article or guide pays nothing: no promise for its author.
+    viewer
+      ? findReactionTarget(prisma, targetType, targetId).then((target) =>
+          target && target.ownerId !== viewer.id ? reactionXpOpen(prisma, viewer.id, targetType, [targetId]) : [],
+        )
+      : Promise.resolve([] as string[]),
   ]);
   return (
     <ReactionButtons
@@ -58,6 +65,7 @@ async function LiveReactions({ targetType, targetId, what, returnTo }: Omit<Reac
       loggedIn={viewer !== null}
       returnTo={returnTo}
       what={what}
+      xpHint={xpOpen.length > 0 ? REACTION_GIVEN_XP : undefined}
     />
   );
 }

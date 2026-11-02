@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import { interactionBlock } from "@/lib/moderation/permissions";
+import { rewardOf, type Reward } from "@/lib/progression/reward";
 import { photoTag } from "./cached";
 import { listReplies, type CommentView } from "./comments";
 import { RATE_LIMIT_MESSAGES, takeLikeToggle } from "./limits";
@@ -21,7 +22,13 @@ type Failure =
 
 const NOT_FOUND: Failure = { status: "not_found", message: "Isso não existe mais ou foi removido." };
 
-export type ReactOk = { status: "ok"; mine: MyReaction; counts: ReactionCounts };
+export type ReactOk = {
+  status: "ok";
+  mine: MyReaction;
+  counts: ReactionCounts;
+  /** XP the reactor just earned (first reaction to this item, within the daily cap); else null. */
+  reward: Reward | null;
+};
 
 /**
  * Like (value 1) or dislike (value -1) an article, comment, photo or guide; the same value again
@@ -43,7 +50,8 @@ export async function reactTo(raw: unknown): Promise<ReactOk | Failure> {
   if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.like };
   // The photo page caches its counts; articles, guides and comments read them live.
   if (targetType === "photo") updateTag(photoTag(targetId));
-  return { status: "ok", mine: result.mine, counts: result.counts };
+  const reward = rewardOf(result.xp.given, value === 1 ? "Curtida" : "Reação", { levelUp: result.levelUp });
+  return { status: "ok", mine: result.mine, counts: result.counts, reward };
 }
 
 const repliesSchema = z.object({ commentId: z.string().min(1).max(64) });

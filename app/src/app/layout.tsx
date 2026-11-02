@@ -7,6 +7,7 @@ import { LoginNotice } from "@/components/layout/LoginNotice";
 import { PageBackdrop } from "@/components/layout/PageBackdrop";
 import { SessionHeader } from "@/components/layout/SessionHeader";
 import { CookieConsent } from "@/components/layout/CookieConsent";
+import { RewardHost } from "@/components/fx/RewardHost";
 import { env } from "@/lib/env";
 import "./globals.css";
 
@@ -57,6 +58,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </main>
         <Footer />
         <CookieConsent />
+        {/* XP toasts and level-up overlay for every action on the site (components/fx/reward-bus). */}
+        <RewardHost />
       </body>
     </html>
   );

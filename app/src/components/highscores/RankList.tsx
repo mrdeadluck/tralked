@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Board } from "@/lib/highscores/boards";
-import { rowDisplay } from "@/lib/highscores/format";
+import { rowDisplay, shownValue } from "@/lib/highscores/format";
 import type { BoardRow } from "@/lib/highscores/queries";
 import { PlayerAvatar, RankBar, RankDelta } from "./parts";
 
@@ -67,7 +67,7 @@ export function RankRow({
             </Link>
             <span className="hs-you-tag text-acc"> (você)</span>
           </span>
-          <span className="truncate font-mono text-xs text-muted">
+          <span className="truncate font-mono text-xs text-muted" title={display.detailTitle}>
             {row.vocation}, {display.detail}
           </span>
         </span>
@@ -76,7 +76,9 @@ export function RankRow({
         <RankBar value={display.bar} label={display.barLabel} index={index} color="var(--text-3)" />
       </span>
       <span className="col-start-4 row-start-1 flex items-baseline justify-end gap-1.5 whitespace-nowrap sm:col-start-5">
-        <b className="text-lg font-black font-stretch-[125%] tabular-nums">{display.value.toLocaleString("pt-BR")}</b>
+        <b className="text-lg font-black font-stretch-[125%] tabular-nums" title={display.valueTitle}>
+          {shownValue(display)}
+        </b>
         <span className="font-mono text-xs text-muted">{display.unit}</span>
       </span>
     </li>

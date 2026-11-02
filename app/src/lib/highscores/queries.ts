@@ -1,7 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { toLocalDay } from "@/lib/engine/streak";
-import { boardKey, type Board, type StatMetric } from "./boards";
+import { boardKey, NOVATO_MAX_LEVEL, WEEK_DAYS, type Board, type StatMetric } from "./boards";
 
 /** Any Prisma client; tests pass a transaction client to see uncommitted fixtures. */
 export type Db = Prisma.TransactionClient;
@@ -21,6 +21,14 @@ const STAT_FIELDS = {
 } as const satisfies Record<StatMetric, readonly string[]>;
 
 type StatField = (typeof STAT_FIELDS)[StatMetric][number];
+
+const DAY_MS = 86_400_000;
+
+/** Start of the Esta semana window (rolling 7 days). */
+export const weekStart = (now: Date) => new Date(now.getTime() - WEEK_DAYS * DAY_MS);
+
+/** Novatos: the level board among players up to NOVATO_MAX_LEVEL. */
+const NOVATO = { level: { lte: NOVATO_MAX_LEVEL } };
 
 /** A skill counts for its genre ranking only once trained (level above 1 or any points). */
 const TRAINED = { OR: [{ level: { gt: 1 } }, { points: { gt: 0 } }] };
@@ -52,7 +60,7 @@ export type RankedPlayer = {
   level: number;
   totalXp: number;
   /**
-   * The ranked value: level (nivel), skill level (genero), minutes (horas), unlocks
+   * The ranked value: level (nivel, novatos), XP of the last 7 days (semana), skill level (genero), minutes (horas), unlocks
    * (conquistas), rare unlocks (raras), 100% games (platinas), Acervo points (acervo).
    */
   value: number;
@@ -124,15 +132,64 @@ const orderBy = (fields: readonly string[], direction: "asc" | "desc") => [
 
 type Window = { where?: object; take: number; reverse?: boolean };
 
+type WeeklyRow = { userId: string; xp: number };
+
+/**
+ * XP of the last 7 days per public player (ledger entries by `createdAt`, voided ones left out),
+ * most first; `above` keeps only totals over it (closest first when `reverse`). Indexed by
+ * XpLedgerEntry(createdAt): only the window's entries are read.
+ */
+async function weeklyTotals(
+  db: Db,
+  now: Date,
+  options: { take: number; above?: number; reverse?: boolean },
+): Promise<WeeklyRow[]> {
+  const groups = await db.xpLedgerEntry.groupBy({
+    by: ["userId"],
+    where: { createdAt: { gte: weekStart(now), lte: now }, voidedAt: null, user: { profilePublic: true } },
+    _sum: { xp: true },
+    having: { xp: { _sum: { gt: options.above ?? 0 } } },
+    orderBy: [{ _sum: { xp: options.reverse ? "asc" : "desc" } }, { userId: "asc" }],
+    take: options.take,
+  });
+  return groups.map((g) => ({ userId: g.userId, xp: g._sum.xp ?? 0 }));
+}
+
+/** XP a player earned in the last 7 days (0 when none). */
+async function weeklyXpOf(userId: string, now: Date, db: Db): Promise<number> {
+  const sum = await db.xpLedgerEntry.aggregate({
+    where: { userId, createdAt: { gte: weekStart(now), lte: now }, voidedAt: null },
+    _sum: { xp: true },
+  });
+  return sum._sum.xp ?? 0;
+}
+
+/** Players behind weekly totals, in the totals' order (ties on the handle, like every board). */
+async function weeklyPlayers(rows: WeeklyRow[], db: Db): Promise<RankedPlayer[]> {
+  if (rows.length === 0) return [];
+  const users = await db.user.findMany({ where: { id: { in: rows.map((r) => r.userId) } }, select: USER_SELECT });
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return rows
+    .flatMap((r) => {
+      const user = byId.get(r.userId);
+      return user ? [player(user, r.xp, 0)] : [];
+    })
+    .sort((a, b) => b.value - a.value || a.handle.localeCompare(b.handle));
+}
+
 /** Ranked players of a board in order (or, reversed, the closest ones ahead first). */
-async function playersOf(board: Board, window: Window, db: Db): Promise<RankedPlayer[]> {
+async function playersOf(board: Board, window: Window, db: Db, now = new Date()): Promise<RankedPlayer[]> {
   const direction = window.reverse ? "asc" : "desc";
   const publicUser = { user: { profilePublic: true } };
 
-  if (board.metric === "nivel") {
+  if (board.metric === "semana") {
+    return weeklyPlayers(await weeklyTotals(db, now, { take: window.take }), db);
+  }
+
+  if (board.metric === "nivel" || board.metric === "novatos") {
     const fields = ["level", "totalXp"];
     const rows = await db.userStats.findMany({
-      where: { AND: [publicUser, window.where ?? {}] },
+      where: { AND: [publicUser, board.metric === "novatos" ? NOVATO : {}, window.where ?? {}] },
       orderBy: orderBy(fields, direction) as Prisma.UserStatsOrderByWithRelationInput[],
       take: window.take,
       select: { level: true, totalXp: true, user: { select: USER_SELECT } },
@@ -179,10 +236,16 @@ async function valuesOf(
   userId: string,
   board: Board,
   db: Db,
+  now = new Date(),
 ): Promise<{ values: number[]; extra: number } | null> {
-  if (board.metric === "nivel") {
+  if (board.metric === "semana") {
+    const xp = await weeklyXpOf(userId, now, db);
+    return xp > 0 ? { values: [xp], extra: 0 } : null;
+  }
+  if (board.metric === "nivel" || board.metric === "novatos") {
     const stats = await db.userStats.findUnique({ where: { userId } });
-    return stats ? { values: [stats.level, stats.totalXp], extra: 0 } : null;
+    if (!stats || (board.metric === "novatos" && stats.level > NOVATO_MAX_LEVEL)) return null;
+    return { values: [stats.level, stats.totalXp], extra: 0 };
   }
   if (board.metric === "genero") {
     const progress = await db.skillProgress.findFirst({ where: { userId, skill: board.skill, ...TRAINED } });
@@ -200,11 +263,17 @@ async function valuesOf(
 }
 
 /** Count of public players ranked ahead of `values` on a board. */
-async function countAhead(board: Board, values: number[], handle: string, db: Db): Promise<number> {
+async function countAhead(board: Board, values: number[], handle: string, db: Db, now = new Date()): Promise<number> {
   const publicUser = { user: { profilePublic: true } };
-  if (board.metric === "nivel") {
+  if (board.metric === "semana") {
+    // Strictly more XP this week (a tie shares the rank; the list breaks it by handle).
+    return (await weeklyTotals(db, now, { take: 10_000, above: values[0] })).length;
+  }
+  if (board.metric === "nivel" || board.metric === "novatos") {
     return db.userStats.count({
-      where: { AND: [publicUser, aheadOf(["level", "totalXp"], values, handle)] },
+      where: {
+        AND: [publicUser, board.metric === "novatos" ? NOVATO : {}, aheadOf(["level", "totalXp"], values, handle)],
+      },
     });
   }
   if (board.metric === "genero") {
@@ -221,7 +290,8 @@ async function countAhead(board: Board, values: number[], handle: string, db: Db
 }
 
 function fieldsOf(board: Board): readonly string[] {
-  if (board.metric === "nivel") return ["level", "totalXp"];
+  if (board.metric === "nivel" || board.metric === "novatos") return ["level", "totalXp"];
+  if (board.metric === "semana") return ["xp"];
   if (board.metric === "genero") return ["level", "points"];
   return STAT_FIELDS[board.metric];
 }
@@ -264,8 +334,8 @@ function withHistory(
 }
 
 /** Ranked players of a board, best first, ranks 1..n, without history (the snapshot job). */
-export async function getRanking(board: Board, limit: number, db: Db = prisma) {
-  const players = await playersOf(board, { take: limit }, db);
+export async function getRanking(board: Board, limit: number, db: Db = prisma, now = new Date()) {
+  const players = await playersOf(board, { take: limit }, db, now);
   return players.map((p, i) => ({ ...p, rank: i + 1 }));
 }
 
@@ -277,7 +347,7 @@ export async function getBoardView(
   db: Db = prisma,
 ): Promise<BoardView> {
   const key = boardKey(board);
-  const players = await playersOf(board, { take: limit }, db);
+  const players = await playersOf(board, { take: limit }, db, now);
   const history = await previousRanks(key, players.map((p) => p.userId), toLocalDay(now), db);
   return {
     key,
@@ -315,13 +385,17 @@ export async function getStanding(
     select: { ...USER_SELECT, profilePublic: true },
   });
   if (!user?.profilePublic) return null;
-  const ranked = await valuesOf(userId, board, db);
+  const ranked = await valuesOf(userId, board, db, now);
   if (!ranked) return null;
   const { values, extra } = ranked;
 
+  const above =
+    board.metric === "semana"
+      ? weeklyTotals(db, now, { take: 1, above: values[0], reverse: true }).then((rows) => weeklyPlayers(rows, db))
+      : playersOf(board, { where: aheadOf(fieldsOf(board), values, user.handle), take: 1, reverse: true }, db, now);
   const [ahead, aboveRows, history] = await Promise.all([
-    countAhead(board, values, user.handle, db),
-    playersOf(board, { where: aheadOf(fieldsOf(board), values, user.handle), take: 1, reverse: true }, db),
+    countAhead(board, values, user.handle, db, now),
+    above,
     previousRanks(boardKey(board), [userId], toLocalDay(now), db),
   ]);
   const me = player(user, values[0], values[1] ?? 0, extra);

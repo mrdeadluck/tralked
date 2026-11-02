@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deltaText, gapText, rowDisplay, shortDay } from "./format";
+import { deltaText, gapText, rowDisplay, shortDay, shownValue } from "./format";
 import type { RankedPlayer } from "./queries";
 
 const player = (over: Partial<RankedPlayer>): RankedPlayer => ({
@@ -27,7 +27,16 @@ describe("rowDisplay", () => {
     expect(d.unit).toBe("nível");
     expect(d.bar).toBeGreaterThanOrEqual(0);
     expect(d.bar).toBeLessThanOrEqual(1);
-    expect(d.detail).toBe("10.000 XP");
+    // The level and the progress inside it; the total XP only in the tooltip.
+    expect(d.detail).toMatch(/^\d+% do nível 11$/);
+    expect(d.detailTitle).toBe("10.000 XP no total");
+  });
+
+  it("abbreviates the week's XP and keeps the exact value in the tooltip", () => {
+    const d = rowDisplay({ metric: "semana" }, player({ value: 312_400, level: 8 }), 624_800);
+    expect(d).toMatchObject({ unit: "XP", detail: "Nível 8", compact: true, bar: 0.5 });
+    expect(shownValue(d).replace(/\u00a0/g, " ")).toBe("312,4 mil");
+    expect(d.valueTitle).toBe("312.400 XP nos últimos 7 dias");
   });
 
   it("describes Acervo with played and owned games", () => {
@@ -52,6 +61,19 @@ describe("gapText", () => {
     );
     expect(gapText({ metric: "genero", skill: "rpg" }, player({ value: 3 }), player({ handle: "ana", value: 5 }))).toBe(
       "Faltam 2 níveis para alcançar @ana",
+    );
+  });
+
+  it("abbreviates big XP gaps (Nível, Novatos, Esta semana)", () => {
+    const nbsp = (s: string) => s.replace(/ /g, " ");
+    expect(
+      nbsp(gapText({ metric: "novatos" }, player({ totalXp: 1_000 }), player({ handle: "ana", totalXp: 1_201_000 }))),
+    ).toBe("Faltam 1,2 mi XP para alcançar @ana");
+    expect(
+      nbsp(gapText({ metric: "semana" }, player({ value: 10_000 }), player({ handle: "ana", value: 22_500 }))),
+    ).toBe("Faltam 12,5 mil XP para alcançar @ana");
+    expect(gapText({ metric: "semana" }, player({ value: 50 }), player({ handle: "ana", value: 50 }))).toBe(
+      "Empatado com @ana na semana",
     );
   });
 });

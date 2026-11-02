@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { announceReward } from "@/components/fx/reward-bus";
 import { loginHref } from "@/components/guide/format";
 import { reactTo } from "@/lib/community/engagement-actions";
 import {
@@ -28,6 +29,11 @@ export type ReactionButtonsProps = {
   what: string;
   /** Anonymous fallback shown before the session is known. */
   pending?: boolean;
+  /**
+   * XP the viewer's first reaction to this item would pay (only passed when it is true: never paid
+   * for this item and under today's cap). Shows the "+5 XP" promise until they react.
+   */
+  xpHint?: number;
 };
 
 /** "1.234": counts only when there is something to count (an empty counter shows no "0"). */
@@ -48,8 +54,11 @@ export function ReactionButtons({
   size = "md",
   what,
   pending = false,
+  xpHint,
 }: ReactionButtonsProps) {
   const [mine, setMine] = useState<MyReaction>(initialMine);
+  // The promise holds until the first reaction (the XP is once per item).
+  const [promise, setPromise] = useState(xpHint);
   const [counts, setCounts] = useState<ReactionCounts>({ likes, dislikes });
   const [message, setMessage] = useState<string | null>(null);
   const [busy, startTransition] = useTransition();
@@ -72,6 +81,8 @@ export function ReactionButtons({
         setMine(result.mine);
         setCounts(result.counts);
         setMessage(null);
+        setPromise(undefined);
+        announceReward(result.reward);
         return;
       }
       setMine(before);
@@ -104,7 +115,7 @@ export function ReactionButtons({
 
   return (
     <div className={`flex flex-col ${sm ? "gap-1" : "gap-2"}`}>
-      <div role="group" aria-label={`Reações a ${what}`} aria-busy={busy || undefined} className={`flex items-center ${sm ? "gap-3.5" : "gap-2"}`}>
+      <div role="group" aria-label={`Reações a ${what}`} aria-busy={busy || undefined} className={`group/react flex flex-wrap items-center ${sm ? "gap-3.5" : "gap-2"}`}>
         <button
           type="button"
           onClick={() => click(1)}
@@ -128,11 +139,30 @@ export function ReactionButtons({
           <ThumbDownIcon filled={mine === -1} width={icon} height={icon} />
           {dislikeCount ? <span aria-hidden="true">{dislikeCount}</span> : null}
         </button>
+        {promise && loggedIn && !pending ? (
+          <span
+            className={`font-mono text-xs font-bold text-acc tabular-nums ${
+              sm
+                ? "opacity-0 transition-opacity duration-150 group-hover/react:opacity-100 group-focus-within/react:opacity-100"
+                : ""
+            }`}
+          >
+            +{promise} XP<span className="sr-only"> na sua primeira reação</span>
+          </span>
+        ) : null}
+        {!loggedIn && !pending && !sm ? (
+          <a
+            href={loginHref(returnTo)}
+            className="inline-flex min-h-11 items-center font-mono text-xs text-acc underline-offset-[3px] hover:underline"
+          >
+            Entre e ganhe XP
+          </a>
+        ) : null}
       </div>
       {message === "login" ? (
         <p role="status" className="font-mono text-xs">
           <a href={loginHref(returnTo)} className="text-acc underline underline-offset-2">
-            Entre na sua conta para reagir
+            Entre e ganhe XP ao reagir
           </a>
         </p>
       ) : message ? (
