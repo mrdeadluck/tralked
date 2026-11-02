@@ -3,6 +3,7 @@ import { adminPath, canAccess, requiredLevel } from "@/lib/admin/access";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import { boardHref, legacySkillBoard } from "@/lib/highscores/boards";
+import { isAiTrainingCrawler } from "@/lib/seo/ai-crawlers";
 
 /**
  * /admin answers a real 404 to anyone without the role, before anything renders: the pages are
@@ -15,6 +16,12 @@ import { boardHref, legacySkillBoard } from "@/lib/highscores/boards";
  * genre's board, `/highscores/genero/<id>`, before the prerendered page is served.
  */
 export async function proxy(request: NextRequest) {
+  // AI training crawlers get a bare 403 before any page renders (lib/seo/ai-crawlers.ts): they
+  // once made ~70% of the traffic and took the site down. robots.txt stays readable for them.
+  if (request.nextUrl.pathname !== "/robots.txt" && isAiTrainingCrawler(request.headers.get("user-agent"))) {
+    return new NextResponse("Forbidden", { status: 403, headers: { "content-type": "text/plain" } });
+  }
+
   if (request.nextUrl.pathname === "/highscores") {
     const board = legacySkillBoard(request.nextUrl.searchParams.get("skill") ?? undefined);
     if (board) return NextResponse.redirect(new URL(boardHref(board), request.url), 308);

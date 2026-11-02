@@ -97,3 +97,21 @@ describe("highscores legacy links", () => {
     expect(findUnique).not.toHaveBeenCalled();
   });
 });
+
+describe("AI training crawlers", () => {
+  const ua = (agent: string, path = "/galeria") =>
+    proxy(new NextRequest(`http://localhost:3000${path}`, { headers: { "user-agent": agent } }));
+
+  it("answers 403 to GPTBot and ClaudeBot before any page renders", async () => {
+    const gpt = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2; +https://openai.com/gptbot)";
+    expect((await ua(gpt)).status).toBe(403);
+    expect((await ua("Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)", "/jogos/hades")).status).toBe(403);
+  });
+
+  it("still lets them read robots.txt, and lets search engines and people through", async () => {
+    expect((await ua("GPTBot/1.2", "/robots.txt")).status).toBe(200);
+    expect((await ua("Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")).status).toBe(200);
+    expect((await ua("Mozilla/5.0 (compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot)")).status).toBe(200);
+    expect((await ua("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0 Safari/537.36")).status).toBe(200);
+  });
+});

@@ -108,8 +108,11 @@ describe("sitemap and robots", () => {
 
   it("robots disallows the private areas and points to the sitemap", () => {
     const robots = buildRobots("https://tralked.example");
-    expect(robots.rules).toEqual({ userAgent: "*", allow: "/", disallow: DISALLOWED_PATHS });
-    expect(DISALLOWED_PATHS).toEqual(expect.arrayContaining(["/admin", "/conta", "/api"]));
+    expect(robots.rules).toEqual([
+      { userAgent: expect.arrayContaining(["GPTBot", "ClaudeBot", "CCBot"]), disallow: "/" },
+      { userAgent: "*", allow: "/", disallow: DISALLOWED_PATHS },
+    ]);
+    expect(DISALLOWED_PATHS).toEqual(expect.arrayContaining(["/admin", "/conta", "/api", "/entrar"]));
     expect(robots.sitemap).toBe("https://tralked.example/sitemap.xml");
   });
 });
