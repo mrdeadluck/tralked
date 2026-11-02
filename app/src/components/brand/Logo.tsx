@@ -21,9 +21,9 @@ export function Emblem({ size, className = "" }: { size?: number; className?: st
       aria-hidden="true"
       className={`flex-none ${className}`}
     >
-      <path d={EMBLEM.t} fill="currentColor" />
+      <path d={EMBLEM.t} fill="currentColor" fillRule="evenodd" />
       <path d={EMBLEM.l} fill="currentColor" />
-      <path d={EMBLEM.k} fill="var(--acc)" />
+      <path d={EMBLEM.k} fill="var(--acc)" fillRule="evenodd" />
     </svg>
   );
 }

@@ -8,13 +8,14 @@
 
 /** "TLK" monogram (approved 2026-11-02): white T in two pieces (`t`: top bar, 45° stroke), white L (`l`),
  * lime K in two pieces (`k`: top bar, 45° leg). Every gap between pieces is exactly 24 units, the
- * diagonal ones too (measured square to the edges, so 24·√2 along x); every slant is 45°. */
+ * diagonal ones too (measured square to the edges, so 24·√2 along x); every slant is 45°. Controller
+ * details cut out (draw `t` and `k` with fill-rule evenodd): a D-pad in the T's stroke, two buttons in the K's leg. */
 export const EMBLEM = {
   width: 830,
   height: 408,
-  t: "M14 0H304V100H114ZM194 124H304V189L85 408H0V318Z",
+  t: "M14 0H304V100H114ZM194 124H304V238H255L85 408H0V318ZM167 188A3 3 0 0 1 170 185H190A3 3 0 0 1 193 188V210H215A3 3 0 0 1 218 213V233A3 3 0 0 1 215 236H193V258A3 3 0 0 1 190 261H170A3 3 0 0 1 167 258V236H145A3 3 0 0 1 142 233V213A3 3 0 0 1 145 210H167Z",
   l: "M328 0H443V215H520L601 296H328Z",
-  k: "M628 0H813L709 104H524ZM467 128H632L830 326V408H746.94L529.94 191H467Z",
+  k: "M628 0H813L709 104H524ZM467 128H632L830 326V408H746.94L529.94 191H467ZM599 201.5a24 24 0 1 0 48 0a24 24 0 1 0 -48 0ZM644.3 246.8a24 24 0 1 0 48 0a24 24 0 1 0 -48 0Z",
 } as const;
 
 /** "TRALKED" wordmark: `d` draws T R A E D (even-odd, for the counters), `l` the L (white), `k` the lime K. */

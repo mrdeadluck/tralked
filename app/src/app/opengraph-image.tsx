@@ -37,9 +37,9 @@ export default async function Image() {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 36 }}>
           <svg width={Math.round((120 * EMBLEM.width) / EMBLEM.height)} height="120" viewBox={`0 0 ${EMBLEM.width} ${EMBLEM.height}`}>
-            <path d={EMBLEM.t} fill={TEXT} />
+            <path d={EMBLEM.t} fill={TEXT} fillRule="evenodd" />
             <path d={EMBLEM.l} fill={TEXT} />
-            <path d={EMBLEM.k} fill={ACC} />
+            <path d={EMBLEM.k} fill={ACC} fillRule="evenodd" />
           </svg>
           <svg width={Math.round((96 * WORDMARK.width) / WORDMARK.height)} height="96" viewBox={`0 0 ${WORDMARK.width} ${WORDMARK.height}`}>
             <path d={WORDMARK.d} fill={TEXT} fillRule="evenodd" />
