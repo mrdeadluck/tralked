@@ -6,14 +6,15 @@
  * accent.
  */
 
-/** "TLK" monogram (the game-controller symbol): white T (`t`, bar tip pointing up), white L (`l`),
- * lime K (`k`). Every gap between pieces is exactly 12 units; all pieces share the top line. */
+/** "TLK" monogram (approved 2026-11-02): white T in two pieces (`t`: top bar, 45° stroke), white L (`l`),
+ * lime K in two pieces (`k`: top bar, 45° leg). Every gap between pieces is exactly 24 units, the
+ * diagonal ones too (measured square to the edges, so 24·√2 along x); every slant is 45°. */
 export const EMBLEM = {
-  width: 444,
-  height: 235,
-  t: "M4 0 142 0 142 55 59 55ZM142 67 91 67 91 93 0 184 0 235 53 235 142 133Z",
-  l: "M154 0 154 158 305 158 305 146 274 109 212 109 212 0Z",
-  k: "M224 0 224 97 280.7 97 394.3 235 444 235 444 182 342 73 283 73 283 0ZM443.8 -0.8 370.8 -0.8 309.8 61.2 348.8 61.2 355.8 69.2 374.8 69.2Z",
+  width: 830,
+  height: 408,
+  t: "M14 0H304V100H114ZM194 124H304V189L85 408H0V318Z",
+  l: "M328 0H443V215H520L601 296H328Z",
+  k: "M628 0H813L709 104H524ZM467 128H632L830 326V408H746.94L529.94 191H467Z",
 } as const;
 
 /** "TRALKED" wordmark: `d` draws T R A E D (even-odd, for the counters), `l` the L (white), `k` the lime K. */
