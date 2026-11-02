@@ -1,0 +1,54 @@
+# Samples the Steam concurrent players of the catalog's ~2,000 most popular Steam games
+# (scripts/steam-players-worker.ts, lib/sync/steam-players.ts) and writes, per game, the current
+# count, today's peak and the highest peak Tralked measured: one small row per game updated in
+# place, no history (the free Neon database holds 1 GB).
+# Every 2 h at :23 of odd hours, together with the cron run at :23, so the free Neon database is already
+# awake (it has 100 CU-h a month). A run takes 1-3 min: 16 requests in flight to Steam's keyless
+# GetNumberOfCurrentPlayers (no STEAM_API_KEY quota spent) and one bulk write.
+# Needs the repository secret DATABASE_URL (Neon, unpooled). Unlimited Actions minutes only while
+# the repository is public: on a private one, slow the schedule (every 2-3 h still gives peaks).
+name: steam-players
+
+on:
+  schedule:
+    - cron: "23 1-23/2 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "How many of the most popular Steam games to sample"
+        required: true
+        default: "2000"
+
+# One run at a time: a run that is still going makes the next one wait.
+concurrency:
+  group: steam-players
+  cancel-in-progress: false
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Sample Steam players
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          APP_URL: https://tralked.com
+          LIMIT: ${{ github.event.inputs.limit || '2000' }}
+        run: |
+          # Production mode asks for these two; the worker signs nothing, so throwaway values do.
+          export SESSION_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 16)"
+          pnpm steam:players --limit "$LIMIT" --concurrency 16

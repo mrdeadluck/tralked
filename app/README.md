@@ -222,6 +222,8 @@ Horários (UTC; Brasília = UTC−3):
 | `platform-import.yml` | :29 das horas ímpares | até 0,8 h (~1 min sem fila) | primeiras importações |
 | `steam-details.yml` | :37 de 2, 8, 14 e 20 h | até 0,6 h, 3 jogos por vez | detalhes da loja Steam |
 | `catalog-enrich.yml` | 04:37 | até 0,6 h | mídia do IGDB/SteamGridDB e notas da Steam |
+| `steam-players.yml` | :23 das horas ímpares | 1–3 min | jogadores agora / picos na Steam (top 2.000) |
+| `retro-catalog.yml` | domingo 03:21 | ~1 min (1ª rodada: minutos) | catálogo do RetroAchievements |
 
 Orçamento de CU-h por mês (estimado a 0,25 CU, contando os 5 min que o compute fica ligado depois da última consulta):
 
@@ -236,6 +238,30 @@ Orçamento de CU-h por mês (estimado a 0,25 CU, contando os 5 min que o compute
 | Sobra para o site, o robô de notícias e imprevistos | | **~47** |
 
 Se o compute subir acima de 0,25 CU (carga), o gasto sobe na mesma proporção: limitar o autoscaling a 0,25–0,5 CU no console do Neon segura isso. Para acompanhar, use a página **Usage** do projeto no Neon.
+
+### Jogadores na Steam (worker no GitHub Actions)
+
+A página do jogo mostra "Jogando agora na Steam: X · pico hoje Y · maior pico medido Z" para os jogos da Steam com amostras. O worker `pnpm steam:players` (`scripts/steam-players-worker.ts`, lógica em `src/lib/sync/steam-players.ts`) roda a cada 2 h no `.github/workflows/steam-players.yml`, às :23 das horas ímpares (junto com o cron das :23, com o Neon já acordado):
+
+- pega os **2.000 jogos da Steam mais populares** do catálogo (`Game.popularity`, `--limit`);
+- pergunta a cada um `ISteamUserStats/GetNumberOfCurrentPlayers`, que **não precisa de chave** (não gasta a cota da `STEAM_API_KEY`), com 16 pedidos em paralelo (`--concurrency`); depois de 20 recusas (429/5xx) para de começar pedidos e grava o que leu;
+- grava tudo num único `INSERT … ON CONFLICT` em `SteamPlayerCount`: **uma linha por jogo**, reescrita a cada hora, com a amostra atual, o pico do dia (dia de Brasília; zera quando o dia muda) e o **maior pico medido pelo Tralked** (a Steam não publica o pico histórico) com a hora em que foi medido. Nunca guarda o histórico de amostras.
+
+Na página, a amostra só vale como "agora" por 3 h (jogo que saiu do top ou worker parado mostra só "Maior pico na Steam"), e o "pico hoje" só aparece no próprio dia. O dado tem cache próprio de 15 min (`getSteamPlayers`), separado do perfil do jogo.
+
+**Custo:** a tabela fica em ~2.000 linhas de ~60 bytes (mais índice e versões mortas, menos de 1 MB). Cada rodada leva 1 a 3 min, quase tudo esperando a Steam, e faz 2 consultas ao banco (a lista e a gravação). Se o banco já está acordado pelo `platform-import`, o custo é desprezível (menos de 3 CU-h por mês). Se a rodada acordar o Neon sozinha, cada uma custa ~5 min de computação mínima (0,25 CU), cerca de **15 CU-h por mês** dos 100 do plano grátis; nesse caso, rode a cada 2 ou 3 h (`23 */2 * * *`). Segredo do repositório: só `DATABASE_URL`. Disparo manual: `gh workflow run steam-players.yml -f limit=2000`.
+
+### Catálogo do RetroAchievements (worker no GitHub Actions)
+
+O worker `pnpm retro:catalog` (`scripts/retro-catalog-worker.ts`, lógica em `src/lib/sync/retro-catalog.ts`, cliente em `src/lib/integrations/retro/catalog.ts`) roda **toda semana** no `.github/workflows/retro-catalog.yml`, domingo às 03:21 UTC (com o banco acordado pelo cron diário das 03:19):
+
+1. **Lista leve:** lê os consoles ativos (`API_GetConsoleIDs`) e, de cada um, os jogos **com conquistas** (`API_GetGameList` com `f=1`) e grava em `RetroCatalogGame` só id, título, console, ícone, número de conquistas, pontos e a data em que o RA mudou o conjunto. Um `INSERT … ON CONFLICT` por 500 jogos, que só reescreve as linhas que o RA mudou. Console que falha é pulado (aviso no log).
+2. **Ligação com o catálogo:** cada jogo do RA ainda sem `GamePlatformLink` `retro` (o mesmo vínculo que a sincronização RA dos jogadores usa) é procurado pelo nome, com o artigo do RA desinvertido (`Legend of Zelda, The: …` → `The Legend of Zelda: …`) e os nomes alternativos separados por ` | `, pelo `lower(name)` e pelo `searchName` dobrado (`tralked_search_name`, os mesmos índices do `findStubByName`). Só vale um jogo da família do console (Nintendo, PlayStation, Xbox) ou sem família conhecida; um console sem família (Mega Drive, arcade, Atari…) nunca pega um jogo de PC; um jogo que já tem outro conjunto do RA não é usado (uma página por conjunto, para o total de conquistas bater). Dois candidatos = ambíguo, fica só na tabela leve. Sem candidato, vira **stub** (`Game.stub`: fora das listagens, achado pela busca, com página própria; plataforma = família do console, ou o nome do console). Hacks, homebrew, protótipos (`~Tag~`) e subconjuntos (`[Subset - …]`) nunca viram stub: ficam na tabela leve até um jogador que tem o jogo sincronizar (a sincronização RA cria o jogo nessa hora). Os não ligados são revistos a cada 30 dias. Tudo sob a mesma trava (`CATALOG_CREATE_LOCK`) dos imports da Steam e do IGDB. `--no-stubs` só liga, sem criar.
+3. **Conquistas sob demanda:** a lista de conquistas de um jogo do RA nunca é importada em massa. Na primeira vez que alguém (logado ou não) abre a página do jogo, o componente `RetroAchievementsLoader` chama a server action `loadRetroAchievements` (`src/app/jogos/[slug]/retro-actions.ts`), que reserva o conjunto (`RetroCatalogGame.achievementsSyncedAt`, então várias visitas ao mesmo tempo fazem um pedido só), lê `API_GetGameExtended` (uma requisição), grava as linhas `Achievement` (`platform` `retro`, a mesma chave da sincronização) com a raridade, expira o cache do jogo (`updateTag`) e atualiza a página. Lê de novo quando o RA muda o conjunto. Se o RA falha, a reserva é devolvida e a próxima visita tenta de novo. Quando um jogador que tem o jogo sincroniza, a sincronização RA grava as mesmas linhas; se o conjunto já está completo, a página só marca como lido.
+
+**Armazenamento (medido num Postgres local):** `RetroCatalogGame` ocupa ~180 bytes por linha com o índice. O RA tem de 10 a 15 mil jogos com conquistas, então **~2 a 3 MB**. Cada stub criado custa ~1,35 KB (linha `Game` com os 9 índices, ~1,2 KB, mais o `GamePlatformLink`, ~150 bytes). No pior caso, se nenhum dos ~10 a 11 mil conjuntos principais casar com o catálogo, são **~15 MB**. Na prática menos, porque os jogos de Nintendo e PlayStation já estão no catálogo pelo IGDB e só ganham o vínculo. As conquistas lidas sob demanda custam ~14 KB por jogo aberto (~40 conquistas de ~350 bytes). O total fica abaixo de 2% do 1 GB do Neon.
+
+**Custo de computação:** a primeira rodada leva alguns minutos (cerca de 45 consoles e ~25 lotes de 500 jogos). As seguintes levam ~1 min, porque só reescrevem o que mudou. Uma vez por semana, com o banco já acordado, fica abaixo de 0,5 CU-h por mês. A leitura sob demanda é uma requisição curta por jogo (na Vercel, uma vez por conjunto). Segredos do repositório: `DATABASE_URL`, `RA_API_KEY` e `RA_USERNAME`; sem `RA_API_KEY` o worker sai com erro. Disparo manual: `gh workflow run retro-catalog.yml -f minutes=30`.
 
 ### Agendamento (pronto para o `vercel.json`)
 
@@ -321,6 +347,8 @@ Feeds sugeridos (conferidos em 31/10/2026: https, RSS válido, sem redirecioname
 | `pnpm sample:rename [--dry-run]` | Renomeia os personagens fictícios de um banco semeado antes do Plano 4 (seed, bylines, notificações). Idempotente. Exige `DATABASE_URL`. |
 | `pnpm highscores:backfill [--dry-run] [--snapshot]` | Grava os totais dos Highscores (`UserRankStats`) de todos os usuários a partir da biblioteca e das conquistas válidas (só essa tabela; XP, missões e atributos ficam como estão) e, com `--snapshot`, tira a foto do dia dos rankings (o mesmo que o cron `highscores`). Idempotente. Exige `DATABASE_URL`. |
 | `pnpm news:feeds [--dry-run] [--paused]` | Cadastra os feeds de manchetes de Entretenimento e Tecnologia (`src/lib/news/feed-catalog.ts`), ativos (ou pausados com `--paused`). Idempotente: feed já cadastrado (mesma URL) nunca é alterado. Exige `DATABASE_URL`. |
+| `pnpm steam:players [--limit 2000] [--concurrency 16]` | Amostra os jogadores atuais na Steam dos jogos mais populares e grava atual, pico do dia e maior pico medido (veja "Jogadores na Steam"). Exige `DATABASE_URL`. |
+| `pnpm retro:catalog [--minutes 30] [--no-stubs]` | Importa o catálogo do RetroAchievements (jogos com conquistas, leve) e liga cada jogo ao catálogo ou cria um stub (veja "Catálogo do RetroAchievements"). Exige `DATABASE_URL` e `RA_API_KEY`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
 | `pnpm api:key` | `"<nome>" <escopo>...`: cria uma chave de robô e imprime o segredo `tk_live_…` uma vez (só no terminal). Exige `DATABASE_URL`. |
 | `pnpm user:invite` | `<handle> <email>`: grava o e-mail de login de uma conta e imprime um link de "definir senha" (1 h, uso único; só no terminal). Exige `DATABASE_URL`; o link usa `APP_URL`. |

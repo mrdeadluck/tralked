@@ -7,6 +7,7 @@ import {
   type TierCounts,
 } from "@/lib/queries/game-profile";
 import { steamReviewLabel } from "@/lib/games/steam-reviews";
+import type { SteamPlayersView } from "@/lib/queries/steam-players";
 import { BackdropLoop } from "./BackdropLoop";
 import { CaseReplayButton } from "./case-replay";
 import { DiscProgress } from "./DiscProgress";
@@ -225,7 +226,38 @@ export function BookletProgress({
   );
 }
 
-export function BookletSpread({ profile, progress }: { profile: GameProfile; progress: ReactNode }) {
+/** Steam concurrent players (item 14): "now" with today's and the highest peak, or the peak alone. */
+export function SteamPlayersFact({ players }: { players: SteamPlayersView }) {
+  if (players.current === null) {
+    return (
+      <Fact term="Maior pico na Steam" note="Medido pelo Tralked">
+        {fmt(players.allTimePeak)}
+      </Fact>
+    );
+  }
+  const note = [
+    players.todayPeak !== null ? `pico hoje ${fmt(players.todayPeak)}` : null,
+    `maior pico medido ${fmt(players.allTimePeak)}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <Fact term="Jogando agora na Steam" note={note}>
+      {fmt(players.current)}
+    </Fact>
+  );
+}
+
+export function BookletSpread({
+  profile,
+  progress,
+  steamPlayers = null,
+}: {
+  profile: GameProfile;
+  progress: ReactNode;
+  /** Steam concurrent players; null for games without samples (non-Steam, or outside the sampled top). */
+  steamPlayers?: SteamPlayersView | null;
+}) {
   const { achievements, timeTo100, timesToBeat, guide } = profile;
   const hours = (minutes: number | null) => (minutes ? `${fmt(Math.max(1, Math.round(minutes / 60)))} h` : "—");
   const studio = profile.developer ?? profile.publisher;
@@ -298,6 +330,7 @@ export function BookletSpread({ profile, progress }: { profile: GameProfile; pro
               {steamReviewLabel(profile.steamReviews.positive, profile.steamReviews.total)}
             </Fact>
           ) : null}
+          {steamPlayers ? <SteamPlayersFact players={steamPlayers} /> : null}
           {timesToBeat && (timesToBeat.hastyMin || timesToBeat.normalMin || timesToBeat.completeMin) ? (
             <Fact term="Tempo para zerar" note="Rápido · história · 100% (IGDB)">
               {`${hours(timesToBeat.hastyMin)} · ${hours(timesToBeat.normalMin)} · ${hours(timesToBeat.completeMin)}`}

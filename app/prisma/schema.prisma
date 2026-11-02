@@ -238,6 +238,7 @@ model Game {
   photos        Photo[]
   wishlistedBy  WishlistItem[]
   releases      GameRelease[]
+  steamPlayers  SteamPlayerCount?
 
   /// Calendar (/calendario): catalog releases of a month.
   @@index([releaseDate])
@@ -410,6 +411,44 @@ model GameRelease {
   @@id([gameId, platform])
   @@index([date])
   @@index([platform, date])
+}
+
+/// Steam concurrent players of a popular game (steam-players worker, lib/sync/steam-players.ts):
+/// the last hourly sample, the day's highest sample (day in America/Sao_Paulo) and the highest
+/// sample Tralked ever measured (Steam publishes no all-time peak). One small row per game and
+/// never a history row: the free database holds 1 GB.
+model SteamPlayerCount {
+  gameId        String   @id
+  current       Int
+  sampledAt     DateTime
+  todayPeak     Int
+  todayPeakDay  DateTime @db.Date
+  allTimePeak   Int
+  allTimePeakAt DateTime
+  game          Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+}
+
+/// The RetroAchievements catalog (retro-catalog worker, lib/sync/retro-catalog.ts): every RA game
+/// with achievements, light (RA API_GetGameList). `id` is the RA game id; the catalog Game is the
+/// one with the GamePlatformLink (platform retro, externalId = id), linked by name or created as a
+/// name-only stub by the worker, or later by the RA sync of a player who owns it. The achievement
+/// list is read on demand (lib/sync/retro-achievements.ts): the first time the game page opens,
+/// again when RA changes the set (`setModifiedAt` after `achievementsSyncedAt`).
+model RetroCatalogGame {
+  id                   Int       @id
+  title                String
+  consoleId            Int
+  consoleName          String
+  /// RA image path, e.g. `/Images/020895.png` (media.retroachievements.org).
+  iconPath             String?
+  achievementCount     Int
+  points               Int
+  /// RA DateModified of the set.
+  setModifiedAt        DateTime?
+  /// When the worker tried to link it to a catalog Game (null: not tried yet).
+  matchedAt            DateTime?
+  /// When the achievement list was last written (or claimed by a page open).
+  achievementsSyncedAt DateTime?
 }
 
 /// Resumable position of a long-running import (e.g. `steam-applist`: the Steam app list cursor).
