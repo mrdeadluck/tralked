@@ -40,6 +40,19 @@ O Lucas assinou o **Pro** e o site voltou. No commit `9022f8f`, os robôs de tre
   - `lib/sync/library-art.ts` repara o que já está gravado: o job `releases` (300 jogos por rodada) e o worker de detalhes (3.000) rodam o reparo;
   - à mão: `pnpm steam:library-art`.
 
+**Imagem certa para cada formato:**
+- **Escolhedor:** `lib/art/frame.ts`, `pickArt`, renderizado por `components/art/FramedArt.tsx`. Cada imagem é conhecida pelo tipo (capa, cápsula, header, hero, artwork, print, logo) e pela proporção.
+- **Card de jogo (modo `identity`):**
+  - arte com letreiro só quando o formato é quase igual ao do quadro, e mesmo assim inteira, com a própria imagem desfocada atrás;
+  - senão, o hero limpo com o logo transparente por cima.
+- **Notícia (modo `scene`):** arte limpa primeiro, sem logo por baixo da manchete.
+- **Ligado em:** "Quase lá", desejos, índice de notícias, manchete da home, abas, wire, topo 21:9 da matéria, próxima matéria e mais vistas.
+- **Dados:**
+  - SteamGridDB por formato (grid 600×900, grid largo 920×430, heroes, logos, com tamanho);
+  - cápsula 616×353 da Steam como mídia `capsule`;
+  - a sync de mídia não apaga mais as linhas da Steam.
+- **Reparo em produção:** 2.914 cápsulas gravadas.
+
 Para medir de novo: as consultas de observabilidade da Vercel funcionam no Pro (`function_cpu_time_ms` por `route`; `request.count` por `bot_name` e `request_path`).
 
 ## Atualização da manhã de 02/11 (sessão 2c1166af)
