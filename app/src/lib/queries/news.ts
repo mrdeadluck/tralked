@@ -197,9 +197,11 @@ export type GameRow = {
  * claims the scene it would show (pickArt, `scene`), and the cards after it skip what was claimed
  * (`artExclude`; a card falls back to a claimed image only when its game has nothing else).
  */
-export function spreadArt<T extends { slug: string; art?: ArtAsset[] | null; artExclude?: string[] }>(cards: T[]): T[] {
+export function spreadArt<T extends { slug: string; art?: ArtAsset[] | null }>(
+  cards: T[],
+): (T & { artExclude?: string[] })[] {
   const used: string[] = [];
-  return cards.map((card) => {
+  return cards.map((card): T & { artExclude?: string[] } => {
     if (!card.art?.length) return card;
     const claim = pickArt(card.art, 1.75, { mode: "scene", seed: card.slug, exclude: new Set(used) });
     const out = { ...card, artExclude: [...used] };
