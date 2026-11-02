@@ -68,6 +68,32 @@ Feitos e no ar os itens 01 a 19 da lista de pendências, além de uma rodada de 
   - CLS zerado nas páginas medidas.
 - **Banco:** as 3 dicas falsas de seed do guia de Hollow Knight foram apagadas no Neon.
 
+**Segunda crítica** (`app/.impeccable/critique/2026-11-02T11-38-46Z__src-app.md`): a nota subiu de 23 para 28/40. Depois dela veio uma rodada final de polimento, já no ar em `c685540`.
+
+- **Home:**
+  - corrigido o erro de hidratação React #418 (a newsletter do rodapé dependia de `usePathname`);
+  - herói só com arte larga;
+  - "Mais lidas" numa faixa própria.
+- **"Em circulação":** sem cards sem imagem, com selo "EN" e nomes de fonte limpos.
+- **Calendário:** organizado por semana.
+- **Matéria:** card de jogo de verdade no lugar do anterior.
+- **Guia:**
+  - mobile corrigido;
+  - revisões e "Autoria humana" só aparecem quando são reais.
+- **Conquistas:** contagem única, com a platina sintética separada.
+- **Capas:** uma cadeia só, com tratamento de estojo e sem desfoque.
+- **XP:** um formato só (`lib/xp-format`), e a cópia sobre a economia ficou coerente.
+- **Ranking:**
+  - o nome passou a ser "Ranking", com setas ▲▼;
+  - abre em "Esta semana" enquanto o quadro de Nível tiver menos de 3 jogadores.
+- **Perfil:** cabeçalho igual em todas as abas.
+- **Galeria e fórum vazios:** viram um mosaico de imagens oficiais.
+- **Mídia:** migration `20261106120000_game_media_title`, que dá título aos vídeos.
+
+Opcional: `pnpm sgdb:png-thumbs` marca as artes do SteamGridDB que só têm miniatura PNG, o que evita 1 request falho por página. É lento, faz um HEAD por arte. Rodar contra o Neon só num horário em que o banco já esteja acordado.
+
+**Atenção ao Neon:** a cota estourou na madrugada de 02/11, entre 02:25 e 04:54 UTC, e as páginas deram erro nesse intervalo. Os workers ficaram bem mais leves depois disso, mas vale olhar o uso em Usage no console do Neon.
+
 **O que depende do Lucas:**
 1. Rodar `powershell -NoProfile -ExecutionPolicy Bypass -File "C:\projetos\Nova pasta\ROBO NOTICIAS\scripts\instalar-tarefas.ps1"` para instalar ou atualizar o agendador do robô, com os logs separados.
 2. Passar o link de convite do Discord, que vai em `NEXT_PUBLIC_DISCORD_INVITE_URL`. Até lá, o card mostra "Em breve".
