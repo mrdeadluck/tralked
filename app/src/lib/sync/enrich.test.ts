@@ -82,4 +82,36 @@ describe.skipIf(!reachable)("catalog enrichment", () => {
     const inQueue = await prisma.game.count({ where: { id: game.id, ...mediaQueue(new Date()) } });
     expect(inQueue).toBe(0);
   });
+
+  it("a lost database connection repeats the batch instead of counting the game as failed", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { mediaQueue } = await import("./media");
+    const { enrichMedia } = await import("./enrich");
+    const { createDbRetry } = await import("@/lib/worker/db-retry");
+    const game = await prisma.game.create({
+      data: { slug: `${SLUG}media-lost`, name: "Enrich Media Lost", achievementCount: 0, popularity: 2e9 + 1 },
+    });
+    let lookups = 0;
+    const lost = Object.assign(new Error("Server has closed the connection."), { name: "PrismaClientKnownRequestError", code: "P1017" });
+    const deps = {
+      igdb: {
+        findBySteamAppId: async () => null,
+        findByName: async () => {
+          if (lookups++ === 0) throw lost;
+          return null;
+        },
+        getMedia: async () => ({ videos: [], screenshots: [], artworks: [] }),
+      },
+      sgdb: { getArt: async () => null },
+    } as unknown as Parameters<typeof enrichMedia>[2];
+    const sleeps: number[] = [];
+    const withDb = createDbRetry({ log: { info: () => {}, warn: () => {} }, sleep: async (ms) => void sleeps.push(ms) });
+    // Two passes over the test game (the lost one and the retry), then the clock runs out.
+    let calls = 0;
+    const now = () => (calls++ > 8 ? Date.now() + 120_000 : Date.now());
+    const result = await enrichMedia(Date.now() + 60_000, silent, deps, now, withDb);
+    expect(sleeps).toEqual([5_000]);
+    expect(result.failed).toBe(0);
+    expect(await prisma.game.count({ where: { id: game.id, ...mediaQueue(new Date()) } })).toBe(0);
+  });
 });

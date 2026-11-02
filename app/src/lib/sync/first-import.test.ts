@@ -136,4 +136,29 @@ describe.skipIf(!reachable)("first imports", () => {
     }
     expect((await account(user.id)).lastSyncedAt).toBeNull();
   });
+
+  it("a lost database connection is not the account's fault: the turn runs again and the import finishes", async () => {
+    const { getPsn } = await import("@/lib/integrations");
+    const { runFirstImports } = await import("./first-import");
+    const { createDbRetry } = await import("@/lib/worker/db-retry");
+    const user = await psnUser(PUBLIC_PSN);
+    const lost = Object.assign(new Error("Server has closed the connection."), { name: "PrismaClientKnownRequestError", code: "P1017" });
+    const titles = vi.spyOn(getPsn(), "getTitles").mockRejectedValueOnce(lost);
+    const warnings: string[] = [];
+    const sleeps: number[] = [];
+    const withDb = createDbRetry({
+      log: { info: () => {}, warn: (m) => warnings.push(m) },
+      sleep: async (ms) => void sleeps.push(ms),
+    });
+    try {
+      const stats = await runFirstImports({ stopAt: Date.now() + 60_000, lanes: ["psn"], only: [user.id], log: silent, withDb });
+      expect(stats.psn).toEqual({ finished: 1, slices: 1, stopped: 0, failed: 0 });
+    } finally {
+      titles.mockRestore();
+    }
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/^PSN lane: database connection lost, retry 1\/7/);
+    expect(sleeps).toEqual([5_000]);
+    expect((await account(user.id)).lastSyncedAt).not.toBeNull();
+  });
 });

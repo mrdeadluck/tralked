@@ -7,6 +7,7 @@ import { createPoliteFetch, type PoliteFetch } from "@/lib/integrations/steam/po
 import { fetchMostOwnedPage, fetchTags } from "@/lib/integrations/steam/steamspy";
 import { fetchStoreApp, libraryAssetUrls } from "@/lib/integrations/steam/store";
 import { mapTagsToSkills } from "@/lib/integrations/steam/tags-map";
+import { dbFailureKind, describeError } from "@/lib/worker/errors";
 import { ensureSteamGames } from "./steam-games";
 import { writeCatalogGame, type CatalogMedia } from "./write-catalog-game";
 
@@ -294,8 +295,11 @@ export async function syncCatalogDetails(
   let failed = 0;
   const queue = await detailsCandidates(limit);
   let next = 0;
+  // The database went away: no game is blamed for it, the batch stops and the error goes up (the
+  // details worker waits for the database and starts a new batch; the cron just ends its run).
+  let databaseDown: unknown = null;
   const work = async () => {
-    while (next < queue.length && deps.now() < deadline) {
+    while (databaseDown === null && next < queue.length && deps.now() < deadline) {
       const { id, steamAppId } = queue[next++];
       try {
         try {
@@ -308,17 +312,27 @@ export async function syncCatalogDetails(
         }
         processed++;
       } catch (error) {
+        if (dbFailureKind(error) !== null) {
+          databaseDown ??= error;
+          break;
+        }
         failed++;
-        console.error(`Steam details: could not sync app ${steamAppId}`, error);
+        console.error(`Steam details: could not sync app ${steamAppId}: ${describeError(error)}`);
         // Back of the queue (a request is not retried forever at the top).
-        await prisma.game.update({
-          where: { id },
-          data: { lastSyncAttemptAt: new Date(deps.now()), detailsRequestedAt: null },
-        });
+        try {
+          await prisma.game.update({
+            where: { id },
+            data: { lastSyncAttemptAt: new Date(deps.now()), detailsRequestedAt: null },
+          });
+        } catch (markError) {
+          if (dbFailureKind(markError) === null) throw markError;
+          databaseDown ??= markError;
+        }
       }
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, queue.length)) }, work));
+  if (databaseDown !== null) throw databaseDown;
   return { processed, failed };
 }
 
