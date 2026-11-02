@@ -8,6 +8,7 @@ import { CaseIntro } from "@/components/game/CaseIntro";
 import { IntroVeil } from "@/components/game/IntroVeil";
 import { FamilyPlayers } from "@/components/game/FamilyPlayers";
 import { MediaRail } from "@/components/game/MediaRail";
+import { RetroAchievementsLoader } from "@/components/game/RetroAchievementsLoader";
 import { ShotsRail } from "@/components/game/ShotsRail";
 import { SimilarShelf } from "@/components/game/SimilarShelf";
 import { loginHref } from "@/components/guide/format";
@@ -22,6 +23,7 @@ import {
   type GameProfile,
 } from "@/lib/queries/game-profile";
 import { listGameSlugs } from "@/lib/queries/games";
+import { getRetroAchievementsDue } from "@/lib/queries/retro-achievements";
 import { getSteamPlayers } from "@/lib/queries/steam-players";
 import { JsonLd, videoGameJsonLd } from "@/lib/seo/json-ld";
 import { gameMetadata } from "./metadata";
@@ -171,8 +173,12 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
   const { slug } = await params;
   const profile = await getGameProfile(slug);
   if (!profile) notFound();
-  // Cached on its own (the hourly samples change faster than the profile).
-  const steamPlayers = await getSteamPlayers(profile.id);
+  // Cached on their own: the hourly Steam samples change faster than the profile, and the RA flag
+  // is expired by the action that reads the RA list.
+  const [steamPlayers, retroDue] = await Promise.all([
+    getSteamPlayers(profile.id),
+    getRetroAchievementsDue(profile.id, profile.slug),
+  ]);
 
   const login = loginHref(`/jogos/${profile.slug}`);
   const { news, gallery } = profile;
@@ -190,6 +196,7 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
         })}
       />
       <IntroVeil slug={profile.slug} />
+      {retroDue ? <RetroAchievementsLoader gameId={profile.id} /> : null}
       <style href="tralked-game-page" precedence="default">
         {CSS}
       </style>
@@ -294,6 +301,10 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
         ,{" "}
         <a href="https://rawg.io" target="_blank" rel="noopener noreferrer">
           RAWG
+        </a>
+        ,{" "}
+        <a href="https://retroachievements.org" target="_blank" rel="noopener noreferrer">
+          RetroAchievements
         </a>{" "}
         · Arte:{" "}
         <a href="https://www.steamgriddb.com" target="_blank" rel="noopener noreferrer">
