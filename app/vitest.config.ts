@@ -21,7 +21,7 @@ export default defineConfig({
           // DB-backed test files share one Postgres (db.test.ts snapshots whole tables),
           // so files must not run concurrently.
           fileParallelism: false,
-          include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
+          include: ["src/**/*.test.ts", "scripts/**/*.test.ts", "prisma/**/*.test.ts"],
           // Refuses to run without a dedicated test database (never gamelog / gamelog_dev).
           setupFiles: ["./vitest.db-guard.ts"],
         },

@@ -20,6 +20,7 @@
  * notifications; and one example API key whose secret is discarded. Rows without a natural key
  * use fixed `seed-…` ids.
  */
+import "./seed-guard"; // must run before ../src/lib/db opens a connection
 import { createHash, randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import hollowKnight from "../src/lib/integrations/steam/__fixtures__/hollow-knight.json";
