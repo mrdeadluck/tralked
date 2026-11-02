@@ -1,6 +1,9 @@
 import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { PageHead } from "@/components/community/PageHead";
+import { CaseItem, CaseShelf } from "@/components/shelf/CaseShelf";
+import { Chip } from "@/components/ui/Chip";
+import { caseArt, steamAppIdFromUrl } from "@/lib/case-art";
 import {
   getReleaseList,
   RELEASE_FILTERS,
@@ -9,8 +12,7 @@ import {
   type ReleaseFilter,
   type ReleaseTab,
 } from "@/lib/queries/releases";
-import { RELEASE_PLATFORM_LABEL } from "@/lib/releases/platforms";
-import { ReleaseItem } from "./ReleaseItem";
+import { RELEASE_PLATFORM_COLOR, RELEASE_PLATFORM_LABEL } from "@/lib/releases/platforms";
 
 const filterLabel = (f: ReleaseFilter) => (f === "TODAS" ? "Todas" : RELEASE_PLATFORM_LABEL[f]);
 export const releasesHref = (tab: ReleaseTab, filter: ReleaseFilter) => `/lancamentos/${tab}/${filter.toLowerCase()}`;
@@ -81,18 +83,32 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
       {groups.length > 0 ? (
         <ol className="m-0 flex list-none flex-col gap-6 p-0">
           {groups.map((g) => (
-            <li key={g.label} className="flex flex-col gap-1">
+            <li key={g.label} className="flex flex-col gap-4">
               <h2 className="border-b border-line pb-2 font-mono text-[12px] tracking-[0.08em] text-text-3 uppercase">
                 {g.label}
                 {g.items[0].relative ? <span className="ml-2 text-dim normal-case">{g.items[0].relative}</span> : null}
               </h2>
-              <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(380px,1fr))] gap-x-6 p-0 max-sm:grid-cols-1">
+              <CaseShelf>
                 {g.items.map((r) => (
-                  <li key={r.gameId} className="border-b border-divider">
-                    <ReleaseItem release={r} size="md" />
-                  </li>
+                  <CaseItem
+                    key={r.gameId}
+                    href={`/jogos/${r.slug}`}
+                    slug={r.slug}
+                    name={r.name}
+                    art={caseArt({ coverUrl: r.coverUrl, steamAppId: steamAppIdFromUrl(r.capsuleUrl), wideUrl: r.capsuleUrl })}
+                  >
+                    <span className="cs-name">{r.name}</span>
+                    <span className="cs-meta">
+                      {r.platforms.map((p) => (
+                        <Chip key={p} color={RELEASE_PLATFORM_COLOR[p]}>
+                          {RELEASE_PLATFORM_LABEL[p]}
+                        </Chip>
+                      ))}
+                      {r.stub ? <span>detalhes em breve</span> : null}
+                    </span>
+                  </CaseItem>
                 ))}
-              </ul>
+              </CaseShelf>
             </li>
           ))}
         </ol>

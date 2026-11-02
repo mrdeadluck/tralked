@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { GameTile } from "@/components/games/GameTile";
 import { loginHref } from "@/components/guide/format";
 import { GAME_MENU_OPTIONS } from "@/components/layout/game-menu";
+import { CaseItem, CaseShelf } from "@/components/shelf/CaseShelf";
 import { LinkChips } from "@/components/ui/LinkChips";
 import { ListSearch } from "@/components/ui/ListSearch";
 import { Pagination } from "@/components/ui/Pagination";
@@ -17,6 +17,7 @@ import {
   countGames,
   listGames,
   type CatalogSort,
+  type GameCard,
   type GameFilter,
 } from "@/lib/queries/games";
 import { cleanQuery } from "@/lib/search/fold";
@@ -135,11 +136,11 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
 
       {items.length > 0 ? (
         <>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+          <CaseShelf label="Jogos">
             {items.map((game) => (
-              <GameTile key={game.id} game={game} />
+              <GameCase key={game.id} game={game} />
             ))}
-          </div>
+          </CaseShelf>
           <Pagination
             basePath={BASE}
             params={kept}
@@ -165,5 +166,47 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
         </p>
       )}
     </>
+  );
+}
+
+const SKILL_NAME = Object.fromEntries(SKILLS.map((s) => [s.id, s.name]));
+
+/** One game on the shelf: its case (with the visitor's progress) and a two-line caption. */
+function GameCase({ game }: { game: GameCard }) {
+  const { unlockedCount, achievementCount } = game;
+  const owned = unlockedCount !== null && achievementCount > 0;
+  const pct = owned ? Math.round((unlockedCount / achievementCount) * 100) : null;
+  const genre = game.skills[0] ? SKILL_NAME[game.skills[0]] : null;
+  return (
+    <CaseItem
+      href={`/jogos/${game.slug}`}
+      slug={game.slug}
+      name={game.name}
+      art={game.art}
+      flag={owned && unlockedCount === achievementCount ? "PLATINADO" : undefined}
+      progress={pct}
+    >
+      <h3 className="cs-name">{game.name}</h3>
+      <span className="cs-meta">
+        {game.stub ? (
+          <span>detalhes em breve</span>
+        ) : owned ? (
+          <span>
+            <b>{unlockedCount}</b>/{achievementCount} · <span className="acc">{pct}%</span>
+          </span>
+        ) : (
+          <span>
+            {genre}
+            {genre && achievementCount > 0 ? " · " : null}
+            {achievementCount > 0 ? (
+              <>
+                <b>{achievementCount}</b> conquistas
+              </>
+            ) : null}
+          </span>
+        )}
+        {game.hasGuide ? <span className="acc">guia completo</span> : null}
+      </span>
+    </CaseItem>
   );
 }

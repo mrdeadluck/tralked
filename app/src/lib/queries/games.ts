@@ -7,6 +7,7 @@ import {
   type AchievementPlatform,
   type ContentBlock,
 } from "@/lib/content/schema";
+import { caseArt, steamHeaderUrl, type CaseArtSource } from "@/lib/case-art";
 import { isSafeHttpUrl, safeImageUrl } from "@/lib/content/url";
 import { prisma } from "@/lib/db";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
@@ -58,6 +59,8 @@ export type GameCard = {
   slug: string;
   name: string;
   coverUrl: string | null;
+  /** Sources of the case art on the /jogos shelf, best first (see lib/case-art). */
+  art: CaseArtSource[];
   platforms: string[];
   skills: SkillId[];
   achievementCount: number;
@@ -168,11 +171,8 @@ export async function listGames(
       slug: game.slug,
       name: game.name,
       // Games still without details show the Steam store header (served by Steam's CDN by appid).
-      coverUrl:
-        game.coverUrl ??
-        (game.steamAppId
-          ? `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/header.jpg`
-          : null),
+      coverUrl: game.coverUrl ?? (game.steamAppId ? steamHeaderUrl(game.steamAppId) : null),
+      art: caseArt({ coverUrl: game.coverUrl, steamAppId: game.steamAppId }),
       platforms: game.platforms,
       skills: asSkills(game.skills.map((s) => s.skill)),
       achievementCount: game.achievementCount,
