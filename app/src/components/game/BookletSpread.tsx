@@ -1,16 +1,14 @@
 import type { CSSProperties, ReactNode } from "react";
 import { GameArt } from "@/components/art/GameArt";
-import {
-  PLATFORM_NAME,
-  type GameProfile,
-  type GameUserProfile,
-  type TierCounts,
-} from "@/lib/queries/game-profile";
+import { PLATFORM_NAME, type GameProfile, type GameUserProfile } from "@/lib/queries/game-profile";
 import { steamReviewLabel } from "@/lib/games/steam-reviews";
 import type { SteamPlayersView } from "@/lib/queries/steam-players";
 import { BackdropLoop } from "./BackdropLoop";
 import { CaseReplayButton } from "./case-replay";
 import { DiscProgress } from "./DiscProgress";
+import { PlatformProgressSwitch } from "./PlatformProgressSwitch";
+import { PROGRESS_CSS, TrophyGrid } from "./progress-parts";
+import { progressViews } from "./progress-views";
 import { titleFitStyle } from "./title-fit";
 
 /*
@@ -85,36 +83,6 @@ function Fact({ term, children, note }: { term: string; children: ReactNode; not
   );
 }
 
-const PROGRESS_CSS = `
-.gpg { text-align: center; }
-.gpg b { font-weight: 900; font-stretch: 125%; font-size: 44px; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.gpg b span { color: var(--acc); }
-.gpg p { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--muted); margin-top: 6px; }
-.gpg p a { color: var(--acc); text-decoration: underline; text-underline-offset: 3px; }
-.gpg ul { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
-.gpg li b { font: inherit; color: var(--text-2); letter-spacing: inherit; }
-.gpt { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 420px; margin: 0; padding: 0; list-style: none; background: var(--border); border: 1px solid var(--border); }
-.gpt li { background: var(--paper-2); padding: 10px 6px; text-align: center; }
-.gpt svg { width: 20px; height: 20px; }
-.gpt b { display: block; font-weight: 900; font-stretch: 112%; font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.gpt small { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
-`;
-
-const TROPHY_UI: { tier: keyof TierCounts; label: string; color: string }[] = [
-  { tier: "platinum", label: "Platina", color: "var(--plat)" },
-  { tier: "gold", label: "Ouro", color: "var(--gold)" },
-  { tier: "silver", label: "Prata", color: "var(--silver)" },
-  { tier: "bronze", label: "Bronze", color: "var(--bronze)" },
-];
-
-function TrophyIcon({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7 3h10v5a5 5 0 0 1-10 0z M10 14h4v3h3v3H7v-3h3z" style={{ fill: color }} />
-    </svg>
-  );
-}
-
 /**
  * Right page: disc, progress and trophies. `user` undefined = logged out; `null` progress = the
  * account never played it. Rendered as the anonymous version in the static shell.
@@ -129,6 +97,20 @@ export function BookletProgress({
   loginHref: string;
 }) {
   const progress = user?.progress ?? null;
+  // Played on more than one platform: tabs per platform (and "Todas"), on the best one first.
+  const split = progress ? progressViews(progress) : null;
+  if (split) {
+    return (
+      <PlatformProgressSwitch
+        views={split.views}
+        initial={split.initial}
+        hues={profile.hues}
+        seed={profile.seed}
+        art={profile.art.disc}
+        name={profile.name}
+      />
+    );
+  }
   const best = progress?.best ?? null;
   const completed = Boolean(progress?.completed);
   const total = profile.achievements.steam || profile.achievements.byPlatform[0]?.total || 0;
@@ -190,36 +172,17 @@ export function BookletProgress({
         <div className="gpg gp-veil" style={delay(".3s")}>
           <b>{headline}</b>
           <p>{detail}</p>
-          {progress && progress.platforms.length > 1 ? (
-            <ul aria-label="Progresso por plataforma">
-              {progress.platforms.map((p) => (
-                <li key={p.platform}>
-                  {PLATFORM_NAME[p.platform]} <b>{p.completed ? "100%" : `${p.unlocked}/${p.total}`}</b>
-                </li>
-              ))}
-            </ul>
-          ) : null}
         </div>
         {showTrophies ? (
-          <ul
-            className="gpt gp-veil"
+          <TrophyGrid
             style={delay(".38s")}
-            aria-label={trophies ? "Seus troféus neste jogo, por nível" : "Troféus do jogo, por nível"}
-          >
-            {TROPHY_UI.map(({ tier, label, color }) => (
-              <li key={tier}>
-                <TrophyIcon color={color} />
-                <b>
-                  {trophies
-                    ? tier === "platinum"
-                      ? `${trophies.platinum}/${trophies.platinumOf}`
-                      : fmt(trophies[tier])
-                    : fmt(tiers[tier])}
-                </b>
-                <small>{label}</small>
-              </li>
-            ))}
-          </ul>
+            label={trophies ? "Seus troféus neste jogo, por nível" : "Troféus do jogo, por nível"}
+            values={
+              trophies
+                ? { platinum: `${trophies.platinum}/${trophies.platinumOf}`, gold: fmt(trophies.gold), silver: fmt(trophies.silver), bronze: fmt(trophies.bronze) }
+                : { platinum: fmt(tiers.platinum), gold: fmt(tiers.gold), silver: fmt(tiers.silver), bronze: fmt(tiers.bronze) }
+            }
+          />
         ) : null}
       </DiscProgress>
     </>

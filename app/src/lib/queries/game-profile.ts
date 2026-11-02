@@ -505,6 +505,75 @@ export type GameAttributes = {
 
 export type FamilyPlayer = { handle: string; me: boolean; platform: PlatformId; playtimeMin: number; pct: number };
 
+export type PlatformTrophies = TierCounts & { platinumOf: number };
+
+/** One platform's slice of a player's progress in a game (the game page's platform tabs). */
+export type PlatformBreakdown = PlatformProgress & {
+  /**
+   * Trophies unlocked on that platform by tier (native tier, else from rarity). `platinum` is the
+   * platform's own platinum trophy when it has one (PSN), else the 100% itself; `platinumOf` 1.
+   */
+  trophies: PlatformTrophies;
+  /** The platinum trophy itself was unlocked (PSN): the badge reads "Platina" instead of "100%". */
+  platinumTrophy: boolean;
+};
+
+/** Every platform together: achievements summed, trophies pooled (`platinumOf` = platforms). */
+export type CombinedProgress = {
+  unlocked: number;
+  total: number;
+  pct: number;
+  /** 100% on every platform played. */
+  completed: boolean;
+  trophies: PlatformTrophies;
+};
+
+/**
+ * Splits a player's progress in one game by platform: each platform's achievements and trophies
+ * (same tier and platinum rules as the attribute recompute), and the combined view. `unlocks` are
+ * the valid (non-suspicious) unlocks of the game; unlocks of a platform without a library row
+ * only count in the combined trophies.
+ */
+export function splitByPlatform(
+  platforms: PlatformProgress[],
+  unlocks: { platform: string; tier: TrophyTier }[],
+): { byPlatform: PlatformBreakdown[]; combined: CombinedProgress } {
+  const pooled = emptyTiers();
+  const tiersOf = new Map<string, TierCounts>();
+  for (const u of unlocks) {
+    pooled[u.tier]++;
+    const tiers = tiersOf.get(u.platform) ?? emptyTiers();
+    tiers[u.tier]++;
+    tiersOf.set(u.platform, tiers);
+  }
+  const byPlatform = platforms.map((p): PlatformBreakdown => {
+    const tiers = tiersOf.get(p.platform) ?? emptyTiers();
+    const platinumTrophy = tiers.platinum > 0;
+    // A 100% without a platinum trophy (Steam, Xbox, RA, small PSN games) counts as the platinum.
+    const completionPlatinum = p.completed && !platinumTrophy ? 1 : 0;
+    if (completionPlatinum) pooled.platinum++;
+    return {
+      ...p,
+      trophies: { ...tiers, platinum: tiers.platinum + completionPlatinum, platinumOf: 1 },
+      platinumTrophy,
+    };
+  });
+  const unlocked = platforms.reduce((acc, p) => acc + p.unlocked, 0);
+  const total = platforms.reduce((acc, p) => acc + p.total, 0);
+  const completed = platforms.length > 0 && platforms.every((p) => p.completed);
+  const raw = total > 0 ? Math.round((unlocked / total) * 100) : 0;
+  return {
+    byPlatform,
+    combined: {
+      unlocked,
+      total,
+      pct: completed ? 100 : Math.min(99, raw),
+      completed,
+      trophies: { ...pooled, platinumOf: platforms.length },
+    },
+  };
+}
+
 export type GameUserProfile = {
   opened: boolean;
   /** Null when the user never played the game on any linked platform. */
@@ -512,6 +581,10 @@ export type GameUserProfile = {
     platforms: PlatformProgress[];
     /** Headline platform: a completed one, else the highest completion. */
     best: PlatformProgress;
+    /** Each platform with its own trophies, in PLATFORM_ORDER (tabs on the game page). */
+    byPlatform: PlatformBreakdown[];
+    /** All platforms together (the "Todas" tab). */
+    combined: CombinedProgress;
     playtimeMin: number;
     completed: boolean;
   } | null;
@@ -576,10 +649,7 @@ export async function getGameProfileForUser(slug: string, userId: string): Promi
     prisma.familyMember.findUnique({ where: { userId }, select: { familyId: true } }),
   ]);
 
-  const totalOf = (platform: string) => {
-    if (platform === "steam" && game.achievementCount > 0) return game.achievementCount;
-    return totalsByPlatform.find((t) => t.platform === platform)?._count._all ?? 0;
-  };
+  const totalOf = achievementTotals(game.achievementCount, totalsByPlatform);
 
   const platforms = userGames
     .map((ug) => platformProgress(ug, totalOf(ug.platform)))
@@ -588,20 +658,13 @@ export async function getGameProfileForUser(slug: string, userId: string): Promi
   const playtimeMin = platforms.reduce((acc, p) => acc + p.playtimeMin, 0);
   const completed = platforms.some((p) => p.completed);
 
-  // Trophies, pooled across platforms (same rules as the attribute recompute).
+  // Trophies by platform and pooled (same rules as the attribute recompute).
   const valid = unlocks.filter((u) => !u.suspicious);
-  const trophies = emptyTiers();
-  const nativePlatinum = new Set<string>();
-  for (const u of valid) {
-    const tier = tierOf(u.achievement);
-    trophies[tier]++;
-    if (tier === "platinum") nativePlatinum.add(u.achievement.platform);
-  }
-  let completionPlatinums = 0;
-  for (const p of platforms) {
-    if (p.completed && !nativePlatinum.has(p.platform)) completionPlatinums++;
-  }
-  trophies.platinum += completionPlatinums;
+  const split = splitByPlatform(
+    platforms,
+    valid.map((u) => ({ platform: u.achievement.platform, tier: tierOf(u.achievement) })),
+  );
+  const completionPlatinums = split.byPlatform.filter((p) => p.completed && !p.platinumTrophy).length;
 
   // XP and skill points this game paid (voided entries never count).
   const ledger = await prisma.xpLedgerEntry.findMany({
@@ -657,11 +720,63 @@ export async function getGameProfileForUser(slug: string, userId: string): Promi
 
   return {
     opened: opened !== null,
-    progress: best ? { platforms, best, playtimeMin, completed } : null,
-    trophies: platforms.length > 0 ? { ...trophies, platinumOf: platforms.length } : null,
+    progress: best ? { platforms, best, byPlatform: split.byPlatform, combined: split.combined, playtimeMin, completed } : null,
+    trophies: platforms.length > 0 ? split.combined.trophies : null,
     attributes,
     family: membership ? await familyPlayers(membership.familyId, userId, gameId, totalOf) : null,
   };
+}
+
+/** Achievements of the game on a platform (Steam: the catalog count when it has one). */
+function achievementTotals(
+  steamCount: number,
+  totals: { platform: string; _count: { _all: number } }[],
+): (platform: string) => number {
+  return (platform) => {
+    if (platform === "steam" && steamCount > 0) return steamCount;
+    return totals.find((t) => t.platform === platform)?._count._all ?? 0;
+  };
+}
+
+/** A player's progress in one game, by platform (the player's view of the game). */
+export type PlayerGamePlatforms = {
+  slug: string;
+  name: string;
+  byPlatform: PlatformBreakdown[];
+  combined: CombinedProgress;
+  /** The platform with the most progress (bestProgress). */
+  best: PlatformId;
+};
+
+/**
+ * `userId`'s progress in the game `slug` split by platform; null when the game is unknown or the
+ * player has it on no platform. The caller checks that the profile may be seen.
+ */
+export async function getPlayerGamePlatforms(slug: string, userId: string): Promise<PlayerGamePlatforms | null> {
+  const game = await prisma.game.findUnique({
+    where: { slug },
+    select: { id: true, slug: true, name: true, achievementCount: true },
+  });
+  if (!game) return null;
+  const [userGames, totals, unlocks] = await Promise.all([
+    prisma.userGame.findMany({ where: { userId, gameId: game.id } }),
+    prisma.achievement.groupBy({ by: ["platform"], where: { gameId: game.id }, _count: { _all: true } }),
+    prisma.userAchievement.findMany({
+      where: { userId, suspicious: false, achievement: { gameId: game.id } },
+      select: { achievement: { select: { platform: true, globalPct: true, trophyTier: true } } },
+    }),
+  ]);
+  const totalOf = achievementTotals(game.achievementCount, totals);
+  const platforms = userGames
+    .map((ug) => platformProgress(ug, totalOf(ug.platform)))
+    .sort((a, b) => PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform));
+  const best = bestProgress(platforms);
+  if (!best) return null;
+  const split = splitByPlatform(
+    platforms,
+    unlocks.map((u) => ({ platform: u.achievement.platform, tier: tierOf(u.achievement) })),
+  );
+  return { slug: game.slug, name: game.name, ...split, best: best.platform };
 }
 
 async function familyPlayers(

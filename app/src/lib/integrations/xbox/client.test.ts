@@ -87,6 +87,32 @@ describe("xbox client (OpenXBL)", () => {
     }
   });
 
+  it("reads a known XUID's profile without searching the gamertag", async () => {
+    const { client, fetchMock } = setup((url) => {
+      if (url.pathname === "/api/v2/account/123") {
+        // Wrapped in `content`, as some OpenXBL answers are.
+        return json({
+          content: {
+            profileUsers: [{ id: "123", settings: [{ id: "Gamertag", value: "Lucas Exemplo" }, { id: "Bio", value: "TRK-ABC234" }] }],
+          },
+        });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    await expect(client.getProfile("123")).resolves.toEqual({
+      xuid: "123",
+      gamertag: "Lucas Exemplo",
+      bio: "TRK-ABC234",
+      avatarUrl: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns null for an unknown XUID", async () => {
+    const { client } = setup(() => json({ code: 28 }, 404));
+    await expect(client.getProfile("404")).resolves.toBeNull();
+  });
+
   it("returns null when no player has the gamertag", async () => {
     const { client } = setup(() => json({ people: [{ xuid: "1", gamertag: "Parecido" }] }));
     await expect(client.findProfile("Ninguem")).resolves.toBeNull();

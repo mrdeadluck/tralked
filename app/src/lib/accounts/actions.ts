@@ -14,6 +14,13 @@ import { syncUser } from "@/lib/sync/user";
 import { saveConnection, type SaveConnectionResult } from "./connect";
 import { cancelClaim, confirmClaim, startClaim, type ConfirmClaimFailure } from "./link";
 import { confirmSteamClaim } from "./steam-link";
+import {
+  cancelVerification,
+  checkVerification,
+  startVerification,
+  type CheckVerificationResult,
+} from "./verify";
+import { verifyFailureMessage } from "./verify-messages";
 
 /**
  * Server Actions of the account connections (Steam, PSN, Xbox, RetroAchievements). Every action
@@ -53,6 +60,10 @@ export type ConfirmClaimActionResult =
   | { ok: true; handle: string; recovered: boolean }
   | (ActionError & { reason?: ConfirmClaimFailure | "has_activity" | "different" });
 export type SimpleActionResult = { ok: true; message?: string } | ActionError;
+export type StartVerificationActionResult = { ok: true; code: string; expiresAt: string } | ActionError;
+export type CheckVerificationActionResult =
+  | { ok: true; handle: string }
+  | (ActionError & { reason: Exclude<CheckVerificationResult, { ok: true }>["reason"]; retryAfterSec?: number });
 
 /** Result of one field of the "Serviços" form. */
 export type FieldOutcome = {
@@ -139,6 +150,8 @@ function fieldOutcome(platform: Platform, result: SaveConnectionResult, typed: s
         tone: "ok",
         message: `Conectada como ${result.handle}. Estamos importando suas ${UNLOCKS[platform]}; elas aparecem aqui em instantes.`,
       };
+    case "renamed":
+      return { tone: "ok", message: `Mesma conta ${name}, nome atualizado para ${result.handle}.` };
     case "unlinked":
       return { tone: "ok", message: `${name} desconectada. O XP que veio dessa conta foi anulado.` };
     case "needs_confirm":
@@ -362,4 +375,78 @@ export async function syncConnectionsAction(): Promise<SimpleActionResult> {
     ok: true,
     message: `Sincronização iniciada: ${started.map((p) => PLATFORM_NAMES[p]).join(", ")}. As conquistas novas aparecem em instantes.`,
   };
+}
+
+/** "Verificar conta": a code to paste in the profile of the connected account. */
+export async function startVerificationAction(input: unknown): Promise<StartVerificationActionResult> {
+  const user = await getSessionUser();
+  if (!user) return NOT_LOGGED_IN;
+  const parsed = platformOnlySchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  const { platform } = parsed.data;
+
+  const result = await startVerification(user.id, platform);
+  if (!result.ok) {
+    const error =
+      result.reason === "too_soon"
+        ? waitMessage(result.retryAfterSec)
+        : result.reason === "already_verified"
+          ? `Sua conta ${PLATFORM_NAMES[platform]} já está verificada.`
+          : result.reason === "unavailable"
+            ? `A conexão com a ${PLATFORM_NAMES[platform]} ainda não está disponível.`
+            : `Conecte uma conta ${PLATFORM_NAMES[platform]} antes de verificar.`;
+    refresh();
+    return { ok: false, error };
+  }
+  refresh();
+  return { ok: true, code: result.code, expiresAt: result.expiresAt.toISOString() };
+}
+
+/** "Verificar agora": reads the profile for the code; found, the connection becomes verified. */
+export async function checkVerificationAction(input: unknown): Promise<CheckVerificationActionResult> {
+  const user = await getSessionUser();
+  if (!user) return { ...NOT_LOGGED_IN, reason: "not_connected" };
+  const parsed = platformOnlySchema.safeParse(input);
+  if (!parsed.success) return { ...INVALID, reason: "not_connected" };
+  const { platform } = parsed.data;
+  const name = PLATFORM_NAMES[platform];
+
+  let result: CheckVerificationResult;
+  try {
+    result = await checkVerification(user.id, platform);
+  } catch (error) {
+    console.error("checkVerificationAction failed", {
+      userId: user.id,
+      platform,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { ok: false, reason: "error", error: verifyFailureMessage("error", platform) };
+  }
+  refresh();
+  if (result.ok) return { ok: true, handle: result.handle };
+  switch (result.reason) {
+    case "too_soon":
+      return { ok: false, reason: result.reason, retryAfterSec: result.retryAfterSec, error: waitMessage(result.retryAfterSec) };
+    case "expired":
+      return { ok: false, reason: result.reason, error: "O código expirou. Gere um novo código para continuar." };
+    case "already_verified":
+      return { ok: false, reason: result.reason, error: `Sua conta ${name} já está verificada.` };
+    case "unavailable":
+      return { ok: false, reason: result.reason, error: `A conexão com a ${name} ainda não está disponível.` };
+    case "not_connected":
+      return { ok: false, reason: result.reason, error: `Conecte uma conta ${name} antes de verificar.` };
+    default:
+      return { ok: false, reason: result.reason, error: verifyFailureMessage(result.reason, platform) };
+  }
+}
+
+/** Gives up a verification in progress (the connection stays, unverified). */
+export async function cancelVerificationAction(input: unknown): Promise<SimpleActionResult> {
+  const user = await getSessionUser();
+  if (!user) return NOT_LOGGED_IN;
+  const parsed = platformOnlySchema.safeParse(input);
+  if (!parsed.success) return INVALID;
+  await cancelVerification(user.id, parsed.data.platform);
+  refresh();
+  return { ok: true };
 }

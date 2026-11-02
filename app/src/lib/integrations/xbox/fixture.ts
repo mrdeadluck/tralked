@@ -77,6 +77,12 @@ export function createXboxFixture(): XboxApi {
       const { xuid, gamertag: tag, bio, avatarUrl } = found;
       return { xuid, gamertag: tag, bio, avatarUrl };
     },
+    async getProfile(xuid) {
+      const found = account(xuid);
+      if (!found) return null;
+      const { gamertag, bio, avatarUrl } = found;
+      return { xuid, gamertag, bio, avatarUrl };
+    },
     async getTitles(xuid) {
       const found = account(xuid);
       if (!found) return [];

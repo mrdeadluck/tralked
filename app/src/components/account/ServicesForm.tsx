@@ -7,6 +7,7 @@ import { saveConnectionsAction, type FieldOutcome, type SaveConnectionsState } f
 import { ClaimStart, ClaimSteps, type ClaimNotice, type PendingClaimView } from "./ClaimPanel";
 import { ConnectionBadge, type ConnectionTone } from "./ConnectionShell";
 import { PLATFORM_GUIDES, type LinkPlatform } from "./platform-guides";
+import { VerifyPanel, type PendingVerificationView } from "./VerifyPanel";
 
 export type ServiceRowState =
   /** No credential for the platform on this server (production): the field is disabled. */
@@ -18,6 +19,8 @@ export type ServiceRowState =
       /** The field's saved value (Steam: the SteamID64). */
       saved: string;
       verified: boolean;
+      /** "Verificar agora" in progress (unverified connections only). */
+      verification: PendingVerificationView | null;
       lastSyncedLabel: string | null;
       importing: boolean;
       failed: boolean;
@@ -54,7 +57,9 @@ function badge(state: ServiceRowState): { status: string; tone: ConnectionTone }
       return state.claim ? { status: "Reivindicação pendente", tone: "wait" } : { status: "Não conectada", tone: "off" };
     case "connected":
       if (state.failed) return { status: "Erro na importação", tone: "error" };
-      return state.verified ? { status: "Verificada", tone: "on" } : { status: "Não verificada", tone: "wait" };
+      if (state.verified) return { status: "Verificada", tone: "on" };
+      if (state.verification?.failure) return { status: "Verificação falhou", tone: "error" };
+      return state.verification ? { status: "Verificação pendente", tone: "wait" } : { status: "Não verificada", tone: "wait" };
   }
 }
 
@@ -381,6 +386,9 @@ function ServiceField({
         ) : null}
         {shown?.claimable && shown.typed ? <ClaimStart platform={platform} handle={shown.typed} onNotice={setNotice} /> : null}
         {claim ? <ClaimSteps platform={platform} claim={claim} onNotice={setNotice} /> : null}
+        {state.kind === "connected" && !state.verified ? (
+          <VerifyPanel platform={platform} handle={state.handle} verification={state.verification} onNotice={setNotice} />
+        ) : null}
         <p aria-live="polite" className="text-sm empty:hidden">
           {notice ? (
             <span role={notice.tone === "error" ? "alert" : undefined} className={notice.tone === "error" ? "text-nin" : "text-acc"}>

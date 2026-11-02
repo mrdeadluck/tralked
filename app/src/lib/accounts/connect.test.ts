@@ -72,6 +72,29 @@ describe("saveConnection: typing the profile links it at once (Exophase model)",
     expect(profiles.calls).toBe(1);
   });
 
+  it("the same account under a new name keeps the connection (and its verification), storing the new name", async () => {
+    profile("Nome-Antigo", "acc-renomeada");
+    const user = await newUser();
+    expect((await saveConnection(user.id, "psn", "Nome-Antigo", { now: T0 })).status).toBe("linked");
+    await prisma.linkedAccount.update({
+      where: { userId_platform: { userId: user.id, platform: "psn" } },
+      data: { verifiedAt: later(500) },
+    });
+
+    profile("Nome-Novo", "acc-renomeada");
+    expect(await saveConnection(user.id, "psn", "Nome-Novo", { now: later(1000) })).toEqual({
+      status: "renamed",
+      handle: "Nome-Novo",
+      value: "Nome-Novo",
+    });
+    expect(await row(user.id, "psn")).toMatchObject({
+      externalId: "acc-renomeada",
+      handle: "Nome-Novo",
+      linkedAt: T0,
+      verifiedAt: later(500),
+    });
+  });
+
   it("Steam: a profile link fills User.steamId, and the field shows the SteamID64", async () => {
     profile("novo-perfil", STEAM_ID);
     const user = await newUser();

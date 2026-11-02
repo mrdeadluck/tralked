@@ -12,6 +12,7 @@ function view(over: Partial<LinkedAccountView>): LinkedAccountView {
     handle: "Lucas-Exemplo",
     fieldValue: null,
     verified: false,
+    verification: null,
     claimCode: null,
     claimExpiresAt: null,
     lastSyncedAt: null,
@@ -51,5 +52,11 @@ describe("connectionState", () => {
     expect(
       connectionState(active({ lastSyncedAt: ago(IMPORT_GRACE_MS * 3), lastSyncAttemptAt: ago(IMPORT_GRACE_MS * 2) }), NOW),
     ).toMatchObject({ importing: false, failed: true });
+  });
+
+  it("carries a pending \"Verificar agora\" of an unverified connection only", () => {
+    const verification = { code: "TRK-ABC234", expiresAt: new Date(NOW.getTime() + 60_000), failure: "code_missing" as const, checkedAt: ago(5_000) };
+    expect(connectionState(active({ verification }), NOW)).toMatchObject({ kind: "connected", verified: false, verification });
+    expect(connectionState(active({ verified: true, verification }), NOW)).toMatchObject({ verified: true, verification: null });
   });
 });
