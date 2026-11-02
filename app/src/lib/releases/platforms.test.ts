@@ -17,8 +17,10 @@ describe("bandPlatforms", () => {
     expect(bandPlatforms(["PS5", "PS4"])).toEqual([{ platform: "PLAYSTATION", label: "PlayStation" }]);
   });
 
-  it("orders the families like the filters and shortens names as more share the band", () => {
+  it("orders the families like the filters and shortens names when they would not fit", () => {
     expect(bandPlatforms(["XBOX", "PC"]).map((b) => b.label)).toEqual(["PC", "Xbox"]);
+    expect(bandPlatforms(["PLAYSTATION", "PC"]).map((b) => b.label)).toEqual(["PC", "PS"]);
+    expect(bandPlatforms(["NINTENDO", "XBOX"]).map((b) => b.label)).toEqual(["Xbox", "NIN"]);
     expect(bandPlatforms(["NINTENDO", "XBOX", "PLAYSTATION", "PC"]).map((b) => b.label)).toEqual([
       "PC",
       "PS",

@@ -89,17 +89,14 @@ export function familyOfLabel(label: string): ReleasePlatform | null {
 export type BandPlatform = ReleasePlatform | "RETRO";
 const BAND_ORDER: BandPlatform[] = ["PC", "PLAYSTATION", "XBOX", "NINTENDO", "RETRO"];
 
-export const BAND_COLOR: Record<BandPlatform, string> = { ...RELEASE_PLATFORM_COLOR, RETRO: "var(--retro)" };
-
 /**
- * The band's words by how many platforms share it, so every name fits a 140 px case: one platform
- * gets the full name, two keep readable names, three or more the short codes.
+ * The band's words: full names while they fit next to the Tralked monogram on a 140 px case
+ * (BAND_FIT characters, separators included), the short codes otherwise.
  */
-const BAND_LABELS: Record<"one" | "two" | "many", Record<BandPlatform, string>> = {
-  one: { PC: "PC · Steam", PLAYSTATION: "PlayStation", XBOX: "Xbox", NINTENDO: "Nintendo", RETRO: "Retrô" },
-  two: { PC: "PC", PLAYSTATION: "PlayStation", XBOX: "Xbox", NINTENDO: "Nintendo", RETRO: "Retrô" },
-  many: { PC: "PC", PLAYSTATION: "PS", XBOX: "Xbox", NINTENDO: "NIN", RETRO: "Retrô" },
-};
+const BAND_LONG: Record<BandPlatform, string> = { PC: "PC · Steam", PLAYSTATION: "PlayStation", XBOX: "Xbox", NINTENDO: "Nintendo", RETRO: "Retrô" };
+const BAND_MID: Record<BandPlatform, string> = { ...BAND_LONG, PC: "PC" };
+const BAND_SHORT: Record<BandPlatform, string> = { PC: "PC", PLAYSTATION: "PS", XBOX: "Xbox", NINTENDO: "NIN", RETRO: "Retrô" };
+const BAND_FIT = 12;
 
 export const BAND_NAME: Record<BandPlatform, string> = { ...RELEASE_PLATFORM_LABEL, RETRO: "Retrô" };
 
@@ -115,6 +112,8 @@ export function bandPlatforms(platforms: readonly string[]): { platform: BandPla
     found.add(p.trim().toUpperCase() === "RETRO" ? "RETRO" : (familyOfLabel(p) ?? "RETRO"));
   }
   const ordered = BAND_ORDER.filter((p) => found.has(p));
-  const labels = BAND_LABELS[ordered.length === 1 ? "one" : ordered.length === 2 ? "two" : "many"];
+  const width = (labels: Record<BandPlatform, string>) =>
+    ordered.reduce((sum, p) => sum + labels[p].length, 0) + 3 * Math.max(0, ordered.length - 1);
+  const labels = ordered.length === 1 ? BAND_LONG : width(BAND_MID) <= BAND_FIT ? BAND_MID : BAND_SHORT;
   return ordered.map((platform) => ({ platform, label: labels[platform] }));
 }

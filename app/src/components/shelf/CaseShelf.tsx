@@ -1,9 +1,10 @@
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 import type { CaseArtSource } from "@/lib/case-art";
 import { artHues, hashSeed } from "@/lib/queries/news";
 import { CoverArt } from "@/components/art/CoverArt";
-import { BAND_COLOR, BAND_NAME, type BandPlatform } from "@/lib/releases/platforms";
+import { Emblem } from "@/components/brand/Logo";
+import { BAND_NAME, type BandPlatform } from "@/lib/releases/platforms";
 
 /*
  * The case shelf of the game page prototype ("Na mesma estante", preview/tralked-jogo.html) as a
@@ -21,11 +22,14 @@ const CSS = `
 .cs-flag { z-index: 4;  position: absolute; top: calc(var(--band) + 6px); right: 8px; background: var(--acc); color: var(--bg); padding: 3px 6px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
 .cs-bar { z-index: 4;  position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,.6); }
 .cs-bar > span { display: block; height: 100%; width: var(--pct); background: var(--acc); }
-/* The platform band across the top of the case, like a console case's: one block per family. */
-.cs-band { display: flex; flex: none; gap: 1px; height: var(--band); background: #0a0b0d; }
-.cs-band > span { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 0 4px; overflow: hidden; white-space: nowrap; background: var(--c); color: #0a0b0d; font-family: var(--font-jetbrains-mono), monospace; font-size: clamp(8.5px, 5.6cqw, 13px); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; line-height: 1; }
-.cs-band > span:only-child { justify-content: flex-start; padding-left: 9%; }
-.cs-band.is-empty { background: var(--surface-2, #16171c); border-bottom: 1px solid rgba(255,255,255,.06); }
+/* The band across the top of the case, like a console case's: the Tralked monogram, then the
+   platforms in one colour, over the Tralked accent line. */
+.cs-band { display: flex; flex: none; align-items: center; gap: 6%; height: var(--band); padding: 0 5% 0 8%; overflow: hidden; background: #0d0e12; border-bottom: 2px solid var(--acc); color: var(--text); }
+.cs-band-logo { flex: none; height: 48%; }
+.cs-band-list { display: flex; align-items: center; gap: .55em; min-width: 0; padding-left: 6%; border-left: 1px solid rgba(255,255,255,.16); overflow: hidden; white-space: nowrap; font-family: var(--font-jetbrains-mono), monospace; font-size: clamp(8.5px, 5.2cqw, 12px); font-weight: 700; letter-spacing: .08em; line-height: 1; text-transform: uppercase; color: #cfd1d7; }
+.cs-band-list i { font-style: normal; font-weight: 400; color: rgba(255,255,255,.32); }
+/* Three or more platforms: no dots, tighter letters, so four fit a 140 px case. */
+.cs-band-list.is-many { gap: .7em; letter-spacing: .03em; font-size: clamp(8px, 4.8cqw, 11px); }
 /* The band replaces the art's own top band (CoverArt prints one on wide art and generated art). */
 .cs-box .cva-top { display: none; }
 .cs-cap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -74,12 +78,18 @@ export function CaseItem({ href, slug, name, art, platforms, flag, progress, chi
     <li>
       <Link href={href}>
         <span className="cs-box">
-          <span className={platforms.length ? "cs-band" : "cs-band is-empty"}>
-            {platforms.map((p) => (
-              <span key={p.platform} aria-hidden="true" style={{ "--c": BAND_COLOR[p.platform] } as CSSProperties}>
-                {p.label}
+          <span className="cs-band" aria-hidden="true">
+            <Emblem className="cs-band-logo" />
+            {platforms.length ? (
+              <span className={platforms.length > 2 ? "cs-band-list is-many" : "cs-band-list"}>
+                {platforms.map((p, i) => (
+                  <Fragment key={p.platform}>
+                    {i > 0 && platforms.length < 3 ? <i>·</i> : null}
+                    <span>{p.label}</span>
+                  </Fragment>
+                ))}
               </span>
-            ))}
+            ) : null}
           </span>
           {platforms.length ? (
             <span className="sr-only">Plataformas: {platforms.map((p) => BAND_NAME[p.platform]).join(", ")}</span>
