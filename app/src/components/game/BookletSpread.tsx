@@ -6,6 +6,7 @@ import {
   type GameUserProfile,
   type TierCounts,
 } from "@/lib/queries/game-profile";
+import { steamReviewLabel } from "@/lib/games/steam-reviews";
 import { BackdropLoop } from "./BackdropLoop";
 import { CaseReplayButton } from "./case-replay";
 import { DiscProgress } from "./DiscProgress";
@@ -281,6 +282,14 @@ export function BookletSpread({ profile, progress }: { profile: GameProfile; pro
           >
             {timeTo100 ? `${fmt(Math.max(1, Math.round(timeTo100.minutes / 60)))} h` : "—"}
           </Fact>
+          {profile.steamReviews ? (
+            <Fact
+              term="Avaliações Steam"
+              note={`${Math.round((profile.steamReviews.positive / profile.steamReviews.total) * 100)}% de ${fmt(profile.steamReviews.total)} positivas`}
+            >
+              {steamReviewLabel(profile.steamReviews.positive, profile.steamReviews.total)}
+            </Fact>
+          ) : null}
           <Fact term="Tempo para zerar" note={timesToBeat ? "Rápido · história · 100% (IGDB)" : "Sem estimativa ainda"}>
             {timesToBeat
               ? `${hours(timesToBeat.hastyMin)} · ${hours(timesToBeat.normalMin)} · ${hours(timesToBeat.completeMin)}`

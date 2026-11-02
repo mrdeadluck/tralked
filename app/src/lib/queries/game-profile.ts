@@ -119,6 +119,8 @@ export type GameProfile = {
   timeTo100: { minutes: number; players: number } | null;
   /** IGDB times to beat (minutes): rushed, main story, 100%; null when IGDB has none. */
   timesToBeat: { hastyMin: number | null; normalMin: number | null; completeMin: number | null } | null;
+  /** Steam user reviews (all languages); null when not read yet or none. */
+  steamReviews: { positive: number; total: number } | null;
   /** Published guide only. */
   guide: { missables: number } | null;
   videos: GameVideo[];
@@ -409,6 +411,10 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
             normalMin: game.timeToBeatNormalMin,
             completeMin: game.timeToBeatCompleteMin,
           }
+        : null,
+    steamReviews:
+      game.steamReviewTotal && game.steamReviewPositive !== null
+        ? { positive: game.steamReviewPositive, total: game.steamReviewTotal }
         : null,
     guide: game.guide?.status === "published" ? { missables: game.guide.missables } : null,
     // Videos without a still of their own take a screenshot each, from the end of the list (the

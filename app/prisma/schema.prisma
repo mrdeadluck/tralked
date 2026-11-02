@@ -184,6 +184,13 @@ model Game {
   timeToBeatNormalMin   Int?
   /// Last read of the IGDB times to beat (igdb-catalog job), with or without an answer.
   timeToBeatCheckedAt   DateTime?
+  /// Steam user reviews (all languages): positive and total, read by the catalog-enrich worker.
+  steamReviewPositive   Int?
+  steamReviewTotal      Int?
+  steamReviewsAt        DateTime?
+  /// Last IGDB/SteamGridDB media attempt, with or without results: games IGDB knows nothing of
+  /// are not asked again for a while (lib/sync/media.ts).
+  mediaCheckedAt        DateTime?
   platforms             String[]
   /// Steam achievement count (other platforms count their Achievement rows).
   achievementCount      Int

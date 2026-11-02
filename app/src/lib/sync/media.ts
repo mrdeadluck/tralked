@@ -102,6 +102,26 @@ export async function syncGameMedia(
   return rows.length;
 }
 
+/** A game IGDB had no media for is asked again only after this long (IGDB keeps growing). */
+export const MEDIA_RECHECK_MS = 30 * 24 * 60 * 60_000;
+
+/**
+ * Games still without official IGDB media and not asked lately: listed games only (stubs of the
+ * full Steam catalog wait for their store details first).
+ */
+export function mediaQueue(now: Date) {
+  return {
+    stub: false,
+    media: { none: { source: "igdb" } },
+    OR: [{ mediaCheckedAt: null }, { mediaCheckedAt: { lt: new Date(now.getTime() - MEDIA_RECHECK_MS) } }],
+  };
+}
+
+/** Records a media attempt (with or without results), so the queue moves on. */
+export async function markMediaChecked(gameId: string, now = new Date()): Promise<void> {
+  await prisma.game.updateMany({ where: { id: gameId }, data: { mediaCheckedAt: now } });
+}
+
 /**
  * Cron job: fills the official media of `limit` games that have none from IGDB yet: the most
  * popular half first, the rest at random among the candidates.
@@ -109,7 +129,7 @@ export async function syncGameMedia(
 export async function syncStaleMedia(limit = 20): Promise<{ processed: number; failed: number }> {
   const candidates = await prisma.game.findMany({
     // Stubs of the full Steam catalog (name only) wait for their store details first.
-    where: { stub: false, media: { none: { source: "igdb" } } },
+    where: mediaQueue(new Date()),
     select: { id: true, popularity: true },
   });
   // Half the run goes to the most popular games (those the news and players show most), the other
@@ -127,10 +147,12 @@ export async function syncStaleMedia(limit = 20): Promise<{ processed: number; f
   for (const { id } of picked) {
     try {
       await syncGameMedia(id);
+      await markMediaChecked(id);
       processed++;
     } catch (error) {
       failed++;
       console.error(`Media: could not sync game ${id}`, error);
+      await markMediaChecked(id).catch(() => {});
     }
   }
   return { processed, failed };
