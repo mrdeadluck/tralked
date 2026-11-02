@@ -144,7 +144,7 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
         />
         <span
           aria-hidden="true"
-          className="rounded-[2px] border border-line-2 px-1.5 py-0.5 font-mono text-[10px]"
+          className="rounded-[2px] border border-line-2 px-1.5 py-0.5 font-mono text-xs"
         >
           /
         </span>
@@ -157,7 +157,7 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
           <div className="flex flex-col gap-0.5">
             <div
               id={`${listboxId}-label`}
-              className="px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-dim-2"
+              className="px-2 py-1 font-mono text-xs tracking-[0.14em] text-dim-2"
             >
               EM ALTA
             </div>

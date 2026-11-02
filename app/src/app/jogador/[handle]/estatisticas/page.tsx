@@ -68,10 +68,10 @@ async function ProfileStats({ header }: { header: PlayerHeader }) {
       <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-[4px] border border-line bg-line min-[641px]:grid-cols-3 min-[1000px]:grid-cols-6">
         {tiles.map(([label, value, note]) => (
           <div key={label} className="bg-surface px-4 py-3.5">
-            <dt className="font-mono text-[10px] tracking-[0.12em] text-dim-2 uppercase">{label}</dt>
+            <dt className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">{label}</dt>
             <dd className="m-0 mt-1 text-[26px] leading-none font-extrabold font-stretch-[112%] tabular-nums">
               {value}
-              {note ? <small className="mt-1.5 block font-mono text-[10.5px] font-normal text-dim">{note}</small> : null}
+              {note ? <small className="mt-1.5 block font-mono text-xs font-normal text-dim">{note}</small> : null}
             </dd>
           </div>
         ))}

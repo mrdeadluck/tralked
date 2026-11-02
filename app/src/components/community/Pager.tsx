@@ -12,7 +12,7 @@ type PagerProps = {
 export function Pager({ page, pageCount, href, label }: PagerProps) {
   if (pageCount <= 1) return null;
   const link =
-    "inline-flex h-10 items-center rounded-[2px] border border-line-2 px-4 font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase hover:border-text hover:text-text";
+    "inline-flex h-10 items-center rounded-[2px] border border-line-2 px-4 font-mono text-xs tracking-[0.08em] text-text-3 uppercase hover:border-text hover:text-text";
   return (
     <nav aria-label={label} className="flex items-center justify-between gap-3 pt-6">
       {page > 1 ? (
@@ -22,7 +22,7 @@ export function Pager({ page, pageCount, href, label }: PagerProps) {
       ) : (
         <span />
       )}
-      <span className="font-mono text-[11px] text-dim tabular-nums">
+      <span className="font-mono text-xs text-dim tabular-nums">
         Página {page} de {pageCount}
       </span>
       {page < pageCount ? (

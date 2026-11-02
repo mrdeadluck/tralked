@@ -51,7 +51,7 @@ export function AlmostThere({ games }: AlmostThereProps) {
                 <h3 className="text-[19px] leading-[1.15] font-extrabold font-stretch-[105%] tracking-[-0.015em]">
                   {game.name}
                 </h3>
-                <div className="mt-auto flex items-center justify-between gap-2.5 font-mono text-[11px] text-dim">
+                <div className="mt-auto flex items-center justify-between gap-2.5 font-mono text-xs text-dim">
                   <span>
                     <b className="text-text">{game.unlocked}</b> / {game.total} conquistas
                   </span>

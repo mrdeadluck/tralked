@@ -15,7 +15,7 @@ export function Revisions({ revisions, now }: { revisions: GuideRevisionView[]; 
           >
             <b className="font-mono text-xs font-bold text-acc">{rev.version}</b>
             <span>{rev.summary}</span>
-            <small className="font-mono text-[11px] whitespace-nowrap text-dim max-[640px]:col-start-2">
+            <small className="font-mono text-xs whitespace-nowrap text-dim max-[640px]:col-start-2">
               {rev.authorHandle ? `@${rev.authorHandle}, ` : ""}
               {timeAgo(rev.createdAt, now)}
             </small>

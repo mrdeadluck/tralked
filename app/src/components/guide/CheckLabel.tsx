@@ -8,7 +8,7 @@ type CheckLabelProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
 export function CheckLabel({ children, className = "", ...input }: CheckLabelProps) {
   return (
     <label
-      className={`inline-flex cursor-pointer items-center gap-2 font-mono text-[11px] tracking-[0.06em] whitespace-nowrap text-text-3 uppercase ${className}`}
+      className={`inline-flex cursor-pointer items-center gap-2 font-mono text-xs tracking-[0.06em] whitespace-nowrap text-text-3 uppercase ${className}`}
     >
       <input
         type="checkbox"

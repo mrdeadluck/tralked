@@ -121,7 +121,7 @@ export default function PrivacidadePage() {
           <table className="w-full min-w-[520px] border-collapse text-left text-[14.5px]">
             <caption className="sr-only">Cookies usados pelo Tralked</caption>
             <thead>
-              <tr className="border-b border-line-2 font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+              <tr className="border-b border-line-2 font-mono text-xs tracking-[0.08em] text-dim uppercase">
                 <th scope="col" className="py-2 pr-4 font-medium">Cookie</th>
                 <th scope="col" className="py-2 pr-4 font-medium">Tipo</th>
                 <th scope="col" className="py-2 pr-4 font-medium">Para quê</th>

@@ -12,7 +12,7 @@ export const LABEL = "text-sm font-semibold text-text";
 export const HINT = "text-[13px] text-muted";
 /** Small admin button without height or colors: add a height and exactly one BUTTON_TONE. */
 export const SMALL_BUTTON_SHAPE =
-  "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-[2px] border px-3 font-mono text-[11px] font-bold tracking-[0.08em] uppercase disabled:cursor-not-allowed disabled:opacity-45";
+  "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-[2px] border px-3 font-mono text-xs font-bold tracking-[0.08em] uppercase disabled:cursor-not-allowed disabled:opacity-45";
 /**
  * One tone per button. Never append another tone's colors to a button that already has one:
  * Tailwind orders same-variant utilities by itself, so `hover:text-text` could beat
@@ -26,7 +26,7 @@ export const BUTTON_TONE = {
 export const SMALL_BUTTON = `${SMALL_BUTTON_SHAPE} h-9 ${BUTTON_TONE.default}`;
 export const SMALL_BUTTON_DANGER = `${SMALL_BUTTON_SHAPE} h-9 ${BUTTON_TONE.danger}`;
 export const TABLE = "w-full min-w-[720px] border-collapse text-left text-[14px]";
-export const TH = "border-b border-line-2 px-3 py-2.5 font-mono text-[11px] font-normal tracking-[0.08em] text-dim uppercase";
+export const TH = "border-b border-line-2 px-3 py-2.5 font-mono text-xs font-normal tracking-[0.08em] text-dim uppercase";
 export const TD = "border-b border-line px-3 py-3 align-top";
 
 /** Section title of an admin page (h1) with an optional line and actions. */
@@ -50,7 +50,7 @@ export function AdminSection({ title, aside, children }: { title: string; aside?
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line pb-2">
         <h2 className="text-[17px] leading-[1.1] font-black font-stretch-[125%] tracking-[-0.01em] uppercase">{title}</h2>
-        {aside ? <div className="font-mono text-[11px] tracking-[0.06em] text-dim">{aside}</div> : null}
+        {aside ? <div className="font-mono text-xs tracking-[0.06em] text-dim">{aside}</div> : null}
       </div>
       {children}
     </section>
@@ -110,7 +110,7 @@ export function FilterLinks({
             <Link
               href={o.href}
               aria-current={o.current ? "page" : undefined}
-              className={`inline-flex h-9 items-center gap-2 rounded-[2px] border px-3 font-mono text-[11px] tracking-[0.08em] uppercase ${
+              className={`inline-flex h-9 items-center gap-2 rounded-[2px] border px-3 font-mono text-xs tracking-[0.08em] uppercase ${
                 o.current ? "border-acc bg-hover text-text" : "border-line-2 text-text-3 hover:border-text hover:text-text"
               }`}
             >
@@ -172,7 +172,7 @@ const STATUS_LABEL: Record<string, string> = {
 export function StatusBadge({ status, label }: { status: string; label?: string }) {
   return (
     <span
-      className={`inline-flex items-center rounded-[2px] border px-1.5 py-0.5 font-mono text-[10.5px] leading-none tracking-[0.08em] whitespace-nowrap uppercase ${
+      className={`inline-flex items-center rounded-[2px] border px-1.5 py-0.5 font-mono text-xs leading-none tracking-[0.08em] whitespace-nowrap uppercase ${
         TONE[status] ?? "text-text-3 border-line-2"
       }`}
     >

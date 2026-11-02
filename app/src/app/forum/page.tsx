@@ -41,7 +41,7 @@ export default async function ForumPage() {
                       </span>
                       <span className="text-[14.5px] text-muted">{category.description}</span>
                     </span>
-                    <span className="flex flex-col items-end gap-1 text-right font-mono text-[11px] text-dim">
+                    <span className="flex flex-col items-end gap-1 text-right font-mono text-xs text-dim">
                       <b className="text-[13px] font-bold text-text-2 tabular-nums">
                         {plural(category.threadCount, "tópico", "tópicos")}
                       </b>
@@ -72,7 +72,7 @@ export default async function ForumPage() {
                       className="flex items-center justify-between gap-3 py-2.5 text-[15px] hover:text-acc"
                     >
                       <span className="truncate">{game.name}</span>
-                      <span className="font-mono text-[11px] text-dim tabular-nums">{game.threadCount}</span>
+                      <span className="font-mono text-xs text-dim tabular-nums">{game.threadCount}</span>
                     </Link>
                   </li>
                 ))}

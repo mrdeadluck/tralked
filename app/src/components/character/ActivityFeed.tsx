@@ -27,7 +27,7 @@ export function ActivityFeed({ items, now }: ActivityFeedProps) {
               <span aria-hidden="true" className="mt-[7px] size-2 bg-(--c)" />
               <div className="min-w-0">
                 <b className="block text-[15px] font-bold">{item.achievementName}</b>
-                <small className="font-mono text-[11px] text-dim">
+                <small className="font-mono text-xs text-dim">
                   {item.gameName}, {RARITY_LABEL[item.rarity].toLowerCase()}
                   {item.globalPct === null ? "" : ` ${formatPercent(item.globalPct)}`},{" "}
                   {formatAgo(item.unlockedAt, now)}

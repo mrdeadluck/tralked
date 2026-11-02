@@ -23,7 +23,7 @@ export function CommunityRanking({ players }: { players: TopPlayer[] }) {
         </h2>
         <Link
           href="/highscores"
-          className="font-mono text-[11px] tracking-[0.08em] text-acc uppercase"
+          className="font-mono text-xs tracking-[0.08em] text-acc uppercase"
         >
           Ver tudo →
         </Link>
@@ -36,7 +36,7 @@ export function CommunityRanking({ players }: { players: TopPlayer[] }) {
           >
             <span
               className={`text-xl font-black font-stretch-[125%] ${
-                index === 0 ? "text-acc" : index < 3 ? "text-text" : "text-ph"
+                index === 0 ? "text-acc" : index < 3 ? "text-text" : "text-dim"
               }`}
             >
               {index + 1}
@@ -57,9 +57,9 @@ export function CommunityRanking({ players }: { players: TopPlayer[] }) {
             <div className="flex flex-col items-end gap-1 font-mono">
               <b className="text-[13px]">
                 {formatXp(player.totalXp)}
-                <small className="text-[10px] font-normal text-dim-2"> XP</small>
+                <small className="text-xs font-normal text-dim-2"> XP</small>
               </b>
-              <span className="text-[10px] tracking-[0.06em] text-[#a3a6ae]">
+              <span className="text-xs tracking-[0.06em] text-[#a3a6ae]">
                 NV {player.level}
               </span>
             </div>

@@ -99,12 +99,12 @@ async function PressList({ area }: { area: PressArea }) {
         {stories.map((story) => (
           <li key={story.id} className="border-b border-divider last:border-b-0">
             <a href={story.href} target="_blank" rel="noopener noreferrer" className="group flex flex-col gap-1 py-3">
-              <span className="font-mono text-[10px] tracking-[0.12em] text-acc uppercase">{story.kicker}</span>
+              <span className="font-mono text-xs tracking-[0.12em] text-acc uppercase">{story.kicker}</span>
               <span className="text-[16px] leading-snug font-bold group-hover:text-acc">
                 {story.title}
                 <span className="sr-only"> (abre em nova aba)</span>
               </span>
-              <span className="font-mono text-[11px] text-dim">
+              <span className="font-mono text-xs text-dim">
                 {story.source} · {story.when}
               </span>
             </a>
@@ -126,7 +126,7 @@ function indexHref(category: string | null, page: number) {
 }
 
 const chip =
-  "inline-flex h-[34px] items-center rounded-[2px] border px-3 font-mono text-[11px] tracking-[0.08em] uppercase transition-colors";
+  "inline-flex h-[34px] items-center rounded-[2px] border px-3 font-mono text-xs tracking-[0.08em] uppercase transition-colors";
 
 /** Reads `?categoria=` and `?pagina=` at request time; the page data itself is cached per pair. */
 async function Archive({ searchParams }: { searchParams: PageProps<"/noticias">["searchParams"] }) {
@@ -181,12 +181,12 @@ async function Archive({ searchParams }: { searchParams: PageProps<"/noticias">[
                   />
                 </div>
                 <div className="flex min-w-0 flex-col justify-center gap-2.5">
-                  <span className="font-mono text-[10px] tracking-[0.12em] text-acc uppercase">{story.kicker}</span>
+                  <span className="font-mono text-xs tracking-[0.12em] text-acc uppercase">{story.kicker}</span>
                   <h3 className="text-[23px] leading-[1.12] font-extrabold font-stretch-[105%] tracking-[-0.02em]">
                     {story.title}
                   </h3>
                   {story.excerpt ? <p className="max-w-[68ch] text-[15.5px] text-muted">{story.excerpt}</p> : null}
-                  <span className="flex flex-wrap gap-3.5 font-mono text-[11.5px] text-dim">
+                  <span className="flex flex-wrap gap-3.5 font-mono text-xs text-dim">
                     <span className="text-text-2">{story.source}</span>
                     <span>{story.when}</span>
                   </span>

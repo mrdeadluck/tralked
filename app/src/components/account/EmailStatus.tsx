@@ -23,7 +23,7 @@ export function EmailStatus({ email, verified, mailOn }: EmailStatusProps) {
   if (verified) {
     return (
       <p className="flex flex-wrap items-center gap-2 text-[14.5px] text-text-2">
-        <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-acc px-2 py-0.5 font-mono text-[11px] font-bold tracking-[0.08em] text-acc uppercase">
+        <span className="inline-flex items-center gap-1.5 rounded-[2px] border border-acc px-2 py-0.5 font-mono text-xs font-bold tracking-[0.08em] text-acc uppercase">
           <span aria-hidden="true">✓</span> E-mail confirmado
         </span>
         <span className="break-all">{email}</span>
@@ -46,7 +46,7 @@ export function EmailStatus({ email, verified, mailOn }: EmailStatusProps) {
   return (
     <div className="flex flex-col items-start gap-3">
       <p className="flex flex-wrap items-center gap-2 text-[14.5px] text-text-2">
-        <span className="inline-flex items-center rounded-[2px] border border-line-2 px-2 py-0.5 font-mono text-[11px] font-bold tracking-[0.08em] text-muted uppercase">
+        <span className="inline-flex items-center rounded-[2px] border border-line-2 px-2 py-0.5 font-mono text-xs font-bold tracking-[0.08em] text-muted uppercase">
           E-mail não confirmado
         </span>
         <span className="break-all">{email}</span>

@@ -26,7 +26,7 @@ const CSS = `
 body:has(.tkw) { overflow-x: clip; }
 .tkw-head { max-width: 1320px; margin: 0 auto; padding: 0 20px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .tkw-head h2 { font-weight: 900; font-stretch: 125%; font-size: 26px; line-height: 1; letter-spacing: -0.03em; text-transform: uppercase; }
-.tkw-head p { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.tkw-head p { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 .tkw-stage { position: relative; padding: 46px 0; cursor: grab; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .tkw-stage[data-dragging] { cursor: grabbing; }
 .tkw-compact .tkw-stage { zoom: .55; }
@@ -42,7 +42,7 @@ body:has(.tkw) { overflow-x: clip; }
 .tkw-btn { width: 36px; height: 36px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); border-radius: 2px; display: grid; place-items: center; cursor: pointer; }
 .tkw-btn:hover { border-color: var(--text); }
 .tkw-btn svg { width: 16px; height: 16px; }
-.tkw-focus { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tkw-focus { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tkw-focus b { color: var(--text); font-weight: 500; }
 
 .tkw-card { flex: 0 0 300px; height: 370px; position: relative; border-radius: 2px; overflow: hidden; display: flex; flex-direction: column; transform: scale(.93); filter: saturate(.7) brightness(.78); transition: transform .6s cubic-bezier(.2,.8,.2,1), filter .6s; -webkit-user-drag: none; }
@@ -52,8 +52,8 @@ body:has(.tkw) { overflow-x: clip; }
 .tkw-arrow { position: absolute; right: 10px; bottom: 10px; width: 16px; height: 16px; z-index: 2; }
 .tkw-brand { display: inline-flex; line-height: 1; }
 .tkw-brand svg { height: .72em; width: auto; }
-.tkw-meta { font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; }
-.tkw-leader { display: flex; gap: 4px; align-items: baseline; font-family: var(--mono); font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase; }
+.tkw-meta { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+.tkw-leader { display: flex; gap: 4px; align-items: baseline; font-family: var(--mono); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
 .tkw-leader i { flex: 1; border-bottom: 1px dotted currentColor; opacity: .5; transform: translateY(-3px); }
 .tkw-hl { font-weight: 500; font-size: 22px; line-height: 1.02; letter-spacing: -0.015em; text-transform: uppercase; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 
@@ -83,7 +83,7 @@ body:has(.tkw) { overflow-x: clip; }
 
 .tkw-portrait { background: var(--bg); color: var(--text); }
 .tkw-portrait .tkw-art { filter: grayscale(1) contrast(1.15); position: absolute; inset: 0; }
-.tkw-portrait .tkw-tag { position: absolute; left: 50%; top: 46%; translate: -50% 0; max-width: 84%; width: max-content; text-align: center; font-family: var(--mono); font-size: 9px; line-height: 1.4; background: rgba(236,236,230,.92); color: var(--ink); padding: 2px 6px; letter-spacing: .08em; text-transform: uppercase; }
+.tkw-portrait .tkw-tag { position: absolute; left: 50%; top: 46%; translate: -50% 0; max-width: 84%; width: max-content; text-align: center; font-family: var(--mono); font-size: 11px; line-height: 1.4; background: rgba(236,236,230,.92); color: var(--ink); padding: 2px 6px; letter-spacing: .08em; text-transform: uppercase; }
 .tkw-portrait .tkw-giant { position: absolute; left: -4px; right: -40px; bottom: -10px; font-weight: 900; font-stretch: 125%; font-size: 66px; line-height: .85; letter-spacing: -0.04em; color: rgba(236,236,230,.86); mix-blend-mode: difference; white-space: nowrap; text-transform: none; }
 
 .tkw-dark { background: var(--bg); color: var(--text); }

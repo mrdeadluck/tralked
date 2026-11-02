@@ -48,13 +48,13 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin 
       </div>
 
       <div>
-        <span className="font-mono text-[10.5px] tracking-[0.14em] text-dim-2 uppercase">
+        <span className="font-mono text-xs tracking-[0.14em] text-dim-2 uppercase">
           Personagem
         </span>
         <h1 className="mt-1.5 text-[clamp(30px,4vw,44px)] leading-none font-black font-stretch-[125%] tracking-[-0.035em] break-words uppercase">
           {character.displayName}
         </h1>
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 font-mono text-[10.5px] tracking-[0.1em] uppercase">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 font-mono text-xs tracking-[0.1em] uppercase">
           <span className="mr-1.5 text-acc">{character.vocation}</span>
           {platforms.length > 0 ? (
             <ul aria-label="Plataformas conectadas" className="m-0 flex list-none flex-wrap gap-1.5 p-0">
@@ -93,7 +93,7 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin 
             <b className="text-[clamp(28px,3.6vw,40px)] leading-none font-black font-stretch-[112%] whitespace-nowrap tabular-nums">
               {`${formatNumber(Math.floor(playtimeMin / 60))} h`}
             </b>
-            <span className="font-mono text-[10.5px] tracking-[0.12em] text-dim-2 uppercase">Horas jogadas</span>
+            <span className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">Horas jogadas</span>
           </span>
         ) : null}
       </div>
@@ -105,13 +105,13 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin 
       <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-[2px] border border-line bg-line min-[641px]:col-span-2 min-[641px]:grid-cols-4">
         {items.map(([label, value, note]) => (
           <div key={label} className="bg-surface px-3.5 py-3">
-            <dt className="font-mono text-[10px] tracking-[0.12em] text-dim-2 uppercase">
+            <dt className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">
               {label}
             </dt>
             <dd className="mt-1 text-2xl font-extrabold font-stretch-[112%] tabular-nums">
               {value}
               {note ? (
-                <small className="mt-0.5 block font-mono text-[10.5px] font-normal tracking-normal text-dim">
+                <small className="mt-0.5 block font-mono text-xs font-normal tracking-normal text-dim">
                   {note}
                 </small>
               ) : null}

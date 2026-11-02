@@ -89,7 +89,7 @@ export function GamePicker({
                 className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2 text-left text-[14px] hover:bg-hover"
               >
                 {g.name}
-                <span className="font-mono text-[11px] text-dim">{g.slug}</span>
+                <span className="font-mono text-xs text-dim">{g.slug}</span>
               </button>
             </li>
           ))}

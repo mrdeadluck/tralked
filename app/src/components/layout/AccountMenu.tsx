@@ -61,7 +61,7 @@ export function AccountMenu({ user }: { user: AccountUser }) {
         className="flex cursor-pointer items-center gap-2.5"
       >
         <span className="flex flex-col items-end font-mono leading-[1.2]">
-          <small className="text-[10px] tracking-[0.1em] text-dim uppercase">{user.handle}</small>
+          <small className="text-xs tracking-[0.1em] text-dim uppercase">{user.handle}</small>
           <b className="text-[13px]">NV {user.level}</b>
         </span>
         {user.avatarUrl?.startsWith("https://") ? (

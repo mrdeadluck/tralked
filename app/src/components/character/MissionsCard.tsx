@@ -31,7 +31,7 @@ export function MissionsCard({ missions, resetLabel }: MissionsCardProps) {
                     {mission.done ? "Concluída: " : ""}
                     {mission.title}
                   </p>
-                  <small className="font-mono text-[11px] text-dim">
+                  <small className="font-mono text-xs text-dim">
                     {mission.kind === "daily" ? "Diária" : "Semanal"}, {shown} de {mission.goal}
                   </small>
                 </div>

@@ -35,7 +35,7 @@ const MESSAGES: Record<ConfirmEmailResult, { title: string; text: string }> = {
 };
 
 const BACK = (
-  <Link href="/conta" className="self-start font-mono text-[11px] tracking-[0.08em] text-acc uppercase hover:underline">
+  <Link href="/conta" className="self-start font-mono text-xs tracking-[0.08em] text-acc uppercase hover:underline">
     Ir para a conta →
   </Link>
 );

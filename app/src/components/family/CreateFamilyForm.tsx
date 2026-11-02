@@ -12,7 +12,7 @@ export function CreateFamilyForm({ defaultName }: { defaultName: string }) {
     <form action={formAction} className="flex flex-col gap-3">
       <label
         htmlFor="family-name"
-        className="font-mono text-[11px] tracking-[0.14em] text-dim uppercase"
+        className="font-mono text-xs tracking-[0.14em] text-dim uppercase"
       >
         Nome da família
       </label>
@@ -33,7 +33,7 @@ export function CreateFamilyForm({ defaultName }: { defaultName: string }) {
           {pending ? "Criando…" : "Criar família"}
         </Button>
       </div>
-      <p id="family-name-hint" className="font-mono text-[11px] text-dim">
+      <p id="family-name-hint" className="font-mono text-xs text-dim">
         De 3 a 40 caracteres. Você pode convidar até 5 pessoas.
       </p>
       {state.error ? (

@@ -38,7 +38,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   return (
     <div className="grid gap-6 nav:grid-cols-[208px_minmax(0,1fr)] nav:gap-10">
       <aside className="flex min-w-0 flex-col gap-3 nav:sticky nav:top-6 nav:self-start">
-        <p className="flex items-center justify-between gap-2 border-b border-line pb-3 font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+        <p className="flex items-center justify-between gap-2 border-b border-line pb-3 font-mono text-xs tracking-[0.08em] text-dim uppercase">
           <span>Redação</span>
           <span className="text-text-3">
             @{user.handle} · {ROLE_LABEL[user.role as Role] ?? user.role}

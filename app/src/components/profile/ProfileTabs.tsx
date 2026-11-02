@@ -25,7 +25,7 @@ export function ProfileTabs({ handle, active }: { handle: string; active: Profil
               <Link
                 href={profilePath(handle, tab.id)}
                 aria-current={current ? "page" : undefined}
-                className={`-mb-px inline-flex h-11 items-center border-b-2 px-3.5 font-mono text-[11.5px] tracking-[0.1em] uppercase ${
+                className={`-mb-px inline-flex h-11 items-center border-b-2 px-3.5 font-mono text-xs tracking-[0.1em] uppercase ${
                   current ? "border-acc font-bold text-text" : "border-transparent text-text-3 hover:text-text"
                 }`}
               >

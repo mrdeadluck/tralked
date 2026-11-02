@@ -47,8 +47,8 @@ const CSS = `
 .tkt-lead h3 { font-weight: 900; font-stretch: 112%; font-size: clamp(28px, 3.2vw, 44px); line-height: .98; letter-spacing: -0.035em; margin: 12px 0 10px; }
 .tkt-lead p { color: var(--text-2); max-width: 52ch; }
 .tkt-sec h3 { font-weight: 800; font-stretch: 105%; font-size: 19px; line-height: 1.12; letter-spacing: -0.015em; margin-top: 8px; }
-.tkt-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; }
-.tkt-kick { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--acc); }
+.tkt-meta { font-family: var(--mono); font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; }
+.tkt-kick { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--acc); }
 .tkt-most { grid-column: 3; grid-row: 1 / span 2; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 20px; display: flex; flex-direction: column; }
 .tkt-most h3 { font-weight: 900; font-stretch: 125%; font-size: 17px; text-transform: uppercase; letter-spacing: -0.02em; padding-bottom: 12px; border-bottom: 1px solid #23252c; }
 .tkt-most ol { list-style: none; margin: 0; padding: 0; counter-reset: mr; }
@@ -58,16 +58,16 @@ const CSS = `
 .tkt-most li:first-child::before { color: var(--acc); }
 .tkt-most a { font-weight: 700; font-size: 14.5px; line-height: 1.25; }
 .tkt-most a:hover { color: var(--acc); }
-.tkt-most small { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 4px; }
+.tkt-most small { display: block; font-family: var(--mono); font-size: 12px; color: var(--dim); margin-top: 4px; }
 .tkt-next { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; list-style: none; margin: 0; padding: 0; }
 .tkt-next a { display: flex; gap: 12px; align-items: center; padding: 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); }
 .tkt-next a:hover strong { color: var(--acc); }
 .tkt-thumb { position: relative; flex: none; width: 112px; height: 64px; border-radius: 2px; overflow: hidden; }
 .tkt-next span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .tkt-next strong { font-weight: 700; font-size: 14px; line-height: 1.25; }
-.tkt-next small { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+.tkt-next small { font-family: var(--mono); font-size: 12px; color: var(--dim); }
 .tkt-empty { grid-column: 1 / -1; padding: 40px 0; color: var(--muted); }
-.tkt-more { grid-column: 1 / -1; justify-self: start; font-family: var(--mono); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--acc); }
+.tkt-more { grid-column: 1 / -1; justify-self: start; font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--acc); }
 .tkt-more:hover { text-decoration: underline; text-underline-offset: 3px; }
 @container (max-width: 1000px) {
   .tkt-panel { grid-template-columns: 1fr 1fr; }

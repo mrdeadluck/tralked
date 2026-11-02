@@ -112,7 +112,7 @@ export function NotificationBell({ unread: serverUnread, items: serverItems }: B
         {unread > 0 ? (
           <span
             aria-hidden="true"
-            className="absolute -top-1.5 -right-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-acc px-1 font-mono text-[10.5px] font-bold text-bg tabular-nums"
+            className="absolute -top-1.5 -right-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-acc px-1 font-mono text-xs font-bold text-bg tabular-nums"
           >
             {countLabel(unread)}
           </span>
@@ -126,7 +126,7 @@ export function NotificationBell({ unread: serverUnread, items: serverItems }: B
         className="absolute top-[calc(100%+8px)] right-0 z-30 flex w-[min(380px,calc(100vw-40px))] flex-col border border-line-2 bg-surface shadow-[0_18px_40px_-12px_rgb(0_0_0/0.7)]"
       >
         <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-          <h2 id={titleId} className="font-mono text-[11px] tracking-[0.12em] text-dim uppercase">
+          <h2 id={titleId} className="font-mono text-xs tracking-[0.12em] text-dim uppercase">
             Notificações
           </h2>
           {unread > 0 ? (
@@ -134,7 +134,7 @@ export function NotificationBell({ unread: serverUnread, items: serverItems }: B
               type="button"
               onClick={markAll}
               disabled={pending}
-              className="min-h-8 cursor-pointer font-mono text-[11px] tracking-[0.06em] text-acc hover:underline hover:underline-offset-3 disabled:cursor-wait disabled:opacity-60"
+              className="min-h-8 cursor-pointer font-mono text-xs tracking-[0.06em] text-acc hover:underline hover:underline-offset-3 disabled:cursor-wait disabled:opacity-60"
             >
               {pending ? "Marcando…" : "Marcar todas como lidas"}
             </button>
@@ -165,7 +165,7 @@ export function NotificationBell({ unread: serverUnread, items: serverItems }: B
                         {item.read ? null : <span className="sr-only"> (não lida)</span>}
                       </span>
                       {item.body ? <span className="line-clamp-2 text-[13px] text-muted">{item.body}</span> : null}
-                      <span className="font-mono text-[10.5px] text-dim">{item.when}</span>
+                      <span className="font-mono text-xs text-dim">{item.when}</span>
                     </span>
                   </span>
                 </>
@@ -187,7 +187,7 @@ export function NotificationBell({ unread: serverUnread, items: serverItems }: B
         <Link
           href="/notificacoes"
           onClick={() => setOpen(false)}
-          className="flex min-h-11 items-center justify-center border-t border-line font-mono text-[11px] tracking-[0.1em] text-text-3 uppercase hover:bg-hover hover:text-text"
+          className="flex min-h-11 items-center justify-center border-t border-line font-mono text-xs tracking-[0.1em] text-text-3 uppercase hover:bg-hover hover:text-text"
         >
           Ver todas
         </Link>

@@ -31,7 +31,7 @@ export function StreakCard({ streak }: StreakCardProps) {
             aria-label={`${day.day.split("-").reverse().slice(0, 2).join("/")}: ${
               day.active ? "com conquista" : "sem conquista"
             }${day.today ? " (hoje)" : ""}`}
-            className={`grid h-[30px] place-items-center rounded-[2px] border font-mono text-[10px] ${
+            className={`grid h-[30px] place-items-center rounded-[2px] border font-mono text-xs ${
               day.today && day.active
                 ? "border-acc bg-acc font-bold text-bg"
                 : day.today

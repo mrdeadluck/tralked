@@ -16,7 +16,7 @@ export type AdFormat = keyof typeof AD_FORMATS;
 export function AdSlot({ format = "leaderboard", className = "" }: { format?: AdFormat; className?: string }) {
   return (
     <aside aria-label="Publicidade" data-ad-slot={format} className={`flex w-full flex-col gap-1.5 ${className}`}>
-      <span className="font-mono text-[11px] tracking-[0.12em] text-dim uppercase">Publicidade</span>
+      <span className="font-mono text-xs tracking-[0.12em] text-dim uppercase">Publicidade</span>
       <div aria-hidden="true" className={`w-full rounded-[2px] border border-line bg-surface ${AD_FORMATS[format]}`} />
     </aside>
   );

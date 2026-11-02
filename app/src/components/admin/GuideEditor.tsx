@@ -314,7 +314,7 @@ export function GuideEditor({ guide }: { guide: GuideForEdit }) {
         </p>
         {guide.achievementNames.length > 0 ? (
           <details className="text-[13px]">
-            <summary className="cursor-pointer font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase hover:text-text">
+            <summary className="cursor-pointer font-mono text-xs tracking-[0.08em] text-text-3 uppercase hover:text-text">
               Ver apiNames Steam do jogo ({guide.achievementNames.filter((a) => a.platform === "steam").length})
             </summary>
             <ul className="m-0 mt-2 grid max-h-[280px] list-none gap-x-6 gap-y-1 overflow-auto p-0 sm:grid-cols-2">

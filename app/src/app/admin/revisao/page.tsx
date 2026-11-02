@@ -59,7 +59,7 @@ export default async function ReviewQueuePage() {
                       <span className="flex flex-wrap justify-end gap-2">
                         <Link
                           href={`/admin/noticias/${a.id}`}
-                          className="inline-flex h-9 items-center rounded-[2px] border border-line-2 px-3 font-mono text-[11px] font-bold tracking-[0.08em] text-text-2 uppercase hover:border-text hover:text-text"
+                          className="inline-flex h-9 items-center rounded-[2px] border border-line-2 px-3 font-mono text-xs font-bold tracking-[0.08em] text-text-2 uppercase hover:border-text hover:text-text"
                         >
                           Revisar
                         </Link>
@@ -107,7 +107,7 @@ export default async function ReviewQueuePage() {
                       <Link href={`/admin/guias/${g.id}`} className="font-semibold hover:text-acc hover:underline hover:underline-offset-4">
                         Guia de {g.gameName}
                       </Link>
-                      <span className="block font-mono text-[11px] text-dim">{g.version}</span>
+                      <span className="block font-mono text-xs text-dim">{g.version}</span>
                     </td>
                     <td className={TD}>
                       {g.source === "bot" ? (

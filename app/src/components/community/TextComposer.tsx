@@ -64,7 +64,7 @@ export function TextComposer({
         className="w-full resize-y rounded-[4px] border border-line-2 bg-surface px-4 py-3 text-[15.5px] leading-relaxed text-text transition-colors focus:border-dim"
       />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span id={`${id}-count`} className="font-mono text-[11px] text-dim tabular-nums">
+        <span id={`${id}-count`} className="font-mono text-xs text-dim tabular-nums">
           {length.toLocaleString("pt-BR")} / {maxLength.toLocaleString("pt-BR")}
         </span>
         <div className="flex gap-2">
@@ -72,7 +72,7 @@ export function TextComposer({
             <button
               type="button"
               onClick={onCancel}
-              className="h-10 cursor-pointer rounded-[2px] border border-line-2 px-4 font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase hover:border-text"
+              className="h-10 cursor-pointer rounded-[2px] border border-line-2 px-4 font-mono text-xs tracking-[0.08em] text-text-3 uppercase hover:border-text"
             >
               Cancelar
             </button>
@@ -80,7 +80,7 @@ export function TextComposer({
           <button
             type="submit"
             disabled={busy}
-            className="h-10 cursor-pointer rounded-[2px] border border-acc bg-acc px-4 font-mono text-[11px] font-bold tracking-[0.1em] text-bg uppercase hover:brightness-[1.08] disabled:cursor-wait disabled:opacity-60"
+            className="h-10 cursor-pointer rounded-[2px] border border-acc bg-acc px-4 font-mono text-xs font-bold tracking-[0.1em] text-bg uppercase hover:brightness-[1.08] disabled:cursor-wait disabled:opacity-60"
           >
             {busy ? "Enviando…" : submitLabel}
           </button>

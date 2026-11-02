@@ -10,11 +10,11 @@ import type { GameAttributes } from "@/lib/queries/game-profile";
 const CSS = `
 .gpa-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); }
 .gpa { background: var(--surface); padding: 18px 16px; display: flex; flex-direction: column; gap: 8px; }
-.gpa-k { font-family: var(--font-jetbrains-mono), monospace; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+.gpa-k { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
 .gpa-v { display: flex; align-items: center; gap: 6px; font-weight: 900; font-stretch: 125%; font-size: 30px; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 .gpa-v svg { width: 12px; height: 12px; color: var(--acc); }
 .gpa p { font-size: 13.5px; color: var(--muted); }
-.gpa-src { margin-top: auto; font-family: var(--font-jetbrains-mono), monospace; font-size: 10px; color: var(--dim); }
+.gpa-src { margin-top: auto; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--dim); }
 @media (max-width: 1000px) { .gpa-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .gpa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 `;

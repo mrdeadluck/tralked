@@ -51,7 +51,7 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
             }`}
           >
             {t.label}
-            <span className="ml-1.5 text-[10.5px] tracking-normal text-dim normal-case">{t.hint}</span>
+            <span className="ml-1.5 text-xs tracking-normal text-dim normal-case">{t.hint}</span>
           </Link>
         ))}
       </nav>
@@ -61,7 +61,7 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
             key={f}
             href={releasesHref(tab, f)}
             aria-current={f === filter ? "page" : undefined}
-            className={`border px-2.5 py-1 font-mono text-[11px] tracking-[0.06em] uppercase ${
+            className={`border px-2.5 py-1 font-mono text-xs tracking-[0.06em] uppercase ${
               f === filter ? "border-text bg-hover text-text" : "border-line-2 text-text-3 hover:text-text"
             }`}
           >
@@ -75,7 +75,7 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
           IGDB. Os do PC vêm da Steam.
         </p>
       ) : null}
-      <p className="-mt-4 font-mono text-[11px] tracking-[0.06em] text-dim">
+      <p className="-mt-4 font-mono text-xs tracking-[0.06em] text-dim">
         {releases.length} {releases.length === 1 ? "JOGO" : "JOGOS"} · {tabInfo.hint.toUpperCase()} · {filterLabel(filter).toUpperCase()}
       </p>
       {groups.length > 0 ? (

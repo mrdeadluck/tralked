@@ -15,7 +15,7 @@ export function Collectibles({ collectibles }: { collectibles: Collectible[] }) 
             key={item.name}
             className="flex flex-col gap-2.5 rounded-[4px] border border-line bg-surface p-[18px]"
           >
-            <span className="font-mono text-[10.5px] tracking-[0.14em] text-dim-2 uppercase">
+            <span className="font-mono text-xs tracking-[0.14em] text-dim-2 uppercase">
               {item.name}
             </span>
             <span className="text-[30px] leading-none font-black font-stretch-[125%] tracking-[-0.03em]">

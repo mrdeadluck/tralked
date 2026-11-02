@@ -53,7 +53,7 @@ export function TipRow({ tip, loggedIn, returnTo, pending = false }: TipRowProps
         className="size-10 rounded-full bg-[repeating-linear-gradient(135deg,#1C1E24_0_4px,#24262D_4px_8px)]"
       />
       <div>
-        <div className="flex flex-wrap gap-3.5 font-mono text-[11.5px] text-dim">
+        <div className="flex flex-wrap gap-3.5 font-mono text-xs text-dim">
           <span className="text-text-2">{tip.authorHandle ? `@${tip.authorHandle}` : "Anônimo"}</span>
           {tip.authorLevel !== null ? <span>NV {tip.authorLevel}</span> : null}
         </div>

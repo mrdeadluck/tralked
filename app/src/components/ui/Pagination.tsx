@@ -23,7 +23,7 @@ type PaginationProps = {
 };
 
 const BOX =
-  "inline-flex h-[34px] min-w-[34px] items-center justify-center rounded-[2px] border px-2.5 font-mono text-[11px] tracking-[0.06em] tabular-nums";
+  "inline-flex h-[34px] min-w-[34px] items-center justify-center rounded-[2px] border px-2.5 font-mono text-xs tracking-[0.06em] tabular-nums";
 const IDLE = `${BOX} border-line-2 text-text-3 hover:border-dim hover:text-text`;
 const CURRENT = `${BOX} border-text bg-text font-bold text-bg`;
 const DISABLED = `${BOX} border-line text-dim-2`;
@@ -63,7 +63,7 @@ export function Pagination({
 
   return (
     <nav aria-label={label} className="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-      <p className="font-mono text-[11px] tracking-[0.06em] text-dim">
+      <p className="font-mono text-xs tracking-[0.06em] text-dim">
         {nf(first)}–{nf(last)} de {nf(total)} {total === 1 ? noun[0] : noun[1]}
       </p>
 
@@ -73,7 +73,7 @@ export function Pagination({
           <li>{edge(page - 1, "‹ Anterior", "Página anterior", page > 1)}</li>
           {pageItems(page, totalPages).map((item, index) =>
             item === "gap" ? (
-              <li key={`gap-${index}`} aria-hidden="true" className="px-1 font-mono text-[11px] text-dim">
+              <li key={`gap-${index}`} aria-hidden="true" className="px-1 font-mono text-xs text-dim">
                 …
               </li>
             ) : (
@@ -98,7 +98,7 @@ export function Pagination({
 
       {total > PER_PAGE_OPTIONS[0] ? (
         <div className="flex items-center gap-1.5" role="group" aria-label="Itens por página">
-          <span aria-hidden="true" className="mr-1 font-mono text-[10.5px] tracking-[0.12em] text-dim-2 uppercase">
+          <span aria-hidden="true" className="mr-1 font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">
             Por página
           </span>
           {PER_PAGE_OPTIONS.map((size) =>

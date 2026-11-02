@@ -75,7 +75,7 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
   if (!header.profilePublic && !isOwner) {
     return (
       <Card className="mx-auto max-w-xl text-center">
-        <span className="font-mono text-[10.5px] tracking-[0.14em] text-dim-2 uppercase">
+        <span className="font-mono text-xs tracking-[0.14em] text-dim-2 uppercase">
           Personagem
         </span>
         <h1 className="mt-1.5 text-3xl leading-none font-black font-stretch-[125%] tracking-[-0.035em] break-words uppercase">

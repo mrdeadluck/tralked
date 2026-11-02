@@ -36,7 +36,7 @@ export function ForumList({ threads, showSection = false, empty, label }: ForumL
                 {thread.title}
               </Link>
             </div>
-            <p className="font-mono text-[11px] text-dim">
+            <p className="font-mono text-xs text-dim">
               {thread.author ? `@${thread.author.handle}` : "Conta removida"}
               {showSection && (thread.category || thread.game) ? (
                 <>
@@ -57,7 +57,7 @@ export function ForumList({ threads, showSection = false, empty, label }: ForumL
           </span>
           <time
             dateTime={new Date(thread.lastPostAt).toISOString()}
-            className="text-right font-mono text-[11px] text-dim max-[700px]:col-span-2 max-[700px]:text-left"
+            className="text-right font-mono text-xs text-dim max-[700px]:col-span-2 max-[700px]:text-left"
           >
             {formatWhen(thread.lastPostAt)}
           </time>
@@ -70,7 +70,7 @@ export function ForumList({ threads, showSection = false, empty, label }: ForumL
 function Mark({ icon, label, tone }: { icon: ReactNode; label: string; tone: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 border border-line-2 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.1em] uppercase ${tone}`}
+      className={`inline-flex items-center gap-1 border border-line-2 px-1.5 py-0.5 font-mono text-xs tracking-[0.1em] uppercase ${tone}`}
     >
       {icon}
       {label}

@@ -32,7 +32,7 @@ export default function ErrorPage({ error, retry }: { error: unknown; retry: () 
           Ir para as notícias
         </Link>
       </div>
-      {digest ? <p className="font-mono text-[11px] text-dim">Código do erro: {digest}</p> : null}
+      {digest ? <p className="font-mono text-xs text-dim">Código do erro: {digest}</p> : null}
     </section>
   );
 }

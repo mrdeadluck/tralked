@@ -149,7 +149,7 @@ async function ProfileAchievements({
               <input key={key} type="hidden" name={key} value={value} />
             ))}
             <label className="flex flex-col gap-1.5">
-              <span className="font-mono text-[10.5px] tracking-[0.12em] text-dim-2 uppercase">Jogo</span>
+              <span className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">Jogo</span>
               <select
                 // Uncontrolled: remount when the URL's game changes (client navigation keeps the DOM).
                 key={game ?? ""}
@@ -167,14 +167,14 @@ async function ProfileAchievements({
             </label>
             <button
               type="submit"
-              className="h-[38px] cursor-pointer rounded-[2px] border border-acc px-4 font-mono text-[11px] font-bold tracking-[0.1em] text-acc uppercase hover:bg-acc hover:text-bg"
+              className="h-[38px] cursor-pointer rounded-[2px] border border-acc px-4 font-mono text-xs font-bold tracking-[0.1em] text-acc uppercase hover:bg-acc hover:text-bg"
             >
               Filtrar
             </button>
           </form>
         ) : null}
 
-        <p className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase" aria-live="polite">
+        <p className="font-mono text-xs tracking-[0.08em] text-dim uppercase" aria-live="polite">
           {result.total.toLocaleString("pt-BR")} {result.total === 1 ? "conquista" : "conquistas"}
         </p>
         {result.items.length > 0 ? (

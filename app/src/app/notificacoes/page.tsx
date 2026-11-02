@@ -85,7 +85,7 @@ function Row({ item, when }: { item: NotificationView; when: string }) {
         </span>
         {item.body ? <span className="max-w-[68ch] text-[14.5px] text-muted">{item.body}</span> : null}
       </span>
-      <time dateTime={item.createdAt.toISOString()} className="font-mono text-[11px] whitespace-nowrap text-dim">
+      <time dateTime={item.createdAt.toISOString()} className="font-mono text-xs whitespace-nowrap text-dim">
         {when}
       </time>
     </span>

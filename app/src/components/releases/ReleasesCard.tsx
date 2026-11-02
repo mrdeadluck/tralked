@@ -75,7 +75,7 @@ export function ReleasesCard({ data }: { data: ReleasesCardData }) {
                 aria-pressed={on}
                 onClick={() => setFilter(f)}
                 style={f === "TODAS" ? undefined : { borderColor: on ? RELEASE_PLATFORM_COLOR[f] : undefined }}
-                className={`border px-2.5 py-1 font-mono text-[11px] tracking-[0.06em] uppercase ${
+                className={`border px-2.5 py-1 font-mono text-xs tracking-[0.06em] uppercase ${
                   on ? "border-text bg-hover text-text" : "border-line-2 text-text-3 hover:text-text"
                 }`}
               >

@@ -73,7 +73,7 @@ export function ListSearch({ basePath, params, q = "", label, placeholder, ancho
 
   return (
     <form role="search" action={anchor ? `${basePath}#${anchor}` : basePath} method="get" onSubmit={onSubmit} className="flex max-w-[560px] flex-col gap-1.5">
-      <label htmlFor={inputId} className="font-mono text-[10.5px] tracking-[0.12em] text-dim-2 uppercase">
+      <label htmlFor={inputId} className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">
         {label}
       </label>
       <div className="flex gap-2">
@@ -103,14 +103,14 @@ export function ListSearch({ basePath, params, q = "", label, placeholder, ancho
             className="min-w-0 flex-1 border-0 bg-transparent text-sm text-text outline-0"
           />
           {pending ? (
-            <span className="font-mono text-[10px] text-dim" aria-hidden="true">
+            <span className="font-mono text-xs text-dim" aria-hidden="true">
               …
             </span>
           ) : null}
         </span>
         <button
           type="submit"
-          className="h-[42px] cursor-pointer rounded-[2px] border border-acc px-4 font-mono text-[11px] font-bold tracking-[0.1em] text-acc uppercase hover:bg-acc hover:text-bg"
+          className="h-[42px] cursor-pointer rounded-[2px] border border-acc px-4 font-mono text-xs font-bold tracking-[0.1em] text-acc uppercase hover:bg-acc hover:text-bg"
         >
           Buscar
         </button>

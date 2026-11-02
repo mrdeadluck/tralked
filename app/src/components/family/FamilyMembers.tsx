@@ -11,7 +11,7 @@ export function FamilyMembers({ members, maxMembers, meId }: FamilyMembersProps)
   const hasPrivate = members.some((m) => !m.profilePublic);
   return (
     <div className="flex flex-col gap-3">
-      <p className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+      <p className="font-mono text-xs tracking-[0.08em] text-dim uppercase">
         {members.length} de {maxMembers} membros
       </p>
       <ul className="flex flex-col divide-y divide-line rounded-[4px] border border-line bg-surface">

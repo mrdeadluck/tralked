@@ -67,7 +67,7 @@ export function RankRow({
             </Link>
             <span className="hs-you-tag text-acc"> (você)</span>
           </span>
-          <span className="truncate font-mono text-[11px] text-muted">
+          <span className="truncate font-mono text-xs text-muted">
             {row.vocation}, {display.detail}
           </span>
         </span>
@@ -77,7 +77,7 @@ export function RankRow({
       </span>
       <span className="col-start-4 row-start-1 flex items-baseline justify-end gap-1.5 whitespace-nowrap sm:col-start-5">
         <b className="text-lg font-black font-stretch-[125%] tabular-nums">{display.value.toLocaleString("pt-BR")}</b>
-        <span className="font-mono text-[11px] text-muted">{display.unit}</span>
+        <span className="font-mono text-xs text-muted">{display.unit}</span>
       </span>
     </li>
   );

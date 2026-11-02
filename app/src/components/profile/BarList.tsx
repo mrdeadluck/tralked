@@ -15,7 +15,7 @@ export function BarList({ title, bars, empty }: { title: string; bars: Bar[]; em
   const max = Math.max(0, ...bars.map((b) => b.value));
   return (
     <section className="rounded-[4px] border border-line bg-surface p-5">
-      <h3 className="font-mono text-[11px] tracking-[0.12em] text-dim-2 uppercase">{title}</h3>
+      <h3 className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">{title}</h3>
       {bars.length === 0 || max === 0 ? (
         <p className="mt-3 text-sm text-muted">{empty}</p>
       ) : (

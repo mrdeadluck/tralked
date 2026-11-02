@@ -58,7 +58,7 @@ export function YouAreHere({
       <div className="flex min-w-0 items-center gap-3">
         <PlayerAvatar avatarUrl={row.avatarUrl} displayName={row.displayName} size={40} medal="var(--acc)" />
         <div className="flex min-w-0 flex-col">
-          <span className="font-mono text-[11px] text-acc">Você está aqui</span>
+          <span className="font-mono text-xs text-acc">Você está aqui</span>
           <span className="flex items-baseline gap-2">
             <span className="text-[26px] leading-none font-black font-stretch-[125%] tabular-nums">
               <span aria-hidden="true">#</span>
@@ -72,7 +72,7 @@ export function YouAreHere({
       <div className="flex min-w-0 flex-col items-start gap-0.5 sm:items-end">
         <span className="flex items-baseline gap-1.5">
           <CountUp value={display.value} delay={700} className="text-lg font-black font-stretch-[125%] tabular-nums" />
-          <span className="font-mono text-[11px] text-muted">{display.unit}</span>
+          <span className="font-mono text-xs text-muted">{display.unit}</span>
         </span>
         <span className="text-[13px] text-text-2">
           {above ? gapText(board, row, above) : "Você lidera este ranking."}
@@ -101,7 +101,7 @@ function Action({ href, children }: { href: string; children: ReactNode }) {
   return (
     <Link
       href={href}
-      className="inline-flex h-9 shrink-0 items-center rounded-[2px] border border-acc px-3 font-mono text-[11px] tracking-[0.08em] text-acc uppercase hover:bg-acc hover:text-bg"
+      className="inline-flex h-9 shrink-0 items-center rounded-[2px] border border-acc px-3 font-mono text-xs tracking-[0.08em] text-acc uppercase hover:bg-acc hover:text-bg"
     >
       {children}
     </Link>

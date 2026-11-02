@@ -13,7 +13,7 @@ export function Chip({ color, plain = false, children }: ChipProps) {
   return (
     <span
       style={style}
-      className={`inline-flex items-center gap-[5px] border border-line-2 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.1em] text-(--c,var(--text-3)) uppercase ${
+      className={`inline-flex items-center gap-[5px] border border-line-2 px-1.5 py-0.5 font-mono text-xs tracking-[0.1em] text-(--c,var(--text-3)) uppercase ${
         plain
           ? ""
           : "before:size-[5px] before:bg-(--c,var(--text-3)) before:content-['']"

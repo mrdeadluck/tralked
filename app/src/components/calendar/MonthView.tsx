@@ -110,7 +110,7 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject,
             </nav>
           </div>
           {subject ? <div className="text-[14.5px] text-muted">{subject}</div> : null}
-          <ul aria-label="Legenda" className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1.5 p-0 font-mono text-[11px] text-text-3">
+          <ul aria-label="Legenda" className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1.5 p-0 font-mono text-xs text-text-3">
             {kinds.map((k) => (
               <li key={k} className="flex items-center gap-1.5">
                 <span aria-hidden="true" className="size-2 rounded-full" style={{ background: KIND_COLOR[k] }} />
@@ -127,7 +127,7 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject,
               <thead>
                 <tr>
                   {WEEKDAYS.map((w) => (
-                    <th key={w.short} scope="col" className="pb-2 text-left font-mono text-[11px] font-normal tracking-[0.08em] text-dim uppercase">
+                    <th key={w.short} scope="col" className="pb-2 text-left font-mono text-xs font-normal tracking-[0.08em] text-dim uppercase">
                       <abbr title={w.long} className="no-underline">
                         {w.short}
                       </abbr>
@@ -161,13 +161,13 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject,
                             </a>
                             <ul aria-hidden="true" className="m-0 flex min-w-0 list-none flex-col gap-0.5 p-0">
                               {list.slice(0, PER_CELL).map((e, i) => (
-                                <li key={i} className="flex min-w-0 items-center gap-1 text-[11.5px] leading-tight text-text-3">
+                                <li key={i} className="flex min-w-0 items-center gap-1 text-xs leading-tight text-text-3">
                                   <span className="size-1.5 shrink-0 rounded-full" style={{ background: KIND_COLOR[e.kind] }} />
                                   <span className="truncate">{e.title}</span>
                                 </li>
                               ))}
                               {list.length > PER_CELL ? (
-                                <li className="font-mono text-[10.5px] text-dim">+{list.length - PER_CELL}</li>
+                                <li className="font-mono text-xs text-dim">+{list.length - PER_CELL}</li>
                               ) : null}
                             </ul>
                           </div>
@@ -203,7 +203,7 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject,
                       <li key={i} className="flex min-w-0 gap-2.5">
                         <span aria-hidden="true" className="mt-[7px] size-2 shrink-0 rounded-full" style={{ background: KIND_COLOR[e.kind] }} />
                         <span className="flex min-w-0 flex-col">
-                          <span className="font-mono text-[10.5px] tracking-[0.08em] text-dim uppercase">{EVENT_KIND_LABEL[e.kind]}</span>
+                          <span className="font-mono text-xs tracking-[0.08em] text-dim uppercase">{EVENT_KIND_LABEL[e.kind]}</span>
                           {e.href ? (
                             <Link href={e.href} className="font-bold leading-snug hover:text-acc">
                               {e.title}

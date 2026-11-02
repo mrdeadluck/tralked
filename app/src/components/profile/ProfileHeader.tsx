@@ -19,13 +19,13 @@ export function ProfileHeader({ summary, section }: { summary: ProfileSummary; s
         )}
       </div>
       <div className="min-w-[180px] flex-1">
-        <span className="font-mono text-[10.5px] tracking-[0.14em] text-dim-2 uppercase">{section}</span>
+        <span className="font-mono text-xs tracking-[0.14em] text-dim-2 uppercase">{section}</span>
         <h1 className="mt-1 text-[clamp(26px,3.4vw,36px)] leading-none font-black font-stretch-[125%] tracking-[-0.03em] break-words uppercase">
           <Link href={profilePath(summary.handle)} className="hover:text-acc">
             {summary.displayName}
           </Link>
         </h1>
-        <p className="mt-1.5 font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+        <p className="mt-1.5 font-mono text-xs tracking-[0.08em] text-dim uppercase">
           @{summary.handle} · <span className="text-acc">{summary.vocation}</span> · Nível {summary.level}
         </p>
       </div>
@@ -42,7 +42,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   const digits = value.replace(/\D/g, "").length;
   return (
     <div className="min-w-0 flex-1 bg-surface px-4 py-2.5 min-[641px]:flex-none">
-      <dt className="font-mono text-[10px] tracking-[0.12em] whitespace-nowrap text-dim-2 uppercase">{label}</dt>
+      <dt className="font-mono text-xs tracking-[0.12em] whitespace-nowrap text-dim-2 uppercase">{label}</dt>
       <dd
         className={`m-0 font-extrabold font-stretch-[112%] whitespace-nowrap tabular-nums ${digits >= 5 ? "text-lg" : "text-xl"}`}
       >

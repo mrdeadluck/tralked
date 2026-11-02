@@ -42,7 +42,7 @@ export function ReleaseItem({ release, size = "sm" }: { release: ReleaseView; si
         >
           {release.name}
         </span>
-        <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[11.5px] text-muted">
+        <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-xs text-muted">
           {release.day ? (
             <time dateTime={release.day} className="text-text-2">
               {release.dateText}

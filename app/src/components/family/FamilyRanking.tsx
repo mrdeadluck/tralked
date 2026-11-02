@@ -26,7 +26,7 @@ export function FamilyRanking({ rankings, meHandle }: FamilyRankingProps) {
       <div className="flex flex-wrap items-center gap-3 pb-3">
         <label
           htmlFor={selectId}
-          className="font-mono text-[11px] tracking-[0.14em] text-dim uppercase"
+          className="font-mono text-xs tracking-[0.14em] text-dim uppercase"
         >
           Skill
         </label>
@@ -51,7 +51,7 @@ export function FamilyRanking({ rankings, meHandle }: FamilyRankingProps) {
         <div role="region" tabIndex={0} aria-label="Tabela de ranking da família" className="overflow-x-auto">
           <table className="w-full border-collapse tabular-nums">
             <thead>
-              <tr className="font-mono text-[10.5px] tracking-[0.14em] text-dim-2 uppercase">
+              <tr className="font-mono text-xs tracking-[0.14em] text-dim-2 uppercase">
                 <th scope="col" className="px-3 py-3.5 text-left font-normal">#</th>
                 <th scope="col" className="px-3 py-3.5 text-left font-normal">Jogador</th>
                 <th scope="col" className="px-3 py-3.5 text-left font-normal">Vocação</th>
@@ -73,7 +73,7 @@ export function FamilyRanking({ rankings, meHandle }: FamilyRankingProps) {
                   >
                     <td
                       className={`w-14 px-3 py-3.5 text-xl font-black font-stretch-[125%] whitespace-nowrap ${
-                        index === 0 ? "text-acc" : index < 3 ? "text-text" : "text-ph"
+                        index === 0 ? "text-acc" : index < 3 ? "text-text" : "text-dim"
                       }`}
                     >
                       {index + 1}

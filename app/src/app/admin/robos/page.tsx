@@ -86,7 +86,7 @@ export default async function RobotsPage({ searchParams }: PageProps<"/admin/rob
                     <td className={TD}>
                       <span className="flex flex-wrap gap-1">
                         {k.scopes.map((s) => (
-                          <code key={s} className="rounded-[2px] border border-line-2 px-1.5 py-0.5 font-mono text-[11px]">
+                          <code key={s} className="rounded-[2px] border border-line-2 px-1.5 py-0.5 font-mono text-xs">
                             {s}
                           </code>
                         ))}
@@ -126,7 +126,7 @@ export default async function RobotsPage({ searchParams }: PageProps<"/admin/rob
       <section id="log" className="flex scroll-mt-6 flex-col gap-4">
         <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line pb-2">
           <h2 className="text-[17px] leading-[1.1] font-black font-stretch-[125%] tracking-[-0.01em] uppercase">Log de ingestão</h2>
-          <span className="font-mono text-[11px] tracking-[0.06em] text-dim">{log.total} registros</span>
+          <span className="font-mono text-xs tracking-[0.06em] text-dim">{log.total} registros</span>
         </div>
         <form action="/admin/robos#log" className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1">
@@ -170,7 +170,7 @@ export default async function RobotsPage({ searchParams }: PageProps<"/admin/rob
           </div>
           <button
             type="submit"
-            className="inline-flex h-9 cursor-pointer items-center rounded-[2px] border border-line-2 px-3 font-mono text-[11px] font-bold tracking-[0.08em] text-text-2 uppercase hover:border-text hover:text-text"
+            className="inline-flex h-9 cursor-pointer items-center rounded-[2px] border border-line-2 px-3 font-mono text-xs font-bold tracking-[0.08em] text-text-2 uppercase hover:border-text hover:text-text"
           >
             Filtrar
           </button>
@@ -198,7 +198,7 @@ export default async function RobotsPage({ searchParams }: PageProps<"/admin/rob
                     <td className={`${TD} text-[13px]`}>{keyName.get(row.keyId) ?? row.keyName}</td>
                     <td className={TD}>
                       <span className="text-[13px]">{row.kind === "guide" ? "Guia" : "Notícia"}</span>
-                      <code className="block max-w-[200px] truncate font-mono text-[11px] text-dim" title={row.idempotencyKey}>
+                      <code className="block max-w-[200px] truncate font-mono text-xs text-dim" title={row.idempotencyKey}>
                         {row.idempotencyKey}
                       </code>
                     </td>

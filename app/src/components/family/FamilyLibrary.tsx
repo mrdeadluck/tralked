@@ -112,7 +112,7 @@ export function FamilyLibrary({ view, searchParams }: { view: FamilyLibraryView;
         options={FAMILY_SORTS.map((s) => ({ id: s, label: SORT_LABEL[s], href: link({ ordem: s === "nome" ? undefined : s }) }))}
         current={sort}
       />
-      <p className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase" aria-live="polite">
+      <p className="font-mono text-xs tracking-[0.08em] text-dim uppercase" aria-live="polite">
         {list.total.toLocaleString("pt-BR")} {list.total === 1 ? "jogo" : "jogos"}
         {q ? ` para “${q}”` : ""}. {OWNERSHIP_HINT[ownership]}
       </p>

@@ -129,7 +129,7 @@ export function UploadPhoto({ games, loggedIn, returnTo, defaultGame, pending = 
             <>
               <UploadIcon width={22} height={22} className="text-acc" />
               <span className="text-[14px] font-bold">Escolher foto</span>
-              <span className="font-mono text-[10.5px] text-dim">JPEG, PNG ou WebP · reduzimos para 2048 px antes de enviar</span>
+              <span className="font-mono text-xs text-dim">JPEG, PNG ou WebP · reduzimos para 2048 px antes de enviar</span>
             </>
           )}
           <input

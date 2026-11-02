@@ -125,7 +125,7 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
         <LinkChips label="Ordenar jogos" caption="Ordenar" options={sortChips} current={sort} />
       </div>
 
-      <p className="mb-3.5 font-mono text-[11px] tracking-[0.06em] text-dim" aria-live="polite">
+      <p className="mb-3.5 font-mono text-xs tracking-[0.06em] text-dim" aria-live="polite">
         {total.toLocaleString("pt-BR")} {total === 1 ? "JOGO" : "JOGOS"}
         {q ? ` PARA “${q.toUpperCase()}”` : ""}
         {stubTotal > 0

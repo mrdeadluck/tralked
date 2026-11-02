@@ -49,7 +49,7 @@ export function BlockEditor({ label, value, onChange, hint }: BlockEditorProps) 
           {hint ? <span className={HINT}>{hint}</span> : null}
         </div>
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[11px] text-dim tabular-nums" aria-live="polite">
+          <span className="font-mono text-xs text-dim tabular-nums" aria-live="polite">
             {value.length} {value.length === 1 ? "bloco" : "blocos"}
             {invalid > 0 ? <span className="text-nin"> · {invalid} com erro</span> : null}
           </span>
@@ -60,7 +60,7 @@ export function BlockEditor({ label, value, onChange, hint }: BlockEditorProps) 
                 type="button"
                 aria-pressed={mode === m}
                 onClick={() => setMode(m)}
-                className={`h-9 cursor-pointer border px-3 font-mono text-[11px] tracking-[0.08em] uppercase first:rounded-l-[2px] last:rounded-r-[2px] ${
+                className={`h-9 cursor-pointer border px-3 font-mono text-xs tracking-[0.08em] uppercase first:rounded-l-[2px] last:rounded-r-[2px] ${
                   mode === m ? "border-acc bg-acc text-bg" : "border-line-2 text-text-3 hover:text-text"
                 }`}
               >
@@ -112,7 +112,7 @@ export function BlockEditor({ label, value, onChange, hint }: BlockEditorProps) 
                         Bloco {i + 1}: {BLOCK_TYPE_LABEL[draft.type]}
                       </legend>
                       <div className="flex items-center justify-between gap-2">
-                        <span aria-hidden="true" className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+                        <span aria-hidden="true" className="font-mono text-xs tracking-[0.08em] text-dim uppercase">
                           {String(i + 1).padStart(2, "0")} · {BLOCK_TYPE_LABEL[draft.type]}
                         </span>
                         <span className="flex gap-1">
@@ -146,7 +146,7 @@ export function BlockEditor({ label, value, onChange, hint }: BlockEditorProps) 
             </ol>
           )}
           <div className="flex flex-col gap-2">
-            <span id={`${id}-add`} className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+            <span id={`${id}-add`} className="font-mono text-xs tracking-[0.08em] text-dim uppercase">
               Adicionar bloco
             </span>
             <div role="group" aria-labelledby={`${id}-add`} className="flex flex-wrap gap-1.5">

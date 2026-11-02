@@ -73,7 +73,7 @@ export default async function FeedsPage() {
                       </span>
                     </div>
                     <details>
-                      <summary className="cursor-pointer font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase hover:text-text">
+                      <summary className="cursor-pointer font-mono text-xs tracking-[0.08em] text-text-3 uppercase hover:text-text">
                         Editar
                       </summary>
                       <div className="pt-3">

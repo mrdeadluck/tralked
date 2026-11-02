@@ -14,7 +14,7 @@ export function CardHead({ title, aside }: CardHeadProps) {
         {title}
       </h2>
       {aside ? (
-        <span className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+        <span className="font-mono text-xs tracking-[0.08em] text-dim uppercase">
           {aside}
         </span>
       ) : null}

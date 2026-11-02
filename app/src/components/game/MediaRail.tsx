@@ -28,7 +28,7 @@ const CSS = `
 button.gpr-tile { cursor: pointer; }
 .gpr-over { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 14px; background: linear-gradient(180deg, transparent 40%, rgba(6,6,8,.9)); }
 .gpr-over b { font-weight: 800; font-size: 16px; line-height: 1.2; }
-.gpr-over small { font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; color: var(--muted); }
+.gpr-over small { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--muted); }
 .gpr-play { position: absolute; left: 50%; top: 42%; translate: -50% -50%; width: 52px; height: 52px; border-radius: 50%; background: rgba(11,12,15,.6); border: 1px solid rgba(236,236,230,.3); display: grid; place-items: center; transition: transform .2s, background .2s, color .2s; }
 .gpr-play svg { width: 18px; height: 18px; margin-left: 3px; }
 button.gpr-tile:hover .gpr-play, button.gpr-tile:focus-visible .gpr-play { transform: scale(1.1); background: var(--acc); color: var(--bg); }

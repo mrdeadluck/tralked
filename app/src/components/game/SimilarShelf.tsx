@@ -14,7 +14,7 @@ const CSS = `
 .gpe a:hover .gpe-box, .gpe a:focus-visible .gpe-box { transform: rotateY(-2deg) translateY(-6px); box-shadow: -3px 0 0 #0d0e12, 0 26px 36px -10px rgba(0,0,0,.9), 0 0 0 1px var(--acc); }
 .gpe-top { position: absolute; top: 0; left: 0; right: 0; height: 12%; background: var(--bg); border-bottom: 2px solid var(--acc); }
 .gpe-nm { position: absolute; bottom: 8%; left: 0; right: 0; text-align: center; font-weight: 900; font-stretch: 125%; font-size: min(13px, calc(134px / var(--longest, 1))); line-height: .95; text-transform: uppercase; padding: 0 8px; text-shadow: 0 2px 10px rgba(0,0,0,.8); overflow-wrap: normal; word-break: normal; hyphens: manual; }
-.gpe small { font-family: var(--font-jetbrains-mono), monospace; font-size: 10.5px; color: var(--muted); }
+.gpe small { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--muted); }
 .gpe small b { color: var(--acc); font-weight: 500; }
 .gpe-empty { color: var(--muted); }
 `;

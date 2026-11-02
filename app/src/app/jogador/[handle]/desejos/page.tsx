@@ -59,7 +59,7 @@ async function ProfileWishlist({
       <ProfileHeader summary={summary} section="Lista de desejos" />
       <ProfileTabs handle={header.handle} active="desejos" />
 
-      <p className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+      <p className="font-mono text-xs tracking-[0.08em] text-dim uppercase">
         {wishlist.length.toLocaleString("pt-BR")} {wishlist.length === 1 ? "jogo" : "jogos"} · lista de desejos da Steam
       </p>
       {list.items.length > 0 ? (
@@ -68,7 +68,7 @@ async function ProfileWishlist({
             <li key={item.gameId} className="flex flex-col overflow-hidden rounded-[4px] border border-line bg-surface">
               <div className="relative [&>*]:rounded-none">
                 <GameCover name={item.name} coverUrl={item.coverUrl} lazy />
-                <span className="absolute top-2 left-2 bg-bg px-1.5 py-0.5 font-mono text-[10px] font-bold text-text">
+                <span className="absolute top-2 left-2 bg-bg px-1.5 py-0.5 font-mono text-xs font-bold text-text">
                   #{list.offset + index + 1}
                 </span>
               </div>
@@ -84,7 +84,7 @@ async function ProfileWishlist({
                   </span>
                 ) : null}
                 {item.addedAt ? (
-                  <p className="mt-auto font-mono text-[11px] text-dim">Adicionado em {formatDate(item.addedAt)}</p>
+                  <p className="mt-auto font-mono text-xs text-dim">Adicionado em {formatDate(item.addedAt)}</p>
                 ) : null}
               </div>
             </li>

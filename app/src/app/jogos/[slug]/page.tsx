@@ -58,10 +58,10 @@ const CSS = `
 @keyframes gp-failsafe-ring { to { stroke-dasharray: var(--ring); } }
 .gp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 2px solid var(--text); margin-bottom: 20px; flex-wrap: wrap; }
 .gp-head h2 { font-weight: 900; font-stretch: 125%; font-size: 26px; line-height: 1; letter-spacing: -0.03em; text-transform: uppercase; }
-.gp-aside { font-family: var(--font-jetbrains-mono), monospace; font-size: 11.5px; letter-spacing: .06em; color: var(--muted); }
+.gp-aside { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .06em; color: var(--muted); }
 a.gp-aside, .gp-aside-link { color: var(--acc); text-transform: uppercase; letter-spacing: .08em; }
 a.gp-aside:hover { text-decoration: underline; text-underline-offset: 3px; }
-.gp-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 2px; border: 1px solid var(--border-2); background: transparent; font-family: var(--font-jetbrains-mono), monospace; font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; color: var(--text); white-space: nowrap; }
+.gp-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 2px; border: 1px solid var(--border-2); background: transparent; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; color: var(--text); white-space: nowrap; }
 .gp-btn:hover { border-color: var(--text); }
 .gp-btn svg { width: 16px; height: 16px; }
 .gp-btn-acc { background: var(--acc); border-color: var(--acc); color: var(--bg); }
@@ -75,7 +75,7 @@ a.gp-aside:hover { text-decoration: underline; text-underline-offset: 3px; }
 .gp-side h3 { font-weight: 900; font-stretch: 125%; font-size: 18px; text-transform: uppercase; letter-spacing: -0.02em; }
 .gp-side p { font-size: 14px; color: var(--muted); }
 .gp-side .gpf { align-self: stretch; }
-.gp-credits { font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; letter-spacing: .04em; color: var(--dim); margin-top: -32px; }
+.gp-credits { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .04em; color: var(--dim); margin-top: -32px; }
 .gp-credits a { color: var(--text-2); text-decoration: underline; text-decoration-color: var(--border-2); text-underline-offset: 3px; }
 .gp-credits a:hover { color: var(--acc); text-decoration-color: currentColor; }
 @media (max-width: 1000px) { .gp-gal { grid-template-columns: 1fr; } }

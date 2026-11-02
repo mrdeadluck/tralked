@@ -63,8 +63,8 @@ export function Podium({
                 >
                   @{row.handle}
                 </Link>
-                <span className="hs-you-tag font-mono text-[11px] text-acc">você</span>
-                <span className="font-mono text-[11px] text-dim">{row.vocation}</span>
+                <span className="hs-you-tag font-mono text-xs text-acc">você</span>
+                <span className="font-mono text-xs text-dim">{row.vocation}</span>
                 <span className="flex items-baseline gap-1.5">
                   <CountUp
                     value={display.value}
@@ -75,7 +75,7 @@ export function Podium({
                   />
                   <span className="font-mono text-xs text-muted">{display.unit}</span>
                 </span>
-                <span className="font-mono text-[11px] text-dim">{display.detail}</span>
+                <span className="font-mono text-xs text-dim">{display.detail}</span>
                 <RankDelta rank={row.rank} previousRank={row.previousRank} isNew={row.isNew} since={since} index={i} />
               </div>
             </div>

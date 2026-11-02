@@ -36,7 +36,7 @@ export function FilterChips({
             style={style}
             aria-pressed={pressed}
             onClick={() => onChange(option.id)}
-            className={`inline-flex h-[34px] cursor-pointer items-center gap-[7px] rounded-[2px] border px-3 font-mono text-[11px] tracking-[0.08em] uppercase disabled:cursor-not-allowed disabled:opacity-45 ${
+            className={`inline-flex h-[34px] cursor-pointer items-center gap-[7px] rounded-[2px] border px-3 font-mono text-xs tracking-[0.08em] uppercase disabled:cursor-not-allowed disabled:opacity-45 ${
               option.color
                 ? "before:size-1.5 before:bg-(--c) before:content-['']"
                 : ""

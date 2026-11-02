@@ -57,7 +57,7 @@ export function Logo({ size = 44 }: LogoProps) {
         <Wordmark height={full ? 20 : 18} label="Tralked" />
         {full ? (
           // On narrow phones the tagline would push the account and menu buttons to a second row.
-          <span className="font-mono text-[9.5px] leading-none tracking-[0.12em] text-dim uppercase max-[479px]:hidden">
+          <span className="font-mono text-xs leading-none tracking-[0.12em] text-dim uppercase max-[479px]:hidden">
             {SLOGAN}
           </span>
         ) : null}

@@ -98,7 +98,7 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/usua
           </table>
         </TableRegion>
       )}
-      <p className="font-mono text-[11px] text-dim">{total} usuários</p>
+      <p className="font-mono text-xs text-dim">{total} usuários</p>
       <Pager page={page} pageCount={pageCount} href={(p) => href({ pagina: p })} label="Páginas de usuários" />
     </>
   );

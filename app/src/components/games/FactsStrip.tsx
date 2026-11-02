@@ -38,7 +38,7 @@ export function FactsStrip({ facts, totalXp }: { facts: GuideFacts; totalXp: num
     <dl className="mt-6 grid grid-cols-6 gap-px overflow-hidden rounded-[2px] border border-line bg-line max-[1100px]:grid-cols-3 max-[640px]:grid-cols-2">
       {items.map((item) => (
         <div key={item.label} className="bg-surface px-4 py-3.5">
-          <dt className="font-mono text-[10px] tracking-[0.12em] text-dim-2 uppercase">{item.label}</dt>
+          <dt className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">{item.label}</dt>
           <dd className="m-0 mt-1.5 text-[21px] leading-[1.1] font-extrabold font-stretch-[112%]">
             {item.value}
             {item.bars !== undefined ? (
@@ -51,7 +51,7 @@ export function FactsStrip({ facts, totalXp }: { facts: GuideFacts; totalXp: num
                 ))}
               </div>
             ) : (
-              <small className="mt-1 block font-mono text-[10.5px] font-normal font-stretch-100% text-dim">
+              <small className="mt-1 block font-mono text-xs font-normal font-stretch-100% text-dim">
                 {item.note}
               </small>
             )}

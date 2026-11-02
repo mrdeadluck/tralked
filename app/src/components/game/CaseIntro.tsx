@@ -59,18 +59,18 @@ const CSS = `
 .gpc.gpc-fade { opacity: 0; pointer-events: none; }
 .gpc-ui { position: absolute; left: 0; right: 0; bottom: 6vh; display: flex; flex-direction: column; align-items: center; gap: 14px; z-index: 3; transition: opacity .4s; }
 .gpc-ui.gpc-gone { opacity: 0; pointer-events: none; }
-.gpc-ui p { font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.gpc-ui p { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .gpc-open { height: 48px; padding: 0 22px; border: 0; border-radius: 2px; background: var(--acc); color: var(--bg); font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; cursor: pointer; animation: gpc-pulse 2s ease-in-out infinite; }
 .gpc-open:hover { filter: brightness(1.08); }
 @keyframes gpc-pulse { 50% { box-shadow: 0 0 0 10px rgba(198,244,50,0); } 0%, 100% { box-shadow: 0 0 0 0 rgba(198,244,50,.35); } }
 .gpc-skip, .gpc-mute { position: absolute; top: 18px; z-index: 4; height: 36px; border: 1px solid var(--border-2); background: rgba(11,12,15,.6); border-radius: 2px; color: var(--text-2); cursor: pointer; }
-.gpc-skip { right: 18px; padding: 0 14px; font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+.gpc-skip { right: 18px; padding: 0 14px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
 .gpc-mute { left: 18px; width: 36px; display: grid; place-items: center; }
 .gpc-mute svg { width: 16px; height: 16px; }
 .gpc-mute[aria-pressed="true"] .gpc-wave { opacity: .15; }
 .gpc-skip:hover, .gpc-mute:hover { border-color: var(--text); color: var(--text); }
 /* "Não mostrar a animação nos próximos jogos": stays on screen for the whole intro, between mute and skip. */
-.gpc-pref { position: absolute; top: 18px; left: 66px; z-index: 4; max-width: calc(100% - 66px - 112px); min-height: 36px; display: flex; align-items: center; gap: 9px; padding: 6px 12px 6px 10px; border: 1px solid var(--border-2); border-radius: 2px; background: rgba(11,12,15,.6); font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; line-height: 1.35; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); cursor: pointer; }
+.gpc-pref { position: absolute; top: 18px; left: 66px; z-index: 4; max-width: calc(100% - 66px - 112px); min-height: 36px; display: flex; align-items: center; gap: 9px; padding: 6px 12px 6px 10px; border: 1px solid var(--border-2); border-radius: 2px; background: rgba(11,12,15,.6); font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; line-height: 1.35; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); cursor: pointer; }
 .gpc-pref:hover { border-color: var(--text); color: var(--text); }
 .gpc-pref:has(:focus-visible) { outline: 2px solid var(--acc); outline-offset: 2px; }
 .gpc-pref input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--acc); cursor: pointer; }

@@ -24,7 +24,7 @@ export function Sources({ sources }: { sources: GuideSource[] }) {
                 {source.title}
                 <span className="sr-only"> (abre em nova aba)</span>
               </span>
-              <span className="font-mono text-[11px] break-all text-dim">{new URL(source.url).host}</span>
+              <span className="font-mono text-xs break-all text-dim">{new URL(source.url).host}</span>
             </a>
           </li>
         ))}

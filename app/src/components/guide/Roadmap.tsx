@@ -73,7 +73,7 @@ export function Roadmap({ steps, loggedIn, returnTo, pending = false }: RoadmapP
                     <h3 className="text-[22px] leading-[1.15] font-extrabold font-stretch-[105%] tracking-[-0.02em]">
                       {step.title}
                     </h3>
-                    <div className="mt-1.5 flex flex-wrap gap-3.5 font-mono text-[11.5px] text-dim">
+                    <div className="mt-1.5 flex flex-wrap gap-3.5 font-mono text-xs text-dim">
                       <span>{step.hours}</span>
                       <span>
                         {count} {count === 1 ? "conquista" : "conquistas"}

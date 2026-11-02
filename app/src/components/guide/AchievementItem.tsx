@@ -85,16 +85,16 @@ export function AchievementItem({ achievement: a, showSpoilers }: AchievementIte
 
       <h3 className="flex flex-wrap items-center gap-2.5 text-[19px] font-extrabold font-stretch-[105%] tracking-[-0.015em]">
         {a.name}
-        <span className="border border-[color-mix(in_srgb,var(--rc)_50%,transparent)] px-1.5 py-px font-mono text-[10px] font-medium tracking-[0.1em] text-(--rc) uppercase">
+        <span className="border border-[color-mix(in_srgb,var(--rc)_50%,transparent)] px-1.5 py-px font-mono text-xs font-medium tracking-[0.1em] text-(--rc) uppercase">
           {rarity.label}
         </span>
       </h3>
 
       <div className="row-span-3 flex flex-col items-end gap-1.5 text-right max-[640px]:col-start-2 max-[640px]:row-auto max-[640px]:flex-row max-[640px]:flex-wrap max-[640px]:items-center max-[640px]:text-left">
         <span className="font-mono text-[13px] font-bold text-acc">+{fmt(a.xp)} XP</span>
-        <small className="font-mono text-[11px] text-dim">{pctText(a.globalPct)} dos jogadores</small>
+        <small className="font-mono text-xs text-dim">{pctText(a.globalPct)} dos jogadores</small>
         {a.done ? (
-          <span className="font-mono text-[10.5px] tracking-[0.1em] text-acc uppercase">
+          <span className="font-mono text-xs tracking-[0.1em] text-acc uppercase">
             ✓ Desbloqueada
           </span>
         ) : null}
@@ -112,7 +112,7 @@ export function AchievementItem({ achievement: a, showSpoilers }: AchievementIte
       </div>
 
       <details className="group col-[2/-1] mt-2.5 max-[640px]:col-[1/-1]">
-        <summary className="cursor-pointer list-none font-mono text-[11px] tracking-[0.08em] text-acc uppercase before:content-['+_'] group-open:before:content-['−_'] [&::-webkit-details-marker]:hidden">
+        <summary className="cursor-pointer list-none font-mono text-xs tracking-[0.08em] text-acc uppercase before:content-['+_'] group-open:before:content-['−_'] [&::-webkit-details-marker]:hidden">
           Como fazer
         </summary>
         <Spoiler

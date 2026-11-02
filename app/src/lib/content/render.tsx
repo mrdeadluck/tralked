@@ -140,7 +140,7 @@ function AchievementCard({
         {data.description ? (
           <span className="text-[14px] leading-snug text-muted">{data.description}</span>
         ) : null}
-        <span className="font-mono text-[11px] tracking-[0.06em] text-dim uppercase">
+        <span className="font-mono text-xs tracking-[0.06em] text-dim uppercase">
           {data.gameName}
           {tier && data.globalPct !== null ? (
             <>
@@ -152,7 +152,7 @@ function AchievementCard({
       </span>
       <span className="text-right font-mono text-[13px] font-bold text-acc">
         +{xpFormat.format(xpForAchievement(data.globalPct))}
-        <small className="block text-[10px] font-normal text-dim">XP</small>
+        <small className="block text-xs font-normal text-dim">XP</small>
       </span>
     </div>
   );
@@ -213,7 +213,7 @@ function Block({
             decoding="async"
             className="w-full rounded-[3px] bg-surface"
           />
-          <figcaption className="font-mono text-[11px] text-dim">Crédito: {block.credit}</figcaption>
+          <figcaption className="font-mono text-xs text-dim">Crédito: {block.credit}</figcaption>
         </figure>
       );
     case "video":
@@ -233,7 +233,7 @@ function Block({
     case "callout": {
       const style = { "--c": CALLOUT_COLOR[block.tone] } as CSSProperties;
       const label = (
-        <span className="inline-flex items-center gap-2 font-mono text-[11px] font-bold tracking-[0.12em] text-(--c) uppercase before:size-1.5 before:bg-(--c) before:content-['']">
+        <span className="inline-flex items-center gap-2 font-mono text-xs font-bold tracking-[0.12em] text-(--c) uppercase before:size-1.5 before:bg-(--c) before:content-['']">
           {CALLOUT_LABEL[block.tone]}
         </span>
       );
@@ -245,10 +245,10 @@ function Block({
           >
             <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
               {label}
-              <span className="font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase group-open:hidden">
+              <span className="font-mono text-xs tracking-[0.08em] text-text-3 uppercase group-open:hidden">
                 Mostrar
               </span>
-              <span className="hidden font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase group-open:inline">
+              <span className="hidden font-mono text-xs tracking-[0.08em] text-text-3 uppercase group-open:inline">
                 Esconder
               </span>
             </summary>
@@ -282,7 +282,7 @@ function Block({
                   <th
                     key={i}
                     scope="col"
-                    className="border-b border-line-2 px-4 py-2.5 font-mono text-[11px] font-bold tracking-[0.08em] text-text-3 uppercase"
+                    className="border-b border-line-2 px-4 py-2.5 font-mono text-xs font-bold tracking-[0.08em] text-text-3 uppercase"
                   >
                     {cell}
                   </th>

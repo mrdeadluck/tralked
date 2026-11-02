@@ -67,7 +67,7 @@ export function RankDelta({
   return (
     <span
       className={`hs-delta inline-flex items-center font-mono text-xs font-bold whitespace-nowrap ${
-        isNew ? "rounded-[2px] border px-1.5 py-px text-[10.5px] tracking-[0.08em] uppercase" : ""
+        isNew ? "rounded-[2px] border px-1.5 py-px text-xs tracking-[0.08em] uppercase" : ""
       }`}
       style={{ color: look.color, borderColor: look.color, "--i": index } as CSSProperties}
       title={`${text} desde ${since}`}

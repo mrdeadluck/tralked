@@ -104,7 +104,7 @@ function FilterLink({ href, current, label, count }: { href: string; current: bo
     <Link
       href={href}
       aria-current={current ? "page" : undefined}
-      className={`inline-flex h-[34px] items-center gap-2 rounded-[2px] border px-3 font-mono text-[11px] tracking-[0.08em] uppercase ${
+      className={`inline-flex h-[34px] items-center gap-2 rounded-[2px] border px-3 font-mono text-xs tracking-[0.08em] uppercase ${
         current ? "border-text bg-text text-bg" : "border-line-2 text-text-3 hover:border-dim hover:text-text"
       }`}
     >
@@ -121,7 +121,7 @@ function PhotoOfTheWeek({ photo }: { photo: PhotoCardView }) {
         <span className="block size-full transition-transform duration-700 ease-out group-hover:scale-[1.03]">
           <PhotoMedia id={photo.id} url={photo.url} width={photo.width} height={photo.height} gameSlug={photo.game?.slug} alt="" eager />
         </span>
-        <span className="absolute top-3 left-3 bg-acc px-2 py-1 font-mono text-[10.5px] font-bold tracking-[0.12em] text-bg uppercase">
+        <span className="absolute top-3 left-3 bg-acc px-2 py-1 font-mono text-xs font-bold tracking-[0.12em] text-bg uppercase">
           Foto da semana
         </span>
       </Link>

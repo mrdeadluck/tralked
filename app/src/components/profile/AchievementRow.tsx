@@ -58,7 +58,7 @@ export function AchievementRow({ achievement }: { achievement: ProfileAchievemen
           <Rarity achievement={achievement} />
         </div>
       </div>
-      <div className="flex-none text-right font-mono text-[11px] text-dim">
+      <div className="flex-none text-right font-mono text-xs text-dim">
         <time dateTime={achievement.unlockedAt.toISOString()}>{formatDate(achievement.unlockedAt)}</time>
         <p className="mt-1 text-acc">+{achievement.xp.toLocaleString("pt-BR")} XP</p>
       </div>

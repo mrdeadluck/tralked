@@ -24,7 +24,7 @@ export function Comments({ targetType, targetId, title = "Comentários", compact
   return (
     <section id="comentarios" aria-label={title} className="flex scroll-mt-24 flex-col gap-5">
       {compact ? (
-        <h2 className="font-mono text-[11px] tracking-[0.12em] text-dim uppercase">{title}</h2>
+        <h2 className="font-mono text-xs tracking-[0.12em] text-dim uppercase">{title}</h2>
       ) : (
         <SectionHead title={title} />
       )}

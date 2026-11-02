@@ -14,7 +14,7 @@ export function Placeholder({ label, ratio = "16 / 10" }: PlaceholderProps) {
     >
       <span
         aria-hidden="true"
-        className="absolute bottom-2.5 left-3 font-mono text-[10px] text-ph"
+        className="absolute bottom-2.5 left-3 font-mono text-xs text-dim"
       >
         [ {label} ]
       </span>

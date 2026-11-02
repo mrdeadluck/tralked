@@ -19,7 +19,7 @@ export function NewsItem({ article }: { article: ArticleView }) {
         {article.subtitle ? (
           <p className="text-[15.5px] text-muted">{article.subtitle}</p>
         ) : null}
-        <div className="flex flex-wrap gap-3.5 font-mono text-[11.5px] text-dim">
+        <div className="flex flex-wrap gap-3.5 font-mono text-xs text-dim">
           <span className="text-text-2">{article.authorLabel}</span>
           <span>{article.timeAgo}</span>
           <span>▲ {article.likes}</span>
@@ -31,7 +31,7 @@ export function NewsItem({ article }: { article: ArticleView }) {
           ) : null}
         </div>
         {article.game ? (
-          <span className="font-mono text-[11px] tracking-[0.08em] text-acc uppercase">
+          <span className="font-mono text-xs tracking-[0.08em] text-acc uppercase">
             Abrir guia de {article.game.name} →
           </span>
         ) : null}

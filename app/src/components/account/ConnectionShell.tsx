@@ -12,7 +12,7 @@ const TONE_CLASS: Record<ConnectionTone, string> = {
 /** The state badge of a connection ("Verificada", "Não conectada", "Em breve"…). */
 export function ConnectionBadge({ status, tone }: { status: string; tone: ConnectionTone }) {
   return (
-    <span className={`border px-2 py-1 font-mono text-[10.5px] tracking-[0.1em] whitespace-nowrap uppercase ${TONE_CLASS[tone]}`}>
+    <span className={`border px-2 py-1 font-mono text-xs tracking-[0.1em] whitespace-nowrap uppercase ${TONE_CLASS[tone]}`}>
       {status}
     </span>
   );

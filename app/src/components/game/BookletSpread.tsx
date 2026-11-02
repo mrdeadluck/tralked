@@ -27,9 +27,9 @@ const CSS = `
 .gps-l, .gps-r { position: relative; z-index: 2; padding: 44px 48px 56px; }
 .gps-l { display: flex; flex-direction: column; gap: 22px; container-type: inline-size; }
 .gps-r { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
-.gps-folio { position: absolute; bottom: 16px; font-family: var(--font-jetbrains-mono), monospace; font-size: 10px; letter-spacing: .14em; color: var(--ph); }
+.gps-folio { position: absolute; bottom: 16px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .14em; color: var(--dim); }
 .gps-l .gps-folio { left: 48px; } .gps-r .gps-folio { right: 48px; }
-.gps-tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-family: var(--font-jetbrains-mono), monospace; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.gps-tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
 .gps-cat { color: var(--acc); margin-right: 6px; }
 .gps-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 1px solid var(--border-2); color: var(--c, var(--text-2)); }
 .gps-chip::before { content: ""; width: 5px; height: 5px; background: var(--c, var(--text-2)); }
@@ -39,9 +39,9 @@ const CSS = `
 .gps-lede { font-size: 17.5px; line-height: 1.55; color: var(--text-2); max-width: 54ch; }
 .gps-ficha { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--border-2); }
 .gps-ficha div { padding: 12px 14px 12px 0; border-bottom: 1px solid var(--border); }
-.gps-ficha dt { font-family: var(--font-jetbrains-mono), monospace; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+.gps-ficha dt { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
 .gps-ficha dd { margin: 4px 0 0; font-weight: 700; font-size: 15.5px; font-variant-numeric: tabular-nums; }
-.gps-ficha dd small { display: block; font-family: var(--font-jetbrains-mono), monospace; font-weight: 400; font-size: 10.5px; color: var(--dim); }
+.gps-ficha dd small { display: block; font-family: var(--font-jetbrains-mono), monospace; font-weight: 400; font-size: 12px; color: var(--dim); }
 .gps-score { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 26px; padding: 0 6px; background: var(--acc); color: var(--bg); font-weight: 900; font-stretch: 112%; font-size: 15px; }
 .gps-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 1000px) {
@@ -83,15 +83,15 @@ const PROGRESS_CSS = `
 .gpg { text-align: center; }
 .gpg b { font-weight: 900; font-stretch: 125%; font-size: 44px; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 .gpg b span { color: var(--acc); }
-.gpg p { font-family: var(--font-jetbrains-mono), monospace; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.gpg p { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--muted); margin-top: 6px; }
 .gpg p a { color: var(--acc); text-decoration: underline; text-underline-offset: 3px; }
-.gpg ul { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; font-family: var(--font-jetbrains-mono), monospace; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.gpg ul { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
 .gpg li b { font: inherit; color: var(--text-2); letter-spacing: inherit; }
 .gpt { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 420px; margin: 0; padding: 0; list-style: none; background: var(--border); border: 1px solid var(--border); }
 .gpt li { background: var(--paper-2); padding: 10px 6px; text-align: center; }
 .gpt svg { width: 20px; height: 20px; }
 .gpt b { display: block; font-weight: 900; font-stretch: 112%; font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.gpt small { font-family: var(--font-jetbrains-mono), monospace; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+.gpt small { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
 `;
 
 const TROPHY_UI: { tier: keyof TierCounts; label: string; color: string }[] = [

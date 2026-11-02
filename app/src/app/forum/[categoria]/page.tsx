@@ -87,7 +87,7 @@ async function Threads({
   const listing = await listSectionThreadsCached(section, pageParam(pagina));
   return (
     <section aria-label={`Tópicos de ${section.name}`} className="flex flex-col gap-3">
-      <p className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+      <p className="font-mono text-xs tracking-[0.08em] text-dim uppercase">
         {plural(listing.total, "tópico", "tópicos")}
       </p>
       <ForumList

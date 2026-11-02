@@ -26,7 +26,7 @@ export function HeroSide({ article }: { article: ArticleView }) {
       <h2 className="relative text-[19px] leading-[1.15] font-extrabold tracking-[-0.015em] text-balance">
         {article.title}
       </h2>
-      <ArticleByline article={article} className="relative text-[11px]" />
+      <ArticleByline article={article} className="relative text-xs" />
     </Link>
   );
 }

@@ -141,7 +141,7 @@ export function GamesMenu({
       </button>
       <div id={panelId} hidden={!open} className="absolute top-full left-0 z-30 pt-2">
         <div className="w-[320px] rounded-[2px] border border-line-2 bg-surface p-2 shadow-[0_24px_60px_-20px_rgba(0,0,0,.85)]">
-          <p className="px-3 pt-2 pb-1.5 text-[10.5px] tracking-[0.14em] text-dim">
+          <p className="px-3 pt-2 pb-1.5 text-xs tracking-[0.14em] text-dim">
             Catálogo por plataforma
           </p>
           <ul className="m-0 flex list-none flex-col p-0">

@@ -172,7 +172,7 @@ function Table({ head, rows, label }: { head: string[]; rows: ReactNode[][]; lab
               <th
                 key={cell}
                 scope="col"
-                className="border-b border-line-2 px-4 py-2.5 font-mono text-[11px] font-bold tracking-[0.08em] whitespace-nowrap text-text-3 uppercase"
+                className="border-b border-line-2 px-4 py-2.5 font-mono text-xs font-bold tracking-[0.08em] whitespace-nowrap text-text-3 uppercase"
               >
                 {cell}
               </th>
@@ -210,7 +210,7 @@ export default function DesenvolvedoresPage() {
   return (
     <div className="mx-auto grid w-full max-w-[1120px] gap-10 lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-14">
       <nav aria-label="Nesta página" className="lg:sticky lg:top-24 lg:self-start">
-        <p className="mb-3 font-mono text-[11px] tracking-[0.1em] text-dim uppercase">Nesta página</p>
+        <p className="mb-3 font-mono text-xs tracking-[0.1em] text-dim uppercase">Nesta página</p>
         <ul className="m-0 grid list-none grid-cols-2 gap-x-6 gap-y-1.5 p-0 text-[14.5px] sm:grid-cols-3 lg:grid-cols-1">
           {SECTIONS.map((s) => (
             <li key={s.id}>

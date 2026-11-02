@@ -13,7 +13,7 @@ const CSS = `
 .gpf-me .gpf-av { border: 2px solid var(--acc); }
 .gpf a { font-weight: 700; font-size: 14.5px; overflow-wrap: anywhere; }
 .gpf a:hover { color: var(--acc); }
-.gpf small { display: block; font-family: var(--font-jetbrains-mono), monospace; font-size: 10.5px; color: var(--dim); }
+.gpf small { display: block; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--dim); }
 .gpf-pc { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .gpf-me .gpf-pc { color: var(--acc); }
 `;

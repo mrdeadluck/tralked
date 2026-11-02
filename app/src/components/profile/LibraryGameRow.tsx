@@ -34,18 +34,18 @@ export function LibraryGameRow({ game }: { game: LibraryGame }) {
           {game.stub ? <Chip plain>Detalhes em breve</Chip> : null}
           {game.completed ? <Chip color="var(--acc)">100%</Chip> : null}
         </div>
-        <p className="mt-1.5 font-mono text-[11px] text-dim">
+        <p className="mt-1.5 font-mono text-xs text-dim">
           {game.lastPlayedAt ? `Jogado em ${formatDate(game.lastPlayedAt)}` : game.played ? "Data não informada" : "Nunca jogado"}
         </p>
       </div>
-      <p className="col-start-2 font-mono text-[11px] text-dim min-[641px]:col-start-auto min-[641px]:text-right">
+      <p className="col-start-2 font-mono text-xs text-dim min-[641px]:col-start-auto min-[641px]:text-right">
         <span className="sr-only">Horas jogadas: </span>
         <b className="text-[15px] text-text">{formatPlaytime(game.playtimeMin)}</b>
       </p>
       <div className="col-start-2 min-[641px]:col-start-auto">
         {game.achievementTotal > 0 ? (
           <>
-            <p className="mb-1.5 flex justify-between font-mono text-[11px] text-dim">
+            <p className="mb-1.5 flex justify-between font-mono text-xs text-dim">
               <span>
                 <b className="text-text">{game.unlockedCount}</b> / {game.achievementTotal} conquistas
               </span>
@@ -54,7 +54,7 @@ export function LibraryGameRow({ game }: { game: LibraryGame }) {
             <ProgressBar value={game.completionPct ?? 0} label={`Conquistas de ${game.name}`} />
           </>
         ) : (
-          <p className="font-mono text-[11px] text-dim">Sem conquistas</p>
+          <p className="font-mono text-xs text-dim">Sem conquistas</p>
         )}
       </div>
     </li>

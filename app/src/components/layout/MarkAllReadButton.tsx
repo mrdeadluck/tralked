@@ -26,7 +26,7 @@ export function MarkAllReadButton() {
             router.refresh();
           })
         }
-        className="inline-flex h-10 cursor-pointer items-center rounded-[2px] border border-line-2 px-4 font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase hover:border-text hover:text-text disabled:cursor-wait disabled:opacity-60"
+        className="inline-flex h-10 cursor-pointer items-center rounded-[2px] border border-line-2 px-4 font-mono text-xs tracking-[0.08em] text-text-3 uppercase hover:border-text hover:text-text disabled:cursor-wait disabled:opacity-60"
       >
         {pending ? "Marcando…" : "Marcar todas como lidas"}
       </button>

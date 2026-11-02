@@ -111,14 +111,14 @@ export function NewThreadForm({ section, sectionName, loggedIn, returnTo, pendin
         <button
           type="submit"
           disabled={busy}
-          className="h-10 cursor-pointer rounded-[2px] border border-acc bg-acc px-4 font-mono text-[11px] font-bold tracking-[0.1em] text-bg uppercase hover:brightness-[1.08] disabled:cursor-wait disabled:opacity-60"
+          className="h-10 cursor-pointer rounded-[2px] border border-acc bg-acc px-4 font-mono text-xs font-bold tracking-[0.1em] text-bg uppercase hover:brightness-[1.08] disabled:cursor-wait disabled:opacity-60"
         >
           {busy ? "Publicando…" : "Publicar tópico"}
         </button>
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="h-10 cursor-pointer rounded-[2px] border border-line-2 px-4 font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase hover:border-text"
+          className="h-10 cursor-pointer rounded-[2px] border border-line-2 px-4 font-mono text-xs tracking-[0.08em] text-text-3 uppercase hover:border-text"
         >
           Cancelar
         </button>

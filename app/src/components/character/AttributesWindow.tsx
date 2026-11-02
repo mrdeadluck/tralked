@@ -57,7 +57,7 @@ export function AttributesWindow({ attributes }: AttributesWindowProps) {
                   style={{ width: `${(fraction * 100).toFixed(1)}%` }}
                 />
               </div>
-              <div className="mt-1.5 ml-8 flex justify-between gap-3 font-mono text-[10.5px] text-dim-2">
+              <div className="mt-1.5 ml-8 flex justify-between gap-3 font-mono text-xs text-dim-2">
                 <span>vem de {attr.source}</span>
                 <span>
                   {formatNumber(attr.points)} pts · faltam {formatNumber(Math.max(0, attr.span - attr.current))}

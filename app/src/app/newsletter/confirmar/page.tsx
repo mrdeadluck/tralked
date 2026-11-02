@@ -30,7 +30,7 @@ const MESSAGES: Record<ConfirmResult, { title: string; text: string }> = {
 };
 
 const BACK = (
-  <Link href="/" className="self-start font-mono text-[11px] tracking-[0.08em] text-acc uppercase hover:underline">
+  <Link href="/" className="self-start font-mono text-xs tracking-[0.08em] text-acc uppercase hover:underline">
     Voltar para as notícias →
   </Link>
 );

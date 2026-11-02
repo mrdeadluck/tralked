@@ -67,7 +67,7 @@ export default async function AdminGamesPage({ searchParams }: PageProps<"/admin
                     <Link href={`/admin/jogos/${g.id}`} className="font-semibold hover:text-acc hover:underline hover:underline-offset-4">
                       {g.name}
                     </Link>
-                    <span className="block font-mono text-[11px] text-dim">
+                    <span className="block font-mono text-xs text-dim">
                       {g.slug}
                       {g.steamAppId ? ` · app ${g.steamAppId}` : ""}
                     </span>

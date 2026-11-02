@@ -66,7 +66,7 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
         </p>
       )}
 
-      <p className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase" aria-live="polite">
+      <p className="font-mono text-xs tracking-[0.08em] text-dim uppercase" aria-live="polite">
         {total === 0 ? "Nenhum comentário ainda" : plural(total, "comentário", "comentários")}
       </p>
 
@@ -97,7 +97,7 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
           type="button"
           onClick={loadMore}
           disabled={loading}
-          className="h-10 cursor-pointer self-start rounded-[2px] border border-line-2 px-4 font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase hover:border-text hover:text-text disabled:cursor-wait disabled:opacity-60"
+          className="h-10 cursor-pointer self-start rounded-[2px] border border-line-2 px-4 font-mono text-xs tracking-[0.08em] text-text-3 uppercase hover:border-text hover:text-text disabled:cursor-wait disabled:opacity-60"
         >
           {loading ? "Carregando…" : "Ver comentários anteriores"}
         </button>
@@ -153,7 +153,7 @@ function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted }: Commen
     <li id={`comentario-${comment.id}`} className="flex flex-col gap-2.5 border-b border-divider py-4 first:pt-0">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <AuthorBadge author={comment.author} size={28} />
-        <time dateTime={new Date(comment.createdAt).toISOString()} className="font-mono text-[11px] text-dim">
+        <time dateTime={new Date(comment.createdAt).toISOString()} className="font-mono text-xs text-dim">
           {formatWhen(comment.createdAt, true)}
           {comment.editedAt ? " · editado" : ""}
         </time>
@@ -215,6 +215,6 @@ function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted }: Commen
 }
 
 const ACTION_BASE =
-  "cursor-pointer font-mono text-[11px] tracking-[0.06em] uppercase disabled:cursor-wait disabled:opacity-60";
+  "cursor-pointer font-mono text-xs tracking-[0.06em] uppercase disabled:cursor-wait disabled:opacity-60";
 const ACTION = `${ACTION_BASE} text-dim hover:text-text`;
 const DANGER = `${ACTION_BASE} text-nin hover:underline`;

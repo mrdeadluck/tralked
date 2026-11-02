@@ -57,7 +57,7 @@ export function SkillsWindow({ skills }: SkillsWindowProps) {
                   style={{ width: `${(fraction * 100).toFixed(1)}%` }}
                 />
               </div>
-              <div className="mt-1.5 ml-8 flex justify-between font-mono text-[10.5px] text-dim-2">
+              <div className="mt-1.5 ml-8 flex justify-between font-mono text-xs text-dim-2">
                 <span>
                   {percent}% para o {skill.level + 1}
                 </span>

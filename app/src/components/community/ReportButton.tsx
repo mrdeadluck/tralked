@@ -27,7 +27,7 @@ export function ReportButton({ targetType, targetId, loggedIn, returnTo, what, p
 
   if (state.kind === "done") {
     return (
-      <p role="status" className="font-mono text-[11px] text-dim">
+      <p role="status" className="font-mono text-xs text-dim">
         {state.message}
       </p>
     );
@@ -59,12 +59,12 @@ export function ReportButton({ targetType, targetId, loggedIn, returnTo, what, p
         aria-controls={open ? formId : undefined}
         aria-label={`Denunciar ${what}`}
         onClick={() => setState(open ? { kind: "closed" } : { kind: "open" })}
-        className="inline-flex cursor-pointer items-center gap-1.5 rounded-[2px] font-mono text-[11px] tracking-[0.06em] text-dim uppercase hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
+        className="inline-flex cursor-pointer items-center gap-1.5 rounded-[2px] font-mono text-xs tracking-[0.06em] text-dim uppercase hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
       >
         <FlagIcon width={13} height={13} /> Denunciar
       </button>
       {open && !loggedIn ? (
-        <p id={formId} className="font-mono text-[11px]">
+        <p id={formId} className="font-mono text-xs">
           <a href={loginHref(returnTo)} className="text-acc underline underline-offset-2">
             Entre na sua conta para denunciar
           </a>
@@ -103,14 +103,14 @@ export function ReportButton({ targetType, targetId, loggedIn, returnTo, what, p
             <button
               type="submit"
               disabled={busy}
-              className="h-9 cursor-pointer rounded-[2px] border border-text bg-text px-3 font-mono text-[11px] font-bold tracking-[0.08em] text-bg uppercase disabled:cursor-wait disabled:opacity-60"
+              className="h-9 cursor-pointer rounded-[2px] border border-text bg-text px-3 font-mono text-xs font-bold tracking-[0.08em] text-bg uppercase disabled:cursor-wait disabled:opacity-60"
             >
               {busy ? "Enviando…" : "Enviar denúncia"}
             </button>
             <button
               type="button"
               onClick={() => setState({ kind: "closed" })}
-              className="h-9 cursor-pointer rounded-[2px] border border-line-2 px-3 font-mono text-[11px] tracking-[0.08em] text-text-3 uppercase hover:border-text"
+              className="h-9 cursor-pointer rounded-[2px] border border-line-2 px-3 font-mono text-xs tracking-[0.08em] text-text-3 uppercase hover:border-text"
             >
               Cancelar
             </button>

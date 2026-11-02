@@ -21,7 +21,7 @@ export function HeroMain({ article }: { article: ArticleView }) {
         priority
         className="absolute inset-0 object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03] motion-reduce:transition-none"
       />
-      <span className="absolute top-[18px] right-[18px] z-[1] bg-acc px-[9px] py-[5px] font-mono text-[11px] font-bold tracking-[0.12em] text-bg">
+      <span className="absolute top-[18px] right-[18px] z-[1] bg-acc px-[9px] py-[5px] font-mono text-xs font-bold tracking-[0.12em] text-bg">
         DESTAQUE
       </span>
       <div

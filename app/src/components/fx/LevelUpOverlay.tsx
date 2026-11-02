@@ -54,7 +54,7 @@ export function LevelUpOverlay({ from, to, onClose, label = "Level up", message 
     >
       <FxStyles />
       <div className="gl-lu-box relative px-6 py-10 text-center">
-        <span className="font-mono text-[10.5px] tracking-[0.14em] text-acc uppercase">
+        <span className="font-mono text-xs tracking-[0.14em] text-acc uppercase">
           {label}
         </span>
         <strong

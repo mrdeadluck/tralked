@@ -17,7 +17,7 @@ export function FamilySummary({ view, meId }: { view: FamilyLibraryView; meId: s
           ] as const
         ).map(([label, value]) => (
           <div key={label} className="bg-surface px-4 py-3">
-            <dt className="font-mono text-[10px] tracking-[0.12em] text-dim-2 uppercase">{label}</dt>
+            <dt className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">{label}</dt>
             <dd className="m-0 mt-1 text-2xl font-extrabold font-stretch-[112%] tabular-nums">{value}</dd>
           </div>
         ))}
@@ -33,12 +33,12 @@ export function FamilySummary({ view, meId }: { view: FamilyLibraryView; meId: s
               @{m.handle}
             </Link>
             {m.profilePublic ? (
-              <p className="mt-2 font-mono text-[11px] text-text-3">
+              <p className="mt-2 font-mono text-xs text-text-3">
                 {m.gamesOwned.toLocaleString("pt-BR")} jogos · {m.gamesPlayed.toLocaleString("pt-BR")} jogados ·{" "}
                 {formatHours(m.playtimeMin)}
               </p>
             ) : (
-              <p className="mt-2 font-mono text-[11px] text-dim">Perfil privado: biblioteca oculta</p>
+              <p className="mt-2 font-mono text-xs text-dim">Perfil privado: biblioteca oculta</p>
             )}
           </li>
         ))}

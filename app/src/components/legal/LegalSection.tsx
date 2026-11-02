@@ -23,5 +23,5 @@ export function LegalSection({ id, title, children }: { id: string; title: strin
 
 /** Small mono line under the page title ("Atualizada em ..."). */
 export function LegalUpdated({ date }: { date: string }) {
-  return <p className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase">Atualizada em {date}</p>;
+  return <p className="font-mono text-xs tracking-[0.08em] text-dim uppercase">Atualizada em {date}</p>;
 }

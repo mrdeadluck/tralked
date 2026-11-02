@@ -62,7 +62,7 @@ const sectionTitle = "text-[22px] leading-none font-black font-stretch-[125%] tr
 
 /** Plan 4 F12: links to a game related to the article (targets at least 24px tall). */
 const gameLink =
-  "inline-flex min-h-6 items-center font-mono text-[11px] tracking-[0.08em] text-acc uppercase underline-offset-[3px] hover:underline";
+  "inline-flex min-h-6 items-center font-mono text-xs tracking-[0.08em] text-acc uppercase underline-offset-[3px] hover:underline";
 
 /**
  * "Jogo desta notícia" at the end: the catalog cover (generated art when the game has none, e.g.
@@ -175,7 +175,7 @@ function ExternalSources({ article }: { article: ArticleFull }) {
                 {news.title}
                 <span className="sr-only"> (abre em nova aba)</span>
               </span>
-              <span className="font-mono text-[11px] text-dim">
+              <span className="font-mono text-xs text-dim">
                 Fonte externa: {news.source} · {DATE_FORMAT.format(news.publishedAt)}
               </span>
             </a>
@@ -190,7 +190,7 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
   return (
     <article className="mx-auto flex w-full max-w-[860px] flex-col gap-10">
       <header className="flex flex-col gap-4">
-        <Link href="/noticias" className="self-start font-mono text-[11px] tracking-[0.08em] text-acc uppercase">
+        <Link href="/noticias" className="self-start font-mono text-xs tracking-[0.08em] text-acc uppercase">
           ← Notícias
         </Link>
         <ArticleTags article={article} />

@@ -83,13 +83,13 @@ export default async function PhotoPage({ params }: PageProps<"/galeria/[id]">) 
           <div className="flex min-w-0 flex-col gap-5 border-l border-line p-6 max-[900px]:border-t max-[900px]:border-l-0">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <AuthorBadge author={photo.author} size={36} />
-              <time dateTime={new Date(photo.createdAt).toISOString()} className="font-mono text-[11px] text-dim">
+              <time dateTime={new Date(photo.createdAt).toISOString()} className="font-mono text-xs text-dim">
                 {formatWhen(photo.createdAt)}
               </time>
             </div>
             {photo.caption ? <UserText text={photo.caption} className="text-[17px] leading-relaxed text-text" /> : null}
             {photo.game ? (
-              <p className="font-mono text-[11px] tracking-[0.06em] text-dim uppercase">
+              <p className="font-mono text-xs tracking-[0.06em] text-dim uppercase">
                 Jogo:{" "}
                 <Link href={`/jogos/${photo.game.slug}`} className="text-text-2 normal-case underline decoration-line-2 underline-offset-2 hover:text-acc">
                   {photo.game.name}

@@ -69,7 +69,7 @@ export default async function FraudPage() {
                         <Link href={`/jogos/${c.gameSlug}`} className="hover:text-acc hover:underline hover:underline-offset-4">
                           {c.gameName}
                         </Link>
-                        <span className="block font-mono text-[11px] text-dim">
+                        <span className="block font-mono text-xs text-dim">
                           {PLATFORM_LABEL[c.platform]}
                           {c.playtimeMin !== null ? ` · ${NUMBER.format(Math.round(c.playtimeMin / 60))} h jogadas` : ""}
                         </span>

@@ -35,7 +35,7 @@ export function RecentlyPlayed({ games, now, libraryHref }: RecentlyPlayedProps)
                 )}
                 <div className="flex flex-1 flex-col gap-1 px-3 pt-2.5 pb-3">
                   <h3 className="line-clamp-2 text-[14px] leading-[1.2] font-bold">{game.name}</h3>
-                  <p className="mt-auto font-mono text-[10.5px] text-dim">
+                  <p className="mt-auto font-mono text-xs text-dim">
                     <span style={{ color: PLATFORM_TOKEN[game.platform] }}>{PLATFORM_LABEL[game.platform]}</span>
                     {" · "}
                     {formatAgo(game.lastPlayedAt, now)}

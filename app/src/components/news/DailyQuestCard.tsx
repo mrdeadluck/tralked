@@ -22,7 +22,7 @@ export function DailyQuestCard({
         {loggedIn ? (
           <NavLink
             href="/jogador/me"
-            className="font-mono text-[11px] tracking-[0.08em] text-acc uppercase"
+            className="font-mono text-xs tracking-[0.08em] text-acc uppercase"
           >
             Ver todas →
           </NavLink>
@@ -36,7 +36,7 @@ export function DailyQuestCard({
               value={(mission.progress / mission.goal) * 100}
               label={mission.title}
             />
-            <div className="flex justify-between font-mono text-[11px] text-dim">
+            <div className="flex justify-between font-mono text-xs text-dim">
               <span>
                 {mission.progress} de {mission.goal}
               </span>
@@ -54,7 +54,7 @@ export function DailyQuestCard({
             </p>
             <NavLink
               href="/entrar?returnTo=%2F"
-              className="font-mono text-[11px] font-bold tracking-[0.1em] text-acc uppercase"
+              className="font-mono text-xs font-bold tracking-[0.1em] text-acc uppercase"
             >
               Entre para receber missões →
             </NavLink>

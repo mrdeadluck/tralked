@@ -34,7 +34,7 @@ export function FamilyGameTile({ entry }: { entry: FamilyLibraryEntry }) {
             </li>
           ))}
         </ul>
-        <div className="mt-auto flex items-center justify-between gap-2.5 font-mono text-[11px] text-dim">
+        <div className="mt-auto flex items-center justify-between gap-2.5 font-mono text-xs text-dim">
           <span>
             {bestProgress.total === 0 ? (
               "Sem conquistas"

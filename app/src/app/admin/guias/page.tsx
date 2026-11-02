@@ -87,7 +87,7 @@ export default async function AdminGuidesPage({ searchParams }: PageProps<"/admi
                   </td>
                   <td className={TD}>
                     <span className="font-mono text-[13px] tabular-nums">{g.version}</span>
-                    <span className="block font-mono text-[11px] text-dim">
+                    <span className="block font-mono text-xs text-dim">
                       {g.revisions} {g.revisions === 1 ? "revisão salva" : "revisões salvas"}
                     </span>
                   </td>

@@ -63,7 +63,7 @@ export function LikeButton({ photoId, liked: initialLiked, likeCount, loggedIn, 
         </span>
       </button>
       {message === "login" ? (
-        <p role="status" className="font-mono text-[11px]">
+        <p role="status" className="font-mono text-xs">
           <a href={loginHref(returnTo)} className="text-acc underline underline-offset-2">
             Entre na sua conta para curtir
           </a>

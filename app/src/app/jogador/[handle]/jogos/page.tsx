@@ -148,7 +148,7 @@ async function ProfileGames({
           </div>
 
           <section aria-labelledby="lista-jogos">
-            <h2 id="lista-jogos" className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase" aria-live="polite">
+            <h2 id="lista-jogos" className="font-mono text-xs tracking-[0.08em] text-dim uppercase" aria-live="polite">
               {section === "nunca" ? "Nunca jogados" : "Jogados"}: {list.total.toLocaleString("pt-BR")}{" "}
               {list.total === 1 ? "jogo" : "jogos"}
               {q ? ` para “${q}”` : ""}

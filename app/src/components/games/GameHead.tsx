@@ -24,7 +24,7 @@ export function GameHead({ game }: { game: GameDetail }) {
     <>
       {guide ? (
         // Plan 4 F12: Jogos › <Jogo> › Guia.
-        <nav aria-label="Você está em" className="mb-[18px] font-mono text-[11px] tracking-[0.1em] text-dim uppercase">
+        <nav aria-label="Você está em" className="mb-[18px] font-mono text-xs tracking-[0.1em] text-dim uppercase">
           <ol className="m-0 flex list-none flex-wrap items-center gap-x-2 gap-y-1 p-0">
             <li>
               <Link href="/jogos" className="hover:text-acc">
@@ -48,7 +48,7 @@ export function GameHead({ game }: { game: GameDetail }) {
       ) : (
         <Link
           href="/jogos"
-          className="mb-[18px] inline-flex font-mono text-[11px] tracking-[0.1em] text-dim uppercase hover:text-acc"
+          className="mb-[18px] inline-flex font-mono text-xs tracking-[0.1em] text-dim uppercase hover:text-acc"
         >
           ← Jogos e guias
         </Link>
@@ -58,7 +58,7 @@ export function GameHead({ game }: { game: GameDetail }) {
           <GameCover name={game.name} coverUrl={game.coverUrl} />
         </div>
         <div>
-          <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px] tracking-[0.1em] uppercase">
+          <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs tracking-[0.1em] uppercase">
             <span className="mr-1.5 text-acc">{guide ? "GUIA 100%" : "JOGO"}</span>
             {game.platforms.filter(isPlatform).map((platform) => (
               <Chip key={platform} color={PLATFORM_COLOR[platform]}>
@@ -83,11 +83,11 @@ export function GameHead({ game }: { game: GameDetail }) {
               <Link
                 href={`/jogos/${game.slug}`}
                 aria-label={`Página do jogo: ${game.name}`}
-                className="mb-3.5 inline-flex min-h-6 items-center gap-1.5 font-mono text-[11.5px] tracking-[0.08em] text-acc uppercase underline-offset-[3px] hover:underline"
+                className="mb-3.5 inline-flex min-h-6 items-center gap-1.5 font-mono text-xs tracking-[0.08em] text-acc uppercase underline-offset-[3px] hover:underline"
               >
                 Página do jogo →
               </Link>
-              <div className="flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[11.5px] text-dim">
+              <div className="flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-xs text-dim">
                 {guide.authorHandle ? <span className="text-text-2">@{guide.authorHandle}</span> : null}
                 <span>atualizado {timeAgo(guide.updatedAt, game.generatedAt)}</span>
                 <span>{guide.version}</span>

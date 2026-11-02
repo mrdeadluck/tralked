@@ -54,7 +54,7 @@ export function ProfileForm({ bio: initialBio, profilePublic: initialPublic, han
         />
         <span
           id={`${id}-bio-count`}
-          className={`self-end font-mono text-[11px] tabular-nums ${remaining < 20 ? "text-rarity-lendario" : "text-dim"}`}
+          className={`self-end font-mono text-xs tabular-nums ${remaining < 20 ? "text-rarity-lendario" : "text-dim"}`}
         >
           {remaining} de {BIO_MAX} caracteres restantes
         </span>

@@ -33,7 +33,7 @@ export function TrophyTiers({ trophies }: { trophies: TrophySummary }) {
             <b className="block text-xl leading-[1.1] font-black font-stretch-[112%] tabular-nums">
               {formatNumber(trophies.tiers[tier])}
             </b>
-            <small className="font-mono text-[9.5px] tracking-[0.1em] text-dim uppercase">{label}</small>
+            <small className="font-mono text-xs tracking-[0.1em] text-dim uppercase">{label}</small>
           </li>
         ))}
       </ul>

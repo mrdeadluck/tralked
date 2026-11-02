@@ -97,7 +97,7 @@ async function Reports({ statusParam, page }: { statusParam: string | undefined;
                 <tr key={r.id} className="hover:bg-hover">
                   <td className={`${TD} max-w-[440px]`}>
                     <span className="mb-1 flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+                      <span className="font-mono text-xs tracking-[0.08em] text-dim uppercase">
                         {TARGET_LABEL[r.targetType] ?? r.targetType}
                       </span>
                       {r.target?.status ? <StatusBadge status={r.target.status} /> : null}

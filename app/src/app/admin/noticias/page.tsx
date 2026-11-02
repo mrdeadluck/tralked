@@ -103,7 +103,7 @@ export default async function AdminArticlesPage({ searchParams }: PageProps<"/ad
                     <Link href={`/admin/noticias/${a.id}`} className="font-semibold hover:text-acc hover:underline hover:underline-offset-4">
                       {a.title}
                     </Link>
-                    <div className="font-mono text-[11px] text-dim">/noticias/{a.slug}</div>
+                    <div className="font-mono text-xs text-dim">/noticias/{a.slug}</div>
                   </td>
                   <td className={TD}>
                     <StatusBadge status={a.status} />

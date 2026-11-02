@@ -16,7 +16,7 @@ export function ArticleTags({
 }) {
   return (
     <div
-      className={`flex flex-wrap items-center gap-1.5 font-mono text-[10px] tracking-[0.1em] uppercase ${
+      className={`flex flex-wrap items-center gap-1.5 font-mono text-xs tracking-[0.1em] uppercase ${
         onImage
           ? "[&>span:not(:first-child)]:border-[rgba(236,236,230,.2)] [&>span:not(:first-child)]:bg-bg/50"
           : ""

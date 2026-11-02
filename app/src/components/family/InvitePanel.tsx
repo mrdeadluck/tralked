@@ -76,13 +76,13 @@ export function InvitePanel({ memberCount, maxMembers }: InvitePanelProps) {
             <Button variant="primary" onClick={copy}>
               Copiar link
             </Button>
-            <span aria-live="polite" className="font-mono text-[11px] text-dim">
+            <span aria-live="polite" className="font-mono text-xs text-dim">
               {copied === "ok" ? "Link copiado." : null}
               {copied === "manual" ? "Não deu para copiar sozinho: o link está selecionado, use Ctrl+C." : null}
             </span>
           </div>
           {expiresAt ? (
-            <p className="font-mono text-[11px] text-dim">
+            <p className="font-mono text-xs text-dim">
               Expira em {dateFormat.format(new Date(expiresAt))}.
             </p>
           ) : null}

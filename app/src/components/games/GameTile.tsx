@@ -23,7 +23,7 @@ export function GameTile({ game }: { game: GameCard }) {
       <div className="relative [&>*]:rounded-none">
         <GameCover name={game.name} coverUrl={game.coverUrl} lazy />
         {platinum ? (
-          <span className="absolute top-2.5 right-2.5 bg-acc px-2 py-1 font-mono text-[10px] font-bold tracking-[0.12em] text-bg">
+          <span className="absolute top-2.5 right-2.5 bg-acc px-2 py-1 font-mono text-xs font-bold tracking-[0.12em] text-bg">
             PLATINADO
           </span>
         ) : null}
@@ -41,7 +41,7 @@ export function GameTile({ game }: { game: GameCard }) {
         <h3 className="text-[19px] leading-[1.15] font-extrabold font-stretch-[105%] tracking-[-0.015em]">
           {game.name}
         </h3>
-        <div className="mt-auto flex items-center justify-between gap-2.5 font-mono text-[11px] text-dim">
+        <div className="mt-auto flex items-center justify-between gap-2.5 font-mono text-xs text-dim">
           {game.stub ? (
             <span>Do catálogo completo</span>
           ) : unlockedCount === null ? (

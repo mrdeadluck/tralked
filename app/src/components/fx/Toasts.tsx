@@ -58,7 +58,7 @@ export function Toasts({ toasts }: { toasts: ToastData[] }) {
           </div>
           <div>
             <b className="block text-[15px] font-extrabold">{toast.title}</b>
-            <span className="font-mono text-[11px] text-dim uppercase">{toast.text}</span>
+            <span className="font-mono text-xs text-dim uppercase">{toast.text}</span>
           </div>
         </div>
       ))}

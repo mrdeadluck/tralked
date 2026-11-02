@@ -86,17 +86,17 @@ export function ThreadView({ thread, viewer, pending = false }: ThreadViewProps)
                   <div className="flex flex-wrap items-center gap-3">
                     <AuthorBadge author={post.author} size={32} />
                     {post.author && post.author.id === thread.authorId ? (
-                      <span className="border border-line-2 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.1em] text-text-3 uppercase">
+                      <span className="border border-line-2 px-1.5 py-0.5 font-mono text-xs tracking-[0.1em] text-text-3 uppercase">
                         Autor do tópico
                       </span>
                     ) : null}
                     {solved ? (
-                      <span className="inline-flex items-center gap-1 bg-acc px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-[0.1em] text-bg uppercase">
+                      <span className="inline-flex items-center gap-1 bg-acc px-1.5 py-0.5 font-mono text-xs font-bold tracking-[0.1em] text-bg uppercase">
                         <CheckIcon width={12} height={12} /> Resolveu
                       </span>
                     ) : null}
                   </div>
-                  <time dateTime={new Date(post.createdAt).toISOString()} className="font-mono text-[11px] text-dim">
+                  <time dateTime={new Date(post.createdAt).toISOString()} className="font-mono text-xs text-dim">
                     {formatWhen(post.createdAt, true)}
                   </time>
                 </header>
@@ -107,7 +107,7 @@ export function ThreadView({ thread, viewer, pending = false }: ThreadViewProps)
                       type="button"
                       onClick={() => markSolved(post)}
                       disabled={marking}
-                      className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-[2px] border border-acc px-3 font-mono text-[11px] font-bold tracking-[0.08em] text-acc uppercase hover:bg-acc hover:text-bg disabled:cursor-wait disabled:opacity-60"
+                      className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-[2px] border border-acc px-3 font-mono text-xs font-bold tracking-[0.08em] text-acc uppercase hover:bg-acc hover:text-bg disabled:cursor-wait disabled:opacity-60"
                     >
                       <CheckIcon width={13} height={13} /> Esta resolveu
                     </button>

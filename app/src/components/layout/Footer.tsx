@@ -53,7 +53,7 @@ export function Footer() {
           </div>
           {COLUMNS.map((column) => (
             <div key={column.title} className="flex flex-col gap-2.5">
-              <span className="font-mono text-[10.5px] tracking-[0.14em] text-dim-2 uppercase">
+              <span className="font-mono text-xs tracking-[0.14em] text-dim-2 uppercase">
                 {column.title}
               </span>
               {column.links.map((link) => (
@@ -69,7 +69,7 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="flex flex-wrap justify-between gap-3 border-t border-divider pt-5 font-mono text-[11px] text-dim-2">
+        <div className="flex flex-wrap justify-between gap-3 border-t border-divider pt-5 font-mono text-xs text-dim-2">
           <div className="flex flex-col gap-1">
             <span>© 2026 Tralked</span>
             <span>Dados de jogos: Steam, IGDB, RAWG. Arte: Steam, SteamGridDB.</span>

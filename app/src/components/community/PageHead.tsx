@@ -29,7 +29,7 @@ export function PageHead({ title, lede, aside, trail }: PageHeadProps) {
 /** "Fórum / Ajuda e conquistas" breadcrumb. */
 export function Trail({ children }: { children: ReactNode }) {
   return (
-    <nav aria-label="Você está em" className="font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+    <nav aria-label="Você está em" className="font-mono text-xs tracking-[0.08em] text-dim uppercase">
       {children}
     </nav>
   );

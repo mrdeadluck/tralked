@@ -42,7 +42,7 @@ export function PhotoCard({ photo, eager = false }: { photo: PhotoCardView; eage
       {photo.author ? (
         <span
           aria-hidden="true"
-          className="absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate bg-bg-deep/75 px-1.5 py-0.5 font-mono text-[10.5px] text-text-2"
+          className="absolute bottom-2 left-2 max-w-[calc(100%-16px)] truncate bg-bg-deep/75 px-1.5 py-0.5 font-mono text-xs text-text-2"
         >
           @{photo.author.handle}
         </span>

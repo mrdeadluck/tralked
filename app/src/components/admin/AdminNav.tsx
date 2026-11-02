@@ -37,7 +37,7 @@ export function AdminNav({ items }: { items: AdminNavItem[] }) {
                   {item.label}
                 </span>
                 {item.count ? (
-                  <span className="rounded-[2px] bg-acc px-1.5 py-px text-[11px] font-bold text-bg tabular-nums">
+                  <span className="rounded-[2px] bg-acc px-1.5 py-px text-xs font-bold text-bg tabular-nums">
                     <span className="sr-only">: </span>
                     {item.count}
                     <span className="sr-only"> pendentes</span>
