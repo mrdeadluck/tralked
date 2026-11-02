@@ -77,7 +77,7 @@ try {
   if (deps.politeFetch) {
     const fetcher = deps.politeFetch;
     const art = await withDb("library art", () => repairLibraryArt(fetcher, { limit: 3000, deadline: stopAt }));
-    log.info(`Library art: ${art.checked} checked, ${art.covers} portraits and ${art.heroes} heroes written, ${art.failed} failed.`);
+    log.info(`Library art: ${art.checked} checked, ${art.covers} portraits and ${art.heroes} heroes and ${art.capsules} capsules written, ${art.failed} failed.`);
   }
   while (Date.now() < stopAt) {
     // One batch is the unit a lost connection repeats: the games it did not write stay queued.

@@ -32,6 +32,7 @@ export function AlmostThere({ games }: AlmostThereProps) {
                 coverUrl={game.coverUrl}
                 steamAppId={game.steamAppId}
                 wideUrl={game.heroUrl}
+                art={game.art}
                 ratio="16 / 10"
                 alt=""
                 className="rounded-none"

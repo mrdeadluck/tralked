@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { Suspense } from "react";
-import { GameArt } from "@/components/art/GameArt";
+import { FramedArt } from "@/components/art/FramedArt";
 import { Newsletter } from "@/components/layout/Newsletter";
 import { HeroMain } from "@/components/news/HeroMain";
 import { NewsWire } from "@/components/news/NewsWire";
@@ -185,10 +185,14 @@ async function Archive({ searchParams }: { searchParams: PageProps<"/noticias">[
                 className="group -mx-3 grid grid-cols-[minmax(0,1fr)] gap-x-6 gap-y-3 rounded-[3px] px-3 py-6 transition-colors duration-150 hover:bg-surface sm:grid-cols-[240px_minmax(0,1fr)]"
               >
                 <div className="aspect-[16/10] overflow-hidden rounded-[3px] bg-surface">
-                  <GameArt
+                  <FramedArt
+                    art={story.art}
+                    fallbackUrl={story.imageUrl}
+                    ratio={16 / 10}
+                    mode="scene"
+                    pick={story.id}
                     seed={story.seed}
                     hues={story.hues}
-                    imageUrl={story.imageUrl}
                     figure
                     width={480}
                     height={300}

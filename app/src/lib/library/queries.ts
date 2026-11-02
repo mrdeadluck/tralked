@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { PlatformId } from "@/lib/engine/trophies";
 import { achievementTotal as platformTotal } from "@/lib/games/achievement-total";
+import type { ArtAsset } from "@/lib/art/frame";
 import { GAME_ART_SELECT, gameArtUrls } from "@/lib/queries/game-art";
 
 /**
@@ -145,6 +146,8 @@ export type WishlistEntry = {
   /** Wide art (hero, else official artwork or a screenshot): printed on the case without a cover. */
   heroUrl: string | null;
   steamAppId: number | null;
+  /** Every image by kind and shape (lib/art/frame), for the 16:10 card. */
+  art: ArtAsset[];
   stub: boolean;
   /** steam */
   platform: PlatformId;

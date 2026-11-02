@@ -8,6 +8,7 @@ import type { MissionCondition } from "@/lib/engine/missions";
 import { nativePlatinums, platinumCount, rarityCounts } from "@/lib/character/counts";
 import { genreName, primaryGenre } from "@/lib/engine/genres";
 import { achievementTotal } from "@/lib/games/achievement-total";
+import type { ArtAsset } from "@/lib/art/frame";
 import { GAME_ART_SELECT, gameArtUrls } from "./game-art";
 import { getRank } from "@/lib/highscores/queries";
 import { validCompletions } from "@/lib/progression/completions";
@@ -55,6 +56,8 @@ export type CharacterAlmostGame = {
   /** Cover fallbacks (lib/case-art): Steam's portrait art, then the hero shown whole. */
   steamAppId: number | null;
   heroUrl: string | null;
+  /** Every image by kind and shape (lib/art/frame), for the card's 16:10 box. */
+  art: ArtAsset[];
   unlocked: number;
   total: number;
   percent: number;

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { GameArt } from "@/components/art/GameArt";
+import { FramedArt } from "@/components/art/FramedArt";
 import { Wordmark } from "@/components/brand/Logo";
 import { isSafeHref } from "@/lib/content/url";
 import type { WireItem } from "@/lib/queries/news";
@@ -57,11 +57,15 @@ function Title({ item }: { item: WireItem }) {
 
 function body(item: WireItem): ReactNode {
   const art = (w: number, h: number, light = false) => (
-    <GameArt
+    <FramedArt
       className="tkw-art"
+      art={item.art}
+      fallbackUrl={item.imageUrl}
+      ratio={w / h}
+      mode="scene"
+      pick={item.id}
       seed={item.seed}
       hues={item.hues}
-      imageUrl={item.imageUrl}
       figure
       light={light}
       width={w}

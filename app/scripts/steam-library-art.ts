@@ -27,7 +27,7 @@ let exitCode = 0;
 try {
   log.info(`Library art on "${db.name}", up to ${limit} games…`);
   const art = await repairLibraryArt(createPoliteFetch({}), { limit });
-  log.info(`${art.checked} checked: ${art.covers} portraits and ${art.heroes} heroes written, ${art.failed} failed.`);
+  log.info(`${art.checked} checked: ${art.covers} portraits and ${art.heroes} heroes and ${art.capsules} capsules written, ${art.failed} failed.`);
 } catch (error) {
   log.error("Library art repair stopped", error);
   exitCode = 1;

@@ -144,7 +144,7 @@ const ASSET_ROOT = "https://shared.akamai.steamstatic.com/store_item_assets/";
 
 type SizedAsset = { url: string; width: number; height: number };
 /** An app's library art at its real (often hashed) path: the plain path 404s for newer apps. */
-export type StoreAssets = { cover?: SizedAsset; hero?: SizedAsset };
+export type StoreAssets = { cover?: SizedAsset; hero?: SizedAsset; capsule?: SizedAsset };
 
 /**
  * The `assets` of an IStoreBrowseService/GetItems answer, by app id: the 600×900 portrait
@@ -169,7 +169,9 @@ export function parseStoreAssets(json: unknown): Map<number, StoreAssets> {
     else if (small) assets.cover = { url: small, width: 300, height: 450 };
     const hero = url(item.assets?.library_hero);
     if (hero) assets.hero = { url: hero, width: 3840, height: 1240 };
-    if (assets.cover || assets.hero) out.set(item.appid, assets);
+    const capsule = url(item.assets?.main_capsule);
+    if (capsule) assets.capsule = { url: capsule, width: 616, height: 353 };
+    if (assets.cover || assets.hero || assets.capsule) out.set(item.appid, assets);
   }
   return out;
 }

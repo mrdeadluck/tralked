@@ -10,7 +10,8 @@ import type { PoliteFetch } from "@/lib/integrations/steam/polite-fetch";
  * portrait). One GetItems request answers 100 apps.
  *
  * Only blanks and wide stand-ins are written: a cover that is missing or a header/capsule becomes
- * the portrait; a missing hero becomes the hero. Covers from SteamGridDB or IGDB stay.
+ * the portrait; a missing hero becomes the hero; the main capsule (616×353) is added as a "capsule"
+ * media row for wide cards. Covers from SteamGridDB or IGDB stay.
  */
 
 const PER_REQUEST = 100;
@@ -21,8 +22,16 @@ const WIDE_COVER: Prisma.GameWhereInput[] = [
   { coverUrl: { contains: "/capsule_" } },
 ];
 
-const NEEDS_ART: Prisma.GameWhereInput = { OR: [{ coverUrl: null }, ...WIDE_COVER, { heroUrl: null }] };
-const select = { id: true, steamAppId: true, coverUrl: true, heroUrl: true } as const;
+const NEEDS_ART: Prisma.GameWhereInput = {
+  OR: [{ coverUrl: null }, ...WIDE_COVER, { heroUrl: null }, { media: { none: { kind: "capsule", source: "steam" } } }],
+};
+const select = {
+  id: true,
+  steamAppId: true,
+  coverUrl: true,
+  heroUrl: true,
+  media: { where: { kind: "capsule", source: "steam" }, select: { id: true }, take: 1 },
+} as const;
 
 /**
  * Games whose art the shelves show, best first: the releases of /lancamentos and the calendar
@@ -67,7 +76,7 @@ export function libraryArtUpdate(game: Pick<Candidate, "coverUrl" | "heroUrl">, 
   return data;
 }
 
-export type LibraryArtResult = { checked: number; covers: number; heroes: number; failed: number };
+export type LibraryArtResult = { checked: number; covers: number; heroes: number; capsules: number; failed: number };
 
 /** Up to `limit` games, `PER_REQUEST` per store request, until `deadline`. */
 export async function repairLibraryArt(
@@ -76,7 +85,7 @@ export async function repairLibraryArt(
 ): Promise<LibraryArtResult> {
   const since = new Date(now.getTime() - 90 * 86_400_000);
   const games = await libraryArtCandidates(limit, since);
-  const result: LibraryArtResult = { checked: 0, covers: 0, heroes: 0, failed: 0 };
+  const result: LibraryArtResult = { checked: 0, covers: 0, heroes: 0, capsules: 0, failed: 0 };
   for (let i = 0; i < games.length && Date.now() < deadline; i += PER_REQUEST) {
     const chunk = games.slice(i, i + PER_REQUEST);
     let assets: Map<number, StoreAssets>;
@@ -89,11 +98,18 @@ export async function repairLibraryArt(
     }
     for (const game of chunk) {
       result.checked++;
-      const data = libraryArtUpdate(game, assets.get(game.steamAppId!));
-      if (!data.coverUrl && !data.heroUrl) continue;
-      await prisma.game.update({ where: { id: game.id }, data });
+      const found = assets.get(game.steamAppId!);
+      const data = libraryArtUpdate(game, found);
+      if (data.coverUrl || data.heroUrl) await prisma.game.update({ where: { id: game.id }, data });
       if (data.coverUrl) result.covers++;
       if (data.heroUrl) result.heroes++;
+      // The main capsule (616×353, key art with the logo) for wide cards (lib/art/frame).
+      if (found?.capsule && game.media.length === 0) {
+        await prisma.gameMedia.create({
+          data: { gameId: game.id, kind: "capsule", order: 0, source: "steam", ...found.capsule },
+        });
+        result.capsules++;
+      }
     }
   }
   return result;

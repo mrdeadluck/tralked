@@ -8,7 +8,7 @@ import { slugify } from "@/lib/sync/catalog";
 import { isPlaceholderName, slugAfterPlaceholder } from "@/lib/sync/steam-games";
 
 export type CatalogMedia = {
-  kind: "cover" | "hero" | "logo" | "artwork" | "screenshot" | "video";
+  kind: "cover" | "capsule" | "hero" | "logo" | "artwork" | "screenshot" | "video";
   url: string;
   width?: number;
   height?: number;

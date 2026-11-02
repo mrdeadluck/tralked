@@ -1,3 +1,4 @@
+import { artAssets, type ArtAsset } from "@/lib/art/frame";
 import { prisma } from "@/lib/db";
 import {
   achievementKey,
@@ -56,6 +57,11 @@ export type ArticleCard = {
    * box such as the home headline may stretch. Null when the only art is a portrait cover.
    */
   wideImageUrl?: string | null;
+  /**
+   * The related game's images by kind and shape (lib/art/frame), when the article has no picture of
+   * its own: each box then picks the one made for its shape instead of cropping `imageUrl`.
+   */
+  art?: ArtAsset[] | null;
   /** Without the leading "@". */
   authorHandle: string;
   /** How the byline reads: "@handle" for people, "Equipe Tralked" for bot articles. */
@@ -110,6 +116,9 @@ export type ArticleFull = ArticleCard & {
   reviewed: boolean;
   /** Related game's hero/cover for the article header (null: generated art). */
   heroUrl: string | null;
+  /** The related game's images for the 21:9 header (lib/art/frame), and the body's pictures to skip. */
+  heroArt?: ArtAsset[] | null;
+  heroExclude?: string[];
   game: RelatedGame | null;
   games: RelatedGame[];
   /** Resolved `achievement` blocks, keyed by `achievementKey(platform, apiName)`. */
@@ -137,12 +146,15 @@ export type TopPlayer = { handle: string; displayName: string; avatarUrl: string
 
 const PUBLISHED = { status: "published" } as const;
 
-/** A game's portrait cover and its first screenshots: articles of one game take turns among them. */
+/**
+ * A game's images for news boxes: its cover, wide art and first screenshots (articles of one game
+ * take turns among them), with their sizes, so each box picks by its shape (lib/art/frame).
+ */
 const SCENE_MEDIA = {
-  where: { kind: { in: ["cover", "screenshot"] }, url: { not: null } },
+  where: { kind: { in: ["cover", "capsule", "hero", "artwork", "screenshot"] }, url: { not: null } },
   orderBy: [{ kind: "asc" as const }, { order: "asc" as const }],
-  take: 9,
-  select: { url: true as const, kind: true as const },
+  take: 14,
+  select: { url: true as const, kind: true as const, width: true as const, height: true as const },
 };
 
 const gameSelect = { slug: true, name: true, heroUrl: true, coverUrl: true, media: SCENE_MEDIA } as const;
@@ -175,8 +187,17 @@ export type GameRow = {
   name: string;
   heroUrl: string | null;
   coverUrl: string | null;
-  media: { url: string | null; kind: string }[];
+  media: { url: string | null; kind: string; width?: number | null; height?: number | null }[];
 };
+
+/** The images of the first related game that has any (lib/art/frame), or null. */
+export function gamesArt(games: GameRow[]): ArtAsset[] | null {
+  for (const g of games) {
+    const art = artAssets({ coverUrl: g.coverUrl, heroUrl: g.heroUrl, media: g.media });
+    if (art.length > 0) return art;
+  }
+  return null;
+}
 
 /**
  * Wide art of an article's first game that has any: its hero or one of its screenshots, picked by
@@ -272,6 +293,7 @@ function toCard(row: CardRow): ArticleCard {
       null,
     wideImageUrl:
       (firstImage?.type === "image" ? firstImage.url : null) ?? gameScene(games, row.slug, undefined, { wideOnly: true }),
+    art: firstImage ? null : gamesArt(games),
     authorHandle: row.author.handle,
     authorLabel: authorLabel(row.source, row.author.handle),
     bot: row.source === "bot",
@@ -516,6 +538,8 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     heroUrl:
       gameScene(gameRows, row.slug, new Set(blocks.flatMap((b) => (b.type === "image" ? [b.url] : [])))) ??
       (await companyArt(`${row.title} ${row.subtitle ?? ""}`, row.slug)),
+    heroArt: gamesArt(gameRows),
+    heroExclude: blocks.flatMap((b) => (b.type === "image" ? [b.url] : [])),
     game: games[0] ?? null,
     games,
     achievements,
@@ -599,6 +623,8 @@ export type WireItem = {
   source: string;
   when: string;
   imageUrl?: string | null;
+  /** The article's game images (lib/art/frame), picked by the card's shape. */
+  art?: ArtAsset[] | null;
   seed: number;
   hues?: Hues;
   /** `block` variant: short agenda rows. */
@@ -621,6 +647,8 @@ export type StoryCard = {
   source: string;
   when: string;
   imageUrl?: string | null;
+  /** The article's game images (lib/art/frame), picked by the card's shape. */
+  art?: ArtAsset[] | null;
   seed: number;
   hues?: Hues;
 };
@@ -685,6 +713,7 @@ export function articleStory(article: ArticleCard, now: Date): StoryCard {
     source: article.authorLabel,
     when: timeAgo(article.publishedAt, now),
     imageUrl: article.imageUrl,
+    art: article.art ?? null,
     seed: hashSeed(article.slug),
     hues: artHues(article.game?.slug, article.slug),
   };
@@ -731,6 +760,7 @@ export function buildWireItems(
         source: a.bot ? a.authorLabel : EDITORIAL_SOURCE,
         when: timeAgo(a.publishedAt, now),
         imageUrl: a.imageUrl,
+        art: a.art ?? null,
         seed: hashSeed(a.slug),
         hues: artHues(a.game?.slug, a.slug),
         thin: NEWP_WORDS[a.category] ?? NEWP_WORDS.GAMES,

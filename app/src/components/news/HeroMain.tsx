@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { GameArt } from "@/components/art/GameArt";
+import { FramedArt } from "@/components/art/FramedArt";
 import { RemoteImg } from "@/components/ui/RemoteImg";
 import { artHues, hashSeed } from "@/lib/queries/news";
 import { ArticleByline, ArticleTags, type ArticleView } from "./ArticleTags";
@@ -50,7 +50,7 @@ export function HeroMain({
 }) {
   // Cards built before `wideImageUrl` existed only carry `imageUrl`: treat it as wide.
   const wide = article.wideImageUrl === undefined ? article.imageUrl : article.wideImageUrl;
-  const cover = !wide ? article.imageUrl : null;
+  const cover = !wide && !article.art?.length ? article.imageUrl : null;
   return (
     <Link
       href={`/noticias/${article.slug}`}
@@ -59,10 +59,14 @@ export function HeroMain({
       {cover ? (
         <CoverStage url={cover} />
       ) : (
-        <GameArt
+        <FramedArt
+          art={article.art}
+          fallbackUrl={wide}
+          ratio={1.75}
+          mode="scene"
+          pick={article.slug}
           seed={hashSeed(article.slug)}
           hues={artHues(article.game?.slug, article.slug)}
-          imageUrl={wide}
           figure
           light
           width={1280}

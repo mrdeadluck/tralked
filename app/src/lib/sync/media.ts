@@ -23,7 +23,7 @@ const igdbImage = (size: string, imageId: string) => `${IGDB_IMAGE}/${size}/${im
 
 /**
  * Refreshes a game's official media: trailers, screenshots and artworks from IGDB, and
- * cover/hero/logo from SteamGridDB (Steam games only). Each kind is replaced only when the
+ * cover/capsule/hero/logo (with sizes) from SteamGridDB (Steam games only). Each kind is replaced only when the
  * sources returned something for it, so the seeded fixture media (generated art) stays until
  * real media exists. Returns how many rows were written, or null for an unknown game.
  */
@@ -81,13 +81,15 @@ export async function syncGameMedia(
       source: "igdb",
     })),
   ];
-  for (const [kind, url] of [
-    ["cover", art?.coverUrl],
-    ["hero", art?.heroUrl],
-    ["logo", art?.logoUrl],
+  for (const [kind, asset] of [
+    ["cover", art?.cover ?? (art?.coverUrl ? { url: art.coverUrl } : undefined)],
+    ["capsule", art?.capsule],
+    ["hero", art?.hero ?? (art?.heroUrl ? { url: art.heroUrl } : undefined)],
+    ["logo", art?.logo ?? (art?.logoUrl ? { url: art.logoUrl } : undefined)],
   ] as const) {
-    if (url?.startsWith("https://")) {
-      rows.push({ kind, url, youtubeId: null, width: null, height: null, source: "sgdb" });
+    if (asset?.url.startsWith("https://")) {
+      const size = asset as { width?: number | null; height?: number | null };
+      rows.push({ kind, url: asset.url, youtubeId: null, width: size.width ?? null, height: size.height ?? null, source: "sgdb" });
     }
   }
   if (rows.length === 0) return 0;
@@ -99,7 +101,10 @@ export async function syncGameMedia(
     return { ...row, gameId: game.id, order };
   });
   await prisma.$transaction([
-    prisma.gameMedia.deleteMany({ where: { gameId: game.id, kind: { in: [...nextOrder.keys()] } } }),
+    // Steam's own art (the store sync's rows) stays: only what these sources wrote is replaced.
+    prisma.gameMedia.deleteMany({
+      where: { gameId: game.id, kind: { in: [...nextOrder.keys()] }, source: { not: "steam" } },
+    }),
     prisma.gameMedia.createMany({ data }),
   ]);
   return rows.length;

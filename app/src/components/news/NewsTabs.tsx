@@ -12,7 +12,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { GameArt } from "@/components/art/GameArt";
+import { FramedArt } from "@/components/art/FramedArt";
 import { isSafeHref } from "@/lib/content/url";
 import type { NewsTab, StoryCard } from "@/lib/queries/news";
 
@@ -154,11 +154,15 @@ function Panel({
     <>
       {lead ? (
         <StoryLink story={lead} className="tkt-lead" style={delay(0)}>
-          <GameArt
+          <FramedArt
             className="tkt-art"
+            art={lead.art}
+            fallbackUrl={lead.imageUrl}
+            ratio={1.6}
+            mode="scene"
+            pick={lead.id}
             seed={lead.seed}
             hues={lead.hues}
-            imageUrl={lead.imageUrl}
             figure
             light
             width={900}
@@ -173,11 +177,15 @@ function Panel({
       ) : null}
       {secondary.map((story, i) => (
         <StoryLink key={story.id} story={story} className="tkt-sec" style={delay(i + 1)}>
-          <GameArt
+          <FramedArt
             className="tkt-art"
+            art={story.art}
+            fallbackUrl={story.imageUrl}
+            ratio={2}
+            mode="scene"
+            pick={story.id}
             seed={story.seed}
             hues={story.hues}
-            imageUrl={story.imageUrl}
             figure={i === 0}
             width={520}
             height={320}
@@ -196,7 +204,7 @@ function Panel({
           {more.map((story) => (
             <li key={story.id}>
               <StoryLink story={story}>
-                <GameArt className="tkt-thumb" seed={story.seed} hues={story.hues} imageUrl={story.imageUrl} width={224} height={128} sizes="112px" />
+                <FramedArt className="tkt-thumb" art={story.art} fallbackUrl={story.imageUrl} ratio={112 / 64} mode="scene" pick={story.id} seed={story.seed} hues={story.hues} width={224} height={128} sizes="112px" />
                 <span>
                   <small>{story.kicker}</small>
                   <strong>{story.title}</strong>

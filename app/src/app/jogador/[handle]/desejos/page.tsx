@@ -71,6 +71,7 @@ async function ProfileWishlist({
                   coverUrl={item.coverUrl}
                   steamAppId={item.steamAppId}
                   wideUrl={item.heroUrl}
+                  art={item.art}
                   portraitChecked={!item.stub}
                   alt=""
                   width={360}

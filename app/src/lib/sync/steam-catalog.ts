@@ -242,6 +242,8 @@ export async function syncSteamDetails(appId: number, deps: SteamCatalogDeps): P
     if (known) media.push({ kind, order: 0, ...known });
     else if (await exists(politeFetch, library[kind].url)) media.push({ kind, order: 0, ...library[kind] });
   }
+  // The store's main capsule: key art with the logo in the shape of a wide card (lib/art/frame).
+  if (assets?.capsule) media.push({ kind: "capsule", order: 0, ...assets.capsule });
   if (store.headerUrl) media.push({ kind: "artwork", order: 0, url: store.headerUrl, width: 460, height: 215 });
   store.screenshots.forEach((s, order) => media.push({ kind: "screenshot", order, ...s }));
   let videoOrder = 0;

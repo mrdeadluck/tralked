@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { GameArt } from "@/components/art/GameArt";
+import { FramedArt } from "@/components/art/FramedArt";
 import { Comments } from "@/components/community/Comments";
 import { ReactionBar } from "@/components/community/ReactionBar";
 import { EyeIcon } from "@/components/community/reaction-icons";
@@ -289,10 +289,15 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
       </header>
 
       <div className="aspect-[21/9] overflow-hidden rounded-[3px] bg-surface max-sm:aspect-[16/9]">
-        <GameArt
+        <FramedArt
+          art={article.heroArt}
+          fallbackUrl={article.heroUrl}
+          ratio={21 / 9}
+          mode="scene"
+          pick={article.slug}
+          exclude={new Set(article.heroExclude ?? [])}
           seed={hashSeed(article.slug)}
           hues={artHues(article.game?.slug, article.slug)}
-          imageUrl={article.heroUrl}
           figure
           light
           width={1280}
@@ -366,10 +371,14 @@ function NextStory({ article }: { article: ArticleCard }) {
         href={`/noticias/${article.slug}`}
         className="group relative flex min-h-[320px] flex-col justify-end overflow-hidden rounded-[4px] bg-surface p-5 transition-[translate,box-shadow] duration-200 ease-out hover:-translate-y-[3px] hover:shadow-[0_0_0_1px_var(--acc)] sm:min-h-[400px] sm:p-8 motion-reduce:transition-none"
       >
-        <GameArt
+        <FramedArt
+          art={article.art}
+          fallbackUrl={article.imageUrl}
+          ratio={3}
+          mode="scene"
+          pick={article.slug}
           seed={hashSeed(article.slug)}
           hues={artHues(article.game?.slug, article.slug)}
-          imageUrl={article.imageUrl}
           figure
           light
           width={960}
@@ -423,10 +432,14 @@ function MostViewed({ title, articles }: { title: string; articles: ArticleCard[
                 {i + 1}
               </span>
               <span className="block h-[60px] w-[96px] flex-none overflow-hidden rounded-[2px] bg-surface">
-                <GameArt
+                <FramedArt
+                  art={article.art}
+                  fallbackUrl={article.imageUrl}
+                  ratio={96 / 60}
+                  mode="scene"
+                  pick={article.slug}
                   seed={hashSeed(article.slug)}
                   hues={artHues(article.game?.slug, article.slug)}
-                  imageUrl={article.imageUrl}
                   width={96}
                   height={60}
                   sizes="96px"

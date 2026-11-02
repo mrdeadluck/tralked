@@ -3,26 +3,37 @@ import { assetUrl, createSgdbClient } from "./client";
 import { createSgdbFixture } from "./fixture";
 
 describe("sgdb client", () => {
-  it("fetches grid, hero and logo with bearer auth and takes the first url", async () => {
+  it("asks each shape apart (portrait and wide grids, heroes, logos) and keeps the first with its size", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const path = new URL(String(input)).pathname;
-      const kind = path.split("/")[3];
+      const url = new URL(String(input));
+      const kind = url.pathname.split("/")[3];
+      const wide = url.searchParams.get("dimensions")?.startsWith("920") ? "-wide" : "";
       return new Response(
-        JSON.stringify({ success: true, data: [{ url: `https://img/${kind}-1` }, { url: `https://img/${kind}-2` }] }),
+        JSON.stringify({
+          success: true,
+          data: [
+            { url: `https://img/${kind}${wide}-1`, width: 600, height: 900 },
+            { url: `https://img/${kind}${wide}-2` },
+          ],
+        }),
         { status: 200 },
       );
     });
     const client = createSgdbClient({ apiKey: "KEY", fetch: fetchMock });
-    await expect(client.getArt(367520)).resolves.toEqual({
+    const art = await client.getArt(367520);
+    expect(art).toMatchObject({
       coverUrl: "https://img/grids-1",
       heroUrl: "https://img/heroes-1",
       logoUrl: "https://img/logos-1",
+      cover: { url: "https://img/grids-1", width: 600, height: 900 },
+      capsule: { url: "https://img/grids-wide-1" },
     });
     const urls = fetchMock.mock.calls.map((c) => String(c[0])).sort();
     expect(urls).toEqual([
-      "https://www.steamgriddb.com/api/v2/grids/steam/367520",
-      "https://www.steamgriddb.com/api/v2/heroes/steam/367520",
-      "https://www.steamgriddb.com/api/v2/logos/steam/367520",
+      "https://www.steamgriddb.com/api/v2/grids/steam/367520?dimensions=600x900&types=static&nsfw=false&humor=false",
+      "https://www.steamgriddb.com/api/v2/grids/steam/367520?dimensions=920x430,460x215&types=static&nsfw=false&humor=false",
+      "https://www.steamgriddb.com/api/v2/heroes/steam/367520?types=static&nsfw=false&humor=false",
+      "https://www.steamgriddb.com/api/v2/logos/steam/367520?types=static&nsfw=false&humor=false",
     ]);
     for (const call of fetchMock.mock.calls) {
       const init = (call as unknown as [unknown, RequestInit])[1];
@@ -39,11 +50,11 @@ describe("sgdb client", () => {
       return new Response(JSON.stringify({ success: true, data: [{ url: "https://img/logo" }] }));
     });
     const client = createSgdbClient({ apiKey: "KEY", fetch: fetchMock });
-    await expect(client.getArt(1)).resolves.toEqual({
-      coverUrl: undefined,
-      heroUrl: undefined,
-      logoUrl: "https://img/logo",
-    });
+    const art = await client.getArt(1);
+    expect(art.coverUrl).toBeUndefined();
+    expect(art.capsule).toBeUndefined();
+    expect(art.heroUrl).toBeUndefined();
+    expect(art.logo).toEqual({ url: "https://img/logo", width: null, height: null });
   });
 
   it("marks art whose thumbnail exists only in PNG (transparent images)", () => {
