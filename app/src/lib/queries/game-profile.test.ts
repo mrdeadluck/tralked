@@ -9,6 +9,7 @@ import {
   playableVideos,
   rankSimilar,
   safeMediaUrl,
+  splitByPlatform,
   steamMovieId,
 } from "./game-profile";
 
@@ -136,6 +137,38 @@ describe("game profile helpers", () => {
     expect(bestProgress([steam, xbox, psn])?.platform).toBe("psn");
     expect(bestProgress([xbox, steam])?.platform).toBe("steam");
     expect(bestProgress([])).toBeNull();
+  });
+
+  it("splits trophies by platform: native platinum on PSN, 100% as platinum elsewhere, all pooled", () => {
+    const steam = platformProgress({ platform: "steam", unlockedCount: 3, playtimeMin: 0, completedAt: null }, 3);
+    const psn = platformProgress({ platform: "psn", unlockedCount: 2, playtimeMin: 0, completedAt: null }, 4);
+    const xbox = platformProgress({ platform: "xbox", unlockedCount: 0, playtimeMin: 0, completedAt: null }, 5);
+    const { byPlatform, combined } = splitByPlatform(
+      [steam, psn, xbox],
+      [
+        { platform: "steam", tier: "gold" },
+        { platform: "steam", tier: "bronze" },
+        { platform: "steam", tier: "bronze" },
+        { platform: "psn", tier: "platinum" },
+        { platform: "psn", tier: "silver" },
+        // A platform without a library row: pooled only.
+        { platform: "retro", tier: "bronze" },
+      ],
+    );
+    expect(byPlatform.map((p) => [p.platform, p.trophies, p.platinumTrophy])).toEqual([
+      ["steam", { platinum: 1, gold: 1, silver: 0, bronze: 2, platinumOf: 1 }, false],
+      ["psn", { platinum: 1, gold: 0, silver: 1, bronze: 0, platinumOf: 1 }, true],
+      ["xbox", { platinum: 0, gold: 0, silver: 0, bronze: 0, platinumOf: 1 }, false],
+    ]);
+    expect(combined).toEqual({
+      unlocked: 5,
+      total: 12,
+      pct: 42,
+      completed: false,
+      trophies: { platinum: 2, gold: 1, silver: 1, bronze: 3, platinumOf: 3 },
+    });
+    expect(splitByPlatform([steam], []).combined).toMatchObject({ pct: 100, completed: true });
+    expect(splitByPlatform([], []).combined).toMatchObject({ unlocked: 0, total: 0, pct: 0, completed: false });
   });
 
   it("ranks similar games by shared genres, ignoring the guides skill", () => {
@@ -299,6 +332,28 @@ describe.skipIf(!reachable)("game profile (seeded database)", () => {
     // Family: lucas first, then the other public members who played it.
     expect(me!.family?.[0]).toMatchObject({ handle: "lucas", me: true, pct: 100 });
     expect(me!.family?.map((f) => f.handle)).toContain("Herbalista_Rosa");
+  });
+
+  it("splits the user's progress by platform for the game page tabs and the player's view", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getGameProfileForUser, getPlayerGamePlatforms } = await import("./game-profile");
+    const lucas = await prisma.user.findUniqueOrThrow({ where: { handle: "lucas" } });
+    const me = await getGameProfileForUser("hollow-knight", lucas.id);
+    const progress = me!.progress!;
+    expect(progress.byPlatform.map((p) => p.platform)).toEqual(["steam", "psn", "xbox"]);
+    expect(progress.byPlatform.find((p) => p.platform === "psn")).toMatchObject({ completed: true, platinumTrophy: true });
+    // The pooled trophies are the platforms' trophies added up.
+    const sum = (tier: "platinum" | "gold" | "silver" | "bronze") =>
+      progress.byPlatform.reduce((acc, p) => acc + p.trophies[tier], 0);
+    expect(me!.trophies).toMatchObject({ platinum: sum("platinum"), gold: sum("gold"), silver: sum("silver"), bronze: sum("bronze") });
+    expect(progress.combined.unlocked).toBe(progress.platforms.reduce((acc, p) => acc + p.unlocked, 0));
+
+    const view = await getPlayerGamePlatforms("hollow-knight", lucas.id);
+    expect(view).toMatchObject({ slug: "hollow-knight", best: "psn", combined: progress.combined });
+    expect(view!.byPlatform).toEqual(progress.byPlatform);
+    expect(await getPlayerGamePlatforms("jogo-que-nao-existe", lucas.id)).toBeNull();
+    const kairo = await prisma.user.findUniqueOrThrow({ where: { handle: "Cacador_Joaquim" } });
+    expect(await getPlayerGamePlatforms("hollow-knight", kairo.id)).toBeNull();
   });
 
   it("a user without the game gets no progress but still the opened flag and family", async () => {
