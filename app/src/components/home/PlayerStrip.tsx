@@ -226,7 +226,7 @@ export function InviteStrip() {
       </span>
       <div className="flex min-w-[220px] flex-1 flex-col gap-1">
         <h2 id="convite-personagem" className="text-[21px] leading-tight font-black font-stretch-[112%] tracking-[-0.02em]">
-          Seu personagem gamer em 1 minuto
+          Seu personagem gamer em poucos minutos
         </h2>
         <p className="max-w-[64ch] text-[14.5px] text-text-2">
           Conecte Steam, PlayStation, Xbox ou RetroAchievements: cada conquista vira XP, nível e posição no ranking.
