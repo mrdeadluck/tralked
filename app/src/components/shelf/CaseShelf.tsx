@@ -22,12 +22,13 @@ const CSS = `
 .cs-flag { z-index: 4;  position: absolute; top: calc(var(--band) + 6px); right: 8px; background: var(--acc); color: var(--bg); padding: 3px 6px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
 .cs-bar { z-index: 4;  position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,.6); }
 .cs-bar > span { display: block; height: 100%; width: var(--pct); background: var(--acc); }
-/* The band across the top of the case, like a console case's: the Tralked monogram, then the
-   platforms in one colour, over the Tralked accent line. */
-.cs-band { display: flex; flex: none; align-items: center; gap: 6%; height: var(--band); padding: 0 5% 0 8%; overflow: hidden; background: #0d0e12; border-bottom: 2px solid var(--acc); color: var(--text); }
+/* The band across the top of the case, like a console case's: graphite plastic (a light top edge,
+   darker below) so it reads as part of the case, the Tralked monogram, then the platforms in one
+   colour, over the Tralked accent line. */
+.cs-band { display: flex; flex: none; align-items: center; gap: 6%; height: var(--band); padding: 0 5% 0 8%; overflow: hidden; background: linear-gradient(180deg, #4a4d56 0%, #34363e 45%, #25272d 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.18), inset 0 -1px 0 rgba(0,0,0,.35); border-bottom: 2px solid var(--acc); color: var(--text); }
 .cs-band-logo { flex: none; height: 48%; }
-.cs-band-list { display: flex; align-items: center; gap: .55em; min-width: 0; padding-left: 6%; border-left: 1px solid rgba(255,255,255,.16); overflow: hidden; white-space: nowrap; font-family: var(--font-jetbrains-mono), monospace; font-size: clamp(8.5px, 5.2cqw, 12px); font-weight: 700; letter-spacing: .08em; line-height: 1; text-transform: uppercase; color: #cfd1d7; }
-.cs-band-list i { font-style: normal; font-weight: 400; color: rgba(255,255,255,.32); }
+.cs-band-list { display: flex; align-items: center; gap: .55em; min-width: 0; padding-left: 6%; border-left: 1px solid rgba(255,255,255,.22); overflow: hidden; white-space: nowrap; font-family: var(--font-jetbrains-mono), monospace; font-size: clamp(8.5px, 5.2cqw, 12px); font-weight: 700; letter-spacing: .08em; line-height: 1; text-transform: uppercase; color: #e4e6ea; text-shadow: 0 1px 0 rgba(0,0,0,.35); }
+.cs-band-list i { font-style: normal; font-weight: 400; color: rgba(255,255,255,.4); }
 /* Three or more platforms: no dots, tighter letters, so four fit a 140 px case. */
 .cs-band-list.is-many { gap: .7em; letter-spacing: .03em; font-size: clamp(8px, 4.8cqw, 11px); }
 /* The band replaces the art's own top band (CoverArt prints one on wide art and generated art). */
