@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { loginHref } from "@/components/guide/format";
 import { loadMoreComments, postComment, removeComment, updateComment } from "@/lib/community/actions";
 import type { CommentPage, CommentTargetType, CommentView } from "@/lib/community/comments";
 import { formatWhen, plural } from "@/lib/community/format";
+import type { MyReaction } from "@/lib/community/reaction-rules";
 import type { Viewer } from "@/lib/community/viewer";
 import { AuthorBadge } from "./AuthorBadge";
+import { CommentThread } from "./CommentThread";
+import { ReactionButtons } from "./ReactionButtons";
+import { ReplyIcon } from "./reaction-icons";
 import { ReportButton } from "./ReportButton";
 import { TextComposer } from "./TextComposer";
 import { UserText } from "./UserText";
@@ -23,13 +27,14 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
   const [comments, setComments] = useState(initial.comments);
   const [cursor, setCursor] = useState(initial.nextCursor);
   const [total, setTotal] = useState(initial.total);
+  const [mine, setMine] = useState(initial.mine ?? {});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, startLoading] = useTransition();
 
   async function submit(body: string) {
     const result = await postComment({ targetType, targetId, body });
     if (result.status !== "ok") return result.message;
-    setComments((list) => [result.comment, ...list]);
+    setComments((list) => [{ ...result.comment, replies: [], replyCount: 0 }, ...list]);
     setTotal((n) => n + 1);
     return null;
   }
@@ -44,6 +49,7 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
       }
       setLoadError(null);
       setComments((list) => [...list, ...result.comments.filter((c) => !list.some((x) => x.id === c.id))]);
+      setMine((m) => ({ ...m, ...result.mine }));
       setCursor(result.nextCursor);
     });
   }
@@ -73,20 +79,30 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
       {comments.length > 0 ? (
         <ul className="m-0 flex list-none flex-col p-0">
           {comments.map((comment) => (
-            <CommentItem
+            <CommentThread
               key={comment.id}
-              comment={comment}
+              root={comment}
+              targetType={targetType}
+              targetId={targetId}
               viewer={viewer}
-              returnTo={returnTo}
-              onChanged={(updated) => setComments((list) => list.map((c) => (c.id === updated.id ? updated : c)))}
-              onDeleted={() => {
-                setComments((list) =>
-                  list.map((c) =>
-                    c.id === comment.id ? { ...c, deleted: true, body: "", author: null, editedAt: null } : c,
-                  ),
-                );
-                setTotal((n) => Math.max(0, n - 1));
-              }}
+              mine={mine}
+              onTotalChange={(delta) => setTotal((n) => Math.max(0, n + delta))}
+              onRootDeleted={() => setTotal((n) => Math.max(0, n - 1))}
+              renderComment={(item, handlers) => (
+                <CommentItem
+                  key={item.id}
+                  comment={item}
+                  viewer={viewer}
+                  returnTo={returnTo}
+                  mine={handlers.mine}
+                  reply={handlers.reply}
+                  onReply={handlers.onReply}
+                  onChanged={handlers.onChanged}
+                  onDeleted={handlers.onDeleted}
+                >
+                  {handlers.children}
+                </CommentItem>
+              )}
             />
           ))}
         </ul>
@@ -117,9 +133,27 @@ type CommentItemProps = {
   returnTo: string;
   onChanged: (comment: CommentView) => void;
   onDeleted: () => void;
+  /** The viewer's like (1) or dislike (-1) on this comment. */
+  mine?: MyReaction;
+  /** Opens the reply box (logged-in visitors only). */
+  onReply?: () => void;
+  /** A reply inside a thread (tighter spacing). */
+  reply?: boolean;
+  /** The replies of a top-level comment. */
+  children?: ReactNode;
 };
 
-function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted }: CommentItemProps) {
+function CommentItem({
+  comment,
+  viewer,
+  returnTo,
+  onChanged,
+  onDeleted,
+  mine = 0,
+  onReply,
+  reply = false,
+  children,
+}: CommentItemProps) {
   const [mode, setMode] = useState<"view" | "edit" | "confirm-delete">("view");
   const [error, setError] = useState<string | null>(null);
   const [busy, startTransition] = useTransition();
@@ -141,16 +175,19 @@ function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted }: Commen
     });
   }
 
+  const itemClass = reply ? "py-3 first:pt-1" : "border-b border-divider py-4 first:pt-0";
+
   if (comment.deleted) {
     return (
-      <li id={`comentario-${comment.id}`} className="border-b border-divider py-4 first:pt-0">
+      <li id={`comentario-${comment.id}`} className={`flex flex-col gap-2.5 ${itemClass}`}>
         <p className="font-mono text-[12px] text-dim italic">Comentário apagado</p>
+        {children}
       </li>
     );
   }
 
   return (
-    <li id={`comentario-${comment.id}`} className="flex flex-col gap-2.5 border-b border-divider py-4 first:pt-0">
+    <li id={`comentario-${comment.id}`} className={`flex scroll-mt-24 flex-col gap-2.5 ${itemClass}`}>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <AuthorBadge author={comment.author} size={28} />
         <time dateTime={new Date(comment.createdAt).toISOString()} className="font-mono text-xs text-dim">
@@ -168,11 +205,28 @@ function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted }: Commen
           onCancel={() => setMode("view")}
         />
       ) : (
-        <UserText text={comment.body} className="text-[15.5px] leading-relaxed text-text-2" />
+        <ReplyBody comment={comment} />
       )}
 
       {mode === "view" ? (
         <div className="flex flex-wrap items-start gap-4">
+          <ReactionButtons
+            targetType="comment"
+            targetId={comment.id}
+            likes={comment.likes}
+            dislikes={comment.dislikes}
+            mine={mine}
+            loggedIn={viewer !== null}
+            returnTo={returnTo}
+            size="sm"
+            what={`o comentário de ${comment.author ? `@${comment.author.handle}` : "conta removida"}`}
+          />
+          {onReply ? (
+            <button type="button" onClick={onReply} className={`${ACTION} inline-flex min-h-6 items-center gap-1.5`}>
+              <ReplyIcon width={14} height={14} />
+              Responder
+            </button>
+          ) : null}
           {own ? (
             <>
               <button type="button" onClick={() => setMode("edit")} className={ACTION}>
@@ -210,7 +264,26 @@ function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted }: Commen
           {error}
         </p>
       ) : null}
+      {children}
     </li>
+  );
+}
+
+/** The comment text; a reply to a reply starts with the @mention of the person answered. */
+function ReplyBody({ comment }: { comment: CommentView }) {
+  const text = <UserText text={comment.body} className="text-[15.5px] leading-relaxed text-text-2" />;
+  if (!comment.replyTo) return text;
+  const handle = comment.replyTo.handle;
+  return (
+    <div className="flex flex-col gap-1">
+      <a
+        href={`/jogador/${encodeURIComponent(handle)}`}
+        className="self-start font-mono text-[12px] text-acc hover:underline hover:underline-offset-2"
+      >
+        <span className="sr-only">Em resposta a </span>@{handle}
+      </a>
+      {text}
+    </div>
   );
 }
 

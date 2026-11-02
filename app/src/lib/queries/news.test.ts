@@ -247,6 +247,7 @@ describe("wire and tab view models", () => {
     featured: 0,
     likes: 0,
     comments: 0,
+    views: 0,
     humanAuthored: true,
     publishedAt: new Date(now.getTime() - hoursAgo * 3_600_000),
     game: category === "GUIAS" ? { slug: "hollow-knight", name: "Hollow Knight" } : null,

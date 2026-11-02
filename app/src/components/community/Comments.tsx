@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { SectionHead } from "@/components/ui/SectionHead";
-import { findCommentTarget, listComments, type CommentTargetType } from "@/lib/community/comments";
+import { findCommentTarget, listComments, withMyReactions, type CommentTargetType } from "@/lib/community/comments";
 import { currentViewer } from "@/lib/community/viewer";
 import { prisma } from "@/lib/db";
 import { CommentsClient } from "./CommentsClient";
@@ -41,6 +41,7 @@ async function CommentsIsland({ targetType, targetId }: { targetType: CommentTar
     findCommentTarget(prisma, targetType, targetId),
     listComments(prisma, targetType, targetId),
   ]);
+  const initial = viewer ? await withMyReactions(prisma, page, viewer.id) : page;
   if (!target) {
     return <p className="text-[15px] text-muted">Os comentários estão fechados aqui.</p>;
   }
@@ -48,7 +49,7 @@ async function CommentsIsland({ targetType, targetId }: { targetType: CommentTar
     <CommentsClient
       targetType={targetType}
       targetId={targetId}
-      initial={page}
+      initial={initial}
       viewer={viewer}
       returnTo={`${target.href}#comentarios`}
     />

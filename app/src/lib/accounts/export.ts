@@ -62,7 +62,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     forumThreads,
     forumPosts,
     photos,
-    photoLikes,
+    reactions,
     reports,
     notifications,
     family,
@@ -156,7 +156,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     }),
     prisma.comment.findMany({
       where: authored,
-      select: { id: true, targetType: true, targetId: true, body: true, status: true, createdAt: true, editedAt: true },
+      select: { id: true, targetType: true, targetId: true, parentId: true, body: true, status: true, createdAt: true, editedAt: true },
       orderBy: { createdAt: "asc" },
     }),
     prisma.forumThread.findMany({
@@ -179,12 +179,17 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
         caption: true,
         status: true,
         likeCount: true,
+        dislikeCount: true,
         createdAt: true,
         game: { select: { slug: true } },
       },
       orderBy: { createdAt: "asc" },
     }),
-    prisma.photoLike.findMany({ where: mine, select: { photoId: true, createdAt: true } }),
+    prisma.reaction.findMany({
+      where: mine,
+      select: { targetType: true, targetId: true, value: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    }),
     prisma.report.findMany({
       where: { reporterId: userId },
       select: { targetType: true, targetId: true, reason: true, status: true, createdAt: true },
@@ -211,7 +216,20 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     format: "tralked-user-export/1",
     user,
     linkedAccounts,
-    progress: { stats, skills, attributes, games, wishlist, achievements, ledger, missions, gameOpens },
+    progress: {
+      stats,
+      skills,
+      attributes,
+      games,
+      wishlist,
+      achievements,
+      // A received like is keyed by the liker's user id: only the liked item is exported.
+      ledger: ledger.map((e) =>
+        e.source === "reaction_received" ? { ...e, sourceKey: e.sourceKey.slice(0, e.sourceKey.lastIndexOf(":")) } : e,
+      ),
+      missions,
+      gameOpens,
+    },
     guides: {
       written: guides,
       versions: guideVersions,
@@ -224,7 +242,9 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
         title: p.step.title,
       })),
     },
-    community: { comments, forumThreads, forumPosts, photos, photoLikes, reports },
+    // `reactions`: the user's likes (value 1) and dislikes (value -1) on articles, comments,
+    // photos and guides (photo likes used to be exported as `photoLikes`).
+    community: { comments, forumThreads, forumPosts, photos, reactions, reports },
     notifications,
     newsletter,
     family: family ? { name: family.family.name, role: family.role, joinedAt: family.joinedAt } : null,

@@ -17,7 +17,7 @@ export const RATE_LIMITS = {
   post: { max: 5, windowMs: MINUTE },
   /** Gallery uploads (rolling 24 hours). */
   upload: { max: 10, windowMs: DAY },
-  /** Photo likes (and, through `takeLikeToggle`, every like/unlike click). */
+  /** New likes/dislikes on anything (and, through `takeLikeToggle`, every reaction click). */
   like: { max: 30, windowMs: MINUTE },
 } as const;
 
@@ -45,7 +45,7 @@ export async function withinRateLimit(
       count = await db.photo.count({ where });
       break;
     case "like":
-      count = await db.photoLike.count({ where: { userId, createdAt: since } });
+      count = await db.reaction.count({ where: { userId, createdAt: since } });
       break;
   }
   return count < max;
@@ -55,10 +55,10 @@ export const RATE_LIMIT_MESSAGES: Record<RateLimitKind, string> = {
   comment: "Você comentou muitas vezes em pouco tempo. Espere um minuto e tente de novo.",
   post: "Você postou muitas vezes em pouco tempo. Espere um minuto e tente de novo.",
   upload: "Você chegou ao limite de 10 fotos por dia. Volte amanhã para enviar mais.",
-  like: "Você curtiu muitas vezes em pouco tempo. Espere um minuto e tente de novo.",
+  like: "Você reagiu muitas vezes em pouco tempo. Espere um minuto e tente de novo.",
 };
 
-// Unliking deletes the PhotoLike row, so a like/unlike loop never shows up in the table count.
+// Removing a reaction deletes its row, so a like/unlike loop never shows up in the table count.
 // Every toggle is also counted here, per server instance (best effort: no extra table needed).
 const likeToggles = new Map<string, number[]>();
 

@@ -20,6 +20,7 @@ vi.mock("next/cache", async (importOriginal) => ({
 vi.mock("@/lib/db", () => ({ prisma }));
 
 const actions = await import("./actions");
+const engagement = await import("./engagement-actions");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -33,7 +34,7 @@ describe("community actions", () => {
       actions.updateComment({ id: "c1", body: "oi" }),
       actions.removeComment({ id: "c1" }),
       actions.reportContent({ targetType: "comment", targetId: "c1", reason: "Spam ou propaganda" }),
-      actions.likePhoto({ photoId: "p1" }),
+      engagement.reactTo({ targetType: "photo", targetId: "p1", value: 1 }),
       actions.startThread({ section: "geral", title: "Um título", body: "corpo" }),
       actions.replyToThread({ threadId: "t1", body: "oi" }),
       actions.markThreadSolved({ threadId: "t1", postId: "p1" }),
@@ -50,10 +51,14 @@ describe("community actions", () => {
       actions.postComment({ targetType: "photo", targetId: "p1", body: "   " }),
       actions.postComment({ targetType: "photo", targetId: "p1", body: "<script>alert(1)</script>" }),
       actions.postComment({ targetType: "user", targetId: "p1", body: "oi" }),
+      actions.postComment({ targetType: "photo", targetId: "p1", body: "oi", parentId: "" }),
       actions.replyToThread({ threadId: "t1", body: "<b>negrito</b>" }),
       actions.startThread({ section: "geral", title: "<i>x</i> título", body: "ok" }),
       actions.reportContent({ targetType: "comment", targetId: "c1", reason: "porque sim" }),
-      actions.likePhoto("not an object"),
+      engagement.reactTo("not an object"),
+      engagement.reactTo({ targetType: "user", targetId: "u1", value: 1 }),
+      engagement.reactTo({ targetType: "photo", targetId: "p1", value: 2 }),
+      engagement.loadReplies({ commentId: "" }),
     ]);
     for (const result of results) expect(result.status).toBe("invalid");
     expect(results[1]).toMatchObject({ message: expect.stringMatching(/HTML/), field: "body" });

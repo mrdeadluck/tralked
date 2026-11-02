@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Db } from "./limits";
 import { withinRateLimit } from "./limits";
 import { notify, preview } from "./notify";
+import { myReactions } from "./reactions";
 import { commentBodySchema } from "./text";
 
 export const COMMENT_TARGETS = ["article", "guide", "photo", "thread"] as const;
@@ -22,7 +23,26 @@ export type CommentView = {
   author: AuthorView;
   /** Deleted by its author: the row stays (rate limits keep counting it) and shows "Comentário apagado". */
   deleted: boolean;
+  /** Root comment of a reply; null for top-level comments. */
+  parentId: string | null;
+  /** Who a reply to a reply answers (the @mention); null otherwise, and for `deleted`. */
+  replyTo: { handle: string } | null;
+  likes: number;
+  dislikes: number;
 };
+
+/** A top-level comment with the start of its replies (oldest first). */
+export type CommentThreadView = CommentView & {
+  /** The first REPLIES_PREVIEW replies; the rest load on demand (`listReplies`). */
+  replies: CommentView[];
+  /** Listed replies in all (visible ones and "Comentário apagado" placeholders). */
+  replyCount: number;
+};
+
+/** Replies loaded with each top-level comment; more than this collapse behind "Ver mais". */
+export const REPLIES_PREVIEW = 3;
+/** At most this many replies of one comment are ever listed. */
+export const REPLIES_MAX = 200;
 
 /** Status of a comment its author deleted (the others are visible | hidden | removed). */
 export const DELETED_STATUS = "deleted";
@@ -33,8 +53,16 @@ const commentSelect = {
   status: true,
   createdAt: true,
   editedAt: true,
+  parentId: true,
+  likes: true,
+  dislikes: true,
   author: { select: { id: true, handle: true, displayName: true, avatarUrl: true } },
+  replyToUser: { select: { handle: true } },
 } as const;
+
+/** Comments listed publicly: visible ones and the placeholders of those their authors deleted. */
+const LISTED_STATUSES = ["visible", DELETED_STATUS];
+const LISTED_STATUS = { in: LISTED_STATUSES };
 
 function toView(row: {
   id: string;
@@ -42,7 +70,11 @@ function toView(row: {
   status: string;
   createdAt: Date;
   editedAt: Date | null;
+  parentId: string | null;
+  likes: number;
+  dislikes: number;
   author: AuthorView;
+  replyToUser: { handle: string } | null;
 }): CommentView {
   const deleted = row.status === DELETED_STATUS;
   return {
@@ -52,17 +84,31 @@ function toView(row: {
     editedAt: deleted ? null : row.editedAt,
     author: deleted ? null : row.author,
     deleted,
+    parentId: row.parentId,
+    replyTo: deleted ? null : row.replyToUser,
+    likes: row.likes,
+    dislikes: row.dislikes,
   };
 }
 
-export type CommentPage = { comments: CommentView[]; nextCursor: string | null; total: number };
+export type CommentPage = {
+  comments: CommentThreadView[];
+  nextCursor: string | null;
+  total: number;
+  /** The viewer's likes (1) and dislikes (-1) on the listed comments and replies, by id. */
+  mine?: Record<string, 1 | -1>;
+};
 
 export const commentTargetSchema = z.object({
   targetType: z.enum(COMMENT_TARGETS),
   targetId: z.string().min(1).max(64),
 });
 
-export const newCommentSchema = commentTargetSchema.extend({ body: commentBodySchema });
+export const newCommentSchema = commentTargetSchema.extend({
+  body: commentBodySchema,
+  /** The comment being answered (top-level or a reply); omitted for a new top-level comment. */
+  parentId: z.string().min(1).max(64).optional(),
+});
 export const editCommentSchema = z.object({ id: z.string().min(1).max(64), body: commentBodySchema });
 
 export const authorSelect = {
@@ -112,9 +158,10 @@ export async function findCommentTarget(
 }
 
 /**
- * One page of comments, newest first: visible ones plus "Comentário apagado" placeholders for
- * those their authors deleted. `total` counts only visible comments.
- * `cursor` is the id of the last comment already shown.
+ * One page of top-level comments, newest first, each with its first replies (oldest first):
+ * visible ones plus "Comentário apagado" placeholders for those their authors deleted. `total`
+ * counts every visible comment, replies included (as Article.comments does).
+ * `cursor` is the id of the last top-level comment already shown.
  */
 export async function listComments(
   db: Db,
@@ -125,20 +172,74 @@ export async function listComments(
 ): Promise<CommentPage> {
   const [rows, total] = await Promise.all([
     db.comment.findMany({
-      where: { targetType, targetId, status: { in: ["visible", DELETED_STATUS] } },
+      where: { targetType, targetId, parentId: null, status: LISTED_STATUS },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: take + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      select: commentSelect,
+      select: {
+        ...commentSelect,
+        replies: {
+          where: { status: LISTED_STATUS },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          take: REPLIES_PREVIEW,
+          select: commentSelect,
+        },
+        _count: { select: { replies: { where: { status: LISTED_STATUS } } } },
+      },
     }),
     db.comment.count({ where: { targetType, targetId, status: "visible" } }),
   ]);
   const page = rows.slice(0, take);
   return {
-    comments: page.map(toView),
+    comments: page.map((row) => ({
+      ...toView(row),
+      replies: row.replies.map(toView),
+      replyCount: row._count.replies,
+    })),
     nextCursor: rows.length > take ? page[page.length - 1].id : null,
     total,
   };
+}
+
+/** Every listed reply of a top-level comment, oldest first (capped at REPLIES_MAX). */
+export async function listReplies(db: Db, rootId: string): Promise<CommentView[]> {
+  const rows = await db.comment.findMany({
+    where: { parentId: rootId, status: LISTED_STATUS },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: REPLIES_MAX,
+    select: commentSelect,
+  });
+  return rows.map(toView);
+}
+
+/** The page plus the viewer's reactions to its comments and the replies it shows. */
+export async function withMyReactions(db: Db, page: CommentPage, userId: string): Promise<CommentPage> {
+  const ids = page.comments.flatMap((c) => [c.id, ...c.replies.map((r) => r.id)]);
+  return { ...page, mine: await myReactions(db, userId, "comment", ids) };
+}
+
+type ReplyPlace = { parentId: string; replyToUserId: string | null; notifyUserId: string | null };
+
+/**
+ * Where a reply to `answeredId` goes: under the same root (replies are one level deep). A reply
+ * to a reply @mentions that reply's author; the person answered is notified either way. Null
+ * when the answered comment is not a visible comment of this target.
+ */
+async function replyPlace(
+  db: Db,
+  targetType: CommentTargetType,
+  targetId: string,
+  answeredId: string,
+): Promise<ReplyPlace | null> {
+  const answered = await db.comment.findFirst({
+    where: { id: answeredId, targetType, targetId, status: "visible" },
+    select: { id: true, parentId: true, authorId: true, parent: { select: { status: true } } },
+  });
+  if (!answered) return null;
+  if (!answered.parentId) return { parentId: answered.id, replyToUserId: null, notifyUserId: answered.authorId };
+  // The root of a reply may have been deleted by its author (placeholder), but not moderated away.
+  if (!answered.parent || !LISTED_STATUSES.includes(answered.parent.status)) return null;
+  return { parentId: answered.parentId, replyToUserId: answered.authorId, notifyUserId: answered.authorId };
 }
 
 /**
@@ -187,13 +288,31 @@ export async function createComment(
 ): Promise<CreateCommentResult> {
   const target = await findCommentTarget(db, input.targetType, input.targetId);
   if (!target) return { status: "not_found" };
+  const place = input.parentId ? await replyPlace(db, input.targetType, input.targetId, input.parentId) : null;
+  if (input.parentId && !place) return { status: "not_found" };
   if (!(await withinRateLimit(db, "comment", userId))) return { status: "rate_limited" };
 
   const comment = await db.comment.create({
-    data: { authorId: userId, targetType: input.targetType, targetId: input.targetId, body: input.body },
+    data: {
+      authorId: userId,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      body: input.body,
+      parentId: place?.parentId ?? null,
+      replyToUserId: place?.replyToUserId ?? null,
+    },
     select: commentSelect,
   });
-  if (input.targetType === "photo") {
+  if (place) {
+    await notify(db, {
+      userId: place.notifyUserId,
+      actorId: userId,
+      kind: "comment_reply",
+      title: `@${comment.author?.handle ?? "alguém"} respondeu seu comentário`,
+      body: preview(input.body),
+      href: `${target.href}#comentario-${comment.id}`,
+    });
+  } else if (input.targetType === "photo") {
     await notify(db, {
       userId: target.ownerId,
       actorId: userId,

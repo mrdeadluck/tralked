@@ -156,55 +156,6 @@ describe.skipIf(!reachable)("community (database)", () => {
       });
     }));
 
-  it("likes toggle and keep likeCount equal to the likes", () =>
-    inRollback(async (tx) => {
-      const { toggleLike } = await import("./gallery");
-      const [me] = await users(tx, 1);
-      const before = await tx.photo.findUniqueOrThrow({ where: { id: "seed-photo-09" } });
-
-      const liked = await toggleLike(tx, me.id, before.id);
-      expect(liked).toEqual({ status: "ok", liked: true, likeCount: before.likeCount + 1 });
-      const unliked = await toggleLike(tx, me.id, before.id);
-      expect(unliked).toEqual({ status: "ok", liked: false, likeCount: before.likeCount });
-      expect(await toggleLike(tx, me.id, "missing")).toEqual({ status: "not_found" });
-      expect(await tx.photoLike.count({ where: { photoId: before.id } })).toBe(before.likeCount);
-    }));
-
-  it("like, unlike, like again notifies the photo author only once", () =>
-    inRollback(async (tx) => {
-      const { toggleLike } = await import("./gallery");
-      const [author, fan] = await users(tx, 2);
-      const photo = await tx.photo.create({ data: { authorId: author.id, width: 1, height: 1 } });
-
-      for (let i = 0; i < 3; i++) {
-        expect(await toggleLike(tx, fan.id, photo.id)).toMatchObject({ status: "ok", liked: true });
-        expect(await toggleLike(tx, fan.id, photo.id)).toMatchObject({ status: "ok", liked: false });
-      }
-      expect(await toggleLike(tx, fan.id, photo.id)).toMatchObject({ status: "ok", liked: true, likeCount: 1 });
-      expect(await tx.notification.count({ where: { userId: author.id, kind: "photo_like" } })).toBe(1);
-
-      // Liking your own photo never notifies.
-      await toggleLike(tx, author.id, photo.id);
-      expect(await tx.notification.count({ where: { userId: author.id, kind: "photo_like" } })).toBe(1);
-    }));
-
-  it("at most 30 new likes per minute per user", () =>
-    inRollback(async (tx) => {
-      const { toggleLike } = await import("./gallery");
-      const [author, fan] = await users(tx, 2);
-      const now = new Date();
-      await tx.photo.createMany({
-        data: Array.from({ length: 31 }, (_, i) => ({ id: `likecap-${fan.id}-${i}`, authorId: author.id, width: 1, height: 1 })),
-      });
-      for (let i = 0; i < 30; i++) {
-        expect((await toggleLike(tx, fan.id, `likecap-${fan.id}-${i}`, now)).status).toBe("ok");
-      }
-      expect(await toggleLike(tx, fan.id, `likecap-${fan.id}-30`, now)).toEqual({ status: "rate_limited" });
-      // A minute later there is room again.
-      const later = new Date(now.getTime() + 61_000);
-      expect((await toggleLike(tx, fan.id, `likecap-${fan.id}-30`, later)).status).toBe("ok");
-    }));
-
   it("photo XP: 50 per photo, at most 3 photos a day, idempotent per photo", () =>
     inRollback(async (tx) => {
       const { awardPhotoXp } = await import("./xp");

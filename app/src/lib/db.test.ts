@@ -233,8 +233,10 @@ describe.skipIf(!reachable)("seeded database", () => {
     expect(await prisma.forumThread.count()).toBe(6);
     expect(await prisma.forumThread.count({ where: { solvedPostId: { not: null } } })).toBe(1);
     expect(await prisma.photo.count({ where: { url: null } })).toBe(12);
-    const photos = await prisma.photo.findMany({ include: { _count: { select: { likes: true } } } });
-    expect(photos.every((p) => p.likeCount === p._count.likes)).toBe(true);
+    const photos = await prisma.photo.findMany();
+    const likes = await prisma.reaction.groupBy({ by: ["targetId"], where: { targetType: "photo", value: 1 }, _count: { _all: true } });
+    const likesOf = new Map(likes.map((l) => [l.targetId, l._count._all]));
+    expect(photos.every((p) => p.likeCount === (likesOf.get(p.id) ?? 0))).toBe(true);
     expect(await prisma.comment.count()).toBeGreaterThan(0);
     expect(await prisma.notification.count({ where: { user: { handle: "lucas" }, readAt: null } })).toBe(2);
     const keys = await prisma.apiKey.findMany();
@@ -272,7 +274,7 @@ describe.skipIf(!reachable)("seeded database", () => {
           apiKey: (await tx.apiKey.findUnique({ where: { id: "seed-api-key-1" } }))?.createdById,
           linkedAccounts: await tx.linkedAccount.count({ where: { userId: user.id } }),
           notifications: await tx.notification.count({ where: { userId: user.id } }),
-          photoLikes: await tx.photoLike.count({ where: { userId: user.id } }),
+          reactions: await tx.reaction.count({ where: { userId: user.id } }),
           libraries: await tx.userGame.count({ where: { userId: user.id } }),
         };
         throw new Rollback();
@@ -288,7 +290,7 @@ describe.skipIf(!reachable)("seeded database", () => {
       apiKey: null,
       linkedAccounts: 0,
       notifications: 0,
-      photoLikes: 0,
+      reactions: 0,
       libraries: 0,
     });
     // Rolled back: the content still has its author afterwards.
@@ -351,7 +353,7 @@ describe.skipIf(!reachable)("seeded database", () => {
       forumThreads: await prisma.forumThread.count(),
       forumPosts: await prisma.forumPost.count(),
       photos: await prisma.photo.count(),
-      photoLikes: await prisma.photoLike.count(),
+      reactions: await prisma.reaction.count(),
       comments: await prisma.comment.count(),
       reports: await prisma.report.count(),
       notifications: await prisma.notification.count(),

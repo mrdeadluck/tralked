@@ -101,9 +101,13 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
 
     // B interacts with A's content through the real Server Actions (which also notify A, quoting
     // B's name and text): none of it belongs in A's export.
-    const { likePhoto, postComment, replyToThread } = await import("@/lib/community/actions");
+    const { postComment, replyToThread } = await import("@/lib/community/actions");
+    const { reactTo } = await import("@/lib/community/engagement-actions");
     session.user = b;
-    expect(await likePhoto({ photoId: mineA.photo.id })).toMatchObject({ status: "ok", liked: true });
+    expect(await reactTo({ targetType: "photo", targetId: mineA.photo.id, value: 1 })).toMatchObject({
+      status: "ok",
+      mine: 1,
+    });
     expect(
       await postComment({ targetType: "photo", targetId: mineA.photo.id, body: `comentário de b ${MARK}` }),
     ).toMatchObject({ status: "ok" });
@@ -142,12 +146,17 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
 
     expect(data!.user).toMatchObject({ id: a.id, handle: a.handle, email: a.email, bio: a.bio });
     expect(data!.linkedAccounts).toEqual([expect.objectContaining({ platform: "psn", handle: "psn_a" })]);
-    expect(data!.progress.ledger).toEqual([expect.objectContaining({ xp: 1234 })]);
+    // B's like paid A "reaction_received" XP: the entry is A's, but not B's user id in its key.
+    expect(data!.progress.ledger).toEqual([
+      expect.objectContaining({ xp: 1234 }),
+      expect.objectContaining({ source: "reaction_received", sourceKey: `photo:${mineA.photo.id}` }),
+    ]);
+    expect(json).not.toContain(b.id);
     expect(data!.progress.achievements).toHaveLength(1);
     expect(data!.community.photos).toEqual([expect.objectContaining({ id: mineA.photo.id, likeCount: 1 })]);
     expect(data!.community.comments.map((c) => c.body)).toEqual([`comentário de a ${MARK}`]);
     expect(data!.community.forumPosts.map((p) => p.body)).toEqual([`post de a ${MARK}`]);
-    expect(data!.community.photoLikes).toEqual([]);
+    expect(data!.community.reactions).toEqual([]);
     expect(data!.newsletter).toMatchObject({ email: a.email!.toUpperCase(), confirmedAt });
     // Notifications keep only kind, link and dates: their texts quote other people.
     expect(data!.notifications.length).toBe(inbox.length + 1);
@@ -207,7 +216,9 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
     const otherPhoto = await prisma.photo.create({
       data: { authorId: other.id, width: 800, height: 800, caption: `foto de f ${MARK}`, likeCount: 1 },
     });
-    await prisma.photoLike.create({ data: { userId: d.id, photoId: otherPhoto.id } });
+    await prisma.reaction.create({
+      data: { userId: d.id, targetType: "photo", targetId: otherPhoto.id, value: 1, targetOwnerId: other.id },
+    });
     const comment = await prisma.comment.create({
       data: { authorId: d.id, targetType: "photo", targetId: otherPhoto.id, body: `comentário de d ${MARK}` },
     });
@@ -236,7 +247,7 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
         prisma.userStats.count({ where }),
         prisma.attributeProgress.count({ where }),
         prisma.notification.count({ where }),
-        prisma.photoLike.count({ where }),
+        prisma.reaction.count({ where }),
         prisma.familyMember.count({ where }),
         prisma.newsletterSubscriber.count({ where: { email: d.email! } }),
       ]),

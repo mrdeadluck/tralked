@@ -93,9 +93,15 @@ model User {
   author         Author?
   ownedFamilies  Family[]
   membership     FamilyMember?
-  comments       Comment[]
-  reportsFiled   Report[]            @relation("ReportReporter")
-  reportsHandled Report[]            @relation("ReportResolver")
+  comments       Comment[]            @relation("CommentAuthor")
+  /// Replies that @mention this user (Comment.replyToUserId).
+  mentionedIn    Comment[]            @relation("CommentReplyTo")
+  /// Likes and dislikes this user gave.
+  reactions      Reaction[]           @relation("ReactionUser")
+  /// Reactions to content this user wrote (likes received).
+  reactionsTo    Reaction[]           @relation("ReactionTargetOwner")
+  reportsFiled   Report[]             @relation("ReportReporter")
+  reportsHandled Report[]             @relation("ReportResolver")
   forumThreads   ForumThread[]
   forumPosts     ForumPost[]
   photos         Photo[]
@@ -228,6 +234,9 @@ model Game {
   photos        Photo[]
   wishlistedBy  WishlistItem[]
   releases      GameRelease[]
+  // The details job's queue has a partial index written in SQL (migration
+  // 20261101130000_full_sync_playtime): ("lastSyncAttemptAt", popularity DESC) WHERE
+  // "detailsSyncedAt" IS NULL AND "steamAppId" IS NOT NULL. Prisma cannot declare it here.
 
   /// Calendar (/calendario): catalog releases of a month.
   @@index([releaseDate])
@@ -241,9 +250,6 @@ model Game {
   /// Catalog listing ("Popular" and "Nome" orders, stubs left out).
   @@index([stub, popularity(sort: Desc), name])
   @@index([stub, name])
-  // The details job's queue has a partial index written in SQL (migration
-  // 20261101130000_full_sync_playtime): ("lastSyncAttemptAt", popularity DESC) WHERE
-  // "detailsSyncedAt" IS NULL AND "steamAppId" IS NOT NULL. Prisma cannot declare it here.
 }
 
 /// The game's id on a platform (PSN npCommunicationId, Xbox titleId, RA game id, Steam appid).
@@ -439,6 +445,10 @@ model GameOpen {
 ///   guide_vote     -> `${tipId}:${voterUserId}` (Sábio XP for the author of a voted tip)
 ///   photo_approved -> photoId (gallery upload XP, daily-limited; voided when moderation removes it)
 ///   forum_solved   -> forumPostId (answer marked "Resolveu"; voided when the answer is removed)
+///   reaction_given -> `${targetType}:${targetId}` (like or dislike given; once per item ever,
+///                     daily-capped, never for one's own content: lib/community/reactions.ts)
+///   reaction_received -> `${targetType}:${targetId}:${likerUserId}` (like received; once per
+///                     item and liker, daily-capped)
 ///   playtime       -> `${platform}:${gameId}:${hours}` (hours milestone of real platform playtime,
 ///                     5 h and up, within per-user caps, dated at payment: lib/engine/playtime.ts,
 ///                     lib/sync/playtime.ts; platform steam | psn | xbox | retro)
@@ -450,7 +460,7 @@ model GameOpen {
 /// NULL for Steam entries (Plan 1 convention, kept: Steam sync, seed and Steam fraud release write
 /// NULL, and readers treat NULL achievement/platinum entries as Steam; Steam `playtime` entries are
 /// NULL too and carry `steam:` in their sourceKey) and for entries not tied to a platform (mission,
-/// guide_vote, photo_approved, forum_solved, seed).
+/// guide_vote, photo_approved, forum_solved, reaction_given, reaction_received, seed).
 ///
 /// Skill points: `skillPoints` holds explicit per-skill points ({"soulslike": 123}): seed,
 /// photo_approved and forum_solved set them. When null, each skill in `skills` receives
@@ -610,6 +620,9 @@ model Guide {
   /// API key that created the guide (source = bot).
   botKeyId     String?
   usefulCount  Int       @default(0)
+  /// Mirrors of the guide's Reaction rows (value 1 / -1), recounted on every reaction.
+  likes        Int       @default(0)
+  dislikes     Int       @default(0)
   publishedAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -738,53 +751,72 @@ model Author {
 }
 
 model Article {
-  id            String        @id @default(cuid())
-  slug          String        @unique
-  title         String
-  subtitle      String?
+  id               String             @id @default(cuid())
+  slug             String             @unique
+  title            String
+  subtitle         String?
   /// Short summary for cards and metadata.
-  excerpt       String?
+  excerpt          String?
   /// Legacy Markdown body (Plan 1 pages). New code renders `blocks`.
-  body          String
+  body             String
   /// ContentBlock[] (spec "Formato de conteúdo único em blocos").
-  blocks        Json          @default("[]")
+  blocks           Json               @default("[]")
   /// draft | review | published | archived
-  status        String        @default("draft")
+  status           String             @default("draft")
   /// GAMES | GUIAS | COMUNIDADE | MERCADO | ENTRETENIMENTO | TECNOLOGIA
-  category      String
-  platforms     String[]
-  imageLabel    String
-  authorId      String
+  category         String
+  platforms        String[]
+  imageLabel       String
+  authorId         String
   /// Legacy single game (Plan 1 pages); new code uses `games` (ArticleGame).
-  gameId        String?
+  gameId           String?
   /// editorial | bot
-  source        String?
+  source           String?
   /// API key that created the article (source = bot).
-  botKeyId      String?
+  botKeyId         String?
   /// 0 = list, 1 = side highlight, 2 = main highlight
-  featured      Int           @default(0)
-  likes         Int           @default(0)
-  comments      Int           @default(0)
-  humanAuthored Boolean       @default(true)
+  featured         Int                @default(0)
+  /// Mirrors of the article's Reaction rows (value 1 / -1), recounted on every reaction.
+  likes            Int                @default(0)
+  dislikes         Int                @default(0)
+  comments         Int                @default(0)
+  /// Lifetime page views (lib/news/views.ts): one increment per counted view, together with the
+  /// day's ArticleViewDaily bucket. Bots, prefetches and repeat views are not counted.
+  views            Int                @default(0)
+  humanAuthored    Boolean            @default(true)
   /// When an editor approved the article. For bot articles (source = bot) it marks the ones an
   /// editor reviewed in the admin; bots publishing with the `publish` scope leave it null. The
   /// public byline is "Equipe Tralked" either way (no robot badge).
-  reviewedAt    DateTime?
+  reviewedAt       DateTime?
   /// Publication time. For drafts it holds the creation time until the article is published.
-  publishedAt   DateTime      @default(now())
+  publishedAt      DateTime           @default(now())
   /// First time the article went live. Never cleared: once set, the slug (its public URL) is frozen.
   firstPublishedAt DateTime?
   /// Publish automatically at this time (status moves to published).
-  scheduledAt   DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  author        Author        @relation(fields: [authorId], references: [id])
-  game          Game?         @relation(fields: [gameId], references: [id])
-  botKey        ApiKey?       @relation(fields: [botKeyId], references: [id], onDelete: SetNull)
-  games         ArticleGame[]
+  scheduledAt      DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  author           Author             @relation(fields: [authorId], references: [id])
+  game             Game?              @relation(fields: [gameId], references: [id])
+  botKey           ApiKey?            @relation(fields: [botKeyId], references: [id], onDelete: SetNull)
+  games            ArticleGame[]
+  viewDays         ArticleViewDaily[]
 
   @@index([publishedAt])
   @@index([status, publishedAt])
+}
+
+/// Views of one article on one day (America/Sao_Paulo, `day` = YYYY-MM-DD): one row per article
+/// and day, incremented in place, never one row per view. "Mais visualizadas" sums the last 7
+/// days. The daily `notifications` cron prunes buckets older than VIEW_BUCKET_RETENTION_DAYS.
+model ArticleViewDaily {
+  articleId String
+  day       String
+  count     Int     @default(0)
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, day])
+  @@index([day])
 }
 
 /// Games an article is about (n:n).
@@ -830,21 +862,59 @@ model NewsFeed {
 // ---------- Community ----------
 
 /// Comment on an article, guide, photo or forum thread (polymorphic target, no FK).
+/// Replies are one level deep: `parentId` is always a top-level comment (a reply to a reply
+/// attaches to the same root and @mentions `replyToUserId`, the person answered).
 model Comment {
-  id         String    @id @default(cuid())
-  authorId   String?
+  id            String    @id @default(cuid())
+  authorId      String?
   /// article | guide | photo | thread
-  targetType String
-  targetId   String
-  body       String
+  targetType    String
+  targetId      String
+  body          String
   /// visible | hidden | removed | deleted
-  status     String    @default("visible")
-  createdAt  DateTime  @default(now())
-  editedAt   DateTime?
-  author     User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  status        String    @default("visible")
+  createdAt     DateTime  @default(now())
+  editedAt      DateTime?
+  /// Root comment of a reply (null for top-level comments).
+  parentId      String?
+  /// Who a reply to a reply answers (shown as an @mention). Null for top-level comments and
+  /// direct replies to the root.
+  replyToUserId String?
+  /// Mirrors of the comment's Reaction rows (value 1 / -1), recounted on every reaction.
+  likes         Int       @default(0)
+  dislikes      Int       @default(0)
+  author        User?     @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  parent        Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies       Comment[] @relation("CommentReplies")
+  replyToUser   User?     @relation("CommentReplyTo", fields: [replyToUserId], references: [id], onDelete: SetNull)
 
   @@index([targetType, targetId, createdAt])
   @@index([authorId, createdAt])
+  @@index([parentId, createdAt])
+}
+
+/// A like (value 1) or dislike (value -1) on an article, comment, photo or guide: one per user
+/// and item (polymorphic target, no FK). Clicking the same button again deletes the row;
+/// clicking the other one flips `value`. The targets' like/dislike columns mirror these rows.
+/// `targetOwnerId` is the item's author when the reaction was made (null for robot articles or
+/// removed accounts), so "curtidas recebidas" is an indexed count.
+/// XP (lib/community/reactions.ts) goes to the ledger once per user and item, never per click.
+/// Photo likes made before this table existed were copied from PhotoLike.
+model Reaction {
+  userId        String
+  /// article | comment | photo | guide
+  targetType    String
+  targetId      String
+  /// 1 = like, -1 = dislike
+  value         Int
+  targetOwnerId String?
+  createdAt     DateTime @default(now())
+  user          User     @relation("ReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+  targetOwner   User?    @relation("ReactionTargetOwner", fields: [targetOwnerId], references: [id], onDelete: SetNull)
+
+  @@id([userId, targetType, targetId])
+  @@index([targetType, targetId, value])
+  @@index([targetOwnerId, value])
 }
 
 model Report {
@@ -922,19 +992,21 @@ model ForumPost {
 
 /// Community gallery photo. `url` null = example data (the UI draws generated art).
 model Photo {
-  id        String   @id @default(cuid())
-  authorId  String?
-  gameId    String?
-  url       String?
-  width     Int
-  height    Int
-  caption   String?
+  id           String   @id @default(cuid())
+  authorId     String?
+  gameId       String?
+  url          String?
+  width        Int
+  height       Int
+  caption      String?
   /// visible | hidden | removed
-  status    String   @default("visible")
-  createdAt DateTime @default(now())
-  likeCount Int      @default(0)
-  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
-  game      Game?    @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  status       String   @default("visible")
+  createdAt    DateTime @default(now())
+  /// Mirrors of the photo's Reaction rows (value 1 / -1), recounted on every reaction.
+  likeCount    Int      @default(0)
+  dislikeCount Int      @default(0)
+  author       User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  game         Game?    @relation(fields: [gameId], references: [id], onDelete: SetNull)
 
   likes PhotoLike[]
 
@@ -943,6 +1015,9 @@ model Photo {
   @@index([gameId, createdAt])
 }
 
+/// Legacy: photo likes before Reaction existed. Migration 20261104110000_engagement copied every
+/// row into Reaction (targetType photo, value 1); nothing reads or writes this table any more.
+/// Kept so that migration stays additive; drop it in a later migration.
 model PhotoLike {
   userId    String
   photoId   String

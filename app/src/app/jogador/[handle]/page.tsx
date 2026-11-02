@@ -9,6 +9,7 @@ import { CharacterCard } from "@/components/character/CharacterCard";
 import { formatAgo } from "@/components/character/format";
 import { MissionsCard } from "@/components/character/MissionsCard";
 import { PlayerGallery } from "@/components/character/PlayerGallery";
+import { ReactionStatsCard } from "@/components/character/ReactionStatsCard";
 import { RecentlyPlayed } from "@/components/character/RecentlyPlayed";
 import { SkillsWindow } from "@/components/character/SkillsWindow";
 import { StreakCard } from "@/components/character/StreakCard";
@@ -17,6 +18,7 @@ import { TrophyTiers } from "@/components/character/TrophyTiers";
 import { Card } from "@/components/ui/Card";
 import { getSessionUser } from "@/lib/auth/session";
 import { pendingDespertar } from "@/lib/character/despertar";
+import { reactionStats } from "@/lib/community/reactions";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
 import { getCharacterSheetExtras } from "@/lib/character/sheet";
 import { getRecentlyPlayed } from "@/lib/library/queries";
@@ -88,11 +90,12 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
 
   const character = await getCharacter(header.handle);
   if (!character) notFound();
-  const [extras, despertar, playtimeMin, recentlyPlayed] = await Promise.all([
+  const [extras, despertar, playtimeMin, recentlyPlayed, reactions] = await Promise.all([
     getCharacterSheetExtras(character.userId),
     isOwner ? pendingDespertar(character.userId) : Promise.resolve(null),
     getTotalPlaytimeMin(character.userId),
     getRecentlyPlayed(character.userId),
+    reactionStats(character.userId),
   ]);
 
   const now = new Date();
@@ -174,6 +177,7 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
           <TrophyTiers trophies={extras.trophies} />
           <ActivityFeed items={character.recent} now={now} />
+          <ReactionStatsCard stats={reactions} />
           {/* Plano 4, F8: the same achievements, hours milestones and missions, day by day. */}
           <Link
             href={isOwner ? "/calendario" : `/calendario?jogador=${encodeURIComponent(character.handle)}`}

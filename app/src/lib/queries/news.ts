@@ -12,6 +12,7 @@ import {
 import { isSafeHttpUrl, safeImageUrl } from "@/lib/content/url";
 import { toLocalDay } from "@/lib/engine/streak";
 import { NEWS_FEED_AREA_LABEL, type NewsFeedArea } from "@/lib/news/areas";
+import { mostViewedArticleIds } from "@/lib/news/views";
 import { timeAgo } from "@/lib/time-ago";
 
 import { companyArt, pickIndex, wideArt, withCompanyArt } from "./company-art";
@@ -60,6 +61,8 @@ export type ArticleCard = {
   featured: number;
   likes: number;
   comments: number;
+  /** Lifetime counted views (Article.views). */
+  views: number;
   humanAuthored: boolean;
   publishedAt: Date;
   /** First related game (kept for the Plan 1 cards). */
@@ -152,6 +155,7 @@ const cardSelect = {
   featured: true,
   likes: true,
   comments: true,
+  views: true,
   humanAuthored: true,
   publishedAt: true,
   source: true,
@@ -198,6 +202,7 @@ type CardRow = {
   featured: number;
   likes: number;
   comments: number;
+  views: number;
   humanAuthored: boolean;
   publishedAt: Date;
   source: string | null;
@@ -253,6 +258,7 @@ function toCard(row: CardRow): ArticleCard {
     featured: row.featured,
     likes: row.likes,
     comments: row.comments,
+    views: row.views,
     humanAuthored: row.humanAuthored,
     publishedAt: row.publishedAt,
     game: games[0] ? { slug: games[0].slug, name: games[0].name } : null,
@@ -324,7 +330,7 @@ export async function getArticlesForGame(gameId: string, limit: number): Promise
   return withCompanyArt(rows.map(toCard));
 }
 
-/** "Mais lidas": there is no view counter yet, so reader reactions (likes + comments) rank them. */
+/** "Mais lidas" by reader reactions (likes + comments): the fallback before there are views. */
 export async function getMostRead(limit: number): Promise<ArticleCard[]> {
   const rows = await prisma.article.findMany({
     where: PUBLISHED,
@@ -333,6 +339,41 @@ export async function getMostRead(limit: number): Promise<ArticleCard[]> {
     select: cardSelect,
   });
   return withCompanyArt(rows.map(toCard));
+}
+
+/**
+ * "Mais visualizadas": published articles by views in the last 7 local days (lib/news/views.ts),
+ * most viewed first. Articles nobody opened in the window are left out.
+ */
+export async function getMostViewed(limit: number, now: Date = new Date()): Promise<ArticleCard[]> {
+  const ranked = await mostViewedArticleIds(limit, now);
+  if (ranked.length === 0) return [];
+  const rows = await prisma.article.findMany({
+    where: { ...PUBLISHED, id: { in: ranked.map((r) => r.articleId) } },
+    select: cardSelect,
+  });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const ordered = ranked.flatMap((r) => {
+    const row = byId.get(r.articleId);
+    return row ? [row] : [];
+  });
+  return withCompanyArt(ordered.map(toCard));
+}
+
+/** At least this many articles with views in the window before the home ranks by views. */
+export const MOST_VIEWED_MIN = 3;
+
+/**
+ * The home's ranking: "Mais visualizadas" once enough articles have views this week; until then
+ * (a new counter, a quiet week) "Mais lidas" by reactions, as before.
+ */
+export async function getHomeRanking(
+  limit: number,
+  now: Date = new Date(),
+): Promise<{ title: string; articles: ArticleCard[] }> {
+  const viewed = await getMostViewed(limit, now);
+  if (viewed.length >= MOST_VIEWED_MIN) return { title: "Mais visualizadas", articles: viewed };
+  return { title: "Mais lidas", articles: await getMostRead(limit) };
 }
 
 /**

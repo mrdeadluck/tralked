@@ -18,7 +18,7 @@ import {
   buildWireItems,
   getWireHeadlines,
   getHomeNews,
-  getMostRead,
+  getHomeRanking,
   getPressHeadlines,
   getTodayMission,
   getTopPlayers,
@@ -35,14 +35,20 @@ const LATEST_SHOWN = 11;
 
 /**
  * The headline and the latest news, cached. One headline only, and no story repeats: "Últimas"
- * leaves out the headline, and "Mais lidas" leaves out everything already on screen.
+ * leaves out the headline, and "Mais visualizadas" (or, before there are views, "Mais lidas")
+ * leaves out everything already on screen.
  */
 async function NewsSection() {
   "use cache";
   cacheLife("minutes");
   cacheTag(NEWS_TAG);
 
-  const [{ hero, latest }, mostRead, press] = await Promise.all([getHomeNews(), getMostRead(20), getPressHeadlines(6)]);
+  const [{ hero, latest }, ranking, press] = await Promise.all([
+    getHomeNews(),
+    getHomeRanking(20),
+    getPressHeadlines(6),
+  ]);
+  const mostRead = ranking.articles;
   const now = new Date();
   const view = (a: ArticleCard): ArticleView => ({ ...a, timeAgo: timeAgo(a.publishedAt, now) });
   const shown = new Set([hero?.id, ...latest.slice(0, LATEST_SHOWN).map((a) => a.id)]);
@@ -60,6 +66,7 @@ async function NewsSection() {
           <NewsTabs
             tabs={withPressHeadlines(buildNewsTabs(latest, now), press, now)}
             mostRead={unseenMostRead.map((a) => articleStory(a, now))}
+            mostReadTitle={ranking.title}
           />
         ) : hero ? null : (
           <p className="py-6 text-[15px] text-muted">Nenhuma notícia publicada ainda.</p>

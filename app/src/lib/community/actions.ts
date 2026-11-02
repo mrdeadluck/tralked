@@ -15,6 +15,7 @@ import {
   newCommentSchema,
   type CommentPage,
   type CommentView,
+  withMyReactions,
 } from "./comments";
 import {
   createPost,
@@ -25,8 +26,7 @@ import {
   newThreadSchema,
   type PostView,
 } from "./forum";
-import { toggleLike } from "./gallery";
-import { RATE_LIMIT_MESSAGES, takeLikeToggle } from "./limits";
+import { RATE_LIMIT_MESSAGES } from "./limits";
 import { createReport, reportSchema } from "./reports";
 import { recomputeQuietly } from "./xp";
 import { articleTag, NEWS_TAG } from "@/lib/queries/news";
@@ -66,7 +66,8 @@ export async function loadMoreComments(raw: unknown): Promise<CommentPage | Fail
   const parsed = moreCommentsSchema.safeParse(raw);
   if (!parsed.success) return invalid(parsed.error);
   const { targetType, targetId, cursor } = parsed.data;
-  return listComments(prisma, targetType, targetId, cursor);
+  const [page, user] = await Promise.all([listComments(prisma, targetType, targetId, cursor), getSessionUser()]);
+  return user ? withMyReactions(prisma, page, user.id) : page;
 }
 
 export async function postComment(raw: unknown): Promise<{ status: "ok"; comment: CommentView } | Failure> {
@@ -115,22 +116,6 @@ export async function reportContent(raw: unknown): Promise<{ status: "ok" | "alr
   if (!ready.ok) return ready.failure;
   const result = await createReport(prisma, ready.user.id, ready.data);
   if (result.status === "not_found") return NOT_FOUND;
-  return result;
-}
-
-// ---------- Gallery ----------
-
-const photoIdSchema = z.object({ photoId: z.string().min(1).max(64) });
-
-export async function likePhoto(raw: unknown): Promise<{ status: "ok"; liked: boolean; likeCount: number } | Failure> {
-  const ready = await prepare(photoIdSchema, raw);
-  if (!ready.ok) return ready.failure;
-  if (!takeLikeToggle(ready.user.id)) return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.like };
-  const result = await prisma.$transaction((tx) => toggleLike(tx, ready.user.id, ready.data.photoId));
-  if (result.status === "not_found") return NOT_FOUND;
-  if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.like };
-  // Only the photo's own page: gallery listings catch up on their short cacheLife.
-  updateTag(photoTag(ready.data.photoId));
   return result;
 }
 

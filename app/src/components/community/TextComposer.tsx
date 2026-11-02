@@ -14,6 +14,8 @@ type TextComposerProps = {
   /** Resolves to an error message to show, or null on success (the box is then cleared). */
   onSubmit: (body: string) => Promise<string | null>;
   onCancel?: () => void;
+  /** Focus the box on mount (a reply box opened by a click). */
+  autoFocus?: boolean;
 };
 
 /** Plain-text box with a character counter, used for comments and forum replies. */
@@ -26,6 +28,7 @@ export function TextComposer({
   rows = 3,
   onSubmit,
   onCancel,
+  autoFocus = false,
 }: TextComposerProps) {
   const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +60,7 @@ export function TextComposer({
         value={value}
         onChange={(event) => setValue(event.target.value)}
         rows={rows}
+        autoFocus={autoFocus}
         maxLength={maxLength}
         placeholder={placeholder}
         aria-describedby={`${id}-count${error ? ` ${id}-error` : ""}`}

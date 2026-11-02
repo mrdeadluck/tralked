@@ -361,8 +361,14 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
       ? { minutes: game.timeToBeatCompleteMin, players: 0 }
       : null;
 
+  // Most viewed first (lifetime views: a game has few articles), then reader reactions, then newest.
   const mostRead = [...articles]
-    .sort((a, b) => b.likes + b.comments - (a.likes + a.comments) || b.publishedAt.getTime() - a.publishedAt.getTime())
+    .sort(
+      (a, b) =>
+        b.views - a.views ||
+        b.likes + b.comments - (a.likes + a.comments) ||
+        b.publishedAt.getTime() - a.publishedAt.getTime(),
+    )
     .slice(0, 5)
     .map((a) => articleStory(a, now));
 

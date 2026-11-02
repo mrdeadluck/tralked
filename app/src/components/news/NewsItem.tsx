@@ -22,8 +22,8 @@ export function NewsItem({ article }: { article: ArticleView }) {
         <div className="flex flex-wrap gap-3.5 font-mono text-xs text-dim">
           <span className="text-text-2">{article.authorLabel}</span>
           <span>{article.timeAgo}</span>
-          <span>▲ {article.likes}</span>
-          <span>◼ {article.comments}</span>
+          {article.likes > 0 ? <span>▲ {article.likes}<span className="sr-only"> curtidas</span></span> : null}
+          {article.comments > 0 ? <span>◼ {article.comments}<span className="sr-only"> comentários</span></span> : null}
           {article.humanAuthored ? (
             <span className="inline-flex items-center gap-1.5 text-acc before:size-1.5 before:rounded-full before:bg-acc before:content-['']">
               Autoria humana

@@ -171,6 +171,7 @@ describe("game profile helpers", () => {
       featured: 0,
       likes: 0,
       comments: 0,
+      views: 0,
       humanAuthored: true,
       publishedAt: new Date(`2026-10-${day}T12:00:00Z`),
       game: { slug: "hollow-knight", name: "Hollow Knight" },

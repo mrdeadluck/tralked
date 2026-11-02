@@ -4,16 +4,18 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { AuthorBadge } from "@/components/community/AuthorBadge";
 import { Comments } from "@/components/community/Comments";
-import { LikeButton } from "@/components/community/LikeButton";
 import { Trail } from "@/components/community/PageHead";
 import { PhotoGrid } from "@/components/community/PhotoGrid";
 import { PhotoMedia } from "@/components/community/PhotoMedia";
+import { ReactionButtons } from "@/components/community/ReactionButtons";
 import { ReportButton } from "@/components/community/ReportButton";
 import { UserText } from "@/components/community/UserText";
 import { getPhotoCached, listPhotosCached } from "@/lib/community/cached";
 import { formatWhen } from "@/lib/community/format";
-import { likedPhotoIds, recentPhotoIds, type PhotoDetail } from "@/lib/community/gallery";
+import { recentPhotoIds, type PhotoDetail } from "@/lib/community/gallery";
+import { myReactions, type MyReaction } from "@/lib/community/reactions";
 import { currentViewer } from "@/lib/community/viewer";
+import { prisma } from "@/lib/db";
 
 export async function generateStaticParams() {
   const ids = await recentPhotoIds(12);
@@ -103,7 +105,7 @@ export default async function PhotoPage({ params }: PageProps<"/galeria/[id]">) 
               </p>
             ) : null}
 
-            <Suspense fallback={<PhotoActions photo={photo} liked={false} loggedIn={false} returnTo={returnTo} pending />}>
+            <Suspense fallback={<PhotoActions photo={photo} mine={0} loggedIn={false} returnTo={returnTo} pending />}>
               <PhotoActionsIsland photo={photo} returnTo={returnTo} />
             </Suspense>
 
@@ -123,17 +125,20 @@ export default async function PhotoPage({ params }: PageProps<"/galeria/[id]">) 
   );
 }
 
-type ActionsProps = { photo: PhotoDetail; liked: boolean; loggedIn: boolean; returnTo: string; pending?: boolean };
+type ActionsProps = { photo: PhotoDetail; mine: MyReaction; loggedIn: boolean; returnTo: string; pending?: boolean };
 
-function PhotoActions({ photo, liked, loggedIn, returnTo, pending }: ActionsProps) {
+function PhotoActions({ photo, mine, loggedIn, returnTo, pending }: ActionsProps) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <LikeButton
-        photoId={photo.id}
-        liked={liked}
-        likeCount={photo.likeCount}
+      <ReactionButtons
+        targetType="photo"
+        targetId={photo.id}
+        likes={photo.likeCount}
+        dislikes={photo.dislikeCount}
+        mine={mine}
         loggedIn={loggedIn}
         returnTo={returnTo}
+        what="esta foto"
         pending={pending}
       />
       <ReportButton
@@ -150,8 +155,8 @@ function PhotoActions({ photo, liked, loggedIn, returnTo, pending }: ActionsProp
 
 async function PhotoActionsIsland({ photo, returnTo }: { photo: PhotoDetail; returnTo: string }) {
   const viewer = await currentViewer();
-  const liked = viewer ? (await likedPhotoIds(viewer.id, [photo.id])).has(photo.id) : false;
-  return <PhotoActions photo={photo} liked={liked} loggedIn={viewer !== null} returnTo={returnTo} />;
+  const mine = viewer ? (await myReactions(prisma, viewer.id, "photo", [photo.id]))[photo.id] : undefined;
+  return <PhotoActions photo={photo} mine={mine ?? 0} loggedIn={viewer !== null} returnTo={returnTo} />;
 }
 
 async function MoreFromGame({ gameSlug, gameName, exceptId }: { gameSlug: string; gameName: string; exceptId: string }) {

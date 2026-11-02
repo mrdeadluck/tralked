@@ -36,6 +36,7 @@ const card = (slug: string, category: ArticleCategory, hoursAgo: number): Articl
   featured: 0,
   likes: 0,
   comments: 0,
+  views: 0,
   humanAuthored: true,
   publishedAt: new Date(now.getTime() - hoursAgo * 3_600_000),
   game: null,

@@ -4,6 +4,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GameArt } from "@/components/art/GameArt";
 import { Comments } from "@/components/community/Comments";
+import { ReactionBar } from "@/components/community/ReactionBar";
+import { EyeIcon } from "@/components/community/reaction-icons";
+import { ArticleViewBeacon } from "@/components/news/ArticleViewBeacon";
 import { AdSlot } from "@/components/ui/AdSlot";
 import { ArticleBody } from "@/components/news/ArticleBody";
 import { ArticleTags } from "@/components/news/ArticleTags";
@@ -203,10 +206,18 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
           {/* Robot articles are signed "Equipe Tralked", not a user handle. */}
           <span className="text-text-2">{article.authorLabel}</span>
           <time dateTime={article.publishedAt.toISOString()}>{DATE_FORMAT.format(article.publishedAt)}</time>
-          <span>▲ {article.likes}</span>
-          <a href="#comentarios" className="hover:text-text">
-            ◼ {article.comments} {article.comments === 1 ? "comentário" : "comentários"}
-          </a>
+          {/* Counters show only when there is something to count. */}
+          {article.views > 0 ? (
+            <span className="inline-flex items-center gap-1.5">
+              <EyeIcon width={14} height={14} />
+              {article.views.toLocaleString("pt-BR")} {article.views === 1 ? "visualização" : "visualizações"}
+            </span>
+          ) : null}
+          {article.comments > 0 ? (
+            <a href="#comentarios" className="hover:text-text">
+              ◼ {article.comments} {article.comments === 1 ? "comentário" : "comentários"}
+            </a>
+          ) : null}
           {article.source !== "bot" && article.humanAuthored ? (
             <span className="inline-flex items-center gap-1.5 text-acc before:size-1.5 before:rounded-full before:bg-acc before:content-['']">
               Autoria humana
@@ -233,6 +244,14 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
         <ArticleBody markdown={article.body} />
       )}
 
+      <ReactionBar
+        targetType="article"
+        targetId={article.id}
+        prompt="O que achou desta notícia?"
+        what="esta notícia"
+        returnTo={`/noticias/${article.slug}`}
+      />
+
       <AdSlot format="leaderboard" />
 
       <RelatedGames article={article} />
@@ -256,6 +275,7 @@ export default async function NoticiaPage({ params }: PageProps<"/noticias/[slug
     <>
       <JsonLd data={newsArticleJsonLd(article)} />
       <ArticleLayout article={article} />
+      <ArticleViewBeacon articleId={article.id} />
     </>
   );
 }

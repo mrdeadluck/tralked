@@ -819,12 +819,15 @@ export async function runSeed() {
         };
         await tx.photo.upsert({ where: { id: ph.id }, create: { id: ph.id, ...photo }, update: photo });
       }
-      await tx.photoLike.deleteMany({ where: { photoId: { in: PHOTOS.map((ph) => ph.id) } } });
-      await tx.photoLike.createMany({
+      await tx.reaction.deleteMany({ where: { targetType: "photo", targetId: { in: PHOTOS.map((ph) => ph.id) } } });
+      await tx.reaction.createMany({
         data: PHOTOS.flatMap((ph) =>
           ph.likedBy.map((handle, i) => ({
             userId: uid(handle),
-            photoId: ph.id,
+            targetType: "photo",
+            targetId: ph.id,
+            value: 1,
+            targetOwnerId: uid(ph.authorHandle),
             createdAt: hoursAgo(ph.agoHours - (i + 1) * 0.1),
           })),
         ),

@@ -146,19 +146,23 @@ test.describe("community", () => {
     await expect(page.locator("#comentarios").getByText(text)).toBeVisible();
     await expect(box).toHaveValue("");
 
-    const like = page.getByRole("button", { name: /^Curtir/ });
+    // The photo's own reactions (each comment has a pair too). An empty counter shows no "0".
+    const photoLike = () => page.getByRole("group", { name: "Reações a esta foto" }).getByRole("button", { name: /^Curtir/ });
+    const like = photoLike();
     const pressed = (await like.getAttribute("aria-pressed")) === "true";
-    const before = Number((await like.textContent())?.match(/\d+/)?.[0]);
+    const before = Number((await like.textContent())?.match(/\d+/)?.[0] ?? 0);
     // The button flips at once (optimistic); wait for the Server Action itself before reloading,
     // or a slow dev server can still be handling it when the reload aborts the request.
     const saved = page.waitForResponse((r) => r.request().method() === "POST" && Boolean(r.request().headers()["next-action"]));
     await like.click();
     await saved;
     await expect(like).toHaveAttribute("aria-pressed", String(!pressed));
-    await expect(like).toContainText(String(before + (pressed ? -1 : 1)));
+    const after = before + (pressed ? -1 : 1);
+    if (after > 0) await expect(like).toContainText(String(after));
+    else await expect(like).not.toContainText(/\d/);
     // The like is stored: it survives a reload.
     await page.reload();
-    await expect(page.getByRole("button", { name: /^Curtir/ })).toHaveAttribute("aria-pressed", String(!pressed));
+    await expect(photoLike()).toHaveAttribute("aria-pressed", String(!pressed));
   });
 
   test("forum: a player opens a thread, another replies, the author marks it as solved", async ({ page }) => {

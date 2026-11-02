@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { Comments } from "@/components/community/Comments";
+import { ReactionBar } from "@/components/community/ReactionBar";
 import { FactsStrip } from "@/components/games/FactsStrip";
 import { GameHead } from "@/components/games/GameHead";
 import { AchievementList } from "@/components/guide/AchievementList";
@@ -89,6 +90,15 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
           </Suspense>
           <Revisions revisions={guide.revisions} now={now} />
           <Sources sources={guide.sources} />
+          {guideId ? (
+            <ReactionBar
+              targetType="guide"
+              targetId={guideId}
+              prompt="Este guia ajudou?"
+              what="este guia"
+              returnTo={returnTo}
+            />
+          ) : null}
           {guideId ? <Comments targetType="guide" targetId={guideId} /> : null}
         </div>
         <Suspense

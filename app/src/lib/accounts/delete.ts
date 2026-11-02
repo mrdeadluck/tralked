@@ -1,3 +1,4 @@
+import { syncReactionCounts, type ReactionTargetType } from "@/lib/community/reactions";
 import { prisma } from "@/lib/db";
 import { leaveFamily } from "@/lib/family/service";
 
@@ -15,7 +16,7 @@ export type DeletedAccount = {
  * photos, reports) stays with its author set to null, so it shows as an anonymous author.
  *
  * Before the delete: the user leaves their family (ownership passes to the oldest member, an
- * empty family is removed), photo like and tip vote counters drop by the user's likes and votes,
+ * empty family is removed), like/dislike and tip vote counters drop by the user's reactions and votes,
  * and a newsletter subscription with the account e-mail is removed.
  * Returns null when the user does not exist.
  */
@@ -37,12 +38,8 @@ export async function deleteAccount(userId: string): Promise<DeletedAccount | nu
   await leaveFamily(userId);
 
   const likedPhotoIds = await prisma.$transaction(async (tx) => {
-    // Likes and votes cascade away with the user; their denormalized counters follow.
-    const likes = await tx.photoLike.findMany({ where: { userId }, select: { photoId: true } });
-    const liked = likes.map((l) => l.photoId);
-    if (liked.length > 0) {
-      await tx.photo.updateMany({ where: { id: { in: liked }, likeCount: { gt: 0 } }, data: { likeCount: { decrement: 1 } } });
-    }
+    // Reactions and votes cascade away with the user; their denormalized counters follow.
+    const reacted = await tx.reaction.findMany({ where: { userId }, select: { targetType: true, targetId: true } });
     const votes = await tx.guideVote.findMany({ where: { userId }, select: { tipId: true } });
     if (votes.length > 0) {
       await tx.guideTip.updateMany({
@@ -55,7 +52,8 @@ export async function deleteAccount(userId: string): Promise<DeletedAccount | nu
       await tx.newsletterSubscriber.deleteMany({ where: { email: user.email.trim().toLowerCase() } });
     }
     await tx.user.delete({ where: { id: userId } });
-    return liked;
+    for (const r of reacted) await syncReactionCounts(tx, r.targetType as ReactionTargetType, r.targetId);
+    return reacted.filter((r) => r.targetType === "photo").map((r) => r.targetId);
   });
 
   return {
