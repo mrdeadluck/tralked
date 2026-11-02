@@ -53,6 +53,18 @@ O Lucas assinou o **Pro** e o site voltou. No commit `9022f8f`, os robôs de tre
   - a sync de mídia não apaga mais as linhas da Steam.
 - **Reparo em produção:** 2.914 cápsulas gravadas.
 
+**Decisões do Lucas (02/11 à noite) e o que já foi feito:**
+- **XP de comunidade:**
+  - comentar, responder e responder no fórum dão 5 XP (`comment_posted` / `forum_post`), até 10 por dia;
+  - a curtida recebida caiu para 5 XP;
+  - "Remover" na moderação estorna o XP.
+- **Botão do disco:** agora "Ver o disco Tralked!".
+- **Repositório:** fica público por enquanto. Volta à pauta depois que as sincronizações estiverem prontas.
+- **Capa vertical num quadro largo:** volta a preencher o quadro, recortada pela parte de cima.
+- **Miniaturas dos lançamentos:** usam a cápsula 616×353.
+- **Célula do calendário:** a capa aparece sem o recorte central do CDN.
+- **Rotina de mídia:** prioriza os jogos que o site mostra e que ainda não têm arte larga.
+
 Para medir de novo: as consultas de observabilidade da Vercel funcionam no Pro (`function_cpu_time_ms` por `route`; `request.count` por `bot_name` e `request_path`).
 
 ## Atualização da manhã de 02/11 (sessão 2c1166af)
