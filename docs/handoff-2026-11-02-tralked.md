@@ -22,10 +22,10 @@ O Lucas assinou o **Pro** e o site voltou. No commit `9022f8f`, os robôs de tre
   - bloqueio dos caminhos de scanner.
 - **27. Teto de gasto (Lucas):** Settings → Billing → Spend Management, ~US$ 30.
 - **28. Cache das páginas públicas:** cada visita monta a página de novo (galeria ~360 ms de CPU, jogo ~40 ms). Servir as páginas prontas faz qualquer pico custar quase nada.
-- **29. Cabeçalhos de segurança:** hoje só existe o HSTS. Faltam `X-Frame-Options`/`frame-ancestors`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` e, depois, CSP.
+- **29. ✅ Feito (55142ea). Cabeçalhos de segurança:** hoje só existe o HSTS. Faltam `X-Frame-Options`/`frame-ancestors`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` e, depois, CSP.
 - **30. Repositório privado? (decisão do Lucas):** esconde o código e o domínio, mas os minutos do Actions passam a ser limitados.
 - **31. Loop na importação da PSN:** uma conta ficou 5 h 30 em 64 fatias de "imported a part, continues" sem terminar. Isso mantém o Neon acordado.
-- **32. Agendamentos do GitHub parados** desde 09:26 UTC de 02/11, sem incidente no GitHub. O disparo manual funciona.
+- **32. ✅ Resolvido (55142ea): as rotas `/api/cron` passaram para o Vercel Cron (`app/vercel.json`), e o `cron.yml` ficou só manual. Agendamentos do GitHub parados** desde 09:26 UTC de 02/11, sem incidente no GitHub. O disparo manual funciona.
 
 **Ajustes visuais pedidos pelo Lucas depois do Impeccable:**
 - **Faixa de plataforma no topo do estojo** (`CaseShelf`, em `/jogos` e `/lancamentos`):
