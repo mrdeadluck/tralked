@@ -293,13 +293,13 @@ function relatedGames(row: Pick<CardRow, "game" | "games">): GameRow[] {
 }
 
 /**
- * Public byline of robot articles: it says a robot wrote it, as the newsroom card promises ("Cada
- * notícia diz quem escreveu: alguém da redação ou um robô"). The internal author handle stays
- * "Robô <key name>".
+ * Public byline of robot articles (Lucas, 02/11/2026: the team's name, not "Robô Tralked"). What
+ * tells them apart from articles people wrote is the "Autoria humana" badge, which robot articles
+ * never get (Termos de uso, "Conteúdo de robôs"). The internal author handle stays "Robô <key name>".
  */
-export const BOT_BYLINE = "Robô Tralked";
+export const BOT_BYLINE = "Equipe Tralked";
 
-/** Byline: robot articles are signed as the robot; people get the "@" of their handle. */
+/** Byline: robot articles are signed "Equipe Tralked"; people get the "@" of their handle. */
 export function authorLabel(source: string | null, handle: string): string {
   return source === "bot" ? BOT_BYLINE : `@${handle}`;
 }

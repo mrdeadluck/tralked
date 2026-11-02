@@ -536,7 +536,7 @@ describe("GET and PATCH /api/v1/articles/{id}", () => {
     // The article page reads it as a reviewed bot article by "Robô <key name>".
     const { getArticle } = await import("@/lib/queries/news");
     const page = await getArticle(status.slug as string);
-    expect(page).toMatchObject({ source: "bot", reviewed: true, humanAuthored: false, authorHandle: "Robô t9 redator", authorLabel: "Robô Tralked", bot: true });
+    expect(page).toMatchObject({ source: "bot", reviewed: true, humanAuthored: false, authorHandle: "Robô t9 redator", authorLabel: "Equipe Tralked", bot: true });
   });
 
   it("a publish key can publish its review article with PATCH", async () => {

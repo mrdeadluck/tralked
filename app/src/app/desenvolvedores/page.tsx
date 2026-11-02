@@ -251,7 +251,7 @@ export default function DesenvolvedoresPage() {
               revisão do admin. Um editor publica.
             </li>
             <li>
-              Notícias de robô são assinadas como <C>Robô Tralked</C> e nunca recebem o selo &ldquo;Autoria
+              Notícias de robô são assinadas como <C>Equipe Tralked</C> e nunca recebem o selo &ldquo;Autoria
               humana&rdquo;. O nome da chave aparece só no admin.
             </li>
           </ul>

@@ -265,7 +265,7 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
         {article.subtitle ? <p className="text-lg text-text-3">{article.subtitle}</p> : null}
         <GameChips article={article} />
         <div className="flex flex-wrap gap-3.5 font-mono text-xs text-dim">
-          {/* Robot articles are signed "Robô Tralked" (who wrote it, as the home's newsroom card promises). */}
+          {/* Robot articles are signed "Equipe Tralked"; only people's articles get "Autoria humana". */}
           <span className="text-text-2">{article.authorLabel}</span>
           <time dateTime={article.publishedAt.toISOString()}>{DATE_FORMAT.format(article.publishedAt)}</time>
           {/* Counters show only when there is something to count. */}
