@@ -1,4 +1,4 @@
-import type { IgdbGame } from "./types";
+import type { IgdbGame, IgdbTimeToBeat } from "./types";
 
 /**
  * IGDB reads of the releases job and the console catalog import (Plano 4, F10). Kept apart from
@@ -79,6 +79,8 @@ export interface IgdbCatalogApi {
   listGames(query: IgdbCatalogQuery): Promise<IgdbCatalogPage>;
   /** Details of up to 500 games at once (no time to beat). Unknown ids are left out. */
   getGames(ids: number[]): Promise<IgdbGame[]>;
+  /** Times to beat of up to 500 games at once, by IGDB id; games without any are left out. */
+  getTimesToBeat(ids: number[]): Promise<Map<number, IgdbTimeToBeat>>;
   /** Platform ids by exact name (e.g. "Nintendo Switch 2"), for platforms newer than our table. */
   findPlatformIds(names: string[]): Promise<number[]>;
 }

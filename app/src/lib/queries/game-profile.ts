@@ -117,6 +117,8 @@ export type GameProfile = {
   };
   /** Hours to 100%: Tralked players who completed it, else the catalog estimate. */
   timeTo100: { minutes: number; players: number } | null;
+  /** IGDB times to beat (minutes): rushed, main story, 100%; null when IGDB has none. */
+  timesToBeat: { hastyMin: number | null; normalMin: number | null; completeMin: number | null } | null;
   /** Published guide only. */
   guide: { missables: number } | null;
   videos: GameVideo[];
@@ -400,6 +402,14 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
       tiers,
     },
     timeTo100,
+    timesToBeat:
+      game.timeToBeatHastyMin || game.timeToBeatNormalMin || game.timeToBeatCompleteMin
+        ? {
+            hastyMin: game.timeToBeatHastyMin,
+            normalMin: game.timeToBeatNormalMin,
+            completeMin: game.timeToBeatCompleteMin,
+          }
+        : null,
     guide: game.guide?.status === "published" ? { missables: game.guide.missables } : null,
     // Videos without a still of their own take a screenshot each, from the end of the list (the
     // first ones are the disc label and the start of "Imagens oficiais").

@@ -220,7 +220,8 @@ export function BookletProgress({
 }
 
 export function BookletSpread({ profile, progress }: { profile: GameProfile; progress: ReactNode }) {
-  const { achievements, timeTo100, guide } = profile;
+  const { achievements, timeTo100, timesToBeat, guide } = profile;
+  const hours = (minutes: number | null) => (minutes ? `${fmt(Math.max(1, Math.round(minutes / 60)))} h` : "—");
   const studio = profile.developer ?? profile.publisher;
   const otherPlatforms = achievements.byPlatform.filter((p) => p.platform !== "steam");
   const achievementsMain = achievements.steam || achievements.byPlatform[0]?.total || 0;
@@ -279,6 +280,11 @@ export function BookletSpread({ profile, progress }: { profile: GameProfile; pro
             }
           >
             {timeTo100 ? `${fmt(Math.max(1, Math.round(timeTo100.minutes / 60)))} h` : "—"}
+          </Fact>
+          <Fact term="Tempo para zerar" note={timesToBeat ? "Rápido · história · 100% (IGDB)" : "Sem estimativa ainda"}>
+            {timesToBeat
+              ? `${hours(timesToBeat.hastyMin)} · ${hours(timesToBeat.normalMin)} · ${hours(timesToBeat.completeMin)}`
+              : "—"}
           </Fact>
           <Fact
             term="Conquistas"

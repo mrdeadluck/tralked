@@ -179,6 +179,11 @@ model Game {
   heroUrl               String?
   logoUrl               String?
   timeToBeatCompleteMin Int?
+  /// IGDB time to beat, rushed and main story (minutes); the 100% one is timeToBeatCompleteMin.
+  timeToBeatHastyMin    Int?
+  timeToBeatNormalMin   Int?
+  /// Last read of the IGDB times to beat (igdb-catalog job), with or without an answer.
+  timeToBeatCheckedAt   DateTime?
   platforms             String[]
   /// Steam achievement count (other platforms count their Achievement rows).
   achievementCount      Int

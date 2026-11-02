@@ -75,6 +75,8 @@ export async function syncGame(appId: number): Promise<Game | null> {
       igdb?.timeToBeatCompleteSec !== undefined
         ? Math.round(igdb.timeToBeatCompleteSec / 60)
         : undefined,
+    timeToBeatHastyMin: igdb?.timeToBeatHastySec !== undefined ? Math.round(igdb.timeToBeatHastySec / 60) : undefined,
+    timeToBeatNormalMin: igdb?.timeToBeatNormalSec !== undefined ? Math.round(igdb.timeToBeatNormalSec / 60) : undefined,
     achievementCount: schema.length,
     // A name-only stub of the full Steam catalog becomes a listed game once it has achievements,
     // unless Steam still knows it only by appid (placeholder name): it waits for its details.

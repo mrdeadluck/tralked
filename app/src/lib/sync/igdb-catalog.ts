@@ -164,12 +164,57 @@ export async function syncIgdbDetails(igdb: IgdbCatalogApi, now: Date, limit = D
   return { processed, missing };
 }
 
+/** Games whose IGDB times to beat are read per run (one request). */
+const TIMES_BATCH = 500;
+/** Times to beat are read again after this long (IGDB keeps averaging new submissions). */
+const TIMES_RECHECK_MS = 60 * 24 * 60 * 60_000;
+
+/**
+ * IGDB times to beat (rushed, main story, 100%) of up to `limit` listed games with an IGDB id, in
+ * one request: never read first, then the oldest read; the most popular first within each. Every
+ * game asked is marked read (with or without an answer); one bulk UPDATE writes them all. A time
+ * IGDB does not give keeps what was stored. Returns how many games got times.
+ */
+export async function syncTimesToBeat(igdb: IgdbCatalogApi, now: Date, limit = TIMES_BATCH): Promise<number> {
+  const stale = new Date(now.getTime() - TIMES_RECHECK_MS);
+  const games = await prisma.game.findMany({
+    where: {
+      stub: false,
+      igdbId: { not: null },
+      OR: [{ timeToBeatCheckedAt: null }, { timeToBeatCheckedAt: { lt: stale } }],
+    },
+    orderBy: [{ timeToBeatCheckedAt: { sort: "asc", nulls: "first" } }, { popularity: "desc" }],
+    take: limit,
+    select: { id: true, igdbId: true },
+  });
+  if (games.length === 0) return 0;
+  const times = await igdb.getTimesToBeat(games.map((g) => g.igdbId!));
+  const minutes = (seconds?: number) => (seconds ? Math.max(1, Math.round(seconds / 60)) : null);
+  const rows = games.map((g) => {
+    const t = times.get(g.igdbId!);
+    return { id: g.id, hasty: minutes(t?.hastily), normal: minutes(t?.normally), complete: minutes(t?.completely) };
+  });
+  await prisma.$executeRaw`
+    UPDATE "Game" AS g SET
+      "timeToBeatHastyMin" = COALESCE(t.hasty, g."timeToBeatHastyMin"),
+      "timeToBeatNormalMin" = COALESCE(t.normal, g."timeToBeatNormalMin"),
+      "timeToBeatCompleteMin" = COALESCE(t.complete, g."timeToBeatCompleteMin"),
+      "timeToBeatCheckedAt" = ${now}
+    FROM unnest(${rows.map((r) => r.id)}::text[], ${rows.map((r) => r.hasty)}::int[],
+                ${rows.map((r) => r.normal)}::int[], ${rows.map((r) => r.complete)}::int[])
+      AS t(id, hasty, normal, complete)
+    WHERE g.id = t.id`;
+  return times.size;
+}
+
 export type IgdbCatalogResult = {
   processed: number;
   failed: number;
   status: "ok" | "disabled";
   import?: IgdbImportResult;
   details?: IgdbDetailsResult;
+  /** Games that got IGDB times to beat this run. */
+  timesToBeat?: number;
 };
 
 export async function runIgdbCatalogJob(
@@ -188,6 +233,13 @@ export async function runIgdbCatalogJob(
     failed++;
     console.error("IGDB catalog: import failed", error);
   }
+  let timesToBeat = 0;
+  try {
+    timesToBeat = await syncTimesToBeat(igdb, new Date(deps.now()));
+  } catch (error) {
+    failed++;
+    console.error("IGDB catalog: times to beat failed", error);
+  }
   const details: IgdbDetailsResult = { processed: 0, missing: 0 };
   while (deps.now() < deadline) {
     try {
@@ -201,5 +253,5 @@ export async function runIgdbCatalogJob(
       break;
     }
   }
-  return { processed: imported.games + details.processed, failed, status: "ok", import: imported, details };
+  return { processed: imported.games + details.processed, failed, status: "ok", import: imported, details, timesToBeat };
 }

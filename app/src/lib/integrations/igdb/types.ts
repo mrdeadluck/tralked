@@ -11,7 +11,12 @@ export type IgdbGame = {
   aggregatedRating?: number;
   coverImageId?: string;
   timeToBeatCompleteSec?: number;
+  timeToBeatHastySec?: number;
+  timeToBeatNormalSec?: number;
 };
+
+/** IGDB `game_time_to_beats` of one game, in seconds (each may be missing). */
+export type IgdbTimeToBeat = { hastily?: number; normally?: number; completely?: number };
 
 export type IgdbImage = { imageId: string; width: number | null; height: number | null };
 

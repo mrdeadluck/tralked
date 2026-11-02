@@ -136,6 +136,8 @@ export async function resolvePlatformGame(
           igdb?.timeToBeatCompleteSec !== undefined
             ? Math.round(igdb.timeToBeatCompleteSec / 60)
             : undefined,
+        timeToBeatHastyMin: igdb?.timeToBeatHastySec !== undefined ? Math.round(igdb.timeToBeatHastySec / 60) : undefined,
+        timeToBeatNormalMin: igdb?.timeToBeatNormalSec !== undefined ? Math.round(igdb.timeToBeatNormalSec / 60) : undefined,
         platforms: [title.platformLabel],
         // Steam achievement count; this game's achievements are counted per platform.
         achievementCount: 0,

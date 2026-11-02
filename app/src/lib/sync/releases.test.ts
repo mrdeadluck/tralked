@@ -52,6 +52,7 @@ function fakeIgdb(releases: IgdbReleaseDate[], queries: IgdbReleaseQuery[] = [])
     listGames: async () => ({ games: [], rawCount: 0, lastId: 0 }),
     getGames: async () => [],
     findPlatformIds: async () => [],
+    getTimesToBeat: async () => new Map(),
   };
 }
 

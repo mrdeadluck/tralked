@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
 import type { IgdbGame } from "@/lib/integrations";
+import type { IgdbTimeToBeat } from "@/lib/integrations/igdb/types";
 import type { IgdbCatalogApi, IgdbCatalogGame, IgdbCatalogQuery } from "@/lib/integrations/igdb/catalog-types";
 
 async function databaseReachable(): Promise<boolean> {
@@ -31,7 +32,11 @@ const g = (id: number, name: string, platforms: number[], extra: Partial<IgdbCat
   ...extra,
 });
 
-function fakeIgdb(games: IgdbCatalogGame[], details: Record<number, Partial<IgdbGame>> = {}) {
+function fakeIgdb(
+  games: IgdbCatalogGame[],
+  details: Record<number, Partial<IgdbGame>> = {},
+  times: Record<number, IgdbTimeToBeat> = {},
+) {
   const calls: IgdbCatalogQuery[] = [];
   const api: IgdbCatalogApi = {
     getReleaseDates: async () => [],
@@ -50,6 +55,7 @@ function fakeIgdb(games: IgdbCatalogGame[], details: Record<number, Partial<Igdb
       });
     },
     findPlatformIds: async () => [],
+    getTimesToBeat: async (ids) => new Map(ids.filter((id) => times[id]).map((id) => [id, times[id]])),
   };
   return { api, calls };
 }
@@ -64,6 +70,34 @@ describe.skipIf(!reachable)("IGDB console catalog", () => {
   }
   beforeAll(cleanup);
   afterAll(cleanup);
+
+  it("reads the three IGDB times to beat in bulk, marks every game asked and keeps times IGDB leaves out", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncTimesToBeat } = await import("./igdb-catalog");
+    const timed = await prisma.game.create({
+      data: { slug: "igdbt-tempo", name: "Igdbt Tempo", igdbId: IGDB + 900, platforms: ["PS5"], achievementCount: 0, popularity: 1e9, timeToBeatCompleteMin: 999 },
+    });
+    const partial = await prisma.game.create({
+      data: { slug: "igdbt-tempo-parcial", name: "Igdbt Parcial", igdbId: IGDB + 901, platforms: ["PS5"], achievementCount: 0, popularity: 1e9 - 1, timeToBeatCompleteMin: 600 },
+    });
+    const none = await prisma.game.create({
+      data: { slug: "igdbt-sem-tempo", name: "Igdbt Sem Tempo", igdbId: IGDB + 902, platforms: ["PS5"], achievementCount: 0, popularity: 1e9 - 2 },
+    });
+    const { api } = fakeIgdb([], {}, {
+      [IGDB + 900]: { hastily: 3 * 3600, normally: 6 * 3600, completely: 12 * 3600 },
+      [IGDB + 901]: { normally: 5 * 3600 },
+    });
+    const now = new Date();
+    expect(await syncTimesToBeat(api, now, 3)).toBe(2);
+    const read = async (id: string) =>
+      prisma.game.findUniqueOrThrow({
+        where: { id },
+        select: { timeToBeatHastyMin: true, timeToBeatNormalMin: true, timeToBeatCompleteMin: true, timeToBeatCheckedAt: true },
+      });
+    expect(await read(timed.id)).toEqual({ timeToBeatHastyMin: 180, timeToBeatNormalMin: 360, timeToBeatCompleteMin: 720, timeToBeatCheckedAt: now });
+    expect(await read(partial.id)).toEqual({ timeToBeatHastyMin: null, timeToBeatNormalMin: 300, timeToBeatCompleteMin: 600, timeToBeatCheckedAt: now });
+    expect(await read(none.id)).toEqual({ timeToBeatHastyMin: null, timeToBeatNormalMin: null, timeToBeatCompleteMin: null, timeToBeatCheckedAt: now });
+  });
 
   it("imports pages as stubs, resumes from the cursor and matches existing games without duplicates", async () => {
     const { prisma } = await import("@/lib/db");

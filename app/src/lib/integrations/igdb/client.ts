@@ -7,7 +7,7 @@ import type {
   IgdbDatePrecision,
   IgdbReleaseDate,
 } from "./catalog-types";
-import type { IgdbApi, IgdbGame, IgdbMedia } from "./types";
+import type { IgdbApi, IgdbGame, IgdbMedia, IgdbTimeToBeat } from "./types";
 
 const API_BASE = "https://api.igdb.com/v4";
 const TOKEN_URL = "https://id.twitch.tv/oauth2/token";
@@ -155,7 +155,7 @@ export function createIgdbClient({
     return result;
   }
 
-  function toGame(game: GameRecord, ttb?: { completely?: number }): IgdbGame {
+  function toGame(game: GameRecord, ttb?: IgdbTimeToBeat): IgdbGame {
     return {
       igdbId: game.id,
       name: game.name,
@@ -172,6 +172,8 @@ export function createIgdbClient({
       aggregatedRating: game.aggregated_rating,
       coverImageId: game.cover?.image_id,
       timeToBeatCompleteSec: ttb?.completely,
+      timeToBeatHastySec: ttb?.hastily,
+      timeToBeatNormalSec: ttb?.normally,
     };
   }
 
@@ -179,9 +181,9 @@ export function createIgdbClient({
     const [game] = await query<GameRecord>("games", `fields ${GAME_FIELDS}; where id = ${igdbId};`);
     if (!game) return null;
 
-    const [ttb] = await query<{ completely?: number }>(
+    const [ttb] = await query<IgdbTimeToBeat>(
       "game_time_to_beats",
-      `fields completely; where game_id = ${game.id};`,
+      `fields hastily,normally,completely; where game_id = ${game.id};`,
     );
     return toGame(game, ttb);
   }
@@ -294,6 +296,23 @@ export function createIgdbClient({
       if (!list) return [];
       const rows = await query<GameRecord>("games", `fields ${GAME_FIELDS}; where id = (${list}); limit ${MAX_LIMIT};`);
       return rows.filter((r) => typeof r.id === "number" && r.name).map((r) => toGame(r));
+    },
+
+    async getTimesToBeat(gameIds): Promise<Map<number, IgdbTimeToBeat>> {
+      const list = ids(gameIds.slice(0, MAX_LIMIT));
+      if (!list) return new Map();
+      const rows = await query<IgdbTimeToBeat & { game_id?: number }>(
+        "game_time_to_beats",
+        `fields game_id,hastily,normally,completely; where game_id = (${list}); limit ${MAX_LIMIT};`,
+      );
+      const seconds = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
+      const times = new Map<number, IgdbTimeToBeat>();
+      for (const row of rows) {
+        if (typeof row.game_id !== "number") continue;
+        const time = { hastily: seconds(row.hastily), normally: seconds(row.normally), completely: seconds(row.completely) };
+        if (time.hastily || time.normally || time.completely) times.set(row.game_id, time);
+      }
+      return times;
     },
 
     async findPlatformIds(platformNames): Promise<number[]> {

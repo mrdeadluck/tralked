@@ -1,6 +1,6 @@
 import hollowKnight from "./__fixtures__/hollow-knight.json";
 import type { IgdbCatalogApi, IgdbCatalogGame, IgdbDatePrecision, IgdbReleaseDate } from "./catalog-types";
-import type { IgdbGame } from "./types";
+import type { IgdbGame, IgdbTimeToBeat } from "./types";
 
 /**
  * Offline IGDB catalog (development, tests, e2e; never production: see getIgdbCatalog). A handful
@@ -79,6 +79,13 @@ export function createIgdbCatalogFixture(now: () => number = Date.now): IgdbCata
         .slice(0, limit)
         .map(strip);
       return { games, rawCount: games.length, lastId: games.at(-1)?.igdbId ?? 0 };
+    },
+    async getTimesToBeat(ids) {
+      // Every fixture game gets the same made-up times: 5 h rushed, 10 h main story, 20 h for 100%.
+      const known = new Set([...IGDB_FIXTURE_GAMES, ...FIXTURE_RELEASES.map((r) => r.game)].map((g) => g.igdbId));
+      return new Map<number, IgdbTimeToBeat>(
+        ids.filter((id) => known.has(id)).map((id) => [id, { hastily: 18_000, normally: 36_000, completely: 72_000 }]),
+      );
     },
     async getGames(ids) {
       const wanted = new Set(ids);
