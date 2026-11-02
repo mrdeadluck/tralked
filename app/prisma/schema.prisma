@@ -108,15 +108,12 @@ model User {
   notifications  Notification[]
   passwordResets PasswordResetToken[]
   wishlist       WishlistItem[]
-<<<<<<< HEAD
   setup          PlayerSetup?
-=======
   moderationDone ModerationLog[]     @relation("ModerationActor")
   moderationOn   ModerationLog[]     @relation("ModerationTargetUser")
 
   @@index([mutedUntil])
   @@index([bannedUntil])
->>>>>>> worktree-agent-ab9221bc5c850667c
 }
 
 /// A "set a new password" link (forgot password, or `pnpm user:invite`). Only the SHA-256 of the
