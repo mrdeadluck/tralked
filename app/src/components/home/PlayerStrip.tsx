@@ -215,8 +215,9 @@ export function InviteStrip() {
       aria-labelledby="convite-personagem"
       className="flex flex-wrap items-center gap-x-6 gap-y-4 rounded-[4px] border border-line bg-surface px-5 py-4"
     >
-      <span className="max-sm:hidden">
-        <LevelRing level={1} pct={0} size={56} />
+      {/* A sample of the gauge the player gets: the level is theirs to find out. */}
+      <span className="flex flex-none items-center max-sm:hidden">
+        <LevelRing level="?" caption="NV" pct={68} size={64} />
       </span>
       <div className="flex min-w-[220px] flex-1 flex-col gap-1">
         <h2 id="convite-personagem" className="text-[21px] leading-tight font-black font-stretch-[112%] tracking-[-0.02em]">

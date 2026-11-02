@@ -36,7 +36,7 @@ export function CalendarHead() {
       title="Calendário"
       lede="O que saiu e o que vem por aí: matérias publicadas, lançamentos de jogos e, com a sua conta, as suas conquistas, marcos de horas e missões, dia a dia."
       aside={
-        <Link href="/lancamentos" className="text-acc uppercase hover:underline">
+        <Link href="/lancamentos" className="-my-3 inline-flex min-h-11 items-center text-acc uppercase hover:underline">
           Lançamentos →
         </Link>
       }

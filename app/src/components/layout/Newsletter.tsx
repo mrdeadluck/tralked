@@ -1,21 +1,16 @@
 "use client";
 
-import { usePathname } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
 import { subscribeNewsletterAction } from "@/lib/newsletter/actions";
 
 type Subscribed = { email: string; delivery: "sent" | "registered" };
 
-/** Pages that end on the full lime block: the news. Everywhere else the footer keeps one line. */
-export function newsletterIsFeatured(pathname: string): boolean {
-  return pathname === "/" || pathname === "/noticias" || pathname.startsWith("/noticias/");
-}
-
-/** The footer's newsletter: the lime block on the news pages, a discreet line elsewhere. */
-export function FooterNewsletter() {
-  const pathname = usePathname();
-  return <Newsletter variant={newsletterIsFeatured(pathname) ? "block" : "line"} />;
-}
+/*
+ * The news pages (home, /noticias, articles) end on the lime block, rendered by the page itself;
+ * the footer's one-line version hides on a page that carries the block (CSS :has, see Footer).
+ * Nothing branches on the pathname: on Vercel the home's server render did not see "/" and drew
+ * the line while the browser drew the block, a hydration mismatch (React error #418).
+ */
 
 function useSubscribe() {
   const [email, setEmail] = useState("");
@@ -100,6 +95,7 @@ export function Newsletter({ variant = "block" }: { variant?: "block" | "line" }
 
   return (
     <section
+      data-newsletter-block=""
       aria-labelledby={titleId}
       className="flex flex-wrap items-end justify-between gap-x-12 gap-y-6 rounded-[4px] bg-acc p-[22px] text-bg sm:p-8"
     >

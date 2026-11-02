@@ -237,7 +237,10 @@ describe("wire and tab view models", () => {
           source: "Portal Exemplo",
           publishedAt: new Date(now.getTime() - 3 * 3_600_000),
           game: null,
+          imageUrl: "https://cdn.example.com/x1.jpg",
         },
+        // No art: never on the wire.
+        { id: "x2", title: "Sem arte", url: "https://example.com/x2", source: "Portal Exemplo", publishedAt: now, game: null },
       ],
       now,
     );
@@ -260,6 +263,7 @@ describe("wire and tab view models", () => {
       source: "Feed",
       publishedAt: new Date(now.getTime() - 3_600_000),
       game: null,
+      imageUrl: "https://cdn.example.com/art.jpg",
     });
     const items = buildWireItems(
       [],

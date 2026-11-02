@@ -1,7 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { newsletterIsFeatured } from "@/components/layout/Newsletter";
 import { SetupStepper } from "@/components/onboarding/SetupStepper";
 import { CatalogFilters } from "./CatalogFilters";
 
@@ -50,13 +49,6 @@ describe("CatalogFilters", () => {
     expect(screen.getByText("soulslike · Steam / PC · Ordem: Popular")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ver 1.234 jogos", hidden: true })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Limpar", hidden: true })).toHaveAttribute("href", "/jogos");
-  });
-});
-
-describe("newsletterIsFeatured", () => {
-  it("is the lime block only on the home and the news", () => {
-    for (const path of ["/", "/noticias", "/noticias/uma-materia"]) expect(newsletterIsFeatured(path)).toBe(true);
-    for (const path of ["/jogos", "/entrar", "/noticiasx", "/forum/noticias"]) expect(newsletterIsFeatured(path)).toBe(false);
   });
 });
 

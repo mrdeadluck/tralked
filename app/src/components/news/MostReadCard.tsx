@@ -1,34 +1,38 @@
 import Link from "next/link";
-import { Card } from "@/components/ui/Card";
+import { SectionHead } from "@/components/ui/SectionHead";
 import type { StoryCard } from "@/lib/queries/news";
 
-/** "Mais lidas" / "Mais visualizadas" of the home's side column: a numbered list, #1 in lime. */
+/**
+ * "Mais lidas" / "Mais visualizadas" of the home: a top-5 band across the page under the news and
+ * the side column (in a column of its own it left a hole beside the shorter news column). Big
+ * numerals, #1 in lime.
+ */
 export function MostReadCard({ title, stories }: { title: string; stories: StoryCard[] }) {
   return (
-    <Card>
-      <h2 className="border-b border-[#23252c] pb-3.5 text-[19px] leading-[1.05] font-black font-stretch-[125%] tracking-[-0.02em] uppercase">
-        {title}
-      </h2>
-      <ol className="m-0 list-none p-0">
+    <section aria-label={title} className="flex flex-col gap-1">
+      <SectionHead title={title} aside={<Link href="/noticias#todas">Todas as notícias →</Link>} />
+      <ol className="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-x-6 p-0">
         {stories.map((story, i) => (
-          <li key={story.id} className="grid grid-cols-[30px_minmax(0,1fr)] gap-2.5 border-b border-divider py-3 last:border-b-0">
-            <span
-              aria-hidden="true"
-              className={`text-[24px] leading-none font-black font-stretch-[125%] ${i === 0 ? "text-acc" : "text-ph"}`}
-            >
-              {i + 1}
-            </span>
-            <span className="min-w-0">
-              <Link href={story.href} className="text-[14.5px] leading-snug font-bold hover:text-acc">
-                {story.title}
-              </Link>
-              <small className="mt-1 block font-mono text-xs text-dim">
-                {story.kicker} · {story.when}
-              </small>
-            </span>
+          <li key={story.id} className="border-b border-divider">
+            <Link href={story.href} className="group grid grid-cols-[36px_minmax(0,1fr)] gap-3 py-4">
+              <span
+                aria-hidden="true"
+                className={`text-[34px] leading-[.9] font-black font-stretch-[125%] tabular-nums ${
+                  i === 0 ? "text-acc" : "text-dim group-hover:text-text"
+                }`}
+              >
+                {i + 1}
+              </span>
+              <span className="flex min-w-0 flex-col gap-1.5">
+                <span className="line-clamp-3 text-[15px] leading-snug font-bold group-hover:text-acc">{story.title}</span>
+                <small className="font-mono text-xs text-dim">
+                  {story.kicker} · {story.when}
+                </small>
+              </span>
+            </Link>
           </li>
         ))}
       </ol>
-    </Card>
+    </section>
   );
 }

@@ -13,6 +13,9 @@ import { ArrowRightIcon } from "@/components/layout/icons";
 import { ArticleBody } from "@/components/news/ArticleBody";
 import { ArticleTags } from "@/components/news/ArticleTags";
 import { GameCoverThumb } from "@/components/news/GameCoverThumb";
+import { Newsletter } from "@/components/layout/Newsletter";
+import { PlatformChips } from "@/components/ui/PlatformChips";
+import { withHuntCallout } from "@/lib/news/hunt-callout";
 import { Blocks } from "@/lib/content/render";
 import { isSafeHttpUrl } from "@/lib/content/url";
 import { JsonLd, newsArticleJsonLd } from "@/lib/seo/json-ld";
@@ -89,8 +92,9 @@ const gameLink =
   "inline-flex min-h-11 items-center font-mono text-xs tracking-[0.08em] text-acc uppercase underline-offset-[3px] hover:underline sm:min-h-6";
 
 /**
- * "Jogo desta notícia" at the end: the catalog cover (generated art when the game has none, e.g.
- * a stub) and both ways out: the game page and, when there is one, the 100% guide.
+ * "Jogo desta notícia" at the end: the game as a card of the catalog (case cover, full name,
+ * platforms, what there is to hunt) with both ways out: the game page and the 100% guide. The
+ * chip under the headline is the shortcut; this is where the reader who finished goes next.
  */
 function RelatedGames({ article }: { article: ArticleFull }) {
   if (article.games.length === 0) return null;
@@ -99,35 +103,66 @@ function RelatedGames({ article }: { article: ArticleFull }) {
       <h2 id="h-jogos" className={sectionTitle}>
         {article.games.length > 1 ? "Jogos desta notícia" : "Jogo desta notícia"}
       </h2>
-      <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3 p-0">
-        {article.games.map((game) => (
-          <li
-            key={game.slug}
-            className="flex items-center gap-4 rounded-[4px] border border-line bg-surface p-3 transition-colors hover:border-line-2"
-          >
-            <span className="block h-16 w-12 flex-none overflow-hidden rounded-[2px]">
-              <GameCoverThumb
-                coverUrl={game.coverUrl}
-                variant="card"
-                seed={hashSeed(game.slug)}
-                hues={artHues(game.slug, game.slug)}
-              />
-            </span>
-            <span className="flex min-w-0 flex-col gap-1">
-              <b className="truncate text-[17px] font-extrabold">{game.name}</b>
-              <span className="flex flex-wrap gap-x-4">
-                <Link href={`/jogos/${game.slug}`} aria-label={`Ver jogo: ${game.name}`} className={gameLink}>
-                  Ver jogo →
-                </Link>
-                {game.hasGuide ? (
-                  <Link href={`/jogos/${game.slug}/guia`} aria-label={`Abrir guia 100% de ${game.name}`} className={gameLink}>
-                    Abrir guia 100% →
-                  </Link>
-                ) : null}
+      <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-[repeat(auto-fill,minmax(380px,1fr))]">
+        {article.games.map((game) => {
+          const count = game.achievementCount ?? 0;
+          return (
+            <li
+              key={game.slug}
+              className="group relative flex gap-5 rounded-[4px] border border-line bg-surface p-4 transition-colors hover:border-line-2"
+            >
+              <span className="block aspect-[3/4] w-24 flex-none overflow-hidden rounded-[2px_5px_5px_2px] shadow-[-4px_0_0_#0d0e12,0_14px_24px_-10px_rgba(0,0,0,.85)]">
+                <GameCoverThumb
+                  coverUrl={game.coverUrl}
+                  variant="case"
+                  seed={hashSeed(game.slug)}
+                  hues={artHues(game.slug, game.slug)}
+                />
               </span>
-            </span>
-          </li>
-        ))}
+              <span className="flex min-w-0 flex-1 flex-col gap-2.5">
+                <b className="text-[21px] leading-[1.1] font-black font-stretch-[112%] tracking-[-0.02em] text-balance">
+                  {/* The whole card opens the game; the guide link sits above it. */}
+                  <Link
+                    href={`/jogos/${game.slug}`}
+                    aria-label={`Ver jogo: ${game.name}`}
+                    className="after:absolute after:inset-0 after:content-[''] hover:text-acc"
+                  >
+                    {game.name}
+                  </Link>
+                </b>
+                {game.platforms && game.platforms.length > 0 ? (
+                  <span className="flex flex-wrap gap-1.5 font-mono text-xs tracking-[0.1em] uppercase">
+                    <PlatformChips platforms={game.platforms} />
+                  </span>
+                ) : null}
+                <span className="font-mono text-xs text-muted">
+                  {count > 0 ? (
+                    <>
+                      <b className="font-bold text-text">{count.toLocaleString("pt-BR")}</b> {count === 1 ? "conquista" : "conquistas"}
+                      {game.hasPlatinum ? <span className="text-tier-plat"> · platina</span> : null}
+                    </>
+                  ) : (
+                    "Conquistas ainda não cadastradas"
+                  )}
+                </span>
+                <span className="mt-auto flex flex-wrap gap-x-5">
+                  <span className={`${gameLink} pointer-events-none`} aria-hidden="true">
+                    Ver jogo →
+                  </span>
+                  {game.hasGuide ? (
+                    <Link
+                      href={`/jogos/${game.slug}/guia`}
+                      aria-label={`Abrir guia 100% de ${game.name}`}
+                      className={`${gameLink} relative z-[1]`}
+                    >
+                      Abrir guia 100% →
+                    </Link>
+                  ) : null}
+                </span>
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -210,10 +245,13 @@ function ExternalSources({ article }: { article: ArticleFull }) {
   );
 }
 
+/** Reading width of the article's text; the art and the way out use the site's full grid. */
+const prose = "mx-auto w-full max-w-[860px]";
+
 function ArticleLayout({ article }: { article: ArticleFull }) {
   return (
-    <article className="mx-auto flex w-full max-w-[860px] flex-col gap-10">
-      <header className="flex flex-col gap-4">
+    <article className="flex w-full flex-col gap-10">
+      <header className={`${prose} flex flex-col gap-4`}>
         <Link
           href="/noticias"
           className="-my-3 inline-flex min-h-11 items-center self-start font-mono text-xs tracking-[0.08em] text-acc uppercase underline-offset-4 hover:underline"
@@ -248,52 +286,57 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
             </span>
           ) : null}
         </div>
-        {/* Session island: newsroom tools for admin/editor, "Denunciar" for everyone else. */}
-        <ArticleModeration
-          articleId={article.id}
-          category={article.category}
-          featured={article.featured}
-          returnTo={`/noticias/${article.slug}`}
-        />
       </header>
 
-      <div className="aspect-[21/9] overflow-hidden rounded-[3px] bg-surface">
+      <div className="aspect-[21/9] overflow-hidden rounded-[3px] bg-surface max-sm:aspect-[16/9]">
         <GameArt
           seed={hashSeed(article.slug)}
           hues={artHues(article.game?.slug, article.slug)}
           imageUrl={article.heroUrl}
           figure
           light
-          width={1200}
-          height={514}
-          sizes="(max-width: 940px) calc(100vw - 40px), 900px"
+          width={1280}
+          height={548}
+          sizes="(max-width: 1320px) calc(100vw - 40px), 1280px"
           priority
         />
       </div>
 
-      {article.blocks.length > 0 ? (
-        <Blocks blocks={article.blocks} achievements={article.achievements} />
-      ) : (
-        <ArticleBody markdown={article.body} />
-      )}
+      <div className={`${prose} flex flex-col gap-10`}>
+        {article.blocks.length > 0 ? (
+          <Blocks blocks={withHuntCallout(article.blocks, article.games[0] ?? null)} achievements={article.achievements} />
+        ) : (
+          <ArticleBody markdown={article.body} />
+        )}
 
-      <ReactionBar
-        targetType="article"
-        targetId={article.id}
-        prompt="O que achou desta notícia?"
-        what="esta notícia"
-        returnTo={`/noticias/${article.slug}`}
-      />
+        <div className="flex flex-col gap-3">
+          <ReactionBar
+            targetType="article"
+            targetId={article.id}
+            prompt="O que achou desta notícia?"
+            what="esta notícia"
+            returnTo={`/noticias/${article.slug}`}
+          />
+          {/* Session island: newsroom tools for admin/editor, "Denunciar" for everyone else. With the
+              reader's other reactions, after the text (not between the headline and the picture). */}
+          <ArticleModeration
+            articleId={article.id}
+            category={article.category}
+            featured={article.featured}
+            returnTo={`/noticias/${article.slug}`}
+          />
+        </div>
 
-      {/* No ad provider yet: no empty "Publicidade" box until there is one. */}
-      {adsEnabled() ? <AdSlot format="leaderboard" /> : null}
+        {/* No ad provider yet: no empty "Publicidade" box until there is one. */}
+        {adsEnabled() ? <AdSlot format="leaderboard" /> : null}
 
-      <RelatedGames article={article} />
-      <ExternalSources article={article} />
+        <RelatedGames article={article} />
+        <ExternalSources article={article} />
 
-      {/* Comments island (#comentarios): streams the comments and the visitor's session. */}
-      <div className="border-t border-line pt-8">
-        <Comments targetType="article" targetId={article.id} />
+        {/* Comments island (#comentarios): streams the comments and the visitor's session. */}
+        <div className="border-t border-line pt-8">
+          <Comments targetType="article" targetId={article.id} />
+        </div>
       </div>
 
       <ArticleEnd id={article.id} publishedAt={article.publishedAt} />
@@ -306,7 +349,7 @@ async function ArticleEnd({ id, publishedAt }: { id: string; publishedAt: Date }
   const { next, most, mostTitle } = await loadArticleEnd(id, publishedAt.toISOString());
   if (!next && most.length === 0) return null;
   return (
-    <div className="flex flex-col gap-12 border-t border-line pt-10">
+    <div className="grid items-start gap-12 border-t border-line pt-10 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
       {next ? <NextStory article={next} /> : null}
       {most.length > 0 ? <MostViewed title={mostTitle} articles={most} /> : null}
     </div>
@@ -331,6 +374,7 @@ function NextStory({ article }: { article: ArticleCard }) {
           light
           width={960}
           height={540}
+          sizes="(max-width: 1024px) calc(100vw - 40px), 780px"
           className="absolute inset-0 object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03] motion-reduce:transition-none"
         />
         <span
@@ -356,18 +400,19 @@ function NextStory({ article }: { article: ArticleCard }) {
 function MostViewed({ title, articles }: { title: string; articles: ArticleCard[] }) {
   return (
     <section aria-labelledby="h-mais-vistas" className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="h-mais-vistas" className={sectionTitle}>
           {title}
         </h2>
+        {/* 44 px to tap, without pushing the heading off the "Próxima matéria" line beside it. */}
         <Link
           href="/noticias"
-          className="inline-flex min-h-11 items-center font-mono text-xs tracking-[0.08em] text-acc uppercase underline-offset-4 hover:underline"
+          className="-my-3 inline-flex min-h-11 items-center font-mono text-xs tracking-[0.08em] text-acc uppercase underline-offset-4 hover:underline"
         >
           Todas as notícias →
         </Link>
       </div>
-      <ol className="m-0 grid list-none gap-x-8 p-0 sm:grid-cols-2">
+      <ol className="m-0 grid list-none gap-x-8 p-0 sm:max-lg:grid-cols-2">
         {articles.map((article, i) => (
           <li key={article.id} className="border-b border-divider">
             <Link href={`/noticias/${article.slug}`} className="group flex items-center gap-4 py-3.5">
@@ -382,8 +427,9 @@ function MostViewed({ title, articles }: { title: string; articles: ArticleCard[
                   seed={hashSeed(article.slug)}
                   hues={artHues(article.game?.slug, article.slug)}
                   imageUrl={article.imageUrl}
-                  width={192}
-                  height={120}
+                  width={96}
+                  height={60}
+                  sizes="96px"
                   className="size-full object-cover"
                 />
               </span>
@@ -416,6 +462,9 @@ export default async function NoticiaPage({ params }: PageProps<"/noticias/[slug
       <JsonLd data={newsArticleJsonLd(article)} />
       <ArticleLayout article={article} />
       <ArticleViewBeacon articleId={article.id} />
+      <div className="mt-16">
+        <Newsletter variant="block" />
+      </div>
     </>
   );
 }

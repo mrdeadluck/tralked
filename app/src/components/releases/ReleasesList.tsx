@@ -2,7 +2,6 @@ import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { PageHead } from "@/components/community/PageHead";
 import { CaseItem, CaseShelf } from "@/components/shelf/CaseShelf";
-import { Chip } from "@/components/ui/Chip";
 import { caseArt, steamAppIdFromUrl } from "@/lib/case-art";
 import {
   getReleaseList,
@@ -15,7 +14,10 @@ import {
   type ReleaseTab,
   type ReleaseView,
 } from "@/lib/queries/releases";
-import { RELEASE_PLATFORM_COLOR, RELEASE_PLATFORM_LABEL } from "@/lib/releases/platforms";
+import { RELEASE_PLATFORM_COLOR, RELEASE_PLATFORM_LABEL, type ReleasePlatform } from "@/lib/releases/platforms";
+
+/** Platform names that fit a case card on one line. */
+const PLATFORM_SHORT: Record<ReleasePlatform, string> = { PC: "PC", PLAYSTATION: "PS", XBOX: "XBOX", NINTENDO: "NIN" };
 
 const filterLabel = (f: ReleaseFilter) => (f === "TODAS" ? "Todas" : RELEASE_PLATFORM_LABEL[f]);
 export const releasesHref = (tab: ReleaseTab, filter: ReleaseFilter) => `/lancamentos/${tab}/${filter.toLowerCase()}`;
@@ -54,18 +56,26 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
       <span className="cs-meta">
         {r.day ? (
           <time dateTime={r.day}>
-            <b>{r.dateText}</b>
-            {r.relative ? ` · ${r.relative}` : ""}
+            <b className="whitespace-nowrap">{r.dateText}</b>
+            {/* "há 18 dias" never breaks in the middle. */}
+            {r.relative ? <span className="whitespace-nowrap"> · {r.relative}</span> : null}
           </time>
         ) : (
           <b>{r.dateText}</b>
         )}
       </span>
+      {/* One compact line on a narrow case: short names, the color square, the full name for readers. */}
       <span className="cs-meta">
         {r.platforms.map((p) => (
-          <Chip key={p} color={RELEASE_PLATFORM_COLOR[p]}>
-            {RELEASE_PLATFORM_LABEL[p]}
-          </Chip>
+          <span
+            key={p}
+            className="inline-flex items-center gap-1 font-bold tracking-[0.04em]"
+            style={{ color: RELEASE_PLATFORM_COLOR[p] }}
+          >
+            <span aria-hidden="true" className="size-[5px] bg-current" />
+            <span aria-hidden="true">{PLATFORM_SHORT[p]}</span>
+            <span className="sr-only">{RELEASE_PLATFORM_LABEL[p]}</span>
+          </span>
         ))}
         {r.stub ? <span>detalhes em breve</span> : null}
       </span>
@@ -99,7 +109,7 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
             key={f}
             href={releasesHref(tab, f)}
             aria-current={f === filter ? "page" : undefined}
-            className={`border px-2.5 py-1 font-mono text-xs tracking-[0.06em] uppercase ${
+            className={`inline-flex min-h-11 items-center border px-2.5 font-mono text-xs tracking-[0.06em] uppercase sm:min-h-8 ${
               f === filter ? "border-text bg-hover text-text" : "border-line-2 text-text-3 hover:text-text"
             }`}
           >
@@ -131,7 +141,7 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
           <section aria-labelledby="todos-lancamentos" className="flex flex-col gap-4">
             <h2 id="todos-lancamentos" className="border-b border-line pb-2 font-mono text-[12px] tracking-[0.08em] text-text-3 uppercase">
               {highlights ? "Mais lançamentos" : "Lançamentos"}
-              <span className="ml-2 text-dim normal-case">dos mais populares aos menos</span>
+              <span className="ml-2 tracking-normal text-dim normal-case">dos mais populares aos menos</span>
             </h2>
             <CaseShelf>{rest.map(item)}</CaseShelf>
           </section>

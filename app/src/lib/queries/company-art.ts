@@ -74,7 +74,8 @@ export function franchiseOf(name: string): string {
   return base.length >= 4 ? base : "";
 }
 
-type CompanyGames = { name: string; url: string }[];
+/** `wide`: the game's hero (landscape), not its portrait cover. */
+type CompanyGames = { name: string; url: string; wide?: boolean }[];
 
 /** The company's most popular games with wide art (publisher or developer), most popular first. */
 async function companyGames(names: string[]): Promise<CompanyGames> {
@@ -101,7 +102,7 @@ async function companyGames(names: string[]): Promise<CompanyGames> {
     const url = found ? wideArt(found) : null;
     if (!url || seen.has(url)) return [];
     seen.add(url);
-    return [{ name: g.name, url }];
+    return [{ name: g.name, url, wide: Boolean(g.heroUrl) }];
   });
 }
 
@@ -133,7 +134,7 @@ export async function companyArt(text: string, seed: string): Promise<string | n
  * next one of the company that is not on screen yet.
  */
 export async function withCompanyArt<
-  T extends { slug: string; title: string; excerpt: string | null; imageUrl: string | null },
+  T extends { slug: string; title: string; excerpt: string | null; imageUrl: string | null; wideImageUrl?: string | null },
 >(cards: T[]): Promise<T[]> {
   const pools = new Map<string, Promise<CompanyGames>>();
   const used = new Set(cards.map((c) => c.imageUrl).filter(Boolean));
@@ -147,7 +148,8 @@ export async function withCompanyArt<
     }
     const key = names.join("|");
     if (!pools.has(key)) pools.set(key, companyGames(names));
-    const gallery = galleryFor(await pools.get(key)!, text);
+    const pool = await pools.get(key)!;
+    const gallery = galleryFor(pool, text);
     if (gallery.length === 0) {
       out.push(card);
       continue;
@@ -155,7 +157,8 @@ export async function withCompanyArt<
     let index = pickIndex(card.slug, gallery.length);
     for (let tries = 0; tries < gallery.length && used.has(gallery[index]); tries++) index = (index + 1) % gallery.length;
     used.add(gallery[index]);
-    out.push({ ...card, imageUrl: gallery[index] });
+    const wide = pool.some((g) => g.url === gallery[index] && g.wide);
+    out.push({ ...card, imageUrl: gallery[index], ...(wide ? { wideImageUrl: gallery[index] } : {}) });
   }
   return out;
 }

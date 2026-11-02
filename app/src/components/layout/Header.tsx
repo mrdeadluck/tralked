@@ -95,6 +95,7 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
   };
   // /jogos has its own catalog search right under the header: no second field on phones.
   const pageHasSearch = pathname === "/jogos";
+  const onLoginPage = pathname === "/entrar";
 
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-bg/[.94] backdrop-blur-[10px]">
@@ -162,11 +163,12 @@ export function Header({ user, suggestions, notifications }: HeaderProps) {
           {user ? (
             <AccountMenu user={user} />
           ) : (
+            // On the login page the way in is the form itself: the header offers the other door.
             <Link
-              href={LOGIN_HREF}
+              href={onLoginPage ? "/cadastrar" : LOGIN_HREF}
               className="inline-flex h-11 items-center rounded-[2px] border border-acc bg-acc px-3 font-mono nav:px-4 text-xs font-bold tracking-[0.1em] text-bg uppercase transition-[filter] duration-150 hover:brightness-[1.08]"
             >
-              Entrar
+              {onLoginPage ? "Criar conta" : "Entrar"}
             </Link>
           )}
           <button

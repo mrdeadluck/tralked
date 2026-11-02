@@ -1,13 +1,28 @@
 /*
- * Page backdrop: circuit traces in two opposite corners of the viewport (top right, and the same
- * drawing turned 180° at the bottom left), so the empty dark areas around the content are not a
- * flat black. 45° turns echo the chamfers of the Tralked logo; accent squares and dot grids are
+ * Page backdrop: circuit traces in two opposite side gutters of the viewport (top right, and the
+ * same drawing turned 180° at the bottom left), so the empty dark areas around the content are not
+ * a flat black. 45° turns echo the chamfers of the Tralked logo; accent squares and dot grids are
  * the "nodes". Fixed behind everything, decorative only (aria-hidden, no pointer events, static).
  */
 
-function Corner({ id, className }: { id: string; className: string }) {
+/*
+ * Each corner lives only in the side gutter, outside the 1320 px page shell, clipped to the gutter's
+ * width (none below 1320 px): it never runs behind headings, links or numbers. The top one starts
+ * under the header.
+ */
+const GUTTER = "w-[max(0px,calc((100vw-1320px)/2))]";
+
+function Corner({ id, className, svgClassName }: { id: string; className: string; svgClassName: string }) {
   return (
-    <svg viewBox="0 0 520 440" className={`absolute w-[min(440px,38vw)] ${className}`} fill="none" aria-hidden="true">
+    <div className={`absolute h-[372px] overflow-hidden ${GUTTER} ${className}`}>
+      <CornerArt id={id} className={svgClassName} />
+    </div>
+  );
+}
+
+function CornerArt({ id, className }: { id: string; className: string }) {
+  return (
+    <svg viewBox="0 0 520 440" className={`absolute w-[440px] max-w-none ${className}`} fill="none" aria-hidden="true">
       <defs>
         <pattern id={id} width="14" height="14" patternUnits="userSpaceOnUse">
           <circle cx="2" cy="2" r="1.1" fill="var(--text)" />
@@ -40,9 +55,8 @@ function Corner({ id, className }: { id: string; className: string }) {
 export function PageBackdrop() {
   return (
     <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <Corner id="tk-dots-tr" className="top-0 right-0" />
-      {/* Bottom-left only where the side gutter is wide enough not to sit behind lists and rank numbers. */}
-      <Corner id="tk-dots-bl" className="bottom-0 left-0 rotate-180 max-[1599px]:hidden" />
+      <Corner id="tk-dots-tr" className="top-[73px] right-0" svgClassName="top-0 right-0" />
+      <Corner id="tk-dots-bl" className="bottom-0 left-0" svgClassName="bottom-0 left-0 rotate-180" />
     </div>
   );
 }

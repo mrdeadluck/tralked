@@ -2,6 +2,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { Suspense } from "react";
 import { InviteStrip, PlayerStrip } from "@/components/home/PlayerStrip";
+import { Newsletter } from "@/components/layout/Newsletter";
 import { CommunityRanking } from "@/components/news/CommunityRanking";
 import { DiscordCard } from "@/components/news/DiscordCard";
 import { EditorialCard } from "@/components/news/EditorialCard";
@@ -122,7 +123,7 @@ async function ReleasesSection() {
   );
 }
 
-/** "Mais lidas" in the side column, beside the news it does not repeat. */
+/** "Mais lidas" across the page, under the news it does not repeat. */
 async function MostReadSection() {
   "use cache";
   cacheLife("minutes");
@@ -173,19 +174,21 @@ export default function Home() {
         <PlayerSection />
       </Suspense>
       <div className="flex flex-wrap items-start gap-12">
-        {/* One headline and the news on the left; only releases and the ranking on the right. */}
+        {/* One headline and the news on the left; releases and the ranking on the right. */}
         <NewsSection />
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-8">
           <ReleasesSection />
           <RankingSection />
-          <MostReadSection />
         </aside>
       </div>
+      {/* Across the page: as a third card of the side column it left a hole beside the news. */}
+      <MostReadSection />
       <WireSection />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] items-start gap-5">
         <DiscordCard />
         <EditorialCard />
       </div>
+      <Newsletter variant="block" />
     </div>
   );
 }

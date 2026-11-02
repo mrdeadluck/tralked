@@ -53,7 +53,7 @@ const items: WireItem[] = [
     seed: 2,
     items: [{ label: "Hades", date: "30 out" }],
   },
-  { id: "x:1", href: "https://example.com/n", external: true, variant: "newp", kicker: "Hollow Knight", title: "Recorde", source: "Fonte externa: Portal Exemplo", when: "há 3 dias", seed: 3, thin: "na////\nimprensa" },
+  { id: "x:1", href: "https://example.com/n", external: true, variant: "newp", kicker: "Hollow Knight", title: "Recorde", source: "Fonte externa: Portal Exemplo", when: "há 3 dias", seed: 3, thin: "na////\nimprensa", imageUrl: "https://cdn.example.com/hk.webp" },
   { id: "a:2", href: "/noticias/dois", variant: "portrait", kicker: "Comunidade", title: "Entrevista", source: "Redação Tralked", when: "há 4 dias", seed: 4, giant: "Hades" },
   { id: "a:3", href: "/noticias/tres", variant: "dark", kicker: "Games", title: "Patch", source: "Redação Tralked", when: "há 5 dias", seed: 5, imageUrl: "https://cdn.example.com/a.webp" },
 ];
@@ -89,6 +89,21 @@ describe("NewsWire", () => {
     const { container } = render(<NewsWire items={items} />);
     expect(container.querySelector('img[src="https://cdn.example.com/a.webp"]')).not.toBeNull();
     expect(container.querySelectorAll("canvas").length).toBeGreaterThan(0);
+  });
+
+  it("leaves out press headlines without art and marks English ones", () => {
+    const press = items[2];
+    render(
+      <NewsWire
+        items={[
+          ...items,
+          { ...press, id: "x:bare", title: "Sem imagem", imageUrl: null },
+          { ...press, id: "x:en", title: "New trailer", lang: "en" },
+        ]}
+      />,
+    );
+    expect(screen.queryByText("Sem imagem")).toBeNull();
+    expect(screen.getByRole("link", { name: /New trailer.*em inglês/ })).toBeInTheDocument();
   });
 
   it("toggles pause, and starts paused with reduced motion", () => {
@@ -208,12 +223,13 @@ describe("NewsTabs", () => {
       expect(screen.getByRole("heading", { level: 3, name: "Delta" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Ver todas em Guias →" })).toBeInTheDocument();
 
+      // The empty "Games" tab is not offered: the arrow wraps back to "Últimas".
+      expect(screen.queryByRole("tab", { name: /^Games/ })).toBeNull();
       fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowRight" });
       act(() => {
         vi.advanceTimersByTime(300);
       });
-      expect(screen.getByRole("tab", { name: "Games, 0 notícias" })).toHaveFocus();
-      expect(screen.getByText("Nenhuma notícia nesta categoria ainda.")).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Últimas, 3 notícias" })).toHaveFocus();
     } finally {
       vi.useRealTimers();
     }
