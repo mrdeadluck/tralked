@@ -28,6 +28,7 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin 
       stats.pendingReview > 0 ? `+${formatNumber(stats.pendingReview)} em análise` : undefined,
     ],
     ["Jogos 100%", formatNumber(stats.perfectGames)],
+    ["Platinas", formatNumber(stats.platinums)],
     ["Lendárias", formatNumber(stats.legendary)],
     ["Ranking geral", stats.rank === null ? "—" : `#${formatNumber(stats.rank)}`],
   ];

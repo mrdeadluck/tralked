@@ -77,6 +77,8 @@ export type Character = {
     pendingReview: number;
     /** Distinct games with a valid 100% on any platform. */
     perfectGames: number;
+    /** Distinct games whose platinum trophy (PSN) the user unlocked, valid unlocks only. */
+    platinums: number;
     legendary: number;
     /** Rank among public profiles; null when the profile is private. */
     rank: number | null;
@@ -267,6 +269,10 @@ export async function getCharacter(
       hasGuide: row.game.guide?.status === "published",
     });
   }
+  const [platinumRow] = await prisma.$queryRaw<{ count: number }[]>`
+    SELECT count(DISTINCT a."gameId")::int AS count
+    FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId"
+    WHERE ua."userId" = ${user.id} AND ua.suspicious = false AND a."trophyTier" = 'platinum'`;
   const almostThere = [...closest.values()]
     .sort((a, b) => b.unlocked / b.total - a.unlocked / a.total)
     .slice(0, 6);
@@ -287,6 +293,7 @@ export async function getCharacter(
       achievements,
       pendingReview,
       perfectGames: perfect.size,
+      platinums: platinumRow?.count ?? 0,
       legendary,
       rank: rankRow,
     },

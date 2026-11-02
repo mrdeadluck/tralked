@@ -676,7 +676,7 @@ export function buildWireItems(
   if (guides.length === 2 && items.length >= 2) {
     items.splice(1, 0, {
       id: "block:guias",
-      href: "/noticias?categoria=guias#arquivo",
+      href: "/noticias?categoria=guias#todas",
       variant: "block",
       kicker: "Guias",
       title: "Guias da semana",
@@ -693,12 +693,12 @@ export function buildWireItems(
 export function buildNewsTabs(articles: ArticleCard[], now: Date): NewsTab[] {
   const stories = (list: ArticleCard[]) => list.map((a) => articleStory(a, now));
   return [
-    { id: "ultimas", label: "Últimas", stories: stories(articles), moreHref: "/noticias#arquivo" },
+    { id: "ultimas", label: "Últimas", stories: stories(articles), moreHref: "/noticias#todas" },
     ...CATEGORIES.map((c) => ({
       id: c.slug,
       label: c.label,
       stories: stories(articles.filter((a) => a.category === c.id)),
-      moreHref: `/noticias?categoria=${c.slug}#arquivo`,
+      moreHref: `/noticias?categoria=${c.slug}#todas`,
     })),
   ];
 }

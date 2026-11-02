@@ -241,3 +241,46 @@ export async function getPlaytimeTotals(userId: string): Promise<PlaytimeTotals>
     mostPlayed,
   };
 }
+
+/** A game the player played lately (most recent platform first). */
+export type RecentlyPlayedGame = {
+  slug: string;
+  name: string;
+  coverUrl: string | null;
+  platform: PlatformId;
+  playtimeMin: number;
+  lastPlayedAt: Date;
+};
+
+/**
+ * The player's last played games, newest first, one entry per game (its most recent platform):
+ * read from UserGame.lastPlayedAt (Steam library, PSN and Xbox played lists), so as fresh as the
+ * last sync. Reads only the newest rows, never the whole library.
+ */
+export async function getRecentlyPlayed(userId: string, limit = 6): Promise<RecentlyPlayedGame[]> {
+  const rows = await prisma.userGame.findMany({
+    where: { userId, lastPlayedAt: { not: null } },
+    orderBy: { lastPlayedAt: "desc" },
+    take: limit * 3,
+    select: {
+      platform: true,
+      playtimeMin: true,
+      lastPlayedAt: true,
+      game: { select: { slug: true, name: true, coverUrl: true, stub: true } },
+    },
+  });
+  const games = new Map<string, RecentlyPlayedGame>();
+  for (const row of rows) {
+    if (games.size >= limit) break;
+    if (!row.lastPlayedAt || games.has(row.game.slug)) continue;
+    games.set(row.game.slug, {
+      slug: row.game.slug,
+      name: row.game.name,
+      coverUrl: row.game.coverUrl,
+      platform: asPlatform(row.platform),
+      playtimeMin: row.playtimeMin,
+      lastPlayedAt: row.lastPlayedAt,
+    });
+  }
+  return [...games.values()];
+}

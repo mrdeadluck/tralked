@@ -32,7 +32,7 @@ export const metadata: Metadata = {
   description: "Notícias de games, guias de conquistas e a vida da comunidade, da redação do Tralked.",
 };
 
-const PAGE_SIZE = 8;
+const PAGE_SIZE = 20;
 
 /** Wire and category tabs: public and the same for everyone, so cached into the static shell. */
 async function FrontSection() {
@@ -122,7 +122,7 @@ function indexHref(category: string | null, page: number) {
   if (category) params.set("categoria", category);
   if (page > 1) params.set("pagina", String(page));
   const query = params.toString();
-  return `/noticias${query ? `?${query}` : ""}#arquivo`;
+  return `/noticias${query ? `?${query}` : ""}#todas`;
 }
 
 const chip =
@@ -241,8 +241,8 @@ export default function NoticiasPage({ searchParams }: PageProps<"/noticias">) {
         <FrontSection />
       </Suspense>
 
-      <section id="arquivo" aria-label="Arquivo de notícias" className="flex scroll-mt-24 flex-col">
-        <SectionHead title="Arquivo" />
+      <section id="todas" aria-label="Todas as notícias" className="flex scroll-mt-24 flex-col">
+        <SectionHead title="Todas as notícias" />
         <Suspense
           fallback={
             <div

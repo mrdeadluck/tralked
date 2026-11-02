@@ -9,6 +9,7 @@ import { CharacterCard } from "@/components/character/CharacterCard";
 import { formatAgo } from "@/components/character/format";
 import { MissionsCard } from "@/components/character/MissionsCard";
 import { PlayerGallery } from "@/components/character/PlayerGallery";
+import { RecentlyPlayed } from "@/components/character/RecentlyPlayed";
 import { SkillsWindow } from "@/components/character/SkillsWindow";
 import { StreakCard } from "@/components/character/StreakCard";
 import { SyncActions } from "@/components/character/SyncActions";
@@ -18,6 +19,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { pendingDespertar } from "@/lib/character/despertar";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
 import { getCharacterSheetExtras } from "@/lib/character/sheet";
+import { getRecentlyPlayed } from "@/lib/library/queries";
 import { getTotalPlaytimeMin } from "@/lib/profile/queries";
 import { getCharacter, hoursUntilDailyReset, type PlayerHeader } from "@/lib/queries/players";
 import { getPlayerHeaderCached } from "@/lib/queries/players-cached";
@@ -86,10 +88,11 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
 
   const character = await getCharacter(header.handle);
   if (!character) notFound();
-  const [extras, despertar, playtimeMin] = await Promise.all([
+  const [extras, despertar, playtimeMin, recentlyPlayed] = await Promise.all([
     getCharacterSheetExtras(character.userId),
     isOwner ? pendingDespertar(character.userId) : Promise.resolve(null),
     getTotalPlaytimeMin(character.userId),
+    getRecentlyPlayed(character.userId),
   ]);
 
   const now = new Date();
@@ -160,7 +163,12 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
       <SkillsWindow skills={character.skills} />
 
       <div className="flex flex-wrap gap-x-5 gap-y-10">
-        <div className="min-w-0 flex-[1_1_600px]">
+        <div className="flex min-w-0 flex-[1_1_600px] flex-col gap-10">
+          <RecentlyPlayed
+            games={recentlyPlayed}
+            now={now}
+            libraryHref={`/jogador/${encodeURIComponent(character.handle)}/jogos`}
+          />
           <AlmostThere games={character.almostThere} />
         </div>
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">

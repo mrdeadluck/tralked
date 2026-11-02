@@ -304,7 +304,7 @@ describe("wire and tab view models", () => {
   it("adds the 'Guias da semana' block card when there are two guides", async () => {
     const { buildWireItems } = await import("./news");
     const items = buildWireItems([card("g1", "GUIAS", 1), card("g2", "GUIAS", 2), card("c", "GAMES", 3)], [], now);
-    expect(items[1]).toMatchObject({ variant: "block", href: "/noticias?categoria=guias#arquivo" });
+    expect(items[1]).toMatchObject({ variant: "block", href: "/noticias?categoria=guias#todas" });
     expect(items[1].items).toEqual([
       { label: "Hollow Knight", date: expect.stringMatching(/^\d{2} \S+$/) },
       { label: "Hollow Knight", date: expect.any(String) },
@@ -315,13 +315,13 @@ describe("wire and tab view models", () => {
     const { buildNewsTabs } = await import("./news");
     const tabs = buildNewsTabs([card("g1", "GUIAS", 1), card("c", "COMUNIDADE", 2)], now);
     expect(tabs.map((t) => [t.id, t.stories.length, t.moreHref])).toEqual([
-      ["ultimas", 2, "/noticias#arquivo"],
-      ["games", 0, "/noticias?categoria=games#arquivo"],
-      ["guias", 1, "/noticias?categoria=guias#arquivo"],
-      ["comunidade", 1, "/noticias?categoria=comunidade#arquivo"],
-      ["mercado", 0, "/noticias?categoria=mercado#arquivo"],
-      ["entretenimento", 0, "/noticias?categoria=entretenimento#arquivo"],
-      ["tecnologia", 0, "/noticias?categoria=tecnologia#arquivo"],
+      ["ultimas", 2, "/noticias#todas"],
+      ["games", 0, "/noticias?categoria=games#todas"],
+      ["guias", 1, "/noticias?categoria=guias#todas"],
+      ["comunidade", 1, "/noticias?categoria=comunidade#todas"],
+      ["mercado", 0, "/noticias?categoria=mercado#todas"],
+      ["entretenimento", 0, "/noticias?categoria=entretenimento#todas"],
+      ["tecnologia", 0, "/noticias?categoria=tecnologia#todas"],
     ]);
   });
 

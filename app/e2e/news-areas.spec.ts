@@ -36,7 +36,7 @@ test("home: the Tecnologia tab lists press headlines marked as external", async 
 });
 
 test("/noticias?categoria=entretenimento: the filter shows the area's press headlines", async ({ page }) => {
-  await page.goto("/noticias?categoria=entretenimento#arquivo");
+  await page.goto("/noticias?categoria=entretenimento#todas");
   await expect(page.getByRole("link", { name: "Entretenimento", exact: true })).toHaveAttribute("aria-current", "page");
   const press = page.getByRole("region", { name: "Na imprensa: Entretenimento" });
   await expect(press.getByRole("listitem")).toHaveCount(3);
@@ -50,7 +50,7 @@ test("/noticias?categoria=entretenimento: the filter shows the area's press head
 });
 
 test("/noticias?categoria=games has no press block (Games headlines stay on the wire and game pages)", async ({ page }) => {
-  await page.goto("/noticias?categoria=games#arquivo");
+  await page.goto("/noticias?categoria=games#todas");
   await expect(page.getByRole("region", { name: /Na imprensa/ })).toHaveCount(0);
 });
 

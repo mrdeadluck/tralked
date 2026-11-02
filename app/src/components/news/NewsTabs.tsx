@@ -134,8 +134,8 @@ function Panel({ tab, mostRead, mostReadTitle }: { tab: NewsTab; mostRead: Story
   }
   const [lead, ...rest] = tab.stories;
   const secondary = rest.slice(0, 2);
-  // Ten stories in all: the lead, two secondary and a compact list of the next seven.
-  const more = rest.slice(2, 9);
+  // Eleven stories in all: the lead, two secondary and a compact list of the next eight.
+  const more = rest.slice(2, 10);
   return (
     <>
       <StoryLink story={lead} className="tkt-lead" style={delay(0)}>
