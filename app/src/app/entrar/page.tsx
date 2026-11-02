@@ -25,7 +25,7 @@ const ERRORS: Record<string, string> = {
 
 export default function EntrarPage({ searchParams }: PageProps<"/entrar">) {
   return (
-    <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-8">
+    <div className="flex w-full flex-col gap-8">
       <PageHead title="Entrar" lede="Entre com o e-mail e a senha da sua conta do Tralked." />
       {/* The fallback keeps the form's room (taller with the Google button), so the footer does not jump. */}
       <Suspense

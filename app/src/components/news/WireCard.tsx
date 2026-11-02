@@ -41,6 +41,20 @@ function CardArrow({ external }: { external?: boolean }) {
   );
 }
 
+/** The headline, with an "EN" mark when the press wrote it in English. */
+function Title({ item }: { item: WireItem }) {
+  return (
+    <>
+      {item.lang === "en" ? (
+        <span className="tkw-en" aria-hidden="true">
+          EN
+        </span>
+      ) : null}
+      {item.title}
+    </>
+  );
+}
+
 function body(item: WireItem): ReactNode {
   const art = (w: number, h: number, light = false) => (
     <GameArt
@@ -60,7 +74,7 @@ function body(item: WireItem): ReactNode {
     case "paper":
       return (
         <>
-          <div className="tkw-hl" lang={item.lang}>{item.title}</div>
+          <div className="tkw-hl" lang={item.lang}><Title item={item} /></div>
           <div className="tkw-img">{art(440, 380, true)}</div>
           <Leader left={item.kicker} right={item.when} />
           <span className="tkw-meta" aria-hidden="true">
@@ -72,7 +86,7 @@ function body(item: WireItem): ReactNode {
       return (
         <>
           <div className="tkw-a1">
-            <div className="tkw-hl" lang={item.lang}>{item.title}</div>
+            <div className="tkw-hl" lang={item.lang}><Title item={item} /></div>
           </div>
           <div className="tkw-a2" />
           <div className="tkw-a3">
@@ -94,7 +108,7 @@ function body(item: WireItem): ReactNode {
         <>
           <div className="tkw-top">
             <span className="tkw-thin" aria-hidden="true">{item.thin ?? "nova////\nnotícia"}</span>
-            <span className="tkw-hl" lang={item.lang}>{item.title}</span>
+            <span className="tkw-hl" lang={item.lang}><Title item={item} /></span>
           </div>
           <div className="tkw-img">
             {art(600, 520)}
@@ -109,7 +123,7 @@ function body(item: WireItem): ReactNode {
       return (
         <>
           {art(600, 740, true)}
-          <span className="tkw-tag" lang={item.lang}>{item.title}</span>
+          <span className="tkw-tag" lang={item.lang}><Title item={item} /></span>
           <span className="tkw-giant" aria-hidden="true">
             {item.giant ?? item.kicker}
           </span>
@@ -118,7 +132,7 @@ function body(item: WireItem): ReactNode {
     case "dark":
       return (
         <>
-          <div className="tkw-hl" lang={item.lang}>{item.title}</div>
+          <div className="tkw-hl" lang={item.lang}><Title item={item} /></div>
           <div className="tkw-img">
             {art(600, 480)}
             <span className="tkw-meta" aria-hidden="true">
@@ -146,7 +160,7 @@ export function WireCard({ item, hidden = false }: { item: WireItem; hidden?: bo
       {body(item)}
       {/* The visible meta is decorative per variant; this gives every card the same spoken summary. */}
       <span className="sr-only">
-        {`. ${item.kicker}, ${item.source}, ${item.when}${item.external ? " (abre em nova aba)" : ""}`}
+        {`. ${item.kicker}, ${item.source}, ${item.when}${item.lang === "en" ? ", em inglês" : ""}${item.external ? " (abre em nova aba)" : ""}`}
       </span>
       <CardArrow external={item.external} />
     </>

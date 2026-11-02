@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { Suspense } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { SLOGAN } from "@/components/brand/slogan";
 import { GAME_MENU_OPTIONS } from "./game-menu";
 import { NavLink } from "./NavLink";
-import { FooterNewsletter, Newsletter } from "./Newsletter";
+import { Newsletter } from "./Newsletter";
 
 const COLUMNS = [
   {
@@ -46,11 +45,10 @@ export function Footer() {
   return (
     <footer className="border-t border-line bg-bg-deep">
       <div className="mx-auto flex max-w-[1320px] flex-col gap-12 px-5 pt-14 pb-8">
-        {/* The lime block only on the news pages; a single line everywhere else. usePathname can
-            suspend on dynamic routes, so the line stands in meanwhile. */}
-        <Suspense fallback={<Newsletter variant="line" />}>
-          <FooterNewsletter />
-        </Suspense>
+        {/* One line everywhere; the news pages end on the lime block instead (see Newsletter). */}
+        <div className="[body:has([data-newsletter-block])_&]:hidden">
+          <Newsletter variant="line" />
+        </div>
 
         <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-x-6 gap-y-8 sm:gap-8">
           <div className="flex flex-col gap-2.5">

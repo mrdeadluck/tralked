@@ -87,7 +87,7 @@ export function CommunityRanking({ players }: { players: TopPlayer[] }) {
               href="/conta/conexoes"
               className="group grid grid-cols-[28px_40px_minmax(0,1fr)] items-center gap-3 rounded-[3px] py-1"
             >
-              <span className="text-xl font-black font-stretch-[125%] text-ph">{players.length + 1}</span>
+              <span className="text-xl font-black font-stretch-[125%] text-dim">{players.length + 1}</span>
               <span aria-hidden="true" className="grid size-10 place-items-center rounded-full border border-dashed border-acc/60 text-acc">
                 <svg viewBox="0 0 16 16" className="size-4">
                   <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" fill="none" />

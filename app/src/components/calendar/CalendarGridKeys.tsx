@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 /** Day of the month to focus after Page Up / Page Down opened another month. */
 const FOCUS_KEY = "tralked:calendar-focus-day";
@@ -43,6 +43,30 @@ export function CalendarGridKeys({
     for (const a of all) a.tabIndex = a === start ? 0 : -1;
     if (byDay) byDay.focus();
   }, [month]);
+
+  // The timeline keeps one week open: a day link (or a shared #dia- link) opens its week first, so
+  // the browser has something to scroll to.
+  useEffect(() => {
+    const reveal = () => {
+      const id = decodeURIComponent(location.hash.slice(1));
+      const target = id.startsWith("dia-") ? document.getElementById(id) : null;
+      const week = target?.closest("details");
+      if (!target || !week || week.open) return;
+      week.open = true;
+      target.scrollIntoView({ block: "start" });
+    };
+    reveal();
+    window.addEventListener("hashchange", reveal);
+    return () => window.removeEventListener("hashchange", reveal);
+  }, []);
+
+  const onClick = (e: MouseEvent<HTMLDivElement>) => {
+    const link = (e.target as HTMLElement).closest<HTMLAnchorElement>("a[data-day]");
+    const id = link?.hash.slice(1);
+    const week = id ? document.getElementById(id)?.closest("details") : null;
+    // Opened before the default jump to the fragment, which then lands on the day.
+    if (week && !week.open) week.open = true;
+  };
 
   const move = (to: HTMLAnchorElement | undefined) => {
     if (!to) return;
@@ -97,7 +121,7 @@ export function CalendarGridKeys({
   };
 
   return (
-    <div ref={root} onKeyDown={onKeyDown}>
+    <div ref={root} onKeyDown={onKeyDown} onClick={onClick}>
       {children}
     </div>
   );

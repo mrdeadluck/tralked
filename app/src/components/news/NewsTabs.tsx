@@ -54,7 +54,7 @@ const CSS = `
 .tkt-most ol { list-style: none; margin: 0; padding: 0; counter-reset: mr; }
 .tkt-most li { counter-increment: mr; display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 13px 0; border-bottom: 1px solid var(--divider); }
 .tkt-most li:last-child { border-bottom: 0; }
-.tkt-most li::before { content: counter(mr); font-weight: 900; font-stretch: 125%; font-size: 24px; line-height: 1; color: var(--ph); }
+.tkt-most li::before { content: counter(mr); font-weight: 900; font-stretch: 125%; font-size: 24px; line-height: 1; color: var(--dim); }
 .tkt-most li:first-child::before { color: var(--acc); }
 .tkt-most a { font-weight: 700; font-size: 14.5px; line-height: 1.25; }
 .tkt-most a:hover { color: var(--acc); }
@@ -250,7 +250,10 @@ export function NewsTabs({
   /** Open each panel on a big lead story (false where a headline already sits above). */
   withLead?: boolean;
 }) {
-  const tabs = allTabs.map((tab) => ({ ...tab, stories: safeStories(tab.stories) }));
+  // A category with nothing in it is not offered ("Comunidade 0"); the first tab always stays.
+  const tabs = allTabs
+    .map((tab) => ({ ...tab, stories: safeStories(tab.stories) }))
+    .filter((tab, i) => i === 0 || tab.stories.length > 0);
   const mostRead = safeStories(allMostRead);
   const base = useId();
   const listRef = useRef<HTMLDivElement>(null);

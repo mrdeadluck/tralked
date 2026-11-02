@@ -11,6 +11,7 @@ import {
 } from "@/lib/content/schema";
 import { isSafeHttpUrl, safeImageUrl } from "@/lib/content/url";
 import { NEWS_FEED_AREA_LABEL, type NewsFeedArea } from "@/lib/news/areas";
+import { namesGame, pressSourceName } from "@/lib/news/press";
 import { mostViewedArticleIds } from "@/lib/news/views";
 import { timeAgo } from "@/lib/time-ago";
 
@@ -50,6 +51,11 @@ export type ArticleCard = {
   imageLabel: string;
   /** First image block, else the related game's hero/cover. Null: cards draw generated art. */
   imageUrl: string | null;
+  /**
+   * Landscape art only (image block, game hero or screenshot, a company game's hero): what a wide
+   * box such as the home headline may stretch. Null when the only art is a portrait cover.
+   */
+  wideImageUrl?: string | null;
   /** Without the leading "@". */
   authorHandle: string;
   /** How the byline reads: "@handle" for people, "Equipe Tralked" for bot articles. */
@@ -74,6 +80,12 @@ export type RelatedGame = {
   hasGuide: boolean;
   /** Catalog cover (Plan 4 F12). Null for games without art (stubs): show the name only. */
   coverUrl: string | null;
+  /** Catalog platforms (PC, PLAYSTATION, XBOX, NINTENDO); absent on older cached cards. */
+  platforms?: ArticlePlatform[];
+  /** Achievements the catalog knows for the game (Steam count, else its achievement rows); 0 = none yet. */
+  achievementCount?: number;
+  /** The PlayStation list has a platinum trophy. */
+  hasPlatinum?: boolean;
 };
 
 export type ExternalHeadline = {
@@ -172,7 +184,12 @@ export type GameRow = {
  * cover only when there is nothing wide. Images in `exclude` (already in the article body) are
  * skipped while another one is left, so the page does not show the same picture twice.
  */
-export function gameScene(games: GameRow[], seed: string, exclude: ReadonlySet<string> = new Set()): string | null {
+export function gameScene(
+  games: GameRow[],
+  seed: string,
+  exclude: ReadonlySet<string> = new Set(),
+  { wideOnly = false }: { wideOnly?: boolean } = {},
+): string | null {
   for (const g of games) {
     const all = [g.heroUrl, ...g.media.filter((m) => m.kind === "screenshot").map((m) => m.url)].filter(
       (url): url is string => Boolean(url && url.startsWith("https://")),
@@ -180,7 +197,7 @@ export function gameScene(games: GameRow[], seed: string, exclude: ReadonlySet<s
     const fresh = all.filter((url) => !exclude.has(wideArt(url)) && !exclude.has(url));
     const wide = fresh.length > 0 ? fresh : all;
     if (wide.length > 0) return wideArt(wide[pickIndex(seed, wide.length)]);
-    if (g.coverUrl) return wideArt(g.coverUrl);
+    if (g.coverUrl && !wideOnly) return wideArt(g.coverUrl);
   }
   return null;
 }
@@ -253,6 +270,8 @@ function toCard(row: CardRow): ArticleCard {
       (firstImage?.type === "image" ? firstImage.url : null) ??
       gameScene(games, row.slug) ??
       null,
+    wideImageUrl:
+      (firstImage?.type === "image" ? firstImage.url : null) ?? gameScene(games, row.slug, undefined, { wideOnly: true }),
     authorHandle: row.author.handle,
     authorLabel: authorLabel(row.source, row.author.handle),
     bot: row.source === "bot",
@@ -436,6 +455,17 @@ export async function getNewsIndex(input: {
   return { articles: await withCompanyArt(rows.map(toCard)), category: input.category, page, pageCount, total };
 }
 
+/** A related game on the article page: art, guide, platforms and what there is to hunt. */
+const articleGameSelect = {
+  ...gameSelect,
+  id: true,
+  guide: { select: { status: true } },
+  platforms: true,
+  achievementCount: true,
+  achievements: { where: { platform: "psn", trophyTier: "platinum" }, select: { id: true }, take: 1 },
+  _count: { select: { achievements: true } },
+} as const;
+
 /** The first cover image of a game's media (Plan 4 F12: chips and cards of the article page). */
 export async function getArticle(slug: string): Promise<ArticleFull | null> {
   const row = await prisma.article.findUnique({
@@ -445,13 +475,8 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
       ...cardSelect,
       source: true,
       reviewedAt: true,
-      game: { select: { ...gameSelect, id: true, guide: { select: { status: true } } } },
-      games: {
-        select: {
-          game: { select: { ...gameSelect, id: true, guide: { select: { status: true } } } },
-        },
-        orderBy: { gameId: "asc" },
-      },
+      game: { select: articleGameSelect },
+      games: { select: { game: { select: articleGameSelect } }, orderBy: { gameId: "asc" } },
     },
   });
   if (!row) return null;
@@ -461,6 +486,10 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     id: string;
     guide: { status: string } | null;
     media: { url: string | null }[];
+    platforms: string[];
+    achievementCount: number;
+    achievements: { id: string }[];
+    _count: { achievements: number };
   })[];
   const games: RelatedGame[] = gameRows.map((g) => ({
     slug: g.slug,
@@ -468,6 +497,9 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     hasGuide: g.guide?.status === "published",
     // The catalog's cover art (as on the game page): media cover first, then Game.coverUrl.
     coverUrl: safeImageUrl(g.media.find((m) => m.kind === "cover")?.url) ?? safeImageUrl(g.coverUrl),
+    platforms: g.platforms.filter((p): p is ArticlePlatform => ["PC", "PLAYSTATION", "XBOX", "NINTENDO"].includes(p)),
+    achievementCount: g.achievementCount > 0 ? g.achievementCount : g._count.achievements,
+    hasPlatinum: g.achievements.length > 0,
   }));
 
   const [achievements, externalNews] = await Promise.all([
@@ -634,7 +666,7 @@ const NEWP_WORDS: Record<ArticleCategory | "EXTERNAL", string> = {
 };
 
 const EDITORIAL_SOURCE = "Redação Tralked";
-const externalSource = (source: string) => `Fonte externa: ${source}`;
+const externalSource = (source: string) => `Fonte externa: ${pressSourceName(source)}`;
 
 const SHORT_DATE = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
@@ -672,12 +704,17 @@ export function buildWireItems(
   limit = 10,
 ): WireItem[] {
   type Entry = { at: Date; article?: ArticleCard; headline?: ExternalHeadline };
+  const english = (e: Entry) => (e.headline && isEnglishHeadline(e.headline.title) ? 1 : 0);
   const entries: Entry[] = [
     ...articles.map((article) => ({ at: article.publishedAt, article })),
-    // Untrusted feed URLs: drop anything that is not an absolute http(s) link.
-    ...external.filter((h) => isSafeHttpUrl(h.url)).map((headline) => ({ at: headline.publishedAt, headline })),
+    // Untrusted feed URLs: drop anything that is not an absolute http(s) link. A press headline
+    // without real art is left out: the wire never dresses someone else's story in generated art.
+    ...external
+      .filter((h) => isSafeHttpUrl(h.url) && Boolean(h.imageUrl))
+      .map((headline) => ({ at: headline.publishedAt, headline })),
   ]
-    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    // Portuguese first (English headlines only fill the rest), newest first within each.
+    .sort((a, b) => english(a) - english(b) || b.at.getTime() - a.at.getTime())
     .slice(0, limit);
 
   const items: WireItem[] = entries.map((entry, i) => {
@@ -715,7 +752,7 @@ export function buildWireItems(
       seed: hashSeed(h.url),
       hues: artHues(h.game?.slug, h.url),
       thin: NEWP_WORDS.EXTERNAL,
-      giant: h.game?.name ?? h.source,
+      giant: h.game?.name ?? pressSourceName(h.source),
     };
   });
 
@@ -842,16 +879,26 @@ export async function getWireHeadlines(limit: number): Promise<ExternalHeadline[
       ],
     },
     orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
-    take: limit * 3,
-    select: { ...headlineSelect, game: { select: gameSelect } },
+    // Only headlines with a catalog game's art make the wire: read enough to fill it.
+    take: limit * 6,
+    select: { ...headlineSelect, game: { select: { ...gameSelect, aliases: true } } },
   });
   const safe = rows
     .filter((row) => isSafeHttpUrl(row.url))
-    .map(({ game, ...row }) => ({
-      ...row,
-      game: game ? { slug: game.slug, name: game.name } : null,
-      imageUrl: game ? gameScene([game], row.url) : null,
-    }));
+    .map(({ game, ...row }) => {
+      // A one-word name is also an ordinary word: a link the old matcher made from one ("Attack!" in
+      // "Attack on Titan") is not trusted unless the title names the game as written. No game name,
+      // no art (and so no card).
+      const oneWord = game !== null && !game.name.trim().includes(" ");
+      const linked =
+        game && (!oneWord || [game.name, ...game.aliases].some((name) => namesGame(row.title, name))) ? game : null;
+      return {
+        ...row,
+        game: linked ? { slug: linked.slug, name: linked.name } : null,
+        imageUrl: linked ? gameScene([linked], row.url) : null,
+      };
+    })
+    .filter((row) => row.imageUrl);
   return pickWireHeadlines(safe, limit);
 }
 

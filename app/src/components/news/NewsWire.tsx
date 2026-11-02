@@ -58,6 +58,7 @@ body:has(.tkw) { overflow-x: clip; }
 .tkw-meta { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
 .tkw-leader { display: flex; gap: 4px; align-items: baseline; font-family: var(--mono); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
 .tkw-leader i { flex: 1; border-bottom: 1px dotted currentColor; opacity: .5; transform: translateY(-3px); }
+.tkw-en { display: inline-block; margin-right: .45em; padding: 3px 5px 2px; border: 1px solid currentColor; border-radius: 2px; font-family: var(--mono); font-size: 12px; font-weight: 700; line-height: 1; letter-spacing: .06em; vertical-align: .22em; }
 .tkw-hl { font-weight: 500; font-size: 22px; line-height: 1.02; letter-spacing: -0.015em; text-transform: uppercase; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 
 .tkw-paper { background: var(--paper); color: var(--ink); padding: 14px; gap: 12px; }
@@ -139,8 +140,8 @@ export function NewsWire({
   label?: string;
   className?: string;
 }) {
-  // Defense in depth: the queries already drop unsafe feed URLs.
-  const items = allItems.filter((item) => isSafeHref(item.href, item.external));
+  // Defense in depth: the queries already drop unsafe feed URLs and press headlines without art.
+  const items = allItems.filter((item) => isSafeHref(item.href, item.external) && (!item.external || item.imageUrl));
   const stageRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const titleId = useId();

@@ -16,7 +16,8 @@ export function GameCoverThumb({
   hues,
 }: {
   coverUrl: string | null;
-  variant: "chip" | "card";
+  /** chip: 27 px beside a name; card: 48 px; case: the 96 px game case of the article's game card. */
+  variant: "chip" | "card" | "case";
   seed: number;
   hues: Hues;
 }) {
@@ -30,12 +31,13 @@ export function GameCoverThumb({
       <GameArt seed={seed} hues={hues} figure light width={120} height={160} />
     );
   }
+  const width = variant === "chip" ? 27 : variant === "case" ? 96 : 48;
   return (
     <RemoteImg
       url={coverUrl}
-      width={variant === "chip" ? 27 : 48}
-      height={variant === "chip" ? 36 : 64}
-      sizes={variant === "chip" ? "27px" : "48px"}
+      width={width}
+      height={Math.round((width * 4) / 3)}
+      sizes={`${width}px`}
       shape="fit"
       alt=""
       onFail={() => setFailed(true)}

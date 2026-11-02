@@ -6,6 +6,7 @@ const SS = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4
 
 describe("sizedImage", () => {
   it("picks the IGDB 16:9 size that covers a wide box", () => {
+    expect(sizedUrl(IGDB("t_1080p"), 96)).toBe(IGDB("t_thumb"));
     expect(sizedUrl(IGDB("t_1080p"), 112)).toBe(IGDB("t_screenshot_med"));
     expect(sizedUrl(IGDB("t_1080p"), 792)).toBe(IGDB("t_screenshot_big"));
     expect(sizedUrl(IGDB("t_cover_big"), 1200)).toBe(IGDB("t_720p"));
@@ -31,6 +32,8 @@ describe("sizedImage", () => {
     expect(img.src).toBe(SS.replace(".1920x1080.jpg", ".600x338.jpg"));
     expect(img.srcSet).toContain(`${SS} 1920w`);
     expect(sizedUrl(SS, 1000)).toBe(SS);
+    // List thumbnails (96 px) take the 116 × 65 copy.
+    expect(sizedUrl(SS, 96)).toBe(SS.replace(".1920x1080.jpg", ".116x65.jpg"));
   });
 
   it("uses SteamGridDB JPEG thumbnails, then the PNG thumbnail and the original as fallbacks", () => {

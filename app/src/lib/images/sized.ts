@@ -8,7 +8,7 @@
  * and the art lives on other hosts). Unknown hosts pass through unchanged.
  *
  * - IGDB: the size token in the path (`t_screenshot_med`, `t_cover_big`, `t_720p`, `t_1080p`…).
- * - Steam screenshots: `ss_<hash>.1920x1080.jpg` also exists as `.600x338.jpg`.
+ * - Steam screenshots: `ss_<hash>.1920x1080.jpg` also exists as `.600x338.jpg` and `.116x65.jpg`.
  * - SteamGridDB: `/hero/<id>.png` has an 850 px JPEG at `/hero_thumb/<id>.jpg`, `/grid/<id>.png`
  *   a 267×400 one at `/thumb/<id>.jpg`. A few transparent images keep their thumbnail in PNG, so
  *   `fallbacks` lists what an `onError` handler tries next: the PNG thumbnail (PNG originals), then
@@ -47,6 +47,8 @@ const SGDB = /^https:\/\/cdn2\.steamgriddb\.com\/(hero|grid)\/([0-9a-f]+)\.(png|
  */
 const IGDB_SIZES: Record<ArtShape, [token: string, width: number][]> = {
   wide: [
+    // A 90 px square crop: only small thumbnails (96 × 60 lists) take it, a 7% upscale.
+    ["t_thumb", 96],
     ["t_screenshot_med", 569],
     ["t_screenshot_big", 889],
     ["t_720p", 1280],
@@ -69,6 +71,7 @@ function candidatesFor(url: string, shape: ArtShape): { list: Candidate[]; fallb
   if (shot) {
     return {
       list: [
+        { url: `${shot[1]}.116x65${shot[2]}`, width: 116 },
         { url: `${shot[1]}.600x338${shot[2]}`, width: 600 },
         { url: `${shot[1]}.1920x1080${shot[2]}`, width: 1920 },
       ],

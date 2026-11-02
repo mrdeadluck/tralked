@@ -126,7 +126,7 @@ const LADDER = [2, 10, 25, 50, 100, 150];
 export default function ComoFuncionaPage() {
   const maxLadder = expFor(LADDER[LADDER.length - 1]);
   return (
-    <article className="mx-auto flex w-full max-w-[980px] flex-col gap-14">
+    <article className="flex w-full flex-col gap-14">
       <header className="flex flex-col gap-4 border-b-2 border-text pb-6">
         <h1 className="text-[clamp(34px,5vw,56px)] leading-[0.95] font-black font-stretch-[125%] tracking-[-0.035em] uppercase">
           Como funciona o XP

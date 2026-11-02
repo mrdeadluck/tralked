@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 
 export default function CadastrarPage() {
   return (
-    <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-8">
+    <div className="flex w-full flex-col gap-8">
       <PageHead
         title="Criar conta"
         lede="Suas conquistas da Steam, do PlayStation e do Xbox viram um personagem só: nível, platinas e skills por gênero."

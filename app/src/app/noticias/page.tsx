@@ -3,6 +3,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { Suspense } from "react";
 import { GameArt } from "@/components/art/GameArt";
+import { Newsletter } from "@/components/layout/Newsletter";
 import { HeroMain } from "@/components/news/HeroMain";
 import { NewsWire } from "@/components/news/NewsWire";
 import { SectionHead } from "@/components/ui/SectionHead";
@@ -278,6 +279,8 @@ export default function NoticiasPage({ searchParams }: PageProps<"/noticias">) {
           <Archive searchParams={searchParams} />
         </Suspense>
       </section>
+
+      <Newsletter variant="block" />
     </div>
   );
 }

@@ -9,7 +9,7 @@ export function AuthColumns({ children, aside }: { children: ReactNode; aside: R
   return (
     <div className="grid items-start gap-x-12 gap-y-10 min-[861px]:grid-cols-[minmax(0,460px)_minmax(0,1fr)]">
       <Card className="flex flex-col gap-6">{children}</Card>
-      <aside aria-label="O que você ganha com a conta" className="flex max-w-[560px] flex-col gap-5">
+      <aside aria-label="O que você ganha com a conta" className="flex max-w-[620px] flex-col gap-5">
         {aside}
       </aside>
     </div>

@@ -134,19 +134,35 @@ describe.skipIf(!reachable)("press headlines and article games (seeded database)
     }
   });
 
-  it("getWireHeadlines keeps the wire about games: Games feeds plus game-linked press items", async () => {
+  it("getWireHeadlines keeps the wire about games with art: Games feeds plus game-linked press items", async () => {
+    const { prisma } = await import("@/lib/db");
     const { getWireHeadlines } = await import("./news");
-    const wire = await getWireHeadlines(50);
-    const titles = wire.map((h) => h.title);
-    // Games feed headlines (Hollow Knight) are on the wire.
-    expect(wire.filter((h) => h.game?.slug === "hollow-knight")).toHaveLength(6);
-    // Press items linked to a catalog game are too...
-    expect(titles).toContain("Série animada do jogo Hades ganha primeiro teaser (exemplo)");
-    expect(titles).toContain("Portátil para PC roda Elden Ring a 60 fps nos testes (exemplo)");
-    // ...but general tech/entertainment news is not.
-    expect(titles).not.toContain("Nova geração de placas de vídeo promete ray tracing mais barato (exemplo)");
-    expect(titles).not.toContain("IA nos estúdios: como equipes de games usam a ferramenta nos bastidores (exemplo)");
-    expect(titles).not.toContain("Anime baseado em jogo de luta estreia em janeiro (exemplo)");
+    const slugs = ["hollow-knight", "hades", "elden-ring"];
+    const games = await prisma.game.findMany({ where: { slug: { in: slugs } }, select: { id: true, slug: true, heroUrl: true } });
+    try {
+      // Without art, no press headline makes the wire (no generated art for someone else's story).
+      await prisma.game.updateMany({ where: { slug: { in: slugs } }, data: { heroUrl: null } });
+      const bare = await getWireHeadlines(50);
+      expect(bare.some((h) => slugs.includes(h.game?.slug ?? ""))).toBe(false);
+
+      for (const g of games) {
+        await prisma.game.update({ where: { id: g.id }, data: { heroUrl: `https://cdn.example.com/${g.slug}-hero.jpg` } });
+      }
+      const wire = await getWireHeadlines(50);
+      const titles = wire.map((h) => h.title);
+      expect(wire.every((h) => h.imageUrl)).toBe(true);
+      // Games feed headlines (Hollow Knight) are on the wire.
+      expect(wire.filter((h) => h.game?.slug === "hollow-knight")).toHaveLength(6);
+      // Press items linked to a catalog game are too...
+      expect(titles).toContain("Série animada do jogo Hades ganha primeiro teaser (exemplo)");
+      expect(titles).toContain("Portátil para PC roda Elden Ring a 60 fps nos testes (exemplo)");
+      // ...but general tech/entertainment news is not.
+      expect(titles).not.toContain("Nova geração de placas de vídeo promete ray tracing mais barato (exemplo)");
+      expect(titles).not.toContain("IA nos estúdios: como equipes de games usam a ferramenta nos bastidores (exemplo)");
+      expect(titles).not.toContain("Anime baseado em jogo de luta estreia em janeiro (exemplo)");
+    } finally {
+      for (const g of games) await prisma.game.update({ where: { id: g.id }, data: { heroUrl: g.heroUrl } });
+    }
   });
 
   it("getArticle gives each related game its catalog cover (media cover first) or null", async () => {
@@ -156,8 +172,11 @@ describe.skipIf(!reachable)("press headlines and article games (seeded database)
 
     const before = await getArticle(slug);
     expect(before?.games).toEqual([
-      { slug: "hollow-knight", name: "Hollow Knight", hasGuide: true, coverUrl: null },
+      expect.objectContaining({ slug: "hollow-knight", name: "Hollow Knight", hasGuide: true, coverUrl: null }),
     ]);
+    // What there is to hunt, for the article's game card.
+    expect(before?.games[0].achievementCount).toBeGreaterThan(0);
+    expect(before?.games[0].platforms).toContain("PC");
 
     const game = await prisma.game.findUniqueOrThrow({ where: { slug: "hollow-knight" }, select: { id: true, coverUrl: true } });
     try {

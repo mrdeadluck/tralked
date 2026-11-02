@@ -91,6 +91,13 @@ describe("Header", () => {
     expect(screen.queryByRole("button", { name: /Steam/ })).not.toBeInTheDocument();
   });
 
+  it("offers Criar conta instead of Entrar on the login page itself", () => {
+    pathnameMock.value = "/entrar";
+    render(<Header />);
+    expect(screen.queryByRole("link", { name: "Entrar" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Criar conta" })).toHaveAttribute("href", "/cadastrar");
+  });
+
   it("points Personagem at the user's own sheet when logged in", () => {
     pathnameMock.value = "/jogador/%40lucas";
     render(<Header user={USER} />);

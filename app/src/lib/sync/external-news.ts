@@ -2,11 +2,12 @@ import { prisma } from "@/lib/db";
 import { normalizeTitle } from "@/lib/integrations/title-match";
 import { fetchFeed, resolveHost, type FeedItem, type ResolveHost } from "@/lib/integrations/rss";
 import { classifyHeadline, toNewsFeedArea, type CatalogMatch } from "@/lib/news/areas";
+import { namesGame } from "@/lib/news/press";
 
 /** Names shorter than this (normalized) only match with their exact case: "HK", "RE4". */
 const SHORT_NAME = 4;
 
-type GameNames = { gameId: string; names: { text: string; short: boolean }[] };
+type GameNames = { gameId: string; names: { text: string; short: boolean; raw: string }[] };
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -19,8 +20,8 @@ export function loadMatcher(games: { id: string; name: string; aliases: string[]
       .map((n) => {
         const normalized = normalizeTitle(n);
         return normalized.length < SHORT_NAME
-          ? { text: n, short: true }
-          : { text: normalized, short: false };
+          ? { text: n, short: true, raw: n }
+          : { text: normalized, short: false, raw: n };
       })
       .filter((n) => n.text.length > 0),
   }));
@@ -36,9 +37,10 @@ export function loadMatcher(games: { id: string; name: string; aliases: string[]
     let tie = false;
     for (const game of list) {
       for (const name of game.names) {
+        // One-word names are also ordinary words ("Attack!" in "Attack on Titan"): see namesGame.
         const hit = name.short
           ? new RegExp(`(^|[^A-Za-z0-9])${escape(name.text)}([^A-Za-z0-9]|$)`).test(title)
-          : normalized.includes(` ${name.text} `);
+          : normalized.includes(` ${name.text} `) && (name.text.includes(" ") || namesGame(title, name.raw));
         if (!hit) continue;
         const length = name.text.length;
         if (!best || length > best.length) {
