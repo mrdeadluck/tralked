@@ -27,8 +27,8 @@ const CSS = `
 .csh-body { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 28px 30px; }
 .csh-body h2 { font-weight: 900; font-stretch: 125%; font-size: clamp(22px, 2.4vw, 28px); line-height: 1.02; letter-spacing: -0.025em; text-transform: uppercase; text-wrap: balance; }
 .csh-body p { font-size: 15px; line-height: 1.55; color: var(--text-2); max-width: 46ch; }
-.csh-xp { display: inline-flex; align-items: baseline; gap: 8px; padding: 8px 12px; border: 1px solid color-mix(in oklab, var(--acc) 40%, transparent); background: color-mix(in oklab, var(--acc) 7%, transparent); border-radius: 2px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
-.csh-xp b { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; color: var(--acc); }
+.csh-xp { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid color-mix(in oklab, var(--acc) 40%, transparent); background: color-mix(in oklab, var(--acc) 7%, transparent); border-radius: 2px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.csh-xp b { flex: none; white-space: nowrap; font-size: 18px; font-weight: 800; letter-spacing: -0.01em; color: var(--acc); }
 .csh-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 4px; }
 @media (max-width: 760px) {
   .csh { grid-template-columns: 1fr; }

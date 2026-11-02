@@ -36,7 +36,7 @@ export default async function ForumPage() {
               title="A conversa está só começando"
               text="Ainda não há tópicos de jogadores. Pergunte sobre aquela conquista travada, conte a sua rota de 100% ou abra o fórum do jogo que você está jogando."
               xp={`+${FORUM_SOLVED_XP} XP`}
-              xpNote="em Sábio para a resposta que resolver"
+              xpNote="em Sábio por resposta que resolve"
               shots={shots}
               shotHref={(slug) => `/forum/${slug}`}
               actions={

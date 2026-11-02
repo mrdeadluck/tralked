@@ -101,7 +101,8 @@ async function GalleryContent({ searchParams }: { searchParams: SearchParams }) 
           shots={await showcaseShotsCached(3)}
           shotHref={(slug) => galleryHref(slug)}
           actions={
-            <a href="#enviar-foto" className={SHOWCASE_PRIMARY}>
+            // On wide screens the upload card sits right beside it: the button is for phones.
+            <a href="#enviar-foto" className={`${SHOWCASE_PRIMARY} min-[1001px]:hidden`}>
               Enviar a primeira foto
             </a>
           }
