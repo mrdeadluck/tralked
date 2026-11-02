@@ -1,16 +1,16 @@
 # Scheduled jobs for the production site (the Vercel Hobby plan only runs daily crons).
 # Each schedule calls the app's cron route with the CRON_SECRET repository secret.
-# Times are UTC. GitHub may delay scheduled runs by a few minutes under load.
+# Times are UTC. GitHub delays (and under load skips) scheduled runs at busy minutes (:00, :15,
+# :30, :45), so every schedule here and in the worker workflows sits on an odd, quiet minute, and
+# the workers start right after a cron run (the free Neon database is awake then) and never
+# overlap each other. The whole timetable is in app/README.md ("Workers no GitHub Actions").
 name: cron
 
 on:
   schedule:
-    # Sized for the 2,000 free Actions minutes/month of a private repo (~1,650 min/month):
-    # each run is billed in whole minutes and the users sync takes ~4 min.
-    - cron: "15 */6 * * *"  # users (libraries, achievements, hours); players also have "Sincronizar agora"
-    - cron: "20 1-23/2 * * *" # steam-catalog, news, platforms, igdb-catalog
-    - cron: "40 */6 * * *"  # releases, media
-    - cron: "5 3 * * *"     # catalog, rarity, highscores, notifications
+    - cron: "17 */6 * * *"    # users (libraries, achievements, hours), releases, media
+    - cron: "23 1-23/2 * * *" # steam-catalog, news, platforms, igdb-catalog
+    - cron: "19 3 * * *"      # catalog, rarity, highscores, notifications
   workflow_dispatch:
     inputs:
       jobs:
@@ -31,10 +31,9 @@ jobs:
           MANUAL: ${{ github.event.inputs.jobs }}
         run: |
           case "$SCHEDULE" in
-            "15 */6 * * *") JOBS="users" ;;
-            "20 1-23/2 * * *") JOBS="steam-catalog news platforms igdb-catalog" ;;
-            "40 */6 * * *") JOBS="releases media" ;;
-            "5 3 * * *") JOBS="catalog rarity highscores notifications" ;;
+            "17 */6 * * *") JOBS="users releases media" ;;
+            "23 1-23/2 * * *") JOBS="steam-catalog news platforms igdb-catalog" ;;
+            "19 3 * * *") JOBS="catalog rarity highscores notifications" ;;
             *) JOBS="$MANUAL" ;;
           esac
           status=0

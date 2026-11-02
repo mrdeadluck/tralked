@@ -194,12 +194,48 @@ A rota exporta `maxDuration = 300` (o teto da Vercel sem Fluid compute). Cada jo
 
 ### Primeiras importações (worker no GitHub Actions)
 
-Uma biblioteca grande (PSN com 700 jogos, Steam com milhares) não cabe nos 50 s do cron: a 5 contas por execução, a primeira importação não terminava nunca. O worker `pnpm platforms:import` (`scripts/platform-import-worker.ts`, lógica em `src/lib/sync/first-import.ts`) roda de hora em hora no `.github/workflows/platform-import.yml` (às :22, logo depois do cron das :20, para não acordar o Neon à toa) direto contra o banco, sem o limite de 50 s, e importa:
+Uma biblioteca grande (PSN com 700 jogos, Steam com milhares) não cabe nos 50 s do cron: a 5 contas por execução, a primeira importação não terminava nunca. O worker `pnpm platforms:import` (`scripts/platform-import-worker.ts`, lógica em `src/lib/sync/first-import.ts`) roda a cada 2 h no `.github/workflows/platform-import.yml` (às :29 das horas ímpares, logo depois do cron das :23, para não acordar o Neon à toa; no máximo 0,8 h por rodada) direto contra o banco, sem o limite de 50 s, e importa:
 
 - conexões PSN, Xbox e RetroAchievements cuja sincronização nunca chegou ao fim da lista (`LinkedAccount.lastSyncedAt` nulo);
 - usuários Steam nunca sincronizados por inteiro, ou cuja última sincronização acabou o tempo antes de ler todos os jogos (marcador `SyncCursor` `steam-backlog:<userId>`, gravado e apagado pela própria sincronização Steam).
 
 Há uma fila por plataforma, todas em paralelo. Cada conta recebe fatias de 5 min (`--slice-minutes`) e volta para o fim da fila, então uma biblioteca enorme não segura quem acabou de entrar. Uma conta privada, desconectada, com erro ou cuja fatia não gravou nada fica para a próxima execução. Uma conta que o cron ou o "Sincronizar agora" começou há menos de 3 min é deixada terminar. Enquanto trabalha, o worker mantém uma trava (`SyncCursor` `platform-import-worker`, 15 min, renovada a cada 5) com as contas que pegou, e os jobs `users` e `platforms` pulam essas contas. Se o processo morrer, a trava vence sozinha. Uma conta recém-conectada recebe os primeiros 50 s logo ao conectar e o resto no worker. Segredos do repositório: `DATABASE_URL`, `STEAM_API_KEY`, `PSN_NPSSO`, `XBOX_OPENXBL_KEY`, `RA_USERNAME`, `RA_API_KEY` (plataforma sem segredo é pulada pelo worker e continua só no cron) e `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`. Disparo manual: `gh workflow run platform-import.yml -f hours=2`.
+
+### Workers no GitHub Actions (horários e cota do Neon)
+
+O banco é o Neon grátis: **100 CU-h por mês**. O compute fica ligado enquanto há consultas e desliga 5 min depois da última (mínimo 0,25 CU; com carga ele sobe até 2 CU e gasta a cota mais rápido). Em 02/11 a cota estourou porque o `steam-details` rodava 5,5 h a cada 6 h com 8 jogos em paralelo (~22 h acordado por dia, ~165 CU-h/mês sozinho) e cruzava com os outros workers. Por isso:
+
+- **Horários em minutos quebrados.** O GitHub atrasa e às vezes pula execuções agendadas nos minutos cheios (:00, :15, :30, :45); na manhã de 02/11 pulou várias. Todos os horários ficam em minutos ímpares e "quietos".
+- **Workers logo depois do cron**, com o banco já acordado, e **nunca dois workers pesados ao mesmo tempo**: cada um tem a sua janela.
+- **Janelas curtas**, configuráveis: a entrada `hours` (e `concurrency` no `steam-details`) do disparo manual, ou as variáveis do repositório (`vars`, não segredos) `PLATFORM_IMPORT_HOURS`, `STEAM_DETAILS_HOURS`, `STEAM_DETAILS_CONCURRENCY` e `CATALOG_ENRICH_HOURS` para as rodadas agendadas. Cada worker também se encerra sozinho 10 min depois da janela (`exitAfterWindow`), se algo o prender.
+- **Menos idas ao banco**: o `catalog-enrich` grava as notas da Steam e as tentativas de mídia em grupos de 25 (um `UPDATE` só); o `steam-details` conta a fila só no começo e no fim. Uma conexão parada há 10 s é fechada (`idleTimeoutMillis` em `src/lib/db.ts`), então nada fica aberto entre lotes.
+- **Queda de conexão não derruba a rodada.** Se o Neon fecha a conexão (P1001, P1017, `ECONNRESET`, "Connection terminated", Postgres 57P01…), o worker espera (5 s, 10 s, 20 s… até 60 s), testa o banco com `SELECT 1` e repete o lote, a fatia ou a volta que caiu (`src/lib/worker/db-retry.ts`); a conta ou o jogo não é marcado como falho. Desiste depois de 7 falhas seguidas (~4 min) e para de vez, sem tentar de novo, quando o Neon recusa o compute por cota. As travas (`SyncCursor`) continuam valendo: a conta em andamento fica reservada enquanto o worker espera.
+- **Erros completos no log**: `describeError` (`src/lib/worker/errors.ts`) escreve nome, código, mensagem, `meta` do Prisma, a cadeia de `cause` (Prisma → driver → pg → socket), os erros de um `AggregateError` e as primeiras linhas da pilha. Antes saía só "import failed:" sem nada.
+
+Horários (UTC; Brasília = UTC−3):
+
+| Workflow | Quando | Janela | O que faz |
+| --- | --- | --- | --- |
+| `cron.yml` | :17 de 0, 6, 12 e 18 h | ~7 min | `users`, `releases`, `media` |
+| `cron.yml` | :23 das horas ímpares | ~4 min | `steam-catalog`, `news`, `platforms`, `igdb-catalog` |
+| `cron.yml` | 03:19 | ~5 min | `catalog`, `rarity`, `highscores`, `notifications` |
+| `platform-import.yml` | :29 das horas ímpares | até 0,8 h (~1 min sem fila) | primeiras importações |
+| `steam-details.yml` | :37 de 2, 8, 14 e 20 h | até 0,6 h, 3 jogos por vez | detalhes da loja Steam |
+| `catalog-enrich.yml` | 04:37 | até 0,6 h | mídia do IGDB/SteamGridDB e notas da Steam |
+
+Orçamento de CU-h por mês (estimado a 0,25 CU, contando os 5 min que o compute fica ligado depois da última consulta):
+
+| Peça | Banco acordado por dia | CU-h/mês |
+| --- | --- | --- |
+| cron das horas ímpares + `platform-import` sem fila | 12 × ~13 min | ~20 |
+| cron de 6 em 6 h + diário | 4 × ~12 min + ~5 min | ~7 |
+| `steam-details` (janela cheia; com a fila vazia, ~2) | 4 × ~41 min | ~21 |
+| `catalog-enrich` | ~41 min | ~5 |
+| `platform-import` com trabalho | ~1 h por conta grande nova | ~0,25 por hora |
+| **Workers e crons** | **~6,9 h** | **~53** |
+| Sobra para o site, o robô de notícias e imprevistos | | **~47** |
+
+Se o compute subir acima de 0,25 CU (carga), o gasto sobe na mesma proporção: limitar o autoscaling a 0,25–0,5 CU no console do Neon segura isso. Para acompanhar, use a página **Usage** do projeto no Neon.
 
 ### Agendamento (pronto para o `vercel.json`)
 

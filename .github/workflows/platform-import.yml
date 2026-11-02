@@ -1,10 +1,11 @@
 # Finishes the platform imports of players (PSN, Xbox, RetroAchievements, big Steam libraries)
-# straight against the production database, so a 700-game library is imported in one go instead of
-# many 50 s cron runs on Vercel (lib/sync/first-import.ts). Hourly at :22, just after the :20 cron
-# (the free Neon database is often awake then; waking it every few minutes would eat its 100 CU-h):
-# a run with nothing to import ends in about a minute; one with work goes on until it is done
-# (at most 5.5 h), and the runs scheduled meanwhile wait for it. A new connection gets its first
-# 50 s right after linking (lib/accounts/actions.ts) and the rest here.
+# straight against the production database, so a 700-game library is imported over a few runs
+# instead of many 50 s cron runs on Vercel (lib/sync/first-import.ts). Every 2 h at :29 of the odd
+# hours, 6 min after the :23 cron (the free Neon database is awake then: waking it on its own would
+# eat its 100 CU-h). A run with nothing to import ends in about a minute; one with work goes on for
+# at most 0.8 h (input `hours`, or the repository variable PLATFORM_IMPORT_HOURS), so it is over
+# before the steam-details window at :37 of the next hour. A new connection gets its first 50 s
+# right after linking (lib/accounts/actions.ts) and the rest here. Timetable: app/README.md.
 # Needs the repository secrets DATABASE_URL (Neon, unpooled), STEAM_API_KEY, PSN_NPSSO,
 # XBOX_OPENXBL_KEY, RA_USERNAME and RA_API_KEY (a platform whose secret is empty is skipped here
 # and keeps being synced by the cron); IGDB_CLIENT_ID/IGDB_CLIENT_SECRET name the new games.
@@ -13,13 +14,13 @@ name: platform-import
 
 on:
   schedule:
-    - cron: "22 * * * *"
+    - cron: "29 1-23/2 * * *"
   workflow_dispatch:
     inputs:
       hours:
-        description: "Hours to work (at most 5.5)"
+        description: "Hours to work (keep it short: the database stays awake meanwhile)"
         required: true
-        default: "5.5"
+        default: "0.8"
 
 # One worker at a time: a run that is still going makes the next one wait.
 concurrency:
@@ -29,7 +30,8 @@ concurrency:
 jobs:
   import:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    # Scheduled runs: the window plus setup and the last slice. By hand: up to 5.5 h.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 350 || 75 }}
     defaults:
       run:
         working-directory: app
@@ -57,7 +59,7 @@ jobs:
           IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
           SGDB_API_KEY: ${{ secrets.SGDB_API_KEY }}
           APP_URL: https://tralked.com
-          HOURS: ${{ github.event.inputs.hours || '5.5' }}
+          HOURS: ${{ github.event.inputs.hours || vars.PLATFORM_IMPORT_HOURS || '0.8' }}
         run: |
           # Production mode asks for these two; the worker signs nothing, so throwaway values do.
           export SESSION_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 16)"

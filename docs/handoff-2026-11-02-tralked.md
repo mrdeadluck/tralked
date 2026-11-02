@@ -10,7 +10,7 @@ Resumo da sessão de 31/10 a 02/11 com o Lucas (dono da Ludai Labs): o que está
 | Banco | Neon `tralked-db` (gru1, plano grátis) | **1 GB** de armazenamento e 100 CU-h/mês. URLs no `.env.local` da raiz (gitignored). Migration = `prisma migrate deploy` com `DATABASE_URL_UNPOOLED`, com backup antes. |
 | Fotos | Vercel Blob `tralked-fotos` | |
 | Rotinas | GitHub Actions `.github/workflows/cron.yml` | Chama `https://tralked.com/api/cron/<job>` com o segredo `CRON_SECRET`. Disparo manual: `gh workflow run cron.yml -f jobs="platforms users"`. |
-| Detalhes da Steam | GitHub Actions `.github/workflows/steam-details.yml` (a cada 6 h, até 5,5 h por rodada) | Script `app/scripts/steam-details-worker.ts` (`pnpm steam:details`). Segredos: DATABASE_URL, STEAM_API_KEY, SGDB_API_KEY, IGDB_CLIENT_ID, IGDB_CLIENT_SECRET. |
+| Detalhes da Steam | GitHub Actions `.github/workflows/steam-details.yml` (a cada 6 h, até 0,6 h por rodada desde 02/11; horários de todos os workers e cota do Neon em `app/README.md`, "Workers no GitHub Actions") | Script `app/scripts/steam-details-worker.ts` (`pnpm steam:details`). Segredos: DATABASE_URL, STEAM_API_KEY, SGDB_API_KEY, IGDB_CLIENT_ID, IGDB_CLIENT_SECRET. |
 | Repositório | https://github.com/mrdeadluck/tralked | **Público**, para ter minutos ilimitados no Actions. |
 | Chaves na Vercel | STEAM, IGDB (Twitch), SGDB, RA_USERNAME/RA_API_KEY, PSN_NPSSO, XBOX_OPENXBL_KEY, BLOB, SESSION/CRON | O `PSN_NPSSO` vence em ~2 meses. Para trocar uma chave, o Lucas preenche `C:\projetos\Nova pasta\.env.chaves` (gitignored) e roda o script `subir-chaves.sh` do scratchpad, que precisa ser recriado num agente novo. Envia para a Vercel (e para os segredos do GitHub, quando é o caso) e apaga o arquivo. Nunca digite chaves por ele. |
 | Robô de notícias | `ROBO NOTICIAS/` no PC do Lucas (SQLite em `data/`) | Chave do site em `ROBO NOTICIAS/.env`. O **Agendador do Windows ainda não foi instalado**: o Claude Code bloqueia, e o Lucas precisa rodar `powershell -NoProfile -ExecutionPolicy Bypass -File "C:\projetos\Nova pasta\ROBO NOTICIAS\scripts\instalar-tarefas.ps1"`. Até lá, só roda com um loop aberto numa sessão. |
@@ -79,7 +79,7 @@ Resumo da sessão de 31/10 a 02/11 com o Lucas (dono da Ludai Labs): o que está
 
 1. **A sincronização tem que funcionar para qualquer usuário, não só para o Lucas.** É o ponto principal levantado por ele.
    - O **diguzz** tem PSN com 707 jogos e Xbox com 81, e a primeira importação dele não tinha terminado (`lastSyncedAt` nulo).
-   - **Feito em 01/11 (commit 256dfea):** worker de primeira importação `pnpm platforms:import` no GitHub Actions (`.github/workflows/platform-import.yml`, de hora em hora às :22), sem o limite de 50 s.
+   - **Feito em 01/11 (commit 256dfea):** worker de primeira importação `pnpm platforms:import` no GitHub Actions (`.github/workflows/platform-import.yml`, hoje a cada 2 h às :29 das horas ímpares), sem o limite de 50 s.
      - Pega conexões PSN/Xbox/RA com `lastSyncedAt` nulo e bibliotecas Steam cuja última sincronização acabou o tempo (marcador `SyncCursor steam-backlog:<userId>`).
      - Uma fila por plataforma, com fatias de 5 min por conta, e uma trava com as contas em andamento, que o cron pula.
      - Detalhes no `app/README.md`, seção "Primeiras importações".
