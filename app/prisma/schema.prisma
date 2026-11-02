@@ -123,9 +123,11 @@ model PasswordResetToken {
 /// A gaming account linked to a user (Exophase model, lib/accounts/connect.ts). Typing the profile
 /// in /conta/conexoes links it at once: `linkedAt` set means an active connection, which syncs and
 /// pays XP. `verifiedAt` set means ownership was also proven, by pasting `verifyCode` in the
-/// platform profile (Steam "Resumo", PSN/Xbox "about me", RA motto) before `verifyExpiresAt`: only
-/// claims of an account already on another profile need that (lib/accounts/link.ts). Steam rows of
-/// accounts created by the old Steam login (OpenID) were verified on creation.
+/// platform profile (Steam "Resumo", PSN/Xbox "about me", RA motto) before `verifyExpiresAt`:
+/// claims of an account already on another profile need that (lib/accounts/link.ts), and an
+/// active connection can prove it any time with "Verificar agora" (lib/accounts/verify.ts; the
+/// code then sits on the active row). Steam rows of accounts created by the old Steam login
+/// (OpenID) were verified on creation.
 /// An inactive row (unlinked account, or a claim waiting for its code) stores `pending:<userId>
 /// [:<recent claim start times, base36 ms>]` as externalId and has no `linkedAt`, so it never
 /// reserves the platform account (database checks keep `linkedAt` and the placeholder in step).
@@ -144,6 +146,12 @@ model LinkedAccount {
   verifiedAt        DateTime?
   verifyCode        String?
   verifyExpiresAt   DateTime?
+  /// Active connection proving ownership ("Verificar agora", lib/accounts/verify.ts): last time
+  /// the platform profile was read for the code (cooldown between checks).
+  verifyCheckedAt   DateTime?
+  /// Why that last check failed (code_missing | not_found | different | private | error); null
+  /// after a success, a new code or no check yet.
+  verifyFailure     String?
   lastSyncAttemptAt DateTime?
   lastSyncedAt      DateTime?
   /// Xbox: titles whose minutes played were asked, `{ titleId: last play then (ms) }`, so titles

@@ -34,6 +34,8 @@ export type XboxAchievement = {
 export interface XboxApi {
   /** Null when no Xbox account has this gamertag. */
   findProfile(gamertag: string): Promise<XboxProfile | null>;
+  /** The profile of a known XUID (no gamertag search); null when Xbox has no such account. */
+  getProfile(xuid: string): Promise<XboxProfile | null>;
   /** `'private'` when the player's achievements are hidden from the service account. */
   getTitles(xuid: string): Promise<XboxTitle[] | "private">;
   /** Every achievement of the title (unlocked or not) with the player's progress. */

@@ -138,6 +138,7 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
           playtimeMin={playtimeMin}
           platforms={extras.platforms}
           bio={extras.bio}
+          isOwner={isOwner}
           actions={
             isOwner ? (
               <SyncActions

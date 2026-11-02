@@ -10,6 +10,7 @@ import { formatAgo } from "@/components/character/format";
 import { PageHead } from "@/components/community/PageHead";
 import { connectionState } from "@/lib/accounts/connection-state";
 import { getLinkedAccounts, type LinkedAccountView } from "@/lib/accounts/queries";
+import { verifyFailureMessage } from "@/lib/accounts/verify-messages";
 import { googleLoginEnabled } from "@/lib/auth/google";
 import { getSessionUser } from "@/lib/auth/session";
 import { platformAvailable } from "@/lib/integrations/availability";
@@ -22,6 +23,15 @@ export const metadata: Metadata = {
 
 const timeFormatter = new Intl.DateTimeFormat("pt-BR", {
   timeZone: "America/Sao_Paulo",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** A verification code lasts a day: its expiry carries the date too ("3 de nov., 14:32"). */
+const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: "America/Sao_Paulo",
+  day: "numeric",
+  month: "short",
   hour: "2-digit",
   minute: "2-digit",
 });
@@ -86,6 +96,13 @@ async function ConexoesContent({ searchParams }: { searchParams: PageProps<"/con
           handle: state.handle,
           saved: state.value,
           verified: state.verified,
+          verification: state.verification
+            ? {
+                code: state.verification.code,
+                expiresLabel: dateTimeFormatter.format(state.verification.expiresAt),
+                failure: state.verification.failure ? verifyFailureMessage(state.verification.failure, platform) : null,
+              }
+            : null,
           lastSyncedLabel: state.lastSyncedAt ? formatAgo(state.lastSyncedAt, now) : null,
           importing: state.importing,
           failed: state.failed,

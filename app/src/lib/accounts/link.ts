@@ -280,6 +280,7 @@ export async function takeOverAccount(
           verifiedAt: now,
           verifyCode: null,
           verifyExpiresAt: null,
+          verifyFailure: null,
           lastSyncedAt: null,
           // lastSyncAttemptAt stays at this attempt, so the cooldown also covers unlink + reclaim.
         },
@@ -411,6 +412,7 @@ export async function releaseAccount(
         verifiedAt: null,
         verifyCode: null,
         verifyExpiresAt: null,
+        verifyFailure: null,
         lastSyncedAt: null,
         // Sync bookkeeping of that account (Xbox titles already asked): the next link starts fresh.
         minutesChecked: Prisma.DbNull,
