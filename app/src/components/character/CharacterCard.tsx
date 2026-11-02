@@ -4,6 +4,7 @@ import { UserText } from "@/components/community/UserText";
 import { Chip } from "@/components/ui/Chip";
 import type { CharacterPlatform } from "@/lib/character/sheet";
 import type { Character } from "@/lib/queries/players";
+import { formatCompact } from "@/lib/xp-format";
 import { formatNumber } from "./format";
 import { PLATFORM_LABEL, PLATFORM_TOKEN } from "./platforms";
 import { XpBar } from "./XpBar";
@@ -92,8 +93,8 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin,
         </span>
         <span className="flex flex-col gap-1.5 pb-1">
           <b className="text-lg font-extrabold font-stretch-[112%]">Nível do personagem</b>
-          <span className="font-mono text-xs text-dim">
-            {formatNumber(character.totalXp)} XP total
+          <span className="font-mono text-xs text-dim" title={`${formatNumber(character.totalXp)} XP no total`}>
+            {formatCompact(character.totalXp)} XP no total
           </span>
         </span>
         {playtimeMin !== undefined ? (

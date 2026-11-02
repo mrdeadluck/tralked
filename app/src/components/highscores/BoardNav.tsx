@@ -3,6 +3,7 @@ import { ViewTransition } from "react";
 import { SKILLS } from "@/lib/engine/types";
 import {
   boardHref,
+  isPlainBoard,
   METRIC_LABEL,
   METRICS,
   SCOPE_LABEL,
@@ -13,7 +14,7 @@ import { RANK_SCOPES } from "@/lib/highscores/stats";
 
 /** The board a category tab opens: the platform carries over between stat boards. */
 function boardFor(metric: Metric, current: Board): Board {
-  if (metric === "nivel") return { metric };
+  if (metric === "nivel" || metric === "semana" || metric === "novatos") return { metric };
   if (metric === "genero") return { metric, skill: current.metric === "genero" ? current.skill : SKILLS[0].id };
   return { metric, scope: "scope" in current ? current.scope : "all" };
 }
@@ -62,7 +63,7 @@ export function BoardNav({ board }: { board: Board }) {
             active: s.id === board.skill,
           }))}
         />
-      ) : board.metric !== "nivel" ? (
+      ) : !isPlainBoard(board) ? (
         <Chips
           label="Plataforma"
           items={RANK_SCOPES.map((scope) => ({

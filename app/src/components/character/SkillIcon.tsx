@@ -52,10 +52,35 @@ const PATHS: Record<string, ReactNode> = {
   trophy: (
     <path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H4c0 3 2 5 4 5M16 6h4c0 3-2 5-4 5M12 13v4M8 21h8M10 17h4" />
   ),
+  // Reward-loop marks (toasts, bell, "Como funciona o XP"): same stroke and caps as the skills.
+  like: <path d="M7 11v10H3V11zM7 11l4-8c1.4 0 2.5 1.1 2.5 2.5V9H19a2 2 0 0 1 2 2.3l-1.3 7.4A2.8 2.8 0 0 1 17 21H7" />,
+  photo: (
+    <>
+      <path d="M3 7h4l2-3h6l2 3h4v13H3z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </>
+  ),
+  mission: (
+    <>
+      <rect x="3" y="3" width="18" height="18" />
+      <path d="M7.5 12.5l3 3 6-7" />
+    </>
+  ),
+  level: <path d="M5 13l7-7 7 7M5 20l7-7 7 7" />,
+  streak: <path d="M12 22c4.1 0 7-2.9 7-6.8 0-3.7-2.6-6-4.3-8.4-.4 2.1-1.4 3.4-2.9 4C12 7.2 10.9 4.4 9 2c0 4.2-4 6.6-4 11.4C5 19.2 8 22 12 22z" />,
+  rank: <path d="M3 21v-7h6v7M9 21V8h6v13M15 21v-5h6v5M2 21h20" />,
+  sync: <path d="M20 12a8 8 0 0 1-14.2 5M4 12a8 8 0 0 1 14.2-5M18 3v4h-4M6 21v-4h4" />,
+  comment: <path d="M3 4h18v13H9l-5 4v-4H3z" />,
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v6M12 7v1" />
+    </>
+  ),
 };
 
 type SkillIconProps = Omit<SVGProps<SVGSVGElement>, "children"> & {
-  /** A SkillId or "trophy". */
+  /** A SkillId, "trophy" or a reward mark (like, photo, mission, level, streak, rank, sync, comment). */
   name: string;
 };
 

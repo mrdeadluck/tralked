@@ -6,6 +6,7 @@ import { ImageRejectedError, MAX_UPLOAD_BYTES, processImage } from "./images";
 import { RATE_LIMIT_MESSAGES, withinRateLimit } from "./limits";
 import { captionSchema } from "./text";
 import { TOO_LARGE_MESSAGE } from "./upload-limits";
+import { levelChange, type LevelChange } from "@/lib/progression/reward";
 import { awardPhotoXp, recomputeQuietly } from "./xp";
 
 export const uploadFieldsSchema = z.object({
@@ -14,7 +15,7 @@ export const uploadFieldsSchema = z.object({
 });
 
 export type UploadResult =
-  | { status: "ok"; photoId: string; xpAwarded: boolean }
+  | { status: "ok"; photoId: string; xpAwarded: boolean; levelUp: LevelChange | null }
   | { status: "invalid"; field: "foto" | "jogo" | "legenda"; message: string }
   | { status: "too_large"; message: string }
   | { status: "rate_limited"; message: string };
@@ -98,6 +99,13 @@ export async function uploadPhoto(
     throw error;
   }
 
-  if (xpAwarded) await recomputeQuietly(input.userId);
-  return { status: "ok", photoId, xpAwarded };
+  let levelUp: LevelChange | null = null;
+  if (xpAwarded) {
+    const levelOf = () =>
+      prisma.userStats.findUnique({ where: { userId: input.userId }, select: { level: true } }).then((r) => r?.level);
+    const before = await levelOf();
+    await recomputeQuietly(input.userId);
+    levelUp = levelChange(before, await levelOf());
+  }
+  return { status: "ok", photoId, xpAwarded, levelUp };
 }

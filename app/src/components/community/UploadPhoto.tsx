@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState, useTransition, type ChangeEvent, type FormEvent } from "react";
+import { announceReward } from "@/components/fx/reward-bus";
 import { loginHref } from "@/components/guide/format";
 import type { UploadResponse } from "@/app/galeria/enviar/route";
 import { PHOTO_XP } from "@/lib/community/rewards";
@@ -104,6 +105,9 @@ export function UploadPhoto({ games, loggedIn, returnTo, defaultGame, pending = 
         form.reset();
         setPreview(null);
         setOutcome({ kind: "done", href: body.href, xp: body.xpAwarded });
+        announceReward(
+          body.xpAwarded ? { xpGained: PHOTO_XP, reason: "Foto publicada", levelUp: body.levelUp ?? null } : null,
+        );
         router.refresh();
         return;
       }

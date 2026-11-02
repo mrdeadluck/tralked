@@ -1,8 +1,11 @@
 import { prisma } from "@/lib/db";
 import { toLocalDay } from "@/lib/engine/streak";
 import { levelFromXp } from "@/lib/engine/xp";
+import { notifyLevelUp } from "@/lib/notifications/progress";
+import type { LevelChange } from "@/lib/progression/reward";
+import { findCommentTarget, type CommentTargetType } from "./comments";
 import { withinRateLimit, type Db } from "./limits";
-import { notify } from "./notify";
+import { notify, preview } from "./notify";
 import {
   nextReaction,
   reactionXpPlan,
@@ -133,15 +136,15 @@ type AwardInput = {
  * already earned `dailyCap` entries of this source today. Serialized per user and source with a
  * transaction-scoped advisory lock, so concurrent clicks cannot both take the last slot (giver
  * and receiver use different keys, so two people liking each other cannot deadlock).
- * Returns the XP credited (0 or `xp`).
+ * Returns the XP credited (0 or `xp`) and the user's level change, if it went up.
  */
-async function awardReactionXp(tx: Db, input: AwardInput): Promise<number> {
+async function awardReactionXp(tx: Db, input: AwardInput): Promise<Award> {
   const { userId, source, sourceKey, xp, dailyCap, now } = input;
   const existing = await tx.xpLedgerEntry.findUnique({
     where: { userId_source_sourceKey: { userId, source, sourceKey } },
     select: { id: true },
   });
-  if (existing) return 0;
+  if (existing) return NO_AWARD;
 
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${source}:${userId}`}))`;
   const recent = await tx.xpLedgerEntry.findMany({
@@ -149,35 +152,49 @@ async function awardReactionXp(tx: Db, input: AwardInput): Promise<number> {
     select: { createdAt: true },
   });
   const today = toLocalDay(now);
-  if (recent.filter((e) => toLocalDay(e.createdAt) === today).length >= dailyCap) return 0;
+  if (recent.filter((e) => toLocalDay(e.createdAt) === today).length >= dailyCap) return NO_AWARD;
 
   const created = await tx.xpLedgerEntry.createMany({
     data: [{ userId, source, sourceKey, xp, skills: [], createdAt: now }],
     skipDuplicates: true,
   });
-  if (created.count === 0) return 0;
-  await bumpStats(tx, userId, xp);
-  return xp;
+  if (created.count === 0) return NO_AWARD;
+  return { xp, levelUp: await bumpStats(tx, userId, xp, now) };
 }
+
+type Award = { xp: number; levelUp: LevelChange | null };
+const NO_AWARD: Award = { xp: 0, levelUp: null };
 
 /**
  * Adds ledger XP to the user's stats without the full recompute: reaction entries carry no
  * skills, so only total XP and level change. Users without a stats row yet (never synced) get
- * theirs from the ledger at their first recompute.
+ * theirs from the ledger at their first recompute. A level rise is returned (the giver sees the
+ * level-up overlay) and written to the bell as `level_up`.
  */
-async function bumpStats(tx: Db, userId: string, xp: number): Promise<void> {
+async function bumpStats(tx: Db, userId: string, xp: number, now: Date): Promise<LevelChange | null> {
   const [row] = await tx.userStats.updateManyAndReturn({
     where: { userId },
     data: { totalXp: { increment: xp } },
     select: { totalXp: true, level: true },
   });
-  if (!row) return;
+  if (!row) return null;
   const level = levelFromXp(row.totalXp).level;
-  if (level !== row.level) await tx.userStats.update({ where: { userId }, data: { level } });
+  if (level === row.level) return null;
+  await tx.userStats.update({ where: { userId }, data: { level } });
+  if (level < row.level) return null;
+  await notifyLevelUp(tx, userId, row.level, level, now);
+  return { from: row.level, to: level };
 }
 
 export type ReactResult =
-  | { status: "ok"; mine: MyReaction; counts: ReactionCounts; xp: { given: number; received: number } }
+  | {
+      status: "ok";
+      mine: MyReaction;
+      counts: ReactionCounts;
+      xp: { given: number; received: number };
+      /** The reactor's level change, when the XP they got for reacting took them up a level. */
+      levelUp: LevelChange | null;
+    }
   | { status: "not_found" }
   | { status: "rate_limited" };
 
@@ -218,31 +235,124 @@ export async function react(
 
   const plan = reactionXpPlan({ reactorId: userId, ownerId: target.ownerId, value: after });
   const xp = { given: 0, received: 0 };
+  let levelUp: LevelChange | null = null;
   if (plan.giver) {
-    xp.given = await awardReactionXp(db, {
+    ({ xp: xp.given, levelUp } = await awardReactionXp(db, {
       userId,
       source: "reaction_given",
       sourceKey: `${targetType}:${targetId}`,
       xp: REACTION_GIVEN_XP,
       dailyCap: REACTION_GIVEN_DAILY_CAP,
       now,
-    });
+    }));
   }
   if (plan.receiverId) {
-    xp.received = await awardReactionXp(db, {
+    ({ xp: xp.received } = await awardReactionXp(db, {
       userId: plan.receiverId,
       source: "reaction_received",
       sourceKey: `${targetType}:${targetId}:${userId}`,
       xp: REACTION_RECEIVED_XP,
       dailyCap: REACTION_RECEIVED_DAILY_CAP,
       now,
-    });
+    }));
   }
 
   if (targetType === "photo" && after === 1 && before !== 1 && plan.receiverId) {
     await notifyPhotoLike(db, userId, plan.receiverId, targetId);
+  } else if (targetType !== "photo" && after === 1 && plan.receiverId && xp.received > 0) {
+    // Only a first like by this person that paid the author (so at most the daily cap of
+    // received likes per author): undo/redo or a like over the cap writes nothing.
+    await notifyLike(db, { likerId: userId, ownerId: plan.receiverId, targetType, targetId, now });
   }
-  return { status: "ok", mine: after, counts, xp };
+  return { status: "ok", mine: after, counts, xp, levelUp };
+}
+
+const LIKED_NOUN: Record<Exclude<ReactionTargetType, "photo">, string> = {
+  comment: "seu comentário",
+  article: "sua notícia",
+  guide: "seu guia",
+};
+
+/** Where a liked item lives, with a short preview for the notification body. */
+async function likedItem(
+  db: Db,
+  targetType: Exclude<ReactionTargetType, "photo">,
+  targetId: string,
+): Promise<{ href: string; preview: string } | null> {
+  switch (targetType) {
+    case "comment": {
+      const comment = await db.comment.findUnique({
+        where: { id: targetId },
+        select: { targetType: true, targetId: true, body: true },
+      });
+      if (!comment) return null;
+      const target = await findCommentTarget(db, comment.targetType as CommentTargetType, comment.targetId);
+      return target ? { href: `${target.href}#comentario-${targetId}`, preview: preview(comment.body) } : null;
+    }
+    case "article": {
+      const article = await db.article.findUnique({ where: { id: targetId }, select: { slug: true, title: true } });
+      return article ? { href: `/noticias/${article.slug}`, preview: preview(article.title) } : null;
+    }
+    case "guide": {
+      const guide = await db.guide.findUnique({
+        where: { id: targetId },
+        select: { game: { select: { slug: true, name: true } } },
+      });
+      return guide ? { href: `/jogos/${guide.game.slug}/guia`, preview: `Guia de ${guide.game.name}` } : null;
+    }
+  }
+}
+
+/**
+ * Aggregated like notification (kind `like`): the first new liker writes "@fulano curtiu seu
+ * comentário"; while that notification is unread, later likers only rewrite its title to
+ * "3 pessoas curtiram seu comentário" (counted from the likes since it was created). One row per
+ * unread item, so a popular comment costs one update per like, never a pile of rows.
+ */
+export async function notifyLike(
+  db: Db,
+  input: {
+    likerId: string;
+    ownerId: string;
+    targetType: Exclude<ReactionTargetType, "photo">;
+    targetId: string;
+    now: Date;
+  },
+): Promise<void> {
+  const { likerId, ownerId, targetType, targetId, now } = input;
+  if (likerId === ownerId) return;
+  const item = await likedItem(db, targetType, targetId);
+  if (!item) return;
+  const noun = LIKED_NOUN[targetType];
+
+  const open = await db.notification.findFirst({
+    where: { userId: ownerId, kind: "like", href: item.href, readAt: null },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, createdAt: true },
+  });
+  if (open) {
+    const likers = await db.reaction.count({
+      where: { targetType, targetId, value: 1, createdAt: { gte: open.createdAt }, NOT: { userId: ownerId } },
+    });
+    if (likers > 1) {
+      await db.notification.update({
+        where: { id: open.id },
+        data: { title: `${likers} pessoas curtiram ${noun}` },
+      });
+      return;
+    }
+  }
+  const liker = await db.user.findUnique({ where: { id: likerId }, select: { handle: true } });
+  await db.notification.create({
+    data: {
+      userId: ownerId,
+      kind: "like",
+      title: `@${liker?.handle ?? "alguém"} curtiu ${noun}`,
+      body: item.preview,
+      href: item.href,
+      createdAt: now,
+    },
+  });
 }
 
 /** "@fulano curtiu sua foto", once per liker and photo ever (unlike + like again stays quiet). */
@@ -270,6 +380,35 @@ export async function myReactions(
     select: { targetId: true, value: true },
   });
   return Object.fromEntries(rows.map((r) => [r.targetId, r.value === 1 ? 1 : -1]));
+}
+
+/**
+ * Items whose first reaction would still pay the viewer REACTION_GIVEN_XP: never paid for them
+ * (the XP is once per item, ever) and today's cap not reached. Powers the "+5 XP" promise on the
+ * buttons, so it only shows when it is true. Two indexed reads.
+ */
+export async function reactionXpOpen(
+  db: Db,
+  userId: string,
+  targetType: ReactionTargetType,
+  targetIds: string[],
+  now: Date = new Date(),
+): Promise<string[]> {
+  if (targetIds.length === 0) return [];
+  const [paid, recent] = await Promise.all([
+    db.xpLedgerEntry.findMany({
+      where: { userId, source: "reaction_given", sourceKey: { in: targetIds.map((id) => `${targetType}:${id}`) } },
+      select: { sourceKey: true },
+    }),
+    db.xpLedgerEntry.findMany({
+      where: { userId, source: "reaction_given", createdAt: { gte: new Date(now.getTime() - TWO_DAYS_MS) } },
+      select: { createdAt: true },
+    }),
+  ]);
+  const today = toLocalDay(now);
+  if (recent.filter((e) => toLocalDay(e.createdAt) === today).length >= REACTION_GIVEN_DAILY_CAP) return [];
+  const done = new Set(paid.map((e) => e.sourceKey.slice(targetType.length + 1)));
+  return targetIds.filter((id) => !done.has(id));
 }
 
 /** Live counts of one item from its mirror columns (zeros when it is gone). */

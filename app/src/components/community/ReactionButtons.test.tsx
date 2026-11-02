@@ -47,13 +47,35 @@ describe("ReactionButtons", () => {
     expect(screen.getByRole("button", { name: "Curtir (1 curtida)" })).toBeInTheDocument();
   });
 
-  it("sends visitors to the login instead of reacting", () => {
+  it("invites visitors to log in (and earn XP) instead of reacting", () => {
     render(<ReactionButtons {...props} likes={0} dislikes={0} mine={0} loggedIn={false} />);
+    expect(screen.getByRole("link", { name: "Entre e ganhe XP" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("returnTo=%2Fnoticias%2Fx"),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Curtir" }));
-    expect(screen.getByRole("link", { name: "Entre na sua conta para reagir" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Entre e ganhe XP ao reagir" })).toHaveAttribute(
       "href",
       expect.stringContaining("returnTo=%2Fnoticias%2Fx"),
     );
     expect(reactTo).not.toHaveBeenCalled();
+  });
+
+  it("promises the XP until the first reaction, then announces what was earned", async () => {
+    const events: unknown[] = [];
+    const listener = (event: Event) => events.push((event as CustomEvent).detail);
+    window.addEventListener("tralked:reward", listener);
+    reactTo.mockResolvedValue({
+      status: "ok",
+      mine: 1,
+      counts: { likes: 1, dislikes: 0 },
+      reward: { xpGained: 5, reason: "Curtida", skill: null, levelUp: null },
+    });
+    render(<ReactionButtons {...props} likes={0} dislikes={0} mine={0} loggedIn xpHint={5} />);
+    expect(screen.getByText(/\+5 XP/)).toBeInTheDocument();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Curtir" })));
+    expect(screen.queryByText(/\+5 XP/)).not.toBeInTheDocument();
+    expect(events).toEqual([{ toast: expect.objectContaining({ xp: 5, title: "Curtida", icon: "like" }) }]);
+    window.removeEventListener("tralked:reward", listener);
   });
 });

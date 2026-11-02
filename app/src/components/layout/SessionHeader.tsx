@@ -34,8 +34,9 @@ async function HeaderWithUser() {
         bell
           ? {
               unread: bell.unread,
-              items: bell.items.map(({ id, title, body, href, read, createdAt }) => ({
+              items: bell.items.map(({ id, kind, title, body, href, read, createdAt }) => ({
                 id,
+                kind,
                 title,
                 body,
                 href,

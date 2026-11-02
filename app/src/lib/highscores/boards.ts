@@ -5,20 +5,47 @@ import { isRankScope, type RankScope } from "./stats";
  * The highscores boards. Pure (no database): shared by the pages, the queries and the daily snapshot.
  * Each board has its own path (prerendered, so the ranks work without JS): see `boardFromPath`.
  */
-export const METRICS = ["nivel", "horas", "conquistas", "raras", "platinas", "acervo", "genero"] as const;
+export const METRICS = [
+  "nivel",
+  "semana",
+  "novatos",
+  "horas",
+  "conquistas",
+  "raras",
+  "platinas",
+  "acervo",
+  "genero",
+] as const;
 export type Metric = (typeof METRICS)[number];
 
+/**
+ * Boards without a filter: Nível (everyone), Esta semana (XP of the last 7 days, from the ledger)
+ * and Novatos (Nível among players up to NOVATO_MAX_LEVEL). The last two are the reachable ones.
+ */
+export type PlainMetric = "nivel" | "semana" | "novatos";
+export const PLAIN_METRICS: PlainMetric[] = ["nivel", "semana", "novatos"];
+const isPlain = (value: string): value is PlainMetric => (PLAIN_METRICS as string[]).includes(value);
+
+/** Highest level on the Novatos board. */
+export const NOVATO_MAX_LEVEL = 20;
+/** Window of the Esta semana board, in days (rolling, not a calendar week). */
+export const WEEK_DAYS = 7;
+
 /** Metrics read from UserRankStats, with a platform filter. */
-export type StatMetric = Exclude<Metric, "nivel" | "genero">;
+export type StatMetric = Exclude<Metric, PlainMetric | "genero">;
 export const STAT_METRICS: StatMetric[] = ["horas", "conquistas", "raras", "platinas", "acervo"];
 
 export type Board =
   | { metric: "nivel" }
+  | { metric: "semana" }
+  | { metric: "novatos" }
   | { metric: StatMetric; scope: RankScope }
   | { metric: "genero"; skill: SkillId };
 
 export const METRIC_LABEL: Record<Metric, string> = {
   nivel: "Nível",
+  semana: "Esta semana",
+  novatos: "Novatos",
   horas: "Horas jogadas",
   conquistas: "Conquistas",
   raras: "Raras e lendárias",
@@ -29,7 +56,9 @@ export const METRIC_LABEL: Record<Metric, string> = {
 
 /** One line under the tabs: what the board ranks. */
 export const METRIC_HINT: Record<Metric, string> = {
-  nivel: "Nível e XP total, somando tudo o que você joga e conquista.",
+  nivel: "Nível do personagem, somando tudo o que você joga e conquista.",
+  semana: "XP ganho nos últimos 7 dias. O nível não importa: quem jogou mais nesta semana sobe.",
+  novatos: `Só jogadores até o nível ${NOVATO_MAX_LEVEL}. O lugar certo para disputar desde o começo.`,
   horas: "Horas reais informadas pelas plataformas, somadas de todos os jogos.",
   conquistas: "Conquistas e troféus válidos desbloqueados.",
   raras: "Conquistas que até 20% dos jogadores têm; lendárias (até 3%) desempatam.",
@@ -56,6 +85,7 @@ const isSkill = (value: string | undefined): value is SkillId => !!value && SKIL
  */
 export function boardFromPath(categoria?: string, filtro?: string): Board | null {
   if (categoria === undefined) return { metric: "nivel" };
+  if (categoria !== "nivel" && isPlain(categoria)) return filtro === undefined ? { metric: categoria } : null;
   if (categoria === "genero") {
     if (filtro === undefined) return { metric: "genero", skill: SKILLS[0].id };
     return isSkill(filtro) ? { metric: "genero", skill: filtro } : null;
@@ -75,7 +105,7 @@ export function legacySkillBoard(skill: string | string[] | undefined): Board | 
 
 /** Stable key of a board (cache tag suffix and RankSnapshot.board). */
 export function boardKey(board: Board): string {
-  if (board.metric === "nivel") return "nivel";
+  if (isPlainBoard(board)) return board.metric;
   if (board.metric === "genero") return `genero:${board.skill}`;
   return `${board.metric}:${board.scope}`;
 }
@@ -83,7 +113,7 @@ export function boardKey(board: Board): string {
 /** Inverse of `boardKey`; null for anything else. */
 export function boardFromKey(key: string): Board | null {
   const [metric, arg] = key.split(":");
-  if (metric === "nivel" && arg === undefined) return { metric: "nivel" };
+  if (isPlain(metric)) return arg === undefined ? { metric } : null;
   if (metric === "genero") return isSkill(arg) ? { metric: "genero", skill: arg } : null;
   if ((STAT_METRICS as string[]).includes(metric) && arg && isRankScope(arg)) {
     return { metric: metric as StatMetric, scope: arg };
@@ -94,7 +124,7 @@ export function boardFromKey(key: string): Board | null {
 /** Every board, in display order (the daily snapshot walks them all). */
 export function allBoards(): Board[] {
   return [
-    { metric: "nivel" },
+    ...PLAIN_METRICS.map((metric) => ({ metric }) as Board),
     ...STAT_METRICS.flatMap((metric) =>
       (["all", "steam", "psn", "xbox", "retro"] as const).map((scope) => ({ metric, scope }) as Board),
     ),
@@ -105,6 +135,7 @@ export function allBoards(): Board[] {
 /** Path of a board (see `boardFromPath`). */
 export function boardHref(board: Board): string {
   if (board.metric === "nivel") return "/highscores";
+  if (isPlainBoard(board)) return `/highscores/${board.metric}`;
   if (board.metric === "genero") return `/highscores/genero/${board.skill}`;
   return board.scope === "all" ? `/highscores/${board.metric}` : `/highscores/${board.metric}/${board.scope}`;
 }
@@ -112,8 +143,17 @@ export function boardHref(board: Board): string {
 /** Human name of a board, for headings and captions. */
 export function boardTitle(board: Board): string {
   if (board.metric === "genero") return SKILLS.find((s) => s.id === board.skill)?.name ?? board.skill;
-  if (board.metric === "nivel") return METRIC_LABEL.nivel;
+  if (isPlainBoard(board)) return METRIC_LABEL[board.metric];
   return board.scope === "all"
     ? METRIC_LABEL[board.metric]
     : `${METRIC_LABEL[board.metric]} (${SCOPE_LABEL[board.scope]})`;
 }
+
+/** Nível, Esta semana or Novatos (no platform or genre filter). */
+export function isPlainBoard(board: Board): board is { metric: PlainMetric } {
+  return isPlain(board.metric);
+}
+
+/** Boards ranked by character level (with the XP bar inside the level). */
+export const isLevelBoard = (board: Board): board is { metric: "nivel" | "novatos" } =>
+  board.metric === "nivel" || board.metric === "novatos";

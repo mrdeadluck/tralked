@@ -29,7 +29,7 @@ export function YouAreHere({
   if (!viewer) {
     return (
       <Bar>
-        <p className="text-sm text-text-2">Entre para ver a sua posição em cada ranking.</p>
+        <p className="text-sm text-text-2">Entre para ver a sua posição e disputar o pódio.</p>
         <Action href="/entrar">Entrar</Action>
       </Bar>
     );
@@ -71,7 +71,13 @@ export function YouAreHere({
       </div>
       <div className="flex min-w-0 flex-col items-start gap-0.5 sm:items-end">
         <span className="flex items-baseline gap-1.5">
-          <CountUp value={display.value} delay={700} className="text-lg font-black font-stretch-[125%] tabular-nums" />
+          <CountUp
+            value={display.value}
+            delay={700}
+            compact={display.compact}
+            title={display.valueTitle}
+            className="text-lg font-black font-stretch-[125%] tabular-nums"
+          />
           <span className="font-mono text-xs text-muted">{display.unit}</span>
         </span>
         <span className="text-[13px] text-text-2">
@@ -90,7 +96,7 @@ function Bar({ children }: { children: ReactNode }) {
   return (
     <aside
       aria-label="Sua posição"
-      className="hs-you mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-[4px] border border-line-2 bg-surface-2/95 px-4 py-3 shadow-[inset_3px_0_0_var(--acc),0_12px_32px_var(--bg-deep)] backdrop-blur"
+      className="hs-you mt-6 flex min-h-[68px] flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-[4px] border border-line-2 border-t-acc/60 bg-surface-2/95 px-4 py-3 shadow-[0_12px_32px_var(--bg-deep)] backdrop-blur"
     >
       {children}
     </aside>
@@ -105,5 +111,15 @@ function Action({ href, children }: { href: string; children: ReactNode }) {
     >
       {children}
     </Link>
+  );
+}
+
+/** Same box as the bar while the viewer's standing streams in (no layout shift when it lands). */
+export function YouAreHereSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      className="mt-6 min-h-[68px] rounded-[4px] border border-line bg-surface-2/60 max-[640px]:min-h-[112px]"
+    />
   );
 }

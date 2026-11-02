@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { runHighscoresJob } from "@/lib/highscores/job";
 import { pruneViewBuckets } from "@/lib/news/views";
 import { deleteOldNotifications } from "@/lib/notifications/retention";
+import { notifyStreakRisk } from "@/lib/notifications/streak-risk";
 import { NEWS_TAG } from "@/lib/queries/news";
 import { refreshRarity, syncCatalog } from "@/lib/sync/catalog";
 import { syncExternalNews } from "@/lib/sync/external-news";
@@ -21,7 +22,8 @@ import { syncStaleUsers } from "@/lib/sync/user";
  * Ceiling of one cron invocation (seconds): Vercel's limit without Fluid compute. Every job is
  * bounded well under it, by item count and, for the slow per-user syncs, by a shared deadline:
  * - catalog: 25 stalest games; rarity: 50 games; media: 20 games; news: the active feeds;
- *   notifications: two deletes (old notifications, old article view buckets);
+ *   notifications: two deletes (old notifications, old article view buckets) and one batch insert
+ *   of "sua sequência acaba hoje" nudges (at most 1000);
  * - users: at most 50 Steam users and 50 s in all (STALE_USERS_BUDGET_MS; each user's catalog
  *   probing gets what is left, at most 45 s);
  * - platforms: at most 5 PSN/Xbox/RA accounts and 50 s in all;
@@ -46,11 +48,13 @@ const JOBS: Record<CronJob, () => Promise<{ processed: number; failed?: number }
     if (result.created > 0) revalidateTag(NEWS_TAG, "max");
     return result;
   },
-  // Daily: notifications older than 90 days (they may quote people who left), and article view
-  // buckets older than 35 days (the lifetime total stays in Article.views).
+  // Daily: notifications older than 90 days (they may quote people who left), article view
+  // buckets older than 35 days (the lifetime total stays in Article.views), and the streak nudge
+  // for players whose streak ends today (runs early in the Brazilian day).
   notifications: async () => {
     const [notifications, views] = [await deleteOldNotifications(), await pruneViewBuckets()];
-    return { processed: notifications.processed + views.processed };
+    const streaks = await notifyStreakRisk();
+    return { processed: notifications.processed + views.processed + streaks.processed };
   },
   // Hourly: full Steam catalog (app list, popularity, details), 50 s in all.
   "steam-catalog": () => runSteamCatalogJob(),

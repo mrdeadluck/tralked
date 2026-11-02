@@ -9,7 +9,7 @@ import { BoardNav } from "./BoardNav";
 import { MarkViewerRow } from "./MarkViewerRow";
 import { Podium } from "./Podium";
 import { RankList, RankRow } from "./RankList";
-import { YouAreHere } from "./YouAreHere";
+import { YouAreHere, YouAreHereSkeleton } from "./YouAreHere";
 
 /**
  * One highscores board. The ranks are public and cached (prerendered with the page, so they work
@@ -28,7 +28,10 @@ export async function BoardScreen({ board }: { board: Board }) {
       <BoardNav board={board} />
       <p className="mt-4 text-sm text-dim">
         {METRIC_HINT[board.metric]}
-        {since ? ` As setas mostram a mudança de posição desde ${since}.` : null}
+        {since ? ` As setas mostram a mudança de posição desde ${since}.` : null}{" "}
+        <Link href="/como-funciona" className="whitespace-nowrap text-acc underline-offset-[3px] hover:underline">
+          Como funciona o XP
+        </Link>
       </p>
 
       <ViewTransition key={key} name="highscores-board" share="auto" enter="auto" default="none">
@@ -58,7 +61,8 @@ export async function BoardScreen({ board }: { board: Board }) {
               />
             </>
           )}
-          <Suspense fallback={null}>
+          {/* The island streams in after the cached list: its fallback holds the bar's room. */}
+          <Suspense fallback={<YouAreHereSkeleton />}>
             <ViewerIsland board={board} view={view} leaderValue={leaderValue} since={since} />
           </Suspense>
         </section>

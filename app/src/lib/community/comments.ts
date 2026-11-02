@@ -3,7 +3,7 @@ import type { Db } from "./limits";
 import { isDiscussionLocked } from "@/lib/moderation/locks";
 import { withinRateLimit } from "./limits";
 import { notify, preview } from "./notify";
-import { myReactions } from "./reactions";
+import { myReactions, reactionXpOpen } from "./reactions";
 import { commentBodySchema } from "./text";
 
 export const COMMENT_TARGETS = ["article", "guide", "photo", "thread"] as const;
@@ -114,6 +114,8 @@ export type CommentPage = {
   total: number;
   /** The viewer's likes (1) and dislikes (-1) on the listed comments and replies, by id. */
   mine?: Record<string, 1 | -1>;
+  /** Listed comments whose first reaction would still pay the viewer XP (the "+5 XP" hint). */
+  xpOpen?: string[];
 };
 
 export const commentTargetSchema = z.object({
@@ -243,7 +245,11 @@ export async function listReplies(db: Db, rootId: string): Promise<CommentView[]
 /** The page plus the viewer's reactions to its comments and the replies it shows. */
 export async function withMyReactions(db: Db, page: CommentPage, userId: string): Promise<CommentPage> {
   const ids = page.comments.flatMap((c) => [c.id, ...c.replies.map((r) => r.id)]);
-  return { ...page, mine: await myReactions(db, userId, "comment", ids) };
+  const [mine, xpOpen] = await Promise.all([
+    myReactions(db, userId, "comment", ids),
+    reactionXpOpen(db, userId, "comment", ids),
+  ]);
+  return { ...page, mine, xpOpen };
 }
 
 type ReplyPlace = { parentId: string; replyToUserId: string | null; notifyUserId: string | null };
