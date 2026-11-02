@@ -5,6 +5,7 @@ import { parseFeed } from "./rss.js";
 import { parseSitemap } from "./sitemap.js";
 import { titleKey } from "./text.js";
 import type { RawItem } from "./types.js";
+import { isTrailerVideo } from "./youtube.js";
 
 export type { RawItem } from "./types.js";
 export { parseFeed } from "./rss.js";
@@ -160,6 +161,13 @@ async function collectSource(source: Source, fetchFn: FetchFn, now: Date, timeou
     const items = parseFeed(text, source.id);
     // Signal-only sources (Reddit hot lists) are titles that say what players talk about, never text.
     if (source.signalOnly) return items.map((item) => ({ ...item, textUnavailable: true as const }));
+    // Official channels: new trailers and gameplay only. A watch page has no article text to extract; the
+    // title and the description (summary) are the material, and the video is embedded in the article.
+    if (source.video) {
+      return items
+        .filter((item) => item.videoId !== undefined && isTrailerVideo(item.title, item.url))
+        .map((item) => ({ ...item, textUnavailable: true as const }));
+    }
     return source.linkResolve === "google-news" ? resolveGoogleNews(items, fetchFn, timeoutMs) : items;
   }
 

@@ -217,6 +217,7 @@ function fakeSite() {
     findGame: async (name) => ({ slug: slugify(name), name }),
     insights: async () => null,
     dossier: async () => null,
+    media: async () => null,
     recentArticles: async (since) => {
       state.feedSince.push(since);
       if (state.feedError) throw state.feedError;

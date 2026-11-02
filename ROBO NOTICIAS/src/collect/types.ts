@@ -12,4 +12,6 @@ export type RawItem = {
    * extract text for these; the title, `publisher` and `summary` are all there is.
    */
   textUnavailable?: true;
+  /** YouTube video id (`yt:videoId` of a channel feed entry), when the item is a video. */
+  videoId?: string;
 };

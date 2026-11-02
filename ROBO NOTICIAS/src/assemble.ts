@@ -33,6 +33,10 @@ const LIMITS = {
   tableRows: 100,
   blocks: 300,
   games: 10,
+  imageAlt: 300,
+  imageCredit: 200,
+  imageUrl: 2048,
+  videoTitle: 200,
 } as const;
 
 const MAX_ACHIEVEMENTS = 3;
@@ -217,12 +221,42 @@ export type AssembleStory = {
   candidates?: { slug: string }[];
 };
 
+/**
+ * Media added by code, never by the model (the sources give the robot no pictures):
+ * - `video`: the story's own official video (a YouTube channel item), right after the lede;
+ * - `image`: catalog art of the article's game, after the lede, only when there is no `video`;
+ * - `trailer`: the game's video from the catalog, after the body, only when there is no `video`.
+ */
+export type ArticleMedia = {
+  video?: { youtubeId: string; title: string };
+  image?: { url: string; alt: string; credit: string };
+  trailer?: { youtubeId: string; title: string };
+};
+
 export type AssembleOpts = {
   insights: Map<string, Insights>;
   updatedAt?: Date;
   /** Follow-ups: the earlier article of the case, linked before the body (https only). */
   parent?: { title: string; url: string };
+  media?: ArticleMedia;
 };
+
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+
+function videoBlock(video: { youtubeId: string; title: string } | undefined): ContentBlock[] {
+  if (!video || !YOUTUBE_ID.test(video.youtubeId)) return [];
+  const title = plainText(video.title, LIMITS.videoTitle);
+  return [title ? { type: "video", youtubeId: video.youtubeId, title } : { type: "video", youtubeId: video.youtubeId }];
+}
+
+function imageBlock(image: ArticleMedia["image"]): ContentBlock[] {
+  if (!image) return [];
+  const url = image.url.trim();
+  if (!isHttps(url) || /[\s()<>"]/.test(url) || url.length > LIMITS.imageUrl) return [];
+  const alt = plainText(image.alt, LIMITS.imageAlt);
+  const credit = plainText(image.credit, LIMITS.imageCredit);
+  return alt && credit ? [{ type: "image", url, alt, credit }] : [];
+}
 
 /** `Entenda o caso: [title](url)`, or null when the link would not be a safe https link. */
 function parentLink(parent: { title: string; url: string }): ContentBlock | null {
@@ -246,10 +280,15 @@ export function assemble(draft: AssembleDraft, story: AssembleStory, opts: Assem
   const link = opts.parent ? parentLink(opts.parent) : null;
   if (link) blocks.push(link);
 
-  for (const block of draft.corpo) {
+  const corpo = draft.corpo.flatMap((block) => {
     const mapped = bodyBlock(block);
-    if (mapped) blocks.push(mapped);
-  }
+    return mapped ? [mapped] : [];
+  });
+  const media = opts.media ?? {};
+  const own = videoBlock(media.video);
+  const afterLede = own.length > 0 ? own : imageBlock(media.image);
+  const afterBody = own.length > 0 ? [] : videoBlock(media.trailer);
+  blocks.push(...corpo.slice(0, 1), ...afterLede, ...corpo.slice(1), ...afterBody);
 
   blocks.push(...noTralkedBlocks(draft.noTralked, opts.insights));
 
