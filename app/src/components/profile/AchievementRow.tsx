@@ -3,6 +3,7 @@ import { RARITY_COLOR, RARITY_LABEL } from "@/components/character/format";
 import { PLATFORM_LABEL, PLATFORM_TOKEN } from "@/components/character/platforms";
 import { Chip } from "@/components/ui/Chip";
 import type { ProfileAchievement } from "@/lib/profile/queries";
+import { formatCompact } from "@/lib/xp-format";
 import { formatDate, formatGlobalPct } from "./format";
 
 const TROPHY_LABEL: Record<string, string> = { platinum: "Platina", gold: "Ouro", silver: "Prata", bronze: "Bronze" };
@@ -60,7 +61,7 @@ export function AchievementRow({ achievement }: { achievement: ProfileAchievemen
       </div>
       <div className="flex-none text-right font-mono text-xs text-dim">
         <time dateTime={achievement.unlockedAt.toISOString()}>{formatDate(achievement.unlockedAt)}</time>
-        <p className="mt-1 text-acc">+{achievement.xp.toLocaleString("pt-BR")} XP</p>
+        <p className="mt-1 text-acc">+{formatCompact(achievement.xp)} XP</p>
       </div>
     </li>
   );

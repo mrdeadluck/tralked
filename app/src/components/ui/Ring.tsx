@@ -7,7 +7,8 @@ type RingProps = {
 export function Ring({ value, size = 44 }: RingProps) {
   const pct = Math.min(100, Math.max(0, value));
   const stroke = Math.max(3, Math.round(size / 11));
-  const fontSize = Math.max(9, Math.round(size / 4));
+  // 12px floor: the percentage is functional text even inside the smallest ring.
+  const fontSize = Math.max(12, Math.round(size / 4));
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const h = size / 2;

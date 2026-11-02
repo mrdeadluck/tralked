@@ -5,7 +5,8 @@ import { z } from "zod";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import { interactionBlock } from "@/lib/moderation/permissions";
-import { rewardOf, type Reward } from "@/lib/progression/reward";
+import { weeklyXpOf } from "@/lib/highscores/queries";
+import { levelProgress, rewardOf, type Reward } from "@/lib/progression/reward";
 import { photoTag } from "./cached";
 import { listReplies, type CommentView } from "./comments";
 import { RATE_LIMIT_MESSAGES, takeLikeToggle } from "./limits";
@@ -50,7 +51,13 @@ export async function reactTo(raw: unknown): Promise<ReactOk | Failure> {
   if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.like };
   // The photo page caches its counts; articles, guides and comments read them live.
   if (targetType === "photo") updateTag(photoTag(targetId));
-  const reward = rewardOf(result.xp.given, value === 1 ? "Curtida" : "Reação", { levelUp: result.levelUp });
+  // The toast shows where the XP went: the level bar and the week's total (Esta semana).
+  const total = result.xp.given > 0 ? result.totalXp : null;
+  const reward = rewardOf(result.xp.given, value === 1 ? "Curtida" : "Reação", {
+    levelUp: result.levelUp,
+    progress: total != null ? levelProgress(total, result.xp.given) : null,
+    weekXp: total != null ? await weeklyXpOf(user.id) : null,
+  });
   return { status: "ok", mine: result.mine, counts: result.counts, reward };
 }
 

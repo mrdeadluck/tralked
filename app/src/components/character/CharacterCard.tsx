@@ -21,11 +21,28 @@ type CharacterCardProps = {
   playtimeMin?: number;
   /** Dono do perfil: conexões não verificadas ganham o atalho "Verificar" (para /conta/conexoes). */
   isOwner?: boolean;
+  /**
+   * Avatar and name on the card. Off on the profile's Ficha tab, whose identity header (the same
+   * on every tab) already carries them.
+   */
+  identity?: boolean;
+  /** XP of the last 7 days and its community part (what the Esta semana ranking counts). */
+  week?: { total: number; community: number };
 };
 
-export function CharacterCard({ character, platforms, bio, actions, playtimeMin, isOwner = false }: CharacterCardProps) {
+export function CharacterCard({
+  character,
+  platforms,
+  bio,
+  actions,
+  playtimeMin,
+  isOwner = false,
+  identity = true,
+  week,
+}: CharacterCardProps) {
   const { stats } = character;
-  const items: [string, string, string?][] = [
+  // Six cells: three full rows of two on phones, two of three on wider screens.
+  const items: [string, string, string?, string?][] = [
     [
       "Conquistas",
       formatNumber(stats.achievements),
@@ -36,75 +53,95 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin,
     ["Platinas", formatNumber(stats.platinums), "em todas as plataformas"],
     ["Lendárias", formatNumber(stats.legendary), "até 3% dos jogadores"],
     ["Ranking geral", stats.rank === null ? "—" : `#${formatNumber(stats.rank)}`],
+    [
+      "XP esta semana",
+      week ? formatCompact(week.total) : "—",
+      week && week.community > 0 ? `${formatCompact(week.community)} da comunidade` : "nos últimos 7 dias",
+      week ? `${formatNumber(week.total)} XP nos últimos 7 dias` : undefined,
+    ],
   ];
+
+  const chips = (
+    <div
+      className={`flex flex-wrap items-center gap-1.5 font-mono text-xs tracking-[0.1em] uppercase ${identity ? "mt-3" : ""}`}
+    >
+      {identity ? <span className="mr-1.5 text-acc">{character.vocation}</span> : null}
+      {platforms.length > 0 ? (
+        <ul aria-label="Plataformas conectadas" className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+          {platforms.map((p) => (
+            <li
+              key={p.platform}
+              title={`${PLATFORM_LABEL[p.platform]}: ${p.handle}${p.verified ? " (conta verificada)" : ""}`}
+            >
+              {/* Verified accounts earn a check; the others stay plain, without an alarm. */}
+              <Chip color={PLATFORM_TOKEN[p.platform]}>
+                {PLATFORM_LABEL[p.platform]}
+                <span className="sr-only">: {p.handle}</span>
+                {p.verified ? (
+                  <>
+                    <svg
+                      viewBox="0 0 12 12"
+                      aria-hidden="true"
+                      className="ml-1 inline-block size-3 align-[-1px] text-acc"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path d="M2.5 6.5 5 9l4.5-6" />
+                    </svg>
+                    <span className="sr-only"> (verificada)</span>
+                  </>
+                ) : null}
+              </Chip>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <Chip>Nenhuma plataforma conectada</Chip>
+      )}
+      {isOwner && platforms.some((p) => !p.verified) ? (
+        <Link
+          href="/conta/conexoes"
+          className="ml-1 inline-flex min-h-6 items-center text-text-3 normal-case tracking-normal underline decoration-line-2 underline-offset-[3px] hover:text-acc hover:decoration-current"
+        >
+          Verificar contas
+        </Link>
+      ) : null}
+    </div>
+  );
+  const bioText = bio ? <UserText text={bio} className="mt-3 max-w-[60ch] text-[15px] text-text-2" /> : null;
 
   return (
     <article className="grid items-center gap-6 rounded-[4px] border border-line bg-surface p-5 min-[641px]:grid-cols-[auto_1fr] min-[641px]:p-7">
-      <div
-        aria-hidden="true"
-        className="grid size-[104px] place-items-center overflow-hidden rounded-full border-[3px] border-acc bg-[repeating-linear-gradient(135deg,#1a1c22_0_7px,#22242b_7px_14px)] text-[40px] leading-none font-black font-stretch-[125%] text-acc"
-      >
-        {character.avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- avatar da Steam, domínio externo
-          <img src={character.avatarUrl} alt="" className="size-full object-cover" />
-        ) : (
-          character.displayName.charAt(0).toUpperCase()
-        )}
-      </div>
+      {identity ? (
+        <>
+          <div
+            aria-hidden="true"
+            className="grid size-[104px] place-items-center overflow-hidden rounded-full border-[3px] border-acc bg-[repeating-linear-gradient(135deg,#1a1c22_0_7px,#22242b_7px_14px)] text-[40px] leading-none font-black font-stretch-[125%] text-acc"
+          >
+            {character.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- avatar da Steam, domínio externo
+              <img src={character.avatarUrl} alt="" className="size-full object-cover" />
+            ) : (
+              character.displayName.charAt(0).toUpperCase()
+            )}
+          </div>
 
-      <div>
-        <span className="font-mono text-xs tracking-[0.14em] text-dim-2 uppercase">
-          Personagem
-        </span>
-        <h1 className="mt-1.5 text-[clamp(30px,4vw,44px)] leading-none font-black font-stretch-[125%] tracking-[-0.035em] break-words uppercase">
-          {character.displayName}
-        </h1>
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 font-mono text-xs tracking-[0.1em] uppercase">
-          <span className="mr-1.5 text-acc">{character.vocation}</span>
-          {platforms.length > 0 ? (
-            <ul aria-label="Plataformas conectadas" className="m-0 flex list-none flex-wrap gap-1.5 p-0">
-              {platforms.map((p) => (
-                <li
-                  key={p.platform}
-                  title={`${PLATFORM_LABEL[p.platform]}: ${p.handle}${p.verified ? " (conta verificada)" : ""}`}
-                >
-                  {/* Verified accounts earn a check; the others stay plain, without an alarm. */}
-                  <Chip color={PLATFORM_TOKEN[p.platform]}>
-                    {PLATFORM_LABEL[p.platform]}
-                    <span className="sr-only">: {p.handle}</span>
-                    {p.verified ? (
-                      <>
-                        <svg
-                          viewBox="0 0 12 12"
-                          aria-hidden="true"
-                          className="ml-1 inline-block size-3 align-[-1px] text-acc"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <path d="M2.5 6.5 5 9l4.5-6" />
-                        </svg>
-                        <span className="sr-only"> (verificada)</span>
-                      </>
-                    ) : null}
-                  </Chip>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <Chip>Nenhuma plataforma conectada</Chip>
-          )}
-          {isOwner && platforms.some((p) => !p.verified) ? (
-            <Link
-              href="/conta/conexoes"
-              className="ml-1 inline-flex min-h-6 items-center text-text-3 normal-case tracking-normal underline decoration-line-2 underline-offset-[3px] hover:text-acc hover:decoration-current"
-            >
-              Verificar contas
-            </Link>
-          ) : null}
+          <div>
+            <span className="font-mono text-xs tracking-[0.14em] text-dim-2 uppercase">Personagem</span>
+            <h1 className="mt-1.5 text-[clamp(30px,4vw,44px)] leading-none font-black font-stretch-[125%] tracking-[-0.035em] break-words uppercase">
+              {character.displayName}
+            </h1>
+            {chips}
+            {bioText}
+          </div>
+        </>
+      ) : (
+        <div className="min-[641px]:col-span-2">
+          {chips}
+          {bioText}
         </div>
-        {bio ? <UserText text={bio} className="mt-3 max-w-[60ch] text-[15px] text-text-2" /> : null}
-      </div>
+      )}
 
       <div className="flex flex-wrap items-end gap-[18px] min-[641px]:col-span-2">
         <span className="text-[clamp(72px,10vw,112px)] leading-[0.8] font-black font-stretch-[125%] tracking-[-0.05em] text-acc tabular-nums">
@@ -130,13 +167,13 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin,
         <XpBar level={character.level} current={character.xpCurrent} next={character.xpNext} />
       </div>
 
-      <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-[2px] border border-line bg-line min-[641px]:col-span-2 min-[641px]:grid-cols-4">
-        {items.map(([label, value, note]) => (
+      <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-[2px] border border-line bg-line min-[641px]:col-span-2 min-[641px]:grid-cols-3">
+        {items.map(([label, value, note, title]) => (
           <div key={label} className="bg-surface px-3.5 py-3">
             <dt className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">
               {label}
             </dt>
-            <dd className="mt-1 text-2xl font-extrabold font-stretch-[112%] tabular-nums">
+            <dd className="mt-1 text-2xl font-extrabold font-stretch-[112%] tabular-nums" title={title}>
               {value}
               {note ? (
                 <small className="mt-0.5 block font-mono text-xs font-normal tracking-normal text-dim">

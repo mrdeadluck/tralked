@@ -6,6 +6,7 @@ import {
   isPlainBoard,
   METRIC_LABEL,
   METRICS,
+  NIVEL_TAB_HREF,
   SCOPE_LABEL,
   type Board,
   type Metric,
@@ -32,18 +33,19 @@ export function BoardNav({ board }: { board: Board }) {
             const active = metric === board.metric;
             return (
               <li key={metric}>
+                {/* Same tab as the profile and the news (mono, uppercase); the underline glides. */}
                 <Link
-                  href={boardHref(boardFor(metric, board))}
+                  href={metric === "nivel" ? NIVEL_TAB_HREF : boardHref(boardFor(metric, board))}
                   aria-current={active ? "page" : undefined}
                   scroll={false}
-                  className={`relative block px-3 py-3 text-sm font-bold whitespace-nowrap transition-colors ${
-                    active ? "text-text" : "text-muted hover:text-text"
+                  className={`relative inline-flex h-11 items-center px-3.5 font-mono text-xs tracking-[0.1em] whitespace-nowrap uppercase transition-colors ${
+                    active ? "font-bold text-text" : "text-text-3 hover:text-text"
                   }`}
                 >
                   {METRIC_LABEL[metric]}
                   {active ? (
                     <ViewTransition name="highscores-tab" share="auto" default="none">
-                      <span aria-hidden="true" className="absolute inset-x-2 -bottom-px block h-[3px] rounded-[2px] bg-acc" />
+                      <span aria-hidden="true" className="absolute inset-x-0 -bottom-px block h-0.5 bg-acc" />
                     </ViewTransition>
                   ) : null}
                 </Link>
@@ -87,7 +89,7 @@ function Chips({
 }) {
   return (
     <nav aria-label={label} className="flex flex-wrap items-center gap-1.5">
-      <span aria-hidden="true" className="mr-1 text-xs text-dim">
+      <span aria-hidden="true" className="mr-1 font-mono text-xs tracking-[0.1em] text-dim uppercase">
         {label}
       </span>
       {items.map((item) => (
@@ -96,10 +98,10 @@ function Chips({
           href={item.href}
           aria-current={item.active ? "page" : undefined}
           scroll={false}
-          className={`inline-flex h-8 items-center rounded-[2px] border px-3 text-[13px] transition-colors ${
+          className={`inline-flex h-11 items-center rounded-[2px] border px-3 font-mono text-xs tracking-[0.08em] uppercase transition-colors sm:h-[34px] ${
             item.active
               ? "border-text bg-text font-bold text-bg"
-              : "border-line-2 text-text-3 hover:border-text-3 hover:text-text"
+              : "border-line-2 text-text-3 hover:border-dim hover:text-text"
           }`}
         >
           {item.label}

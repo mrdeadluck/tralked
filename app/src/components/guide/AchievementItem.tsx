@@ -3,7 +3,8 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Chip } from "@/components/ui/Chip";
 import type { GuideAchievementView } from "@/lib/queries/games";
-import { CATEGORY_NAME, fmt, pctText, RARITY_UI } from "./format";
+import { CATEGORY_NAME, pctText, RARITY_UI } from "./format";
+import { formatCompact } from "@/lib/xp-format";
 import { RichText } from "./RichText";
 
 /** Blurred until clicked (or Enter/Space), unless `hidden` is false (spoilers shown or not a spoiler). */
@@ -91,7 +92,7 @@ export function AchievementItem({ achievement: a, showSpoilers }: AchievementIte
       </h3>
 
       <div className="row-span-3 flex flex-col items-end gap-1.5 text-right max-[640px]:col-start-2 max-[640px]:row-auto max-[640px]:flex-row max-[640px]:flex-wrap max-[640px]:items-center max-[640px]:text-left">
-        <span className="font-mono text-[13px] font-bold text-acc">+{fmt(a.xp)} XP</span>
+        <span className="font-mono text-[13px] font-bold text-acc">+{formatCompact(a.xp)} XP</span>
         <small className="font-mono text-xs text-dim">{pctText(a.globalPct)} dos jogadores</small>
         {a.done ? (
           <span className="font-mono text-xs tracking-[0.1em] text-acc uppercase">

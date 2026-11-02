@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: PageProps<"/highscores/[categ
   if (!board) return {};
   const title = boardTitle(board);
   return {
-    title: `Highscores: ${title} | Tralked`,
+    title: `Ranking: ${title} | Tralked`,
     description: `Ranking dos jogadores do Tralked: ${title}.`,
   };
 }

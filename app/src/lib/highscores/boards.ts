@@ -26,6 +26,12 @@ export type PlainMetric = "nivel" | "semana" | "novatos";
 export const PLAIN_METRICS: PlainMetric[] = ["nivel", "semana", "novatos"];
 const isPlain = (value: string): value is PlainMetric => (PLAIN_METRICS as string[]).includes(value);
 
+/** Players a board needs to fill its podium; below it `/highscores` opens on Esta semana. */
+export const MIN_PODIUM = 3;
+
+/** Address of the Nível tab (`/highscores` itself may open on another board). */
+export const NIVEL_TAB_HREF = "/highscores/nivel";
+
 /** Highest level on the Novatos board. */
 export const NOVATO_MAX_LEVEL = 20;
 /** Window of the Esta semana board, in days (rolling, not a calendar week). */
@@ -57,7 +63,8 @@ export const METRIC_LABEL: Record<Metric, string> = {
 /** One line under the tabs: what the board ranks. */
 export const METRIC_HINT: Record<Metric, string> = {
   nivel: "Nível do personagem, somando tudo o que você joga e conquista.",
-  semana: "XP ganho nos últimos 7 dias. O nível não importa: quem jogou mais nesta semana sobe.",
+  semana:
+    "XP ganho nos últimos 7 dias, de jogos e da comunidade (fotos, curtidas, respostas). O nível não importa: quem mais ganhou nesta semana sobe.",
   novatos: `Só jogadores até o nível ${NOVATO_MAX_LEVEL}. O lugar certo para disputar desde o começo.`,
   horas: "Horas reais informadas pelas plataformas, somadas de todos os jogos.",
   conquistas: "Conquistas e troféus válidos desbloqueados.",
@@ -82,10 +89,12 @@ const isSkill = (value: string | undefined): value is SkillId => !!value && SKIL
  * The board of a highscores path: `/highscores` (no category) is Nível; `/highscores/horas` is a
  * stat board over every platform and `/highscores/horas/psn` one platform; `/highscores/genero/rpg`
  * a genre (`/highscores/genero` is the first one). Anything else is null (a real 404).
+ * `/highscores/nivel` is Nível too: the tab's own address, since `/highscores` opens on Esta
+ * semana while Nível has too few players to fill a podium (see `MIN_PODIUM`).
  */
 export function boardFromPath(categoria?: string, filtro?: string): Board | null {
   if (categoria === undefined) return { metric: "nivel" };
-  if (categoria !== "nivel" && isPlain(categoria)) return filtro === undefined ? { metric: categoria } : null;
+  if (isPlain(categoria)) return filtro === undefined ? { metric: categoria } : null;
   if (categoria === "genero") {
     if (filtro === undefined) return { metric: "genero", skill: SKILLS[0].id };
     return isSkill(filtro) ? { metric: "genero", skill: filtro } : null;

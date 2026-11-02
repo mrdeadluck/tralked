@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { RemoteImg } from "@/components/ui/RemoteImg";
 import type { HomePlayer } from "@/lib/queries/home-player";
+import { formatCompact } from "@/lib/xp-format";
 import { LevelRing } from "./LevelRing";
 
 /*
@@ -9,13 +10,6 @@ import { LevelRing } from "./LevelRing";
  * 100%, today's mission, the streak and the rank, in one compact band above the news. Every cell
  * links to where that number lives. Logged-out visitors get InviteStrip instead.
  */
-
-/** 420_000 -> "420 mil", 1_250_000 -> "1,3 mi" (short and true, for "faltam … XP"). */
-export function shortXp(xp: number): string {
-  if (xp >= 1_000_000) return `${(xp / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`;
-  if (xp >= 10_000) return `${Math.round(xp / 1_000).toLocaleString("pt-BR")} mil`;
-  return xp.toLocaleString("pt-BR");
-}
 
 const cell = "flex min-w-0 items-center gap-3.5 bg-surface px-4 py-3.5 transition-colors hover:bg-hover focus-visible:bg-hover";
 const label = "font-mono text-xs tracking-[0.08em] text-muted uppercase";
@@ -57,7 +51,7 @@ export function PlayerStrip({ player }: { player: HomePlayer }) {
           {player.levelPct}% <span className="font-semibold text-text-2">até o {player.level + 1}</span>
         </span>
         <span className="font-mono text-xs text-muted">
-          {player.started ? `faltam ${shortXp(player.xpToNext)} XP` : "conecte uma conta para ganhar XP"}
+          {player.started ? `faltam ${formatCompact(player.xpToNext)} XP` : "conecte uma conta para ganhar XP"}
         </span>
       </span>
     </Cell>
@@ -129,7 +123,7 @@ export function PlayerStrip({ player }: { player: HomePlayer }) {
           <span className={`${label} flex justify-between gap-2`}>
             <span>{mission?.allDone ? "Missões de hoje" : "Missão de hoje"}</span>
             {mission ? (
-              <b className="font-bold text-acc normal-case max-sm:hidden">+{mission.rewardXp.toLocaleString("pt-BR")} XP</b>
+              <b className="font-bold text-acc normal-case max-sm:hidden">+{formatCompact(mission.rewardXp)} XP</b>
             ) : null}
           </span>
           {mission ? (
@@ -143,7 +137,7 @@ export function PlayerStrip({ player }: { player: HomePlayer }) {
                   {mission.progress}/{mission.goal}
                 </span>
               </span>
-              <b className="font-mono text-xs font-bold text-acc sm:hidden">+{mission.rewardXp.toLocaleString("pt-BR")} XP</b>
+              <b className="font-mono text-xs font-bold text-acc sm:hidden">+{formatCompact(mission.rewardXp)} XP</b>
             </>
           ) : (
             <span className="text-[14px] text-text-2">Novas missões chegam com a próxima sincronização.</span>

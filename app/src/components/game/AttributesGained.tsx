@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { GameAttributes } from "@/lib/queries/game-profile";
+import { formatCompact } from "@/lib/xp-format";
 
 /*
  * "O que este jogo deu ao seu personagem": what this one game added to the visitor's character
@@ -29,12 +30,6 @@ const CSS = `
 `;
 
 const fmt = (n: number) => n.toLocaleString("pt-BR");
-const fmtK = (n: number) =>
-  n >= 1e6
-    ? `${(n / 1e6).toFixed(1).replace(".", ",")}M`
-    : n >= 1e4
-      ? `${Math.round(n / 1e3)}k`
-      : fmt(n);
 
 type Cell = {
   key: string;
@@ -61,7 +56,7 @@ function cells(a: GameAttributes | null, genre: string | null): Cell[] {
     {
       key: "xp",
       label: "XP total",
-      value: a ? fmtK(a.xp) : null,
+      value: a ? formatCompact(a.xp) : null,
       up: false,
       text: "Soma de todas as conquistas, pela raridade.",
       source: "conquistas",

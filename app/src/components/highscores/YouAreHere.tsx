@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { Board } from "@/lib/highscores/boards";
+import { boardHref, type Board } from "@/lib/highscores/boards";
 import { gapText, rowDisplay } from "@/lib/highscores/format";
 import type { Standing } from "@/lib/highscores/queries";
 import { CountUp } from "./CountUp";
@@ -11,7 +11,9 @@ type Viewer = { handle: string; profilePublic: boolean } | null;
 
 /**
  * "Você está aqui": the viewer's rank on this board, pinned to the bottom of the screen, with the
- * distance to the player right above. Logged out, private or unranked viewers get the way in.
+ * distance to the player right above. Logged out, private or unranked viewers get the way in, as a
+ * plain bar at the end of the board (never pinned over the podium); when the podium still has an
+ * open step, that step already is the invitation and no second one is drawn.
  */
 export function YouAreHere({
   board,
@@ -19,18 +21,22 @@ export function YouAreHere({
   standing,
   leaderValue,
   since,
+  openPodium = false,
 }: {
   board: Board;
   viewer: Viewer;
   standing: Standing | null;
   leaderValue: number;
   since: string | null;
+  /** The podium shows an open step ("Seu lugar aqui · Conectar contas"). */
+  openPodium?: boolean;
 }) {
   if (!viewer) {
+    if (openPodium) return null;
     return (
       <Bar>
         <p className="text-sm text-text-2">Entre para ver a sua posição e disputar o pódio.</p>
-        <Action href="/entrar">Entrar</Action>
+        <Action href={`/entrar?returnTo=${encodeURIComponent(boardHref(board))}`}>Entrar</Action>
       </Bar>
     );
   }
@@ -43,6 +49,7 @@ export function YouAreHere({
     );
   }
   if (!standing) {
+    if (openPodium) return null;
     return (
       <Bar>
         <p className="text-sm text-text-2">Você ainda não aparece neste ranking. Conecte suas contas e sincronize para entrar.</p>
@@ -54,7 +61,7 @@ export function YouAreHere({
   const { row, above } = standing;
   const display = rowDisplay(board, row, leaderValue);
   return (
-    <Bar>
+    <Bar pinned>
       <div className="flex min-w-0 items-center gap-3">
         <PlayerAvatar avatarUrl={row.avatarUrl} displayName={row.displayName} size={40} medal="var(--acc)" />
         <div className="flex min-w-0 flex-col">
@@ -92,10 +99,12 @@ export function YouAreHere({
   );
 }
 
-function Bar({ children }: { children: ReactNode }) {
+/** `pinned`: the viewer's own rank, which follows the scroll; the invitations stay in place. */
+function Bar({ children, pinned = false }: { children: ReactNode; pinned?: boolean }) {
   return (
     <aside
       aria-label="Sua posição"
+      data-pinned={pinned ? "" : undefined}
       className="hs-you mt-6 flex min-h-[68px] flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-[4px] border border-line-2 border-t-acc/60 bg-surface-2/95 px-4 py-3 shadow-[0_12px_32px_var(--bg-deep)] backdrop-blur"
     >
       {children}

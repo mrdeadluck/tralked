@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { SkillIcon } from "@/components/character/SkillIcon";
+import type { LevelProgress } from "@/lib/progression/reward";
 import { formatCompact, formatExact } from "@/lib/xp-format";
 import { FxStyles } from "./FxStyles";
 
@@ -26,6 +27,10 @@ export type ToastData = {
   /** Bumped on every merge: restarts the fuse and the stamp. */
   generation?: number;
   leaving?: boolean;
+  /** XP toast: the level bar it moved (fills from `before` to `after`). */
+  progress?: LevelProgress;
+  /** XP toast: the viewer's XP of the last 7 days after it (what Esta semana ranks). */
+  weekXp?: number;
 };
 
 export type ToastInput = Omit<ToastData, "id" | "count" | "generation" | "leaving" | "prevXp">;
@@ -80,6 +85,17 @@ export function useToasts() {
                   xp: t.xp !== undefined || toast.xp !== undefined ? (t.xp ?? 0) + (toast.xp ?? 0) : undefined,
                   count: (t.count ?? 1) + 1,
                   generation: (t.generation ?? 0) + 1,
+                  // The bar keeps filling from where this toast started (same level), to the newest point.
+                  progress: toast.progress
+                    ? {
+                        ...toast.progress,
+                        before:
+                          t.progress && t.progress.level === toast.progress.level
+                            ? t.progress.before
+                            : toast.progress.before,
+                      }
+                    : t.progress,
+                  weekXp: toast.weekXp ?? t.weekXp,
                 }
               : t,
           );
@@ -136,6 +152,28 @@ function XpFigure({ from, value }: { from: number; value: number }) {
   return <span ref={ref}>{formatCompact(value)}</span>;
 }
 
+/**
+ * "NV 12 ▬▬▬░░ 64%": the level bar the reward moved. It fills from where the XP found it to where it
+ * left it (a level up starts it over), so even +5 XP is seen going somewhere.
+ */
+function LevelMeter({ progress }: { progress: LevelProgress }) {
+  const pct = (n: number) => `${(Math.min(1, Math.max(0, n)) * 100).toFixed(1)}%`;
+  return (
+    <span aria-hidden="true" className="flex items-center gap-2 pt-0.5 font-mono text-xs text-text-3">
+      <span className="whitespace-nowrap">
+        NV <b className="font-bold text-text tabular-nums">{progress.level}</b>
+      </span>
+      <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-[1px] bg-track">
+        <i
+          className="block h-full bg-acc transition-[width] duration-700 ease-[cubic-bezier(.16,1,.3,1)] starting:w-(--from) motion-reduce:transition-none"
+          style={{ "--from": pct(progress.before), width: pct(progress.after) } as CSSProperties}
+        />
+      </span>
+      <span className="text-text-2 tabular-nums">{Math.floor(Math.min(1, progress.after) * 100)}%</span>
+    </span>
+  );
+}
+
 function CloseIcon() {
   return (
     <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="square">
@@ -189,10 +227,25 @@ export function Toasts({ toasts, onDismiss }: { toasts: ToastData[]; onDismiss?:
                 ) : (
                   <b className="truncate text-[15px] leading-tight font-extrabold">{toast.title}</b>
                 )}
-                {label ? <span className="truncate font-mono text-xs text-text-3">{label}</span> : null}
+                {label ? (
+                  <span className="truncate font-mono text-xs text-text-3">
+                    {label}
+                    {isXp && toast.weekXp !== undefined ? (
+                      <span title={`${formatExact(toast.weekXp)} XP nos últimos 7 dias`}>
+                        {" · "}
+                        <b className="font-bold text-text-2">{formatCompact(toast.weekXp)} XP</b> na semana
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
+                {isXp && toast.progress ? <LevelMeter progress={toast.progress} /> : null}
               </span>
               <span className="sr-only">
-                {isXp ? `Mais ${formatExact(toast.xp ?? 0)} XP: ${label}` : `${toast.title}. ${toast.text ?? ""}`}
+                {isXp ? `Mais ${formatExact(toast.xp ?? 0)} XP: ${label}.` : `${toast.title}. ${toast.text ?? ""}`}
+                {isXp && toast.progress
+                  ? ` Nível ${toast.progress.level}, ${Math.floor(toast.progress.after * 100)}% do caminho para o ${toast.progress.level + 1}.`
+                  : null}
+                {isXp && toast.weekXp !== undefined ? ` ${formatExact(toast.weekXp)} XP nesta semana.` : null}
               </span>
             </span>
             {onDismiss ? (

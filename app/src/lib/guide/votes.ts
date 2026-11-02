@@ -1,9 +1,9 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { TIP_VOTE_XP } from "@/lib/community/rewards";
 import { recomputeUser } from "@/lib/progression/recompute";
 
-/** XP credited to a tip author for each distinct vote (Sábio skill). */
-export const TIP_VOTE_XP = 25;
+export { TIP_VOTE_XP };
 
 export type CastTipVoteResult =
   | { status: "voted"; authorUserId: string | null; votes: number }

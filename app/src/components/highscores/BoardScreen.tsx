@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense, ViewTransition } from "react";
 import { getSessionUser } from "@/lib/auth/session";
-import { boardKey, boardTitle, METRIC_HINT, type Board } from "@/lib/highscores/boards";
+import { boardKey, boardTitle, METRIC_HINT, MIN_PODIUM, type Board } from "@/lib/highscores/boards";
 import { getBoardCached } from "@/lib/highscores/cached";
 import { shortDay } from "@/lib/highscores/format";
 import { getStanding, type BoardView } from "@/lib/highscores/queries";
@@ -22,6 +22,7 @@ export async function BoardScreen({ board }: { board: Board }) {
   const leaderValue = rows[0]?.value ?? 0;
   const since = view.snapshotDay ? shortDay(view.snapshotDay) : null;
   const title = boardTitle(board);
+  const openPodium = rows.length > 0 && rows.length < MIN_PODIUM;
 
   return (
     <div className="pt-4">
@@ -61,9 +62,12 @@ export async function BoardScreen({ board }: { board: Board }) {
               />
             </>
           )}
-          {/* The island streams in after the cached list: its fallback holds the bar's room. */}
-          <Suspense fallback={<YouAreHereSkeleton />}>
-            <ViewerIsland board={board} view={view} leaderValue={leaderValue} since={since} />
+          {/*
+           * The island streams in after the cached list: its fallback holds the bar's room. With an
+           * open podium step most visitors get no bar (the step is the invitation): no room held.
+           */}
+          <Suspense fallback={openPodium ? null : <YouAreHereSkeleton />}>
+            <ViewerIsland board={board} view={view} leaderValue={leaderValue} since={since} openPodium={openPodium} />
           </Suspense>
         </section>
       </ViewTransition>
@@ -77,11 +81,13 @@ async function ViewerIsland({
   view,
   leaderValue,
   since,
+  openPodium,
 }: {
   board: Board;
   view: BoardView;
   leaderValue: number;
   since: string | null;
+  openPodium: boolean;
 }) {
   const viewer = await getSessionUser();
   // Live rank, while the list above is cached for a few minutes: right after a sync the two can
@@ -106,6 +112,7 @@ async function ViewerIsland({
         standing={standing}
         leaderValue={leaderValue}
         since={since}
+        openPodium={openPodium}
       />
     </>
   );

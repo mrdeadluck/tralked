@@ -11,14 +11,15 @@ type RecentlyPlayedProps = { games: RecentlyPlayedGame[]; now: Date; libraryHref
 /** "Jogou recentemente": os últimos jogos jogados, do mais recente para o mais antigo. */
 export function RecentlyPlayed({ games, now, libraryHref }: RecentlyPlayedProps) {
   return (
-    <section className="flex min-w-0 flex-col">
+    <section className="@container flex min-w-0 flex-col">
       <SectionHead title="Jogou recentemente" aside={<Link href={libraryHref}>Ver biblioteca →</Link>} />
       {games.length === 0 ? (
         <p className="pt-5 text-sm text-muted">
           Nenhuma partida recente ainda. Os jogos aparecem aqui depois da próxima sincronização.
         </p>
       ) : (
-        <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4 p-0 pt-5">
+        // Six games fill whole rows at every width: 2, 3 or 6 per row (by the column, not the screen).
+        <ul className="m-0 grid list-none grid-cols-2 gap-4 p-0 pt-5 @min-[440px]:grid-cols-3 @min-[820px]:grid-cols-6">
           {games.map((game) => (
             <li key={game.slug}>
               <Link

@@ -57,7 +57,12 @@ export function rowDisplay(board: Board, p: RankedPlayer, leaderValue: number): 
       return {
         value: p.value,
         unit: "XP",
-        detail: `Nível ${p.level}`,
+        // Community XP (photos, likes, answers) counts here like any other: the row says how much.
+        detail: p.secondary > 0 ? `Nível ${p.level} · ${formatCompact(p.secondary)} da comunidade` : `Nível ${p.level}`,
+        detailTitle:
+          p.secondary > 0
+            ? `${formatExact(p.secondary)} XP de fotos, curtidas e respostas nos últimos 7 dias`
+            : undefined,
         compact: true,
         valueTitle: `${formatExact(p.value)} XP nos últimos 7 dias`,
         ...relative("XP da semana"),

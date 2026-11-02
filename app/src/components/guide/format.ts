@@ -2,13 +2,6 @@ import type { RarityTier } from "@/lib/engine/types";
 
 export const fmt = (n: number) => n.toLocaleString("pt-BR");
 
-export const fmtK = (n: number) =>
-  n >= 1e6
-    ? `${(n / 1e6).toFixed(1).replace(".", ",")}M`
-    : n >= 1e3
-      ? `${Math.round(n / 1e3)}k`
-      : String(n);
-
 /** Share of players, e.g. 17.5 -> "17,5%". */
 export const pctText = (pct: number | null) =>
   pct === null ? "--" : `${String(pct).replace(".", ",")}%`;

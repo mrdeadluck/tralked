@@ -4,22 +4,39 @@ import { PLATFORM_LABEL, PLATFORM_TOKEN } from "@/components/character/platforms
 import { SkillIcon } from "@/components/character/SkillIcon";
 import type { CharacterSkill } from "@/lib/queries/players";
 import type { PlatformId } from "@/lib/engine/trophies";
+import { levelFromXp, xpForAchievement } from "@/lib/engine/xp";
 
 /*
  * An EXAMPLE character sheet, for visitors (sign-up, login, the logged-out "Personagem"). Every
  * number here is illustrative and the card says so twice: the "Exemplo" tag and the caption.
- * Nothing on it claims to be a real player.
+ * Nothing on it claims to be a real player. The level and the XP still come from the engine's own
+ * formulas (an example player with these unlocks would be exactly here), so the sample never
+ * contradicts /como-funciona or a real sheet.
  */
+
+/** The example's unlocks by global unlock %: 1.284 in all, the same as its trophy tiers. */
+const SAMPLE_UNLOCKS: [count: number, globalPct: number][] = [
+  [733, 60],
+  [391, 25],
+  [148, 10],
+  [12, 2],
+];
+
+/** XP of the example's unlocks, by the real achievement formula. */
+export const SAMPLE_TOTAL_XP = SAMPLE_UNLOCKS.reduce((sum, [count, pct]) => sum + count * xpForAchievement(pct), 0);
+
+/** Where that XP puts the example: level, XP inside the level and what the level spans. */
+export const SAMPLE_PROGRESS = levelFromXp(SAMPLE_TOTAL_XP);
 
 export const SAMPLE = {
   name: "Sua ficha",
   handle: "seu_arroba",
   vocation: "Caçador de platinas",
-  level: 34,
+  level: SAMPLE_PROGRESS.level,
   /** Share of the current level already earned (0..1). */
-  levelProgress: 0.62,
+  levelProgress: SAMPLE_PROGRESS.fraction,
   platinums: 12,
-  achievements: 1284,
+  achievements: SAMPLE_UNLOCKS.reduce((sum, [count]) => sum + count, 0),
   platforms: ["steam", "psn", "xbox"] as PlatformId[],
 } as const;
 

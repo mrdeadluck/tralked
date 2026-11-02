@@ -54,7 +54,7 @@ export function AlmostThere({ games }: AlmostThereProps) {
                   <span>
                     <b className="text-text">{game.unlocked}</b> / {game.total} {game.total === 1 ? "conquista" : "conquistas"}
                   </span>
-                  <Ring value={game.percent} />
+                  <Ring value={game.percent} size={48} />
                 </div>
               </div>
             </Link>

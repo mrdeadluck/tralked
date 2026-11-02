@@ -1,4 +1,4 @@
-import { fmtK } from "@/components/guide/format";
+import { formatCompact } from "@/lib/xp-format";
 import type { GuideFacts } from "@/lib/queries/games";
 import { timeTo100Label } from "@/lib/queries/time-to-100";
 
@@ -30,7 +30,7 @@ export function FactsStrip({ facts, totalXp }: { facts: GuideFacts; totalXp: num
       value: facts.online === 0 ? "Nenhuma" : String(facts.online),
       note: facts.online === 0 ? "tudo offline" : "exigem partida online",
     },
-    { label: "XP do guia", value: fmtK(totalXp), note: "nas conquistas listadas" },
+    { label: "XP do guia", value: formatCompact(totalXp), note: "nas conquistas listadas" },
   ];
 
   return (

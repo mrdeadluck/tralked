@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/Card";
 import type { CharacterMission } from "@/lib/queries/players";
 import { CardHead } from "./CardHead";
-import { formatNumber } from "./format";
+import { formatCompact } from "@/lib/xp-format";
 
 type MissionsCardProps = {
   missions: CharacterMission[];
@@ -36,7 +36,7 @@ export function MissionsCard({ missions, resetLabel }: MissionsCardProps) {
                   </small>
                 </div>
                 <span className="text-right font-mono text-xs font-bold text-acc">
-                  +{formatNumber(mission.rewardXp)} XP
+                  +{formatCompact(mission.rewardXp)} XP
                 </span>
                 <div
                   role="progressbar"
