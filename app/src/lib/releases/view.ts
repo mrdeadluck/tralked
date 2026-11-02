@@ -29,6 +29,8 @@ export type ReleaseView = {
   /** "hoje", "amanhã", "há 3 dias", "em 12 dias"; null without a day. */
   relative: string | null;
   score: number;
+  /** Size of the release on one scale for every source (lib/releases/heat.ts): lists lead with it. */
+  heat: number;
   /** Name-only catalog entry: its page says details are on the way. */
   stub: boolean;
 };

@@ -65,23 +65,3 @@ export function AchievementRow({ achievement }: { achievement: ProfileAchievemen
     </li>
   );
 }
-
-/** Card of the "Mais raras" highlight. */
-export function RareAchievementCard({ achievement }: { achievement: ProfileAchievement }) {
-  return (
-    <li className="flex gap-3 rounded-[4px] border border-line bg-surface p-3.5">
-      <Icon achievement={achievement} size={56} />
-      <div className="min-w-0">
-        <p className="text-[clamp(22px,2.4vw,26px)] leading-none font-black font-stretch-[112%] tabular-nums" style={{ color: RARITY_COLOR[achievement.rarity] }}>
-          {achievement.globalPct !== null ? formatGlobalPct(achievement.globalPct) : "—"}
-        </p>
-        <h3 className="mt-1 truncate text-sm font-extrabold" title={achievement.name}>
-          {achievement.name}
-        </h3>
-        <Link href={`/jogos/${achievement.game.slug}`} className="block truncate text-[13px] text-text-3 hover:text-acc">
-          {achievement.game.name}
-        </Link>
-      </div>
-    </li>
-  );
-}

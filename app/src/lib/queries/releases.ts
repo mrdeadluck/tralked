@@ -2,6 +2,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { dayKey, MONTH_NAMES } from "@/lib/calendar/month";
 import { prisma } from "@/lib/db";
 import { igdbCatalogAvailable } from "@/lib/integrations/igdb";
+import { releaseHeat } from "@/lib/releases/heat";
 import { RELEASE_PLATFORMS, isReleasePlatform, type ReleasePlatform } from "@/lib/releases/platforms";
 import {
   RELEASE_FILTERS,
@@ -42,12 +43,25 @@ export function relativeDay(day: string, todayKey: string): string {
   return diff > 0 ? `em ${diff} dias` : `há ${-diff} dias`;
 }
 
-type Row = Prisma.GameReleaseGetPayload<{ include: { game: { select: { slug: true; name: true; coverUrl: true; stub: true } } } }>;
+/** Game fields a release list reads: what it shows and the popularity signals behind `heat`. */
+const GAME_SELECT = {
+  slug: true,
+  name: true,
+  coverUrl: true,
+  stub: true,
+  popularity: true,
+  steamReviewTotal: true,
+  steamPlayers: { select: { current: true } },
+} as const satisfies Prisma.GameSelect;
+
+type Row = Prisma.GameReleaseGetPayload<{ include: { game: { select: typeof GAME_SELECT } } }>;
 
 /**
  * Groups release rows by game (a game out on PC and PS5 in the window is one entry with both
  * platforms; its day is the earliest of them for "Próximos", the latest for "Últimos"). Only the
  * rows inside the window count: a PS5 release still ahead is not listed under "Últimos".
+ * Biggest releases first (`heat`), so the big launches lead and the long tail sinks; ties go to
+ * the most recent (Últimos) or the soonest (Próximos) day.
  */
 export function groupReleases(rows: Row[], tab: ReleaseTab, todayKey: string): ReleaseView[] {
   const byGame = new Map<string, { rows: Row[] }>();
@@ -74,16 +88,24 @@ export function groupReleases(rows: Row[], tab: ReleaseTab, todayKey: string): R
       dateText: day ? releaseDateText(day, todayKey) : (label ?? "a definir"),
       relative: day ? relativeDay(day, todayKey) : null,
       score: Math.max(...group.map((r) => r.score)),
+      heat: releaseHeat({
+        steamList: group.filter((r) => r.source === "steam").map((r) => r.score),
+        igdb: group.filter((r) => r.source === "igdb").map((r) => r.score),
+        reviews: game.steamReviewTotal,
+        owners: game.popularity,
+        players: game.steamPlayers?.current,
+      }),
       stub: game.stub,
     });
   }
   return views.sort((a, b) => {
+    if (a.heat !== b.heat) return b.heat - a.heat;
     if (a.day !== b.day) {
       if (a.day === null) return 1;
       if (b.day === null) return -1;
       return tab === "proximos" ? a.day.localeCompare(b.day) : b.day.localeCompare(a.day);
     }
-    return b.score - a.score || a.name.localeCompare(b.name, "pt-BR");
+    return a.name.localeCompare(b.name, "pt-BR");
   });
 }
 
@@ -115,7 +137,7 @@ export function releaseWindow(tab: ReleaseTab, now: Date): Prisma.GameReleaseWhe
 }
 
 /**
- * Releases of a tab, most recent / soonest first; with `platform`, the games out on that family
+ * Releases of a tab, biggest first (see groupReleases); with `platform`, the games out on that family
  * (still listing all their platforms in the window). The family is filtered in SQL
  * (GameRelease_platform_date_idx) before the most popular games are taken, so a busy family never
  * pushes another out; then every row of those games in the window is loaded.
@@ -131,15 +153,36 @@ export async function listReleases(tab: ReleaseTab, now: Date, platform?: Releas
   if (picked.length === 0) return [];
   const rows = await prisma.gameRelease.findMany({
     where: { AND: [window, { gameId: { in: [...new Set(picked.map((p) => p.gameId))] } }] },
-    include: { game: { select: { slug: true, name: true, coverUrl: true, stub: true } } },
+    include: { game: { select: GAME_SELECT } },
   });
   return groupReleases(rows, tab, todayUtc(now).key);
 }
 
-/** The `n` most popular releases of a list, shown in date order (the card's picks). */
+/** The `n` biggest releases of a list, biggest first (the home card's picks). */
 export function topReleases(list: ReleaseView[], n: number): ReleaseView[] {
-  const picked = new Set([...list].sort((a, b) => b.score - a.score).slice(0, n).map((r) => r.gameId));
-  return list.filter((r) => picked.has(r.gameId));
+  return [...list].sort((a, b) => b.heat - a.heat).slice(0, n);
+}
+
+/**
+ * "Destaques da semana" of /lancamentos: the biggest releases of the seven days nearest today
+ * (out in the last week for Últimos, coming in the next one for Próximos). Fewer than `min` that
+ * week: the biggest of the whole list instead, with `week` false so the title can say so.
+ */
+export function weekHighlights(
+  list: ReleaseView[],
+  tab: ReleaseTab,
+  todayKey: string,
+  n = 4,
+  min = 3,
+): { picks: ReleaseView[]; week: boolean } {
+  const today = Date.parse(`${todayKey}T00:00:00Z`);
+  const inWeek = (r: ReleaseView) => {
+    if (!r.day) return false;
+    const diff = (Date.parse(`${r.day}T00:00:00Z`) - today) / DAY_MS;
+    return tab === "ultimos" ? diff <= 0 && diff > -7 : diff >= 0 && diff < 7;
+  };
+  const week = topReleases(list.filter(inWeek), n);
+  return week.length >= min ? { picks: week, week: true } : { picks: topReleases(list, n), week: false };
 }
 
 export async function getReleasesCard(now: Date, perList = 6): Promise<ReleasesCardData> {
