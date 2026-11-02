@@ -14,6 +14,8 @@ const ConfigSchema = z.object({
   DAILY_BUDGET_USD: opt(z.coerce.number().positive().default(5)),
   BACKFILL_BUDGET_USD: opt(z.coerce.number().positive().default(70)),
   MAX_PER_DAY: opt(z.coerce.number().int().positive().default(15)),
+  /** News older than this (since its first item) is never published: daily news only, no backdated stories. */
+  NEWS_MAX_AGE_HOURS: opt(z.coerce.number().positive().default(12)),
   SLOT_FIRST_HOUR: opt(z.coerce.number().int().min(0).max(23).default(6)),
   SLOT_LAST_HOUR: opt(z.coerce.number().int().min(0).max(23).default(23)),
   BACKFILL_DAYS: opt(z.coerce.number().int().positive().default(90)),

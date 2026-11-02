@@ -193,8 +193,12 @@ function storyStartedAt(story: StoryRow, db: Db, now: Date): Date {
   return times.length > 0 ? new Date(Math.min(...times)) : new Date(story.first_seen_at);
 }
 
-function expired(story: StoryRow, db: Db, now: Date): boolean {
-  return isExpired({ score: story.score, firstSeenAt: storyStartedAt(story, db, now) }, now);
+function expired(story: StoryRow, deps: PipelineDeps, now: Date): boolean {
+  return isExpired(
+    { score: story.score, firstSeenAt: storyStartedAt(story, deps.db, now) },
+    now,
+    deps.config.NEWS_MAX_AGE_HOURS,
+  );
 }
 
 /** Local slot (São Paulo day and hour) used for the one-article-per-hour rule of `publica`. */
@@ -865,7 +869,7 @@ function planUpdatesAndFollowUps(
 function expireStale(deps: PipelineDeps, report: ColetaReport, now: Date): void {
   for (const status of ["open", "queued"] as const) {
     for (const story of deps.db.storiesByStatus(status, 100_000)) {
-      if (story.mode !== "live" || !expired(story, deps.db, now)) continue;
+      if (story.mode !== "live" || !expired(story, deps, now)) continue;
       if (deps.db.setStoryStatusIf(story.id, "expired", ["open", "queued"])) report.expired++;
     }
   }
@@ -1015,7 +1019,7 @@ export async function runColeta(deps: PipelineDeps): Promise<ColetaReport> {
 function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
   for (const story of deps.db.storiesByStatus("queued", 100_000)) {
     if (story.mode !== "live") continue;
-    if (expired(story, deps.db, now)) {
+    if (expired(story, deps, now)) {
       deps.db.setStoryStatusIf(story.id, "expired", ["queued"]);
       continue;
     }

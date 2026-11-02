@@ -108,6 +108,12 @@ describe("isExpired", () => {
     expect(isExpired({ score: 70, firstSeenAt: first }, new Date(at(48).getTime() + 1))).toBe(true);
   });
 
+  it("with a max age, expires every story past it, whatever the score (news of the day only)", () => {
+    expect(isExpired({ score: 95, firstSeenAt: first }, at(12), 12)).toBe(false);
+    expect(isExpired({ score: 95, firstSeenAt: first }, new Date(at(12).getTime() + 1), 12)).toBe(true);
+    expect(isExpired({ score: 40, firstSeenAt: first }, new Date(at(12).getTime() + 1), 12)).toBe(true);
+  });
+
   it("score 69 vs 70 at 30 h", () => {
     expect(isExpired({ score: 69, firstSeenAt: first }, at(30))).toBe(true);
     expect(isExpired({ score: 70, firstSeenAt: first }, at(30))).toBe(false);

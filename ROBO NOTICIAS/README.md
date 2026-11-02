@@ -34,7 +34,7 @@ All commands run from this folder with `pnpm <command>`.
 | Command | What it does |
 |---|---|
 | `pnpm coleta` | Collects every active source, triages, clusters, queues stories, publishes "bombs" right away and updates same-day articles. Runs every 30 min, 24 h a day. |
-| `pnpm publica [--agora]` | Publishes the best queued story, one per hour between 06:00 and 23:00 (America/Sao_Paulo), at most `MAX_PER_DAY` (15) a day. Waits 0 to 12 min first; `--agora` skips the wait. |
+| `pnpm publica [--agora]` | Publishes the best queued story, one per hour between 06:00 and 23:00 (America/Sao_Paulo), at most `MAX_PER_DAY` (15) a day. Waits 0 to 12 min first; `--agora` skips the wait. News of the day only: a story older than `NEWS_MAX_AGE_HOURS` (12 h, counted from its first item) expires unpublished, so no backdated news goes out; Pautas Tralked (games, guides) are not affected. |
 | `pnpm retroativo` | Backfill: writes the older articles of the last `BACKFILL_DAYS` days with backdated times, under its own budget. |
 | `pnpm resumo [dia]` | Prints and e-mails the counts for a local day: collected, dropped, queued, published, updated, check failures, spend by bucket and broken sources. `dia` is `AAAA-MM-DD` or `ontem`; the default is today. |
 | `pnpm despublicar --de AAAA-MM-DD --ate AAAA-MM-DD [--fonte id] [--confirmar]` | Bulk unpublish by publication day (local), optionally only stories that used source `id`. Without `--confirmar` it only lists. With it, it PATCHes `{status: "archived"}` on the site for each match and marks it `archived` locally. |

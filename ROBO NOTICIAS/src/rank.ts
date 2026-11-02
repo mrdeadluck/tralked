@@ -41,8 +41,11 @@ export function isPublishable(s: Pick<StoryStats, "tiers" | "sourceCount" | "rum
   return hasOficial || s.sourceCount >= 2 || (s.sourceCount === 1 && hasPortal && !s.rumor);
 }
 
-/** Expired once older than 24 h when `score < 70`, otherwise once older than 48 h (exactly 24/48 h is not yet expired). */
-export function isExpired(s: { score: number; firstSeenAt: Date }, now: Date): boolean {
-  const maxAgeMs = (s.score < 70 ? 24 : 48) * HOUR_MS;
+/**
+ * Expired once older than 24 h when `score < 70`, otherwise once older than 48 h (exactly 24/48 h is not yet
+ * expired). With `maxAgeHours`, that age for every score (the robot's NEWS_MAX_AGE_HOURS: news of the day only).
+ */
+export function isExpired(s: { score: number; firstSeenAt: Date }, now: Date, maxAgeHours?: number): boolean {
+  const maxAgeMs = (maxAgeHours ?? (s.score < 70 ? 24 : 48)) * HOUR_MS;
   return now.getTime() - s.firstSeenAt.getTime() > maxAgeMs;
 }
