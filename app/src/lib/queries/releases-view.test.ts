@@ -81,4 +81,16 @@ describe("release views", () => {
     expect(weekHighlights(list.slice(0, 2), "ultimos", "2026-10-31").week).toBe(false);
     expect(weekHighlights(list.slice(0, 2), "ultimos", "2026-10-31").picks[0].gameId).toBe("old");
   });
+
+  it("week highlights prefer real covers among the biggest, biggest first", () => {
+    const v = (gameId: string, heat: number, coverUrl: string | null) =>
+      ({ gameId, day: "2026-10-30", heat, coverUrl }) as ReleaseView;
+    const cover = "https://images.igdb.com/igdb/image/upload/t_cover_big/co1.jpg";
+    const header = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1/header.jpg";
+    const list = [v("a", 900, null), v("b", 800, header), v("c", 700, cover), v("d", 600, cover), v("e", 100, cover)];
+    // Twice as many as needed are considered (4 of 5 for 2 picks): "e" is too small to jump in.
+    expect(weekHighlights(list, "ultimos", "2026-10-31", 2, 2).picks.map((r) => r.gameId)).toEqual(["c", "d"]);
+    // Not enough covers among the biggest: the biggest without one fills in, still biggest first.
+    expect(weekHighlights(list.slice(0, 4), "ultimos", "2026-10-31", 3, 2).picks.map((r) => r.gameId)).toEqual(["a", "c", "d"]);
+  });
 });

@@ -68,7 +68,9 @@ export function Roadmap({ steps, loggedIn, returnTo, pending = false }: RoadmapP
               }`}
             >
               <div>
-                <div className="flex flex-wrap items-start justify-between gap-3">
+                {/* The checkbox keeps one place on every step: the right column, or under the
+                    step's numbers on a phone (never wherever the title's length pushes it). */}
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-6 gap-y-1 max-[640px]:grid-cols-1">
                   <div>
                     <h3 className="text-[22px] leading-[1.15] font-extrabold font-stretch-[105%] tracking-[-0.02em]">
                       {step.title}
@@ -80,7 +82,12 @@ export function Roadmap({ steps, loggedIn, returnTo, pending = false }: RoadmapP
                       </span>
                     </div>
                   </div>
-                  <CheckLabel checked={isDone} disabled={pending} onChange={() => onToggle(step)}>
+                  <CheckLabel
+                    checked={isDone}
+                    disabled={pending}
+                    onChange={() => onToggle(step)}
+                    className="self-start max-[640px]:min-h-11 max-[640px]:justify-self-start min-[641px]:mt-1"
+                  >
                     Etapa concluída
                   </CheckLabel>
                 </div>

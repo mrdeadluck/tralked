@@ -1,5 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { dayKey, MONTH_NAMES } from "@/lib/calendar/month";
+import { isWideArt } from "@/lib/case-art";
 import { prisma } from "@/lib/db";
 import { igdbCatalogAvailable } from "@/lib/integrations/igdb";
 import { releaseHeat } from "@/lib/releases/heat";
@@ -181,8 +182,22 @@ export function weekHighlights(
     const diff = (Date.parse(`${r.day}T00:00:00Z`) - today) / DAY_MS;
     return tab === "ultimos" ? diff <= 0 && diff > -7 : diff >= 0 && diff < 7;
   };
-  const week = topReleases(list.filter(inWeek), n);
-  return week.length >= min ? { picks: week, week: true } : { picks: topReleases(list, n), week: false };
+  const week = list.filter(inWeek);
+  return week.length >= min ? { picks: coverFirst(week, n), week: true } : { picks: coverFirst(list, n), week: false };
+}
+
+/** A stored portrait cover (not wide store art kept as the cover). */
+const hasCover = (r: ReleaseView) => Boolean(r.coverUrl) && !isWideArt(r.coverUrl);
+
+/**
+ * The `n` picks of the highlights: among the biggest releases (twice as many as needed), those
+ * with a real cover first, so the large cases show cover art; then the biggest of the rest.
+ * Biggest first inside each group.
+ */
+function coverFirst(list: ReleaseView[], n: number): ReleaseView[] {
+  const pool = topReleases(list, n * 2);
+  const covered = pool.filter(hasCover);
+  return [...covered, ...pool.filter((r) => !hasCover(r))].slice(0, n).sort((a, b) => b.heat - a.heat);
 }
 
 export async function getReleasesCard(now: Date, perList = 6): Promise<ReleasesCardData> {

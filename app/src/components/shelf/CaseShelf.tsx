@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import type { CaseArtSource } from "@/lib/case-art";
 import { artHues, hashSeed } from "@/lib/queries/news";
-import { CaseCover } from "./CaseCover";
+import { CoverArt } from "@/components/art/CoverArt";
 
 /*
  * The case shelf of the game page prototype ("Na mesma estante", preview/tralked-jogo.html) as a
@@ -17,13 +17,8 @@ const CSS = `
 .cs a { position: relative; display: flex; flex-direction: column; gap: 22px; color: inherit; text-decoration: none; }
 .cs-box { position: relative; display: block; aspect-ratio: 1 / 1.38; border-radius: 2px 6px 6px 2px; overflow: hidden; background: var(--surface); transform: perspective(900px) rotateY(-14deg); transform-origin: left center; transition: transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s; box-shadow: -6px 0 0 #0d0e12, 0 20px 30px -10px rgba(0,0,0,.8); }
 .cs a:hover .cs-box, .cs a:focus-visible .cs-box { transform: perspective(900px) rotateY(-2deg) translateY(-6px); box-shadow: -3px 0 0 #0d0e12, 0 26px 36px -10px rgba(0,0,0,.9), 0 0 0 1px var(--acc); }
-.cs-img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.cs-blur { position: absolute; inset: -12%; width: 124%; height: 124%; object-fit: cover; filter: blur(14px) brightness(.55) saturate(1.2); }
-.cs-wide { position: absolute; left: 0; right: 0; top: 50%; width: 100%; transform: translateY(-50%); box-shadow: 0 8px 24px rgba(0,0,0,.6); }
-.cs-top { position: absolute; top: 0; left: 0; right: 0; height: 12%; background: var(--bg); border-bottom: 2px solid var(--acc); }
-.cs-nm { position: absolute; bottom: 8%; left: 0; right: 0; text-align: center; font-weight: 900; font-stretch: 125%; font-size: min(15px, calc(100cqw * .86 / var(--longest, 1))); line-height: .95; text-transform: uppercase; padding: 0 8px; text-shadow: 0 2px 10px rgba(0,0,0,.8); overflow-wrap: normal; word-break: normal; hyphens: manual; }
-.cs-flag { position: absolute; top: 8px; right: 8px; background: var(--acc); color: var(--bg); padding: 3px 6px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
-.cs-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,.6); }
+.cs-flag { z-index: 4;  position: absolute; top: 8px; right: 8px; background: var(--acc); color: var(--bg); padding: 3px 6px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+.cs-bar { z-index: 4;  position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,.6); }
 .cs-bar > span { display: block; height: 100%; width: var(--pct); background: var(--acc); }
 .cs-cap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .cs-name { margin: 0; font-size: 15px; line-height: 1.2; font-weight: 800; letter-spacing: -.01em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
@@ -32,7 +27,6 @@ const CSS = `
 .cs-meta b { color: var(--text); font-weight: 500; }
 .cs-meta .acc { color: var(--acc); }
 .cs-lg { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 44px 34px; padding-inline: 18px; }
-.cs-lg .cs-nm { font-size: min(22px, calc(100cqw * .86 / var(--longest, 1))); }
 .cs-lg .cs-name { font-size: 18px; }
 @media (max-width: 520px) { .cs-lg { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 26px; } }
 @media (prefers-reduced-motion: reduce) { .cs-box { transition: none; } .cs a:hover .cs-box, .cs a:focus-visible .cs-box { transform: perspective(900px) rotateY(-14deg); } }
@@ -70,7 +64,17 @@ export function CaseItem({ href, slug, name, art, flag, progress, children }: Ca
     <li>
       <Link href={href}>
         <span className="cs-box">
-          <CaseCover name={name} art={art} seed={hashSeed(slug)} hues={artHues(slug, slug)} />
+          {/* The one cover pipeline (CoverArt): wide store art is printed as a case, never blurred. */}
+          <CoverArt
+            name={name}
+            sources={art}
+            ratio="1 / 1.38"
+            seed={hashSeed(slug)}
+            hues={artHues(slug, slug)}
+            alt=""
+            width={260}
+            sizes="(max-width: 520px) 45vw, 260px"
+          />
           {flag ? <span className="cs-flag">{flag}</span> : null}
           {progress != null ? (
             <span className="cs-bar" aria-hidden="true">

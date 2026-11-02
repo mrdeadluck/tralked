@@ -243,7 +243,7 @@ export async function syncSteamDetails(appId: number, deps: SteamCatalogDeps): P
   let videoOrder = 0;
   for (const trailer of store.trailers) {
     if (videoOrder >= MAX_TRAILERS) break;
-    if (await exists(politeFetch, trailer.url)) media.push({ kind: "video", order: videoOrder++, url: trailer.url });
+    if (await exists(politeFetch, trailer.url)) media.push({ kind: "video", order: videoOrder++, url: trailer.url, title: trailer.name });
   }
 
   const { game } = await writeCatalogGame({

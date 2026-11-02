@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { longestWordEm, titleFitStyle } from "./title-fit";
+import { longestWordEm, titleBoxFit, titleFitStyle } from "./title-fit";
 
 describe("longestWordEm", () => {
   it("measures the widest word, not the longest string", () => {
@@ -27,5 +27,20 @@ describe("longestWordEm", () => {
   it("passes the value to CSS as --longest (at least 1)", () => {
     expect(titleFitStyle("Supercalifragilisticexpialidocious")).toEqual({ "--longest": longestWordEm("Supercalifragilisticexpialidocious") });
     expect(titleFitStyle("")).toEqual({ "--longest": 1 });
+  });
+});
+
+describe("titleBoxFit", () => {
+  it("shrinks a long title until its lines fit the area, a short one stays big", () => {
+    const area = { ratio: 10 / 16, widthFrac: 0.84, heightFrac: 0.76 };
+    const name = "Tom Clancy's Splinter Cell: Pandora Tomorrow";
+    const long = titleBoxFit(name, area);
+    const short = titleBoxFit("Moylo", area);
+    expect(short).toBeGreaterThan(long * 1.8);
+    // The longest word always fits the width.
+    expect((long / 100) * longestWordEm(name)).toBeLessThanOrEqual(0.84);
+    // Six words wrapped at that size stay inside 0.76 × 10/16 of the width: well under the
+    // longest-word cap alone (which let the name climb over the top band).
+    expect(long).toBeLessThan((0.84 / longestWordEm(name)) * 100);
   });
 });

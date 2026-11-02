@@ -30,10 +30,19 @@ describe("GameArt (real image)", () => {
     expect(src()).toBe("https://cdn2.steamgriddb.com/hero_thumb/393cb2b797b64d4b4ca1c3634deb3345.jpg");
     fireEvent.error(container.querySelector("img")!);
     expect(src()).toBe("https://cdn2.steamgriddb.com/hero_thumb/393cb2b797b64d4b4ca1c3634deb3345.png");
+    // The failed JPEG thumbnail is remembered: the PNG one is now this art's sized copy.
+    expect(container.querySelector("img")!.getAttribute("srcset")).not.toContain(".jpg");
+    fireEvent.error(container.querySelector("img")!);
+    expect(src()).toBe(HERO);
     expect(container.querySelector("img")!.hasAttribute("srcset")).toBe(false);
     fireEvent.error(container.querySelector("img")!);
     expect(src()).toBe(HERO);
-    fireEvent.error(container.querySelector("img")!);
-    expect(src()).toBe(HERO);
+  });
+
+  it("asks a remembered PNG-only thumbnail directly on the next render of that art", () => {
+    const { container } = render(<GameArt seed={1} imageUrl={HERO} width={400} height={200} />);
+    expect(container.querySelector("img")!.getAttribute("src")).toBe(
+      "https://cdn2.steamgriddb.com/hero_thumb/393cb2b797b64d4b4ca1c3634deb3345.png",
+    );
   });
 });

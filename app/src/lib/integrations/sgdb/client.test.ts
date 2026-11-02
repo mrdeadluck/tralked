@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSgdbClient } from "./client";
+import { assetUrl, createSgdbClient } from "./client";
 import { createSgdbFixture } from "./fixture";
 
 describe("sgdb client", () => {
@@ -44,6 +44,16 @@ describe("sgdb client", () => {
       heroUrl: undefined,
       logoUrl: "https://img/logo",
     });
+  });
+
+  it("marks art whose thumbnail exists only in PNG (transparent images)", () => {
+    const grid = "https://cdn2.steamgriddb.com/grid/1130064514f563b2d894f0840d31db3c.png";
+    expect(assetUrl({ url: grid, thumb: "https://cdn2.steamgriddb.com/thumb/1130064514f563b2d894f0840d31db3c.png" })).toBe(
+      `${grid}#png-thumb`,
+    );
+    expect(assetUrl({ url: grid, thumb: "https://cdn2.steamgriddb.com/thumb/1130064514f563b2d894f0840d31db3c.jpg" })).toBe(grid);
+    expect(assetUrl({ url: grid })).toBe(grid);
+    expect(assetUrl(undefined)).toBeUndefined();
   });
 
   it("throws on other HTTP errors", async () => {

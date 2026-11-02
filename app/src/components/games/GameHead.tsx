@@ -129,12 +129,15 @@ export function GameHead({ game }: { game: GameDetail }) {
           {guide ? (
             <div className="gh-meta">
               {guide.authorHandle ? <span className="gh-by">por @{guide.authorHandle}</span> : null}
-              <span>atualizado {timeAgo(guide.updatedAt, game.generatedAt)}</span>
-              <span>{guide.version}</span>
+              {/* One date, from one source: the latest revision shown below, else the publication. */}
+              <span>
+                {guide.dateKind === "updated" ? "atualizado" : "publicado"} {timeAgo(guide.updatedAt, game.generatedAt)}
+              </span>
+              {guide.version ? <span>{guide.version}</span> : null}
               {guide.reviewers.length > 0 ? (
                 <span>revisado por {guide.reviewers.map((h) => `@${h}`).join(", ")}</span>
               ) : null}
-              <span className="gh-human">Autoria humana</span>
+              {guide.human ? <span className="gh-human">Autoria humana</span> : null}
               <Link href={`/jogos/${game.slug}`} aria-label={`Página do jogo: ${game.name}`} className="gh-link">
                 Página do jogo →
               </Link>

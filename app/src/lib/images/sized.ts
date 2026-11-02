@@ -10,9 +10,12 @@
  * - IGDB: the size token in the path (`t_screenshot_med`, `t_cover_big`, `t_720p`, `t_1080p`…).
  * - Steam screenshots: `ss_<hash>.1920x1080.jpg` also exists as `.600x338.jpg`.
  * - SteamGridDB: `/hero/<id>.png` has an 850 px JPEG at `/hero_thumb/<id>.jpg`, `/grid/<id>.png`
- *   a 267×400 one at `/thumb/<id>.jpg`. A few transparent images keep their thumbnail in PNG, so
- *   `fallbacks` lists what an `onError` handler tries next: the PNG thumbnail (PNG originals), then
- *   the original.
+ *   a 267×400 one at `/thumb/<id>.jpg`. A few transparent images keep their thumbnail in PNG only
+ *   (most PNG originals do have the JPEG one, so the extension says nothing). The sync records it on
+ *   the stored URL as the fragment `#png-thumb` (PNG_THUMB_HINT; the CDN never sees a fragment),
+ *   and a JPEG thumbnail seen failing in this tab is remembered (`noteFailedImage`): both go
+ *   straight to the PNG thumbnail, without a failed request. Otherwise `fallbacks` lists what an
+ *   `onError` handler tries next: the PNG thumbnail (PNG originals), then the original.
  * - Steam library/store art (`library_hero.jpg`, `library_600x900.jpg`, `header.jpg`, capsules)
  *   has no smaller copy under the same path and passes through.
  */
@@ -39,7 +42,23 @@ type Candidate = { url: string; width: number };
 
 const IGDB = /^(https:\/\/images\.igdb\.com\/igdb\/image\/upload\/)t_[a-z0-9_]+(\/[A-Za-z0-9]+\.(?:jpg|png|webp))$/;
 const STEAM_SCREENSHOT = /^(https:\/\/[a-z.]+\.steamstatic\.com\/.+\/ss_[0-9a-f]+)\.(?:\d+x\d+)(\.jpg(?:\?.*)?)$/;
-const SGDB = /^https:\/\/cdn2\.steamgriddb\.com\/(hero|grid)\/([0-9a-f]+)\.(png|jpe?g|webp)$/;
+const SGDB = /^(https:\/\/cdn2\.steamgriddb\.com\/(hero|grid)\/([0-9a-f]+)\.(png|jpe?g|webp))(#png-thumb)?$/;
+const SGDB_JPEG_THUMB = /^https:\/\/cdn2\.steamgriddb\.com\/(?:hero_thumb|thumb)\/([0-9a-f]+)\.jpg$/;
+
+/** Fragment the sync appends to a SteamGridDB URL whose thumbnail exists only in PNG. */
+export const PNG_THUMB_HINT = "#png-thumb";
+
+/** SteamGridDB ids whose JPEG thumbnail failed in this tab (client memory, never persisted). */
+const pngOnly = new Set<string>();
+
+/**
+ * Called by image `onError` handlers with the URL that failed: a SteamGridDB JPEG thumbnail that
+ * does not exist is remembered, so the next render of that art asks for the PNG one directly.
+ */
+export function noteFailedImage(src: string | undefined): void {
+  const id = src?.match(SGDB_JPEG_THUMB)?.[1];
+  if (id) pngOnly.add(id);
+}
 
 /**
  * IGDB sizes by box shape, with nominal widths: 16:9 crops ("lfill") for wide boxes; for `fit`, the
@@ -76,15 +95,18 @@ function candidatesFor(url: string, shape: ArtShape): { list: Candidate[]; fallb
   }
   const sgdb = url.match(SGDB);
   if (sgdb) {
-    const [, kind, id, ext] = sgdb;
+    const [, original, kind, id, ext, hint] = sgdb;
     const folder = kind === "hero" ? "hero_thumb" : "thumb";
     const thumb = (type: string) => `https://cdn2.steamgriddb.com/${folder}/${id}.${type}`;
-    const fallbacks = ext === "png" ? [thumb("png"), url] : [url];
+    const png = ext === "png" && (Boolean(hint) || pngOnly.has(id));
+    const fallbacks = png ? [original] : ext === "png" ? [thumb("png"), original] : [original];
+    const small = thumb(png ? "png" : "jpg");
     // The hero thumbnail is 850 px wide; it stands in up to 900 px boxes (a 6% upscale nobody sees,
-    // against a 3840 px PNG of up to 5 MB).
+    // against a 3840 px PNG of up to 5 MB). The grid one (267 px) likewise up to the 280 px case of
+    // the game page's intro, against a 600 px PNG of up to 1 MB.
     return kind === "hero"
-      ? { list: [{ url: thumb("jpg"), width: 900 }, { url, width: 1920 }], fallbacks }
-      : { list: [{ url: thumb("jpg"), width: 267 }, { url, width: 600 }], fallbacks };
+      ? { list: [{ url: small, width: 900 }, { url: original, width: 1920 }], fallbacks }
+      : { list: [{ url: small, width: 280 }, { url: original, width: 600 }], fallbacks };
   }
   return null;
 }

@@ -7,6 +7,8 @@ import { levelFromXp, rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import type { MissionCondition } from "@/lib/engine/missions";
 import { nativePlatinums, platinumCount, rarityCounts } from "@/lib/character/counts";
 import { genreName, primaryGenre } from "@/lib/engine/genres";
+import { achievementTotal } from "@/lib/games/achievement-total";
+import { GAME_ART_SELECT, gameArtUrls } from "./game-art";
 import { getRank } from "@/lib/highscores/queries";
 import { validCompletions } from "@/lib/progression/completions";
 import { dailyPeriodKey, weeklyPeriodKey } from "@/lib/progression/periods";
@@ -223,9 +225,7 @@ export async function getCharacter(
             id: true,
             slug: true,
             name: true,
-            coverUrl: true,
-            steamAppId: true,
-            heroUrl: true,
+            ...GAME_ART_SELECT,
             achievementCount: true,
             skills: { select: { skill: true } },
             guide: { select: { status: true } },
@@ -265,7 +265,7 @@ export async function getCharacter(
   for (const row of libraryRows) {
     if (perfect.has(row.game.id)) continue;
     const count = counts.get(`${row.game.id}:${row.platform}`);
-    const total = row.platform === "steam" ? row.game.achievementCount : (count?.total ?? 0);
+    const total = achievementTotal(row.platform, row.game.achievementCount, count?.total ?? 0);
     const unlocked = count?.unlocked ?? 0;
     if (total <= 0 || unlocked >= total || unlocked / total < 0.7) continue;
     const best = closest.get(row.game.slug);
@@ -273,9 +273,7 @@ export async function getCharacter(
     closest.set(row.game.slug, {
       slug: row.game.slug,
       name: row.game.name,
-      coverUrl: row.game.coverUrl,
-      steamAppId: row.game.steamAppId,
-      heroUrl: row.game.heroUrl,
+      ...gameArtUrls(row.game),
       unlocked,
       total,
       percent: Math.floor((unlocked / total) * 100),

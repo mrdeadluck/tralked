@@ -5,7 +5,7 @@ import type { SimilarGame } from "@/lib/queries/game-profile";
 /*
  * "Na mesma estante": games with the same skills, as small cases leaning on a shelf (they
  * straighten up on hover/focus), each with its title underneath. The cover goes through the
- * shared fallback chain (stored cover, Steam's portrait art, wide art shown whole, generated art
+ * shared fallback chain (stored cover, Steam's portrait art, wide art printed as a case, generated art
  * with the name), so a case is never a generic picture without a name.
  */
 
@@ -17,7 +17,8 @@ const CSS = `
 .gpe-cap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .gpe-name { font-size: 14.5px; line-height: 1.2; font-weight: 800; letter-spacing: -.01em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .gpe a:hover .gpe-name, .gpe a:focus-visible .gpe-name { color: var(--acc); }
-.gpe small { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--muted); }
+/* Genre and match side by side, or on two lines when narrow: no separator left dangling. */
+.gpe small { display: flex; flex-wrap: wrap; gap: 0 8px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--muted); }
 .gpe small b { color: var(--acc); font-weight: 500; white-space: nowrap; }
 .gpe-empty { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .gpe-box { transition: none; } .gpe a:hover .gpe-box, .gpe a:focus-visible .gpe-box { transform: rotateY(-14deg); } }
@@ -55,7 +56,8 @@ export function SimilarShelf({ games, aside }: { games: SimilarGame[]; aside: st
                 <span className="gpe-cap">
                   <span className="gpe-name">{g.name}</span>
                   <small>
-                    {g.genre} · <b>{g.match}% combina</b>
+                    {g.genre ? <span>{g.genre}</span> : null}
+                    <b>{g.match}% combina</b>
                   </small>
                 </span>
               </a>

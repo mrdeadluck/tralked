@@ -63,7 +63,8 @@ export async function gameMedia(slug: string): Promise<GameMediaSet | null> {
     const safe = safeImageUrl(raw);
     // Absolute https only: a same-site path means nothing to a robot.
     if (!safe || !safe.startsWith("https://")) return;
-    const url = wideArt(safe);
+    // The `#png-thumb` hint is for the site's own image sizing; robots get the clean CDN URL.
+    const url = wideArt(safe).replace(/#png-thumb$/, "");
     if (seen.has(url) || images.length >= MEDIA_IMAGE_CAP) return;
     seen.add(url);
     images.push({ url, ...image });

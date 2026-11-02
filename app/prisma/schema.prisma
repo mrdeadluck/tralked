@@ -290,6 +290,8 @@ model GameMedia {
   url       String?
   /// For kind = video.
   youtubeId String?
+  /// For kind = video: the source's own title ("Launch Trailer", "Gameplay"); null when unknown.
+  title     String?
   width     Int?
   height    Int?
   /// igdb | sgdb | steam | rawg | fixture
