@@ -67,7 +67,7 @@ export function CommunityInvite({
           <div className="gpm-shots">
             {three.map((shot, i) => (
               <div key={shot.id} className="gpm-shot">
-                <GameArt seed={shot.seed} hues={hues} imageUrl={shot.url} alt="" figure={!shot.url && i === 0} width={560} height={350} />
+                <GameArt seed={shot.seed} hues={hues} imageUrl={shot.url} alt="" figure={!shot.url && i === 0} width={560} height={350} sizes="320px" />
               </div>
             ))}
             <span className="gpm-tag">Imagens oficiais</span>

@@ -8,8 +8,8 @@ import { PhotoMedia } from "@/components/community/PhotoMedia";
 import { SideCard } from "@/components/community/SideCard";
 import { UploadPhoto } from "@/components/community/UploadPhoto";
 import { CommentIcon, HeartIcon } from "@/components/community/icons";
-import { galleryGamesCached, listPhotosCached, photoOfTheWeekCached } from "@/lib/community/cached";
-import type { PhotoCardView } from "@/lib/community/gallery";
+import { galleryGameCached, galleryGamesCached, listPhotosCached, photoOfTheWeekCached } from "@/lib/community/cached";
+import type { GameOption, PhotoCardView } from "@/lib/community/gallery";
 import { currentViewer } from "@/lib/community/viewer";
 import { PHOTO_XP, PHOTO_XP_DAILY_CAP } from "@/lib/community/xp";
 
@@ -21,6 +21,12 @@ export const metadata: Metadata = {
 type SearchParams = PageProps<"/galeria">["searchParams"];
 
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? null;
+
+/** The `?jogo=` game: from the filter list, else looked up alone (a game with no photos yet). */
+async function requestedGallery(withPhotos: GameOption[], slug: string | null): Promise<GameOption | null> {
+  if (!slug || slug.length > 120) return null;
+  return withPhotos.find((g) => g.slug === slug) ?? (await galleryGameCached(slug));
+}
 
 function galleryHref(game: string | null, page = 1) {
   const params = new URLSearchParams();
@@ -47,7 +53,7 @@ export default function GalleryPage({ searchParams }: PageProps<"/galeria">) {
               Suas capturas aparecem aqui e no seu perfil. Cada foto rende {PHOTO_XP} XP, até {PHOTO_XP_DAILY_CAP} fotos
               por dia.
             </p>
-            <Suspense fallback={<UploadPhoto games={[]} loggedIn={false} returnTo="/galeria" pending />}>
+            <Suspense fallback={<UploadPhoto loggedIn={false} returnTo="/galeria" pending />}>
               <UploadIsland searchParams={searchParams} />
             </Suspense>
           </SideCard>
@@ -67,11 +73,11 @@ export default function GalleryPage({ searchParams }: PageProps<"/galeria">) {
 async function GalleryContent({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const requestedGame = first(params.jogo);
-  const games = await galleryGamesCached();
-  const game = games.find((g) => g.slug === requestedGame) ?? null;
+  // Only games with listed photos (the filter), not the whole catalog.
+  const withPhotos = await galleryGamesCached();
+  const game = await requestedGallery(withPhotos, requestedGame);
   const listing = await listPhotosCached(game?.slug ?? null, pageParam(params.pagina));
   const featured = !game && listing.page === 1 ? await photoOfTheWeekCached() : null;
-  const withPhotos = games.filter((g) => g.photoCount > 0);
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -152,22 +158,34 @@ async function UploadIsland({ searchParams }: { searchParams: SearchParams }) {
   const [viewer, games, params] = await Promise.all([currentViewer(), galleryGamesCached(), searchParams]);
   const requested = first(params.jogo);
   const returnTo = galleryHref(requested);
+  // Filtered by a game: the form starts with it. Only that one game crosses to the client.
+  const filtered = await requestedGallery(games, requested);
   return (
     <UploadPhoto
-      games={games}
       loggedIn={viewer !== null}
       returnTo={returnTo}
-      defaultGame={games.some((g) => g.slug === requested) ? requested : null}
+      defaultGame={filtered ? { slug: filtered.slug, name: filtered.name } : null}
     />
   );
 }
 
+/**
+ * Same blocks as the content (photo of the week, filter row, photo grid), so nothing below jumps
+ * when the photos stream in (the side card sits under the grid on phones).
+ */
 function GridSkeleton() {
   return (
-    <div aria-busy="true" aria-label="Carregando fotos" className="grid grid-cols-3 gap-1">
-      {Array.from({ length: 9 }, (_, i) => (
-        <div key={i} className="aspect-square animate-pulse bg-surface" />
-      ))}
+    <div aria-busy="true" aria-label="Carregando fotos" className="flex min-w-0 flex-col gap-6">
+      <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] overflow-hidden rounded-[4px] border border-line bg-surface max-[700px]:grid-cols-1">
+        <div className="aspect-[16/10] animate-pulse bg-surface-2 motion-reduce:animate-none" />
+        <div className="h-[178px] max-[700px]:block" />
+      </div>
+      <div className="h-[34px]" />
+      <div className="grid grid-cols-3 gap-1 max-[420px]:grid-cols-2">
+        {Array.from({ length: 12 }, (_, i) => (
+          <div key={i} className="aspect-square animate-pulse bg-surface motion-reduce:animate-none" />
+        ))}
+      </div>
     </div>
   );
 }

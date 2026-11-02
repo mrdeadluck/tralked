@@ -56,7 +56,7 @@ async function FrontSection() {
     <>
       {headline ? (
         <section aria-label="Manchete" className="flex">
-          <HeroMain article={headline} />
+          <HeroMain article={headline} sizes="(max-width: 1320px) calc(100vw - 40px), 1280px" />
         </section>
       ) : null}
       {items.length > 0 ? (
@@ -191,6 +191,7 @@ async function Archive({ searchParams }: { searchParams: PageProps<"/noticias">[
                     figure
                     width={480}
                     height={300}
+                    sizes="(max-width: 640px) calc(100vw - 40px), 240px"
                     className="transition-transform duration-500 group-hover:scale-[1.04]"
                   />
                 </div>
@@ -251,7 +252,15 @@ export default function NoticiasPage({ searchParams }: PageProps<"/noticias">) {
         </p>
       </header>
 
-      <Suspense fallback={null}>
+      {/* Room for the headline and the press wire while they stream, so the archive below stays put. */}
+      <Suspense
+        fallback={
+          <>
+            <div aria-hidden="true" className="min-h-[460px] rounded-[4px] bg-surface max-sm:min-h-[400px]" />
+            <div aria-hidden="true" className="h-[370px] max-[1000px]:h-[404px] max-sm:h-[422px]" />
+          </>
+        }
+      >
         <FrontSection />
       </Suspense>
 

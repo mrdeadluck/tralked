@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { RemoteImg } from "@/components/ui/RemoteImg";
 import { byDay, EVENT_KIND_LABEL, type CalendarEvent, type CalendarEventKind } from "@/lib/calendar/events";
 import {
   addMonths,
@@ -152,12 +153,12 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject,
                         >
                           {lead ? (
                             <>
-                              {/* eslint-disable-next-line @next/next/no-img-element -- hotlinked catalog cover, as GameCover */}
-                              <img
-                                src={lead.imageUrl!}
+                              <RemoteImg
+                                url={lead.imageUrl!}
                                 alt=""
-                                loading="lazy"
-                                decoding="async"
+                                width={240}
+                                height={240}
+                                sizes="(max-width: 640px) 50vw, 240px"
                                 className={`absolute inset-0 size-full object-cover ${lead.big ? "opacity-60" : "opacity-30"}`}
                               />
                               <span
@@ -232,12 +233,13 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject,
                       return (
                         <li key={i} className={`flex min-w-0 gap-2.5 ${cover ? "items-center" : ""}`}>
                           {cover ? (
-                            // eslint-disable-next-line @next/next/no-img-element -- hotlinked catalog cover, as GameCover
-                            <img
-                              src={cover}
+                            <RemoteImg
+                              url={cover}
                               alt=""
-                              loading="lazy"
-                              decoding="async"
+                              width={e.big ? 72 : 52}
+                              height={e.big ? 96 : 69}
+                              sizes={e.big ? "72px" : "52px"}
+                              shape="fit"
                               className={`aspect-[3/4] shrink-0 rounded-[2px] border object-cover ${e.big ? "w-[72px] border-acc" : "w-[52px] border-line"}`}
                             />
                           ) : (

@@ -119,7 +119,8 @@ export function YouAreHereSkeleton() {
   return (
     <div
       aria-hidden="true"
-      className="mt-6 min-h-[68px] rounded-[4px] border border-line bg-surface-2/60 max-[640px]:min-h-[112px]"
+      // Measured height of the logged-out bar (64 px, 94 px on phones): the list's foot stays put.
+      className="mt-6 min-h-[64px] rounded-[4px] border border-line bg-surface-2/60 max-[640px]:min-h-[94px]"
     />
   );
 }

@@ -163,6 +163,7 @@ function Panel({
             light
             width={900}
             height={640}
+            sizes="(max-width: 1000px) calc(100vw - 40px), 640px"
           />
           <span className="tkt-kick">{lead.kicker}</span>
           <h3>{lead.title}</h3>
@@ -180,6 +181,7 @@ function Panel({
             figure={i === 0}
             width={520}
             height={320}
+            sizes="(max-width: 1000px) 50vw, 420px"
           />
           <span className="tkt-kick">{story.kicker}</span>
           <h3>{story.title}</h3>
@@ -194,7 +196,7 @@ function Panel({
           {more.map((story) => (
             <li key={story.id}>
               <StoryLink story={story}>
-                <GameArt className="tkt-thumb" seed={story.seed} hues={story.hues} imageUrl={story.imageUrl} width={224} height={128} />
+                <GameArt className="tkt-thumb" seed={story.seed} hues={story.hues} imageUrl={story.imageUrl} width={224} height={128} sizes="112px" />
                 <span>
                   <small>{story.kicker}</small>
                   <strong>{story.title}</strong>

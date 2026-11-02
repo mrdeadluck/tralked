@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Chip } from "@/components/ui/Chip";
+import { RemoteImg } from "@/components/ui/RemoteImg";
 import type { ReleaseView } from "@/lib/releases/view";
 import { RELEASE_PLATFORM_COLOR, RELEASE_PLATFORM_LABEL } from "@/lib/releases/platforms";
 
@@ -16,14 +17,15 @@ function ReleaseArt({ release, size }: { release: ReleaseView; size: "sm" | "md"
       />
     );
   }
+  const width = size === "md" ? 132 : 96;
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- hotlinked store/IGDB art, as GameCover
-    <img
-      src={url}
+    <RemoteImg
+      url={url}
+      width={width}
+      height={Math.round((width * 9) / 16)}
+      sizes={`${width}px`}
       alt=""
-      loading="lazy"
-      decoding="async"
-      className={`${box} aspect-[16/9] shrink-0 rounded-[3px] border border-line object-cover`}
+      className={`${box} aspect-[16/9] h-auto shrink-0 rounded-[3px] border border-line object-cover`}
     />
   );
 }

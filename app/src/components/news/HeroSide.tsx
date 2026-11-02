@@ -16,6 +16,7 @@ export function HeroSide({ article }: { article: ArticleView }) {
         imageUrl={article.imageUrl}
         width={520}
         height={320}
+        sizes="(max-width: 1000px) calc(100vw - 40px), 420px"
         className="absolute inset-0 object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04] motion-reduce:transition-none"
       />
       <div

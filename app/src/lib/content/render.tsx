@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { RARITY_COLOR, RARITY_LABEL } from "@/components/character/format";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
+import { sizedImage } from "@/lib/images/sized";
 import {
   achievementKey,
   isSafeHttpUrl,
@@ -201,13 +202,19 @@ function Block({
           ) : null}
         </figure>
       );
-    case "image":
+    case "image": {
+      // IGDB and Steam screenshots come at the column's size (shown whole: uncropped sizes). Guessed
+      // thumbnails (SteamGridDB) need an onError fallback, which this server markup has not: kept as is.
+      const sized = sizedImage(block.url, 720, "fit");
+      const responsive = sized.srcSet && !sized.fallbacks;
       return (
         <figure className="my-4 flex flex-col gap-2">
           {/* External https image with mandatory alt and credit; next/image would need remotePatterns per host. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={block.url}
+            src={responsive ? sized.src : block.url}
+            srcSet={responsive ? sized.srcSet : undefined}
+            sizes={responsive ? "(max-width: 760px) calc(100vw - 40px), 720px" : undefined}
             alt={block.alt}
             loading="lazy"
             decoding="async"
@@ -216,6 +223,7 @@ function Block({
           <figcaption className="font-mono text-xs text-dim">Crédito: {block.credit}</figcaption>
         </figure>
       );
+    }
     case "video":
       // Privacy-enhanced embed (youtube-nocookie.com), loaded only near the viewport, 16:9 at any width.
       return (

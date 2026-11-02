@@ -1,5 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { cleanQuery, foldQueryInDb } from "@/lib/search/normalize";
 import { authorSelect, type AuthorView } from "./comments";
 
 /** Photos per gallery page (a multiple of 3 keeps the grid rows full). */
@@ -132,13 +133,47 @@ export async function recentPhotoIds(limit: number): Promise<string[]> {
 
 export type GameOption = { slug: string; name: string; photoCount: number };
 
-/** Every game (for the upload form) with its number of visible photos (for the filter). */
+/**
+ * The gallery filter: the games that have listed photos, with their count. (The upload form used
+ * to receive every catalog game from here, an 8.5 MB page; it now searches with searchUploadGames.)
+ */
 export async function galleryGames(): Promise<GameOption[]> {
   const games = await prisma.game.findMany({
-    // Name-only stubs of the full Steam catalog (thousands) stay out of the picker.
-    where: { stub: false },
+    where: { photos: { some: LISTED } },
     orderBy: { name: "asc" },
     select: { slug: true, name: true, _count: { select: { photos: { where: LISTED } } } },
   });
   return games.map((g) => ({ slug: g.slug, name: g.name, photoCount: g._count.photos }));
+}
+
+/** A game asked for by slug (`/galeria?jogo=`), also without photos yet (its empty grid invites the first). */
+export async function galleryGame(slug: string): Promise<GameOption | null> {
+  const game = await prisma.game.findUnique({
+    where: { slug },
+    select: { slug: true, name: true, _count: { select: { photos: { where: LISTED } } } },
+  });
+  return game ? { slug: game.slug, name: game.name, photoCount: game._count.photos } : null;
+}
+
+export type UploadGameOption = { slug: string; name: string };
+
+/** Most matches the upload form's game search returns. */
+export const UPLOAD_GAME_RESULTS = 20;
+
+/**
+ * The upload form's game search: catalog games whose name contains `query` (accents, case and
+ * punctuation ignored, over the trigram index of `searchName`), most popular first. Name-only stubs
+ * of the full Steam catalog stay out, as in the old picker. Blank or 1-letter queries: no results.
+ */
+export async function searchUploadGames(query: string): Promise<UploadGameOption[]> {
+  const q = cleanQuery(query);
+  if (!q) return [];
+  const folded = await foldQueryInDb(q);
+  if (folded.length < 2) return [];
+  return prisma.game.findMany({
+    where: { stub: false, searchName: { contains: folded } },
+    orderBy: [{ popularity: "desc" }, { name: "asc" }],
+    take: UPLOAD_GAME_RESULTS,
+    select: { slug: true, name: true },
+  });
 }

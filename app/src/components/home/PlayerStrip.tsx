@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { RemoteImg } from "@/components/ui/RemoteImg";
 import type { HomePlayer } from "@/lib/queries/home-player";
 import { LevelRing } from "./LevelRing";
 
@@ -89,14 +90,13 @@ export function PlayerStrip({ player }: { player: HomePlayer }) {
       {closest ? (
         <Cell href={`/jogos/${closest.slug}`} className="order-3 lg:order-none">
           {closest.coverUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- hotlinked catalog cover, as GameCover
-            <img
-              src={closest.coverUrl}
+            <RemoteImg
+              url={closest.coverUrl}
               alt=""
               width={40}
               height={54}
-              loading="lazy"
-              decoding="async"
+              sizes="40px"
+              shape="fit"
               className="aspect-[3/4] w-10 flex-none rounded-[1px_3px_3px_1px] object-cover shadow-[-3px_0_0_#0d0e12,0_8px_14px_-6px_rgba(0,0,0,.8)]"
             />
           ) : null}

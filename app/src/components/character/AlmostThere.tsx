@@ -35,6 +35,8 @@ export function AlmostThere({ games }: AlmostThereProps) {
                 ratio="16 / 10"
                 alt=""
                 className="rounded-none"
+                width={400}
+                sizes="(max-width: 640px) calc(100vw - 40px), 400px"
               />
               <div className="flex flex-1 flex-col gap-2.5 px-4 pt-3.5 pb-4">
                 <div className="flex flex-wrap items-center gap-1.5">

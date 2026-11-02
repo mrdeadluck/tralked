@@ -13,7 +13,7 @@ export function LibraryGameRow({ game }: { game: LibraryGame }) {
     <li className="grid grid-cols-[52px_minmax(0,1fr)] items-center gap-x-4 gap-y-2 border-b border-line py-3.5 min-[641px]:grid-cols-[52px_minmax(0,1fr)_110px_200px]">
       <div className="w-[52px]">
         {game.coverUrl ? (
-          <GameCover name={game.name} coverUrl={game.coverUrl} ratio="3 / 4" lazy />
+          <GameCover name={game.name} coverUrl={game.coverUrl} ratio="3 / 4" lazy width={52} sizes="52px" />
         ) : (
           // The name is right beside it: a plain decorative box (the labelled placeholder is too big here).
           <div aria-hidden="true" className="aspect-[3/4] rounded-[3px]" style={{ backgroundImage: "var(--stripes)" }} />

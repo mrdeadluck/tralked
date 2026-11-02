@@ -4,6 +4,10 @@ const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
   partialPrefetching: false,
+  // No preload `Link` headers from React: Next replays a prerendered route's headers on its
+  // prefetch responses too, so every page prefetching "/" (the logo) or a game page downloaded that
+  // route's hero art (up to 5 MB). Preloads stay in each page's own <head> as <link> tags instead.
+  reactMaxHeadersLength: 0,
   // The dev badge overlaps the page in e2e screenshots and trips axe in dev mode.
   devIndicators: false,
   // Every build worker opens its own Postgres pool (up to 10 connections): on a many-core machine

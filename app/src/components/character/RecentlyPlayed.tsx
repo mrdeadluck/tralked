@@ -33,6 +33,8 @@ export function RecentlyPlayed({ games, now, libraryHref }: RecentlyPlayedProps)
                   ratio="3 / 4"
                   alt=""
                   className="rounded-none"
+                  width={200}
+                  sizes="200px"
                 />
                 <div className="flex flex-1 flex-col gap-1 px-3 pt-2.5 pb-3">
                   <h3 className="line-clamp-2 text-[14px] leading-[1.2] font-bold">{game.name}</h3>

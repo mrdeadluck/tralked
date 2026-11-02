@@ -48,6 +48,8 @@ export function SimilarShelf({ games, aside }: { games: SimilarGame[]; aside: st
                     seed={g.seed}
                     hues={g.hues}
                     alt=""
+                    width={150}
+                    sizes="150px"
                   />
                 </span>
                 <span className="gpe-cap">

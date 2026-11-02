@@ -333,7 +333,8 @@ describe.skipIf(!reachable)("game profile (seeded database)", () => {
     await prisma.user.deleteMany({ where: { handle } });
     const user = await prisma.user.create({ data: { handle, displayName: "Privado", profilePublic: false } });
     const game = await prisma.game.findUniqueOrThrow({ where: { slug: "celeste" } });
-    const countOf = async () => (await galleryGames()).find((g) => g.slug === "celeste")!.photoCount;
+    // The filter lists only games with listed photos: absent means 0.
+    const countOf = async () => (await galleryGames()).find((g) => g.slug === "celeste")?.photoCount ?? 0;
     const before = await countOf();
     const photo = await prisma.photo.create({ data: { authorId: user.id, gameId: game.id, width: 800, height: 600 } });
     try {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { RARITY_COLOR, RARITY_LABEL } from "@/components/character/format";
 import { PLATFORM_LABEL } from "@/components/character/platforms";
+import { RemoteImg } from "@/components/ui/RemoteImg";
 import type { ProfileAchievement } from "@/lib/profile/queries";
 import { formatDate, formatGlobalPct } from "./format";
 
@@ -50,8 +51,7 @@ export function RareShowcase({ achievements, backdrop }: { achievements: Profile
       </style>
       <div className="rsc-star" style={tier(star)}>
         {backdrop ? (
-          // eslint-disable-next-line @next/next/no-img-element -- hotlinked game art, as GameArt
-          <img className="rsc-bg" src={backdrop} alt="" loading="lazy" decoding="async" />
+          <RemoteImg className="rsc-bg" url={backdrop} alt="" width={640} height={360} sizes="(max-width: 700px) 100vw, 640px" />
         ) : null}
         {star.iconUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- platform icon hosts are external

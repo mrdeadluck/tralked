@@ -173,7 +173,8 @@ export async function listGames(
       name: game.name,
       // Games still without details show the Steam store header (served by Steam's CDN by appid).
       coverUrl: game.coverUrl ?? (game.steamAppId ? steamHeaderUrl(game.steamAppId) : null),
-      art: caseArt({ coverUrl: game.coverUrl, steamAppId: game.steamAppId }),
+      // Once the Steam details were fetched, a missing cover means Steam has no portrait either.
+      art: caseArt({ coverUrl: game.coverUrl, steamAppId: game.steamAppId, portraitChecked: game.detailsSyncedAt !== null }),
       platforms: game.platforms,
       skills: asSkills(game.skills.map((s) => s.skill)),
       achievementCount: game.achievementCount,

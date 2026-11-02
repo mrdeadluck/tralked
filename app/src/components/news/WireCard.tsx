@@ -52,6 +52,7 @@ function body(item: WireItem): ReactNode {
       light={light}
       width={w}
       height={h}
+      sizes="300px"
     />
   );
 

@@ -61,4 +61,28 @@ describe.skipIf(!reachable)("gallery queries (database)", () => {
       await prisma.user.deleteMany({ where: { id: { in: [hidden.id, open.id] } } });
     }
   });
+
+  it("the filter lists only games with listed photos; the upload search finds any catalog game", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { galleryGame, galleryGames, searchUploadGames, UPLOAD_GAME_RESULTS } = await import("./gallery");
+    const filter = await galleryGames();
+    expect(filter.length).toBeGreaterThan(0);
+    expect(filter.every((g) => g.photoCount > 0)).toBe(true);
+
+    // A game without photos is not in the filter, but /galeria?jogo= still finds it (0 photos).
+    const lonely = await prisma.game.findFirstOrThrow({ where: { stub: false, photos: { none: {} } }, select: { slug: true, name: true } });
+    expect(filter.map((g) => g.slug)).not.toContain(lonely.slug);
+    expect(await galleryGame(lonely.slug)).toEqual({ ...lonely, photoCount: 0 });
+    expect(await galleryGame("nao-existe-mesmo")).toBeNull();
+
+    // Accents, case and punctuation ignored; stubs left out; at most UPLOAD_GAME_RESULTS.
+    expect((await searchUploadGames("HOLLOW knight")).map((g) => g.slug)).toContain("hollow-knight");
+    expect((await searchUploadGames("Baldur’s")).map((g) => g.slug)).toContain("baldurs-gate-3");
+    const stub = await prisma.game.findFirstOrThrow({ where: { stub: true }, select: { name: true, slug: true } });
+    expect((await searchUploadGames(stub.name)).map((g) => g.slug)).not.toContain(stub.slug);
+    expect(await searchUploadGames("e")).toEqual([]);
+    expect(await searchUploadGames("   ")).toEqual([]);
+    expect((await searchUploadGames("a")).length).toBe(0);
+    expect((await searchUploadGames("ar")).length).toBeLessThanOrEqual(UPLOAD_GAME_RESULTS);
+  });
 });

@@ -16,13 +16,26 @@ type GameCoverProps = {
   alt?: string;
   /** Classes of the box; default rounded corners. */
   className?: string;
+  /** Widest the cover renders (CSS px) and its `sizes`, for the CDN copy to request. */
+  width?: number;
+  sizes?: string;
 };
 
 /**
  * A game's cover through the shared fallback chain (lib/case-art + CoverArt): stored cover, then
  * Steam's portrait art, then wide art shown whole, then generated art with the game's name.
  */
-export function GameCover({ name, coverUrl, steamAppId, wideUrl, ratio = "16 / 10", alt, className = "rounded-[3px]" }: GameCoverProps) {
+export function GameCover({
+  name,
+  coverUrl,
+  steamAppId,
+  wideUrl,
+  ratio = "16 / 10",
+  alt,
+  className = "rounded-[3px]",
+  width = 320,
+  sizes = "(max-width: 640px) 50vw, 320px",
+}: GameCoverProps) {
   const sources = caseArt({ coverUrl, steamAppId: steamAppId ?? steamAppIdFromUrl(coverUrl), wideUrl });
-  return <CoverArt name={name} sources={sources} ratio={ratio} alt={alt} className={className} />;
+  return <CoverArt name={name} sources={sources} ratio={ratio} alt={alt} className={className} width={width} sizes={sizes} />;
 }

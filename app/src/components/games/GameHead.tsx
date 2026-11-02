@@ -92,7 +92,7 @@ export function GameHead({ game }: { game: GameDetail }) {
       </nav>
       <header className="gh">
         <div className="gh-art" aria-hidden="true">
-          <GameArt seed={game.name.length * 7919} imageUrl={game.heroUrl ?? game.coverUrl} figure width={1200} height={420} />
+          <GameArt seed={game.name.length * 7919} imageUrl={game.heroUrl ?? game.coverUrl} figure width={1200} height={420} sizes="(max-width: 1320px) calc(100vw - 40px), 1280px" />
         </div>
         <p className="gh-mast" aria-hidden="true">
           <span>
@@ -102,7 +102,7 @@ export function GameHead({ game }: { game: GameDetail }) {
           <span>Tralked</span>
         </p>
         <div className="gh-cover">
-          <GameCover name={game.name} coverUrl={game.coverUrl} wideUrl={game.heroUrl} ratio="3 / 4" alt="" className="" />
+          <GameCover name={game.name} coverUrl={game.coverUrl} wideUrl={game.heroUrl} ratio="3 / 4" alt="" className="" width={200} sizes="(max-width: 900px) 120px, 200px" />
         </div>
         <div className="gh-main">
           <h1 className="gh-title" style={titleFitStyle(game.name) as CSSProperties}>
