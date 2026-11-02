@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { PlatformId } from "@/lib/engine/trophies";
+import { achievementTotal as platformTotal } from "@/lib/games/achievement-total";
+import { GAME_ART_SELECT, gameArtUrls } from "@/lib/queries/game-art";
 
 /**
  * Read helpers of a player's library, wishlist and playtime (Plano 4, F1/F2) for the profile pages.
@@ -110,7 +112,7 @@ export async function getUserLibrary(userId: string): Promise<LibraryGame[]> {
       games.set(r.gameId, game);
     }
     const counted = totalOf.get(`${r.gameId}:${r.platform}`) ?? 0;
-    const achievementTotal = r.platform === "steam" ? Math.max(counted, r.game.achievementCount) : counted;
+    const achievementTotal = platformTotal(r.platform, r.game.achievementCount, counted);
     game.platforms.push({
       platform: asPlatform(r.platform),
       playtimeMin: Math.max(0, r.playtimeMin),
@@ -140,6 +142,8 @@ export type WishlistEntry = {
   slug: string;
   name: string;
   coverUrl: string | null;
+  /** Wide art (hero, else official artwork or a screenshot): printed on the case without a cover. */
+  heroUrl: string | null;
   steamAppId: number | null;
   stub: boolean;
   /** steam */
@@ -160,14 +164,7 @@ export async function getUserWishlist(userId: string): Promise<WishlistEntry[]> 
       priority: true,
       addedAt: true,
       game: {
-        select: {
-          slug: true,
-          name: true,
-          coverUrl: true,
-          steamAppId: true,
-          stub: true,
-          media: { where: { kind: "cover", url: { not: null } }, orderBy: { order: "asc" }, take: 1, select: { url: true } },
-        },
+        select: { slug: true, name: true, stub: true, ...GAME_ART_SELECT },
       },
     },
   });
@@ -175,8 +172,7 @@ export async function getUserWishlist(userId: string): Promise<WishlistEntry[]> 
     gameId: r.gameId,
     slug: r.game.slug,
     name: r.game.name,
-    coverUrl: r.game.coverUrl ?? r.game.media[0]?.url ?? null,
-    steamAppId: r.game.steamAppId,
+    ...gameArtUrls(r.game),
     stub: r.game.stub,
     platform: asPlatform(r.platform),
     priority: r.priority,
@@ -269,7 +265,7 @@ export async function getRecentlyPlayed(userId: string, limit = 6): Promise<Rece
       platform: true,
       playtimeMin: true,
       lastPlayedAt: true,
-      game: { select: { slug: true, name: true, coverUrl: true, steamAppId: true, heroUrl: true, stub: true } },
+      game: { select: { slug: true, name: true, stub: true, ...GAME_ART_SELECT } },
     },
   });
   const games = new Map<string, RecentlyPlayedGame>();
@@ -279,9 +275,7 @@ export async function getRecentlyPlayed(userId: string, limit = 6): Promise<Rece
     games.set(row.game.slug, {
       slug: row.game.slug,
       name: row.game.name,
-      coverUrl: row.game.coverUrl,
-      steamAppId: row.game.steamAppId,
-      heroUrl: row.game.heroUrl,
+      ...gameArtUrls(row.game),
       platform: asPlatform(row.platform),
       playtimeMin: row.playtimeMin,
       lastPlayedAt: row.lastPlayedAt,

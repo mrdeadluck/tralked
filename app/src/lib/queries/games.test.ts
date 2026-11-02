@@ -1,6 +1,29 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
-import { isAlmostComplete } from "./games";
+import { isAlmostComplete, isRealAccount, realRevisions } from "./games";
+
+describe("guide revisions shown to readers", () => {
+  type Account = { email: string | null; googleSub: string | null; passwordHash: string | null };
+  const person: Account = { email: "a@b.com", googleSub: null, passwordHash: null };
+  const seeded: Account = { email: null, googleSub: null, passwordHash: null };
+  const guideCreated = new Date("2026-10-20T00:00:00Z");
+  const rev = (id: string, createdAt: string, author: Account | null) => ({ id, createdAt: new Date(createdAt), author });
+
+  it("keeps only revisions by real accounts, not older than the guide, newest first", () => {
+    expect(isRealAccount(person)).toBe(true);
+    expect(isRealAccount({ ...seeded, googleSub: "g" })).toBe(true);
+    expect(isRealAccount(seeded)).toBe(false);
+    expect(isRealAccount(null)).toBe(false);
+    const list = [
+      rev("seed-old", "2025-10-20T00:00:00Z", seeded), // "v1.0, há 1 ano" of a seeded history
+      rev("backdated", "2026-10-01T00:00:00Z", person), // before the guide existed
+      rev("a", "2026-10-25T00:00:00Z", person),
+      rev("b", "2026-10-30T00:00:00Z", person),
+      rev("orphan", "2026-10-31T00:00:00Z", null),
+    ];
+    expect(realRevisions(list, guideCreated).map((r) => r.id)).toEqual(["b", "a"]);
+  });
+});
 
 async function databaseReachable(): Promise<boolean> {
   const { Client } = await import("pg");

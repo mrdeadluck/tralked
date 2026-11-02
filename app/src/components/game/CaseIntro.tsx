@@ -11,6 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { GameArt, type Hues } from "@/components/art/GameArt";
+import { useSizedSrc } from "@/components/art/use-sized-src";
 import type { DiscLabelArt } from "@/lib/queries/game-profile";
 import { Wordmark } from "@/components/brand/Logo";
 import { useSound } from "@/components/fx/useSound";
@@ -94,9 +95,10 @@ const CSS = `
    (--cover-r, set from the loaded image), so the band never hides the game's name and nothing is cropped or letterboxed. */
 .gpc.gpc-has-cover { --ch: calc(var(--band) + var(--cw) * var(--cover-r, 1.5)); }
 .gpc-out > img.gpc-cover { top: var(--band); height: calc(100% - var(--band)); object-fit: cover; }
-/* Without a portrait cover, wide art is shown whole over a blurred copy (as the shelves do). */
-.gpc-out > img.gpc-wblur { inset: -12%; width: 124%; height: 124%; filter: blur(16px) brightness(.5) saturate(1.2); }
-.gpc-out > img.gpc-wide { inset: auto 0; top: 40%; height: auto; translate: 0 -50%; object-fit: contain; box-shadow: 0 10px 30px rgba(0,0,0,.6); }
+/* Without a portrait cover, wide art is printed on the case as the shelves' covers do (CoverArt):
+   a body in the art's own colours, the art as a band across the front, the title below it. */
+.gpc-out > img.gpc-wblur { filter: blur(24px) saturate(1.6) brightness(.55); transform: scale(1.6); }
+.gpc-out > img.gpc-wide { inset: auto 0; top: calc(var(--band) + 7%); height: auto; max-height: calc(var(--cw) * .5625); object-fit: cover; box-shadow: 0 12px 24px -8px rgba(0,0,0,.8), 0 -1px 0 rgba(255,255,255,.08), 0 1px 0 rgba(255,255,255,.08); }
 .gpc-top { position: absolute; left: 0; right: 0; top: 0; height: var(--band); background: linear-gradient(180deg, var(--bg), #121318); display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 2px solid var(--acc); }
 .gpc-top svg { height: calc(var(--cw) * .055); width: auto; color: var(--text); }
 .gpc-top span { font-family: var(--font-jetbrains-mono), monospace; font-size: calc(var(--cw) * .032); letter-spacing: .14em; color: var(--text-2); border: 1px solid var(--border-2); padding: 2px 5px; white-space: nowrap; }
@@ -210,6 +212,9 @@ export function CaseIntro(props: CaseIntroProps) {
   const [staged, setStaged] = useState<{ auto: boolean; n: number } | null>(null);
   /** Height / width of the real cover, so the case takes its proportion (clamped to a plausible box). */
   const [coverRatio, setCoverRatio] = useState(1.5);
+  // The case is at most 280 px wide: the CDN copy of that size, not a 1 MB PNG original.
+  const cover = useSizedSrc(coverUrl, 280, "fit");
+  const wide = useSizedSrc(wideArt, 280, "wide");
   /** "Não mostrar a animação nos próximos jogos" (checked on a replay when it is already off). */
   const [introOff, setIntroOff] = useState(false);
 
@@ -591,7 +596,8 @@ export function CaseIntro(props: CaseIntroProps) {
         Pular
       </button>
       <div ref={wrap} className="gpc-wrap">
-        <div ref={box} className="gpc-case">
+        {/* The case is a picture (its printed labels are 8-9 px decoration): the dialog's name says what opens. */}
+        <div ref={box} className="gpc-case" aria-hidden="true">
           <div className="gpc-tray" />
           <div className="gpc-spine">
             <span>{upper} · TRALKED</span>
@@ -605,11 +611,13 @@ export function CaseIntro(props: CaseIntroProps) {
               {coverUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
+                  key={cover?.src}
                   className="gpc-cover"
-                  src={coverUrl}
+                  src={cover?.src}
                   alt=""
                   decoding="async"
                   draggable={false}
+                  onError={cover?.onError}
                   onLoad={(e) => {
                     const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
                     if (w > 0 && h > 0) setCoverRatio(Math.min(1.6, Math.max(1.2, h / w)));
@@ -619,9 +627,9 @@ export function CaseIntro(props: CaseIntroProps) {
                 // No portrait cover: the game's wide art, whole over its own blur, under the title.
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img className="gpc-wblur" src={wideArt} alt="" decoding="async" draggable={false} />
+                  <img className="gpc-wblur" src={wide?.src} alt="" decoding="async" draggable={false} />
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img className="gpc-wide" src={wideArt} alt="" decoding="async" draggable={false} />
+                  <img key={wide?.src} className="gpc-wide" src={wide?.src} alt="" decoding="async" draggable={false} onError={wide?.onError} />
                 </>
               ) : (
                 <GameArt seed={seed + 7} hues={hues} figure light width={560} height={772} />

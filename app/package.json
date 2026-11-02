@@ -19,6 +19,7 @@
     "comments:recount": "tsx scripts/recount-article-comments.ts",
     "sample:rename": "tsx scripts/rename-sample-users.ts",
     "highscores:backfill": "tsx scripts/backfill-rank-stats.ts",
+    "sgdb:png-thumbs": "tsx scripts/sgdb-png-thumbs.ts",
     "news:feeds": "tsx scripts/news-feeds.ts",
     "games:repair-placeholders": "tsx scripts/repair-placeholder-games.ts",
     "steam:details": "tsx scripts/steam-details-worker.ts",

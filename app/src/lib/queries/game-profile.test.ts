@@ -62,6 +62,19 @@ describe("the game's numbers (one source per figure)", () => {
     expect(mainPlatform(catalogPlatforms([], 0))).toBeNull();
   });
 
+  it("keeps Steam's own count when more rows are stored (tiers still add up to it)", () => {
+    // 64 rows stored for a game Steam lists with 63: the page, the guide and the progress say 63.
+    const many = Array.from({ length: 64 }, (_, i) => ({ platform: "steam", globalPct: i < 4 ? 30 : 70, trophyTier: null }));
+    const [steam] = catalogPlatforms(many, 63);
+    expect(steam.total).toBe(63);
+    expect(steam.tiers.gold + steam.tiers.silver + steam.tiers.bronze).toBe(63);
+    // The Tralked platinum of the 100% is apart from the 63.
+    expect(steam.tiers.platinum).toBe(1);
+    expect(steam.nativePlatinum).toBe(false);
+    // Without a catalog count, the rows are the count.
+    expect(catalogPlatforms(many, 0)[0].total).toBe(64);
+  });
+
   it("a logged-out sample is this game's own 100%, and none without achievements", () => {
     const main = mainPlatform(catalogPlatforms(rows, 3))!;
     const sample = completionSample(main, rows, 50 * 60, "soulslike", 2)!;
@@ -116,7 +129,7 @@ describe("game profile helpers", () => {
         kind: "youtube",
         youtubeId: "dQw4w9WgXcQ",
         thumbnail: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
-        title: "Vídeo 2",
+        title: "Trailer 2",
         source: "YouTube via IGDB",
       },
     ]);

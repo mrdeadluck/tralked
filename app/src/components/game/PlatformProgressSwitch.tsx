@@ -53,7 +53,7 @@ export function PlatformProgressSwitch({
         {views.length > 1 ? (
           <fieldset className="gpx gp-veil" style={delay(".26s")}>
             <legend className="sr-only">{view.catalog ? "Conquistas por plataforma" : "Progresso por plataforma"}</legend>
-            <div className="gpx-row">
+            <div className="gpx-row" data-n={views.length}>
               {views.map((v) => (
                 <label
                   key={v.id}
@@ -91,7 +91,12 @@ export function PlatformProgressSwitch({
             {view.link ? <a href={view.link.href}>{view.link.label}</a> : null}
           </p>
         </div>
-        <TrophyGrid values={view.trophies} label={view.trophiesLabel} style={delay(".38s")} />
+        <TrophyGrid
+          values={view.trophies}
+          label={view.trophiesLabel}
+          tralked={view.tralkedPlatinum}
+          style={delay(".38s")}
+        />
       </DiscProgress>
     </>
   );

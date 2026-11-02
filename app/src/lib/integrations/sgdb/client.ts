@@ -1,3 +1,4 @@
+import { PNG_THUMB_HINT } from "@/lib/images/sized";
 import { timeoutSignal } from "../http";
 import type { SgdbApi } from "./types";
 
@@ -7,6 +8,17 @@ export type SgdbClientConfig = {
   apiKey: string;
   fetch?: typeof fetch;
 };
+
+/**
+ * The asset URL, with PNG_THUMB_HINT when SteamGridDB keeps its thumbnail only in PNG (a
+ * transparent image: the API's `thumb` ends in .png), so pages ask for that thumbnail directly
+ * instead of a JPEG one that 404s (lib/images/sized).
+ */
+export function assetUrl(item: { url?: string; thumb?: string } | undefined): string | undefined {
+  if (!item?.url) return undefined;
+  const pngThumb = /\.png$/i.test(item.url) && /\/(?:hero_thumb|thumb)\/[^/]+\.png$/i.test(item.thumb ?? "");
+  return pngThumb ? `${item.url}${PNG_THUMB_HINT}` : item.url;
+}
 
 export function createSgdbClient({
   apiKey,
@@ -19,8 +31,8 @@ export function createSgdbClient({
     });
     if (res.status === 404) return undefined; // unknown game
     if (!res.ok) throw new Error(`SteamGridDB ${kind} failed with HTTP ${res.status}`);
-    const body = (await res.json()) as { data?: { url?: string }[] };
-    return body.data?.[0]?.url;
+    const body = (await res.json()) as { data?: { url?: string; thumb?: string }[] };
+    return assetUrl(body.data?.[0]);
   }
 
   return {

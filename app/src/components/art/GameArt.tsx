@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { sizedImage, type ArtShape } from "@/lib/images/sized";
+import { noteFailedImage, sizedImage, type ArtShape } from "@/lib/images/sized";
 
 export type Hues = [number, number];
 
@@ -149,12 +149,19 @@ export function GameArt({
   const ref = useRef<HTMLCanvasElement>(null);
   const img = useRef<HTMLImageElement>(null);
   // A guessed CDN thumbnail that does not exist moves on to the next fallback (the original last).
-  const [failed, setFailed] = useState<{ url: string; count: number } | null>(null);
+  // Failed URLs, not a step count: a remembered PNG-only thumbnail changes the list of fallbacks.
+  const [failed, setFailed] = useState<string[]>([]);
   const [h1, h2] = hues;
   const sized = imageUrl ? sizedImage(imageUrl, width, shape) : null;
-  const fallbacks = sized?.fallbacks ?? [];
-  const step = failed && failed.url === imageUrl ? failed.count : 0;
-  const canFallBack = step < fallbacks.length;
+  const candidates = sized ? [sized.src, ...(sized.fallbacks ?? [])] : [];
+  const current = candidates.find((url) => !failed.includes(url)) ?? candidates[candidates.length - 1];
+  const step = current ? candidates.indexOf(current) : 0;
+  const canFallBack = step < candidates.length - 1;
+  const fail = (url: string | undefined) => {
+    if (!url) return;
+    noteFailedImage(url);
+    setFailed((list) => (list.includes(url) ? list : [...list, url]));
+  };
 
   useEffect(() => {
     if (!imageUrl && ref.current) paint(ref.current, [h1, h2], seed, { figure, light });
@@ -163,10 +170,8 @@ export function GameArt({
   // A thumbnail that 404'd before React attached onError is "complete" with no pixels.
   useEffect(() => {
     const el = img.current;
-    if (imageUrl && canFallBack && el?.complete && el.currentSrc && el.naturalWidth === 0) {
-      setFailed({ url: imageUrl, count: step + 1 });
-    }
-  }, [imageUrl, canFallBack, step]);
+    if (imageUrl && canFallBack && el?.complete && el.currentSrc && el.naturalWidth === 0) fail(current);
+  }, [imageUrl, canFallBack, current]);
 
   if (imageUrl && sized) {
     const responsive = step === 0 && sizes !== undefined;
@@ -176,8 +181,8 @@ export function GameArt({
       // eslint-disable-next-line @next/next/no-img-element
       <img
         ref={img}
-        key={step}
-        src={step === 0 ? sized.src : fallbacks[step - 1]}
+        key={current}
+        src={current}
         srcSet={responsive ? sized.srcSet : undefined}
         sizes={responsive ? sizes : undefined}
         width={width}
@@ -187,7 +192,7 @@ export function GameArt({
         fetchPriority={priority ? "high" : undefined}
         decoding="async"
         draggable={false}
-        onError={canFallBack ? () => setFailed({ url: imageUrl, count: step + 1 }) : undefined}
+        onError={canFallBack ? () => fail(current) : undefined}
         className={`block size-full object-cover ${className}`}
         style={style}
       />

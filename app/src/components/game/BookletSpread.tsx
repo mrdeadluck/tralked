@@ -25,7 +25,10 @@ const CSS = `
 .gps-art { position: absolute; inset: 0; opacity: .32; pointer-events: none; -webkit-mask: linear-gradient(90deg, transparent 30%, #000 75%); mask: linear-gradient(90deg, transparent 30%, #000 75%); }
 .gps-l, .gps-r { position: relative; z-index: 2; padding: 44px 48px 56px; }
 .gps-l { display: flex; flex-direction: column; gap: 22px; container-type: inline-size; }
-.gps-r { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
+.gps-r { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; isolation: isolate; }
+/* The right page is printed over the art (a bright screenshot when the game has no hero): a scrim
+   of the booklet's paper, lightest behind the disc, solid under the numbers and the text. */
+.gps-r::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(ellipse 72% 46% at 50% 34%, color-mix(in srgb, var(--paper) 30%, transparent), transparent 100%), linear-gradient(180deg, color-mix(in srgb, var(--paper) 25%, transparent) 0%, color-mix(in srgb, var(--paper) 80%, transparent) 52%, color-mix(in srgb, var(--paper) 95%, transparent) 68%); }
 .gps-folio { position: absolute; bottom: 16px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .14em; color: var(--dim); }
 .gps-l .gps-folio { left: 48px; } .gps-r .gps-folio { right: 48px; }
 .gps-tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
@@ -186,6 +189,7 @@ export function BookletProgress({
         {trophies ? (
           <TrophyGrid
             style={delay(".38s")}
+            tralked={!progress?.byPlatform.find((p) => p.platform === best.platform)?.platinumTrophy}
             label={`Seus troféus na ${PLATFORM_NAME[best.platform]}, por nível`}
             values={{ platinum: `${trophies.platinum}/${trophies.platinumOf}`, gold: fmt(trophies.gold), silver: fmt(trophies.silver), bronze: fmt(trophies.bronze) }}
           />
@@ -219,7 +223,21 @@ export function CriticScore({ score }: { score: number }) {
   );
 }
 
-/** Steam concurrent players (item 14): "now" with today's and the highest peak, or the peak alone. */
+/**
+ * Steam concurrent players (item 14): "now" with today's and the highest peak, or the peak alone.
+ * A number equal to one already shown is not repeated ("3.972 · pico hoje 3.972 · maior pico
+ * 3.972"): the note says what it is instead.
+ */
+export function steamPlayersNote(players: SteamPlayersView & { current: number }): string {
+  const { current, todayPeak, allTimePeak } = players;
+  if (allTimePeak === current) return "o maior pico medido";
+  const all = `maior pico medido ${fmt(allTimePeak)}`;
+  if (todayPeak === null) return all;
+  if (todayPeak === current) return `pico de hoje · ${all}`;
+  if (todayPeak === allTimePeak) return `pico hoje ${fmt(todayPeak)}, o maior medido`;
+  return `pico hoje ${fmt(todayPeak)} · ${all}`;
+}
+
 export function SteamPlayersFact({ players }: { players: SteamPlayersView }) {
   if (players.current === null) {
     return (
@@ -228,12 +246,7 @@ export function SteamPlayersFact({ players }: { players: SteamPlayersView }) {
       </Fact>
     );
   }
-  const note = [
-    players.todayPeak !== null ? `pico hoje ${fmt(players.todayPeak)}` : null,
-    `maior pico medido ${fmt(players.allTimePeak)}`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const note = steamPlayersNote({ ...players, current: players.current });
   return (
     <Fact term="Jogando agora na Steam" note={note}>
       {fmt(players.current)}
@@ -274,8 +287,10 @@ export function BookletSpread({
           imageUrl={profile.art.hero ?? profile.shots.find((s) => s.url)?.url ?? null}
           figure
           priority
-          width={1400}
-          height={700}
+          // Seen at 32% through a mask over about 70% of the spread: the 850-900 px CDN copy
+          // (SteamGridDB's JPEG hero thumbnail, IGDB's 720p) instead of the PNG original.
+          width={900}
+          height={450}
         />
       </div>
       <BackdropLoop video={profile.backdrop} gameName={profile.name} />

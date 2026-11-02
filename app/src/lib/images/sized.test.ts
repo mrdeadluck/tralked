@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sizedImage, sizedUrl } from "./sized";
+import { noteFailedImage, PNG_THUMB_HINT, sizedImage, sizedUrl } from "./sized";
 
 const IGDB = (token: string, id = "loakfrjghok9fxnh59lt") => `https://images.igdb.com/igdb/image/upload/${token}/${id}.jpg`;
 const SS = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4824610/223fa1c5/ss_223fa1c5.1920x1080.jpg?t=1780990195";
@@ -46,6 +46,26 @@ describe("sizedImage", () => {
     // A JPEG original has a JPEG thumbnail: only the original is left to try.
     const jpg = "https://cdn2.steamgriddb.com/grid/56f9c90b73b3703fd8abe316d2bd1e6c.jpg";
     expect(sizedImage(jpg, 172, "fit").fallbacks).toEqual([jpg]);
+  });
+
+  it("asks for the PNG thumbnail directly when the URL carries the hint, or after a JPEG one failed", () => {
+    const id = "1130064514f563b2d894f0840d31db3c";
+    const grid = `https://cdn2.steamgriddb.com/grid/${id}.png`;
+    expect(sizedImage(`${grid}${PNG_THUMB_HINT}`, 172, "fit")).toEqual({
+      src: `https://cdn2.steamgriddb.com/thumb/${id}.png`,
+      srcSet: `https://cdn2.steamgriddb.com/thumb/${id}.png 280w, ${grid} 600w`,
+      fallbacks: [grid],
+    });
+    const other = "https://cdn2.steamgriddb.com/grid/2979eeec451dcd28d06474671b396519.png";
+    expect(sizedImage(other, 172, "fit").src).toBe("https://cdn2.steamgriddb.com/thumb/2979eeec451dcd28d06474671b396519.jpg");
+    noteFailedImage("https://cdn2.steamgriddb.com/thumb/2979eeec451dcd28d06474671b396519.jpg");
+    expect(sizedImage(other, 172, "fit")).toMatchObject({
+      src: "https://cdn2.steamgriddb.com/thumb/2979eeec451dcd28d06474671b396519.png",
+      fallbacks: [other],
+    });
+    // Other failures are not remembered.
+    noteFailedImage("https://example.com/x.jpg");
+    noteFailedImage(undefined);
   });
 
   it("passes other URLs through unchanged", () => {

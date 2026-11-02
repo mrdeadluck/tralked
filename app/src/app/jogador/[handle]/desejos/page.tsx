@@ -66,7 +66,16 @@ async function ProfileWishlist({
           {list.items.map((item, index) => (
             <li key={item.gameId} className="flex flex-col overflow-hidden rounded-[4px] border border-line bg-surface">
               <div className="relative [&>*]:rounded-none">
-                <GameCover name={item.name} coverUrl={item.coverUrl} lazy />
+                <GameCover
+                  name={item.name}
+                  coverUrl={item.coverUrl}
+                  steamAppId={item.steamAppId}
+                  wideUrl={item.heroUrl}
+                  portraitChecked={!item.stub}
+                  alt=""
+                  width={360}
+                  sizes="(max-width: 520px) calc(100vw - 40px), 360px"
+                />
                 <span className="absolute top-2 left-2 bg-bg px-1.5 py-0.5 font-mono text-xs font-bold text-text">
                   #{list.offset + index + 1}
                 </span>

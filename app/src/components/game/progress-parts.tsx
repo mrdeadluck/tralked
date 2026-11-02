@@ -21,7 +21,9 @@ export const PROGRESS_CSS = `
 .gpt li { background: var(--paper-2); padding: 10px 6px; text-align: center; }
 .gpt svg { width: 20px; height: 20px; }
 .gpt b { display: block; font-weight: 900; font-stretch: 112%; font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.gpt small { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+.gpt small { display: block; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+.gpt li[data-tralked] { background: color-mix(in srgb, var(--plat) 6%, var(--paper-2)); }
+.gpt li[data-tralked] b { color: var(--plat); }
 .gpx { display: flex; flex-wrap: wrap; justify-content: center; max-width: 100%; margin: 0; padding: 0; border: 0; }
 .gpx-row { display: inline-flex; flex-wrap: wrap; justify-content: center; border: 1px solid var(--border-2); border-radius: 2px; background: var(--paper-2); }
 .gpx-opt { position: relative; display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 12px; border-left: 1px solid var(--border-2); font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); cursor: pointer; white-space: nowrap; transition: background .2s, color .2s; }
@@ -40,6 +42,10 @@ export const PROGRESS_CSS = `
   .gpx-opt { justify-content: center; border-left: 0; border-top: 1px solid var(--border-2); }
   .gpx-opt:nth-child(-n+2) { border-top: 0; }
   .gpx-opt:nth-child(even) { border-left: 1px solid var(--border-2); }
+  /* Three platforms share one row (two-and-one left "Xbox 7" alone on a second line). */
+  .gpx-row[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .gpx-row[data-n="3"] .gpx-opt { padding: 0 6px; gap: 6px; border-top: 0; border-left: 1px solid var(--border-2); }
+  .gpx-row[data-n="3"] .gpx-opt:first-child { border-left: 0; }
 }
 `;
 
@@ -58,17 +64,38 @@ function TrophyIcon({ color }: { color: string }) {
   );
 }
 
-/** The four trophy tiers, platinum first; `values` already formatted ("1/2", "12"). */
-export function TrophyGrid({ values, label, style }: { values: Record<TrophyTier, string>; label: string; style?: CSSProperties }) {
+/**
+ * The four trophy tiers, platinum first; `values` already formatted ("1/2", "12"). `tralked`: the
+ * platform has no platinum trophy of its own, so the platinum is Tralked's reward for the 100%
+ * ("Platina Tralked"), apart from the achievements: gold + silver + bronze add up to the total.
+ */
+export function TrophyGrid({
+  values,
+  label,
+  style,
+  tralked = false,
+}: {
+  values: Record<TrophyTier, string>;
+  label: string;
+  style?: CSSProperties;
+  tralked?: boolean;
+}) {
   return (
     <ul className="gpt gp-veil" style={style} aria-label={label}>
-      {TROPHY_UI.map(({ tier, label: name, color }) => (
-        <li key={tier}>
-          <TrophyIcon color={color} />
-          <b>{values[tier]}</b>
-          <small>{name}</small>
-        </li>
-      ))}
+      {TROPHY_UI.map(({ tier, label: name, color }) => {
+        const own = tier === "platinum" && tralked;
+        return (
+          <li
+            key={tier}
+            data-tralked={own ? "" : undefined}
+            title={own ? "Platina do Tralked: vem com os 100%, fora da contagem de conquistas" : undefined}
+          >
+            <TrophyIcon color={color} />
+            <b>{values[tier]}</b>
+            <small>{own ? "Platina Tralked" : name}</small>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -100,4 +127,6 @@ export type ProgressView = {
   platLabel: string;
   trophies: Record<TrophyTier, string>;
   trophiesLabel: string;
+  /** The platinum is Tralked's (no native platinum trophy on this platform): see TrophyGrid. */
+  tralkedPlatinum?: boolean;
 };

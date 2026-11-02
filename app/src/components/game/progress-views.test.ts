@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { platformProgress, splitByPlatform, type GameUserProfile } from "@/lib/queries/game-profile";
-import { progressViews } from "./progress-views";
+import { catalogPlatforms, platformProgress, splitByPlatform, type GameUserProfile } from "@/lib/queries/game-profile";
+import { steamPlayersNote } from "./BookletSpread";
+import { catalogViews, progressViews } from "./progress-views";
 
 function progressOf(rows: { platform: string; unlockedCount: number; completedAt: Date | null; total: number }[]) {
   const platforms = rows.map((r) => platformProgress({ ...r, playtimeMin: 60 }, r.total));
@@ -47,5 +48,36 @@ describe("progressViews (game page platform tabs)", () => {
     );
     expect(split?.views.map((v) => v.badge)).toEqual(["100%", "100%", "100%"]);
     expect(split?.views[0].detail).toContain("tudo platinado");
+    // Steam and Xbox have no platinum trophy: theirs is the Tralked one; "Todas" pools both kinds.
+    expect(split?.views.map((v) => v.tralkedPlatinum)).toEqual([undefined, true, true]);
+  });
+});
+
+describe("catalogViews (the game's own numbers)", () => {
+  it("shows the Tralked platinum apart: gold + silver + bronze are the platform's achievements", () => {
+    const rows = [
+      ...Array.from({ length: 63 }, () => ({ platform: "steam", globalPct: 50, trophyTier: null })),
+      { platform: "psn", globalPct: null, trophyTier: "platinum" },
+      { platform: "psn", globalPct: null, trophyTier: "gold" },
+    ];
+    const platforms = catalogPlatforms(rows, 63);
+    const { views } = catalogViews(platforms, platforms[0], { link: { href: "/entrar", label: "entre" } });
+    const [steam, psn] = views;
+    expect(steam.total).toBe(63);
+    expect(steam.trophies.platinum).toBe("+1");
+    expect(steam.tralkedPlatinum).toBe(true);
+    expect(Number(steam.trophies.gold) + Number(steam.trophies.silver) + Number(steam.trophies.bronze)).toBe(63);
+    expect(psn.trophies.platinum).toBe("1");
+    expect(psn.tralkedPlatinum).toBe(false);
+  });
+});
+
+describe("steamPlayersNote", () => {
+  it("never repeats a number already shown", () => {
+    expect(steamPlayersNote({ current: 3972, todayPeak: 3972, allTimePeak: 3972 })).toBe("o maior pico medido");
+    expect(steamPlayersNote({ current: 3000, todayPeak: 3000, allTimePeak: 5000 })).toBe("pico de hoje · maior pico medido 5.000");
+    expect(steamPlayersNote({ current: 3000, todayPeak: 4000, allTimePeak: 4000 })).toBe("pico hoje 4.000, o maior medido");
+    expect(steamPlayersNote({ current: 3000, todayPeak: 4000, allTimePeak: 5000 })).toBe("pico hoje 4.000 · maior pico medido 5.000");
+    expect(steamPlayersNote({ current: 3000, todayPeak: null, allTimePeak: 5000 })).toBe("maior pico medido 5.000");
   });
 });

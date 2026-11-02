@@ -6,8 +6,10 @@ type GameCoverProps = {
   coverUrl: string | null;
   /** Steam app id, when known: Steam's portrait art joins the fallback chain. */
   steamAppId?: number | null;
-  /** Wide art (hero, store header) tried after the covers, shown whole over its blur. */
+  /** Wide art (hero, store header) tried after the covers (CoverArt prints it as a case). */
   wideUrl?: string | null;
+  /** The store details were fetched (no Steam portrait to guess: see lib/case-art `caseArt`). */
+  portraitChecked?: boolean;
   /** CSS aspect-ratio. Defaults to the preview's 16 / 10. */
   ratio?: string;
   /** Lists and grids load the image only near the viewport (always the case now). */
@@ -23,19 +25,20 @@ type GameCoverProps = {
 
 /**
  * A game's cover through the shared fallback chain (lib/case-art + CoverArt): stored cover, then
- * Steam's portrait art, then wide art shown whole, then generated art with the game's name.
+ * Steam's portrait art, then wide art printed as a case, then generated art with the game's name.
  */
 export function GameCover({
   name,
   coverUrl,
   steamAppId,
   wideUrl,
+  portraitChecked,
   ratio = "16 / 10",
   alt,
   className = "rounded-[3px]",
   width = 320,
   sizes = "(max-width: 640px) 50vw, 320px",
 }: GameCoverProps) {
-  const sources = caseArt({ coverUrl, steamAppId: steamAppId ?? steamAppIdFromUrl(coverUrl), wideUrl });
+  const sources = caseArt({ coverUrl, steamAppId: steamAppId ?? steamAppIdFromUrl(coverUrl), wideUrl, portraitChecked });
   return <CoverArt name={name} sources={sources} ratio={ratio} alt={alt} className={className} width={width} sizes={sizes} />;
 }

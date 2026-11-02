@@ -13,6 +13,8 @@ type MediaRow = {
   width: number | null;
   height: number | null;
   source: string;
+  /** Videos: IGDB's name of the video ("Trailer", "Gameplay"). */
+  title?: string | null;
 };
 
 export type MediaDeps = { igdb: IgdbApi; sgdb: SgdbApi };
@@ -57,6 +59,7 @@ export async function syncGameMedia(
       kind: "video",
       url: null,
       youtubeId: v.youtubeId,
+      title: v.name?.trim() || null,
       width: null,
       height: null,
       source: "igdb",

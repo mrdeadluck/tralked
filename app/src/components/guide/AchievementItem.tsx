@@ -62,10 +62,10 @@ export function AchievementItem({ achievement: a, showSpoilers }: AchievementIte
   return (
     <li
       style={{ "--rc": rarity.color } as CSSProperties}
-      className="grid grid-cols-[52px_minmax(0,1fr)_auto] gap-x-[18px] gap-y-1 border-b border-line py-5 max-[640px]:grid-cols-[44px_minmax(0,1fr)]"
+      className="grid grid-cols-[52px_minmax(0,1fr)_auto] gap-x-[18px] gap-y-1 border-b border-line py-5 max-[640px]:grid-cols-[44px_minmax(0,1fr)] max-[640px]:gap-x-3.5"
     >
       <div
-        className={`row-span-3 grid size-[52px] place-items-center border-2 border-(--rc) bg-[color-mix(in_srgb,var(--rc)_12%,var(--bg))] text-(--rc) [clip-path:polygon(0_0,100%_0,100%_76%,76%_100%,0_100%)] max-[640px]:row-span-2 max-[640px]:size-11 ${
+        className={`col-start-1 row-span-3 row-start-1 grid size-[52px] place-items-center border-2 border-(--rc) bg-[color-mix(in_srgb,var(--rc)_12%,var(--bg))] text-(--rc) [clip-path:polygon(0_0,100%_0,100%_76%,76%_100%,0_100%)] max-[640px]:row-span-2 max-[640px]:size-11 ${
           a.done ? "" : "[filter:saturate(.3)_brightness(.75)]"
         }`}
       >
@@ -83,14 +83,14 @@ export function AchievementItem({ achievement: a, showSpoilers }: AchievementIte
         </svg>
       </div>
 
-      <h3 className="flex flex-wrap items-center gap-2.5 text-[19px] font-extrabold font-stretch-[105%] tracking-[-0.015em]">
+      <h3 className="col-start-2 row-start-1 flex flex-wrap items-center gap-2.5 text-[19px] font-extrabold font-stretch-[105%] tracking-[-0.015em]">
         {a.name}
         <span className="border border-[color-mix(in_srgb,var(--rc)_50%,transparent)] px-1.5 py-px font-mono text-xs font-medium tracking-[0.1em] text-(--rc) uppercase">
           {rarity.label}
         </span>
       </h3>
 
-      <div className="row-span-3 flex flex-col items-end gap-1.5 text-right max-[640px]:col-start-2 max-[640px]:row-auto max-[640px]:flex-row max-[640px]:flex-wrap max-[640px]:items-center max-[640px]:text-left">
+      <div className="col-start-3 row-span-3 row-start-1 flex flex-col items-end gap-1.5 text-right max-[640px]:col-start-2 max-[640px]:row-span-1 max-[640px]:row-start-2 max-[640px]:flex-row max-[640px]:flex-wrap max-[640px]:items-center max-[640px]:text-left">
         <span className="font-mono text-[13px] font-bold text-acc">+{fmt(a.xp)} XP</span>
         <small className="font-mono text-xs text-dim">{pctText(a.globalPct)} dos jogadores</small>
         {a.done ? (
@@ -101,12 +101,12 @@ export function AchievementItem({ achievement: a, showSpoilers }: AchievementIte
       </div>
 
       {a.description ? (
-        <Spoiler hidden={hide} className="text-[15.5px] text-muted">
+        <Spoiler hidden={hide} className="col-start-2 text-[15.5px] text-muted max-[640px]:col-[1/-1] max-[640px]:mt-1.5">
           <p>{a.description}</p>
         </Spoiler>
       ) : null}
 
-      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      <div className="col-start-2 mt-1 flex flex-wrap items-center gap-1.5 max-[640px]:col-[1/-1]">
         <Chip plain>{CATEGORY_NAME[a.category] ?? a.category}</Chip>
         {a.spoiler ? <Chip color="var(--r-lendario)">Spoiler</Chip> : null}
       </div>

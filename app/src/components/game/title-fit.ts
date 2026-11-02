@@ -37,6 +37,43 @@ export function longestWordEm(title: string): number {
   return Math.ceil(widest * SAFETY * 100) / 100;
 }
 
+const SPACE_EM = 0.26;
+
+/**
+ * Largest font size, in `cqw` (hundredths of the box width), at which `title` fits a region of
+ * `widthFrac` × `heightFrac` of a box `ratio` tall per unit of width, breaking only between words
+ * (greedy, as the browser wraps) at `lineHeight`. For titles set on art: a long name ("Tom Clancy's
+ * Splinter Cell: Pandora Tomorrow") gets smaller instead of climbing out of its area.
+ */
+export function titleBoxFit(
+  title: string,
+  { ratio, widthFrac, heightFrac, lineHeight = 0.95 }: { ratio: number; widthFrac: number; heightFrac: number; lineHeight?: number },
+): number {
+  const words = title
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => [...w].reduce((sum, c) => sum + charEm(c), 0) * SAFETY);
+  if (words.length === 0) return 10;
+  const longest = Math.max(...words);
+  const maxHeight = ratio * heightFrac;
+  // From the size where the longest word just fits the width, down in 2% steps.
+  for (let f = widthFrac / longest; f > 0.01; f *= 0.98) {
+    let lines = 1;
+    let line = 0;
+    for (const w of words) {
+      const next = line === 0 ? w : line + SPACE_EM + w;
+      if (next * f > widthFrac && line > 0) {
+        lines += 1;
+        line = w;
+      } else {
+        line = next;
+      }
+    }
+    if (lines * lineHeight * f <= maxHeight) return Math.floor(f * 1000) / 10;
+  }
+  return 1;
+}
+
 /** Inline style carrying `--longest` for a title (see the CSS of each title spot). */
 export function titleFitStyle(title: string): CSSProperties {
   return { "--longest": Math.max(1, longestWordEm(title)) } as CSSProperties;

@@ -13,6 +13,8 @@ export type CatalogMedia = {
   width?: number;
   height?: number;
   order: number;
+  /** Videos: the store's title of the trailer. */
+  title?: string;
 };
 
 export type CatalogGameInput = {
@@ -161,7 +163,7 @@ export async function writeCatalogGame(input: CatalogGameInput): Promise<{ game:
 
     const existingMedia = await tx.gameMedia.findMany({ where: { gameId: game.id, source: MEDIA_SOURCE } });
     for (const m of media) {
-      const data = { url: m.url, width: m.width ?? null, height: m.height ?? null };
+      const data = { url: m.url, width: m.width ?? null, height: m.height ?? null, title: m.title ?? null };
       const row = existingMedia.find((e) => e.kind === m.kind && e.order === m.order);
       if (row) await tx.gameMedia.update({ where: { id: row.id }, data });
       else await tx.gameMedia.create({ data: { ...data, gameId: game.id, kind: m.kind, order: m.order, source: MEDIA_SOURCE } });

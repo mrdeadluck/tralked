@@ -35,8 +35,17 @@ export function catalogViews(
       detail: `${note.prefix ?? ""}${p.total === 1 ? "conquista" : "conquistas"} na ${name} · `,
       link: note.link,
       platLabel: `PLATINADO · ${fmt(p.total)}/${fmt(p.total)}`,
-      trophies: { platinum: fmt(p.tiers.platinum), gold: fmt(p.tiers.gold), silver: fmt(p.tiers.silver), bronze: fmt(p.tiers.bronze) },
-      trophiesLabel: `Troféus do jogo na ${name}, por nível`,
+      // Without a native platinum the 100% earns the Tralked one: "+1", outside the total.
+      trophies: {
+        platinum: p.nativePlatinum ? fmt(p.tiers.platinum) : "+1",
+        gold: fmt(p.tiers.gold),
+        silver: fmt(p.tiers.silver),
+        bronze: fmt(p.tiers.bronze),
+      },
+      trophiesLabel: p.nativePlatinum
+        ? `Troféus do jogo na ${name}, por nível`
+        : `Troféus do jogo na ${name}, por nível, mais a platina do Tralked pelos 100%`,
+      tralkedPlatinum: !p.nativePlatinum,
     };
   });
   return { views, initial: main.platform };
@@ -95,6 +104,7 @@ export function progressViews(
       platLabel: `PLATINADO · ${p.unlocked}/${p.total}`,
       trophies: trophyValues(p.trophies),
       trophiesLabel: `Seus troféus na ${name}, por nível`,
+      tralkedPlatinum: !p.platinumTrophy,
     };
   });
   return { views: [all, ...platforms], initial: progress.best.platform };

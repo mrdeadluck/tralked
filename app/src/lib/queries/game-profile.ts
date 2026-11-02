@@ -14,6 +14,7 @@ import { applySkillPoints, skillNeed, skillPointsFor } from "@/lib/engine/skills
 import { trophyTierFromRarity, type PlatformId, type TrophyTier } from "@/lib/engine/trophies";
 import { SKILLS, type SkillId } from "@/lib/engine/types";
 import { platinumBonus, rarityTier, xpForAchievement } from "@/lib/engine/xp";
+import { achievementTotal } from "@/lib/games/achievement-total";
 import { platinumSourceKey } from "@/lib/progression/recompute";
 import { skillPointTotals } from "@/lib/progression/skills-from-ledger";
 import { timeAgo } from "@/lib/time-ago";
@@ -209,12 +210,22 @@ export function catalogPlatforms(rows: AchievementRow[], steamCount: number): Ca
   const out: CatalogPlatform[] = [];
   for (const platform of PLATFORM_ORDER) {
     const mine = rows.filter((r) => r.platform === platform);
-    const total = platform === "steam" && steamCount > 0 ? Math.max(steamCount, mine.length) : mine.length;
+    const total = achievementTotal(platform, steamCount, mine.length);
     if (total === 0) continue;
     const tiers = emptyTiers();
     for (const row of mine) tiers[tierOf(row)]++;
-    tiers.bronze += total - mine.length;
+    // Rows Steam no longer lists (more rows than its count) come off the commonest tiers, so the
+    // tiers always add up to `total`.
+    let extra = mine.length - total;
+    for (const tier of ["bronze", "silver", "gold"] as const) {
+      const cut = Math.min(Math.max(0, extra), tiers[tier]);
+      tiers[tier] -= cut;
+      extra -= cut;
+    }
+    tiers.bronze += Math.max(0, total - mine.length);
     const nativePlatinum = tiers.platinum > 0;
+    // Without a native platinum, the 100% is worth the Tralked platinum: shown apart ("+1"),
+    // never added to the platform's achievements.
     if (!nativePlatinum) tiers.platinum = 1;
     out.push({
       platform,
@@ -284,7 +295,16 @@ const VIDEO_SOURCE: Record<string, string> = {
   fixture: "Tralked",
 };
 
-type MediaRow = { id: string; kind: string; url: string | null; youtubeId: string | null; source: string; order: number };
+type MediaRow = {
+  id: string;
+  kind: string;
+  url: string | null;
+  youtubeId: string | null;
+  source: string;
+  order: number;
+  /** Videos: the source's title, when stored. */
+  title?: string | null;
+};
 
 const STEAM_MOVIE = /^https:\/\/[a-z0-9.-]+\.steamstatic\.com\/(?:store_trailers|steam\/apps)\/(\d+)\/movie[\w.]*\.(?:mp4|webm)(?:\?|$)/;
 
@@ -309,7 +329,8 @@ export function playableVideos(rows: MediaRow[], stills: string[] = []): GameVid
   let spare = 0;
   for (const row of rows) {
     if (row.kind !== "video") continue;
-    const title = videos.length === 0 ? "Trailer" : `Vídeo ${videos.length + 1}`;
+    // The source's own title ("Launch Trailer", "Gameplay"); else "Trailer", "Trailer 2"…
+    const title = row.title?.trim() || (videos.length === 0 ? "Trailer" : `Trailer ${videos.length + 1}`);
     const source = VIDEO_SOURCE[row.source] ?? row.source;
     const url = safeMediaUrl(row.url);
     if (url) {
@@ -832,10 +853,7 @@ function achievementTotals(
   steamCount: number,
   totals: { platform: string; _count: { _all: number } }[],
 ): (platform: string) => number {
-  return (platform) => {
-    if (platform === "steam" && steamCount > 0) return steamCount;
-    return totals.find((t) => t.platform === platform)?._count._all ?? 0;
-  };
+  return (platform) => achievementTotal(platform, steamCount, totals.find((t) => t.platform === platform)?._count._all ?? 0);
 }
 
 /** A player's progress in one game, by platform (the player's view of the game). */

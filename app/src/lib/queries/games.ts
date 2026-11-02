@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
 import { foldQueryInDb } from "@/lib/search/normalize";
+import { achievementTotal } from "@/lib/games/achievement-total";
 import { loadTimeTo100, type TimeTo100 } from "./time-to-100";
 
 const SKILL_IDS = new Set<string>(SKILLS.map((s) => s.id));
@@ -213,12 +214,47 @@ export async function listGameSlugs(
 // ---------- Game page ----------
 
 export type GuideMeta = {
-  version: string;
+  /** Version of the latest real revision (`realRevisions`); null when there is none to show. */
+  version: string | null;
+  /** When readers last saw the guide change: the latest real revision, else its publication. */
   updatedAt: Date;
+  /** What `updatedAt` is: a revision ("atualizado") or the publication ("publicado"). */
+  dateKind: "updated" | "published";
+  /** The author, when a real account (`isRealAccount`); seeded characters are not shown. */
   authorHandle: string | null;
   reviewers: string[];
   stepCount: number;
+  /** An editorial guide by a real account: only then the page says "Autoria humana". */
+  human: boolean;
 };
+
+/** Account fields that tell a person's account from a seeded character (never sent to pages). */
+const ACCOUNT_SELECT = { handle: true, email: true, googleSub: true, passwordHash: true } as const;
+
+/**
+ * A person's account: one that can sign in with an e-mail, a password or Google. Seeded
+ * characters (and nothing else) have none of them, so their guide revisions are not shown.
+ */
+export function isRealAccount(
+  user: { email: string | null; googleSub: string | null; passwordHash: string | null } | null | undefined,
+): boolean {
+  return Boolean(user && (user.email || user.googleSub || user.passwordHash));
+}
+
+/**
+ * The revisions a guide page may show, newest first: written by a real account, and not older
+ * than the guide itself (a seeded history is backdated: "v1.0, há 1 ano" on a new site).
+ */
+export function realRevisions<
+  R extends {
+    createdAt: Date;
+    author: { email: string | null; googleSub: string | null; passwordHash: string | null } | null;
+  },
+>(revisions: R[], guideCreatedAt: Date): R[] {
+  return revisions
+    .filter((r) => isRealAccount(r.author) && r.createdAt.getTime() >= guideCreatedAt.getTime())
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
 
 export type GameDetail = {
   id: string;
@@ -251,26 +287,31 @@ export async function getGame(slug: string, userId?: string): Promise<GameDetail
       media: { where: { kind: "cover", url: { not: null } }, orderBy: { order: "asc" }, take: 1, select: { url: true } },
       guide: {
         include: {
-          author: { select: { handle: true } },
-          revisions: { include: { author: { select: { handle: true } } } },
+          author: { select: ACCOUNT_SELECT },
+          revisions: { include: { author: { select: ACCOUNT_SELECT } } },
           _count: { select: { steps: true } },
         },
       },
+      // The Steam total is the catalog count, else its rows (achievementTotal, as the game page).
+      _count: { select: { achievements: { where: { platform: "steam" } } } },
     },
   });
   if (!game) return null;
 
   const guide = game.guide?.status === "published" ? game.guide : null;
-  const authorHandle = guide?.author?.handle ?? null;
-  const reviewers = guide
-    ? [
-        ...new Set(
-          guide.revisions
-            .map((r) => r.author?.handle)
-            .filter((h): h is string => Boolean(h) && h !== authorHandle),
-        ),
-      ]
-    : [];
+  const realAuthor = isRealAccount(guide?.author);
+  const authorHandle = realAuthor ? (guide?.author?.handle ?? null) : null;
+  const revisions = guide ? realRevisions(guide.revisions, guide.createdAt) : [];
+  const reviewers = [
+    ...new Set(
+      revisions.map((r) => r.author?.handle).filter((h): h is string => Boolean(h) && h !== authorHandle),
+    ),
+  ];
+  const latest = revisions[0] ?? null;
+  // Never before the guide row existed (a seeded publication date can be backdated too).
+  const published = guide
+    ? new Date(Math.max(guide.createdAt.getTime(), guide.publishedAt?.getTime() ?? 0))
+    : null;
   const owned = game.users?.[0];
 
   return {
@@ -281,18 +322,20 @@ export async function getGame(slug: string, userId?: string): Promise<GameDetail
     coverUrl: safeImageUrl(game.media[0]?.url) ?? safeImageUrl(game.coverUrl),
     platforms: game.platforms,
     skills: asSkills(game.skills.map((s) => s.skill)),
-    achievementCount: game.achievementCount,
+    achievementCount: achievementTotal("steam", game.achievementCount, game._count.achievements),
     heroUrl: safeImageUrl(game.heroUrl),
     timeToBeatCompleteMin: game.timeToBeatCompleteMin,
     progress: owned ? { unlockedCount: owned.unlockedCount, playtimeMin: owned.playtimeMin } : null,
     generatedAt: new Date(),
     guide: guide
       ? {
-          version: guide.version,
-          updatedAt: guide.updatedAt,
+          version: latest?.version ?? null,
+          updatedAt: latest?.createdAt ?? published!,
+          dateKind: latest ? "updated" : "published",
           authorHandle,
           reviewers,
           stepCount: guide._count.steps,
+          human: guide.source !== "bot" && realAuthor,
         }
       : null,
   };
@@ -453,7 +496,7 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
       },
       revisions: {
         orderBy: { createdAt: "desc" },
-        include: { author: { select: { handle: true } } },
+        include: { author: { select: ACCOUNT_SELECT } },
       },
     },
   });
@@ -550,7 +593,7 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
       isOwn: false,
       voted: false,
     })),
-    revisions: guide.revisions.map((r) => ({
+    revisions: realRevisions(guide.revisions, guide.createdAt).map((r) => ({
       id: r.id,
       version: r.version,
       summary: r.summary,
