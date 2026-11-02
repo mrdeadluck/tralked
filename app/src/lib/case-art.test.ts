@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { caseArt, steamAppIdFromUrl, steamHeaderUrl, steamPortraitUrl } from "./case-art";
+import { caseArt, steamAppIdFromUrl, steamCapsuleUrl, steamHeaderUrl, steamPortraitUrl } from "./case-art";
 
 describe("caseArt", () => {
   it("orders portrait cover, Steam portrait, then the wide header", () => {
@@ -24,6 +24,13 @@ describe("caseArt", () => {
     // Plain (older) asset folders still try the portrait first.
     const plain = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/capsule_231x87.jpg";
     expect(caseArt({ steamAppId: 10, wideUrl: plain })[0]).toEqual({ url: steamPortraitUrl(10), wide: false });
+  });
+
+  it("tries Steam's 616×353 capsule first in a wide box (never for hashed apps)", () => {
+    const sources = caseArt({ coverUrl: "https://img/c.jpg", steamAppId: 10, wideUrl: "https://img/hero.jpg", wideBox: true });
+    expect(sources.filter((s) => s.wide).map((s) => s.url)).toEqual([steamCapsuleUrl(10), "https://img/hero.jpg"]);
+    const hashed = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/0123456789abcdef0123456789abcdef01234567/library_hero.jpg";
+    expect(caseArt({ steamAppId: 10, wideUrl: hashed, wideBox: true }).map((s) => s.url)).not.toContain(steamCapsuleUrl(10));
   });
 
   it("does not repeat a source", () => {

@@ -14,7 +14,7 @@ import {
   type ReleaseTab,
   type ReleaseView,
 } from "@/lib/queries/releases";
-import { RELEASE_PLATFORM_COLOR, RELEASE_PLATFORM_LABEL, type ReleasePlatform } from "@/lib/releases/platforms";
+import { bandPlatforms, RELEASE_PLATFORM_COLOR, RELEASE_PLATFORM_LABEL, type ReleasePlatform } from "@/lib/releases/platforms";
 
 /** Platform names that fit a case card on one line. */
 const PLATFORM_SHORT: Record<ReleasePlatform, string> = { PC: "PC", PLAYSTATION: "PS", XBOX: "XBOX", NINTENDO: "NIN" };
@@ -51,6 +51,7 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
         wideUrl: r.capsuleUrl,
         portraitChecked: !r.stub,
       })}
+      platforms={bandPlatforms(r.platforms)}
     >
       <span className="cs-name">{r.name}</span>
       <span className="cs-meta">

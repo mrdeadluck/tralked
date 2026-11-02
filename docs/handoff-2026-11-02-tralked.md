@@ -2,6 +2,46 @@
 
 Resumo da sessão de 31/10 a 02/11 com o Lucas (dono da Ludai Labs): o que está no ar e o que ficou pendente. Branch de trabalho: `feat/plano-2-tralked`. A `main` é mantida igual a ela (fast-forward + push), e cada push na `main` publica o site na Vercel.
 
+## Atualização da tarde de 02/11: queda do site e plano de segurança
+
+**O que aconteceu:** o site ficou fora do ar (402 `DEPLOYMENT_DISABLED`) porque o plano Hobby estourou as 4 h de CPU do mês. A culpa não foi da sincronização. Foram robôs que coletam dados para treinar IA:
+- em 01–02/11, o GPTBot (OpenAI) fez 250 mil requisições, cerca de 70% do total, e o ClaudeBot mais 23 mil;
+- eles passaram por `/jogos/[slug]` (88 mil), `/forum/[categoria]` (81 mil), `/galeria` (37 mil), `/jogos` e `/entrar`;
+- isso somou cerca de 8 h de CPU em dois dias;
+- só leram páginas públicas (GET): nenhum login, nenhum formulário.
+
+Também chegaram cerca de 30 tentativas de scanners (`/.env`, `/.git/config`, `/wp-login.php`). Todas responderam 404 ou 403, e nada vazou. Uma varredura do histórico do repositório público não achou nenhuma chave.
+
+O Lucas assinou o **Pro** e o site voltou. No commit `9022f8f`, os robôs de treino de IA (lista em `app/src/lib/seo/ai-crawlers.ts`) passaram a receber 403 no `proxy.ts` e ficaram proibidos no robots.txt. `/entrar` e `/cadastrar` saíram dos buscadores. Google, Bing e as buscas de IA continuam liberados.
+
+**Pendências de segurança (plano):**
+- **26. Firewall da Vercel.** O Lucas abre a aba Firewall do projeto uma vez, porque a API responde 404 "Seawall Config not found" enquanto não existe configuração. Depois disso, ativar:
+  - a regra gerenciada "AI Bots" (deny);
+  - "Bot Protection" (challenge);
+  - limite por IP nas páginas (ex.: 120/min);
+  - bloqueio dos caminhos de scanner.
+- **27. Teto de gasto (Lucas):** Settings → Billing → Spend Management, ~US$ 30.
+- **28. Cache das páginas públicas:** cada visita monta a página de novo (galeria ~360 ms de CPU, jogo ~40 ms). Servir as páginas prontas faz qualquer pico custar quase nada.
+- **29. Cabeçalhos de segurança:** hoje só existe o HSTS. Faltam `X-Frame-Options`/`frame-ancestors`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` e, depois, CSP.
+- **30. Repositório privado? (decisão do Lucas):** esconde o código e o domínio, mas os minutos do Actions passam a ser limitados.
+- **31. Loop na importação da PSN:** uma conta ficou 5 h 30 em 64 fatias de "imported a part, continues" sem terminar. Isso mantém o Neon acordado.
+- **32. Agendamentos do GitHub parados** desde 09:26 UTC de 02/11, sem incidente no GitHub. O disparo manual funciona.
+
+**Ajustes visuais pedidos pelo Lucas depois do Impeccable:**
+- **Faixa de plataforma no topo do estojo** (`CaseShelf`, em `/jogos` e `/lancamentos`):
+  - um bloco colorido por família (PC · Steam, PlayStation, Xbox, Nintendo, Retrô);
+  - os nomes encurtam conforme a quantidade de blocos (`bandPlatforms` em `lib/releases/platforms.ts`).
+- **Quadros largos** (como o "Quase lá"):
+  - o `CoverArt` passa a usar a arte larga primeiro: cápsula 616×353 da Steam, depois o hero, depois o header;
+  - a capa vertical em pé no palco virou só o último recurso.
+- **Capa vertical dos jogos novos:**
+  - a Steam guarda a `library_capsule` e o `library_hero` dos apps novos numa pasta com hash, e o caminho simples dá 404;
+  - a sincronização agora lê o `IStoreBrowseService/GetItems`, que é público e responde até 100 apps por pedido;
+  - `lib/sync/library-art.ts` repara o que já está gravado: o job `releases` (300 jogos por rodada) e o worker de detalhes (3.000) rodam o reparo;
+  - à mão: `pnpm steam:library-art`.
+
+Para medir de novo: as consultas de observabilidade da Vercel funcionam no Pro (`function_cpu_time_ms` por `route`; `request.count` por `bot_name` e `request_path`).
+
 ## Atualização da manhã de 02/11 (sessão 2c1166af)
 
 Feitos e no ar os itens 01 a 19 da lista de pendências, além de uma rodada de melhorias de experiência guiada pela crítica Impeccable. O acompanhamento detalhado está em `.superpowers/sdd/2026-11-02-pendencias-01-19/progress.md`.

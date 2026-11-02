@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanName, fetchStoreApp, htmlToText, libraryAssetUrls, parseStoreApp, parseStoreDate } from "./store";
+import { cleanName, fetchStoreApp, htmlToText, libraryAssetUrls, parseStoreApp, parseStoreAssets, parseStoreDate } from "./store";
 import { fetchMostOwnedPage, fetchTags, fetchTopList, parseOwners, rankByOwners } from "./steamspy";
 
 // Trimmed from the real `appdetails?appids=367520&l=brazilian` answer (31/10/2026).
@@ -153,5 +153,47 @@ describe("steamspy", () => {
   it("reads tags, and an empty list when SteamSpy has none", async () => {
     await expect(fetchTags(async () => Response.json({ appid: 1, tags: { RPG: 10 } }), 1)).resolves.toEqual({ RPG: 10 });
     await expect(fetchTags(async () => Response.json({ appid: 1, tags: [] }), 1)).resolves.toEqual({});
+  });
+});
+
+describe("parseStoreAssets", () => {
+  it("builds the hashed library art URLs of GetItems", () => {
+    const assets = parseStoreAssets({
+      response: {
+        store_items: [
+          {
+            appid: 4115450,
+            assets: {
+              asset_url_format: "steam/apps/4115450/${FILENAME}?t=1793261976",
+              library_capsule: "471e7785/library_capsule.jpg",
+              library_capsule_2x: "471e7785/library_capsule_2x.jpg",
+              library_hero: "1cd52ca8/library_hero.jpg",
+            },
+          },
+          { appid: 10, assets: { asset_url_format: "steam/apps/10/${FILENAME}" } },
+          { appid: 11 },
+        ],
+      },
+    });
+    expect(assets.get(4115450)).toEqual({
+      cover: {
+        url: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/471e7785/library_capsule_2x.jpg?t=1793261976",
+        width: 600,
+        height: 900,
+      },
+      hero: {
+        url: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/1cd52ca8/library_hero.jpg?t=1793261976",
+        width: 3840,
+        height: 1240,
+      },
+    });
+    expect(assets.has(10)).toBe(false);
+    expect(assets.has(11)).toBe(false);
+  });
+
+  it("ignores odd file names and unreadable answers", () => {
+    const odd = { response: { store_items: [{ appid: 1, assets: { asset_url_format: "steam/apps/1/${FILENAME}", library_capsule: "../x?y=<b>" } }] } };
+    expect(parseStoreAssets(odd).size).toBe(0);
+    expect(parseStoreAssets(null).size).toBe(0);
   });
 });

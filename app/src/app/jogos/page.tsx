@@ -5,6 +5,7 @@ import { CatalogFilters } from "@/components/catalog/CatalogFilters";
 import { loginHref } from "@/components/guide/format";
 import { GAME_MENU_OPTIONS } from "@/components/layout/game-menu";
 import { CaseItem, CaseShelf } from "@/components/shelf/CaseShelf";
+import { bandPlatforms } from "@/lib/releases/platforms";
 import { ListSearch } from "@/components/ui/ListSearch";
 import { Pagination } from "@/components/ui/Pagination";
 import { SectionHead } from "@/components/ui/SectionHead";
@@ -189,6 +190,7 @@ function GameCase({ game }: { game: GameCard }) {
       slug={game.slug}
       name={game.name}
       art={game.art}
+      platforms={bandPlatforms(game.platforms)}
       flag={owned && unlockedCount === achievementCount ? "PLATINADO" : undefined}
       progress={pct}
     >

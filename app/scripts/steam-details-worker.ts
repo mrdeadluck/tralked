@@ -43,6 +43,7 @@ const { createSteamCatalogDeps, holdDetailsWorkerLease, releaseDetailsWorkerLeas
   "@/lib/sync/steam-catalog"
 );
 const { createDbRetry } = await import("@/lib/worker/db-retry");
+const { repairLibraryArt } = await import("@/lib/sync/library-art");
 
 if (steamMode() !== "api") {
   log.error("Set STEAM_API_KEY: without it the achievement schemas would be skipped and the games marked done.");
@@ -71,6 +72,13 @@ try {
     `Steam details for "${db.name}": ${before.requested} requested by players and ${before.popular} popular games waiting. ` +
       `${concurrency} at a time, batches of ${batch}, up to ${hours} h. Log: ${log.file}`,
   );
+  // Library art filled in before the store's asset service was read (hashed paths): the real
+  // portrait and hero, 100 games per request (lib/sync/library-art.ts).
+  if (deps.politeFetch) {
+    const fetcher = deps.politeFetch;
+    const art = await withDb("library art", () => repairLibraryArt(fetcher, { limit: 3000, deadline: stopAt }));
+    log.info(`Library art: ${art.checked} checked, ${art.covers} portraits and ${art.heroes} heroes written, ${art.failed} failed.`);
+  }
   while (Date.now() < stopAt) {
     // One batch is the unit a lost connection repeats: the games it did not write stay queued.
     const result = await withDb("details batch", async () => {

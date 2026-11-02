@@ -16,7 +16,8 @@ import { GameArt, type Hues } from "./GameArt";
  * - wide art in a portrait box is printed as a game case: a body in the art's own colours, a
  *   spine, the Tralked top band, the art as a band across the front and the game's name set
  *   below it;
- * - a portrait cover in a wide box stands as a case on a stage lit in its colours.
+ * - a wide box takes wide art first; a portrait cover stands there as a case on a stage lit in
+ *   its colours only when the game has no wide art.
  *
  * With no source left, the generated art carries the game's name, kept inside the art.
  */
@@ -109,10 +110,13 @@ export function CoverArt({
   // Failed URLs, not an index: a remembered PNG-only thumbnail changes the list of attempts.
   const [failed, setFailed] = useState<string[]>([]);
   const img = useRef<HTMLImageElement>(null);
-  const source = attemptsOf(sources, width).find((a) => !failed.includes(a.src));
-  const srcSizes = source?.srcSet ? sizes : undefined;
   const tall = heightRatio(ratio);
   const portraitBox = tall > 1;
+  // Art of the box's own shape first: a wide box fills with wide art (hero, capsule, header) and
+  // only stages a portrait cover when there is none; portrait boxes keep the given order.
+  const ordered = portraitBox ? sources : [...sources.filter((s) => s.wide), ...sources.filter((s) => !s.wide)];
+  const source = attemptsOf(ordered, width).find((a) => !failed.includes(a.src));
+  const srcSizes = source?.srcSet ? sizes : undefined;
   const label = alt ?? `Capa de ${name}`;
 
   const current = source?.src;

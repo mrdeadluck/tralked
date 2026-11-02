@@ -5,7 +5,7 @@ import type { IgdbApi, SgdbApi } from "@/lib/integrations";
 import { steamMode } from "@/lib/integrations/steam";
 import { createPoliteFetch, type PoliteFetch } from "@/lib/integrations/steam/polite-fetch";
 import { fetchMostOwnedPage, fetchTags } from "@/lib/integrations/steam/steamspy";
-import { fetchStoreApp, libraryAssetUrls } from "@/lib/integrations/steam/store";
+import { fetchStoreApp, fetchStoreAssets, libraryAssetUrls } from "@/lib/integrations/steam/store";
 import { mapTagsToSkills } from "@/lib/integrations/steam/tags-map";
 import { dbFailureKind, describeError } from "@/lib/worker/errors";
 import { ensureSteamGames } from "./steam-games";
@@ -233,10 +233,14 @@ export async function syncSteamDetails(appId: number, deps: SteamCatalogDeps): P
   ]);
 
   const media: CatalogMedia[] = [];
+  // The store names the library art's real path (newer apps keep it in a hashed folder, where the
+  // plain path 404s); the plain path is probed for what it leaves out (and always for the logo).
+  const assets = (await best("store assets", () => fetchStoreAssets(politeFetch, [appId]), new Map())).get(appId);
   const library = libraryAssetUrls(appId);
   for (const kind of ["cover", "hero", "logo"] as const) {
-    const asset = library[kind];
-    if (await exists(politeFetch, asset.url)) media.push({ kind, order: 0, ...asset });
+    const known = kind === "logo" ? undefined : assets?.[kind];
+    if (known) media.push({ kind, order: 0, ...known });
+    else if (await exists(politeFetch, library[kind].url)) media.push({ kind, order: 0, ...library[kind] });
   }
   if (store.headerUrl) media.push({ kind: "artwork", order: 0, url: store.headerUrl, width: 460, height: 215 });
   store.screenshots.forEach((s, order) => media.push({ kind: "screenshot", order, ...s }));

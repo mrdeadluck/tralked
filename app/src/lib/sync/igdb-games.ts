@@ -1,8 +1,11 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { IgdbCatalogGame } from "@/lib/integrations/igdb/catalog-types";
-import { familiesOf, RELEASE_PLATFORMS, type ReleasePlatform } from "@/lib/releases/platforms";
+import { familiesOf, familyOfLabel, type ReleasePlatform } from "@/lib/releases/platforms";
 import { slugify } from "./catalog";
+
+// Moved to lib/releases/platforms (client-safe); re-exported for the sync modules.
+export { familyOfLabel };
 import { CATALOG_CREATE_LOCK, ensureSteamGames, steamGameIds } from "./steam-games";
 
 /**
@@ -59,17 +62,6 @@ type Candidate = {
 };
 
 const LINK_FAMILY: Record<string, ReleasePlatform | undefined> = { steam: "PC", psn: "PLAYSTATION", xbox: "XBOX" };
-
-/** Family of a Game.platforms entry: a family key, or a label a platform sync wrote ("PS5", "Xbox One"). */
-export function familyOfLabel(label: string): ReleasePlatform | null {
-  const value = label.trim().toUpperCase();
-  if ((RELEASE_PLATFORMS as readonly string[]).includes(value)) return value as ReleasePlatform;
-  if (/^PS\d|PLAYSTATION|^PSP|VITA/.test(value)) return "PLAYSTATION";
-  if (/XBOX/.test(value)) return "XBOX";
-  if (/SWITCH|NINTENDO|WII|3DS|^DS|GAME ?BOY|GAMECUBE|N64|SNES|^NES|FAMICOM/.test(value)) return "NINTENDO";
-  if (/^PC$|WINDOWS|STEAM/.test(value)) return "PC";
-  return null;
-}
 
 /** Families a catalog game is known on (its platforms and its platform ids). */
 export function candidateFamilies(c: Pick<Candidate, "platforms" | "links">): Set<ReleasePlatform> {

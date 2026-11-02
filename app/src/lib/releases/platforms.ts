@@ -73,3 +73,48 @@ export function familiesOf(platformIds: number[], extra: Record<number, ReleaseP
   const found = new Set(platformIds.map((id) => IGDB_PLATFORM_FAMILY[id] ?? extra[id]).filter(Boolean));
   return RELEASE_PLATFORMS.filter((p) => found.has(p));
 }
+
+/** Family of a Game.platforms entry: a family key, or a label a platform sync wrote ("PS5", "Xbox One"). */
+export function familyOfLabel(label: string): ReleasePlatform | null {
+  const value = label.trim().toUpperCase();
+  if ((RELEASE_PLATFORMS as readonly string[]).includes(value)) return value as ReleasePlatform;
+  if (/^PS\d|PLAYSTATION|^PSP|VITA/.test(value)) return "PLAYSTATION";
+  if (/XBOX/.test(value)) return "XBOX";
+  if (/SWITCH|NINTENDO|WII|3DS|^DS|GAME ?BOY|GAMECUBE|N64|SNES|^NES|FAMICOM/.test(value)) return "NINTENDO";
+  if (/^PC$|WINDOWS|STEAM/.test(value)) return "PC";
+  return null;
+}
+
+/** Platform families printed on a game case's top band (the catalog filters' five). */
+export type BandPlatform = ReleasePlatform | "RETRO";
+const BAND_ORDER: BandPlatform[] = ["PC", "PLAYSTATION", "XBOX", "NINTENDO", "RETRO"];
+
+export const BAND_COLOR: Record<BandPlatform, string> = { ...RELEASE_PLATFORM_COLOR, RETRO: "var(--retro)" };
+
+/**
+ * The band's words by how many platforms share it, so every name fits a 140 px case: one platform
+ * gets the full name, two keep readable names, three or more the short codes.
+ */
+const BAND_LABELS: Record<"one" | "two" | "many", Record<BandPlatform, string>> = {
+  one: { PC: "PC · Steam", PLAYSTATION: "PlayStation", XBOX: "Xbox", NINTENDO: "Nintendo", RETRO: "Retrô" },
+  two: { PC: "PC", PLAYSTATION: "PlayStation", XBOX: "Xbox", NINTENDO: "Nintendo", RETRO: "Retrô" },
+  many: { PC: "PC", PLAYSTATION: "PS", XBOX: "Xbox", NINTENDO: "NIN", RETRO: "Retrô" },
+};
+
+export const BAND_NAME: Record<BandPlatform, string> = { ...RELEASE_PLATFORM_LABEL, RETRO: "Retrô" };
+
+/**
+ * A game's case band: its platform families in the filters' order, each with the label that fits.
+ * `platforms` are Game.platforms entries (family keys or labels a sync wrote, "PS5", "SNES"); a
+ * label of no known family (a retro console such as "Mega Drive", or "Retro") counts as Retrô.
+ */
+export function bandPlatforms(platforms: readonly string[]): { platform: BandPlatform; label: string }[] {
+  const found = new Set<BandPlatform>();
+  for (const p of platforms) {
+    if (!p.trim()) continue;
+    found.add(p.trim().toUpperCase() === "RETRO" ? "RETRO" : (familyOfLabel(p) ?? "RETRO"));
+  }
+  const ordered = BAND_ORDER.filter((p) => found.has(p));
+  const labels = BAND_LABELS[ordered.length === 1 ? "one" : ordered.length === 2 ? "two" : "many"];
+  return ordered.map((platform) => ({ platform, label: labels[platform] }));
+}

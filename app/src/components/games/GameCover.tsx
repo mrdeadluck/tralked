@@ -39,6 +39,8 @@ export function GameCover({
   width = 320,
   sizes = "(max-width: 640px) 50vw, 320px",
 }: GameCoverProps) {
-  const sources = caseArt({ coverUrl, steamAppId: steamAppId ?? steamAppIdFromUrl(coverUrl), wideUrl, portraitChecked });
+  const [w, h] = ratio.split("/").map((n) => Number(n.trim()));
+  const wideBox = Boolean(w && h && w > h);
+  const sources = caseArt({ coverUrl, steamAppId: steamAppId ?? steamAppIdFromUrl(coverUrl), wideUrl, portraitChecked, wideBox });
   return <CoverArt name={name} sources={sources} ratio={ratio} alt={alt} className={className} width={width} sizes={sizes} />;
 }

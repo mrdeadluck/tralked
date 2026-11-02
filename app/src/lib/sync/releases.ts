@@ -13,6 +13,7 @@ import {
   type ReleasePlatform,
 } from "@/lib/releases/platforms";
 import { resolveIgdbGames } from "./igdb-games";
+import { repairLibraryArt, type LibraryArtResult } from "./library-art";
 import { ensureSteamGames } from "./steam-games";
 
 /**
@@ -50,6 +51,8 @@ export type ReleasesDeps = {
   /** Null when IGDB is off (production without credentials). */
   igdb: IgdbCatalogApi | null;
   now: () => number;
+  /** Repairs the portrait and hero of the newest games (lib/sync/library-art); absent offline. */
+  libraryArt?: (deadline: number) => Promise<LibraryArtResult>;
 };
 
 function defaultDeps(): ReleasesDeps {
@@ -60,6 +63,9 @@ function defaultDeps(): ReleasesDeps {
       politeFetch ? fetchReleaseList(politeFetch, list, start, count) : start === 0 ? fixtureReleaseList(list) : [],
     igdb: getIgdbCatalog(),
     now: Date.now,
+    ...(politeFetch && {
+      libraryArt: (deadline: number) => repairLibraryArt(politeFetch, { limit: 300, deadline }),
+    }),
   };
 }
 
@@ -270,6 +276,7 @@ export type ReleasesJobResult = {
   failed: number;
   steam: SteamReleasesResult;
   igdb: IgdbReleasesResult;
+  art?: LibraryArtResult;
 };
 
 export async function runReleasesJob(
@@ -291,5 +298,14 @@ export async function runReleasesJob(
     igdb.failed++;
     console.error("Releases: IGDB step failed", error);
   }
-  return { processed: steam.items + igdb.releases, failed: steam.failed + igdb.failed, steam, igdb };
+  // New releases come with only the store header on record: their real portrait and hero.
+  let art: LibraryArtResult | undefined;
+  if (deps.libraryArt && deps.now() < deadline) {
+    try {
+      art = await deps.libraryArt(deadline);
+    } catch (error) {
+      console.error("Releases: library art step failed", error);
+    }
+  }
+  return { processed: steam.items + igdb.releases, failed: steam.failed + igdb.failed, steam, igdb, ...(art && { art }) };
 }

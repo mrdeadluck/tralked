@@ -23,6 +23,7 @@
     "news:feeds": "tsx scripts/news-feeds.ts",
     "games:repair-placeholders": "tsx scripts/repair-placeholder-games.ts",
     "steam:details": "tsx scripts/steam-details-worker.ts",
+    "steam:library-art": "tsx scripts/steam-library-art.ts",
     "platforms:import": "tsx scripts/platform-import-worker.ts",
     "catalog:enrich": "tsx scripts/catalog-enrich-worker.ts",
     "steam:players": "tsx scripts/steam-players-worker.ts",

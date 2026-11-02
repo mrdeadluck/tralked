@@ -138,6 +138,55 @@ export async function fetchStoreApp(politeFetch: PoliteFetch, appId: number): Pr
   return parseStoreApp(appId, await readJson(res));
 }
 
+/** The store's item service (public, no key): one request answers many apps. */
+const STORE_BROWSE = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/";
+const ASSET_ROOT = "https://shared.akamai.steamstatic.com/store_item_assets/";
+
+type SizedAsset = { url: string; width: number; height: number };
+/** An app's library art at its real (often hashed) path: the plain path 404s for newer apps. */
+export type StoreAssets = { cover?: SizedAsset; hero?: SizedAsset };
+
+/**
+ * The `assets` of an IStoreBrowseService/GetItems answer, by app id: the 600×900 portrait
+ * (`library_capsule_2x`, else the 300×450 one) and the 3840×1240 hero, as Steam CDN URLs.
+ */
+export function parseStoreAssets(json: unknown): Map<number, StoreAssets> {
+  type Item = { appid?: number; assets?: Record<string, string | undefined> };
+  const items = (json as { response?: { store_items?: Item[] } } | null)?.response?.store_items ?? [];
+  const out = new Map<number, StoreAssets>();
+  for (const item of items) {
+    const format = item.assets?.asset_url_format;
+    if (!item.appid || !format?.includes("${FILENAME}")) continue;
+    const url = (file: string | undefined) => {
+      if (!file || !/^[\w./-]+$/.test(file)) return undefined;
+      const full = ASSET_ROOT + format.replace("${FILENAME}", file);
+      return isSteamCdnUrl(full) ? full : undefined;
+    };
+    const assets: StoreAssets = {};
+    const big = url(item.assets?.library_capsule_2x);
+    const small = url(item.assets?.library_capsule);
+    if (big) assets.cover = { url: big, width: 600, height: 900 };
+    else if (small) assets.cover = { url: small, width: 300, height: 450 };
+    const hero = url(item.assets?.library_hero);
+    if (hero) assets.hero = { url: hero, width: 3840, height: 1240 };
+    if (assets.cover || assets.hero) out.set(item.appid, assets);
+  }
+  return out;
+}
+
+/** Library art of up to 100 apps in one request (an app Steam has no art for is left out). */
+export async function fetchStoreAssets(politeFetch: PoliteFetch, appIds: number[]): Promise<Map<number, StoreAssets>> {
+  if (appIds.length === 0) return new Map();
+  const input = {
+    ids: appIds.slice(0, 100).map((appid) => ({ appid })),
+    context: { language: "brazilian", country_code: "BR" },
+    data_request: { include_assets: true },
+  };
+  const res = await politeFetch(`${STORE_BROWSE}?input_json=${encodeURIComponent(JSON.stringify(input))}`);
+  if (!res.ok) throw new Error(`Steam GetItems failed with HTTP ${res.status}`);
+  return parseStoreAssets(await readJson(res));
+}
+
 /** Library art at its unhashed path: portrait cover, wide hero and transparent logo. */
 export function libraryAssetUrls(appId: number) {
   return {

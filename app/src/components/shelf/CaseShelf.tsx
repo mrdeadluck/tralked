@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { CaseArtSource } from "@/lib/case-art";
 import { artHues, hashSeed } from "@/lib/queries/news";
 import { CoverArt } from "@/components/art/CoverArt";
+import { BAND_COLOR, BAND_NAME, type BandPlatform } from "@/lib/releases/platforms";
 
 /*
  * The case shelf of the game page prototype ("Na mesma estante", preview/tralked-jogo.html) as a
@@ -12,14 +13,21 @@ import { CoverArt } from "@/components/art/CoverArt";
 
 const CSS = `
 .cs { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 40px 26px; margin: 0; padding: 10px 14px 8px; list-style: none; }
-.cs > li { position: relative; min-width: 0; container-type: inline-size; }
-.cs > li::before { content: ""; position: absolute; left: -13px; right: -13px; top: calc(100cqw * 1.38 + 4px); height: 7px; background: linear-gradient(180deg, #23252c, #121317 45%, #0a0b0d); box-shadow: 0 10px 18px -6px rgba(0,0,0,.85); }
+.cs > li { position: relative; min-width: 0; container-type: inline-size; --band: clamp(17px, 12cqw, 28px); }
+.cs > li::before { content: ""; position: absolute; left: -13px; right: -13px; top: calc(100cqw * 1.38 + var(--band) + 4px); height: 7px; background: linear-gradient(180deg, #23252c, #121317 45%, #0a0b0d); box-shadow: 0 10px 18px -6px rgba(0,0,0,.85); }
 .cs a { position: relative; display: flex; flex-direction: column; gap: 22px; color: inherit; text-decoration: none; }
-.cs-box { position: relative; display: block; aspect-ratio: 1 / 1.38; border-radius: 2px 6px 6px 2px; overflow: hidden; background: var(--surface); transform: perspective(900px) rotateY(-14deg); transform-origin: left center; transition: transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s; box-shadow: -6px 0 0 #0d0e12, 0 20px 30px -10px rgba(0,0,0,.8); }
+.cs-box { position: relative; display: flex; flex-direction: column; border-radius: 2px 6px 6px 2px; overflow: hidden; background: var(--surface); transform: perspective(900px) rotateY(-14deg); transform-origin: left center; transition: transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s; box-shadow: -6px 0 0 #0d0e12, 0 20px 30px -10px rgba(0,0,0,.8); }
 .cs a:hover .cs-box, .cs a:focus-visible .cs-box { transform: perspective(900px) rotateY(-2deg) translateY(-6px); box-shadow: -3px 0 0 #0d0e12, 0 26px 36px -10px rgba(0,0,0,.9), 0 0 0 1px var(--acc); }
-.cs-flag { z-index: 4;  position: absolute; top: 8px; right: 8px; background: var(--acc); color: var(--bg); padding: 3px 6px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+.cs-flag { z-index: 4;  position: absolute; top: calc(var(--band) + 6px); right: 8px; background: var(--acc); color: var(--bg); padding: 3px 6px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
 .cs-bar { z-index: 4;  position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,.6); }
 .cs-bar > span { display: block; height: 100%; width: var(--pct); background: var(--acc); }
+/* The platform band across the top of the case, like a console case's: one block per family. */
+.cs-band { display: flex; flex: none; gap: 1px; height: var(--band); background: #0a0b0d; }
+.cs-band > span { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 0 4px; overflow: hidden; white-space: nowrap; background: var(--c); color: #0a0b0d; font-family: var(--font-jetbrains-mono), monospace; font-size: clamp(8.5px, 5.6cqw, 13px); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; line-height: 1; }
+.cs-band > span:only-child { justify-content: flex-start; padding-left: 9%; }
+.cs-band.is-empty { background: var(--surface-2, #16171c); border-bottom: 1px solid rgba(255,255,255,.06); }
+/* The band replaces the art's own top band (CoverArt prints one on wide art and generated art). */
+.cs-box .cva-top { display: none; }
 .cs-cap { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .cs-name { margin: 0; font-size: 15px; line-height: 1.2; font-weight: 800; letter-spacing: -.01em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .cs a:hover .cs-name, .cs a:focus-visible .cs-name { color: var(--acc); }
@@ -51,6 +59,8 @@ type CaseItemProps = {
   slug: string;
   name: string;
   art: CaseArtSource[];
+  /** Platform families of the band across the top (lib/releases/platforms `bandPlatforms`). */
+  platforms: { platform: BandPlatform; label: string }[];
   /** Ribbon on the case ("PLATINADO"). */
   flag?: string;
   /** 0–100: the visitor's progress, as a bar at the foot of the case. */
@@ -59,11 +69,21 @@ type CaseItemProps = {
   children: ReactNode;
 };
 
-export function CaseItem({ href, slug, name, art, flag, progress, children }: CaseItemProps) {
+export function CaseItem({ href, slug, name, art, platforms, flag, progress, children }: CaseItemProps) {
   return (
     <li>
       <Link href={href}>
         <span className="cs-box">
+          <span className={platforms.length ? "cs-band" : "cs-band is-empty"}>
+            {platforms.map((p) => (
+              <span key={p.platform} aria-hidden="true" style={{ "--c": BAND_COLOR[p.platform] } as CSSProperties}>
+                {p.label}
+              </span>
+            ))}
+          </span>
+          {platforms.length ? (
+            <span className="sr-only">Plataformas: {platforms.map((p) => BAND_NAME[p.platform]).join(", ")}</span>
+          ) : null}
           {/* The one cover pipeline (CoverArt): wide store art is printed as a case, never blurred. */}
           <CoverArt
             name={name}
