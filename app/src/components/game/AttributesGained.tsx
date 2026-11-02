@@ -4,7 +4,8 @@ import type { GameAttributes } from "@/lib/queries/game-profile";
 /*
  * "O que este jogo deu ao seu personagem": what this one game added to the visitor's character
  * (XP from its achievements, Vigor, Precisão, Glória, Coleção and the level of its main genre),
- * by the same formulas as the attribute recompute. Logged out, each cell explains the rule.
+ * by the same formulas as the attribute recompute. Logged out, a blurred sample character sits
+ * behind an invitation to sign in, instead of six dashes.
  */
 
 const CSS = `
@@ -15,15 +16,44 @@ const CSS = `
 .gpa-v svg { width: 12px; height: 12px; color: var(--acc); }
 .gpa p { font-size: 13.5px; color: var(--muted); }
 .gpa-src { margin-top: auto; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--dim); }
+.gpa-sample { position: relative; }
+.gpa-sample .gpa-grid { filter: blur(5px); opacity: .55; user-select: none; pointer-events: none; }
+.gpa-gate { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: linear-gradient(180deg, transparent, color-mix(in oklab, var(--surface) 88%, transparent) 45%); }
+.gpa-gate strong { display: block; font-size: 19px; font-weight: 800; }
+.gpa-gate p { max-width: 38ch; margin: 6px auto 16px; font-size: 14px; color: var(--muted); }
 @media (max-width: 1000px) { .gpa-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .gpa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 `;
 
 const fmt = (n: number) => n.toLocaleString("pt-BR");
 const fmtK = (n: number) =>
-  n >= 1e6 ? `${(n / 1e6).toFixed(1).replace(".", ",")}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : fmt(n);
+  n >= 1e6
+    ? `${(n / 1e6).toFixed(1).replace(".", ",")}M`
+    : n >= 1e4
+      ? `${Math.round(n / 1e3)}k`
+      : fmt(n);
 
-type Cell = { key: string; label: string; value: string | null; up: boolean; text: string; source: string };
+/** What a sample character could get from a game: shown blurred, only as an illustration. */
+const SAMPLE: GameAttributes = {
+  xp: 12_400,
+  hours: 34,
+  vigor: 340,
+  precisao: 210,
+  rareCount: 4,
+  gloria: 95,
+  colecao: 250,
+  completed: true,
+  skill: { id: "soulslike", name: "", level: 12, levelsFromGame: 3 },
+};
+
+type Cell = {
+  key: string;
+  label: string;
+  value: string | null;
+  up: boolean;
+  text: string;
+  source: string;
+};
 
 function Up() {
   return (
@@ -35,7 +65,8 @@ function Up() {
 
 function cells(a: GameAttributes | null, genre: string | null): Cell[] {
   const plus = (n: number) => (n > 0 ? `+${fmt(n)}` : "0");
-  const plural = (n: number, one: string, many: string) => `${fmt(n)} ${n === 1 ? one : many}`;
+  const plural = (n: number, one: string, many: string) =>
+    `${fmt(n)} ${n === 1 ? one : many}`;
   return [
     {
       key: "xp",
@@ -50,7 +81,9 @@ function cells(a: GameAttributes | null, genre: string | null): Cell[] {
       label: "Vigor",
       value: a ? plus(a.vigor) : null,
       up: Boolean(a && a.vigor > 0),
-      text: a ? `${plural(a.hours, "hora jogada vira", "horas jogadas viram")} resistência.` : "Horas jogadas viram resistência.",
+      text: a
+        ? `${plural(a.hours, "hora jogada vira", "horas jogadas viram")} resistência.`
+        : "Horas jogadas viram resistência.",
       source: "pontos · tempo de jogo",
     },
     {
@@ -76,7 +109,9 @@ function cells(a: GameAttributes | null, genre: string | null): Cell[] {
       label: "Coleção",
       value: a ? plus(a.colecao) : null,
       up: Boolean(a && a.colecao > 0),
-      text: a?.completed ? "Jogo completo: já está na sua coleção." : "Completar este jogo em 100% dá +250.",
+      text: a?.completed
+        ? "Jogo completo: já está na sua coleção."
+        : "Completar este jogo em 100% dá +250.",
       source: "pontos · jogos 100%",
     },
     {
@@ -108,40 +143,90 @@ export function AttributesGained({
   aside: string | null;
   loginHref: string;
 }) {
-  const shown = loggedIn ? (attributes ?? null) : null;
+  const shown = loggedIn ? (attributes ?? null) : SAMPLE;
   const zero: GameAttributes | null =
     loggedIn && !attributes
-      ? { xp: 0, hours: 0, vigor: 0, precisao: 0, rareCount: 0, gloria: 0, colecao: 0, completed: false, skill: null }
+      ? {
+          xp: 0,
+          hours: 0,
+          vigor: 0,
+          precisao: 0,
+          rareCount: 0,
+          gloria: 0,
+          colecao: 0,
+          completed: false,
+          skill: null,
+        }
       : null;
 
   return (
-    <section className="gp-veil" style={{ "--d": ".5s" } as CSSProperties} aria-labelledby="gp-h-attr">
+    <section
+      className="gp-veil"
+      style={{ "--d": ".5s" } as CSSProperties}
+      aria-labelledby="gp-h-attr"
+    >
       <style href="tralked-game-attributes" precedence="default">
         {CSS}
       </style>
       <div className="gp-head">
         <h2 id="gp-h-attr">O que este jogo deu ao seu personagem</h2>
         {loggedIn ? (
-          aside ? <span className="gp-aside">{aside}</span> : null
+          aside ? (
+            <span className="gp-aside">{aside}</span>
+          ) : null
         ) : (
           <a className="gp-aside gp-aside-link" href={loginHref}>
             Entre para ver os seus
           </a>
         )}
       </div>
-      <div className="gpa-grid">
-        {cells(shown ?? zero, genre).map((c) => (
-          <div key={c.key} className="gpa">
-            <span className="gpa-k">{c.label}</span>
-            <span className="gpa-v">
-              {c.value ?? "—"}
-              {c.up ? <Up /> : null}
-            </span>
-            <p>{c.text}</p>
-            <span className="gpa-src">{c.source}</span>
+      {loggedIn ? (
+        <Grid list={cells(shown ?? zero, genre)} />
+      ) : (
+        <div className="gpa-sample">
+          <div aria-hidden="true" inert>
+            <Grid
+              list={cells(
+                {
+                  ...SAMPLE,
+                  skill: { ...SAMPLE.skill!, name: genre ?? "Gênero" },
+                },
+                genre,
+              )}
+            />
           </div>
-        ))}
-      </div>
+          <div className="gpa-gate">
+            <div>
+              <strong>Veja o seu personagem</strong>
+              <p>
+                Conecte Steam, PSN ou Xbox e o Tralked calcula o que este jogo
+                já deu a você.
+              </p>
+              <a className="gp-btn gp-btn-acc" href={loginHref}>
+                Entrar e conectar
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
+  );
+}
+
+function Grid({ list }: { list: Cell[] }) {
+  return (
+    <div className="gpa-grid">
+      {list.map((c) => (
+        <div key={c.key} className="gpa">
+          <span className="gpa-k">{c.label}</span>
+          <span className="gpa-v">
+            {c.value ?? "—"}
+            {c.up ? <Up /> : null}
+          </span>
+          <p>{c.text}</p>
+          <span className="gpa-src">{c.source}</span>
+        </div>
+      ))}
+    </div>
   );
 }

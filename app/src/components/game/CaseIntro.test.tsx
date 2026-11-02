@@ -294,9 +294,13 @@ describe("AttributesGained", () => {
     expect(screen.getByText("Steam · 141 h jogadas")).toBeInTheDocument();
   });
 
-  it("logged out: explains each rule and links to login", () => {
+  it("logged out: a hidden sample character instead of dashes, and an invitation to sign in", () => {
     render(<AttributesGained attributes={null} loggedIn={false} genre="Soulslike" aside={null} loginHref="/login" />);
-    expect(screen.getAllByText("—")).toHaveLength(6);
+    expect(screen.queryByText("—")).toBeNull();
+    expect(screen.getByText("Veja o seu personagem")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Entrar e conectar" })).toHaveAttribute("href", "/login");
     expect(screen.getByRole("link", { name: "Entre para ver os seus" })).toHaveAttribute("href", "/login");
+    // The sample is only an illustration: out of the accessibility tree.
+    expect(screen.getByText("+340").closest("[aria-hidden=true]")).not.toBeNull();
   });
 });

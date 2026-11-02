@@ -48,12 +48,17 @@ const CSS = `
   .gps { grid-template-columns: 1fr; }
   .gps::after { display: none; }
   .gps-r { border-top: 1px dashed var(--border-2); }
-  .gps-art { -webkit-mask: linear-gradient(180deg, #000 0%, transparent 55%); mask: linear-gradient(180deg, #000 0%, transparent 55%); opacity: .22; }
+  .gps-art { -webkit-mask: linear-gradient(180deg, #000 0%, #000 22%, transparent 62%); mask: linear-gradient(180deg, #000 0%, #000 22%, transparent 62%); opacity: .55; }
+  .gps-art img, .gps-art svg { object-position: center top; }
 }
 @media (max-width: 600px) {
   .gps-l, .gps-r { padding: 28px 20px 48px; }
   .gps-l .gps-folio { left: 20px; } .gps-r .gps-folio { right: 20px; }
   .gps-ficha { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* On a phone the main buttons come right after the title, on the first screen. */
+  .gps-actions { order: 3; }
+  .gps-lede { order: 4; }
+  .gps-ficha { order: 5; }
 }
 `;
 
@@ -267,21 +272,24 @@ export function BookletSpread({ profile, progress }: { profile: GameProfile; pro
             {studio ?? "Não informado"}
           </Fact>
           <Fact term="Lançamento">{profile.releaseYear ?? "Não informado"}</Fact>
-          <Fact term="Nota da crítica" note={profile.criticScore === null ? "Sem nota ainda" : null}>
-            {profile.criticScore === null ? "—" : <span className="gps-score">{profile.criticScore}</span>}
-          </Fact>
-          <Fact
-            term="Tempo para 100%"
-            note={
-              timeTo100
-                ? timeTo100.players > 0
+          {/* A fact without data is left out instead of showing a dash. */}
+          {profile.criticScore !== null ? (
+            <Fact term="Nota da crítica">
+              <span className="gps-score">{profile.criticScore}</span>
+            </Fact>
+          ) : null}
+          {timeTo100 ? (
+            <Fact
+              term="Tempo para 100%"
+              note={
+                timeTo100.players > 0
                   ? `Tempo Tralked · ${fmt(timeTo100.players)} ${timeTo100.players === 1 ? "jogador" : "jogadores"}`
                   : "Estimativa do catálogo"
-                : "Ninguém completou ainda"
-            }
-          >
-            {timeTo100 ? `${fmt(Math.max(1, Math.round(timeTo100.minutes / 60)))} h` : "—"}
-          </Fact>
+              }
+            >
+              {`${fmt(Math.max(1, Math.round(timeTo100.minutes / 60)))} h`}
+            </Fact>
+          ) : null}
           {profile.steamReviews ? (
             <Fact
               term="Avaliações Steam"
@@ -290,11 +298,11 @@ export function BookletSpread({ profile, progress }: { profile: GameProfile; pro
               {steamReviewLabel(profile.steamReviews.positive, profile.steamReviews.total)}
             </Fact>
           ) : null}
-          <Fact term="Tempo para zerar" note={timesToBeat ? "Rápido · história · 100% (IGDB)" : "Sem estimativa ainda"}>
-            {timesToBeat
-              ? `${hours(timesToBeat.hastyMin)} · ${hours(timesToBeat.normalMin)} · ${hours(timesToBeat.completeMin)}`
-              : "—"}
-          </Fact>
+          {timesToBeat && (timesToBeat.hastyMin || timesToBeat.normalMin || timesToBeat.completeMin) ? (
+            <Fact term="Tempo para zerar" note="Rápido · história · 100% (IGDB)">
+              {`${hours(timesToBeat.hastyMin)} · ${hours(timesToBeat.normalMin)} · ${hours(timesToBeat.completeMin)}`}
+            </Fact>
+          ) : null}
           <Fact
             term="Conquistas"
             note={
@@ -307,9 +315,11 @@ export function BookletSpread({ profile, progress }: { profile: GameProfile; pro
           >
             {fmt(achievementsMain)}
           </Fact>
-          <Fact term="Perdíveis" note={guide ? "Guia verificado" : "Guia em produção"}>
-            {guide ? (guide.missables === 0 ? "Nenhuma" : fmt(guide.missables)) : "—"}
-          </Fact>
+          {guide ? (
+            <Fact term="Perdíveis" note="Guia verificado">
+              {guide.missables === 0 ? "Nenhuma" : fmt(guide.missables)}
+            </Fact>
+          ) : null}
         </dl>
         <div className="gps-actions gp-veil" style={delay(".36s")}>
           {guide ? (

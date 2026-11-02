@@ -254,6 +254,7 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
           <PhotoGrid
             photos={gallery.photos}
             label={`Fotos de ${profile.name}`}
+            invite={{ href: `/galeria?jogo=${profile.slug}`, min: 3 }}
             empty={`Ainda não há fotos de ${profile.name}. Que tal enviar a primeira?`}
           />
           <div className="gp-gal-side">
