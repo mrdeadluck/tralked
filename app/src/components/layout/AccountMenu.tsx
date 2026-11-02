@@ -10,13 +10,14 @@ export type AccountLink = { href: string; label: string };
 
 const PRIVILEGED_ROLES = ["admin", "editor"];
 
-/** Links of the account menu (besides "Sair"); Admin only for admin/editor. */
+/** Links of the account menu (besides "Sair"); Admin for admin/editor, Moderação for moderators. */
 export function accountLinks(role: string): AccountLink[] {
   const links: AccountLink[] = [
     { href: "/conta", label: "Conta" },
     { href: "/conta/conexoes", label: "Conexões" },
   ];
   if (PRIVILEGED_ROLES.includes(role)) links.push({ href: "/admin", label: "Admin" });
+  else if (role === "moderator") links.push({ href: "/admin/moderacao", label: "Moderação" });
   return links;
 }
 

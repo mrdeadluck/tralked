@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ActionButton } from "@/components/admin/ActionButton";
 import { AdminHead, Empty, FilterLinks, param, StatusBadge, TabLinks, TableRegion, TABLE, TD, TH, When } from "@/components/admin/ui";
 import { Pager, pageParam } from "@/components/community/Pager";
-import { requireStaffPage } from "@/lib/admin/guard";
+import { canAccess, requireStaffPage } from "@/lib/admin/guard";
 import {
   CONTENT_FILTERS,
   listContent,
@@ -13,6 +13,8 @@ import {
   type ModerationTarget,
   type ReportStatus,
 } from "@/lib/admin/moderation";
+import { removeGuideAction } from "@/lib/moderation/actions";
+import { ModerationHistory, Sanctions } from "./sections";
 import { decideReportAction, moderateAction } from "./actions";
 
 export const metadata: Metadata = { title: "Moderação" };
@@ -25,6 +27,8 @@ const TABS = [
   { id: "forum", label: "Fórum: respostas", type: "post" },
   { id: "topicos", label: "Fórum: tópicos", type: "thread" },
   { id: "fotos", label: "Fotos", type: "photo" },
+  { id: "punicoes", label: "Punições" },
+  { id: "historico", label: "Histórico" },
 ] as const;
 
 const REPORT_LABEL: Record<ReportStatus, string> = { open: "Abertas", resolved: "Resolvidas", dismissed: "Descartadas" };
@@ -40,7 +44,9 @@ const TARGET_LABEL: Record<string, string> = {
 };
 
 export default async function ModerationPage({ searchParams }: PageProps<"/admin/moderacao">) {
-  await requireStaffPage();
+  // Admin, editor and moderator (the newsroom links to edit articles and guides are for staff).
+  const user = await requireStaffPage("moderation");
+  const newsroom = canAccess(user.role, "staff");
   const sp = await searchParams;
   const tab = TABS.find((t) => t.id === param(sp.aba)) ?? TABS[0];
   const page = pageParam(sp.pagina);
@@ -49,7 +55,7 @@ export default async function ModerationPage({ searchParams }: PageProps<"/admin
     <>
       <AdminHead
         title="Moderação"
-        lede="Ocultar é reversível e mantém o XP. Remover é definitivo e anula o XP que o conteúdo rendeu (fotos e respostas que resolveram tópicos)."
+        lede="Ocultar é reversível e mantém o XP. Remover é definitivo e anula o XP que o conteúdo rendeu (fotos e respostas que resolveram tópicos). Tudo fica no histórico."
       />
       <TabLinks
         label="Tipo de conteúdo"
@@ -57,14 +63,18 @@ export default async function ModerationPage({ searchParams }: PageProps<"/admin
       />
       {"type" in tab ? (
         <ContentList type={tab.type} tabId={tab.id} filterParam={param(sp.status)} page={page} />
+      ) : tab.id === "punicoes" ? (
+        <Sanctions handle={param(sp.usuario)} />
+      ) : tab.id === "historico" ? (
+        <ModerationHistory page={page} />
       ) : (
-        <Reports statusParam={param(sp.status)} page={page} />
+        <Reports statusParam={param(sp.status)} page={page} newsroom={newsroom} />
       )}
     </>
   );
 }
 
-async function Reports({ statusParam, page }: { statusParam: string | undefined; page: number }) {
+async function Reports({ statusParam, page, newsroom }: { statusParam: string | undefined; page: number; newsroom: boolean }) {
   const status: ReportStatus = (REPORT_STATUSES as readonly string[]).includes(statusParam ?? "")
     ? (statusParam as ReportStatus)
     : "open";
@@ -112,7 +122,7 @@ async function Reports({ statusParam, page }: { statusParam: string | undefined;
                               Abrir
                             </Link>
                           ) : null}
-                          {r.target.editHref ? (
+                          {r.target.editHref && newsroom ? (
                             <Link href={r.target.editHref} className="text-acc underline underline-offset-4 hover:no-underline">
                               Editar
                             </Link>
@@ -159,6 +169,24 @@ async function Reports({ statusParam, page }: { statusParam: string | undefined;
                               />
                             ) : null}
                           </>
+                        ) : null}
+                        {r.targetType === "guide" && r.target?.status === "published" ? (
+                          <ActionButton
+                            action={removeGuideAction}
+                            input={{ id: r.targetId }}
+                            label="Tirar do ar"
+                            ariaLabel="Tirar do ar o guia denunciado"
+                            confirm="Tirar este guia do ar? Ele volta para rascunho e o autor é avisado."
+                            tone="danger"
+                          />
+                        ) : null}
+                        {r.targetType === "user" && r.target?.author ? (
+                          <Link
+                            href={`/admin/moderacao?aba=punicoes&usuario=${encodeURIComponent(r.target.author)}`}
+                            className="inline-flex h-9 items-center rounded-[2px] border border-line-2 px-3 font-mono text-xs font-bold tracking-[0.08em] text-text-2 uppercase hover:border-text hover:text-text"
+                          >
+                            Punir
+                          </Link>
                         ) : null}
                         <ActionButton
                           action={decideReportAction}

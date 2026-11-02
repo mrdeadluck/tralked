@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { Comments } from "@/components/community/Comments";
+import { GuideModeration } from "@/components/moderation/Islands";
 import { FactsStrip } from "@/components/games/FactsStrip";
 import { GameHead } from "@/components/games/GameHead";
 import { AchievementList } from "@/components/guide/AchievementList";
@@ -89,6 +90,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
           </Suspense>
           <Revisions revisions={guide.revisions} now={now} />
           <Sources sources={guide.sources} />
+          {guideId ? <GuideModeration guideId={guideId} gameName={guide.game.name} returnTo={returnTo} /> : null}
           {guideId ? <Comments targetType="guide" targetId={guideId} /> : null}
         </div>
         <Suspense

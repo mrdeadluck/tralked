@@ -16,6 +16,8 @@ import { SyncActions } from "@/components/character/SyncActions";
 import { TrophyTiers } from "@/components/character/TrophyTiers";
 import { Card } from "@/components/ui/Card";
 import { getSessionUser } from "@/lib/auth/session";
+import { ProfileModeration } from "@/components/moderation/ProfileModeration";
+import { canModerate } from "@/lib/moderation/permissions";
 import { pendingDespertar } from "@/lib/character/despertar";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
 import { getCharacterSheetExtras } from "@/lib/character/sheet";
@@ -146,7 +148,14 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
                 }
                 despertarSteps={despertar}
               />
-            ) : null
+            ) : (
+              <ProfileModeration
+                userId={character.userId}
+                handle={character.handle}
+                loggedIn={viewer !== null}
+                moderator={canModerate(viewer?.role)}
+              />
+            )
           }
         />
         <div className="flex flex-col gap-5">
