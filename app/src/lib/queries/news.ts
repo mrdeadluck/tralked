@@ -1,4 +1,4 @@
-import { artAssets, type ArtAsset } from "@/lib/art/frame";
+import { artAssets, pickArt, type ArtAsset } from "@/lib/art/frame";
 import { prisma } from "@/lib/db";
 import {
   achievementKey,
@@ -62,6 +62,8 @@ export type ArticleCard = {
    * its own: each box then picks the one made for its shape instead of cropping `imageUrl`.
    */
   art?: ArtAsset[] | null;
+  /** Game images already shown by stories above on the same page (`spreadArt`): skipped here. */
+  artExclude?: string[];
   /** Without the leading "@". */
   authorHandle: string;
   /** How the byline reads: "@handle" for people, "Equipe Tralked" for bot articles. */
@@ -189,6 +191,22 @@ export type GameRow = {
   coverUrl: string | null;
   media: { url: string | null; kind: string; width?: number | null; height?: number | null }[];
 };
+
+/**
+ * Stories of one game in a row on a page each get a different picture: in page order, every card
+ * claims the scene it would show (pickArt, `scene`), and the cards after it skip what was claimed
+ * (`artExclude`; a card falls back to a claimed image only when its game has nothing else).
+ */
+export function spreadArt<T extends { slug: string; art?: ArtAsset[] | null; artExclude?: string[] }>(cards: T[]): T[] {
+  const used: string[] = [];
+  return cards.map((card) => {
+    if (!card.art?.length) return card;
+    const claim = pickArt(card.art, 1.75, { mode: "scene", seed: card.slug, exclude: new Set(used) });
+    const out = { ...card, artExclude: [...used] };
+    if (claim) used.push(claim.url);
+    return out;
+  });
+}
 
 /** One image under two URLs: an IGDB size token or a Steam `?t=` version does not make it another. */
 function imageKey(url: string): string {
@@ -668,6 +686,8 @@ export type StoryCard = {
   imageUrl?: string | null;
   /** The article's game images (lib/art/frame), picked by the card's shape. */
   art?: ArtAsset[] | null;
+  /** Images stories above already show (`spreadArt`). */
+  artExclude?: string[];
   seed: number;
   hues?: Hues;
 };
@@ -733,6 +753,7 @@ export function articleStory(article: ArticleCard, now: Date): StoryCard {
     when: timeAgo(article.publishedAt, now),
     imageUrl: article.imageUrl,
     art: article.art ?? null,
+    artExclude: article.artExclude,
     seed: hashSeed(article.slug),
     hues: artHues(article.game?.slug, article.slug),
   };

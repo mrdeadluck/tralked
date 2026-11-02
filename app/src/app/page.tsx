@@ -25,6 +25,7 @@ import {
   getPressHeadlines,
   getTopPlayers,
   NEWS_TAG,
+  spreadArt,
   withPressHeadlines,
   type ArticleCard,
 } from "@/lib/queries/news";
@@ -53,7 +54,15 @@ async function homeNews() {
   ]);
   const shown = new Set([hero?.id, ...latest.slice(0, LATEST_SHOWN).map((a) => a.id)]);
   const mostRead = ranking.articles.filter((a) => !shown.has(a.id)).slice(0, 5);
-  return { hero, latest, press, mostRead, mostReadTitle: ranking.title };
+  // Two stories of one game in a row never show the same picture (headline first, then the list).
+  const [spreadHero, ...spreadLatest] = spreadArt([...(hero ? [hero] : []), ...latest]);
+  return {
+    hero: hero ? spreadHero : hero,
+    latest: hero ? spreadLatest : [spreadHero, ...spreadLatest].filter(Boolean),
+    press,
+    mostRead,
+    mostReadTitle: ranking.title,
+  };
 }
 
 /** The headline and the latest news. */

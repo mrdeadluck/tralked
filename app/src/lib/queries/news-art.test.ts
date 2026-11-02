@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardArt, type GameRow } from "./news";
+import { cardArt, spreadArt, type GameRow } from "./news";
 
 const game: GameRow = {
   slug: "zelda-oot",
@@ -23,5 +23,23 @@ describe("cardArt", () => {
 
   it("keeps an article's own picture as it is", () => {
     expect(cardArt([game], "https://press.example.com/photo.jpg")).toBeNull();
+  });
+});
+
+describe("spreadArt", () => {
+  it("gives two stories of one game in a row different pictures", async () => {
+    const { pickArt } = await import("@/lib/art/frame");
+    const art = cardArt([game], null)!;
+    const cards = spreadArt([
+      { slug: "busca-do-google-ganha-easter-egg-de-zelda", art },
+      { slug: "time-principal-de-zelda-lidera-remake", art },
+    ]);
+    const shown = cards.map((c) => pickArt(c.art!, 1.75, { mode: "scene", seed: c.slug, exclude: new Set(c.artExclude) })?.url);
+    expect(shown[0]).not.toBe(shown[1]);
+    expect(cards[0].artExclude).toEqual([]);
+  });
+
+  it("leaves cards without game art alone", () => {
+    expect(spreadArt([{ slug: "a", art: null }])).toEqual([{ slug: "a", art: null }]);
   });
 });

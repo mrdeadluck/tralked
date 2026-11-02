@@ -9,6 +9,7 @@ import { NewsWire } from "@/components/news/NewsWire";
 import { SectionHead } from "@/components/ui/SectionHead";
 import {
   articleStory,
+  spreadArt,
   buildWireItems,
   CATEGORIES,
   categoryFromSlug,
@@ -78,7 +79,12 @@ async function loadIndex(category: ArticleCategory | null, page: number) {
   cacheTag(NEWS_TAG);
   const index = await getNewsIndex({ category, page, pageSize: PAGE_SIZE });
   const now = new Date();
-  return { ...index, stories: index.articles.map((a) => articleStory(a, now)) };
+  // The headline above the first page claims its picture first: the list below never repeats it,
+  // nor two stories of one game in a row (spreadArt).
+  const [head] = page === 1 && !category ? await getLatestArticles(1) : [];
+  const spread = spreadArt(head ? [head, ...index.articles] : index.articles);
+  const articles = head ? spread.slice(1) : spread;
+  return { ...index, articles, stories: articles.map((a) => articleStory(a, now)) };
 }
 
 /** Latest press headlines of an area for its archive filter (Plan 4 F7), cached. */
@@ -191,6 +197,7 @@ async function Archive({ searchParams }: { searchParams: PageProps<"/noticias">[
                     ratio={16 / 10}
                     mode="scene"
                     pick={story.id}
+                    exclude={new Set(story.artExclude ?? [])}
                     seed={story.seed}
                     hues={story.hues}
                     figure

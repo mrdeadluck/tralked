@@ -161,6 +161,7 @@ function Panel({
             ratio={1.6}
             mode="scene"
             pick={lead.id}
+            exclude={new Set(lead.artExclude ?? [])}
             seed={lead.seed}
             hues={lead.hues}
             figure
@@ -184,6 +185,7 @@ function Panel({
             ratio={2}
             mode="scene"
             pick={story.id}
+            exclude={new Set(story.artExclude ?? [])}
             seed={story.seed}
             hues={story.hues}
             figure={i === 0}
@@ -204,7 +206,7 @@ function Panel({
           {more.map((story) => (
             <li key={story.id}>
               <StoryLink story={story}>
-                <FramedArt className="tkt-thumb" art={story.art} fallbackUrl={story.imageUrl} ratio={112 / 64} mode="scene" pick={story.id} seed={story.seed} hues={story.hues} width={224} height={128} sizes="112px" />
+                <FramedArt className="tkt-thumb" art={story.art} fallbackUrl={story.imageUrl} ratio={112 / 64} mode="scene" pick={story.id} exclude={new Set(story.artExclude ?? [])} seed={story.seed} hues={story.hues} width={224} height={128} sizes="112px" />
                 <span>
                   <small>{story.kicker}</small>
                   <strong>{story.title}</strong>
