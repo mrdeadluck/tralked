@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { RARITY_COLOR, RARITY_LABEL } from "@/components/character/format";
 import { PLATFORM_LABEL, PLATFORM_TOKEN } from "@/components/character/platforms";
 import { AchievementRow, RareAchievementCard } from "@/components/profile/AchievementRow";
+import { PlatformProgressStrip } from "@/components/profile/PlatformProgressStrip";
 import { PrivateProfile, SectionSkeleton } from "@/components/profile/PrivateProfile";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { profilePath, ProfileTabs } from "@/components/profile/ProfileTabs";
@@ -23,6 +24,7 @@ import {
   RARITY_TIERS,
   type AchievementSort,
 } from "@/lib/profile/queries";
+import { getPlayerGamePlatforms } from "@/lib/queries/game-profile";
 import type { PlayerHeader } from "@/lib/queries/players";
 import { getPlayerHeaderCached } from "@/lib/queries/players-cached";
 
@@ -76,7 +78,11 @@ async function ProfileAchievements({
   if (!summary) notFound();
   const game = games.find((g) => g.slug === state.jogo)?.slug;
 
-  const result = await listUserAchievements(header.id, { platform, rarity, game }, { sort, page: requested, perPage });
+  const [result, gamePlatforms] = await Promise.all([
+    listUserAchievements(header.id, { platform, rarity, game }, { sort, page: requested, perPage }),
+    // The player's view of one game: their progress there, by platform.
+    game ? getPlayerGamePlatforms(game, header.id) : null,
+  ]);
 
   const base = profilePath(header.handle, "conquistas");
   const kept: Record<string, string | undefined> = {
@@ -113,6 +119,14 @@ async function ProfileAchievements({
             ))}
           </ul>
         </section>
+      ) : null}
+
+      {gamePlatforms ? (
+        <PlatformProgressStrip
+          game={gamePlatforms}
+          current={platform}
+          hrefFor={(p) => link({ plataforma: p })}
+        />
       ) : null}
 
       <section aria-labelledby="todas-conquistas" className="flex flex-col gap-4">

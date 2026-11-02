@@ -164,7 +164,7 @@ const cardSelect = {
   games: { select: { game: { select: gameSelect } }, orderBy: { gameId: "asc" } },
 } as const;
 
-type GameRow = {
+export type GameRow = {
   slug: string;
   name: string;
   heroUrl: string | null;
@@ -175,13 +175,16 @@ type GameRow = {
 /**
  * Wide art of an article's first game that has any: its hero or one of its screenshots, picked by
  * the article slug, so three stories of the same game do not all show the same image. Portrait
- * cover only when there is nothing wide.
+ * cover only when there is nothing wide. Images in `exclude` (already in the article body) are
+ * skipped while another one is left, so the page does not show the same picture twice.
  */
-function gameScene(games: GameRow[], seed: string): string | null {
+export function gameScene(games: GameRow[], seed: string, exclude: ReadonlySet<string> = new Set()): string | null {
   for (const g of games) {
-    const wide = [g.heroUrl, ...g.media.filter((m) => m.kind === "screenshot").map((m) => m.url)].filter(
+    const all = [g.heroUrl, ...g.media.filter((m) => m.kind === "screenshot").map((m) => m.url)].filter(
       (url): url is string => Boolean(url && url.startsWith("https://")),
     );
+    const fresh = all.filter((url) => !exclude.has(wideArt(url)) && !exclude.has(url));
+    const wide = fresh.length > 0 ? fresh : all;
     if (wide.length > 0) return wideArt(wide[pickIndex(seed, wide.length)]);
     if (g.coverUrl) return wideArt(g.coverUrl);
   }
@@ -466,7 +469,7 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     source: row.source,
     reviewed: row.reviewedAt !== null,
     heroUrl:
-      gameScene(gameRows, row.slug) ??
+      gameScene(gameRows, row.slug, new Set(blocks.flatMap((b) => (b.type === "image" ? [b.url] : [])))) ??
       (await companyArt(`${row.title} ${row.subtitle ?? ""}`, row.slug)),
     game: games[0] ?? null,
     games,

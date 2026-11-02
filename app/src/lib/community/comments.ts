@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Db } from "./limits";
+import { isDiscussionLocked } from "@/lib/moderation/locks";
 import { withinRateLimit } from "./limits";
 import { notify, preview } from "./notify";
 import { myReactions } from "./reactions";
@@ -15,7 +16,7 @@ export type AuthorView = { id: string; handle: string; displayName: string; avat
 
 export type CommentView = {
   id: string;
-  /** Empty when `deleted`. */
+  /** Empty when `deleted` or `removed`. */
   body: string;
   createdAt: Date;
   editedAt: Date | null;
@@ -23,9 +24,13 @@ export type CommentView = {
   author: AuthorView;
   /** Deleted by its author: the row stays (rate limits keep counting it) and shows "Comentário apagado". */
   deleted: boolean;
+  /** Removed by the moderation: the row stays and shows "Comentário removido pela moderação". */
+  removed: boolean;
+  /** Pinned by the moderation: listed first, marked "Fixado". */
+  pinned: boolean;
   /** Root comment of a reply; null for top-level comments. */
   parentId: string | null;
-  /** Who a reply to a reply answers (the @mention); null otherwise, and for `deleted`. */
+  /** Who a reply to a reply answers (the @mention); null otherwise, and for deleted/removed ones. */
   replyTo: { handle: string } | null;
   likes: number;
   dislikes: number;
@@ -35,7 +40,7 @@ export type CommentView = {
 export type CommentThreadView = CommentView & {
   /** The first REPLIES_PREVIEW replies; the rest load on demand (`listReplies`). */
   replies: CommentView[];
-  /** Listed replies in all (visible ones and "Comentário apagado" placeholders). */
+  /** Listed replies in all (visible ones and the "apagado" / "removido" placeholders). */
   replyCount: number;
 };
 
@@ -46,11 +51,14 @@ export const REPLIES_MAX = 200;
 
 /** Status of a comment its author deleted (the others are visible | hidden | removed). */
 export const DELETED_STATUS = "deleted";
+/** Status of a comment the moderation removed (final). */
+export const REMOVED_STATUS = "removed";
 
 const commentSelect = {
   id: true,
   body: true,
   status: true,
+  pinned: true,
   createdAt: true,
   editedAt: true,
   parentId: true,
@@ -60,14 +68,18 @@ const commentSelect = {
   replyToUser: { select: { handle: true } },
 } as const;
 
-/** Comments listed publicly: visible ones and the placeholders of those their authors deleted. */
-const LISTED_STATUSES = ["visible", DELETED_STATUS];
+/**
+ * Comments listed publicly: visible ones, plus placeholders for those their authors deleted or
+ * the moderation removed (so the replies under them keep their context). Hidden ones are left out.
+ */
+const LISTED_STATUSES = ["visible", DELETED_STATUS, REMOVED_STATUS];
 const LISTED_STATUS = { in: LISTED_STATUSES };
 
 function toView(row: {
   id: string;
   body: string;
   status: string;
+  pinned: boolean;
   createdAt: Date;
   editedAt: Date | null;
   parentId: string | null;
@@ -77,15 +89,20 @@ function toView(row: {
   replyToUser: { handle: string } | null;
 }): CommentView {
   const deleted = row.status === DELETED_STATUS;
+  const removed = row.status === REMOVED_STATUS;
+  // A removed comment keeps its text in the database (moderation history), never on the page.
+  const gone = deleted || removed;
   return {
     id: row.id,
-    body: deleted ? "" : row.body,
+    body: gone ? "" : row.body,
     createdAt: row.createdAt,
-    editedAt: deleted ? null : row.editedAt,
-    author: deleted ? null : row.author,
+    editedAt: gone ? null : row.editedAt,
+    author: gone ? null : row.author,
     deleted,
+    removed,
+    pinned: !gone && row.pinned,
     parentId: row.parentId,
-    replyTo: deleted ? null : row.replyToUser,
+    replyTo: gone ? null : row.replyToUser,
     likes: row.likes,
     dislikes: row.dislikes,
   };
@@ -159,9 +176,11 @@ export async function findCommentTarget(
 
 /**
  * One page of top-level comments, newest first, each with its first replies (oldest first):
- * visible ones plus "Comentário apagado" placeholders for those their authors deleted. `total`
- * counts every visible comment, replies included (as Article.comments does).
- * `cursor` is the id of the last top-level comment already shown.
+ * visible ones plus placeholders for those their authors deleted ("Comentário apagado") or the
+ * moderation removed ("Comentário removido pela moderação"). The pinned top-level comment comes
+ * first on the first page (a pinned reply stays in its thread). `total` counts every visible
+ * comment, replies included (as Article.comments does). `cursor` is the id of the last
+ * top-level comment already shown.
  */
 export async function listComments(
   db: Db,
@@ -170,28 +189,37 @@ export async function listComments(
   cursor?: string | null,
   take: number = COMMENTS_PAGE_SIZE,
 ): Promise<CommentPage> {
-  const [rows, total] = await Promise.all([
+  const threadSelect = {
+    ...commentSelect,
+    replies: {
+      where: { status: LISTED_STATUS },
+      orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }],
+      take: REPLIES_PREVIEW,
+      select: commentSelect,
+    },
+    _count: { select: { replies: { where: { status: LISTED_STATUS } } } },
+  };
+  const [pinned, rows, total] = await Promise.all([
+    cursor
+      ? Promise.resolve([])
+      : db.comment.findMany({
+          where: { targetType, targetId, parentId: null, status: "visible", pinned: true },
+          take: 1,
+          select: threadSelect,
+        }),
     db.comment.findMany({
-      where: { targetType, targetId, parentId: null, status: LISTED_STATUS },
+      // Only a visible comment stays pinned (hiding, removing or deleting it unpins it).
+      where: { targetType, targetId, parentId: null, status: LISTED_STATUS, pinned: false },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: take + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      select: {
-        ...commentSelect,
-        replies: {
-          where: { status: LISTED_STATUS },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          take: REPLIES_PREVIEW,
-          select: commentSelect,
-        },
-        _count: { select: { replies: { where: { status: LISTED_STATUS } } } },
-      },
+      select: threadSelect,
     }),
     db.comment.count({ where: { targetType, targetId, status: "visible" } }),
   ]);
   const page = rows.slice(0, take);
   return {
-    comments: page.map((row) => ({
+    comments: [...pinned, ...page].map((row) => ({
       ...toView(row),
       replies: row.replies.map(toView),
       replyCount: row._count.replies,
@@ -237,7 +265,7 @@ async function replyPlace(
   });
   if (!answered) return null;
   if (!answered.parentId) return { parentId: answered.id, replyToUserId: null, notifyUserId: answered.authorId };
-  // The root of a reply may have been deleted by its author (placeholder), but not moderated away.
+  // The root of a reply may be a placeholder (deleted or removed), but not hidden.
   if (!answered.parent || !LISTED_STATUSES.includes(answered.parent.status)) return null;
   return { parentId: answered.parentId, replyToUserId: answered.authorId, notifyUserId: answered.authorId };
 }
@@ -278,6 +306,7 @@ export async function recountAllArticleComments(db: Db): Promise<number> {
 export type CreateCommentResult =
   | { status: "ok"; comment: CommentView; articleSlug?: string }
   | { status: "not_found" }
+  | { status: "locked" }
   | { status: "rate_limited" };
 
 /** Posts a comment (visible right away; moderators can hide it later). Input must be validated. */
@@ -288,6 +317,8 @@ export async function createComment(
 ): Promise<CreateCommentResult> {
   const target = await findCommentTarget(db, input.targetType, input.targetId);
   if (!target) return { status: "not_found" };
+  // A locked discussion takes no replies either.
+  if (await isDiscussionLocked(db, input.targetType, input.targetId)) return { status: "locked" };
   const place = input.parentId ? await replyPlace(db, input.targetType, input.targetId, input.parentId) : null;
   if (input.parentId && !place) return { status: "not_found" };
   if (!(await withinRateLimit(db, "comment", userId))) return { status: "rate_limited" };
@@ -366,7 +397,7 @@ export async function deleteComment(db: Db, userId: string, id: string): Promise
   if (check !== "ok") return { status: check };
   const deleted = await db.comment.update({
     where: { id },
-    data: { status: DELETED_STATUS, body: "" },
+    data: { status: DELETED_STATUS, body: "", pinned: false },
     select: { targetType: true, targetId: true },
   });
   if (deleted.targetType === "article") {

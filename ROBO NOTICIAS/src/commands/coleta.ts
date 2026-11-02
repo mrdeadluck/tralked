@@ -16,7 +16,7 @@ async function main(): Promise<void> {
         `coleta ${new Date().toISOString()}`,
         `  itens: ${r.collected} coletados, ${r.inserted} novos, ${r.sourceFailures} fontes com falha`,
         `  triagem: ${r.triaged} respondidos, ${r.kept} mantidos, ${r.dropped} descartados; ${r.textsFetched} textos baixados`,
-        `  histórias: ${r.clustered} itens agrupados, ${r.newStories} novas, ${r.followUps} suítes, ${r.queued} na fila, ${r.covered} já cobertas pelo site, ${r.expired} vencidas`,
+        `  histórias: ${r.clustered} itens agrupados, ${r.newStories} novas, ${r.followUps} suítes, ${r.queued} na fila, ${r.covered} já cobertas pelo site, ${r.expired} vencidas, ${r.videoDuplicates} vídeos repetidos`,
         `  publicadas (bomba): ${r.published.length ? r.published.join(", ") : "nenhuma"}; atualizadas: ${r.updated}`,
         ...(r.feedUnavailable ? ["  feed do site indisponível: nada novo entrou na fila"] : []),
         ...(r.stopped ? [`  interrompida: ${r.stopped}`] : []),

@@ -59,8 +59,12 @@ model User {
   displayName       String
   avatarUrl         String?
   profilePublic     Boolean   @default(false)
-  /// admin | editor | author | user
+  /// admin | editor | moderator | author | user
   role              String    @default("user")
+  /// Muted by the moderation until this time: cannot comment, post in the forum or upload photos.
+  mutedUntil        DateTime?
+  /// Banned by the moderation until this time: cannot log in or interact (the session is refused).
+  bannedUntil       DateTime?
   /// Last successful sync.
   lastSyncedAt      DateTime?
   /// Last sync attempt (success or failure); cron rotates on this so failing users cannot starve it.
@@ -110,6 +114,12 @@ model User {
   notifications  Notification[]
   passwordResets PasswordResetToken[]
   wishlist       WishlistItem[]
+  setup          PlayerSetup?
+  moderationDone ModerationLog[]     @relation("ModerationActor")
+  moderationOn   ModerationLog[]     @relation("ModerationTargetUser")
+
+  @@index([mutedUntil])
+  @@index([bannedUntil])
 }
 
 /// A "set a new password" link (forgot password, or `pnpm user:invite`). Only the SHA-256 of the
@@ -129,9 +139,11 @@ model PasswordResetToken {
 /// A gaming account linked to a user (Exophase model, lib/accounts/connect.ts). Typing the profile
 /// in /conta/conexoes links it at once: `linkedAt` set means an active connection, which syncs and
 /// pays XP. `verifiedAt` set means ownership was also proven, by pasting `verifyCode` in the
-/// platform profile (Steam "Resumo", PSN/Xbox "about me", RA motto) before `verifyExpiresAt`: only
-/// claims of an account already on another profile need that (lib/accounts/link.ts). Steam rows of
-/// accounts created by the old Steam login (OpenID) were verified on creation.
+/// platform profile (Steam "Resumo", PSN/Xbox "about me", RA motto) before `verifyExpiresAt`:
+/// claims of an account already on another profile need that (lib/accounts/link.ts), and an
+/// active connection can prove it any time with "Verificar agora" (lib/accounts/verify.ts; the
+/// code then sits on the active row). Steam rows of accounts created by the old Steam login
+/// (OpenID) were verified on creation.
 /// An inactive row (unlinked account, or a claim waiting for its code) stores `pending:<userId>
 /// [:<recent claim start times, base36 ms>]` as externalId and has no `linkedAt`, so it never
 /// reserves the platform account (database checks keep `linkedAt` and the placeholder in step).
@@ -150,6 +162,12 @@ model LinkedAccount {
   verifiedAt        DateTime?
   verifyCode        String?
   verifyExpiresAt   DateTime?
+  /// Active connection proving ownership ("Verificar agora", lib/accounts/verify.ts): last time
+  /// the platform profile was read for the code (cooldown between checks).
+  verifyCheckedAt   DateTime?
+  /// Why that last check failed (code_missing | not_found | different | private | error); null
+  /// after a success, a new code or no check yet.
+  verifyFailure     String?
   lastSyncAttemptAt DateTime?
   lastSyncedAt      DateTime?
   /// Xbox: titles whose minutes played were asked, `{ titleId: last play then (ms) }`, so titles
@@ -234,9 +252,7 @@ model Game {
   photos        Photo[]
   wishlistedBy  WishlistItem[]
   releases      GameRelease[]
-  // The details job's queue has a partial index written in SQL (migration
-  // 20261101130000_full_sync_playtime): ("lastSyncAttemptAt", popularity DESC) WHERE
-  // "detailsSyncedAt" IS NULL AND "steamAppId" IS NOT NULL. Prisma cannot declare it here.
+  steamPlayers  SteamPlayerCount?
 
   /// Calendar (/calendario): catalog releases of a month.
   @@index([releaseDate])
@@ -366,6 +382,19 @@ model WishlistItem {
   @@index([gameId])
 }
 
+/// The player's setup on the profile: the platforms they own (ids from src/lib/setup/catalog.ts,
+/// kept in catalog order) and an optional PC spec sheet. One small row per user, only while
+/// something is filled: saving an empty setup deletes the row.
+model PlayerSetup {
+  userId    String   @id
+  platforms String[] @default([])
+  /// PC spec sheet `{ cpu?, gpu?, ram?, ... }`: short plain-text values, validated by
+  /// src/lib/setup/schema.ts on write and on read. Null when no field is filled.
+  pc        Json?
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
 /// A game's release on one platform family (Plano 4, F10): the home "Lançamentos" card,
 /// /lancamentos and the calendar. Written by the `releases` cron (lib/sync/releases.ts) from the
 /// Steam store's popular new / upcoming lists (PC) and IGDB release dates (consoles and PC). One row
@@ -393,6 +422,44 @@ model GameRelease {
   @@id([gameId, platform])
   @@index([date])
   @@index([platform, date])
+}
+
+/// Steam concurrent players of a popular game (steam-players worker, lib/sync/steam-players.ts):
+/// the last hourly sample, the day's highest sample (day in America/Sao_Paulo) and the highest
+/// sample Tralked ever measured (Steam publishes no all-time peak). One small row per game and
+/// never a history row: the free database holds 1 GB.
+model SteamPlayerCount {
+  gameId        String   @id
+  current       Int
+  sampledAt     DateTime
+  todayPeak     Int
+  todayPeakDay  DateTime @db.Date
+  allTimePeak   Int
+  allTimePeakAt DateTime
+  game          Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+}
+
+/// The RetroAchievements catalog (retro-catalog worker, lib/sync/retro-catalog.ts): every RA game
+/// with achievements, light (RA API_GetGameList). `id` is the RA game id; the catalog Game is the
+/// one with the GamePlatformLink (platform retro, externalId = id), linked by name or created as a
+/// name-only stub by the worker, or later by the RA sync of a player who owns it. The achievement
+/// list is read on demand (lib/sync/retro-achievements.ts): the first time the game page opens,
+/// again when RA changes the set (`setModifiedAt` after `achievementsSyncedAt`).
+model RetroCatalogGame {
+  id                   Int       @id
+  title                String
+  consoleId            Int
+  consoleName          String
+  /// RA image path, e.g. `/Images/020895.png` (media.retroachievements.org).
+  iconPath             String?
+  achievementCount     Int
+  points               Int
+  /// RA DateModified of the set.
+  setModifiedAt        DateTime?
+  /// When the worker tried to link it to a catalog Game (null: not tried yet).
+  matchedAt            DateTime?
+  /// When the achievement list was last written (or claimed by a page open).
+  achievementsSyncedAt DateTime?
 }
 
 /// Resumable position of a long-running import (e.g. `steam-applist`: the Steam app list cursor).
@@ -873,6 +940,8 @@ model Comment {
   body          String
   /// visible | hidden | removed | deleted
   status        String    @default("visible")
+  /// Pinned by the moderation: shown first in its discussion, marked "Fixado" (one per target).
+  pinned        Boolean   @default(false)
   createdAt     DateTime  @default(now())
   editedAt      DateTime?
   /// Root comment of a reply (null for top-level comments).
@@ -934,6 +1003,41 @@ model Report {
 
   @@index([status, createdAt])
   @@index([targetType, targetId])
+}
+
+/// A discussion (comments of an article, guide, photo or thread) locked by the moderation: no new
+/// comments while the row exists. Polymorphic target, no FK (like Comment).
+model DiscussionLock {
+  targetType String
+  targetId   String
+  lockedById String?
+  createdAt  DateTime @default(now())
+
+  @@id([targetType, targetId])
+}
+
+/// Moderation history (/admin/moderacao): who did what, to which target, why and when.
+model ModerationLog {
+  id           String   @id @default(cuid())
+  actorId      String?
+  /// "<target>.<verb>", e.g. comment.remove, comment.pin, discussion.lock, article.unpublish,
+  /// photo.remove, guide.remove, user.mute, user.ban, user.unmute, user.unban, report.resolved.
+  action       String
+  /// comment | post | thread | photo | guide | article | user | report | discussion
+  targetType   String
+  targetId     String
+  /// Owner of the target (author or sanctioned user), when there is one.
+  targetUserId String?
+  reason       String?
+  /// Small extra facts (previous/new value, sanction end).
+  details      Json?
+  createdAt    DateTime @default(now())
+  actor        User?    @relation("ModerationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetUser   User?    @relation("ModerationTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([targetType, targetId])
+  @@index([targetUserId, createdAt])
 }
 
 model ForumCategory {
@@ -1082,7 +1186,7 @@ model Notification {
   id        String    @id @default(cuid())
   userId    String
   /// level_up | skill_up | attribute_up | comment_reply | forum_reply | thread_solved |
-  /// photo_like | content_published | report_resolved | system
+  /// photo_like | content_published | report_resolved | moderation | system
   kind      String
   title     String
   body      String?

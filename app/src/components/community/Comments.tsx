@@ -3,6 +3,7 @@ import { SectionHead } from "@/components/ui/SectionHead";
 import { findCommentTarget, listComments, withMyReactions, type CommentTargetType } from "@/lib/community/comments";
 import { currentViewer } from "@/lib/community/viewer";
 import { prisma } from "@/lib/db";
+import { isDiscussionLocked } from "@/lib/moderation/locks";
 import { CommentsClient } from "./CommentsClient";
 
 type CommentsProps = {
@@ -36,10 +37,11 @@ export function Comments({ targetType, targetId, title = "Comentários", compact
 }
 
 async function CommentsIsland({ targetType, targetId }: { targetType: CommentTargetType; targetId: string }) {
-  const [viewer, target, page] = await Promise.all([
+  const [viewer, target, page, locked] = await Promise.all([
     currentViewer(),
     findCommentTarget(prisma, targetType, targetId),
     listComments(prisma, targetType, targetId),
+    isDiscussionLocked(prisma, targetType, targetId),
   ]);
   const initial = viewer ? await withMyReactions(prisma, page, viewer.id) : page;
   if (!target) {
@@ -52,6 +54,7 @@ async function CommentsIsland({ targetType, targetId }: { targetType: CommentTar
       initial={initial}
       viewer={viewer}
       returnTo={`${target.href}#comentarios`}
+      locked={locked}
     />
   );
 }

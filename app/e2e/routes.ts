@@ -49,6 +49,8 @@ export const ROUTES: E2ERoute[] = [
   { path: "/conta/conexoes", name: "conta-conexoes" },
   { path: "/conta", name: "conta-logado", auth: true },
   { path: "/conta/conexoes", name: "conta-conexoes-logado", auth: true },
+  { path: "/conta/setup", name: "conta-setup" },
+  { path: "/conta/setup", name: "conta-setup-logado", auth: true },
   { path: "/jogador/lucas", name: "jogador-logado", auth: true },
   { path: "/desenvolvedores", name: "desenvolvedores" },
   // Admin (the demo user lucas is an admin; visitors get a 404, checked in admin.spec.ts).

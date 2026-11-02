@@ -4,6 +4,7 @@ import { updateTag } from "next/cache";
 import { z } from "zod";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
+import { interactionBlock, postingBlock } from "@/lib/moderation/permissions";
 import { FORUM_TAG, photoTag, threadTag } from "./cached";
 import {
   commentTargetSchema,
@@ -42,16 +43,22 @@ export type Failure =
 const UNAUTHENTICATED: Failure = { status: "unauthenticated", message: "Entre na sua conta para continuar." };
 const NOT_FOUND: Failure = { status: "not_found", message: "Isso não existe mais ou foi removido." };
 const FORBIDDEN: Failure = { status: "forbidden", message: "Você não pode fazer isso." };
+const LOCKED: Failure = { status: "forbidden", message: "A moderação trancou esta discussão. Não dá para comentar." };
 
 function invalid(error: z.ZodError): Failure {
   const issue = error.issues[0];
   return { status: "invalid", message: issue?.message ?? "Dados inválidos.", field: issue?.path.join(".") };
 }
 
-/** Session check + zod validation shared by every action. */
-async function prepare<S extends z.ZodType>(schema: S, raw: unknown) {
+/**
+ * Session check, moderation sanctions, then zod validation, shared by every action. A ban blocks
+ * everything; a mute blocks `posting` actions (comments, forum threads and replies).
+ */
+async function prepare<S extends z.ZodType>(schema: S, raw: unknown, options: { posting?: boolean } = {}) {
   const user = await getSessionUser();
   if (!user) return { ok: false, failure: UNAUTHENTICATED } as const;
+  const blocked = options.posting ? postingBlock(user) : interactionBlock(user);
+  if (blocked) return { ok: false, failure: { status: "forbidden", message: blocked } satisfies Failure } as const;
   const parsed = schema.safeParse(raw);
   if (!parsed.success) return { ok: false, failure: invalid(parsed.error) } as const;
   return { ok: true, user, data: parsed.data as z.output<S> } as const;
@@ -71,10 +78,11 @@ export async function loadMoreComments(raw: unknown): Promise<CommentPage | Fail
 }
 
 export async function postComment(raw: unknown): Promise<{ status: "ok"; comment: CommentView } | Failure> {
-  const ready = await prepare(newCommentSchema, raw);
+  const ready = await prepare(newCommentSchema, raw, { posting: true });
   if (!ready.ok) return ready.failure;
   const result = await createComment(prisma, ready.user.id, ready.data);
   if (result.status === "not_found") return NOT_FOUND;
+  if (result.status === "locked") return LOCKED;
   if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.comment };
   if (ready.data.targetType === "photo") updateTag(photoTag(ready.data.targetId));
   if (result.articleSlug) refreshArticleCount(result.articleSlug);
@@ -88,7 +96,7 @@ function refreshArticleCount(slug: string) {
 }
 
 export async function updateComment(raw: unknown): Promise<{ status: "ok"; comment: CommentView } | Failure> {
-  const ready = await prepare(editCommentSchema, raw);
+  const ready = await prepare(editCommentSchema, raw, { posting: true });
   if (!ready.ok) return ready.failure;
   const result = await editComment(prisma, ready.user.id, ready.data);
   if (result.status === "not_found") return NOT_FOUND;
@@ -122,7 +130,7 @@ export async function reportContent(raw: unknown): Promise<{ status: "ok" | "alr
 // ---------- Forum ----------
 
 export async function startThread(raw: unknown): Promise<{ status: "ok"; threadId: string } | Failure> {
-  const ready = await prepare(newThreadSchema, raw);
+  const ready = await prepare(newThreadSchema, raw, { posting: true });
   if (!ready.ok) return ready.failure;
   const result = await prisma.$transaction((tx) => createThread(tx, ready.user.id, ready.data));
   if (result.status === "not_found") return NOT_FOUND;
@@ -132,7 +140,7 @@ export async function startThread(raw: unknown): Promise<{ status: "ok"; threadI
 }
 
 export async function replyToThread(raw: unknown): Promise<{ status: "ok"; post: PostView } | Failure> {
-  const ready = await prepare(newPostSchema, raw);
+  const ready = await prepare(newPostSchema, raw, { posting: true });
   if (!ready.ok) return ready.failure;
   const result = await prisma.$transaction((tx) => createPost(tx, ready.user.id, ready.data));
   if (result.status === "not_found") return NOT_FOUND;

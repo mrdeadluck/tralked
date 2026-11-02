@@ -140,7 +140,8 @@ export function ClaimSteps({
   );
 }
 
-function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+/** One numbered step of a code flow (claim, verification). */
+export function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <li className="grid grid-cols-[28px_minmax(0,1fr)] gap-x-3 gap-y-1.5">
       <span
@@ -160,7 +161,8 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
   );
 }
 
-function CopyCode({ code }: { code: string }) {
+/** The code, big, with a copy button (selects it when the clipboard is blocked). */
+export function CopyCode({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
   const codeRef = useRef<HTMLElement>(null);
 

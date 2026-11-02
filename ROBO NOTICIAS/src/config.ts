@@ -56,11 +56,35 @@ const SourceSchema = z.object({
    * never give text to the writer and never show in "Fontes".
    */
   signalOnly: z.boolean().optional(),
+  /**
+   * An official YouTube channel feed: only new trailers and gameplay videos are kept (`isTrailerVideo`),
+   * their pages are never downloaded, and the video is embedded in the article.
+   */
+  video: z.boolean().optional(),
+  /** Language of the source's titles; a story with videos in several languages embeds the `pt` one. */
+  lang: z.enum(["pt", "en", "ja"]).optional(),
   active: z.boolean(),
-}).refine((s) => s.linkResolve !== "google-news" || (URL.canParse(s.url) && new URL(s.url).hostname === "news.google.com"), {
-  message: 'linkResolve "google-news" requires a news.google.com url',
-  path: ["linkResolve"],
-});
+})
+  .refine((s) => s.linkResolve !== "google-news" || (URL.canParse(s.url) && new URL(s.url).hostname === "news.google.com"), {
+    message: 'linkResolve "google-news" requires a news.google.com url',
+    path: ["linkResolve"],
+  })
+  .refine((s) => !s.video || isYoutubeChannelFeed(s.url), {
+    message: "video requires a https://www.youtube.com/feeds/videos.xml?channel_id=... url",
+    path: ["video"],
+  });
+
+/** `https://www.youtube.com/feeds/videos.xml?channel_id=UC...` (a channel's Atom feed). */
+export function isYoutubeChannelFeed(url: string): boolean {
+  if (!URL.canParse(url)) return false;
+  const u = new URL(url);
+  return (
+    u.protocol === "https:" &&
+    u.hostname === "www.youtube.com" &&
+    u.pathname === "/feeds/videos.xml" &&
+    /^UC[A-Za-z0-9_-]{22}$/.test(u.searchParams.get("channel_id") ?? "")
+  );
+}
 
 export type Source = z.infer<typeof SourceSchema>;
 

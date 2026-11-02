@@ -1,19 +1,20 @@
 # Enriches the catalog straight against the production database (lib/sync/enrich.ts): official media
 # (IGDB, SteamGridDB) of the games still without it and Steam user review totals, most popular first.
-# Daily for 2 h at 03:10 UTC, right after the 03:05 cron (the database is awake): the free Neon plan
-# has 100 CU-h a month, so the worker runs in one window instead of all day.
+# Daily at 04:37 UTC (01:37 in Brasília) for 0.6 h (input `hours`, or the repository variable
+# CATALOG_ENRICH_HOURS): after the 03:29 platform-import window and before the 05:23 cron, so it
+# never runs with another worker. The free Neon plan has 100 CU-h a month (app/README.md, "Workers").
 # Needs the repository secrets DATABASE_URL, IGDB_CLIENT_ID, IGDB_CLIENT_SECRET and SGDB_API_KEY.
 name: catalog-enrich
 
 on:
   schedule:
-    - cron: "10 3 * * *"
+    - cron: "37 4 * * *"
   workflow_dispatch:
     inputs:
       hours:
-        description: "Hours to work (at most 5.5)"
+        description: "Hours to work (keep it short: the database stays awake meanwhile)"
         required: true
-        default: "2"
+        default: "0.6"
 
 concurrency:
   group: catalog-enrich
@@ -22,7 +23,8 @@ concurrency:
 jobs:
   enrich:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    # Scheduled runs: the window plus setup. By hand: up to 5.5 h.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 350 || 60 }}
     defaults:
       run:
         working-directory: app
@@ -45,7 +47,7 @@ jobs:
           IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
           SGDB_API_KEY: ${{ secrets.SGDB_API_KEY }}
           APP_URL: https://tralked.com
-          HOURS: ${{ github.event.inputs.hours || '2' }}
+          HOURS: ${{ github.event.inputs.hours || vars.CATALOG_ENRICH_HOURS || '0.6' }}
         run: |
           # Production mode asks for these two; the worker signs nothing, so throwaway values do.
           export SESSION_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 16)"

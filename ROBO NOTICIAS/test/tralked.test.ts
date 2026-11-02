@@ -156,6 +156,32 @@ describe("repairs", () => {
     expect(other.fetchFn).toHaveBeenCalledTimes(1);
   });
 
+  it("retries a 422 on media blocks without them; a 422 on text is not repaired", async () => {
+    const withMedia: ArticlePayload = {
+      ...payload,
+      blocks: [
+        { type: "paragraph", text: "Lide." },
+        { type: "video", youtubeId: "AAAAAAAAAAA", title: "Trailer" },
+        { type: "image", url: "https://x.test/a.jpg", alt: "a", credit: "b" },
+      ],
+    };
+    const { client, fetchFn } = setup(
+      errorReply(422, "validation_failed", [{ path: "/blocks/1/title", message: "Campo desconhecido" }]),
+      reply(201, created),
+    );
+    await client.createArticle(withMedia, "robo-live-story-1");
+    expect(bodyOf(fetchFn, 1).blocks).toEqual([withMedia.blocks[0], withMedia.blocks[2]]);
+
+    const mixed = setup(
+      errorReply(422, "validation_failed", [
+        { path: "/blocks/1/title", message: "x" },
+        { path: "/blocks/0/text", message: "HTML" },
+      ]),
+    );
+    await expect(mixed.client.createArticle(withMedia, "k")).rejects.toMatchObject({ status: 422 });
+    expect(mixed.fetchFn).toHaveBeenCalledTimes(1);
+  });
+
   it("retries a 409 slug_conflict with a suffixed slug", async () => {
     const { client, fetchFn } = setup(
       errorReply(409, "slug_conflict", [{ path: "/slug", message: "Slug em uso" }]),

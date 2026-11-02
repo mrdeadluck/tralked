@@ -114,6 +114,20 @@ describe.skipIf(!reachable)("comment replies (database)", () => {
       expect(
         await createComment(tx, ana.id, { targetType: "photo", targetId: other.id, body: "x", parentId: root.comment.id }),
       ).toEqual({ status: "not_found" });
+      // A locked discussion takes no replies either.
+      await tx.discussionLock.create({ data: { targetType: "photo", targetId: photo.id } });
+      expect(
+        await createComment(tx, ana.id, { targetType: "photo", targetId: photo.id, body: "x", parentId: root.comment.id }),
+      ).toEqual({ status: "locked" });
+      await tx.discussionLock.deleteMany({ where: { targetType: "photo", targetId: photo.id } });
+      // A reply under a comment the moderation removed keeps working (the root shows a placeholder);
+      // a hidden root takes no replies.
+      const reply = await createComment(tx, ana.id, { targetType: "photo", targetId: photo.id, body: "r", parentId: root.comment.id });
+      if (reply.status !== "ok") throw new Error("reply");
+      await tx.comment.update({ where: { id: root.comment.id }, data: { status: "removed" } });
+      expect(
+        await createComment(tx, ana.id, { targetType: "photo", targetId: photo.id, body: "y", parentId: reply.comment.id }),
+      ).toMatchObject({ status: "ok", comment: { parentId: root.comment.id } });
       await tx.comment.update({ where: { id: root.comment.id }, data: { status: "hidden" } });
       expect(
         await createComment(tx, ana.id, { targetType: "photo", targetId: photo.id, body: "x", parentId: root.comment.id }),

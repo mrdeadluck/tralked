@@ -1,0 +1,55 @@
+# Imports the RetroAchievements catalog straight against the production database
+# (scripts/retro-catalog-worker.ts, lib/sync/retro-catalog.ts): every console's games with
+# achievements into the light RetroCatalogGame table (rewriting only what RA changed), then links
+# each new RA game to its catalog game by name or creates a name-only stub for it. Achievement
+# lists are read on demand by the game page, never here.
+# Weekly, Sundays at 03:21 UTC, right after the daily 03:19 cron, while the database is awake
+# (the free Neon plan has 100 CU-h a month). The first run reads ~10-15k games and
+# links them in a few minutes; later runs only write what changed (about a minute).
+# Needs the repository secrets DATABASE_URL (Neon, unpooled), RA_API_KEY and RA_USERNAME.
+name: retro-catalog
+
+on:
+  schedule:
+    - cron: "21 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Minutes to spend linking RA games to the catalog"
+        required: true
+        default: "30"
+
+concurrency:
+  group: retro-catalog
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Import the RetroAchievements catalog
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RA_API_KEY: ${{ secrets.RA_API_KEY }}
+          RA_USERNAME: ${{ secrets.RA_USERNAME }}
+          APP_URL: https://tralked.com
+          MINUTES: ${{ github.event.inputs.minutes || '30' }}
+        run: |
+          # Production mode asks for these two; the worker signs nothing, so throwaway values do.
+          export SESSION_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 16)"
+          pnpm retro:catalog --minutes "$MINUTES"

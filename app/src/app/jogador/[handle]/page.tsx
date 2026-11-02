@@ -8,6 +8,7 @@ import { AttributesWindow } from "@/components/character/AttributesWindow";
 import { CharacterCard } from "@/components/character/CharacterCard";
 import { formatAgo } from "@/components/character/format";
 import { MissionsCard } from "@/components/character/MissionsCard";
+import { PlayerSetupSection } from "@/components/character/PlayerSetup";
 import { PlayerGallery } from "@/components/character/PlayerGallery";
 import { ReactionStatsCard } from "@/components/character/ReactionStatsCard";
 import { RecentlyPlayed } from "@/components/character/RecentlyPlayed";
@@ -17,12 +18,15 @@ import { SyncActions } from "@/components/character/SyncActions";
 import { TrophyTiers } from "@/components/character/TrophyTiers";
 import { Card } from "@/components/ui/Card";
 import { getSessionUser } from "@/lib/auth/session";
+import { ProfileModeration } from "@/components/moderation/ProfileModeration";
+import { canModerate } from "@/lib/moderation/permissions";
 import { pendingDespertar } from "@/lib/character/despertar";
 import { reactionStats } from "@/lib/community/reactions";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
 import { getCharacterSheetExtras } from "@/lib/character/sheet";
 import { getRecentlyPlayed } from "@/lib/library/queries";
 import { getTotalPlaytimeMin } from "@/lib/profile/queries";
+import { getPlayerSetup } from "@/lib/setup/queries";
 import { getCharacter, hoursUntilDailyReset, type PlayerHeader } from "@/lib/queries/players";
 import { getPlayerHeaderCached } from "@/lib/queries/players-cached";
 
@@ -90,11 +94,12 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
 
   const character = await getCharacter(header.handle);
   if (!character) notFound();
-  const [extras, despertar, playtimeMin, recentlyPlayed, reactions] = await Promise.all([
+  const [extras, despertar, playtimeMin, recentlyPlayed, setup, reactions] = await Promise.all([
     getCharacterSheetExtras(character.userId),
     isOwner ? pendingDespertar(character.userId) : Promise.resolve(null),
     getTotalPlaytimeMin(character.userId),
     getRecentlyPlayed(character.userId),
+    getPlayerSetup(character.userId),
     reactionStats(character.userId),
   ]);
 
@@ -141,6 +146,7 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
           playtimeMin={playtimeMin}
           platforms={extras.platforms}
           bio={extras.bio}
+          isOwner={isOwner}
           actions={
             isOwner ? (
               <SyncActions
@@ -149,7 +155,14 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
                 }
                 despertarSteps={despertar}
               />
-            ) : null
+            ) : (
+              <ProfileModeration
+                userId={character.userId}
+                handle={character.handle}
+                loggedIn={viewer !== null}
+                moderator={canModerate(viewer?.role)}
+              />
+            )
           }
         />
         <div className="flex flex-col gap-5">
@@ -164,6 +177,8 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
       <AttributesWindow attributes={extras.attributes} />
 
       <SkillsWindow skills={character.skills} />
+
+      <PlayerSetupSection setup={setup} displayName={character.displayName} isOwner={isOwner} />
 
       <div className="flex flex-wrap gap-x-5 gap-y-10">
         <div className="flex min-w-0 flex-[1_1_600px] flex-col gap-10">

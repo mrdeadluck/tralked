@@ -4,6 +4,7 @@ import { updateTag } from "next/cache";
 import { z } from "zod";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
+import { interactionBlock } from "@/lib/moderation/permissions";
 import { photoTag } from "./cached";
 import { listReplies, type CommentView } from "./comments";
 import { RATE_LIMIT_MESSAGES, takeLikeToggle } from "./limits";
@@ -14,6 +15,7 @@ import { myReactions, react, reactSchema, type MyReaction, type ReactionCounts }
 type Failure =
   | { status: "unauthenticated"; message: string }
   | { status: "invalid"; message: string }
+  | { status: "forbidden"; message: string }
   | { status: "not_found"; message: string }
   | { status: "rate_limited"; message: string };
 
@@ -24,10 +26,13 @@ export type ReactOk = { status: "ok"; mine: MyReaction; counts: ReactionCounts }
 /**
  * Like (value 1) or dislike (value -1) an article, comment, photo or guide; the same value again
  * removes it. Every click takes a slot of the in-memory per-user limit before the database.
+ * Like votes and reports, a reaction is an interaction: a ban blocks it, a mute does not.
  */
 export async function reactTo(raw: unknown): Promise<ReactOk | Failure> {
   const user = await getSessionUser();
   if (!user) return { status: "unauthenticated", message: "Entre na sua conta para reagir." };
+  const blocked = interactionBlock(user);
+  if (blocked) return { status: "forbidden", message: blocked };
   const parsed = reactSchema.safeParse(raw);
   if (!parsed.success) return { status: "invalid", message: "Dados inválidos." };
   if (!takeLikeToggle(user.id)) return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.like };

@@ -2,9 +2,12 @@
 # players need and the most popular ones, straight against the production database, so the Vercel
 # function quota stays for the site.
 # Games players need (opened, owned, wished), then the most popular; the long tail is filled only
-# when someone opens its page (the free database holds 1 GB). Each run works up
-# to 5.5 h and stops early once the queue is empty, so the 6-hourly schedule keeps one run going
-# while there is work, and costs about a minute per run afterwards (new Steam releases).
+# when someone opens its page (the free database holds 1 GB). Every 6 h at :37 of hours 2, 8, 14
+# and 20 (UTC), in a short window: 0.6 h with 3 games in flight by default (inputs, or the
+# repository variables STEAM_DETAILS_HOURS / STEAM_DETAILS_CONCURRENCY). It used to run 5.5 h of
+# every 6 with 8 games in flight, which alone kept the free Neon compute awake ~22 h a day (its
+# quota is 100 CU-h a month) and made it scale up. The window ends before the :23 cron and the :29
+# platform-import of the next hour; it stops early once the queue is empty. Timetable: app/README.md.
 # Needs the repository secrets DATABASE_URL (Neon, unpooled) and STEAM_API_KEY; SGDB_API_KEY and
 # IGDB_CLIENT_ID/IGDB_CLIENT_SECRET are optional (cover fallbacks). Unlimited
 # Actions minutes only while the repository is public: on a private one, run it by hand.
@@ -12,13 +15,17 @@ name: steam-details
 
 on:
   schedule:
-    - cron: "10 */6 * * *"
+    - cron: "37 2-23/6 * * *"
   workflow_dispatch:
     inputs:
       hours:
-        description: "Hours to work (at most 5.5)"
+        description: "Hours to work (keep it short: the database stays awake meanwhile)"
         required: true
-        default: "5.5"
+        default: "0.6"
+      concurrency:
+        description: "Games in flight at once"
+        required: true
+        default: "3"
 
 # One worker at a time: a run that is still going makes the next one wait.
 concurrency:
@@ -28,7 +35,8 @@ concurrency:
 jobs:
   drain:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    # Scheduled runs: the window plus setup and the last batch. By hand: up to 5.5 h.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 350 || 60 }}
     defaults:
       run:
         working-directory: app
@@ -53,10 +61,12 @@ jobs:
           IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
           IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
           APP_URL: https://tralked.com
-          HOURS: ${{ github.event.inputs.hours || '5.5' }}
+          HOURS: ${{ github.event.inputs.hours || vars.STEAM_DETAILS_HOURS || '0.6' }}
+          CONCURRENCY: ${{ github.event.inputs.concurrency || vars.STEAM_DETAILS_CONCURRENCY || '3' }}
         run: |
           # Production mode asks for these two; the worker signs nothing, so throwaway values do.
-          # 8 games in flight: the runner is far from the database (São Paulo), so each game's writes
-          # wait on the network; the store itself stays at one request every 1.5 s.
+          # A few games in flight hide the network wait of each game's writes (the runner is far from
+          # the database in São Paulo); the store itself stays at one request every 1.5 s. More of
+          # them make the Neon compute scale up, which spends its CU-hours faster.
           export SESSION_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 16)"
-          pnpm steam:details --hours "$HOURS" --concurrency 8
+          pnpm steam:details --hours "$HOURS" --concurrency "$CONCURRENCY"

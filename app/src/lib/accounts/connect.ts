@@ -34,6 +34,8 @@ export type SaveConnectionResult =
   | { status: "unchanged" }
   /** `value`: what the field shows from now on (Steam: the SteamID64). */
   | { status: "linked"; handle: string; value: string }
+  /** Same account, new name on the platform: only the stored name changed. */
+  | { status: "renamed"; handle: string; value: string }
   | { status: "unlinked" }
   | { status: "needs_confirm"; action: "unlink" | "replace" }
   | { status: "invalid" | "not_found" | "private" | "taken" | "unavailable" | "error" }
@@ -110,6 +112,7 @@ async function writeLink(
       // A pending claim on this row is dropped: the user connected an account instead.
       verifyCode: null,
       verifyExpiresAt: null,
+      verifyFailure: null,
       lastSyncedAt: null,
       lastSyncAttemptAt: null,
     };
@@ -154,7 +157,18 @@ export async function saveConnection(
   }
   if (!profile) return { status: "not_found" };
   if (profile.isPrivate) return { status: "private" };
-  if (current?.externalId === profile.externalId) return { status: "unchanged" };
+  if (current?.externalId === profile.externalId) {
+    // The same account under a new name (PSN online id, gamertag, RA user changed): keep the
+    // connection and its verification, store the current name (the sync and checks read it).
+    if (profile.handle === current.handle) return { status: "unchanged" };
+    const { count } = await prisma.linkedAccount.updateMany({
+      where: { userId, platform, externalId: profile.externalId, linkedAt: { not: null } },
+      data: { handle: profile.handle },
+    });
+    return count > 0
+      ? { status: "renamed", handle: profile.handle, value: connectionFieldValue(platform, profile) }
+      : { status: "unchanged" };
+  }
   // Checked before anything is undone: a refused replacement keeps the current account.
   if (await heldByAnother(userId, platform, profile.externalId)) return { status: "taken" };
   if (current && !confirmed) return { status: "needs_confirm", action: "replace" };

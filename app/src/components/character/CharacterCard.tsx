@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { UserText } from "@/components/community/UserText";
 import { Chip } from "@/components/ui/Chip";
@@ -17,9 +18,11 @@ type CharacterCardProps = {
   actions?: ReactNode;
   /** Horas jogadas em todas as plataformas (minutos), mostradas ao lado do nível. */
   playtimeMin?: number;
+  /** Dono do perfil: conexões não verificadas ganham o atalho "Verificar" (para /conta/conexoes). */
+  isOwner?: boolean;
 };
 
-export function CharacterCard({ character, platforms, bio, actions, playtimeMin }: CharacterCardProps) {
+export function CharacterCard({ character, platforms, bio, actions, playtimeMin, isOwner = false }: CharacterCardProps) {
   const { stats } = character;
   const items: [string, string, string?][] = [
     [
@@ -74,6 +77,11 @@ export function CharacterCard({ character, platforms, bio, actions, playtimeMin 
           ) : (
             <Chip>Nenhuma plataforma conectada</Chip>
           )}
+          {isOwner && platforms.some((p) => !p.verified) ? (
+            <Link href="/conta/conexoes" className="ml-1 text-acc underline-offset-[3px] hover:underline">
+              Verificar contas →
+            </Link>
+          ) : null}
         </div>
         {bio ? <UserText text={bio} className="mt-3 max-w-[60ch] text-[15px] text-text-2" /> : null}
       </div>

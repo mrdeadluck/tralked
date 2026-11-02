@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { describeError } from "@/lib/worker/errors";
 
 /** Progress logs of the scripts (gitignored). */
 export const LOG_DIR = fileURLToPath(new URL("../.logs/", import.meta.url));
@@ -42,11 +43,26 @@ export function createRunLog(name: string): RunLog {
     file,
     info: (message) => console.log(write("INFO", message)),
     warn: (message) => console.warn(write("WARN", message)),
+    // The whole error (name, code, causes, Prisma meta, first stack frames): the bare message is
+    // often empty (Node's AggregateError on connect) and says nothing about what broke.
     error: (message, error) => {
-      const detail = error instanceof Error ? `: ${error.message}` : error ? `: ${String(error)}` : "";
+      const detail = error === undefined ? "" : `: ${describeError(error)}`;
       console.error(write("ERROR", `${message}${detail}`));
     },
   };
+}
+
+/**
+ * Last-resort stop for a worker: exits `graceMs` after its window when something (a hung request,
+ * a long wait for the database) kept it running, so a stuck run never keeps the database awake
+ * until the job's timeout.
+ */
+export function exitAfterWindow(stopAt: number, log: RunLog, graceMs = 10 * 60_000): void {
+  const timer = setTimeout(() => {
+    log.error(`Still running ${Math.round(graceMs / 60_000)} min after the window: exiting.`);
+    process.exit(1);
+  }, Math.max(0, stopAt - Date.now()) + graceMs);
+  timer.unref();
 }
 
 /** Runs `worker` over `items` with at most `limit` in flight; takes no new item once `stop()` is true. */

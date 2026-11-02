@@ -75,3 +75,41 @@ export async function lookupProfile(
     }
   }
 }
+
+/**
+ * The public profile of an account that is already connected ("Verificar agora"), read by its
+ * stable id where the platform allows it (Steam: SteamID64; Xbox: XUID, no gamertag search),
+ * otherwise by the stored handle (PSN online id; RA user, then its ULID). The caller compares
+ * `externalId` with the connection's: a handle may now belong to someone else. Only the free text
+ * matters here, so there is no privacy probe beyond Steam's (a private Steam profile hides its
+ * "Resumo").
+ */
+export async function readConnectedProfile(
+  platform: LinkPlatform,
+  account: { externalId: string; handle: string },
+): Promise<PlatformProfile | null> {
+  switch (platform) {
+    case "steam": {
+      const profile = await getSteamProfileLookup().find({ kind: "id", steamId: account.externalId });
+      return profile
+        ? { externalId: profile.steamId, handle: profile.personaName, text: profile.summary, isPrivate: !profile.profilePublic }
+        : null;
+    }
+    case "psn": {
+      const profile = await getPsn().findProfile(account.handle);
+      return profile
+        ? { externalId: profile.accountId, handle: profile.onlineId, text: profile.aboutMe, isPrivate: false }
+        : null;
+    }
+    case "xbox": {
+      const profile = await getXbox().getProfile(account.externalId);
+      return profile ? { externalId: profile.xuid, handle: profile.gamertag, text: profile.bio, isPrivate: false } : null;
+    }
+    case "retro": {
+      const retro = getRetro();
+      // RA takes the ULID where it takes a user name, so a renamed account is still found.
+      const profile = (await retro.findProfile(account.handle)) ?? (await retro.findProfile(account.externalId));
+      return profile ? { externalId: profile.ulid, handle: profile.user, text: profile.motto, isPrivate: false } : null;
+    }
+  }
+}

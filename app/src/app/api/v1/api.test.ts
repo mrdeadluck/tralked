@@ -17,6 +17,7 @@ const guideById = await import("./guides/[id]/route");
 const games = await import("./games/route");
 const insights = await import("./games/[slug]/insights/route");
 const dossier = await import("./games/[slug]/dossie/route");
+const media = await import("./games/[slug]/media/route");
 const openapi = await import("./openapi.json/route");
 const articleSchema = await import("./schemas/article.json/route");
 const guideSchema = await import("./schemas/guide.json/route");
@@ -1236,6 +1237,88 @@ describe("GET /api/v1/games/{slug}/dossie", () => {
     expect((await json(missing)).error?.code).toBe("not_found");
     expect((await ask("/api/v1/games/Slug%20Invalido!/dossie")).status).toBe(404);
     expect((await ask(`/api/v1/games/${slug}/dossie`, null)).status).toBe(401);
+  });
+});
+
+describe("GET /api/v1/games/{slug}/media", () => {
+  const slug = "g1-media-game";
+  const ask = (path: string, key: Key | null = keys.reader) =>
+    media.GET(call("GET", path, { key }), { params: Promise.resolve({ slug: path.split("/")[4] }) });
+  const igdb = (kind: string, id: string) => `https://images.igdb.com/igdb/image/upload/t_${kind}/${id}.jpg`;
+
+  beforeAll(async () => {
+    await prisma.game.create({
+      data: {
+        slug,
+        name: "G1 Media",
+        developer: "Estúdio G1",
+        publisher: "Editora G1",
+        platforms: ["PC"],
+        achievementCount: 0,
+        heroUrl: "https://cdn2.steamgriddb.com/hero/g1.png",
+        coverUrl: igdb("cover_big", "cover"),
+        media: {
+          create: [
+            { kind: "cover", url: igdb("cover_big", "cover2"), source: "igdb", order: 0 },
+            { kind: "logo", url: "https://cdn2.steamgriddb.com/logo/g1.png", source: "sgdb", order: 0 },
+            { kind: "artwork", url: igdb("screenshot_big", "art1"), source: "igdb", order: 0, width: 1920, height: 1080 },
+            { kind: "screenshot", url: igdb("screenshot_big", "shot2"), source: "igdb", order: 1 },
+            { kind: "screenshot", url: igdb("screenshot_big", "shot1"), source: "igdb", order: 0, width: 1280, height: 720 },
+            { kind: "screenshot", url: "http://insecure.example/shot.jpg", source: "steam", order: 2 },
+            { kind: "screenshot", url: igdb("t_720p", "shot1"), source: "steam", order: 3 },
+            { kind: "video", youtubeId: "BBBBBBBBBBB", source: "igdb", order: 1 },
+            { kind: "video", youtubeId: "AAAAAAAAAAA", source: "igdb", order: 0 },
+            { kind: "video", youtubeId: "not-an-id", source: "igdb", order: 2 },
+          ],
+        },
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.game.deleteMany({ where: { slug } });
+  });
+
+  it("lists the hero, then screenshots and artworks (1080p, https, no repeats), and the videos in order", async () => {
+    const response = await ask(`/api/v1/games/${slug}/media`);
+    expect(response.status).toBe(200);
+    const body = await json(response);
+    expect(body.game).toEqual({ slug, name: "G1 Media", developer: "Estúdio G1", publisher: "Editora G1" });
+    expect(body.images).toEqual([
+      { url: "https://cdn2.steamgriddb.com/hero/g1.png", kind: "hero", width: null, height: null, source: null },
+      { url: igdb("1080p", "shot1"), kind: "screenshot", width: 1280, height: 720, source: "igdb" },
+      { url: igdb("1080p", "shot2"), kind: "screenshot", width: null, height: null, source: "igdb" },
+      { url: igdb("1080p", "art1"), kind: "artwork", width: 1920, height: 1080, source: "igdb" },
+    ]);
+    expect(body.videos).toEqual([{ youtubeId: "AAAAAAAAAAA" }, { youtubeId: "BBBBBBBBBBB" }]);
+  });
+
+  it("a game without media answers empty lists", async () => {
+    const bare = await prisma.game.create({ data: { slug: "g1-media-bare", name: "G1 Bare", platforms: [], achievementCount: 0 } });
+    try {
+      const body = await json(await ask("/api/v1/games/g1-media-bare/media"));
+      expect(body).toEqual({
+        game: { slug: "g1-media-bare", name: "G1 Bare", developer: null, publisher: null },
+        images: [],
+        videos: [],
+      });
+    } finally {
+      await prisma.game.delete({ where: { id: bare.id } });
+    }
+  });
+
+  it("404 for a stub, an unknown or a malformed slug; 401 without a key", async () => {
+    await prisma.game.create({ data: { slug: "g1-media-stub", name: "G1 Stub", stub: true, platforms: [], achievementCount: 0 } });
+    try {
+      expect((await ask("/api/v1/games/g1-media-stub/media")).status).toBe(404);
+    } finally {
+      await prisma.game.deleteMany({ where: { slug: "g1-media-stub" } });
+    }
+    const missing = await ask("/api/v1/games/jogo-que-nao-existe/media");
+    expect(missing.status).toBe(404);
+    expect((await json(missing)).error?.code).toBe("not_found");
+    expect((await ask("/api/v1/games/Slug%20Invalido!/media")).status).toBe(404);
+    expect((await ask(`/api/v1/games/${slug}/media`, null)).status).toBe(401);
   });
 });
 

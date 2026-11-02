@@ -34,12 +34,48 @@ All commands run from this folder with `pnpm <command>`.
 | Command | What it does |
 |---|---|
 | `pnpm coleta` | Collects every active source, triages, clusters, queues stories, publishes "bombs" right away and updates same-day articles. Runs every 30 min, 24 h a day. |
-| `pnpm publica [--agora]` | Publishes the best queued story, one per hour between 06:00 and 23:00 (America/Sao_Paulo), at most `MAX_PER_DAY` (15) a day. Waits 0 to 12 min first; `--agora` skips the wait. News of the day only: a story older than `NEWS_MAX_AGE_HOURS` (12 h, counted from its first item) expires unpublished, so no backdated news goes out; Pautas Tralked (games, guides) are not affected. |
+| `pnpm publica [--agora] [--fora-do-horario] [--ignorar-limite]` | Publishes the best queued story, one per hour between 06:00 and 23:00 (America/Sao_Paulo), at most `MAX_PER_DAY` (15) a day. Waits 0 to 12 min first; `--agora` skips the wait. News of the day only: a story older than `NEWS_MAX_AGE_HOURS` (12 h, counted from its first item) expires unpublished, so no backdated news goes out; Pautas Tralked (games, guides) are not affected. See "Manual publication" below for the flags. |
 | `pnpm retroativo` | Backfill: writes the older articles of the last `BACKFILL_DAYS` days with backdated times, under its own budget. |
 | `pnpm resumo [dia]` | Prints and e-mails the counts for a local day: collected, dropped, queued, published, updated, check failures, spend by bucket and broken sources. `dia` is `AAAA-MM-DD` or `ontem`; the default is today. |
 | `pnpm despublicar --de AAAA-MM-DD --ate AAAA-MM-DD [--fonte id] [--confirmar]` | Bulk unpublish by publication day (local), optionally only stories that used source `id`. Without `--confirmar` it only lists. With it, it PATCHes `{status: "archived"}` on the site for each match and marks it `archived` locally. |
 
 Every command ends by e-mailing the alerts not yet sent (see below).
+
+### Manual publication
+
+| Flag | Effect |
+|---|---|
+| `--agora` | Skips the 0–12 min wait. Everything else as in a scheduled run. |
+| `--fora-do-horario` | Publishes even outside `SLOT_FIRST_HOUR`–`SLOT_LAST_HOUR` (06h–23h). Implies `--agora`. `MAX_PER_DAY`, the one-per-hour rule and the daily budget still apply. |
+| `--ignorar-limite` | Also skips `MAX_PER_DAY` and the one-per-hour rule. It does not skip the window (combine it with `--fora-do-horario` at night). |
+
+```
+pnpm publica --fora-do-horario                    # one story now, at 02:00 for example, within the daily cap
+pnpm publica --fora-do-horario --ignorar-limite   # one more even with 15 already out today
+```
+
+No flag skips the daily budget (`DAILY_BUDGET_USD`). To spend more on one manual run, raise it for that run only: `$env:DAILY_BUDGET_USD=8; pnpm publica --fora-do-horario` (PowerShell; the variable lasts until the window is closed). An unknown flag stops the command with the usage line, so a typo never publishes with the wrong rules. Manual articles count toward the day like scheduled ones. This replaces the old `SLOT_FIRST_HOUR=0 pnpm publica --agora` trick.
+
+### Article media (images and videos)
+
+The sources give the robot no pictures, so media is added by code (`assemble` + `articleMedia` in `src/pipeline.ts`), never by the model:
+
+- **The story's own official video** (an item from a `video: true` YouTube channel, see below) is embedded right after the first paragraph, with its YouTube title as the caption. When a story has videos from several channels, the `lang: "pt"` channel wins (PlayStation Brasil over PlayStation).
+- **Otherwise, catalog art.** The robot asks the site for the media of the article's first linked game (`GET /api/v1/games/{slug}/media`, read-only, served from the IGDB/SteamGridDB/Steam media the site already stores) and adds one screenshot or artwork after the first paragraph (picked by story id, so stories about the same game vary), credited `Divulgação/<publisher>`. The site's article page then avoids that same image as the cover.
+- **And the game's trailer** (the first IGDB video of the game) after the body, only when the article links exactly one game.
+- A failure of the media endpoint never blocks an article: it goes out without media. If the site refuses a media block (422 on an `image`/`video` block), the client retries once without those blocks.
+
+### Video stories (official YouTube channels)
+
+Sources with `"video": true` are official YouTube channel feeds (`https://www.youtube.com/feeds/videos.xml?channel_id=...`). For them:
+
+1. **Collection:** only uploads whose title names a trailer, teaser, gameplay, reveal, launch, demo or showcase are kept (English, Portuguese and Japanese titles; `isTrailerVideo` in `src/collect/youtube.ts`). Livestreams, podcasts, Shorts, recaps, esports matches, accolades trailers and promos are dropped before any AI call. The watch page is never downloaded; the title and the description are the material, and the video id is stored with the item.
+2. **Triage and clustering** as for any item. A video about the same event as a text story joins it, and that article embeds the video.
+3. **Selection:** a story whose only material is the video (a *video story*) is publishable when an official video in it has triage importance **60 or more** and it is not a rumor (`VIDEO_MIN_IMPORTANCE`).
+4. **De-duplication against stories about the same game** (in `coleta`, before queueing): a video story is dropped when the site published an article about the game in the last 24 h, or a story about the game was published or is being written in the last 24 h. When an open or queued text story is about the game, the video joins that story instead. Two video stories about the same game (the same trailer on two channels) become one.
+5. **Caps:** video stories count toward `MAX_PER_DAY` and the daily budget like any story, and at most **4 video stories** go out per local day (`MAX_VIDEO_STORIES_PER_DAY`); after that they stay queued until they expire. The writer gets a short "Vídeo oficial" section: it writes about what the video presents, from its title and description only.
+
+The `coleta` report line shows how many video stories were dropped or merged as repeats.
 
 ### Task Scheduler (Windows)
 
@@ -47,7 +83,7 @@ Every command ends by e-mailing the alerts not yet sent (see below).
 
 | Task | When | Runs |
 |---|---|---|
-| `Tralked Robo - Coleta` | every 30 min, indefinitely | `pnpm coleta` |
+| `Tralked Robo - Coleta` | every 30 min at :20 and :50, indefinitely | `pnpm coleta` |
 | `Tralked Robo - Publica` | daily at 06:00, 07:00 ... 23:00 | `pnpm publica` |
 | `Tralked Robo - Resumo` | daily at 00:10 | `pnpm resumo ontem` |
 
@@ -56,7 +92,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\instalar-tarefas.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\instalar-tarefas.ps1 -Remover
 ```
 
-- Each task runs `cmd /c pnpm ...` in the `ROBO NOTICIAS` folder, so `PATH` resolves `pnpm`. Output goes to `data/logs/agendador.log`.
+- Each task runs `cmd /c pnpm ...` in the `ROBO NOTICIAS` folder, so `PATH` resolves `pnpm`. Each task appends to its own log: `data/logs/agendador-coleta.log`, `agendador-publica.log` and `agendador-resumo.log`. They used to share `agendador.log`, and a coleta that started in the same minute as a publica failed before running, because `cmd` cannot open for writing a file another `cmd` is already writing. The old `agendador.log` is no longer written and can be deleted.
+- Coleta runs at :20 and :50, away from the publica runs at :00 (which wait up to 12 min and then write), so the two rarely run at the same time. When they do, they share the SQLite database safely (WAL, 5 s busy timeout) and the publish lock decides who publishes.
+- After changing this script (as on 2026-11-02: separate logs, coleta at :20/:50), run it again so the tasks are replaced.
 - It tries "run whether the user is logged on or not" (S4U, no password stored) and falls back to "only while logged on". The script prints which one applied.
 - It is idempotent: running it again replaces the tasks. `-Remover` deletes them.
 - The trigger times use this PC's clock; the robot itself decides the publishing grid in America/Sao_Paulo.
@@ -115,13 +153,15 @@ A JSON array with one object per source; the file is validated on every start, s
 | `listingSelector` | `listing` only: CSS selector of the item anchors. |
 | `linkResolve` | `"google-news"` for Google News search feeds (requires a `news.google.com` URL). |
 | `backfill` | Optional `{ "kind": "sitemap", "url": ... }` used by `pnpm retroativo`. |
+| `video` | `true` for an official YouTube channel feed (`https://www.youtube.com/feeds/videos.xml?channel_id=UC...`, required by the schema): trailers and gameplay only, embedded in the article (see "Video stories"). |
+| `lang` | Optional `pt`, `en` or `ja`: language of the source's titles. A story with videos from several channels embeds the `pt` one. |
 
 To add a source: append an object, run `pnpm test` (it validates the file), then verify the feed by hand. Follow the bot-protection rule below: never work around a block. To retire one, set `"active": false` instead of deleting it. A source with no success for more than 24 h raises a `fonte` alert.
 
 ## Sources (`config/fontes.json`)
 
 Verified on 2026-10-31 with real HTTP fetches using `User-Agent: TralkedBot/1.0 (+https://tralked.com)`.
-51 sources: 49 active, 2 inactive (Flow Games and PXN Games added on 2026-11-02). 12 have a dated `backfill` sitemap.
+51 sources: 49 active, 2 inactive (Flow Games and PXN Games added on 2026-11-02). 12 have a dated `backfill` sitemap. On 2026-11-02 the 16 official YouTube channels below were added (`video: true`), and `rockstar-youtube` and `bandai-namco` became `video: true` too.
 
 Bot-protection rule: when a site answers 403, shows a Cloudflare/Akamai challenge, or serves a JS-only shell to our honest User-Agent, we do not work around it (no browser-imitating headers). We only use feeds published for consumption: the site's own RSS/sitemap, YouTube channel feeds, and Google News RSS search.
 
@@ -181,6 +221,33 @@ Notes for the collector:
 | Ars Technica (gaming) | `https://feeds.arstechnica.com/arstechnica/gaming` | rss | yes | 20 items, newest 2026-10-23. |
 | Ars Technica (technology) | `https://feeds.arstechnica.com/arstechnica/technology-lab` | rss | yes | 20 items. |
 | Tom's Hardware | `https://www.tomshardware.com/feeds/all` | rss | yes | Redirects to `/feeds.xml`. 50 items. |
+
+### Official YouTube channels (`video: true`)
+
+Channel ids read from the channel page (`youtube.com/@<handle>`, canonical link) and checked on 2026-11-02 by fetching each feed with our User-Agent (all answered 200 with 15 entries, newest in the last weeks unless noted). Channels whose id could not be confirmed as the publisher's own were left out: `@EA` (not EA), `@Activision` (empty feed), `@NintendoBrasil` and `@playstationbrasil` (fan channels, last uploads 2018 and 2009), `@XboxBR` (could not confirm it is official), `@SEGA` and `@Capcom` (Japanese channels; `capcom-youtube` uses Capcom USA).
+
+| id | Channel | Channel id | Notes |
+|---|---|---|---|
+| `playstation-youtube` | PlayStation | `UC-2Y8dQb0S6DtpxNgAKoJKA` | Many trailers a day (PS5 indies included); triage and the 60 bar filter them. |
+| `playstation-br-youtube` | PlayStation Brasil | `UC6i4mzH3OPrZV0p64zoz-Ww` | `lang: "pt"`: "Trailer de Lançamento", "Trailer de Jogabilidade". Preferred for embedding. |
+| `xbox-youtube` | Xbox | `UCjBp_7RuDBUYbd1LegWEJ8g` | |
+| `nintendo-youtube` | Nintendo of America | `UCGIY_O-8vW4rfX98KlMkvRg` | |
+| `ubisoft-youtube` | Ubisoft | `UC0KU8F9jJqSLS11LRXvFWmg` | |
+| `ea-youtube` | Electronic Arts | `UCIHBybdoneVVpaQK7xMz1ww` | Low volume (newest 2026-03); EA's games post on their own channels. |
+| `bethesda-youtube` | Bethesda Softworks | `UCvZHe-SP3xC7DdOk4Ri8QBw` | |
+| `capcom-youtube` | Capcom USA | `UCW7h-1mymnJ96akzjrmiIgA` | |
+| `square-enix-youtube` | Square Enix (NA) | `UCA5SLTAVA6unn1M-6lbo1NA` | |
+| `blizzard-youtube` | Blizzard Entertainment | `UC3GriadTkHBnfgd2UFETGOA` | Newest 2026-09. |
+| `cdpr-youtube` | CD PROJEKT RED | `UCuCtanBJXOPAEIAUXf9944g` | Mostly podcasts lately; the title filter drops them. |
+| `wb-games-youtube` | Warner Bros. Games | `UCHqAOjD1bj-PvtPcK8qDFMQ` | |
+| `call-of-duty-youtube` | Call of Duty | `UC9YydG57epLqxA9cTzZXSeQ` | Activision's main video channel. |
+| `konami-youtube` | Konami | `UCwkUBN7foWU9GcY5cFmso-Q` | |
+| `riot-youtube` | Riot Games | `UCJEGvSZnQ1pkVfHO8s5G8hA` | |
+| `2k-youtube` | 2K | `UC0SBn2zaskenN1hl_PCtQWw` | Newest 2026-06. |
+| `rockstar-youtube` | Rockstar Games | `UC6VcWc1rAoWdBCM0JxrRQ3A` | Existing source, now `video: true`. |
+| `bandai-namco` | Bandai Namco Entertainment | `UCqly9F4Fr_jf2Y1Cy5hacRg` | Existing source, now `video: true`, `lang: "ja"` (titles in Japanese, "PV" = trailer). |
+
+The YouTube feed endpoint is flaky (see above): a failed fetch is a normal source error and the channel is tried again in 30 minutes.
 
 ### Inactive (`active: false`)
 

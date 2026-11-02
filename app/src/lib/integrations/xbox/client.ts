@@ -119,6 +119,24 @@ export function createXboxClient({
     return (json && typeof json === "object" && json.content && typeof json.content === "object" ? json.content : json) as T;
   }
 
+  /** The account settings of a XUID: gamertag, bio and picture. */
+  async function accountProfile(xuid: string, fallbackGamertag: string | null): Promise<XboxProfile | null> {
+    const account = await get<{ profileUsers?: { id: string; settings?: Setting[] }[] }>(
+      `/account/${encodeURIComponent(xuid)}`,
+      "account",
+    );
+    if (account === null || account === "private") return null;
+    const settings = new Map((account.profileUsers?.[0]?.settings ?? []).map((s) => [s.id, s.value]));
+    const gamertag = settings.get("Gamertag") ?? fallbackGamertag;
+    if (!gamertag) return null;
+    return {
+      xuid,
+      gamertag,
+      bio: settings.get("Bio") ?? "",
+      avatarUrl: settings.get("GameDisplayPicRaw") ?? null,
+    };
+  }
+
   return {
     async findProfile(gamertag): Promise<XboxProfile | null> {
       const search = await get<{
@@ -143,21 +161,10 @@ export function createXboxClient({
         return null;
       }
 
-      const account = await get<{ profileUsers?: { id: string; settings?: Setting[] }[] }>(
-        `/account/${encodeURIComponent(xuid)}`,
-        "account",
-      );
-      if (account === null || account === "private") return null;
-      const settings = new Map(
-        (account.profileUsers?.[0]?.settings ?? []).map((s) => [s.id, s.value]),
-      );
-      return {
-        xuid,
-        gamertag: settings.get("Gamertag") ?? person.gamertag ?? gamertag,
-        bio: settings.get("Bio") ?? "",
-        avatarUrl: settings.get("GameDisplayPicRaw") ?? null,
-      };
+      return accountProfile(xuid, person.gamertag ?? gamertag);
     },
+
+    getProfile: (xuid) => accountProfile(xuid, null),
 
     async getTitles(xuid): Promise<XboxTitle[] | "private"> {
       const body = await get<{ titles?: TitleRecord[] }>(

@@ -1,4 +1,4 @@
-import type { LinkedAccountView } from "./queries";
+import type { LinkedAccountView, PendingVerification } from "./queries";
 
 /** An import attempt older than this without a newer success counts as failed. */
 export const IMPORT_GRACE_MS = 10 * 60_000;
@@ -15,6 +15,8 @@ export type ConnectionState =
       value: string;
       /** Ownership proven with a code; typed-in connections are "não verificada". */
       verified: boolean;
+      /** "Verificar agora" waiting for its code in the profile (unverified only). */
+      verification: PendingVerification | null;
       lastSyncedAt: Date | null;
       /** An import is running (or queued right after the link). */
       importing: boolean;
@@ -43,6 +45,7 @@ export function connectionState(view: LinkedAccountView | undefined, now: Date =
     handle: view.handle,
     value: view.fieldValue ?? view.handle,
     verified: view.verified,
+    verification: view.verified ? null : (view.verification ?? null),
     lastSyncedAt: synced,
     // Linked but never attempted: the first import is queued (after() or the cron).
     importing: (unfinished && recent) || (attempt === null && synced === null),

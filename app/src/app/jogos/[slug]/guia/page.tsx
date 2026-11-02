@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { Comments } from "@/components/community/Comments";
 import { ReactionBar } from "@/components/community/ReactionBar";
+import { GuideModeration } from "@/components/moderation/Islands";
 import { FactsStrip } from "@/components/games/FactsStrip";
 import { GameHead } from "@/components/games/GameHead";
 import { AchievementList } from "@/components/guide/AchievementList";
@@ -99,6 +100,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
               returnTo={returnTo}
             />
           ) : null}
+          {guideId ? <GuideModeration guideId={guideId} gameName={guide.game.name} returnTo={returnTo} /> : null}
           {guideId ? <Comments targetType="guide" targetId={guideId} /> : null}
         </div>
         <Suspense

@@ -54,6 +54,12 @@ async function ContaContent() {
         <ProfileForm bio={user.bio ?? ""} profilePublic={user.profilePublic} handle={user.handle} />
       </Section>
 
+      <Section title="Setup" lede="Os consoles que você tem e a ficha técnica do seu PC.">
+        <Link href="/conta/setup" className="font-semibold text-acc underline underline-offset-4 hover:no-underline">
+          Montar meu setup →
+        </Link>
+      </Section>
+
       <Section title="Capinha dos jogos" lede="A animação de abrir o lacre na primeira visita a cada jogo.">
         <CaseIntroSetting off={user.caseIntroOff} />
       </Section>

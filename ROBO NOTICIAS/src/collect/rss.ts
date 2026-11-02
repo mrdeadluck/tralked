@@ -1,6 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
 import { decodeEntities, isHttpUrl, makeSummary, parseDate, titleKey } from "./text.js";
 import type { RawItem } from "./types.js";
+import { isValidYoutubeId, youtubeIdOf } from "./youtube.js";
 
 export type { RawItem } from "./types.js";
 
@@ -95,6 +96,9 @@ function toItem(raw: Node, sourceId: string): RawItem | null {
 
   const item: RawItem = { url, title, summary, publishedAt, sourceId };
   if (publisher) item.publisher = publisher;
+  // YouTube channel feeds (Atom) carry the id as <yt:videoId>; the watch link has it too.
+  const videoId = str(raw["yt:videoId"])?.trim() ?? youtubeIdOf(url);
+  if (isValidYoutubeId(videoId)) item.videoId = videoId;
   return item;
 }
 

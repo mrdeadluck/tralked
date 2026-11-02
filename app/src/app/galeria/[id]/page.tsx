@@ -9,6 +9,7 @@ import { PhotoGrid } from "@/components/community/PhotoGrid";
 import { PhotoMedia } from "@/components/community/PhotoMedia";
 import { ReactionButtons } from "@/components/community/ReactionButtons";
 import { ReportButton } from "@/components/community/ReportButton";
+import { PhotoModBar } from "@/components/moderation/PhotoModBar";
 import { UserText } from "@/components/community/UserText";
 import { getPhotoCached, listPhotosCached } from "@/lib/community/cached";
 import { formatWhen } from "@/lib/community/format";
@@ -125,30 +126,41 @@ export default async function PhotoPage({ params }: PageProps<"/galeria/[id]">) 
   );
 }
 
-type ActionsProps = { photo: PhotoDetail; mine: MyReaction; loggedIn: boolean; returnTo: string; pending?: boolean };
+type ActionsProps = {
+  photo: PhotoDetail;
+  mine: MyReaction;
+  loggedIn: boolean;
+  returnTo: string;
+  pending?: boolean;
+  /** Moderators get "Ocultar" and "Remover" (checked again on the server). */
+  moderator?: boolean;
+};
 
-function PhotoActions({ photo, mine, loggedIn, returnTo, pending }: ActionsProps) {
+function PhotoActions({ photo, mine, loggedIn, returnTo, pending, moderator = false }: ActionsProps) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <ReactionButtons
-        targetType="photo"
-        targetId={photo.id}
-        likes={photo.likeCount}
-        dislikes={photo.dislikeCount}
-        mine={mine}
-        loggedIn={loggedIn}
-        returnTo={returnTo}
-        what="esta foto"
-        pending={pending}
-      />
-      <ReportButton
-        targetType="photo"
-        targetId={photo.id}
-        loggedIn={loggedIn}
-        returnTo={returnTo}
-        what="esta foto"
-        pending={pending}
-      />
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <ReactionButtons
+          targetType="photo"
+          targetId={photo.id}
+          likes={photo.likeCount}
+          dislikes={photo.dislikeCount}
+          mine={mine}
+          loggedIn={loggedIn}
+          returnTo={returnTo}
+          what="esta foto"
+          pending={pending}
+        />
+        <ReportButton
+          targetType="photo"
+          targetId={photo.id}
+          loggedIn={loggedIn}
+          returnTo={returnTo}
+          what="esta foto"
+          pending={pending}
+        />
+      </div>
+      {moderator ? <PhotoModBar photoId={photo.id} /> : null}
     </div>
   );
 }
@@ -156,7 +168,9 @@ function PhotoActions({ photo, mine, loggedIn, returnTo, pending }: ActionsProps
 async function PhotoActionsIsland({ photo, returnTo }: { photo: PhotoDetail; returnTo: string }) {
   const viewer = await currentViewer();
   const mine = viewer ? (await myReactions(prisma, viewer.id, "photo", [photo.id]))[photo.id] : undefined;
-  return <PhotoActions photo={photo} mine={mine ?? 0} loggedIn={viewer !== null} returnTo={returnTo} />;
+  return (
+    <PhotoActions photo={photo} mine={mine ?? 0} loggedIn={viewer !== null} returnTo={returnTo} moderator={viewer?.moderator} />
+  );
 }
 
 async function MoreFromGame({ gameSlug, gameName, exceptId }: { gameSlug: string; gameName: string; exceptId: string }) {

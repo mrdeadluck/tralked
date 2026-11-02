@@ -94,6 +94,39 @@ function outline(blocks: ContentBlock[]): string[] {
   });
 }
 
+describe("assemble: media", () => {
+  const image = { url: "https://images.igdb.com/igdb/image/upload/t_1080p/s1.jpg", alt: "Cena de Hollow Knight", credit: "Divulgação/Team Cherry" };
+  const trailer = { youtubeId: "TTTTTTTTTTT", title: "Vídeo de Hollow Knight" };
+  const video = { youtubeId: "AAAAAAAAAAA", title: "Hollow Knight 1.6 - Official Trailer" };
+
+  it("puts catalog art after the lede and the trailer after the body, and the site accepts it", () => {
+    const payload = assemble(draft(), story, { ...opts(), media: { image, trailer } });
+    expect(payload.blocks[0]!.type).toBe("paragraph");
+    expect(payload.blocks[1]).toEqual({ type: "image", ...image });
+    const trailerAt = payload.blocks.findIndex((b) => b.type === "video");
+    expect(payload.blocks[trailerAt - 1]!.type).toBe("table");
+    expect(payload.blocks[trailerAt + 1]).toEqual({ type: "heading", level: 2, text: "No Tralked" });
+    expect(articlePayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("the story's own video replaces catalog art and trailer", () => {
+    const payload = assemble(draft(), story, { ...opts(), media: { video, image, trailer } });
+    expect(payload.blocks[1]).toEqual({ type: "video", ...video });
+    expect(payload.blocks.filter((b) => b.type === "video" || b.type === "image")).toHaveLength(1);
+    expect(articlePayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("drops unsafe media: bad video ids, non-https images, HTML in titles", () => {
+    const payload = assemble(draft(), story, {
+      ...opts(),
+      media: { image: { ...image, url: "http://x.test/a.jpg" }, trailer: { youtubeId: "short", title: "x" } },
+    });
+    expect(payload.blocks.some((b) => b.type === "image" || b.type === "video")).toBe(false);
+    const titled = assemble(draft(), story, { ...opts(), media: { video: { ...video, title: "<b>Trailer</b>" } } });
+    expect(titled.blocks[1]).toEqual({ type: "video", youtubeId: "AAAAAAAAAAA", title: "Trailer" });
+  });
+});
+
 describe("assemble", () => {
   it("lays the blocks out in the fixed order", () => {
     const payload = assemble(draft(), story, { ...opts(), updatedAt: new Date("2026-10-31T17:05:00Z") });

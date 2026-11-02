@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import type { User } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
+import { isBanned } from "@/lib/moderation/permissions";
 
 export const SESSION_COOKIE = "gl_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
@@ -45,11 +46,16 @@ export async function destroySession(): Promise<void> {
   cookieStore.delete(SESSION_COOKIE);
 }
 
+/**
+ * The logged-in user, or null. A banned account (User.bannedUntil in the future) has no session
+ * until the ban ends: every page and every write path then treats it as a visitor.
+ */
 export async function getSessionUser(): Promise<User | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const userId = await verifySessionToken(token);
   if (!userId) return null;
-  return prisma.user.findUnique({ where: { id: userId } });
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  return user && !isBanned(user) ? user : null;
 }

@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { platformAvailable } from "@/lib/integrations/availability";
 import { steamMode } from "@/lib/integrations/steam";
+import type { WithDb } from "@/lib/worker/db-retry";
+import { rethrowIfDatabaseDown } from "@/lib/worker/errors";
 import { holdImportLease, importKey, releaseImportLease, type ImportLane } from "./import-lease";
 import { CODE_PLATFORMS } from "./platform-library";
 import { syncPlatformAccount } from "./platform-user";
@@ -58,6 +60,11 @@ export type FirstImportOptions = {
   log?: ImportLog;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Runs each turn of a lane and repeats it when the database connection drops
+   * (lib/worker/db-retry.ts); default: once, a lost connection ends the run.
+   */
+  withDb?: WithDb;
 };
 
 /** Platforms this process can read: Steam with its Web API key, the others with their credential. */
@@ -155,7 +162,10 @@ export async function runFirstImports(options: FirstImportOptions): Promise<Part
     log = console,
     now = Date.now,
     sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    withDb = (_label, unit) => unit(),
   } = options;
+  /** A lane gave up (database gone for good): the others stop at their next turn. */
+  let aborted = false;
 
   /** Accounts this run took and has not settled (finished or stopped): the cron leaves them alone. */
   const busy = new Set<string>();
@@ -178,9 +188,10 @@ export async function runFirstImports(options: FirstImportOptions): Promise<Part
       busy.delete(key);
       await publish();
     };
-    while (now() < stopAt) {
+    /** One turn: pick the next account and give it a slice. A lost connection repeats the turn. */
+    const turn = async (): Promise<"empty" | "more"> => {
       const candidates = (await importCandidates(lane, only)).filter((c) => !settled.has(c.userId));
-      if (candidates.length === 0) break;
+      if (candidates.length === 0) return "empty";
       const recent = now() - RECENT_ATTEMPT_MS;
       const next = candidates.find(
         (c) =>
@@ -191,7 +202,7 @@ export async function runFirstImports(options: FirstImportOptions): Promise<Part
       if (!next) {
         // Only accounts someone else is syncing right now: wait for them instead of syncing twice.
         await sleep(Math.max(0, Math.min(IDLE_WAIT_MS, stopAt - now())));
-        continue;
+        return "more";
       }
       const { userId } = next;
       const key = importKey(lane, userId);
@@ -222,17 +233,36 @@ export async function runFirstImports(options: FirstImportOptions): Promise<Part
           log.info(`${label}: imported a part in ${took} s, continues`);
         }
       } catch (error) {
+        // The database went away: not the account's fault. It stays reserved in the lease and the
+        // turn runs again once the database is back (the syncs resume where they stopped).
+        rethrowIfDatabaseDown(error);
         stats.failed++;
         log.error(`${label}: import failed`, error);
         await settle(key, userId);
       }
+      return "more";
+    };
+    while (!aborted && now() < stopAt) {
+      if ((await withDb(`${LANE_NAMES[lane]} lane`, turn)) === "empty") break;
     }
     return stats;
   }
 
   try {
     await publish();
-    const results = await Promise.all(lanes.map(async (lane) => [lane, await runLane(lane)] as const));
+    const settledLanes = await Promise.allSettled(
+      lanes.map(async (lane) => {
+        try {
+          return [lane, await runLane(lane)] as const;
+        } catch (error) {
+          aborted = true;
+          throw error;
+        }
+      }),
+    );
+    const failure = settledLanes.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failure) throw failure.reason;
+    const results = settledLanes.map((r) => (r as PromiseFulfilledResult<readonly [ImportLane, LaneStats]>).value);
     return Object.fromEntries(results) as Partial<Record<ImportLane, LaneStats>>;
   } finally {
     clearInterval(renew);

@@ -6,9 +6,10 @@ import { checkNovelty } from "./ai/novelty.js";
 import { CATEGORIES, triageItems, type Triage, type TriageInput } from "./ai/triage.js";
 import { writeAndCheck, type StoryForWriting, type StorySource } from "./ai/writer.js";
 import { alert, alertOncePerDay, checkSourceHealth } from "./alerts.js";
-import { assemble } from "./assemble.js";
+import { assemble, type ArticleMedia } from "./assemble.js";
 import { inSlotWindow, localDay, localHour } from "./clock.js";
 import { collectLive, extractText, fetchPage, type FetchFn } from "./collect/index.js";
+import { isValidYoutubeId } from "./collect/youtube.js";
 import type { Config, Source } from "./config.js";
 import type { ArticleRow, Db, ItemRow, SpendBucket, StoryRow } from "./db.js";
 import { acquireLock, type Lock } from "./lock.js";
@@ -37,6 +38,7 @@ import {
   type ArticlePayload,
   type ContentBlock,
   type FeedArticle,
+  type GameMedia,
   type Insights,
   type Tralked,
 } from "./tralked.js";
@@ -94,6 +96,15 @@ export const PAUTA_SCORE_BELOW = 60;
 export const PAUTA_HOUR = 20;
 /** Games tried in one slot before it falls back to news (each costs only fetches, no AI). */
 const PAUTA_GAME_ATTEMPTS = 3;
+/**
+ * Video stories (a new trailer or gameplay from an official YouTube channel, no text source): publishable
+ * from this triage importance, at most `MAX_VIDEO_STORIES_PER_DAY` a local day (inside `MAX_PER_DAY` and
+ * the daily budget like any story), and dropped when the same game already had a story in the last
+ * `VIDEO_DEDUPE_MS`.
+ */
+export const VIDEO_MIN_IMPORTANCE = 60;
+export const MAX_VIDEO_STORIES_PER_DAY = 4;
+export const VIDEO_DEDUPE_MS = 24 * HOUR_MS;
 
 // ---------------------------------------------------------------------------------------------
 // Types
@@ -118,6 +129,16 @@ export type PublicaDeps = PipelineDeps & {
   rand: () => number;
   /** Manual run (`--agora`): skip the jitter wait. */
   agora?: boolean;
+  /**
+   * Manual run outside the SLOT_FIRST_HOUR–SLOT_LAST_HOUR window (`--fora-do-horario`, implies `agora`).
+   * The daily cap, the one-per-hour rule and the daily budget still apply.
+   */
+  foraDoHorario?: boolean;
+  /**
+   * Manual override (`--ignorar-limite`): skips `MAX_PER_DAY` and the one-per-hour rule. The daily budget
+   * (`DAILY_BUDGET_USD`) is never skipped by a flag.
+   */
+  ignorarLimite?: boolean;
 };
 
 export type ColetaReport = {
@@ -141,6 +162,8 @@ export type ColetaReport = {
   published: string[];
   /** Same-day updates PATCHed. */
   updated: number;
+  /** Video stories dropped or merged because the same game already has a story (site or queue). */
+  videoDuplicates: number;
   /** The site feed could not be read: nothing new was queued in this run (the run went on). */
   feedUnavailable: boolean;
   /** Why the run stopped early, when it did (budget, site API). */
@@ -258,6 +281,56 @@ function gameResolver(tralked: Tralked) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Videos (official YouTube channels)
+// ---------------------------------------------------------------------------------------------
+
+export const isVideoItem = (item: ItemRow) => isValidYoutubeId(item.video_id);
+
+/** A video story: an official video and no text source besides it (title-only items do not count). */
+export function isVideoOnly(items: ItemRow[]): boolean {
+  return items.some(isVideoItem) && !items.some((i) => !isVideoItem(i) && i.text_unavailable !== 1 && hasRealText(i.text));
+}
+
+/** The video a story embeds: from a `pt` channel first, then the most important, then the oldest. */
+export function storyVideo(items: ItemRow[], sources: Source[]): { item: ItemRow; source: Source | undefined } | null {
+  const byId = new Map(sources.map((s) => [s.id, s]));
+  const ranked = items
+    .filter(isVideoItem)
+    .map((item) => ({ item, source: byId.get(item.source_id), importance: triageOf(item)?.importance ?? 0 }))
+    .sort(
+      (a, b) =>
+        Number(b.source?.lang === "pt") - Number(a.source?.lang === "pt") || b.importance - a.importance || a.item.id - b.item.id,
+    );
+  return ranked[0] ?? null;
+}
+
+/** Name of a channel as readers know it: "PlayStation (YouTube channel)" → "PlayStation". */
+const channelName = (source: Source | undefined, item: ItemRow) =>
+  (source?.name ?? item.source_id).replace(/\s*\((?:YouTube|canal)[^)]*\)\s*$/i, "").trim();
+
+/** Live video stories published on the local `day` (they have their own daily cap). */
+function videoStoriesPublishedOn(db: Db, day: string): number {
+  const mid = Date.parse(`${day}T12:00:00Z`);
+  const rows = db.raw
+    .prepare("SELECT story_id, published_at FROM articles WHERE status = 'published' AND published_at >= ? AND published_at <= ?")
+    .all(new Date(mid - 2 * 24 * HOUR_MS).toISOString(), new Date(mid + 2 * 24 * HOUR_MS).toISOString()) as unknown as {
+    story_id: number;
+    published_at: string;
+  }[];
+  return rows.filter((r) => localDay(new Date(r.published_at)) === day && isVideoOnly(db.itemsForStory(r.story_id))).length;
+}
+
+const videoCapReached = (db: Db, now: Date) => videoStoriesPublishedOn(db, localDay(now)) >= MAX_VIDEO_STORIES_PER_DAY;
+
+/** Game names compared loosely: "Marvel’s Wolverine" = "marvel's wolverine". */
+const gameKey = (name: string) =>
+  name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+
+// ---------------------------------------------------------------------------------------------
 // Story facts
 // ---------------------------------------------------------------------------------------------
 
@@ -271,6 +344,8 @@ export type StoryFacts = {
   category: Triage["category"] | null;
   games: string[];
   lastItemAt: number;
+  /** No text source besides an official video (see `isVideoOnly`). */
+  videoOnly: boolean;
 };
 
 export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): StoryFacts {
@@ -292,16 +367,23 @@ export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): Stor
   const hasFullText = items.some((i) => i.text_unavailable !== 1 && hasRealText(i.text));
   const top = [...triages].sort((a, b) => b.importance - a.importance)[0];
   const stats = { maxImportance, tiers, sourceCount, rumor };
+  // A video story stands on the official video alone: a relevant one (importance >= 60), never a rumor.
+  const videoOnly = isVideoOnly(items);
+  const relevantVideo =
+    videoOnly &&
+    !rumor &&
+    withTriage.some(({ item, t }) => isVideoItem(item) && tierOf(item) === "oficial" && t.importance >= VIDEO_MIN_IMPORTANCE);
   return {
     items,
     triages,
     score: storyScore(stats),
     bomb: isBomb(stats),
     rumor,
-    publishable: isPublishable({ ...stats, hasFullText }),
+    publishable: isPublishable({ ...stats, hasFullText }) || relevantVideo,
     category: top && (CATEGORIES as readonly string[]).includes(top.category) ? top.category : null,
     games: [...new Set(triages.flatMap((t) => t.games))],
     lastItemAt: Math.max(0, ...items.map((i) => itemTime(i, now))),
+    videoOnly,
   };
 }
 
@@ -340,6 +422,18 @@ function writerSources(items: ItemRow[], sources: Source[]): StorySource[] {
     if (seen.has(item.url)) continue;
     seen.add(item.url);
     const source = byId.get(item.source_id);
+    if (isVideoItem(item)) {
+      // An official video: its title and description are the material (the watch page is never fetched).
+      out.push({
+        name: source?.name ?? item.source_id,
+        tier: source?.tier ?? "outro",
+        url: item.url,
+        publishedAt: item.published_at ? new Date(item.published_at) : null,
+        text: [`Vídeo publicado no YouTube pelo canal oficial ${channelName(source, item)}.`, `Título do vídeo: ${item.title}`, `Descrição: ${item.summary?.trim() || "(sem descrição)"}`].join("\n"),
+        title: item.title,
+      });
+      continue;
+    }
     const titleOnly = item.text_unavailable === 1;
     const text = titleOnly ? "" : (item.text ?? "").trim();
     out.push({
@@ -399,16 +493,82 @@ export async function storyForWriting(
   previous?: StoryForWriting["previous"],
 ): Promise<StoryForWriting> {
   const parent = parentOf(story, deps);
+  const items = deps.db.itemsForStory(story.id);
+  const video = storyVideo(items, deps.sources);
   return {
     id: story.id,
     headline: story.headline,
     category: story.category as ArticleCategory,
     rumor: story.rumor === 1,
-    sources: writerSources(deps.db.itemsForStory(story.id), deps.sources),
+    sources: writerSources(items, deps.sources),
     candidates: await candidatesFor(story, deps.tralked),
     ...(previous ? { previous } : {}),
     ...(parent ? { parent: { title: parent.title, blocksText: parent.blocksText } } : {}),
+    ...(video
+      ? {
+          video: {
+            youtubeId: video.item.video_id!,
+            title: video.item.title,
+            channel: channelName(video.source, video.item),
+            only: isVideoOnly(items),
+          },
+        }
+      : {}),
   };
+}
+
+/**
+ * The media of an article (see `ArticleMedia`): the story's official video when it has one; otherwise
+ * art of its first game from the site catalog (`GET /api/v1/games/{slug}/media`), picked by story id so
+ * stories of one game vary, and the game's trailer when the article is about exactly one game. A catalog
+ * failure only costs the media, never the article.
+ */
+export async function articleMedia(
+  story: StoryRow,
+  writing: StoryForWriting,
+  payload: ArticlePayload,
+  deps: Pick<PipelineDeps, "tralked" | "log">,
+): Promise<ArticleMedia> {
+  if (writing.video) return { video: { youtubeId: writing.video.youtubeId, title: writing.video.title } };
+  const linked = (payload.games ?? []).flatMap((g) => ("slug" in g ? [g.slug] : []));
+  const slug = linked[0] ?? writing.candidates[0]?.slug;
+  if (!slug) return {};
+  let set: GameMedia | null;
+  try {
+    set = await deps.tralked.media(slug);
+  } catch (error) {
+    deps.log?.(`mídia indisponível para ${slug}: ${errorMessage(error)}`);
+    return {};
+  }
+  if (!set) return {};
+  const media: ArticleMedia = {};
+  const scenes = set.images.filter((i) => i.kind !== "hero");
+  const pool = scenes.length > 0 ? scenes : set.images;
+  const image = pool[story.id % Math.max(1, pool.length)];
+  if (image) {
+    media.image = {
+      url: image.url,
+      alt: `${image.kind === "screenshot" ? "Cena" : "Arte"} de ${set.game.name}`,
+      credit: set.game.publisher ? `Divulgação/${set.game.publisher}` : "Divulgação",
+    };
+  }
+  const trailer = set.videos[0];
+  if (trailer && linked.length === 1) media.trailer = { youtubeId: trailer.youtubeId, title: `Vídeo de ${set.game.name}` };
+  return media;
+}
+
+/** `assemble` with the article's media: the games the writer linked decide which catalog art is used. */
+async function assembleWithMedia(
+  draft: Parameters<typeof assemble>[0],
+  story: StoryRow,
+  writing: StoryForWriting,
+  deps: PipelineDeps,
+  updatedAt?: Date,
+): Promise<ArticlePayload> {
+  const opts = assembleOpts(story, writing, deps, updatedAt);
+  const plain = assemble(draft, writing, opts);
+  const media = await articleMedia(story, writing, plain, deps);
+  return media.video || media.image || media.trailer ? assemble(draft, writing, { ...opts, media }) : plain;
 }
 
 export const insightsOf = (candidates: StoryForWriting["candidates"]) =>
@@ -490,7 +650,7 @@ async function publishOne(story: StoryRow, deps: PipelineDeps): Promise<PublishO
         );
         return { kind: "rejected" };
       }
-      payload = assemble(result.draft, writing, assembleOpts(story, writing, deps));
+      payload = await assembleWithMedia(result.draft, story, writing, deps);
       // A story that broke more than OLD_STORY_MS ago is dated when it broke, not today: the queue also
       // holds older news, and a batch of them must not look like it all happened at once.
       const brokeAt = storyStartedAt(story, db, now);
@@ -618,7 +778,7 @@ async function updateStory(story: StoryRow, deps: PipelineDeps): Promise<boolean
       return false;
     }
 
-    const payload = assemble(result.draft, writing, assembleOpts(story, writing, deps, now));
+    const payload = await assembleWithMedia(result.draft, story, writing, deps, now);
     const { status: _status, ...patch } = payload;
     try {
       await tralked.patchArticle(article.site_id, patch, updateKey(article.site_id, db.itemIdsForStory(story.id).length));
@@ -663,6 +823,7 @@ const emptyReport = (): ColetaReport => ({
   expired: 0,
   published: [],
   updated: 0,
+  videoDuplicates: 0,
   feedUnavailable: false,
   stopped: null,
 });
@@ -682,6 +843,7 @@ async function collectAndStore(deps: PipelineDeps, report: ColetaReport, now: Da
         publishedAt: item.publishedAt?.toISOString() ?? null,
         publisher: item.publisher ?? null,
         textUnavailable: item.textUnavailable === true,
+        videoId: item.videoId ?? null,
       },
       now,
     );
@@ -943,14 +1105,92 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
     throw error;
   }
 
-  const covered = await coveredStories(candidates, feed, deps);
-  for (const story of candidates) {
+  const remaining = await dedupeVideoStories(candidates, feed, deps, report, now);
+  const covered = await coveredStories(remaining, feed, deps);
+  for (const story of remaining) {
     if (covered.has(story.id)) {
       if (db.setStoryStatusIf(story.id, "dropped", ["open", "queued"])) report.covered++;
     } else if (story.status === "open") {
       if (db.setStoryStatusIf(story.id, "queued", ["open"])) report.queued++;
     }
   }
+}
+
+/**
+ * Video stories (see `isVideoOnly`) about a game that already has a story are not published again:
+ * - the site published an article about the game in the last 24 h: dropped;
+ * - an open or queued text story is about the game: the video joins it (embedded there), and the video
+ *   story is dropped;
+ * - a story about the game was published or is being written in the last 24 h: dropped;
+ * - another video story of this run is about the game (the same trailer on two channels): the videos join
+ *   the higher-score one.
+ * Stories without games are left to clustering and `coveredStories`. Returns the candidates still standing.
+ */
+async function dedupeVideoStories(
+  candidates: StoryRow[],
+  feed: FeedArticle[],
+  deps: PipelineDeps,
+  report: ColetaReport,
+  now: Date,
+): Promise<StoryRow[]> {
+  const { db } = deps;
+  const videos = candidates
+    .filter((s) => isVideoOnly(db.itemsForStory(s.id)))
+    .sort((a, b) => b.score - a.score || a.id - b.id);
+  if (videos.length === 0) return candidates;
+
+  const keysOf = (s: StoryRow) => new Set(parseGames(s.games_json).map(gameKey).filter((k) => k !== ""));
+  const shares = (a: Set<string>, b: Set<string>) => [...a].some((k) => b.has(k));
+  const videoIds = new Set(videos.map((s) => s.id));
+  const live = (status: StoryRow["status"]) => db.storiesByStatus(status, 100_000).filter((s) => s.mode === "live" && !videoIds.has(s.id));
+  const recent = (iso: string | null | undefined) => !!iso && now.getTime() - Date.parse(iso) <= VIDEO_DEDUPE_MS;
+
+  const textStories = [...live("open"), ...live("queued")].filter((s) => !isVideoOnly(db.itemsForStory(s.id)));
+  const done = [...live("written"), ...live("published")].filter(
+    (s) => recent(db.articleForStory(s.id)?.published_at) || (s.status === "written" && recent(s.last_item_at)),
+  );
+  const recentFeed = feed.filter((a) => recent(a.publishedAt));
+  const resolve = gameResolver(deps.tralked);
+
+  const dropped = new Set<number>();
+  const kept: { story: StoryRow; keys: Set<string> }[] = [];
+  const mergeInto = (from: StoryRow, to: StoryRow) => {
+    for (const itemId of db.itemIdsForStory(from.id)) db.attachItem(to.id, itemId);
+    recomputeStory(to.id, deps, now);
+  };
+  for (const story of videos) {
+    const keys = keysOf(story);
+    if (keys.size === 0) continue;
+    let reason: string | null = null;
+    const slugs: string[] = [];
+    for (const name of parseGames(story.games_json)) {
+      const hit = await resolve(name);
+      if (hit) slugs.push(hit.slug);
+    }
+    const target = textStories.find((s) => shares(keysOf(s), keys));
+    const twin = kept.find((k) => shares(k.keys, keys));
+    if (recentFeed.some((a) => a.games.some((g) => slugs.includes(g)))) {
+      reason = "o site já publicou sobre o jogo";
+    } else if (target) {
+      mergeInto(story, target);
+      reason = `vídeo juntado à história ${target.id}`;
+    } else if (done.some((s) => shares(keysOf(s), keys))) {
+      reason = "história do mesmo jogo publicada nas últimas 24 h";
+    } else if (twin) {
+      mergeInto(story, twin.story);
+      reason = `vídeo juntado à história ${twin.story.id}`;
+    }
+    if (reason === null) {
+      kept.push({ story, keys });
+      continue;
+    }
+    if (db.setStoryStatusIf(story.id, "dropped", ["open", "queued"])) {
+      dropped.add(story.id);
+      report.videoDuplicates++;
+      deps.log?.(`vídeo repetido: história ${story.id} (${reason})`);
+    }
+  }
+  return candidates.filter((s) => !dropped.has(s.id));
 }
 
 /** Bombs go out right away, even outside the slot window, while today's count is under the cap. */
@@ -965,6 +1205,10 @@ async function publishBombs(deps: PipelineDeps, report: ColetaReport): Promise<v
       if (db.publishedCountOn(localDay(deps.now())) >= config.MAX_PER_DAY) {
         deps.log?.(`bomba na fila (limite diário atingido): história ${story.id}`);
         return;
+      }
+      if (isVideoOnly(db.itemsForStory(story.id)) && videoCapReached(db, deps.now())) {
+        deps.log?.(`bomba de vídeo na fila (limite diário de ${MAX_VIDEO_STORIES_PER_DAY} vídeos atingido): história ${story.id}`);
+        continue;
       }
       const outcome = await publishOne(story, deps);
       if (outcome.kind === "published") report.published.push(outcome.id);
@@ -1015,28 +1259,37 @@ export async function runColeta(deps: PipelineDeps): Promise<ColetaReport> {
 // publica
 // ---------------------------------------------------------------------------------------------
 
-/** The highest-score queued live story that is not expired; expired ones are marked on the way. */
+/**
+ * The highest-score queued live story that is not expired; expired ones are marked on the way. Video
+ * stories are skipped (left queued) once `MAX_VIDEO_STORIES_PER_DAY` went out today.
+ */
 function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
+  let videoCap: boolean | null = null;
   for (const story of deps.db.storiesByStatus("queued", 100_000)) {
     if (story.mode !== "live") continue;
     if (expired(story, deps, now)) {
       deps.db.setStoryStatusIf(story.id, "expired", ["queued"]);
       continue;
     }
+    if (isVideoOnly(deps.db.itemsForStory(story.id))) {
+      videoCap ??= videoCapReached(deps.db, now);
+      if (videoCap) continue;
+    }
     return story;
   }
   return null;
 }
 
-function refusal(deps: PipelineDeps, now: Date): string | null {
+function refusal(deps: PublicaDeps, now: Date): string | null {
   const { config, db } = deps;
   if (isPaused(config)) {
     pausedAlert(deps, now);
     return "pausado (arquivo PAUSADO)";
   }
-  if (!inSlotWindow(now, config.SLOT_FIRST_HOUR, config.SLOT_LAST_HOUR)) {
-    return `fora da grade (${config.SLOT_FIRST_HOUR}h–${config.SLOT_LAST_HOUR}h, horário de Brasília)`;
+  if (!deps.foraDoHorario && !inSlotWindow(now, config.SLOT_FIRST_HOUR, config.SLOT_LAST_HOUR)) {
+    return `fora da grade (${config.SLOT_FIRST_HOUR}h–${config.SLOT_LAST_HOUR}h, horário de Brasília); para publicar mesmo assim, use --fora-do-horario`;
   }
+  if (deps.ignorarLimite) return null;
   if (db.publishedCountOn(localDay(now)) >= config.MAX_PER_DAY) return `limite diário de ${config.MAX_PER_DAY} matérias atingido`;
   if (db.getMeta(LAST_SLOT_KEY) === slotOf(now)) return "já houve publicação neste horário";
   return null;
@@ -1150,8 +1403,9 @@ async function publishLivePauta(deps: PublicaDeps, now: Date): Promise<{ id: str
 }
 
 /**
- * One slot: refuses when paused, outside 06–23, at the daily cap or when this local hour already had a
- * `publica` article (bombs are exempt); waits 0–12 min (not with `--agora`); then, holding the publish
+ * One slot: refuses when paused, outside 06–23 (unless `foraDoHorario`), at the daily cap or when this
+ * local hour already had a `publica` article (bombs are exempt; `ignorarLimite` skips both); waits 0–12 min
+ * (not with `--agora` or `--fora-do-horario`); then, holding the publish
  * lock, re-checks and publishes a Pauta Tralked when the slot is one (`wantsPauta`; news when no pauta can
  * be made), else the best queued story, trying the next one once after a failed check.
  */
@@ -1159,7 +1413,7 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
   const before = refusal(deps, deps.now());
   if (before) return { published: null, reason: before };
 
-  if (!deps.agora) await deps.sleep(Math.floor(deps.rand() * JITTER_MAX_MS));
+  if (!deps.agora && !deps.foraDoHorario) await deps.sleep(Math.floor(deps.rand() * JITTER_MAX_MS));
 
   const ran = await withPublishLock(deps, async (): Promise<PublicaResult> => {
     // A bomb, a pause or another publisher may have acted during the wait.

@@ -19,6 +19,10 @@ export type CommentHandlers = {
   onReply?: () => void;
   onChanged: (comment: CommentView) => void;
   onDeleted: () => void;
+  /** Removed by a moderator (placeholder "Comentário removido pela moderação"). */
+  onRemoved: () => void;
+  /** Pin / unpin: top-level comments only. */
+  onPinned?: (pinned: boolean) => void;
   /** Rendered at the end of the comment (a top-level comment's replies). */
   children?: ReactNode;
   reply: boolean;
@@ -29,14 +33,18 @@ type CommentThreadProps = {
   targetType: CommentTargetType;
   targetId: string;
   viewer: Viewer;
+  /** The moderation locked the discussion: no "Responder" and no reply box. */
+  locked: boolean;
   /** The viewer's reactions, by comment id. */
   mine: Record<string, 1 | -1>;
   /** Renders one comment (CommentsClient's CommentItem). */
   renderComment: (comment: CommentView, handlers: CommentHandlers) => ReactNode;
   /** +1 when a reply is posted, -1 when one is deleted (the section's comment total). */
   onTotalChange: (delta: number) => void;
-  /** The top-level comment was deleted (it stays as a placeholder). */
-  onRootDeleted: () => void;
+  /** The top-level comment was deleted or removed (it stays as a placeholder, unpinned). */
+  onRootGone: () => void;
+  /** The top-level comment was pinned or unpinned (the list moves it). */
+  onPinned: (pinned: boolean) => void;
 };
 
 /**
@@ -48,11 +56,15 @@ export function CommentThread({
   targetType,
   targetId,
   viewer,
+  locked,
   mine: initialMine,
   renderComment,
   onTotalChange,
-  onRootDeleted,
+  onRootGone,
+  onPinned,
 }: CommentThreadProps) {
+  // The list owns the pinned flag (pinning one comment unpins the others).
+  const pinned = initialRoot.pinned;
   const [root, setRoot] = useState<CommentView>(initialRoot);
   const [replies, setReplies] = useState<CommentView[]>(initialRoot.replies);
   const [replyCount, setReplyCount] = useState(initialRoot.replyCount);
@@ -99,21 +111,34 @@ export function CommentThread({
     return null;
   }
 
+  const canReply = viewer !== null && !locked;
+  const gone = (comment: CommentView, how: "deleted" | "removed"): CommentView => ({
+    ...comment,
+    [how]: true,
+    pinned: false,
+    body: "",
+    author: null,
+    editedAt: null,
+    replyTo: null,
+  });
+
   const reply = (comment: CommentView) =>
     renderComment(comment, {
       mine: mine[comment.id] ?? 0,
-      onReply: viewer ? () => setAnswering(comment) : undefined,
+      onReply: canReply ? () => setAnswering(comment) : undefined,
       onChanged: (updated) => setReplies((list) => list.map((r) => (r.id === updated.id ? updated : r))),
       onDeleted: () => {
-        setReplies((list) =>
-          list.map((r) => (r.id === comment.id ? { ...r, deleted: true, body: "", author: null, editedAt: null, replyTo: null } : r)),
-        );
+        setReplies((list) => list.map((r) => (r.id === comment.id ? gone(r, "deleted") : r)));
+        onTotalChange(-1);
+      },
+      onRemoved: () => {
+        setReplies((list) => list.map((r) => (r.id === comment.id ? gone(r, "removed") : r)));
         onTotalChange(-1);
       },
       reply: true,
     });
 
-  const showBlock = replyCount > 0 || answering !== null;
+  const showBlock = replyCount > 0 || (answering !== null && !locked);
   const block = showBlock ? (
     <div className="mt-1 flex flex-col gap-2 border-l-2 border-line pl-4 min-[560px]:ml-[38px]">
       {replyCount > 0 ? (
@@ -143,7 +168,7 @@ export function CommentThread({
           {loadError}
         </p>
       ) : null}
-      {answering ? (
+      {answering && !locked ? (
         <TextComposer
           key={answering.id}
           label={answering.author ? `Responder a @${answering.author.handle}` : "Responder"}
@@ -158,17 +183,25 @@ export function CommentThread({
     </div>
   ) : null;
 
-  return renderComment(root, {
-    mine: mine[root.id] ?? 0,
-    onReply: viewer ? () => setAnswering(root) : undefined,
-    onChanged: (updated) => setRoot(updated),
-    onDeleted: () => {
-      setRoot((c) => ({ ...c, deleted: true, body: "", author: null, editedAt: null }));
-      onRootDeleted();
+  return renderComment(
+    { ...root, pinned: pinned && !root.deleted && !root.removed },
+    {
+      mine: mine[root.id] ?? 0,
+      onReply: canReply ? () => setAnswering(root) : undefined,
+      onChanged: (updated) => setRoot(updated),
+      onDeleted: () => {
+        setRoot((c) => gone(c, "deleted"));
+        onRootGone();
+      },
+      onRemoved: () => {
+        setRoot((c) => gone(c, "removed"));
+        onRootGone();
+      },
+      onPinned,
+      children: block,
+      reply: false,
     },
-    children: block,
-    reply: false,
-  });
+  );
 }
 
 const TOGGLE =

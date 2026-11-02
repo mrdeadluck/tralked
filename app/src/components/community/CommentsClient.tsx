@@ -7,6 +7,8 @@ import type { CommentPage, CommentTargetType, CommentView } from "@/lib/communit
 import { formatWhen, plural } from "@/lib/community/format";
 import type { MyReaction } from "@/lib/community/reaction-rules";
 import type { Viewer } from "@/lib/community/viewer";
+import { CommentModActions } from "@/components/moderation/CommentModActions";
+import { DiscussionLockToggle, LockedNotice } from "@/components/moderation/DiscussionLock";
 import { AuthorBadge } from "./AuthorBadge";
 import { CommentThread } from "./CommentThread";
 import { ReactionButtons } from "./ReactionButtons";
@@ -21,10 +23,13 @@ type CommentsClientProps = {
   initial: CommentPage;
   viewer: Viewer;
   returnTo: string;
+  /** The moderation locked the discussion: no comment box. */
+  locked?: boolean;
 };
 
-export function CommentsClient({ targetType, targetId, initial, viewer, returnTo }: CommentsClientProps) {
+export function CommentsClient({ targetType, targetId, initial, viewer, returnTo, locked: initialLocked = false }: CommentsClientProps) {
   const [comments, setComments] = useState(initial.comments);
+  const [locked, setLocked] = useState(initialLocked);
   const [cursor, setCursor] = useState(initial.nextCursor);
   const [total, setTotal] = useState(initial.total);
   const [mine, setMine] = useState(initial.mine ?? {});
@@ -54,9 +59,26 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
     });
   }
 
+  /** Pinning moves the comment to the top and unpins the previous one (one per discussion). */
+  function setPinned(id: string, pinned: boolean) {
+    setComments((list) => {
+      const next = list.map((c) => (c.id === id ? { ...c, pinned } : pinned ? { ...c, pinned: false } : c));
+      if (!pinned) return next;
+      const target = next.find((c) => c.id === id);
+      return target ? [target, ...next.filter((c) => c.id !== id)] : next;
+    });
+  }
+
   return (
     <div className="flex flex-col gap-5">
-      {viewer ? (
+      {viewer?.moderator ? (
+        <div className="flex justify-end">
+          <DiscussionLockToggle targetType={targetType} targetId={targetId} locked={locked} onChange={setLocked} />
+        </div>
+      ) : null}
+      {locked ? (
+        <LockedNotice />
+      ) : viewer ? (
         <TextComposer
           label="Escreva um comentário"
           placeholder="O que você achou?"
@@ -85,9 +107,15 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
               targetType={targetType}
               targetId={targetId}
               viewer={viewer}
+              locked={locked}
               mine={mine}
               onTotalChange={(delta) => setTotal((n) => Math.max(0, n + delta))}
-              onRootDeleted={() => setTotal((n) => Math.max(0, n - 1))}
+              onRootGone={() => {
+                // Deleted or removed: it stays as a placeholder (with its replies) and is unpinned.
+                setComments((list) => list.map((c) => (c.id === comment.id ? { ...c, pinned: false } : c)));
+                setTotal((n) => Math.max(0, n - 1));
+              }}
+              onPinned={(pinned) => setPinned(comment.id, pinned)}
               renderComment={(item, handlers) => (
                 <CommentItem
                   key={item.id}
@@ -99,6 +127,8 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
                   onReply={handlers.onReply}
                   onChanged={handlers.onChanged}
                   onDeleted={handlers.onDeleted}
+                  onRemoved={handlers.onRemoved}
+                  onPinned={handlers.onPinned}
                 >
                   {handlers.children}
                 </CommentItem>
@@ -133,9 +163,12 @@ type CommentItemProps = {
   returnTo: string;
   onChanged: (comment: CommentView) => void;
   onDeleted: () => void;
+  onRemoved: () => void;
+  /** Pin / unpin (top-level comments only: a reply cannot be pinned). */
+  onPinned?: (pinned: boolean) => void;
   /** The viewer's like (1) or dislike (-1) on this comment. */
   mine?: MyReaction;
-  /** Opens the reply box (logged-in visitors only). */
+  /** Opens the reply box (logged-in visitors, unlocked discussions only). */
   onReply?: () => void;
   /** A reply inside a thread (tighter spacing). */
   reply?: boolean;
@@ -149,6 +182,8 @@ function CommentItem({
   returnTo,
   onChanged,
   onDeleted,
+  onRemoved,
+  onPinned,
   mine = 0,
   onReply,
   reply = false,
@@ -177,19 +212,29 @@ function CommentItem({
 
   const itemClass = reply ? "py-3 first:pt-1" : "border-b border-divider py-4 first:pt-0";
 
-  if (comment.deleted) {
+  if (comment.deleted || comment.removed) {
     return (
       <li id={`comentario-${comment.id}`} className={`flex flex-col gap-2.5 ${itemClass}`}>
-        <p className="font-mono text-[12px] text-dim italic">Comentário apagado</p>
+        <p className="font-mono text-[12px] text-dim italic">
+          {comment.removed ? "Comentário removido pela moderação" : "Comentário apagado"}
+        </p>
         {children}
       </li>
     );
   }
+  const what = `comentário de ${comment.author ? `@${comment.author.handle}` : "conta removida"}`;
 
   return (
     <li id={`comentario-${comment.id}`} className={`flex scroll-mt-24 flex-col gap-2.5 ${itemClass}`}>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <AuthorBadge author={comment.author} size={28} />
+        <span className="flex flex-wrap items-center gap-3">
+          <AuthorBadge author={comment.author} size={28} />
+          {comment.pinned ? (
+            <span className="rounded-[2px] border border-acc px-1.5 py-0.5 font-mono text-xs leading-none tracking-[0.08em] text-acc uppercase">
+              Fixado
+            </span>
+          ) : null}
+        </span>
         <time dateTime={new Date(comment.createdAt).toISOString()} className="font-mono text-xs text-dim">
           {formatWhen(comment.createdAt, true)}
           {comment.editedAt ? " · editado" : ""}
@@ -219,7 +264,7 @@ function CommentItem({
             loggedIn={viewer !== null}
             returnTo={returnTo}
             size="sm"
-            what={`o comentário de ${comment.author ? `@${comment.author.handle}` : "conta removida"}`}
+            what={`o ${what}`}
           />
           {onReply ? (
             <button type="button" onClick={onReply} className={`${ACTION} inline-flex min-h-6 items-center gap-1.5`}>
@@ -236,15 +281,12 @@ function CommentItem({
                 Apagar
               </button>
             </>
-          ) : (
-            <ReportButton
-              targetType="comment"
-              targetId={comment.id}
-              loggedIn={viewer !== null}
-              returnTo={returnTo}
-              what={`comentário de ${comment.author ? `@${comment.author.handle}` : "conta removida"}`}
-            />
+          ) : viewer?.moderator ? null : (
+            <ReportButton targetType="comment" targetId={comment.id} loggedIn={viewer !== null} returnTo={returnTo} what={what} />
           )}
+          {viewer?.moderator ? (
+            <CommentModActions commentId={comment.id} pinned={comment.pinned} what={what} onRemoved={onRemoved} onPinned={onPinned} />
+          ) : null}
         </div>
       ) : null}
 
