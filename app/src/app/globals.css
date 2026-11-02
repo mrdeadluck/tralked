@@ -31,6 +31,11 @@
   --xbox: oklch(0.74 0.14 145);
   --nin: oklch(0.74 0.14 25);
   --pc: oklch(0.74 0.14 75);
+  /* Setup seals on the profile: the remaining platform families, same lightness as the four above. */
+  --mobile: oklch(0.74 0.14 305);
+  --sega: oklch(0.76 0.12 210);
+  --atari: oklch(0.8 0.04 70);
+  --retro: oklch(0.74 0.15 350);
   --r-comum: #9ea1a9;
   --r-incomum: oklch(0.74 0.14 145);
   --r-raro: oklch(0.74 0.14 255);

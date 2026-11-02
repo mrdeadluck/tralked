@@ -67,6 +67,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     notifications,
     family,
     apiKeys,
+    setup,
   ] = await Promise.all([
     prisma.linkedAccount.findMany({
       where: { ...mine, linkedAt: { not: null } },
@@ -204,6 +205,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
       where: { createdById: userId },
       select: { name: true, prefix: true, scopes: true, createdAt: true, revokedAt: true },
     }),
+    prisma.playerSetup.findUnique({ where: mine, select: { platforms: true, pc: true, updatedAt: true } }),
   ]);
 
   return {
@@ -211,6 +213,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     format: "tralked-user-export/1",
     user,
     linkedAccounts,
+    setup,
     progress: { stats, skills, attributes, games, wishlist, achievements, ledger, missions, gameOpens },
     guides: {
       written: guides,
