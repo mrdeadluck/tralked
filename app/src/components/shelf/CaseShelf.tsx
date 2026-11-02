@@ -25,7 +25,7 @@ const CSS = `
 /* The band across the top of the case, like a console case's: graphite plastic (a light top edge,
    darker below) so it reads as part of the case, the Tralked monogram, then the platforms in one
    colour, over the Tralked accent line. */
-.cs-band { display: flex; flex: none; align-items: center; gap: 6%; height: var(--band); padding: 0 5% 0 8%; overflow: hidden; background: linear-gradient(180deg, #4a4d56 0%, #34363e 45%, #25272d 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.18), inset 0 -1px 0 rgba(0,0,0,.35); border-bottom: 2px solid var(--acc); color: var(--text); }
+.cs-band { display: flex; flex: none; align-items: center; gap: 6%; height: var(--band); padding: 0 5% 0 8%; overflow: hidden; background: linear-gradient(180deg, #3b3e46 0%, #2a2c33 45%, #1d1f24 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.15), inset 0 -1px 0 rgba(0,0,0,.35); border-bottom: 2px solid var(--acc); color: var(--text); }
 .cs-band-logo { flex: none; height: 48%; }
 .cs-band-list { display: flex; align-items: center; gap: .55em; min-width: 0; padding-left: 6%; border-left: 1px solid rgba(255,255,255,.22); overflow: hidden; white-space: nowrap; font-family: var(--font-jetbrains-mono), monospace; font-size: clamp(8.5px, 5.2cqw, 12px); font-weight: 700; letter-spacing: .08em; line-height: 1; text-transform: uppercase; color: #e4e6ea; text-shadow: 0 1px 0 rgba(0,0,0,.35); }
 .cs-band-list i { font-style: normal; font-weight: 400; color: rgba(255,255,255,.4); }
