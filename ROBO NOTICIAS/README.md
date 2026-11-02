@@ -34,12 +34,27 @@ All commands run from this folder with `pnpm <command>`.
 | Command | What it does |
 |---|---|
 | `pnpm coleta` | Collects every active source, triages, clusters, queues stories, publishes "bombs" right away and updates same-day articles. Runs every 30 min, 24 h a day. |
-| `pnpm publica [--agora]` | Publishes the best queued story, one per hour between 06:00 and 23:00 (America/Sao_Paulo), at most `MAX_PER_DAY` (15) a day. Waits 0 to 12 min first; `--agora` skips the wait. News of the day only: a story older than `NEWS_MAX_AGE_HOURS` (12 h, counted from its first item) expires unpublished, so no backdated news goes out; Pautas Tralked (games, guides) are not affected. |
+| `pnpm publica [--agora] [--fora-do-horario] [--ignorar-limite]` | Publishes the best queued story, one per hour between 06:00 and 23:00 (America/Sao_Paulo), at most `MAX_PER_DAY` (15) a day. Waits 0 to 12 min first; `--agora` skips the wait. News of the day only: a story older than `NEWS_MAX_AGE_HOURS` (12 h, counted from its first item) expires unpublished, so no backdated news goes out; Pautas Tralked (games, guides) are not affected. See "Manual publication" below for the flags. |
 | `pnpm retroativo` | Backfill: writes the older articles of the last `BACKFILL_DAYS` days with backdated times, under its own budget. |
 | `pnpm resumo [dia]` | Prints and e-mails the counts for a local day: collected, dropped, queued, published, updated, check failures, spend by bucket and broken sources. `dia` is `AAAA-MM-DD` or `ontem`; the default is today. |
 | `pnpm despublicar --de AAAA-MM-DD --ate AAAA-MM-DD [--fonte id] [--confirmar]` | Bulk unpublish by publication day (local), optionally only stories that used source `id`. Without `--confirmar` it only lists. With it, it PATCHes `{status: "archived"}` on the site for each match and marks it `archived` locally. |
 
 Every command ends by e-mailing the alerts not yet sent (see below).
+
+### Manual publication
+
+| Flag | Effect |
+|---|---|
+| `--agora` | Skips the 0–12 min wait. Everything else as in a scheduled run. |
+| `--fora-do-horario` | Publishes even outside `SLOT_FIRST_HOUR`–`SLOT_LAST_HOUR` (06h–23h). Implies `--agora`. `MAX_PER_DAY`, the one-per-hour rule and the daily budget still apply. |
+| `--ignorar-limite` | Also skips `MAX_PER_DAY` and the one-per-hour rule. It does not skip the window (combine it with `--fora-do-horario` at night). |
+
+```
+pnpm publica --fora-do-horario                    # one story now, at 02:00 for example, within the daily cap
+pnpm publica --fora-do-horario --ignorar-limite   # one more even with 15 already out today
+```
+
+No flag skips the daily budget (`DAILY_BUDGET_USD`). To spend more on one manual run, raise it for that run only: `$env:DAILY_BUDGET_USD=8; pnpm publica --fora-do-horario` (PowerShell; the variable lasts until the window is closed). An unknown flag stops the command with the usage line, so a typo never publishes with the wrong rules. Manual articles count toward the day like scheduled ones. This replaces the old `SLOT_FIRST_HOUR=0 pnpm publica --agora` trick.
 
 ### Task Scheduler (Windows)
 
@@ -47,7 +62,7 @@ Every command ends by e-mailing the alerts not yet sent (see below).
 
 | Task | When | Runs |
 |---|---|---|
-| `Tralked Robo - Coleta` | every 30 min, indefinitely | `pnpm coleta` |
+| `Tralked Robo - Coleta` | every 30 min at :20 and :50, indefinitely | `pnpm coleta` |
 | `Tralked Robo - Publica` | daily at 06:00, 07:00 ... 23:00 | `pnpm publica` |
 | `Tralked Robo - Resumo` | daily at 00:10 | `pnpm resumo ontem` |
 
@@ -56,7 +71,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\instalar-tarefas.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\instalar-tarefas.ps1 -Remover
 ```
 
-- Each task runs `cmd /c pnpm ...` in the `ROBO NOTICIAS` folder, so `PATH` resolves `pnpm`. Output goes to `data/logs/agendador.log`.
+- Each task runs `cmd /c pnpm ...` in the `ROBO NOTICIAS` folder, so `PATH` resolves `pnpm`. Each task appends to its own log: `data/logs/agendador-coleta.log`, `agendador-publica.log` and `agendador-resumo.log`. They used to share `agendador.log`, and a coleta that started in the same minute as a publica failed before running, because `cmd` cannot open for writing a file another `cmd` is already writing. The old `agendador.log` is no longer written and can be deleted.
+- Coleta runs at :20 and :50, away from the publica runs at :00 (which wait up to 12 min and then write), so the two rarely run at the same time. When they do, they share the SQLite database safely (WAL, 5 s busy timeout) and the publish lock decides who publishes.
+- After changing this script (as on 2026-11-02: separate logs, coleta at :20/:50), run it again so the tasks are replaced.
 - It tries "run whether the user is logged on or not" (S4U, no password stored) and falls back to "only while logged on". The script prints which one applied.
 - It is idempotent: running it again replaces the tasks. `-Remover` deletes them.
 - The trigger times use this PC's clock; the robot itself decides the publishing grid in America/Sao_Paulo.
