@@ -5,6 +5,8 @@ import { articleTag, NEWS_TAG } from "@/lib/queries/news";
 import { FORUM_TAG, GALLERY_TAG, photoTag, threadTag } from "@/lib/community/cached";
 import { REPORT_TARGETS } from "@/lib/community/reports";
 import { prisma } from "@/lib/db";
+import { logModeration } from "@/lib/moderation/log";
+import { moderationReasonSchema, notifyOwner } from "@/lib/moderation/notice";
 import { getStorage, type Storage } from "@/lib/storage";
 
 /**
@@ -18,6 +20,8 @@ import { getStorage, type Storage } from "@/lib/storage";
  *   file is deleted from storage too (hiding keeps it: a hidden photo can come back).
  * - Hiding or removing resolves the target's open reports.
  * - Targets that no longer exist are reported as such (reports may outlive their target).
+ * - Every step goes to the moderation history (ModerationLog); hiding or removing a photo also
+ *   tells its owner (Notification), with the reason when there is one.
  */
 
 type Tx = Prisma.TransactionClient;
@@ -31,6 +35,7 @@ export const moderationSchema = z.strictObject({
   targetType: z.enum(MODERATION_TARGETS),
   targetId: z.string().min(1).max(64),
   action: z.enum(MODERATION_ACTIONS),
+  reason: moderationReasonSchema,
 });
 
 export type ModerationInput = z.output<typeof moderationSchema>;
@@ -101,7 +106,7 @@ export async function moderateContent(
   now: Date = new Date(),
   storage?: Storage,
 ): Promise<ModerationResult> {
-  const { targetType, targetId, action } = input;
+  const { targetType, targetId, action, reason } = input;
   /** Stored image of the photo this action removes. */
   let removedFile = null as string | null;
   const result = await prisma.$transaction(async (tx): Promise<ModerationResult> => {
@@ -114,12 +119,18 @@ export async function moderateContent(
     let unsolveThreadId: string | null = null;
     /** Article whose comment count follows this comment's status. */
     let articleCommentOf: string | null = null;
+    /** Author of the target (history and owner notice). */
+    let ownerId: string | null = null;
 
     switch (targetType) {
       case "comment": {
-        const comment = await tx.comment.findUnique({ where: { id: targetId }, select: { status: true, targetType: true, targetId: true } });
+        const comment = await tx.comment.findUnique({
+          where: { id: targetId },
+          select: { status: true, targetType: true, targetId: true, authorId: true },
+        });
         if (!comment) return NOT_FOUND;
         current = comment.status;
+        ownerId = comment.authorId;
         if (comment.targetType === "photo") tags.push(photoTag(comment.targetId), GALLERY_TAG);
         if (comment.targetType === "thread") tags.push(threadTag(comment.targetId));
         if (comment.targetType === "article") articleCommentOf = comment.targetId;
@@ -129,6 +140,7 @@ export async function moderateContent(
         const photo = await tx.photo.findUnique({ where: { id: targetId }, select: { status: true, authorId: true, url: true } });
         if (!photo) return NOT_FOUND;
         current = photo.status;
+        ownerId = photo.authorId;
         photoUrl = photo.url;
         tags.push(photoTag(targetId), GALLERY_TAG);
         earned = [photo.authorId, "photo_approved", targetId];
@@ -141,6 +153,7 @@ export async function moderateContent(
         });
         if (!post) return NOT_FOUND;
         current = post.status;
+        ownerId = post.authorId;
         tags.push(threadTag(post.threadId), FORUM_TAG);
         if (post.solves) {
           // The answer no longer stands: its "Resolveu" XP goes and the thread author may mark another.
@@ -152,10 +165,11 @@ export async function moderateContent(
       case "thread": {
         const thread = await tx.forumThread.findUnique({
           where: { id: targetId },
-          select: { status: true, solvedPost: { select: { id: true, authorId: true } } },
+          select: { status: true, authorId: true, solvedPost: { select: { id: true, authorId: true } } },
         });
         if (!thread) return NOT_FOUND;
         current = thread.status;
+        ownerId = thread.authorId;
         tags.push(threadTag(targetId), FORUM_TAG);
         if (thread.solvedPost) earned = [thread.solvedPost.authorId, "forum_solved", thread.solvedPost.id];
         break;
@@ -167,7 +181,8 @@ export async function moderateContent(
     const data = { status: next };
     switch (targetType) {
       case "comment":
-        await tx.comment.update({ where: { id: targetId }, data });
+        // Only a visible comment stays pinned.
+        await tx.comment.update({ where: { id: targetId }, data: next === "visible" ? data : { ...data, pinned: false } });
         break;
       case "photo":
         await tx.photo.update({ where: { id: targetId }, data });
@@ -200,6 +215,24 @@ export async function moderateContent(
       removedFile = photoUrl;
     }
     if (action === "hide" || action === "remove") await resolveReportsOf(tx, targetType, targetId, moderatorId, now);
+    await logModeration(tx, {
+      actorId: moderatorId,
+      action: `${targetType}.${action}`,
+      targetType,
+      targetId,
+      targetUserId: ownerId,
+      reason,
+    });
+    if (targetType === "photo" && (action === "hide" || action === "remove")) {
+      await notifyOwner(tx, {
+        userId: ownerId,
+        actorId: moderatorId,
+        title: action === "remove" ? "Sua foto foi removida pela moderação" : "Sua foto foi ocultada pela moderação",
+        reason,
+        // A hidden or removed photo has no public page any more.
+        href: "/galeria",
+      });
+    }
     return { ok: true, tags, recompute, voided };
   });
 
@@ -233,11 +266,15 @@ export async function decideReport(
   moderatorId: string,
   now: Date = new Date(),
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { count } = await prisma.report.updateMany({
-    where: { id: input.reportId, status: "open" },
-    data: { status: input.decision, resolvedAt: now, resolvedById: moderatorId },
+  return prisma.$transaction(async (tx) => {
+    const { count } = await tx.report.updateMany({
+      where: { id: input.reportId, status: "open" },
+      data: { status: input.decision, resolvedAt: now, resolvedById: moderatorId },
+    });
+    if (count !== 1) return { ok: false, error: "Esta denúncia já foi encerrada ou não existe." } as const;
+    await logModeration(tx, { actorId: moderatorId, action: `report.${input.decision}`, targetType: "report", targetId: input.reportId });
+    return { ok: true } as const;
   });
-  return count === 1 ? { ok: true } : { ok: false, error: "Esta denúncia já foi encerrada ou não existe." };
 }
 
 /** What the moderator sees of a reported target; null when it no longer exists. */

@@ -19,6 +19,7 @@ export const metadata: Metadata = {
 const ERRORS: Record<string, string> = {
   google_email:
     "Já existe uma conta do Tralked com o e-mail desse Google. Entre com e-mail e senha e conecte o Google em Conexões.",
+  suspensa: "Esta conta está suspensa pela moderação.",
 };
 
 export default function EntrarPage({ searchParams }: PageProps<"/entrar">) {

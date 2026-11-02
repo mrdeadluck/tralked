@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Db } from "./limits";
+import { isDiscussionLocked } from "@/lib/moderation/locks";
 import { withinRateLimit } from "./limits";
 import { notify, preview } from "./notify";
 import { commentBodySchema } from "./text";
@@ -14,7 +15,7 @@ export type AuthorView = { id: string; handle: string; displayName: string; avat
 
 export type CommentView = {
   id: string;
-  /** Empty when `deleted`. */
+  /** Empty when `deleted` or `removed`. */
   body: string;
   createdAt: Date;
   editedAt: Date | null;
@@ -22,15 +23,22 @@ export type CommentView = {
   author: AuthorView;
   /** Deleted by its author: the row stays (rate limits keep counting it) and shows "Comentário apagado". */
   deleted: boolean;
+  /** Removed by the moderation: the row stays and shows "Comentário removido pela moderação". */
+  removed: boolean;
+  /** Pinned by the moderation: listed first, marked "Fixado". */
+  pinned: boolean;
 };
 
 /** Status of a comment its author deleted (the others are visible | hidden | removed). */
 export const DELETED_STATUS = "deleted";
+/** Status of a comment the moderation removed (final). */
+export const REMOVED_STATUS = "removed";
 
 const commentSelect = {
   id: true,
   body: true,
   status: true,
+  pinned: true,
   createdAt: true,
   editedAt: true,
   author: { select: { id: true, handle: true, displayName: true, avatarUrl: true } },
@@ -40,18 +48,24 @@ function toView(row: {
   id: string;
   body: string;
   status: string;
+  pinned: boolean;
   createdAt: Date;
   editedAt: Date | null;
   author: AuthorView;
 }): CommentView {
   const deleted = row.status === DELETED_STATUS;
+  const removed = row.status === REMOVED_STATUS;
+  // A removed comment keeps its text in the database (moderation history), never on the page.
+  const gone = deleted || removed;
   return {
     id: row.id,
-    body: deleted ? "" : row.body,
+    body: gone ? "" : row.body,
     createdAt: row.createdAt,
-    editedAt: deleted ? null : row.editedAt,
-    author: deleted ? null : row.author,
+    editedAt: gone ? null : row.editedAt,
+    author: gone ? null : row.author,
     deleted,
+    removed,
+    pinned: !gone && row.pinned,
   };
 }
 
@@ -112,9 +126,10 @@ export async function findCommentTarget(
 }
 
 /**
- * One page of comments, newest first: visible ones plus "Comentário apagado" placeholders for
- * those their authors deleted. `total` counts only visible comments.
- * `cursor` is the id of the last comment already shown.
+ * One page of comments, newest first: visible ones plus placeholders for those their authors
+ * deleted ("Comentário apagado") or the moderation removed ("Comentário removido pela
+ * moderação"). The pinned comment comes first on the first page. `total` counts only visible
+ * comments. `cursor` is the id of the last comment already shown.
  */
 export async function listComments(
   db: Db,
@@ -123,9 +138,13 @@ export async function listComments(
   cursor?: string | null,
   take: number = COMMENTS_PAGE_SIZE,
 ): Promise<CommentPage> {
-  const [rows, total] = await Promise.all([
+  const [pinned, rows, total] = await Promise.all([
+    cursor
+      ? Promise.resolve([])
+      : db.comment.findMany({ where: { targetType, targetId, status: "visible", pinned: true }, take: 1, select: commentSelect }),
     db.comment.findMany({
-      where: { targetType, targetId, status: { in: ["visible", DELETED_STATUS] } },
+      // Only a visible comment stays pinned (hiding, removing or deleting it unpins it).
+      where: { targetType, targetId, status: { in: ["visible", DELETED_STATUS, REMOVED_STATUS] }, pinned: false },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: take + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -135,7 +154,7 @@ export async function listComments(
   ]);
   const page = rows.slice(0, take);
   return {
-    comments: page.map(toView),
+    comments: [...pinned, ...page].map(toView),
     nextCursor: rows.length > take ? page[page.length - 1].id : null,
     total,
   };
@@ -177,6 +196,7 @@ export async function recountAllArticleComments(db: Db): Promise<number> {
 export type CreateCommentResult =
   | { status: "ok"; comment: CommentView; articleSlug?: string }
   | { status: "not_found" }
+  | { status: "locked" }
   | { status: "rate_limited" };
 
 /** Posts a comment (visible right away; moderators can hide it later). Input must be validated. */
@@ -187,6 +207,7 @@ export async function createComment(
 ): Promise<CreateCommentResult> {
   const target = await findCommentTarget(db, input.targetType, input.targetId);
   if (!target) return { status: "not_found" };
+  if (await isDiscussionLocked(db, input.targetType, input.targetId)) return { status: "locked" };
   if (!(await withinRateLimit(db, "comment", userId))) return { status: "rate_limited" };
 
   const comment = await db.comment.create({
@@ -247,7 +268,7 @@ export async function deleteComment(db: Db, userId: string, id: string): Promise
   if (check !== "ok") return { status: check };
   const deleted = await db.comment.update({
     where: { id },
-    data: { status: DELETED_STATUS, body: "" },
+    data: { status: DELETED_STATUS, body: "", pinned: false },
     select: { targetType: true, targetId: true },
   });
   if (deleted.targetType === "article") {

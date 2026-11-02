@@ -10,6 +10,7 @@ import {
 import { DEFAULT_RETURN_TO, sanitizeReturnTo } from "@/lib/auth/return-to";
 import { createSession, getSessionUser } from "@/lib/auth/session";
 import { env } from "@/lib/env";
+import { isBanned } from "@/lib/moderation/permissions";
 
 const redirectTo = (path: string) => NextResponse.redirect(new URL(path, env.APP_URL));
 
@@ -53,6 +54,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // A suspended account gets no session (getSessionUser would refuse it anyway).
+  if (isBanned(result.user)) return redirectTo("/entrar?erro=suspensa");
   if (!sessionUser) await createSession(result.user.id);
   if (result.created && result.user.email) {
     const userId = result.user.id;

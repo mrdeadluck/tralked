@@ -5,6 +5,7 @@ import { GALLERY_TAG } from "@/lib/community/cached";
 import { MAX_UPLOAD_BYTES, TOO_LARGE_MESSAGE } from "@/lib/community/upload-limits";
 import { uploadPhoto, type UploadResult } from "@/lib/community/upload";
 import { readCapped } from "@/lib/api/read-capped";
+import { postingBlock } from "@/lib/moderation/permissions";
 import { StorageNotConfiguredError } from "@/lib/storage";
 
 // Multipart overhead (boundaries, part headers, the text fields) on top of the image itself.
@@ -53,6 +54,9 @@ export async function POST(request: Request) {
   }
   const user = await getSessionUser();
   if (!user) return reply({ status: "unauthenticated", message: "Entre na sua conta para enviar fotos." });
+  // Muted (or banned) by the moderation: no uploads until the sanction ends.
+  const blocked = postingBlock(user);
+  if (blocked) return reply({ status: "forbidden", message: blocked });
 
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (declared > MAX_BODY_BYTES) return reply(TOO_LARGE);

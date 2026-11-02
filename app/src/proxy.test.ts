@@ -33,6 +33,14 @@ describe("admin proxy", () => {
     expect(findUnique).not.toHaveBeenCalled();
   });
 
+  it("lets moderators into /admin/moderacao only", async () => {
+    expect((await request("/admin/moderacao", "moderator")).status).toBe(200);
+    expect((await request("/admin/moderacao?aba=punicoes", "moderator")).status).toBe(200);
+    for (const path of ["/admin", "/admin/noticias", "/admin/guias/x", "/admin/revisao", "/admin/usuarios"]) {
+      expect((await request(path, "moderator")).status).toBe(404);
+    }
+  });
+
   it("lets editors into content and moderation, but not admin-only sections", async () => {
     expect((await request("/admin/moderacao", "editor")).status).toBe(200);
     expect((await request("/admin/noticias/abc", "editor")).status).toBe(200);
