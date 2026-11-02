@@ -31,16 +31,21 @@ const CSS = `
 .cs-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--muted); }
 .cs-meta b { color: var(--text); font-weight: 500; }
 .cs-meta .acc { color: var(--acc); }
+.cs-lg { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 44px 34px; padding-inline: 18px; }
+.cs-lg .cs-nm { font-size: min(22px, calc(100cqw * .86 / var(--longest, 1))); }
+.cs-lg .cs-name { font-size: 18px; }
+@media (max-width: 520px) { .cs-lg { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 26px; } }
 @media (prefers-reduced-motion: reduce) { .cs-box { transition: none; } .cs a:hover .cs-box, .cs a:focus-visible .cs-box { transform: perspective(900px) rotateY(-14deg); } }
 `;
 
-export function CaseShelf({ label, children }: { label?: string; children: ReactNode }) {
+/** `size="lg"`: fewer, bigger cases (a highlights row). */
+export function CaseShelf({ label, size, children }: { label?: string; size?: "lg"; children: ReactNode }) {
   return (
     <>
       <style href="tralked-case-shelf" precedence="default">
         {CSS}
       </style>
-      <ul className="cs" aria-label={label}>
+      <ul className={size === "lg" ? "cs cs-lg" : "cs"} aria-label={label}>
         {children}
       </ul>
     </>

@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { RARITY_COLOR, RARITY_LABEL } from "@/components/character/format";
 import { PLATFORM_LABEL, PLATFORM_TOKEN } from "@/components/character/platforms";
-import { AchievementRow, RareAchievementCard } from "@/components/profile/AchievementRow";
+import { AchievementRow } from "@/components/profile/AchievementRow";
+import { RareShowcase } from "@/components/profile/RareShowcase";
 import { PlatformProgressStrip } from "@/components/profile/PlatformProgressStrip";
 import { PrivateProfile, SectionSkeleton } from "@/components/profile/PrivateProfile";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
@@ -15,6 +16,7 @@ import type { PlatformId } from "@/lib/engine/trophies";
 import type { RarityTier } from "@/lib/engine/types";
 import { hrefWith, PAGE_PARAM, parsePagination, perPageParam, pickParams } from "@/lib/pagination";
 import { profileAccess, sectionMetadata } from "@/lib/profile/access";
+import { getGameBackdrop } from "@/lib/profile/showcase";
 import {
   ACHIEVEMENT_SORTS,
   getAchievementGameOptions,
@@ -78,10 +80,12 @@ async function ProfileAchievements({
   if (!summary) notFound();
   const game = games.find((g) => g.slug === state.jogo)?.slug;
 
-  const [result, gamePlatforms] = await Promise.all([
+  const [result, gamePlatforms, backdrop] = await Promise.all([
     listUserAchievements(header.id, { platform, rarity, game }, { sort, page: requested, perPage }),
     // The player's view of one game: their progress there, by platform.
     game ? getPlayerGamePlatforms(game, header.id) : null,
+    // The rarest trophy's game lights the showcase.
+    rarest[0] ? getGameBackdrop(rarest[0].game.slug) : null,
   ]);
 
   const base = profilePath(header.handle, "conquistas");
@@ -113,11 +117,7 @@ async function ProfileAchievements({
               Ver todas por raridade →
             </Link>
           </div>
-          <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3 p-0">
-            {rarest.map((a) => (
-              <RareAchievementCard key={a.id} achievement={a} />
-            ))}
-          </ul>
+          <RareShowcase achievements={rarest} backdrop={backdrop} />
         </section>
       ) : null}
 

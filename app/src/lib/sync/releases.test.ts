@@ -174,7 +174,8 @@ describe.skipIf(!reachable)("releases job", () => {
     expect(ultimos[0].platforms).toEqual(["PC"]);
     expect(ultimos[0].relative).toBe("há 3 dias");
     const proximos = (await listReleases("proximos", now)).filter((r) => r.name.startsWith("Rel Test"));
-    expect(proximos.map((r) => r.name)).toEqual(["Rel Test Novo", "Rel Test Em Breve", "Rel Test Conhecido", "Rel Test Sem Data", "Rel Test Console Novo"]);
+    // Biggest first (lib/releases/heat.ts): Steam list positions, then the IGDB-only releases.
+    expect(proximos.map((r) => r.name)).toEqual(["Rel Test Novo", "Rel Test Em Breve", "Rel Test Sem Data", "Rel Test Conhecido", "Rel Test Console Novo"]);
     expect(proximos[0].day).toBe(day(5).toISOString().slice(0, 10));
     const nintendo = (await listReleases("proximos", now, "NINTENDO")).filter((r) => r.name.startsWith("Rel Test"));
     expect(nintendo.map((r) => r.name)).toEqual(["Rel Test Conhecido"]);

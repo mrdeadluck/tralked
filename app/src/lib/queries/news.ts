@@ -10,7 +10,6 @@ import {
   type ContentBlock,
 } from "@/lib/content/schema";
 import { isSafeHttpUrl, safeImageUrl } from "@/lib/content/url";
-import { toLocalDay } from "@/lib/engine/streak";
 import { NEWS_FEED_AREA_LABEL, type NewsFeedArea } from "@/lib/news/areas";
 import { mostViewedArticleIds } from "@/lib/news/views";
 import { timeAgo } from "@/lib/time-ago";
@@ -84,6 +83,8 @@ export type ExternalHeadline = {
   source: string;
   publishedAt: Date;
   game: { slug: string; name: string } | null;
+  /** Wire only: real art of the linked game (hero or screenshot), when the catalog has any. */
+  imageUrl?: string | null;
 };
 
 export type ArticleFull = ArticleCard & {
@@ -120,14 +121,7 @@ export type NewsIndexPage = {
   total: number;
 };
 
-export type TopPlayer = { handle: string; level: number; totalXp: number };
-
-export type TodayMission = {
-  title: string;
-  progress: number;
-  goal: number;
-  rewardXp: number;
-};
+export type TopPlayer = { handle: string; displayName: string; avatarUrl: string | null; level: number; totalXp: number };
 
 const PUBLISHED = { status: "published" } as const;
 
@@ -526,28 +520,15 @@ export async function getTopPlayers(limit: number): Promise<TopPlayer[]> {
     where: { user: { profilePublic: true } },
     orderBy: { totalXp: "desc" },
     take: limit,
-    select: { totalXp: true, level: true, user: { select: { handle: true } } },
+    select: { totalXp: true, level: true, user: { select: { handle: true, displayName: true, avatarUrl: true } } },
   });
-  return rows.map((r) => ({ handle: r.user.handle, level: r.level, totalXp: r.totalXp }));
-}
-
-/** First daily mission of the user for the local day of `now`. */
-export async function getTodayMission(
-  userId: string,
-  now: Date,
-): Promise<TodayMission | null> {
-  const mission = await prisma.mission.findFirst({
-    where: { userId, kind: "daily", periodKey: toLocalDay(now) },
-    orderBy: { id: "asc" },
-  });
-  if (!mission) return null;
-  const condition = mission.condition as { minCount?: number } | null;
-  return {
-    title: mission.title,
-    progress: mission.progress,
-    goal: condition?.minCount || 1,
-    rewardXp: mission.rewardXp,
-  };
+  return rows.map((r) => ({
+    handle: r.user.handle,
+    displayName: r.user.displayName,
+    avatarUrl: r.user.avatarUrl,
+    level: r.level,
+    totalXp: r.totalXp,
+  }));
 }
 
 // ---------- View models for the wire and the tabs (pure) ----------
@@ -575,6 +556,8 @@ export type WireItem = {
   thin?: string;
   /** `portrait` variant: the giant word over the art. */
   giant?: string;
+  /** The title's language when it is not Portuguese (an English press headline). */
+  lang?: "en";
 };
 
 export type StoryCard = {
@@ -706,9 +689,10 @@ export function buildWireItems(
       variant,
       kicker: h.game?.name ?? "Imprensa",
       title: h.title,
+      lang: isEnglishHeadline(h.title) ? "en" : undefined,
       source: externalSource(h.source),
       when: timeAgo(h.publishedAt, now),
-      imageUrl: null,
+      imageUrl: h.imageUrl ?? null,
       seed: hashSeed(h.url),
       hues: artHues(h.game?.slug, h.url),
       thin: NEWP_WORDS.EXTERNAL,
@@ -779,10 +763,56 @@ export async function getAreaHeadlines(area: NewsFeedArea, limit: number): Promi
   return rows.filter((row) => isHttpsUrl(row.url));
 }
 
+const EN_WORDS = new Set(
+  "the of and to in for with is are on new its it's your from at how why what this that will gets reveals announced trailer update release releases launches coming first game games gameplay review".split(" "),
+);
+const PT_WORDS = new Set(
+  "de do da dos das o os as e em no na nos nas para com um uma que ganha chega novo nova sobre mais pelo pela vai tem jogo jogos recebe anuncia revela lança confirma terá será".split(" "),
+);
+
+/**
+ * Whether a headline reads as English (feeds mix Portuguese and English press). Accents count
+ * for Portuguese; otherwise the common words of each language are counted, and a tie stays
+ * Portuguese (a Portuguese headline is never pushed out by mistake).
+ */
+export function isEnglishHeadline(title: string): boolean {
+  const text = title.toLowerCase();
+  if (/[ãõçáéíóúâêôà]/.test(text)) return false;
+  const words = text.split(/[^a-z']+/).filter(Boolean);
+  let en = 0;
+  let pt = 0;
+  for (const w of words) {
+    if (EN_WORDS.has(w)) en++;
+    if (PT_WORDS.has(w)) pt++;
+  }
+  return en > pt;
+}
+
+const SAME_STORY_MS = 48 * 3_600_000;
+
+/**
+ * The wire's headlines: Portuguese first. An English headline about a game that a Portuguese
+ * headline also covered within two days is left out (the Portuguese one tells it); the rest of
+ * the English ones only fill the wire when there are not enough Portuguese headlines. Newest
+ * first.
+ */
+export function pickWireHeadlines(rows: ExternalHeadline[], limit: number): ExternalHeadline[] {
+  const pt = rows.filter((h) => !isEnglishHeadline(h.title));
+  const told = (h: ExternalHeadline) =>
+    h.game !== null &&
+    pt.some((p) => p.game?.slug === h.game!.slug && Math.abs(p.publishedAt.getTime() - h.publishedAt.getTime()) <= SAME_STORY_MS);
+  const en = rows.filter((h) => isEnglishHeadline(h.title) && !told(h));
+  return [...pt.slice(0, limit), ...en.slice(0, Math.max(0, limit - pt.length))].sort(
+    (a, b) => b.publishedAt.getTime() - a.publishedAt.getTime(),
+  );
+}
+
 /**
  * Headlines for the "Em circulação" wire ("da imprensa de games"): the Games feeds, plus
  * Entretenimento/Tecnologia headlines only when they are linked to a catalog game. General tech
- * and entertainment news stays in its own tab. Same URL guard as getExternalHeadlines.
+ * and entertainment news stays in its own tab. Same URL guard as getExternalHeadlines. Three
+ * times `limit` are read so Portuguese headlines can be preferred (pickWireHeadlines), and a
+ * headline about a catalog game carries that game's real art.
  */
 export async function getWireHeadlines(limit: number): Promise<ExternalHeadline[]> {
   const rows = await prisma.externalNews.findMany({
@@ -793,10 +823,17 @@ export async function getWireHeadlines(limit: number): Promise<ExternalHeadline[
       ],
     },
     orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
-    take: limit,
-    select: headlineSelect,
+    take: limit * 3,
+    select: { ...headlineSelect, game: { select: gameSelect } },
   });
-  return rows.filter((row) => isSafeHttpUrl(row.url));
+  const safe = rows
+    .filter((row) => isSafeHttpUrl(row.url))
+    .map(({ game, ...row }) => ({
+      ...row,
+      game: game ? { slug: game.slug, name: game.name } : null,
+      imageUrl: game ? gameScene([game], row.url) : null,
+    }));
+  return pickWireHeadlines(safe, limit);
 }
 
 /** The latest headlines of every press area (Entretenimento, Tecnologia). */
