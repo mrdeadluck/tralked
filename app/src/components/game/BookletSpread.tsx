@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { GameArt } from "@/components/art/GameArt";
-import { PLATFORM_NAME, type GameProfile, type GameUserProfile } from "@/lib/queries/game-profile";
+import { PLATFORM_NAME, timeTo100Label, type GameProfile, type GameUserProfile } from "@/lib/queries/game-profile";
 import { steamReviewLabel } from "@/lib/games/steam-reviews";
 import type { SteamPlayersView } from "@/lib/queries/steam-players";
 import { BackdropLoop } from "./BackdropLoop";
@@ -8,7 +8,7 @@ import { CaseReplayButton } from "./case-replay";
 import { DiscProgress } from "./DiscProgress";
 import { PlatformProgressSwitch } from "./PlatformProgressSwitch";
 import { PROGRESS_CSS, TrophyGrid } from "./progress-parts";
-import { progressViews } from "./progress-views";
+import { catalogViews, progressViews } from "./progress-views";
 import { titleFitStyle } from "./title-fit";
 
 /*
@@ -41,7 +41,17 @@ const CSS = `
 .gps-ficha dt { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
 .gps-ficha dd { margin: 4px 0 0; font-weight: 700; font-size: 15.5px; font-variant-numeric: tabular-nums; }
 .gps-ficha dd small { display: block; font-family: var(--font-jetbrains-mono), monospace; font-weight: 400; font-size: 12px; color: var(--dim); }
-.gps-score { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 26px; padding: 0 6px; background: var(--acc); color: var(--bg); font-weight: 900; font-stretch: 112%; font-size: 15px; }
+/* Critic score: the booklet's hero stat, a seal-like ring filled to the score. */
+.gps-crit { display: flex; align-items: center; gap: 18px; margin: 0; }
+.gps-crit-ring { position: relative; flex: none; width: 88px; height: 88px; display: grid; place-items: center; }
+.gps-crit-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; rotate: -90deg; }
+.gps-crit-ring circle { fill: none; stroke-width: 6; }
+.gps-crit-trk { stroke: var(--border-2); }
+.gps-crit-val { stroke: var(--c); }
+.gps-crit-ring b { font-weight: 900; font-stretch: 125%; font-size: 34px; line-height: 1; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; color: var(--c); }
+.gps-crit p { display: flex; flex-direction: column; gap: 4px; }
+.gps-crit strong { font-weight: 800; font-size: 17px; }
+.gps-crit small { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--dim); }
 .gps-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 1000px) {
   .gps { grid-template-columns: 1fr; }
@@ -57,6 +67,7 @@ const CSS = `
   /* On a phone the main buttons come right after the title, on the first screen. */
   .gps-actions { order: 3; }
   .gps-lede { order: 4; }
+  .gps-crit { order: 4; }
   .gps-ficha { order: 5; }
 }
 `;
@@ -97,62 +108,64 @@ export function BookletProgress({
   loginHref: string;
 }) {
   const progress = user?.progress ?? null;
+  const { main, byPlatform } = profile.achievements;
+  const disc = { hues: profile.hues, seed: profile.seed, art: profile.art.disc, name: profile.name };
+
+  // A game without achievements: no "0", no platinum to preview. Its hours are what counts.
+  if (!main) {
+    const hours = progress ? Math.round(progress.playtimeMin / 60) : 0;
+    return (
+      <>
+        <style href="tralked-game-booklet-progress" precedence="default">
+          {PROGRESS_CSS}
+        </style>
+        <DiscProgress {...disc} pct={0} platinum={false} preview={false} label="TRALKED · DISCO 1" platLabel="TRALKED · DISCO 1">
+          <div className="gpg gpg-none gp-veil" style={delay(".3s")}>
+            <b>Sem conquistas</b>
+            <p>
+              {progress && hours > 0 ? (
+                `Aqui vale o tempo jogado: suas ${fmt(hours)} h viram Vigor no seu personagem.`
+              ) : user ? (
+                "Aqui vale o tempo jogado: cada hora vira Vigor no seu personagem."
+              ) : (
+                <>
+                  Aqui vale o tempo jogado: cada hora vira Vigor. <a href={loginHref}>Entre para ver as suas</a>
+                </>
+              )}
+            </p>
+          </div>
+        </DiscProgress>
+      </>
+    );
+  }
+
   // Played on more than one platform: tabs per platform (and "Todas"), on the best one first.
   const split = progress ? progressViews(progress) : null;
-  if (split) {
-    return (
-      <PlatformProgressSwitch
-        views={split.views}
-        initial={split.initial}
-        hues={profile.hues}
-        seed={profile.seed}
-        art={profile.art.disc}
-        name={profile.name}
-      />
-    );
+  // No progress (logged out, or never played): the game's own numbers, one platform at a time.
+  const catalog = progress
+    ? null
+    : catalogViews(byPlatform, main, user
+        ? { prefix: "Você ainda não jogou · ", link: { href: "/conta/conexoes", label: "conecte suas contas" } }
+        : { link: { href: loginHref, label: "entre para ver o seu progresso" } });
+  const views = split ?? catalog;
+  if (views) {
+    return <PlatformProgressSwitch views={views.views} initial={views.initial} {...disc} />;
   }
-  const best = progress?.best ?? null;
-  const completed = Boolean(progress?.completed);
-  const total = profile.achievements.steam || profile.achievements.byPlatform[0]?.total || 0;
-  const trophies = user?.trophies ?? null;
-  const { tiers } = profile.achievements;
-  // Logged out, the grid shows the game's own trophies: skip it while the catalog has none by tier.
-  const showTrophies = trophies !== null || tiers.gold + tiers.silver + tiers.bronze > 0;
 
-  let headline: ReactNode;
-  let detail: ReactNode;
-  if (best) {
-    const left = Math.max(0, best.total - best.unlocked);
-    headline = (
-      <>
-        {fmt(best.unlocked)}
-        <span>/</span>
-        {fmt(best.total)}
-      </>
-    );
-    detail = completed
-      ? `conquistas na ${PLATFORM_NAME[best.platform]} · 100% · platinado`
-      : `conquistas na ${PLATFORM_NAME[best.platform]} · ${best.pct}% · ${left === 1 ? "falta 1" : `faltam ${fmt(left)}`} para platinar`;
-  } else if (user) {
-    headline = (
-      <>
-        0<span>/</span>
-        {fmt(total)}
-      </>
-    );
-    detail = (
-      <>
-        Você ainda não tem progresso neste jogo. <a href="/conta/conexoes">Conecte suas contas</a>
-      </>
-    );
-  } else {
-    headline = fmt(total);
-    detail = (
-      <>
-        conquistas · <a href={loginHref}>entre para ver o seu progresso</a>
-      </>
-    );
-  }
+  const best = progress!.best;
+  const completed = Boolean(progress?.completed);
+  const trophies = user?.trophies ?? null;
+  const left = Math.max(0, best.total - best.unlocked);
+  const headline: ReactNode = (
+    <>
+      {fmt(best.unlocked)}
+      <span>/</span>
+      {fmt(best.total)}
+    </>
+  );
+  const detail = completed
+    ? `conquistas na ${PLATFORM_NAME[best.platform]} · 100% · platinado`
+    : `conquistas na ${PLATFORM_NAME[best.platform]} · ${best.pct}% · ${left === 1 ? "falta 1" : `faltam ${fmt(left)}`} para platinar`;
 
   return (
     <>
@@ -160,32 +173,49 @@ export function BookletProgress({
         {PROGRESS_CSS}
       </style>
       <DiscProgress
-        pct={best?.pct ?? 0}
+        {...disc}
+        pct={best.pct}
         platinum={completed}
-        hues={profile.hues}
-        seed={profile.seed}
-        art={profile.art.disc}
-        name={profile.name}
         label="TRALKED · DISCO 1"
-        platLabel={best ? `PLATINADO · ${best.unlocked}/${best.total}` : "PLATINADO · 100%"}
+        platLabel={`PLATINADO · ${best.unlocked}/${best.total}`}
       >
         <div className="gpg gp-veil" style={delay(".3s")}>
           <b>{headline}</b>
           <p>{detail}</p>
         </div>
-        {showTrophies ? (
+        {trophies ? (
           <TrophyGrid
             style={delay(".38s")}
-            label={trophies ? "Seus troféus neste jogo, por nível" : "Troféus do jogo, por nível"}
-            values={
-              trophies
-                ? { platinum: `${trophies.platinum}/${trophies.platinumOf}`, gold: fmt(trophies.gold), silver: fmt(trophies.silver), bronze: fmt(trophies.bronze) }
-                : { platinum: fmt(tiers.platinum), gold: fmt(tiers.gold), silver: fmt(tiers.silver), bronze: fmt(tiers.bronze) }
-            }
+            label={`Seus troféus na ${PLATFORM_NAME[best.platform]}, por nível`}
+            values={{ platinum: `${trophies.platinum}/${trophies.platinumOf}`, gold: fmt(trophies.gold), silver: fmt(trophies.silver), bronze: fmt(trophies.bronze) }}
           />
         ) : null}
       </DiscProgress>
     </>
+  );
+}
+
+const RING = 2 * Math.PI * 41;
+
+/** "Nota da crítica": big number in a ring filled to the score (0-100), colored by band. */
+export function CriticScore({ score }: { score: number }) {
+  const value = Math.max(0, Math.min(100, score));
+  const color = value >= 75 ? "var(--acc)" : value >= 50 ? "var(--gold)" : "var(--text-2)";
+  return (
+    <div className="gps-crit gp-veil" style={{ ...delay(".24s"), "--c": color } as CSSProperties}>
+      <span className="gps-crit-ring" aria-hidden="true">
+        <svg viewBox="0 0 88 88">
+          <circle className="gps-crit-trk" cx="44" cy="44" r="41" />
+          <circle className="gps-crit-val" cx="44" cy="44" r="41" strokeDasharray={`${(RING * value) / 100} ${RING}`} />
+        </svg>
+        <b>{value}</b>
+      </span>
+      <p>
+        <strong>Nota da crítica</strong>
+        <span className="sr-only">: {value} de 100. </span>
+        <small>média da imprensa, de 0 a 100</small>
+      </p>
+    </div>
   );
 }
 
@@ -222,10 +252,15 @@ export function BookletSpread({
   steamPlayers?: SteamPlayersView | null;
 }) {
   const { achievements, timeTo100, timesToBeat, guide } = profile;
-  const hours = (minutes: number | null) => (minutes ? `${fmt(Math.max(1, Math.round(minutes / 60)))} h` : "—");
+  const hours = (minutes: number) => `${fmt(Math.max(1, Math.round(minutes / 60)))} h`;
   const studio = profile.developer ?? profile.publisher;
-  const otherPlatforms = achievements.byPlatform.filter((p) => p.platform !== "steam");
-  const achievementsMain = achievements.steam || achievements.byPlatform[0]?.total || 0;
+  const main = achievements.main;
+  const time100 = timeTo100 ? timeTo100Label(timeTo100) : null;
+  // Rushed and main story (IGDB); the 100% has its own fact, from a single source.
+  const beat = [
+    timesToBeat?.hastyMin ? { k: "rápido", v: hours(timesToBeat.hastyMin) } : null,
+    timesToBeat?.normalMin ? { k: "história", v: hours(timesToBeat.normalMin) } : null,
+  ].filter((x): x is { k: string; v: string } => x !== null);
 
   return (
     <section className="gps" aria-labelledby="gp-title">
@@ -233,7 +268,15 @@ export function BookletSpread({
         {CSS}
       </style>
       <div className="gps-art" aria-hidden="true">
-        <GameArt seed={profile.seed + 1} hues={profile.hues} imageUrl={profile.art.hero} figure priority width={1400} height={700} />
+        <GameArt
+          seed={profile.seed + 1}
+          hues={profile.hues}
+          imageUrl={profile.art.hero ?? profile.shots.find((s) => s.url)?.url ?? null}
+          figure
+          priority
+          width={1400}
+          height={700}
+        />
       </div>
       <BackdropLoop video={profile.backdrop} gameName={profile.name} />
 
@@ -262,27 +305,16 @@ export function BookletSpread({
             {profile.summary}
           </p>
         ) : null}
+        {profile.criticScore !== null ? <CriticScore score={profile.criticScore} /> : null}
         <dl className="gps-ficha gp-veil" style={delay(".28s")}>
           <Fact term="Estúdio" note={profile.publisher && profile.publisher !== studio ? profile.publisher : null}>
             {studio ?? "Não informado"}
           </Fact>
           <Fact term="Lançamento">{profile.releaseYear ?? "Não informado"}</Fact>
           {/* A fact without data is left out instead of showing a dash. */}
-          {profile.criticScore !== null ? (
-            <Fact term="Nota da crítica">
-              <span className="gps-score">{profile.criticScore}</span>
-            </Fact>
-          ) : null}
-          {timeTo100 ? (
-            <Fact
-              term="Tempo para 100%"
-              note={
-                timeTo100.players > 0
-                  ? `Tempo Tralked · ${fmt(timeTo100.players)} ${timeTo100.players === 1 ? "jogador" : "jogadores"}`
-                  : "Estimativa do catálogo"
-              }
-            >
-              {`${fmt(Math.max(1, Math.round(timeTo100.minutes / 60)))} h`}
+          {time100 ? (
+            <Fact term="Tempo para 100%" note={time100.source}>
+              {time100.value}
             </Fact>
           ) : null}
           {profile.steamReviews ? (
@@ -294,25 +326,31 @@ export function BookletSpread({
             </Fact>
           ) : null}
           {steamPlayers ? <SteamPlayersFact players={steamPlayers} /> : null}
-          {timesToBeat && (timesToBeat.hastyMin || timesToBeat.normalMin || timesToBeat.completeMin) ? (
-            <Fact term="Tempo para zerar" note="Rápido · história · 100% (IGDB)">
-              {`${hours(timesToBeat.hastyMin)} · ${hours(timesToBeat.normalMin)} · ${hours(timesToBeat.completeMin)}`}
+          {beat.length > 0 ? (
+            <Fact term="Tempo para zerar" note={`${beat.map((b) => b.k).join(" · ")} · estimativa IGDB`}>
+              {beat.map((b) => b.v).join(" · ")}
             </Fact>
           ) : null}
           <Fact
             term="Conquistas"
             note={
-              achievements.legendary > 0
-                ? `${fmt(achievements.legendary)} ${achievements.legendary === 1 ? "lendária" : "lendárias"}`
-                : otherPlatforms.length > 0
-                  ? otherPlatforms.map((p) => `${p.platform.toUpperCase()} ${p.total}`).join(" · ")
-                  : null
+              main
+                ? [
+                    `na ${PLATFORM_NAME[main.platform]}`,
+                    main.legendary > 0 ? `${fmt(main.legendary)} ${main.legendary === 1 ? "lendária" : "lendárias"}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "aqui vale o tempo jogado"
             }
           >
-            {fmt(achievementsMain)}
+            {main ? fmt(main.total) : "Nenhuma"}
           </Fact>
           {guide ? (
-            <Fact term="Perdíveis" note="Guia verificado">
+            <Fact
+              term="Conquistas perdíveis"
+              note={guide.missables === 0 ? "nenhuma fica para trás" : "podem ficar para trás · veja o guia"}
+            >
               {guide.missables === 0 ? "Nenhuma" : fmt(guide.missables)}
             </Fact>
           ) : null}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
-import { INTRO_OFF_KEY, readIntroOff } from "./case-intro-pref";
+import { INTRO_OFF_KEY, INTRO_SESSION_KEY, readIntroOff, readIntroPlayedThisSession } from "./case-intro-pref";
 import { openedKey } from "./opened-key";
 
 /*
@@ -24,12 +24,19 @@ const subscribeNothing = () => () => undefined;
 function inlineScript(slug: string) {
   const key = JSON.stringify(openedKey(slug)).replace(/</g, "\\u003c");
   const off = JSON.stringify(INTRO_OFF_KEY);
-  return `(function(){try{var r=document.getElementById(${JSON.stringify(ROOT_ID)});if(!r||matchMedia(${JSON.stringify(REDUCE)}).matches||localStorage.getItem(${key})==="1"||localStorage.getItem(${off})==="1")return;r.setAttribute("data-intro","pending")}catch(e){}})();`;
+  const session = JSON.stringify(INTRO_SESSION_KEY);
+  return `(function(){try{var r=document.getElementById(${JSON.stringify(ROOT_ID)});if(!r||matchMedia(${JSON.stringify(REDUCE)}).matches||localStorage.getItem(${key})==="1"||localStorage.getItem(${off})==="1"||sessionStorage.getItem(${session})==="1")return;r.setAttribute("data-intro","pending")}catch(e){}})();`;
 }
 
 function veilIfFirstVisit(slug: string) {
   try {
-    if (window.matchMedia(REDUCE).matches || localStorage.getItem(openedKey(slug)) === "1" || readIntroOff()) return;
+    if (
+      window.matchMedia(REDUCE).matches ||
+      localStorage.getItem(openedKey(slug)) === "1" ||
+      readIntroOff() ||
+      readIntroPlayedThisSession()
+    )
+      return;
     document.getElementById(ROOT_ID)?.setAttribute("data-intro", "pending");
   } catch {
     // sem armazenamento local: a página aparece sem véu

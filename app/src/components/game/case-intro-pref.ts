@@ -13,6 +13,28 @@ export function readIntroOff(): boolean {
   }
 }
 
+/**
+ * The intro plays on its own at most once per browser session (tab): the next new game of the same
+ * visit opens straight away. "Abrir a capinha de novo" still replays it on request.
+ */
+export const INTRO_SESSION_KEY = "tralked:case-intro:session";
+
+export function readIntroPlayedThisSession(): boolean {
+  try {
+    return sessionStorage.getItem(INTRO_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markIntroPlayedThisSession(): void {
+  try {
+    sessionStorage.setItem(INTRO_SESSION_KEY, "1");
+  } catch {
+    // sem armazenamento de sessão: a animação segue a regra por jogo
+  }
+}
+
 export function writeIntroOff(off: boolean): void {
   try {
     if (off) localStorage.setItem(INTRO_OFF_KEY, "1");

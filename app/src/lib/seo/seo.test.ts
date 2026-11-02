@@ -8,7 +8,7 @@ const article = {
   slug: "noticia-x",
   title: "Título </script><script>alert(1)</script>",
   excerpt: "Resumo & mais",
-  authorLabel: "Equipe Tralked",
+  authorLabel: "Robô Tralked",
   bot: true,
   publishedAt: new Date("2026-10-30T12:00:00Z"),
   imageUrl: "javascript:alert(1)",
@@ -33,7 +33,7 @@ describe("JSON-LD", () => {
       url: new URL("/noticias/noticia-x", env.APP_URL).toString(),
       datePublished: "2026-10-30T12:00:00.000Z",
       image: ["https://cdn.example.com/hero.jpg"],
-      author: { "@type": "Organization", name: "Equipe Tralked" },
+      author: { "@type": "Organization", name: "Robô Tralked" },
       about: [{ "@type": "VideoGame", name: "Hades" }],
     });
     const human = newsArticleJsonLd({ ...article, bot: false, authorLabel: "@Arauto_Leopoldo", imageUrl: null, heroUrl: null });
@@ -47,7 +47,7 @@ describe("JSON-LD", () => {
 
     const howTo = howToJsonLd({
       game: { slug: "hades", name: "Hades", summary: "Roguelike" },
-      facts: { hoursMin: 20, hoursMax: 60 },
+      facts: { timeTo100: { minutes: 3600 } },
       overview: ["Platinar Hades exige paciência."],
       steps: [
         { order: 1, title: "Primeira fuga", body: "Escape do Tártaro." },

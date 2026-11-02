@@ -31,7 +31,7 @@ describe("progressViews (game page platform tabs)", () => {
     ]);
     const [all, steam, psn] = split!.views;
     expect(all).toMatchObject({ unlocked: 102, total: 103, pct: 99, completed: false });
-    expect(all.detail).toBe("conquistas em 2 plataformas · 99% no total · falta 1 no total");
+    expect(all.detail).toBe("conquistas somadas de 2 plataformas · 99% no total · falta 1 no total");
     expect(steam.detail).toBe("conquistas na Steam · 98% · falta 1 para platinar");
     expect(steam.trophies.platinum).toBe("0/1");
     expect(psn).toMatchObject({ completed: true, pct: 100, platLabel: "PLATINADO · 40/40", detail: "conquistas na PSN · 100% · platinado" });

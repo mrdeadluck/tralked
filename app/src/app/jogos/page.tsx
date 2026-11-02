@@ -9,6 +9,7 @@ import { ListSearch } from "@/components/ui/ListSearch";
 import { Pagination } from "@/components/ui/Pagination";
 import { SectionHead } from "@/components/ui/SectionHead";
 import { getSessionUser } from "@/lib/auth/session";
+import { genreName, primaryGenre } from "@/lib/engine/genres";
 import { SKILLS, type SkillId } from "@/lib/engine/types";
 import { hrefWith, PAGE_PARAM, parsePagination, perPageParam, pickParams } from "@/lib/pagination";
 import {
@@ -101,7 +102,7 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
     href: link({ ordem: s === "popular" ? undefined : s }),
   }));
 
-  const { items, total, stubTotal } = result;
+  const { items, total } = result;
 
   return (
     <>
@@ -135,9 +136,6 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
       <p className="mb-3.5 font-mono text-xs tracking-[0.06em] text-dim" aria-live="polite">
         {total.toLocaleString("pt-BR")} {total === 1 ? "JOGO" : "JOGOS"}
         {q ? ` PARA “${q.toUpperCase()}”` : ""}
-        {stubTotal > 0
-          ? ` · ${stubTotal.toLocaleString("pt-BR")} DO CATÁLOGO COMPLETO, COM DETALHES EM BREVE`
-          : ""}
       </p>
 
       {items.length > 0 ? (
@@ -175,14 +173,14 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
   );
 }
 
-const SKILL_NAME = Object.fromEntries(SKILLS.map((s) => [s.id, s.name]));
-
 /** One game on the shelf: its case (with the visitor's progress) and a two-line caption. */
 function GameCase({ game }: { game: GameCard }) {
   const { unlockedCount, achievementCount } = game;
   const owned = unlockedCount !== null && achievementCount > 0;
   const pct = owned ? Math.round((unlockedCount / achievementCount) * 100) : null;
-  const genre = game.skills[0] ? SKILL_NAME[game.skills[0]] : null;
+  // The game's genre (most specific first; a game mode such as Co-op is no genre).
+  const primary = primaryGenre(game.skills);
+  const genre = primary ? genreName(primary) : null;
   return (
     <CaseItem
       href={`/jogos/${game.slug}`}
@@ -195,7 +193,7 @@ function GameCase({ game }: { game: GameCard }) {
       <h3 className="cs-name">{game.name}</h3>
       <span className="cs-meta">
         {game.stub ? (
-          <span>detalhes em breve</span>
+          <span>na loja Steam</span>
         ) : owned ? (
           <span>
             <b>{unlockedCount}</b>/{achievementCount} · <span className="acc">{pct}%</span>
@@ -206,7 +204,7 @@ function GameCase({ game }: { game: GameCard }) {
             {genre && achievementCount > 0 ? " · " : null}
             {achievementCount > 0 ? (
               <>
-                <b>{achievementCount}</b> conquistas
+                <b>{achievementCount.toLocaleString("pt-BR")}</b> {achievementCount === 1 ? "conquista" : "conquistas"}
               </>
             ) : null}
           </span>

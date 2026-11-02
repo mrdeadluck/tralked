@@ -16,7 +16,7 @@ import { Wordmark } from "@/components/brand/Logo";
 import { useSound } from "@/components/fx/useSound";
 import { setCaseIntroAction } from "@/app/conta/actions";
 import { markOpened } from "@/app/jogos/[slug]/actions";
-import { readIntroOff, writeIntroOff } from "./case-intro-pref";
+import { markIntroPlayedThisSession, readIntroOff, readIntroPlayedThisSession, writeIntroOff } from "./case-intro-pref";
 import { registerCaseReplay } from "./case-replay";
 import { Disc } from "./Disc";
 import { openedKey } from "./opened-key";
@@ -94,6 +94,9 @@ const CSS = `
    (--cover-r, set from the loaded image), so the band never hides the game's name and nothing is cropped or letterboxed. */
 .gpc.gpc-has-cover { --ch: calc(var(--band) + var(--cw) * var(--cover-r, 1.5)); }
 .gpc-out > img.gpc-cover { top: var(--band); height: calc(100% - var(--band)); object-fit: cover; }
+/* Without a portrait cover, wide art is shown whole over a blurred copy (as the shelves do). */
+.gpc-out > img.gpc-wblur { inset: -12%; width: 124%; height: 124%; filter: blur(16px) brightness(.5) saturate(1.2); }
+.gpc-out > img.gpc-wide { inset: auto 0; top: 40%; height: auto; translate: 0 -50%; object-fit: contain; box-shadow: 0 10px 30px rgba(0,0,0,.6); }
 .gpc-top { position: absolute; left: 0; right: 0; top: 0; height: var(--band); background: linear-gradient(180deg, var(--bg), #121318); display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 2px solid var(--acc); }
 .gpc-top svg { height: calc(var(--cw) * .055); width: auto; color: var(--text); }
 .gpc-top span { font-family: var(--font-jetbrains-mono), monospace; font-size: calc(var(--cw) * .032); letter-spacing: .14em; color: var(--text-2); border: 1px solid var(--border-2); padding: 2px 5px; white-space: nowrap; }
@@ -141,6 +144,8 @@ type CaseIntroProps = {
   seed: number;
   /** Real cover for the case front (generated art otherwise). */
   coverUrl: string | null;
+  /** Wide art for a case without a portrait cover (hero, else a screenshot): shown whole. */
+  wideArt?: string | null;
   /** Real art for the booklet inside the case (hero, else cover). */
   bookletArt: string | null;
   /** The disc's label: never the cover nor the hero (see `DiscLabelArt`). */
@@ -183,7 +188,7 @@ const revealNow = () => {
 type Noise = { dur: number; from: number; to: number; gain: number; type: BiquadFilterType };
 
 export function CaseIntro(props: CaseIntroProps) {
-  const { gameId, slug, name, hues, seed, coverUrl, bookletArt, disc, platformLabel, discLabel, plat, bookletNote, account } = props;
+  const { gameId, slug, name, hues, seed, coverUrl, wideArt = null, bookletArt, disc, platformLabel, discLabel, plat, bookletNote, account } = props;
   const { muted, toggleMuted } = useSound();
   const mutedRef = useRef(muted);
   const audio = useRef<AudioContext | null>(null);
@@ -480,7 +485,12 @@ export function CaseIntro(props: CaseIntroProps) {
       revealNow();
       // Keep both records in sync (account opened elsewhere / opened here while logged out).
       if (!local || (account && !account.opened)) remember();
+    } else if (readIntroPlayedThisSession()) {
+      // The intro already played once in this visit: this new game opens at once. It is not marked
+      // as opened, so a later visit still unseals it ("Abrir a capinha de novo" plays it now).
+      revealNow();
     } else {
+      markIntroPlayedThisSession();
       // Mounting the stage is the decision itself: returning visitors never mount it. It depends on
       // browser-only state (localStorage, the motion preference), so it cannot be made while
       // rendering or hydrating; it runs once, after hydration.
@@ -605,6 +615,14 @@ export function CaseIntro(props: CaseIntroProps) {
                     if (w > 0 && h > 0) setCoverRatio(Math.min(1.6, Math.max(1.2, h / w)));
                   }}
                 />
+              ) : wideArt ? (
+                // No portrait cover: the game's wide art, whole over its own blur, under the title.
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img className="gpc-wblur" src={wideArt} alt="" decoding="async" draggable={false} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img className="gpc-wide" src={wideArt} alt="" decoding="async" draggable={false} />
+                </>
               ) : (
                 <GameArt seed={seed + 7} hues={hues} figure light width={560} height={772} />
               )}

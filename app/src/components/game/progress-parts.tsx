@@ -13,6 +13,8 @@ export const PROGRESS_CSS = `
 .gpg b span { color: var(--acc); }
 .gpg p { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--muted); margin-top: 6px; }
 .gpg p a { color: var(--acc); text-decoration: underline; text-underline-offset: 3px; }
+.gpg-none b { font-size: 30px; }
+.gpg-none p { max-width: 34ch; margin-inline: auto; line-height: 1.5; }
 .gpg ul { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
 .gpg li b { font: inherit; color: var(--text-2); letter-spacing: inherit; }
 .gpt { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 420px; margin: 0; padding: 0; list-style: none; background: var(--border); border: 1px solid var(--border); }
@@ -88,8 +90,12 @@ export type ProgressView = {
   completed: boolean;
   /** "Platina" (the platinum trophy itself), "100%", or null while incomplete. */
   badge: string | null;
+  /** The game's own numbers (no player progress): the headline is the total alone. */
+  catalog?: boolean;
   /** Line under the numbers ("conquistas na Steam · 98% · falta 1 para platinar"). */
   detail: string;
+  /** A link closing the detail line ("entre para ver o seu progresso"). */
+  link?: { href: string; label: string };
   /** Disc label when platinum. */
   platLabel: string;
   trophies: Record<TrophyTier, string>;

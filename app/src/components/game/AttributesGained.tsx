@@ -20,7 +20,10 @@ const CSS = `
 .gpa-sample .gpa-grid { filter: blur(5px); opacity: .55; user-select: none; pointer-events: none; }
 .gpa-gate { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: linear-gradient(180deg, transparent, color-mix(in oklab, var(--surface) 88%, transparent) 45%); }
 .gpa-gate strong { display: block; font-size: 19px; font-weight: 800; }
-.gpa-gate p { max-width: 38ch; margin: 6px auto 16px; font-size: 14px; color: var(--muted); }
+.gpa-gate p { max-width: 44ch; margin: 6px auto 16px; font-size: 14px; color: var(--muted); }
+.gpa-none { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 22px 24px; border: 1px solid var(--border); background: var(--surface); }
+.gpa-none strong { font-size: 19px; font-weight: 800; }
+.gpa-none p { max-width: 60ch; font-size: 14.5px; color: var(--muted); margin-bottom: 8px; }
 @media (max-width: 1000px) { .gpa-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .gpa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 `;
@@ -32,19 +35,6 @@ const fmtK = (n: number) =>
     : n >= 1e4
       ? `${Math.round(n / 1e3)}k`
       : fmt(n);
-
-/** What a sample character could get from a game: shown blurred, only as an illustration. */
-const SAMPLE: GameAttributes = {
-  xp: 12_400,
-  hours: 34,
-  vigor: 340,
-  precisao: 210,
-  rareCount: 4,
-  gloria: 95,
-  colecao: 250,
-  completed: true,
-  skill: { id: "soulslike", name: "", level: 12, levelsFromGame: 3 },
-};
 
 type Cell = {
   key: string;
@@ -135,6 +125,8 @@ export function AttributesGained({
   genre,
   aside,
   loginHref,
+  sample,
+  gameName,
 }: {
   attributes: GameAttributes | null;
   loggedIn: boolean;
@@ -142,8 +134,15 @@ export function AttributesGained({
   genre: string | null;
   aside: string | null;
   loginHref: string;
+  /**
+   * What a 100% in this game gives a new character, from the game's own achievements (shown
+   * blurred behind the sign-in invitation). Null for a game without achievements.
+   */
+  sample: GameAttributes | null;
+  gameName: string;
 }) {
-  const shown = loggedIn ? (attributes ?? null) : SAMPLE;
+  const noAchievements = sample === null;
+  const shown = loggedIn ? (attributes ?? null) : sample;
   const zero: GameAttributes | null =
     loggedIn && !attributes
       ? {
@@ -180,27 +179,32 @@ export function AttributesGained({
           </a>
         )}
       </div>
-      {loggedIn ? (
+      {noAchievements && !attributes ? (
+        // Nothing to unlock: no sample character, no row of zeros. The hours are what counts.
+        <div className="gpa-none">
+          <strong>Sem conquistas: aqui vale o tempo jogado</strong>
+          <p>
+            {gameName} não tem conquistas. Cada hora jogada vira Vigor e Resistência no seu personagem.
+          </p>
+          {loggedIn ? null : (
+            <a className="gp-btn gp-btn-acc" href={loginHref}>
+              Entrar e conectar
+            </a>
+          )}
+        </div>
+      ) : loggedIn ? (
         <Grid list={cells(shown ?? zero, genre)} />
       ) : (
         <div className="gpa-sample">
           <div aria-hidden="true" inert>
-            <Grid
-              list={cells(
-                {
-                  ...SAMPLE,
-                  skill: { ...SAMPLE.skill!, name: genre ?? "Gênero" },
-                },
-                genre,
-              )}
-            />
+            <Grid list={cells(shown, genre)} />
           </div>
           <div className="gpa-gate">
             <div>
               <strong>Veja o seu personagem</strong>
               <p>
-                Conecte Steam, PSN ou Xbox e o Tralked calcula o que este jogo
-                já deu a você.
+                Conecte Steam, PSN ou Xbox e o Tralked calcula o que este jogo já deu a você. Ao fundo, o
+                que um 100% nele dá a um personagem novo.
               </p>
               <a className="gp-btn gp-btn-acc" href={loginHref}>
                 Entrar e conectar

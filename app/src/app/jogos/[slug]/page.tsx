@@ -5,6 +5,7 @@ import { PhotoGrid } from "@/components/community/PhotoGrid";
 import { AttributesGained } from "@/components/game/AttributesGained";
 import { BookletProgress, BookletSpread } from "@/components/game/BookletSpread";
 import { CaseIntro } from "@/components/game/CaseIntro";
+import { CommunityInvite } from "@/components/game/CommunityInvite";
 import { IntroVeil } from "@/components/game/IntroVeil";
 import { FamilyPlayers } from "@/components/game/FamilyPlayers";
 import { MediaRail } from "@/components/game/MediaRail";
@@ -15,6 +16,7 @@ import { loginHref } from "@/components/guide/format";
 import { NewsTabs } from "@/components/news/NewsTabs";
 import { NewsWire } from "@/components/news/NewsWire";
 import { getSessionUser } from "@/lib/auth/session";
+import { PHOTO_XP } from "@/lib/community/rewards";
 import { prisma } from "@/lib/db";
 import {
   getGameProfile,
@@ -71,7 +73,6 @@ a.gp-aside:hover { text-decoration: underline; text-underline-offset: 3px; }
 .gp-btn-acc:hover { filter: brightness(1.08); border-color: var(--acc); }
 .gp-news { display: flex; flex-direction: column; gap: 26px; }
 .gp-news .gp-head { margin-bottom: 0; }
-.gp-empty { color: var(--muted); }
 .gp-gal { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; }
 .gp-gal-side { display: flex; flex-direction: column; gap: 16px; }
 .gp-side { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 20px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
@@ -110,7 +111,8 @@ async function IntroIsland({ profile }: { profile: GameProfile }) {
       hues={profile.hues}
       seed={profile.seed}
       coverUrl={profile.art.cover}
-      bookletArt={profile.art.hero ?? profile.art.cover}
+      wideArt={profile.art.hero ?? profile.shots.find((s) => s.url)?.url ?? null}
+      bookletArt={profile.art.hero ?? profile.art.cover ?? profile.shots.find((s) => s.url)?.url ?? null}
       disc={profile.art.disc}
       platformLabel={platformLabel}
       plat={Boolean(best?.completed)}
@@ -142,6 +144,8 @@ async function AttributesIsland({ profile, login }: { profile: GameProfile; logi
       genre={profile.genres[0] ?? null}
       aside={me?.profile ? attributesAside(me.profile) : null}
       loginHref={login}
+      sample={profile.sample}
+      gameName={profile.name}
     />
   );
 }
@@ -182,6 +186,11 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
 
   const login = loginHref(`/jogos/${profile.slug}`);
   const { news, gallery } = profile;
+  const family = (
+    <Suspense fallback={<FamilyPlayers players={null} loggedIn={false} gameName={profile.name} />}>
+      <FamilyIsland profile={profile} />
+    </Suspense>
+  );
 
   return (
     <div id="gp-root" className="gp" suppressHydrationWarning>
@@ -216,7 +225,15 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
 
       <Suspense
         fallback={
-          <AttributesGained attributes={null} loggedIn={false} genre={profile.genres[0] ?? null} aside={null} loginHref={login} />
+          <AttributesGained
+            attributes={null}
+            loggedIn={false}
+            genre={profile.genres[0] ?? null}
+            aside={null}
+            loginHref={login}
+            sample={profile.sample}
+            gameName={profile.name}
+          />
         }
       >
         <AttributesIsland profile={profile} login={login} />
@@ -235,55 +252,75 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
         />
       ) : null}
 
-      <section className="gp-news gp-veil" aria-labelledby="gp-h-news">
-        <div className="gp-head">
-          <h2 id="gp-h-news">Notícias de {profile.name}</h2>
-          <a className="gp-aside" href={`/forum/${profile.slug}`}>
-            Conversar no fórum do jogo →
-          </a>
-        </div>
-        {news.count > 0 ? (
+      {news.count > 0 ? (
+        <section className="gp-news gp-veil" aria-labelledby="gp-h-news">
+          <div className="gp-head">
+            <h2 id="gp-h-news">Notícias de {profile.name}</h2>
+            <a className="gp-aside" href={`/forum/${profile.slug}`}>
+              Conversar no fórum do jogo →
+            </a>
+          </div>
           <NewsTabs
             tabs={news.tabs}
             mostRead={news.mostRead}
             mostReadTitle="Mais lidas do jogo"
             label={`Categorias de notícias de ${profile.name}`}
           />
-        ) : (
-          <p className="gp-empty">Ainda não há notícias sobre {profile.name}. Assim que sair alguma, ela aparece aqui.</p>
-        )}
-      </section>
-
-      <section className="gp-veil" aria-labelledby="gp-h-gal">
-        <div className="gp-head">
-          <h2 id="gp-h-gal">Galeria da comunidade</h2>
-          <a className="gp-aside" href={`/galeria?jogo=${profile.slug}`}>
-            {gallery.total === 1 ? "1 foto marcada neste jogo" : `${gallery.total.toLocaleString("pt-BR")} fotos marcadas neste jogo`} →
-          </a>
-        </div>
-        <div className="gp-gal">
-          <PhotoGrid
-            photos={gallery.photos}
-            label={`Fotos de ${profile.name}`}
-            invite={{ href: `/galeria?jogo=${profile.slug}`, min: 3 }}
-            empty={`Ainda não há fotos de ${profile.name}. Que tal enviar a primeira?`}
-          />
-          <div className="gp-gal-side">
-            <div className="gp-side">
-              <h3>Poste sua foto</h3>
-              <p>
-                Capturas do seu jogo aparecem aqui e no seu perfil. A foto mais curtida da semana ganha destaque e XP.
-              </p>
-              <a className="gp-btn gp-btn-acc" href={`/galeria?jogo=${profile.slug}`}>
-                Enviar foto
-              </a>
-            </div>
-            <Suspense fallback={<FamilyPlayers players={null} loggedIn={false} gameName={profile.name} />}>
-              <FamilyIsland profile={profile} />
-            </Suspense>
+        </section>
+      ) : news.studio ? (
+        // No story about this game yet: the newest about its studio's other games.
+        <section className="gp-news gp-veil" aria-labelledby="gp-h-news">
+          <div className="gp-head">
+            <h2 id="gp-h-news">Notícias de {news.studio.name}</h2>
+            <span className="gp-aside">Do mesmo estúdio de {profile.name}</span>
           </div>
-        </div>
-      </section>
+          <NewsTabs
+            tabs={[{ id: "estudio", label: "Do mesmo estúdio", stories: news.studio.stories }]}
+            mostRead={[]}
+            label={`Notícias de ${news.studio.name}`}
+          />
+        </section>
+      ) : null}
+
+      {gallery.total === 0 ? (
+        <CommunityInvite
+          name={profile.name}
+          slug={profile.slug}
+          shots={profile.shots}
+          hues={profile.hues}
+          withNews={news.count > 0}
+          side={family}
+        />
+      ) : (
+        <section className="gp-veil" aria-labelledby="gp-h-gal">
+          <div className="gp-head">
+            <h2 id="gp-h-gal">Galeria da comunidade</h2>
+            <a className="gp-aside" href={`/galeria?jogo=${profile.slug}`}>
+              {gallery.total === 1 ? "1 foto marcada neste jogo" : `${gallery.total.toLocaleString("pt-BR")} fotos marcadas neste jogo`} →
+            </a>
+          </div>
+          <div className="gp-gal">
+            <PhotoGrid
+              photos={gallery.photos}
+              label={`Fotos de ${profile.name}`}
+              invite={{ href: `/galeria?jogo=${profile.slug}`, min: 3 }}
+              empty={`Ainda não há fotos de ${profile.name}. Que tal enviar a primeira?`}
+            />
+            <div className="gp-gal-side">
+              <div className="gp-side">
+                <h3>Poste sua foto</h3>
+                <p>
+                  Capturas do seu jogo aparecem aqui e no seu perfil. Cada foto rende +{PHOTO_XP} XP.
+                </p>
+                <a className="gp-btn gp-btn-acc" href={`/galeria?jogo=${profile.slug}`}>
+                  Enviar foto
+                </a>
+              </div>
+              {family}
+            </div>
+          </div>
+        </section>
+      )}
 
       <Suspense fallback={<SimilarShelf games={profile.similar.slice(0, 8)} aside="Jogos com as mesmas habilidades" />}>
         <ShelfIsland profile={profile} />

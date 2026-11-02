@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { ATTRIBUTES, attributeLevel, type AttributeId } from "@/lib/engine/attributes";
 import { trophyTierFromRarity, type PlatformId, type TrophyTier } from "@/lib/engine/trophies";
 import { validCompletions } from "@/lib/progression/completions";
+import { platinumCount } from "./counts";
 
 /**
  * Character sheet v2 (Plan 2): attributes, linked platforms, trophies by tier and the player's
@@ -74,17 +75,16 @@ export function summarizeTrophies(
 ): TrophySummary {
   const tiers: TrophyTotals = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
   const perPlatform = new Map<string, number>();
-  const nativePlatinum = new Set<string>();
+  const nativePlatinum: UnlockRow[] = [];
   for (const u of unlocks) {
     const tier =
       u.trophyTier && TIERS.has(u.trophyTier) ? (u.trophyTier as TrophyTier) : trophyTierFromRarity(u.globalPct);
-    tiers[tier]++;
-    if (tier === "platinum") nativePlatinum.add(`${u.gameId}:${u.platform}`);
+    if (tier === "platinum") nativePlatinum.push(u);
+    else tiers[tier]++;
     perPlatform.set(u.platform, (perPlatform.get(u.platform) ?? 0) + 1);
   }
-  for (const c of completions) {
-    if (!nativePlatinum.has(`${c.gameId}:${c.platform}`)) tiers.platinum++;
-  }
+  // The sheet's "Platinas" counts with the same function (lib/character/counts).
+  tiers.platinum = platinumCount(nativePlatinum, completions);
   return {
     tiers,
     byPlatform: PLATFORM_ORDER.filter((p) => perPlatform.has(p)).map((platform) => ({

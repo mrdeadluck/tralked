@@ -308,20 +308,20 @@ describe("wire and tab view models", () => {
     expect(categoryLabel("TECNOLOGIA")).toBe("Tecnologia");
   });
 
-  it("signs robots as 'Equipe Tralked' (no '@'), on tabs and on the wire", async () => {
+  it("signs robots as 'Robô Tralked' (no '@'), on tabs and on the wire", async () => {
     const { BOT_BYLINE, articleStory, authorLabel, buildWireItems } = await import("./news");
-    expect(BOT_BYLINE).toBe("Equipe Tralked");
-    expect(authorLabel("bot", "Robô Notícias")).toBe("Equipe Tralked");
+    expect(BOT_BYLINE).toBe("Robô Tralked");
+    expect(authorLabel("bot", "Robô Notícias")).toBe("Robô Tralked");
     expect(authorLabel("editorial", "mrdead")).toBe("@mrdead");
     expect(authorLabel(null, "Arauto_Leopoldo")).toBe("@Arauto_Leopoldo");
 
     const bot = { ...card("r", "GAMES", 1), authorHandle: "Robô Patch Notes", authorLabel: authorLabel("bot", "Robô Patch Notes"), bot: true, humanAuthored: false };
-    expect(bot.authorLabel).toBe("Equipe Tralked");
+    expect(bot.authorLabel).toBe("Robô Tralked");
     expect(bot.humanAuthored).toBe(false);
-    expect(articleStory(bot, now).source).toBe("Equipe Tralked");
+    expect(articleStory(bot, now).source).toBe("Robô Tralked");
     expect(articleStory(card("h", "GAMES", 1), now).source).toBe("@Arauto_Leopoldo");
     const [wireBot, wireHuman] = buildWireItems([bot, card("h", "GAMES", 2)], [], now);
-    expect(wireBot.source).toBe("Equipe Tralked");
+    expect(wireBot.source).toBe("Robô Tralked");
     expect(wireHuman.source).toBe("Redação Tralked");
   });
 });

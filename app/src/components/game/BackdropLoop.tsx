@@ -26,13 +26,22 @@ const SLOW_CONNECTIONS = new Set(["slow-2g", "2g", "3g"]);
 const START_AT_S = 10;
 const YT_ORIGIN = "https://www.youtube-nocookie.com";
 const YT_PLAYING = 1;
+/**
+ * The embed draws its chrome (title, big buttons, "Mais vídeos") when it starts, pauses, buffers or
+ * ends. It is only shown after this long in the playing state, and hidden again (the hero art
+ * shows) the moment it leaves it, so the player's chrome never reaches the page.
+ */
+const YT_SETTLE_MS = 3000;
 
 const CSS = `
-.gpb { position: absolute; inset: 0; overflow: hidden; pointer-events: none; container-type: size; opacity: 0; transition: opacity 1.6s ease;
+.gpb { position: absolute; inset: 0; overflow: hidden; pointer-events: none; container-type: size; opacity: 0; transition: opacity .2s ease;
   -webkit-mask: linear-gradient(90deg, transparent 22%, #000 70%); mask: linear-gradient(90deg, transparent 22%, #000 70%); }
-.gpb[data-on] { opacity: .3; }
+/* Slow fade in once it really plays; out at once when it stops (before any player chrome shows). */
+.gpb[data-on] { opacity: .3; transition-duration: 1.6s; }
 .gpb video, .gpb iframe { position: absolute; left: 50%; top: 50%; translate: -50% -50%; border: 0; object-fit: cover;
   width: max(100cqw, 177.78cqh); height: max(100cqh, 56.25cqw); }
+/* The embed's own edges (title bar, watermark, "Mais vídeos") are cropped out of the box. */
+.gpb iframe { scale: 1.36; }
 .gpb::after { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse 75% 70% at 70% 45%, transparent 35%, var(--paper) 100%), linear-gradient(180deg, rgba(11,12,15,.35), transparent 30%, transparent 70%, rgba(11,12,15,.5)); }
 .gpb-pause { position: absolute; top: 12px; right: 12px; z-index: 3; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--border-2); border-radius: 2px; background: rgba(11,12,15,.6); color: var(--text-2); cursor: pointer; }
 .gpb-pause:hover { border-color: var(--text); color: var(--text); }
@@ -94,6 +103,9 @@ function Loop({ video, gameName }: { video: NonNullable<BackdropVideo>; gameName
   /** Became active once: the file loads for real / the embed is created. */
   const [loaded, setLoaded] = useState(false);
   const [playing, setPlaying] = useState(false);
+  /** YouTube only: playing for YT_SETTLE_MS, past the start-up chrome. */
+  const [settled, setSettled] = useState(false);
+  const settleTimer = useRef(0);
   const [failed, setFailed] = useState(false);
   const [paused, setPaused] = useState(readPaused);
   /** The embed starts on its own only when it is not paused here (later changes go by command). */
@@ -158,10 +170,18 @@ function Loop({ video, gameName }: { video: NonNullable<BackdropVideo>; gameName
       }
       const info = data.info as { playerState?: number } | number | undefined;
       const state = typeof info === "number" ? (data.event === "onStateChange" ? info : undefined) : info?.playerState;
-      if (state === YT_PLAYING) setPlaying(true);
+      if (state === undefined) return;
+      const isPlaying = state === YT_PLAYING;
+      setPlaying(isPlaying);
+      window.clearTimeout(settleTimer.current);
+      if (isPlaying) settleTimer.current = window.setTimeout(() => setSettled(true), YT_SETTLE_MS);
+      else setSettled(false);
     };
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.clearTimeout(settleTimer.current);
+    };
   }, [video.kind, loaded]);
 
   const listen = () => {
@@ -191,7 +211,13 @@ function Loop({ video, gameName }: { video: NonNullable<BackdropVideo>; gameName
       <style href="tralked-game-backdrop" precedence="default">
         {CSS}
       </style>
-      <div ref={box} className="gpb" aria-hidden="true" data-on={playing ? "" : undefined} data-testid="backdrop-loop">
+      <div
+        ref={box}
+        className="gpb"
+        aria-hidden="true"
+        data-on={playing && (video.kind === "file" || settled) ? "" : undefined}
+        data-testid="backdrop-loop"
+      >
         {video.kind === "file" ? (
           <video
             ref={player}

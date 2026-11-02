@@ -41,8 +41,11 @@ export function DiscProgress({
   name,
   label,
   platLabel,
+  preview: canPreview = true,
   children,
 }: {
+  /** "Ver o disco platinado" toggle; off for a game without achievements (there is no platinum). */
+  preview?: boolean;
   pct: number;
   /** The visitor has 100%: the disc is platinum and there is no preview toggle. */
   platinum: boolean;
@@ -90,7 +93,7 @@ export function DiscProgress({
         />
       </div>
       {children}
-      {hydrated && !platinum ? (
+      {hydrated && !platinum && canPreview ? (
         <label className="gpp-toggle gp-veil" style={{ "--d": ".44s" } as CSSProperties}>
           <input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} />
           Ver o disco platinado

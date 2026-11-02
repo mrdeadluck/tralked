@@ -110,7 +110,8 @@ export function videoGameJsonLd(game: VideoGameInput): JsonLdObject {
 
 export type HowToInput = {
   game: { slug: string; name: string; summary: string | null };
-  facts: { hoursMin: number; hoursMax: number };
+  /** The guide's time to 100% (the same as the game page); null leaves totalTime out. */
+  facts: { timeTo100: { minutes: number } | null };
   overview: string[];
   steps: { order: number; title: string; body: string }[];
 };
@@ -124,7 +125,7 @@ export function howToJsonLd(guide: HowToInput): JsonLdObject {
     name: `Guia de conquistas 100%: ${guide.game.name}`,
     description: guide.overview[0] ?? guide.game.summary ?? undefined,
     url,
-    totalTime: guide.facts.hoursMax > 0 ? `PT${guide.facts.hoursMax}H` : undefined,
+    totalTime: guide.facts.timeTo100 ? `PT${Math.max(1, Math.round(guide.facts.timeTo100.minutes / 60))}H` : undefined,
     about: { "@type": "VideoGame", name: guide.game.name, url: absoluteUrl(`/jogos/${guide.game.slug}`) },
     step: guide.steps.map((step, i) => ({
       "@type": "HowToStep",

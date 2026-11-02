@@ -19,11 +19,6 @@ export function FamilyGameTile({ entry }: { entry: FamilyLibraryEntry }) {
             {game.name}
           </Link>
         </h3>
-        {game.stub ? (
-          <span>
-            <Chip plain>Detalhes em breve</Chip>
-          </span>
-        ) : null}
         <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Quem tem este jogo">
           {owners.map((owner) => (
             <li key={owner.handle}>
