@@ -2,6 +2,84 @@
 
 Resumo da sessão de 31/10 a 02/11 com o Lucas (dono da Ludai Labs): o que está no ar e o que ficou pendente. Branch de trabalho: `feat/plano-2-tralked`. A `main` é mantida igual a ela (fast-forward + push), e cada push na `main` publica o site na Vercel.
 
+## Atualização da manhã de 02/11 (sessão 2c1166af)
+
+Feitos e no ar os itens 01 a 19 da lista de pendências, além de uma rodada de melhorias de experiência guiada pela crítica Impeccable. O acompanhamento detalhado está em `.superpowers/sdd/2026-11-02-pendencias-01-19/progress.md`.
+
+**Itens 01 a 19:**
+- **Robô** (`ROBO NOTICIAS/`):
+  - `pnpm publica --fora-do-horario` (e `--ignorar-limite`);
+  - um log por tarefa, com a coleta às :20 e :50;
+  - imagens e trailer do IGDB pela rota `GET /api/v1/games/{slug}/media`;
+  - matérias de vídeo a partir de 16 canais oficiais do YouTube.
+- **Workers:**
+  - horários em minutos ímpares, sem sobreposição;
+  - erro completo no log (`describeError`);
+  - reconexão ao banco (`db-retry`);
+  - janelas menores. A tabela de CU-h fica no `app/README.md`, seção "Workers no GitHub Actions".
+- **Moderação:**
+  - "Editar", despublicar, mudar categoria e destaque direto na matéria;
+  - remover qualquer comentário, fixar comentário e trancar discussão;
+  - silenciar e banir com prazo;
+  - "Denunciar" em tudo, com fila e histórico em `/admin/moderacao`;
+  - novo papel "moderator".
+- **Respostas** em comentários (um nível), **curtidas e descurtidas com XP** (tabela `Reaction`) e **contador de visualizações** (`ArticleViewDaily`, "Mais visualizadas").
+- **"Verificar agora"** para Steam, PSN, Xbox e RA (código `TRK-XXXXXX` no perfil da plataforma) e **troféus por plataforma** na página do jogo e no perfil.
+- **Jogadores na Steam** (`steam-players.yml`, top 2.000, a cada 2 h) e **catálogo do RetroAchievements** (`retro-catalog.yml`, domingos):
+  - a primeira rodada leu 12.233 jogos;
+  - 3.799 foram ligados ao catálogo e 4.250 viraram stubs.
+- **Setup do jogador:** `/conta/setup`, com selos de 65 plataformas e a ficha do PC.
+
+**Migrations aplicadas no Neon** (backup antes em `C:\Users\luck_\tralked-backups\neon-before-pendencias-20261102-0618.dump`):
+- `20261104100000_moderation`
+- `20261104110000_engagement`
+- `20261104120000_platform_verify`
+- `20261104130000_catalog_players_ra`
+- `20261104140000_player_setup`
+- `20261105090000_reward_loop`
+
+**Crítica Impeccable** (`app/.impeccable/critique/2026-11-02T09-43-14Z__src-app.md`, nota 23/40) e as melhorias aplicadas:
+- **Números verdadeiros:** tiers por plataforma, uma única fonte para platinas e lendárias, e o tempo para 100% com a fonte rotulada.
+- **Capas:** cadeia de reserva sem "[ capa: … ]".
+- **Jogos sem conquistas:** estado honesto.
+- **Página do jogo:** card "Comunidade de <jogo>"; o guia ganhou a cara do encarte "Manual".
+- **Loop de recompensa:**
+  - toasts "+XP" globais, subida de nível e dica "+5 XP" antes de agir;
+  - XP abreviado e nível em %;
+  - notificações de nível, missão, sequência em risco, "te passou" e curtidas agrupadas;
+  - ranking "Esta semana" e "Novatos";
+  - página `/como-funciona`.
+- **Navegação:**
+  - menus Jogos e Comunidade;
+  - cabeçalho de uma linha no celular;
+  - filtros de `/jogos` num painel inferior;
+  - cadastro e login com personagem de exemplo;
+  - vitrine `/personagem`;
+  - passo a passo depois do cadastro;
+  - fim de matéria com "Próxima matéria" e "Mais visualizadas".
+- **Home:**
+  - faixa "Sua partida" para quem está logado;
+  - lançamentos e calendário por popularidade, com "Destaques da semana";
+  - "Em circulação" corrigido;
+  - vitrine "Mais raras".
+- **Desempenho:**
+  - `/galeria` caiu de 1,58 MB para 93 KB de HTML;
+  - imagens no tamanho exibido, com ~70% menos bytes;
+  - CLS zerado nas páginas medidas.
+- **Banco:** as 3 dicas falsas de seed do guia de Hollow Knight foram apagadas no Neon.
+
+**O que depende do Lucas:**
+1. Rodar `powershell -NoProfile -ExecutionPolicy Bypass -File "C:\projetos\Nova pasta\ROBO NOTICIAS\scripts\instalar-tarefas.ps1"` para instalar ou atualizar o agendador do robô, com os logs separados.
+2. Passar o link de convite do Discord, que vai em `NEXT_PUBLIC_DISCORD_INVITE_URL`. Até lá, o card mostra "Em breve".
+3. Decidir se comentar deve dar XP (hoje não dá, para evitar spam) e se os valores de XP das reações estão bons:
+   - quem reage ganha 5 XP;
+   - o autor ganha 10 XP por curtida;
+   - limites diários de 20 reações dadas e 50 curtidas recebidas.
+4. Opcional: limitar o autoscaling do Neon a 0,25–0,5 CU no console.
+5. Chaves de Resend e Google, que seguem pendentes.
+
+**Pendências antigas que continuam abertas:** os itens 20 a 25 da lista, isto é, Wolverine sem troféus, triagem por amostragem do robô e revisões, troféus de console sem dono, juntar jogos duplicados, F9 Social e Emulador.
+
 ## Como o Tralked roda hoje
 
 | Peça | Onde | Observações |
