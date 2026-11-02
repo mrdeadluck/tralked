@@ -39,7 +39,7 @@ body:has(.tkw) { overflow-x: clip; }
 .tkw-pause:hover { background: var(--acc); }
 .tkw-pause svg { width: 14px; height: 14px; }
 .tkw-nav { display: flex; gap: 6px; flex: none; }
-.tkw-btn { width: 36px; height: 36px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); border-radius: 2px; display: grid; place-items: center; cursor: pointer; }
+.tkw-btn { width: 44px; height: 44px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); border-radius: 2px; display: grid; place-items: center; cursor: pointer; }
 .tkw-btn:hover { border-color: var(--text); }
 .tkw-btn svg { width: 16px; height: 16px; }
 .tkw-focus { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

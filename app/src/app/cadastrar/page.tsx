@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { AuthColumns, GoogleButton, TEXT_LINK } from "@/components/auth/AuthPage";
+import { AuthColumns, AuthNotes, GoogleButton, TEXT_LINK } from "@/components/auth/AuthPage";
 import { SignupForm } from "@/components/auth/SignupForm";
 import { PageHead } from "@/components/community/PageHead";
+import { OnboardingSteps, SampleCharacterCard } from "@/components/onboarding/SampleCharacter";
 import { googleLoginEnabled } from "@/lib/auth/google";
 import { getSessionUser } from "@/lib/auth/session";
 
@@ -16,10 +17,10 @@ export const metadata: Metadata = {
 
 export default function CadastrarPage() {
   return (
-    <div className="mx-auto flex w-full max-w-[880px] flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-8">
       <PageHead
         title="Criar conta"
-        lede="Uma conta do Tralked junta as conquistas de todas as suas plataformas no mesmo personagem."
+        lede="Suas conquistas da Steam, do PlayStation e do Xbox viram um personagem só: nível, platinas e skills por gênero."
       />
       <Suspense fallback={<p className="font-mono text-xs text-dim">Carregando…</p>}>
         <CadastrarContent />
@@ -34,26 +35,22 @@ async function CadastrarContent() {
     <AuthColumns
       aside={
         <>
-          <p>
-            Já tem conta?{" "}
-            <Link href="/entrar" className={TEXT_LINK}>
-              Entre
-            </Link>
-            .
-          </p>
-          <p>
-            Depois de criar a conta, informe o seu perfil Steam (link, nome personalizado ou SteamID64)
-            e o Tralked importa biblioteca, conquistas e XP, sem senha e sem código. PlayStation, Xbox e
-            RetroAchievements funcionam do mesmo jeito.
-          </p>
-          <p>
-            Já usava o Tralked entrando pela Steam? Conecte a mesma Steam a esta conta nova: o Tralked
-            encontra o seu histórico e você continua de onde parou.
-          </p>
-          <p className="text-muted">
-            O Tralked nunca pede a senha da Steam, da PSN, do Xbox ou do Google. A única senha é a do
-            próprio Tralked.
-          </p>
+          <SampleCharacterCard />
+          <OnboardingSteps current={1} />
+          <AuthNotes>
+            <p>
+              Já tem conta?{" "}
+              <Link href="/entrar" className={TEXT_LINK}>
+                Entre
+              </Link>
+              . Já usava o Tralked entrando pela Steam? Conecte a mesma Steam a esta conta nova: o Tralked
+              encontra o seu histórico e você continua de onde parou.
+            </p>
+            <p className="text-muted">
+              O Tralked nunca pede a senha da Steam, da PSN, do Xbox ou do Google. A única senha é a do
+              próprio Tralked.
+            </p>
+          </AuthNotes>
         </>
       }
     >
@@ -62,7 +59,7 @@ async function CadastrarContent() {
         <div className="flex flex-col gap-3 border-t border-line pt-5">
           <p className="text-[13.5px] text-muted">Prefere não criar uma senha?</p>
           <div>
-            <GoogleButton returnTo="/conta/conexoes" label="Criar conta com o Google" />
+            <GoogleButton returnTo="/conta/conexoes?bemvindo=1" label="Criar conta com o Google" />
           </div>
         </div>
       ) : null}

@@ -1,6 +1,6 @@
 /**
- * Options of the "Jogos" menu (header mega-menu and the mobile drawer's sub-list): the catalog
- * filtered by platform, Steam / PC first. The values are the catalog's `plataforma` filters.
+ * Options of the "Jogos" menu (header disclosure and the mobile drawer): the catalog filtered by
+ * platform, Steam / PC first. The values are the catalog's `plataforma` filters.
  */
 export type GameMenuOption = { href: string; label: string; hint: string; color: string };
 
@@ -13,3 +13,36 @@ export const GAME_MENU_OPTIONS: GameMenuOption[] = [
 ];
 
 export const GAME_MENU_ALL = { href: "/jogos", label: "Todos os jogos" } as const;
+
+/** A link of a header menu: label, one line of hint, and the sections it marks as current. */
+export type MenuLink = {
+  href: string;
+  label: string;
+  hint: string;
+  /** Path prefixes that make this link (and its menu) the current section. */
+  match?: string[];
+};
+
+/** "Jogos": the catalog and the ways into it (releases, calendar, 100% guides). */
+export const GAMES_LINKS: MenuLink[] = [
+  { href: "/jogos", label: "Catálogo", hint: "Todos os jogos com conquistas", match: ["/jogos"] },
+  { href: "/lancamentos", label: "Lançamentos", hint: "O que saiu e o que vem aí", match: ["/lancamentos"] },
+  { href: "/calendario", label: "Calendário", hint: "Datas de lançamento mês a mês", match: ["/calendario"] },
+  { href: "/jogos?guia=1", label: "Guias 100%", hint: "Jogos com guia completo de conquistas" },
+];
+
+/** "Comunidade": where players talk, show and group up. */
+export const COMMUNITY_LINKS: MenuLink[] = [
+  { href: "/forum", label: "Fórum", hint: "Dúvidas, dicas e grupos", match: ["/forum"] },
+  { href: "/galeria", label: "Galeria", hint: "Capturas de tela da comunidade", match: ["/galeria"] },
+  { href: "/familia", label: "Família", hint: "Bibliotecas de quem joga com você", match: ["/familia"] },
+];
+
+/** True when `pathname` is `prefix` or a page under it. */
+export function underPath(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+export function menuIsCurrent(pathname: string, links: MenuLink[]): boolean {
+  return links.some((link) => link.match?.some((prefix) => underPath(pathname, prefix)));
+}

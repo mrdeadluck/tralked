@@ -59,7 +59,7 @@ export function ReportButton({ targetType, targetId, loggedIn, returnTo, what, p
         aria-controls={open ? formId : undefined}
         aria-label={`Denunciar ${what}`}
         onClick={() => setState(open ? { kind: "closed" } : { kind: "open" })}
-        className="inline-flex cursor-pointer items-center gap-1.5 rounded-[2px] font-mono text-xs tracking-[0.06em] text-dim uppercase hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
+        className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-[2px] font-mono text-xs tracking-[0.06em] text-dim uppercase hover:text-text disabled:cursor-not-allowed disabled:opacity-45 sm:min-h-6"
       >
         <FlagIcon width={13} height={13} /> Denunciar
       </button>

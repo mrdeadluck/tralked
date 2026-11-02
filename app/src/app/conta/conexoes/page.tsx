@@ -8,6 +8,7 @@ import { ServicesForm, type ServiceRow, type ServiceRowState } from "@/component
 import { SyncNow } from "@/components/account/SyncNow";
 import { formatAgo } from "@/components/character/format";
 import { PageHead } from "@/components/community/PageHead";
+import { SetupStepper } from "@/components/onboarding/SetupStepper";
 import { connectionState } from "@/lib/accounts/connection-state";
 import { getLinkedAccounts, type LinkedAccountView } from "@/lib/accounts/queries";
 import { verifyFailureMessage } from "@/lib/accounts/verify-messages";
@@ -68,6 +69,10 @@ async function ConexoesContent({ searchParams }: { searchParams: PageProps<"/con
   const accounts = await getLinkedAccounts(user.id, now);
   const byPlatform = new Map(accounts.map((a) => [a.platform, a]));
   const steamConnected = Boolean(byPlatform.get("steam")?.active);
+  const anyConnected = accounts.some((a) => a.active);
+  // Right after sign-up, and until the first platform is connected: the three steps promised on
+  // /cadastrar, with the account already done.
+  const showSteps = bemvindo === "1" || !anyConnected;
 
   // The Steam import's progress lives on the user (the cron and the character sheet share it).
   const view = (platform: LinkPlatform): LinkedAccountView | undefined => {
@@ -114,6 +119,9 @@ async function ConexoesContent({ searchParams }: { searchParams: PageProps<"/con
   return (
     <>
       <AccountNav current="/conta/conexoes" />
+      {showSteps ? (
+        <SetupStepper connected={anyConnected} sheetHref={`/jogador/${encodeURIComponent(user.handle)}`} />
+      ) : null}
       {historico === "1" ? (
         <p role="status" className={`${NOTICE} border-acc`}>
           <b>Encontramos o seu histórico do Tralked.</b> Você está na sua conta de antes, @{user.handle}, com o

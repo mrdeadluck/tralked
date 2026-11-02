@@ -842,3 +842,26 @@ export function withPressHeadlines(
 
 /** Label of a press area ("Entretenimento"), for headings. */
 export const pressAreaLabel = (area: PressArea) => NEWS_FEED_AREA_LABEL[area];
+
+/**
+ * "Próxima matéria" at the end of an article: the story published right before it (reading on,
+ * back in time), or the newest one when this is the oldest. Null with no other article.
+ */
+export async function getNextArticle(current: { id: string; publishedAt: Date }): Promise<ArticleCard | null> {
+  const order = [{ publishedAt: "desc" as const }, { id: "asc" as const }];
+  const older = await prisma.article.findFirst({
+    where: { ...PUBLISHED, id: { not: current.id }, publishedAt: { lt: current.publishedAt } },
+    orderBy: order,
+    select: cardSelect,
+  });
+  const row =
+    older ??
+    (await prisma.article.findFirst({
+      where: { ...PUBLISHED, id: { not: current.id } },
+      orderBy: order,
+      select: cardSelect,
+    }));
+  if (!row) return null;
+  const [card] = await withCompanyArt([toCard(row)]);
+  return card ?? null;
+}

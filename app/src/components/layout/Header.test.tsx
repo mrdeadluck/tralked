@@ -23,14 +23,10 @@ afterEach(() => {
 });
 
 const EXPECTED_LINKS = [
-  ["Notícias", "/"],
-  ["Jogos", "/jogos"],
-  ["Fórum", "/forum"],
-  ["Galeria", "/galeria"],
-  // Logged out, "Personagem" goes to the Tralked login, which comes back to the sheet.
-  ["Personagem", "/entrar?returnTo=%2Fjogador%2Fme"],
-  ["Highscores", "/highscores"],
-  ["Família", "/familia"],
+  ["Notícias", "/noticias"],
+  ["Ranking", "/highscores"],
+  // Logged out, "Personagem" is the character showcase, not a login wall.
+  ["Personagem", "/personagem"],
 ] as const;
 
 const USER = { handle: "@lucas", level: 47, role: "user" };
@@ -43,40 +39,48 @@ function mainNav() {
   return within(screen.getByRole("navigation", { name: "Seções" }));
 }
 
+const jogos = () => mainNav().getByRole("button", { name: /^Jogos/ });
+const comunidade = () => mainNav().getByRole("button", { name: /^Comunidade/ });
+const panelOf = (button: HTMLElement) => document.getElementById(button.getAttribute("aria-controls")!)!;
+
 describe("Header", () => {
-  it("renders the seven main links with their hrefs", () => {
+  it("renders Notícias, the Jogos and Comunidade menus, Ranking and Personagem", () => {
     render(<Header />);
     for (const [label, href] of EXPECTED_LINKS) {
-      expect(mainNav().getByRole("link", { name: label })).toHaveAttribute(
-        "href",
-        href,
-      );
+      expect(mainNav().getByRole("link", { name: label })).toHaveAttribute("href", href);
     }
-    expect(mainNav().getAllByRole("link")).toHaveLength(7);
+    // The menus are closed: only the three plain links are visible.
+    expect(mainNav().getAllByRole("link")).toHaveLength(3);
+    expect(jogos()).toHaveAttribute("aria-expanded", "false");
+    expect(comunidade()).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("marks only the link of the current route with aria-current=page", () => {
-    pathnameMock.value = "/jogos";
+  it("marks Notícias as the current page on /noticias and its articles", () => {
+    pathnameMock.value = "/noticias/uma-materia";
     render(<Header />);
-    expect(
-      mainNav().getByRole("link", { name: "Jogos" }),
-    ).toHaveAttribute("aria-current", "page");
-    for (const name of ["Notícias", "Fórum", "Galeria", "Personagem", "Highscores", "Família"]) {
-      expect(mainNav().getByRole("link", { name })).not.toHaveAttribute(
-        "aria-current",
-      );
+    expect(mainNav().getByRole("link", { name: "Notícias" })).toHaveAttribute("aria-current", "page");
+    for (const name of ["Ranking", "Personagem"]) {
+      expect(mainNav().getByRole("link", { name })).not.toHaveAttribute("aria-current");
     }
   });
 
-  it("keeps the parent section active on nested routes", () => {
-    pathnameMock.value = "/jogos/hollow-knight";
+  it("marks the Jogos menu as the current section on catalog, game, releases and calendar pages", () => {
+    for (const path of ["/jogos", "/jogos/hollow-knight", "/lancamentos", "/calendario/2026-11"]) {
+      pathnameMock.value = path;
+      const { unmount } = render(<Header />);
+      expect(jogos()).toHaveAccessibleName(/^Jogos ?\(seção atual\)$/);
+      expect(jogos()).toHaveAttribute("data-current", "true");
+      expect(comunidade()).not.toHaveAttribute("data-current");
+      expect(mainNav().getByRole("link", { name: "Notícias" })).not.toHaveAttribute("aria-current");
+      unmount();
+    }
+  });
+
+  it("marks the Comunidade menu on forum, gallery and family pages", () => {
+    pathnameMock.value = "/forum/ajuda";
     render(<Header />);
-    expect(
-      mainNav().getByRole("link", { name: "Jogos" }),
-    ).toHaveAttribute("aria-current", "page");
-    expect(
-      mainNav().getByRole("link", { name: "Notícias" }),
-    ).not.toHaveAttribute("aria-current");
+    expect(comunidade()).toHaveAttribute("data-current", "true");
+    expect(jogos()).not.toHaveAttribute("data-current");
   });
 
   it("offers an Entrar button to the Tralked login when there is no user (never Steam)", () => {
@@ -88,8 +92,34 @@ describe("Header", () => {
   });
 
   it("points Personagem at the user's own sheet when logged in", () => {
+    pathnameMock.value = "/jogador/%40lucas";
     render(<Header user={USER} />);
-    expect(mainNav().getByRole("link", { name: "Personagem" })).toHaveAttribute("href", "/jogador/%40lucas");
+    const link = mainNav().getByRole("link", { name: "Personagem" });
+    expect(link).toHaveAttribute("href", "/jogador/%40lucas");
+    expect(link).toHaveAttribute("aria-current", "page");
+  });
+
+  describe("phone search", () => {
+    it("is a button that opens the search field, focused, and Esc folds it away", () => {
+      render(<Header />);
+      const button = screen.getByRole("button", { name: "Buscar jogos" });
+      const sheet = document.getElementById(button.getAttribute("aria-controls")!)!;
+      expect(button).toHaveAttribute("aria-expanded", "false");
+      expect(sheet.className).toMatch(/max-nav:hidden/);
+      fireEvent.click(button);
+      expect(screen.getByRole("button", { name: "Fechar busca" })).toHaveAttribute("aria-expanded", "true");
+      expect(sheet.className).not.toMatch(/max-nav:hidden/);
+      const input = screen.getByRole("combobox", { name: "Buscar jogos" });
+      expect(input).toHaveFocus();
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.getByRole("button", { name: "Buscar jogos" })).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("is not offered on /jogos, which has its own catalog search", () => {
+      pathnameMock.value = "/jogos";
+      render(<Header />);
+      expect(screen.queryByRole("button", { name: "Buscar jogos" })).not.toBeInTheDocument();
+    });
   });
 
   it("shows the handle and level of the given user", () => {
@@ -117,6 +147,12 @@ describe("Header", () => {
   });
 
   describe("Jogos menu", () => {
+    const SECTIONS = [
+      ["Catálogo", "/jogos"],
+      ["Lançamentos", "/lancamentos"],
+      ["Calendário", "/calendario"],
+      ["Guias 100%", "/jogos?guia=1"],
+    ] as const;
     const PLATFORMS = [
       ["Steam / PC", "/jogos?plataforma=PC"],
       ["PlayStation", "/jogos?plataforma=PLAYSTATION"],
@@ -124,104 +160,136 @@ describe("Header", () => {
       ["Nintendo", "/jogos?plataforma=NINTENDO"],
       ["Retro", "/jogos?plataforma=RETRO"],
     ] as const;
-    const toggle = () => mainNav().getByRole("button", { name: "Jogos por plataforma" });
 
-    it("is a disclosure: closed by default, the button toggles it, Steam / PC first", () => {
+    it("is a disclosure: closed by default, a click toggles it, sections then platforms", () => {
       render(<Header />);
-      expect(toggle()).toHaveAttribute("aria-expanded", "false");
-      expect(mainNav().queryByRole("link", { name: /Steam \/ PC/ })).not.toBeInTheDocument();
-      fireEvent.click(toggle());
-      expect(toggle()).toHaveAttribute("aria-expanded", "true");
-      const panel = document.getElementById(toggle().getAttribute("aria-controls")!)!;
+      expect(mainNav().queryByRole("link", { name: /Catálogo/ })).not.toBeInTheDocument();
+      fireEvent.click(jogos());
+      expect(jogos()).toHaveAttribute("aria-expanded", "true");
+      const panel = panelOf(jogos());
       expect(panel).toBeVisible();
       const links = within(panel).getAllByRole("link");
-      expect(links.slice(0, 5).map((a) => [a.querySelector("b")?.textContent, a.getAttribute("href")])).toEqual(PLATFORMS);
-      expect(within(panel).getByRole("link", { name: /Todos os jogos/ })).toHaveAttribute("href", "/jogos");
-      fireEvent.click(toggle());
-      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      expect(links.map((a) => [a.querySelector("b")?.textContent, a.getAttribute("href")])).toEqual([
+        ...SECTIONS,
+        ...PLATFORMS,
+      ]);
+      fireEvent.click(jogos());
+      expect(jogos()).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("marks the current page inside the panel", () => {
+      pathnameMock.value = "/lancamentos";
+      render(<Header />);
+      fireEvent.click(jogos());
+      expect(within(panelOf(jogos())).getByRole("link", { name: /Lançamentos/ })).toHaveAttribute("aria-current", "page");
+      expect(within(panelOf(jogos())).getByRole("link", { name: /Catálogo/ })).not.toHaveAttribute("aria-current");
     });
 
     it("opens on mouse hover and closes shortly after the pointer leaves", () => {
       vi.useFakeTimers();
       try {
         render(<Header />);
-        const group = toggle().parentElement!;
+        const group = jogos().parentElement!;
         fireEvent.pointerEnter(group, { pointerType: "mouse" });
-        expect(toggle()).toHaveAttribute("aria-expanded", "true");
+        expect(jogos()).toHaveAttribute("aria-expanded", "true");
         fireEvent.pointerLeave(group, { pointerType: "mouse" });
         act(() => {
           vi.advanceTimersByTime(300);
         });
-        expect(toggle()).toHaveAttribute("aria-expanded", "false");
+        expect(jogos()).toHaveAttribute("aria-expanded", "false");
       } finally {
         vi.useRealTimers();
       }
     });
 
-    it("opens when the Jogos link gets keyboard focus, Esc closes it back to the button, leaving closes it", () => {
+    it("a click right after the hover opened it keeps it open (pins it)", () => {
+      render(<Header />);
+      fireEvent.pointerEnter(jogos().parentElement!, { pointerType: "mouse" });
+      fireEvent.click(jogos());
+      expect(jogos()).toHaveAttribute("aria-expanded", "true");
+      fireEvent.click(jogos());
+      expect(jogos()).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("keyboard: ArrowDown opens it on the first link, arrows walk the links, Esc returns to the button", () => {
       render(
         <>
           <Header />
           <button type="button">depois</button>
         </>,
       );
-      act(() => mainNav().getByRole("link", { name: "Jogos" }).focus());
-      expect(toggle()).toHaveAttribute("aria-expanded", "true");
-      fireEvent.keyDown(toggle(), { key: "Escape" });
-      expect(toggle()).toHaveAttribute("aria-expanded", "false");
-      expect(toggle()).toHaveFocus();
+      act(() => jogos().focus());
+      // Focus alone does not open it.
+      expect(jogos()).toHaveAttribute("aria-expanded", "false");
+      fireEvent.keyDown(jogos(), { key: "ArrowDown" });
+      expect(jogos()).toHaveAttribute("aria-expanded", "true");
+      const panel = within(panelOf(jogos()));
+      expect(panel.getByRole("link", { name: /Catálogo/ })).toHaveFocus();
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+      expect(panel.getByRole("link", { name: /Lançamentos/ })).toHaveFocus();
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+      expect(panel.getByRole("link", { name: /Retro/ })).toHaveFocus();
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+      expect(jogos()).toHaveAttribute("aria-expanded", "false");
+      expect(jogos()).toHaveFocus();
 
-      fireEvent.click(toggle());
-      fireEvent.blur(toggle(), { relatedTarget: screen.getByRole("button", { name: "depois" }) });
-      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(jogos());
+      fireEvent.blur(jogos(), { relatedTarget: screen.getByRole("button", { name: "depois" }) });
+      expect(jogos()).toHaveAttribute("aria-expanded", "false");
     });
 
-    it("touch: a tap outside closes it (no blur on iOS), and a tap that focuses the link does not open it", () => {
+    it("touch: a tap outside closes it (no blur on iOS)", () => {
       render(
         <>
           <Header />
           <p>fora</p>
         </>,
       );
-      fireEvent.click(toggle());
-      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+      fireEvent.click(jogos());
+      expect(jogos()).toHaveAttribute("aria-expanded", "true");
       fireEvent.pointerDown(screen.getByText("fora"));
-      expect(toggle()).toHaveAttribute("aria-expanded", "false");
-
-      // Android: pointerdown, then the emulated focus, then the click.
-      const link = mainNav().getByRole("link", { name: "Jogos" });
-      fireEvent.pointerDown(link, { pointerType: "touch" });
-      act(() => link.focus());
-      expect(toggle()).toHaveAttribute("aria-expanded", "false");
-      link.addEventListener("click", (e) => e.preventDefault(), { once: true });
-      fireEvent.click(link);
-      // The press is over: keyboard focus opens it again.
-      act(() => link.blur());
-      act(() => link.focus());
-      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+      expect(jogos()).toHaveAttribute("aria-expanded", "false");
     });
 
     it("Esc closes it from anywhere (focus stays where it was), and navigating closes it", () => {
       const { rerender } = render(<Header />);
-      fireEvent.click(toggle());
+      fireEvent.click(jogos());
       act(() => (document.activeElement as HTMLElement | null)?.blur());
       fireEvent.keyDown(document.body, { key: "Escape" });
-      expect(toggle()).toHaveAttribute("aria-expanded", "false");
-      expect(toggle()).not.toHaveFocus();
+      expect(jogos()).toHaveAttribute("aria-expanded", "false");
+      expect(jogos()).not.toHaveFocus();
 
-      fireEvent.click(toggle());
-      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+      fireEvent.click(jogos());
+      expect(jogos()).toHaveAttribute("aria-expanded", "true");
       pathnameMock.value = "/jogos";
       rerender(<Header />);
-      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      expect(jogos()).toHaveAttribute("aria-expanded", "false");
     });
 
-    it("the mobile drawer lists the same platforms under Jogos", () => {
+    it("Comunidade lists Fórum, Galeria and Família", () => {
+      render(<Header />);
+      fireEvent.click(comunidade());
+      const links = within(panelOf(comunidade())).getAllByRole("link");
+      expect(links.map((a) => [a.querySelector("b")?.textContent, a.getAttribute("href")])).toEqual([
+        ["Fórum", "/forum"],
+        ["Galeria", "/galeria"],
+        ["Família", "/familia"],
+      ]);
+    });
+
+    it("the mobile drawer has the same sections, the menus as groups, and Esc closes it", () => {
       render(<Header />);
       fireEvent.click(screen.getByRole("button", { name: "Abrir menu" }));
       const drawer = within(screen.getByRole("navigation", { name: "Menu" }));
       const list = within(drawer.getByRole("list", { name: "Jogos por plataforma" }));
       expect(list.getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")])).toEqual(PLATFORMS);
+      for (const [label, href] of [...SECTIONS, ["Fórum", "/forum"], ["Família", "/familia"], ["Ranking", "/highscores"], ["Personagem", "/personagem"]]) {
+        expect(drawer.getByRole("link", { name: label })).toHaveAttribute("href", href);
+      }
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(screen.getByRole("button", { name: "Abrir menu" })).toHaveAttribute("aria-expanded", "false");
+      expect(screen.getByRole("button", { name: "Abrir menu" })).toHaveFocus();
     });
   });
 

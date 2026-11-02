@@ -66,19 +66,14 @@ test.describe("smoke", () => {
     expect(errors).toEqual([]);
   });
 
-  test("header exposes the seven sections", async ({ page }) => {
+  test("header exposes the sections and the two menus", async ({ page }) => {
     await page.goto("/");
     const nav = page.getByRole("navigation", { name: "Seções" });
-    for (const label of [
-      "Notícias",
-      "Jogos",
-      "Fórum",
-      "Galeria",
-      "Personagem",
-      "Highscores",
-      "Família",
-    ]) {
+    for (const label of ["Notícias", "Ranking", "Personagem"]) {
       await expect(nav.getByRole("link", { name: label, exact: true })).toBeVisible();
+    }
+    for (const label of ["Jogos", "Comunidade"]) {
+      await expect(nav.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
   });
 

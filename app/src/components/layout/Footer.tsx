@@ -1,16 +1,18 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { SLOGAN } from "@/components/brand/slogan";
 import { GAME_MENU_OPTIONS } from "./game-menu";
 import { NavLink } from "./NavLink";
-import { Newsletter } from "./Newsletter";
+import { FooterNewsletter, Newsletter } from "./Newsletter";
 
 const COLUMNS = [
   {
     title: "Explorar",
     links: [
-      { href: "/", label: "Notícias" },
-      { href: "/jogos", label: "Jogos e guias" },
+      { href: "/noticias", label: "Notícias" },
+      { href: "/jogos", label: "Catálogo" },
+      { href: "/jogos?guia=1", label: "Guias 100%" },
       { href: "/lancamentos", label: "Lançamentos" },
       { href: "/calendario", label: "Calendário" },
       { href: "/jogador/me", label: "Personagem" },
@@ -25,7 +27,7 @@ const COLUMNS = [
     links: [
       { href: "/forum", label: "Fórum" },
       { href: "/galeria", label: "Galeria" },
-      { href: "/highscores", label: "Highscores" },
+      { href: "/highscores", label: "Ranking" },
       { href: "/familia", label: "Família" },
     ],
   },
@@ -44,23 +46,27 @@ export function Footer() {
   return (
     <footer className="border-t border-line bg-bg-deep">
       <div className="mx-auto flex max-w-[1320px] flex-col gap-12 px-5 pt-14 pb-8">
-        <Newsletter />
+        {/* The lime block only on the news pages; a single line everywhere else. usePathname can
+            suspend on dynamic routes, so the line stands in meanwhile. */}
+        <Suspense fallback={<Newsletter variant="line" />}>
+          <FooterNewsletter />
+        </Suspense>
 
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-8">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-x-6 gap-y-8 sm:gap-8">
           <div className="flex flex-col gap-2.5">
             <Logo size={34} />
             <p className="text-sm text-[#8a8d96]">{SLOGAN}</p>
           </div>
           {COLUMNS.map((column) => (
-            <div key={column.title} className="flex flex-col gap-2.5">
-              <span className="font-mono text-xs tracking-[0.14em] text-dim-2 uppercase">
+            <div key={column.title} className="flex flex-col sm:gap-2.5">
+              <span className="mb-1 font-mono text-xs tracking-[0.14em] text-dim-2 uppercase sm:mb-0">
                 {column.title}
               </span>
               {column.links.map((link) => (
                 <NavLink
                   key={link.href}
                   href={link.href}
-                  className="text-[14.5px] text-text-2 hover:text-acc"
+                  className="inline-flex min-h-11 items-center self-start text-[14.5px] text-text-2 transition-colors duration-150 hover:text-acc sm:min-h-0"
                 >
                   {link.label}
                 </NavLink>
@@ -75,7 +81,7 @@ export function Footer() {
             <span>Dados de jogos: Steam, IGDB, RAWG. Arte: Steam, SteamGridDB.</span>
           </div>
           <div className="flex gap-4">
-            <Link href="/privacidade#cookies" className="hover:text-acc">
+            <Link href="/privacidade#cookies" className="inline-flex min-h-11 items-center hover:text-acc sm:min-h-0">
               Cookies
             </Link>
           </div>

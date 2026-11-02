@@ -51,10 +51,12 @@ export function Logo({ size = 44 }: LogoProps) {
     // The monogram spans the whole text block: its top meets the top of TRALKED and its bottom the
     // bottom of the slogan (wordmark 20 + gap 7 + slogan 9.5 = 36.5 px), or of the wordmark alone when
     // the slogan is hidden (phones) or absent (footer).
-    <span className="flex flex-none items-start gap-3 text-text">
-      <Emblem className={full ? "h-[36.5px] max-[479px]:h-5" : "h-[18px]"} />
+    // Phones get a smaller lockup (monogram and wordmark 15 px tall), so the header keeps the search,
+    // account and menu buttons on the same single row.
+    <span className={`flex flex-none items-start text-text ${full ? "gap-3 max-[479px]:gap-2" : "gap-3"}`}>
+      <Emblem className={full ? "h-[36.5px] max-[479px]:h-[15px]" : "h-[18px]"} />
       <span className="flex flex-col gap-[7px]">
-        <Wordmark height={full ? 20 : 18} label="Tralked" />
+        <Wordmark height={full ? 20 : 18} label="Tralked" className={full ? "max-[479px]:h-[15px] max-[479px]:w-auto" : ""} />
         {full ? (
           // On narrow phones the tagline would push the account and menu buttons to a second row.
           <span className="font-mono text-xs leading-none tracking-[0.12em] text-dim uppercase max-[479px]:hidden">

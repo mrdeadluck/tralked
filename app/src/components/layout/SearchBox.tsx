@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SearchIcon } from "./icons";
 import {
   useEffect,
   useId,
@@ -15,11 +16,15 @@ export type SearchSuggestion = { text: string; href: string };
 type SearchBoxProps = {
   /** Itens do grupo "EM ALTA". Vazio: o painel não aparece. */
   suggestions?: SearchSuggestion[];
+  /** Id of the field (the header focuses it when the phone search opens). */
+  inputId?: string;
+  /** Esc with nothing left to close: the header folds the phone search away. */
+  onDismiss?: () => void;
 };
 
 const NO_SUGGESTIONS: SearchSuggestion[] = [];
 
-export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
+export function SearchBox({ suggestions = NO_SUGGESTIONS, inputId, onDismiss }: SearchBoxProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   // Evita reabrir o painel quando o Escape devolve o foco ao input.
@@ -81,6 +86,7 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
         }
       } else {
         inputRef.current?.blur();
+        onDismiss?.();
       }
       return;
     }
@@ -117,14 +123,13 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
       onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
-      className="relative min-w-0 flex-[1_1_120px] max-nav:order-5 max-nav:basis-full"
+      className="relative min-w-0"
     >
-      <label className="flex h-[42px] items-center gap-2.5 rounded-[2px] border border-[#23252c] bg-surface-2 px-3.5 text-dim-2 focus-within:border-acc">
-        <span aria-hidden="true" className="font-mono">
-          ⌕
-        </span>
+      <label className="flex h-11 items-center gap-2.5 rounded-[2px] border border-[#23252c] bg-surface-2 px-3.5 text-dim-2 transition-colors duration-150 focus-within:border-acc nav:h-[42px]">
+        <SearchIcon width={16} height={16} />
         <input
           ref={inputRef}
+          id={inputId}
           type="search"
           name="q"
           role="combobox"
@@ -140,11 +145,11 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
           autoComplete="off"
           placeholder="Buscar jogos"
           aria-label="Buscar jogos"
-          className="min-w-0 flex-1 border-0 bg-transparent text-sm text-text outline-0"
+          className="min-w-0 flex-1 border-0 bg-transparent text-base text-text outline-0 nav:text-sm"
         />
         <span
           aria-hidden="true"
-          className="rounded-[2px] border border-line-2 px-1.5 py-0.5 font-mono text-xs"
+          className="rounded-[2px] border border-line-2 px-1.5 py-0.5 font-mono text-xs max-nav:hidden"
         >
           /
         </span>
@@ -180,7 +185,7 @@ export function SearchBox({ suggestions = NO_SUGGESTIONS }: SearchBoxProps) {
                     setValue(item.text);
                     setOpen(false);
                   }}
-                  className="rounded-[2px] px-2 py-[9px] text-sm hover:bg-hover-2 hover:text-acc focus-visible:bg-hover-2 focus-visible:text-acc"
+                  className="flex min-h-11 items-center rounded-[2px] px-2 text-sm nav:min-h-0 nav:py-[9px] hover:bg-hover-2 hover:text-acc focus-visible:bg-hover-2 focus-visible:text-acc"
                 >
                   {item.text}
                 </Link>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 export type LinkChip = {
   id: string;
@@ -18,13 +18,15 @@ type LinkChipsProps = {
   caption?: string;
   options: LinkChip[];
   current: string;
+  /** Rendered after the chips, inside the group (e.g. a "Mais" toggle). */
+  trailing?: ReactNode;
 };
 
 /**
  * Filter/sort chips as plain links (same look as FilterChips): the choice lives in the URL, so
  * lists can be linked and filtered without JavaScript.
  */
-export function LinkChips({ label, caption, options, current }: LinkChipsProps) {
+export function LinkChips({ label, caption, options, current, trailing }: LinkChipsProps) {
   return (
     <div role="group" aria-label={label} className="flex flex-wrap items-center gap-1.5">
       {caption ? (
@@ -42,7 +44,7 @@ export function LinkChips({ label, caption, options, current }: LinkChipsProps) 
             style={style}
             aria-current={active ? "true" : undefined}
             scroll={false}
-            className={`inline-flex h-[34px] items-center gap-[7px] rounded-[2px] border px-3 font-mono text-xs tracking-[0.08em] uppercase ${
+            className={`inline-flex h-11 items-center gap-[7px] rounded-[2px] border px-3 font-mono transition-colors duration-150 sm:h-[34px] text-xs tracking-[0.08em] uppercase ${
               option.color ? "before:size-1.5 before:bg-(--c) before:content-['']" : ""
             } ${active ? "border-text bg-text text-bg" : "border-line-2 text-text-3 hover:border-dim hover:text-text"}`}
           >
@@ -53,6 +55,7 @@ export function LinkChips({ label, caption, options, current }: LinkChipsProps) 
           </Link>
         );
       })}
+      {trailing}
     </div>
   );
 }

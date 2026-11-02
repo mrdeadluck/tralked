@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { CatalogFilters } from "@/components/catalog/CatalogFilters";
 import { loginHref } from "@/components/guide/format";
 import { GAME_MENU_OPTIONS } from "@/components/layout/game-menu";
 import { CaseItem, CaseShelf } from "@/components/shelf/CaseShelf";
-import { LinkChips } from "@/components/ui/LinkChips";
 import { ListSearch } from "@/components/ui/ListSearch";
 import { Pagination } from "@/components/ui/Pagination";
 import { SectionHead } from "@/components/ui/SectionHead";
@@ -113,7 +113,7 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
           </span>
         }
       />
-      <div className="flex flex-col gap-4 pt-5 pb-6">
+      <div className="flex flex-col gap-4 pt-5 pb-5 md:pb-6">
         <ListSearch
           basePath={BASE}
           params={kept}
@@ -121,9 +121,15 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
           label="Buscar jogo pelo nome"
           placeholder="Ex.: hollow knight, pokémon, baldur's gate"
         />
-        <LinkChips label="Filtrar jogos" options={categoryChips} current={category} />
-        <LinkChips label="Filtrar por plataforma" caption="Plataforma" options={platformChips} current={platform ?? "todas"} />
-        <LinkChips label="Ordenar jogos" caption="Ordenar" options={sortChips} current={sort} />
+        <CatalogFilters
+          categories={{ options: categoryChips, current: category }}
+          leading={3}
+          platforms={{ options: platformChips, current: platform ?? "todas" }}
+          sorts={{ options: sortChips, current: sort }}
+          activeCount={(category === "todos" ? 0 : 1) + (platform ? 1 : 0)}
+          total={total}
+          clearHref={link({ ...noFilter, plataforma: undefined })}
+        />
       </div>
 
       <p className="mb-3.5 font-mono text-xs tracking-[0.06em] text-dim" aria-live="polite">

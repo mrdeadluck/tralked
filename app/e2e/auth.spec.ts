@@ -70,10 +70,10 @@ async function logout(page: Page, handle: string) {
 }
 
 test.describe("Tralked account", () => {
-  test("a visitor's Personagem goes to /entrar, never to Steam", async ({ page }) => {
+  test("a visitor's Personagem is the showcase (with the way in), never Steam", async ({ page }) => {
     await page.goto("/jogador/me");
-    await expect(page).toHaveURL(/\/entrar\?returnTo=%2Fjogador%2Fme$/);
-    await expect(page.getByRole("heading", { level: 1, name: "Entrar" })).toBeVisible();
+    await expect(page).toHaveURL(/\/personagem$/);
+    await expect(page.getByRole("link", { name: "Já tenho conta" })).toHaveAttribute("href", "/entrar?returnTo=%2Fjogador%2Fme");
     const header = page.getByRole("banner");
     await expect(header.getByRole("link", { name: "Entrar" })).toHaveAttribute("href", "/entrar?returnTo=%2Fjogador%2Fme");
     await expect(page.locator('a[href*="/api/auth/steam"]')).toHaveCount(0);

@@ -106,7 +106,7 @@ export function NotificationBell({ unread: serverUnread, items: serverItems }: B
         aria-controls={panelId}
         aria-label={label}
         onClick={() => setOpen((value) => !value)}
-        className="relative grid size-10 cursor-pointer place-items-center rounded-[2px] border border-line-2 bg-surface-2 text-text-3 hover:border-acc hover:text-text"
+        className="relative grid size-11 cursor-pointer place-items-center rounded-[2px] border border-line-2 bg-surface-2 text-text-3 hover:border-acc hover:text-text"
       >
         <BellIcon />
         {unread > 0 ? (
