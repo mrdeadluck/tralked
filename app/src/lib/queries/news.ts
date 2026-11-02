@@ -190,6 +190,25 @@ export type GameRow = {
   media: { url: string | null; kind: string; width?: number | null; height?: number | null }[];
 };
 
+/** One image under two URLs: an IGDB size token or a Steam `?t=` version does not make it another. */
+function imageKey(url: string): string {
+  const igdb = url.match(/images\.igdb\.com\/igdb\/image\/upload\/t_[a-z0-9_]+\/([A-Za-z0-9]+)\./);
+  return igdb ? `igdb:${igdb[1]}` : url.replace(/[?#].*$/, "");
+}
+
+/**
+ * Art for a card whose article opens with `firstImageUrl`: the game's images when that picture is
+ * one of them (the robot inserts the catalog's art after the lede), so the card still picks by its
+ * shape; null when the article brings a picture of its own (shown as it is).
+ */
+export function cardArt(games: GameRow[], firstImageUrl: string | null): ArtAsset[] | null {
+  const art = gamesArt(games);
+  if (!firstImageUrl || !art) return art;
+  const key = imageKey(firstImageUrl);
+  const all = games.flatMap((g) => [g.coverUrl, g.heroUrl, ...g.media.map((m) => m.url)]);
+  return all.some((url) => url && imageKey(url) === key) ? art : null;
+}
+
 /** The images of the first related game that has any (lib/art/frame), or null. */
 export function gamesArt(games: GameRow[]): ArtAsset[] | null {
   for (const g of games) {
@@ -293,7 +312,7 @@ function toCard(row: CardRow): ArticleCard {
       null,
     wideImageUrl:
       (firstImage?.type === "image" ? firstImage.url : null) ?? gameScene(games, row.slug, undefined, { wideOnly: true }),
-    art: firstImage ? null : gamesArt(games),
+    art: cardArt(games, firstImage?.type === "image" ? firstImage.url : null),
     authorHandle: row.author.handle,
     authorLabel: authorLabel(row.source, row.author.handle),
     bot: row.source === "bot",
