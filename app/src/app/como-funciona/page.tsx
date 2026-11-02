@@ -32,7 +32,16 @@ const range = (values: number[]) =>
 const dailyXp = DAILY_TEMPLATES.map((t) => t.rewardXp);
 const weeklyXp = WEEKLY_TEMPLATES.map((t) => t.rewardXp);
 
-type Source = { icon: string; name: string; text: ReactNode; xp: string; note?: string; color?: string };
+type Source = {
+  icon: string;
+  name: string;
+  text: ReactNode;
+  /** The value shown big: "+50 XP", "+10%". */
+  xp: string;
+  /** Small word before it: "até", "desde". */
+  prefix?: string;
+  note?: string;
+};
 
 const PLAY: Source[] = [
   {
@@ -44,7 +53,8 @@ const PLAY: Source[] = [
         (10%), {xpAt(10)}; uma lendária (1%), {xpAt(1)}.
       </>
     ),
-    xp: `${xpAt(100)} a ${xpAt(0)}`,
+    prefix: "até",
+    xp: `+${xpAt(0)} XP`,
     note: "por conquista",
   },
   {
@@ -52,7 +62,7 @@ const PLAY: Source[] = [
     name: "Platina e 100%",
     text: "Completou o jogo? Ganha um bônus de 10% de todo o XP das conquistas dele.",
     xp: "+10%",
-    note: "do jogo",
+    note: "do XP do jogo",
   },
   {
     icon: "sync",
@@ -64,14 +74,16 @@ const PLAY: Source[] = [
         {PLAYTIME_NEW_GAMES_PER_DAY} jogos novos por dia e {PLAYTIME_MAX_GAMES} no total.
       </>
     ),
-    xp: `${formatCompact(playtimeXp(PLAYTIME_MIN_PAID_H * 60))}+`,
+    prefix: "desde",
+    xp: `+${formatCompact(playtimeXp(PLAYTIME_MIN_PAID_H * 60))} XP`,
     note: "por jogo",
   },
   {
     icon: "mission",
     name: "Missões",
     text: `${DAILY_TEMPLATES.length} missões por dia e ${WEEKLY_TEMPLATES.length} por semana, pensadas para os gêneros que você mais joga.`,
-    xp: range([...dailyXp, ...weeklyXp]),
+    prefix: "até",
+    xp: `+${formatCompact(Math.max(...dailyXp, ...weeklyXp))} XP`,
     note: "por missão",
   },
 ];
@@ -81,31 +93,31 @@ const COMMUNITY: Source[] = [
     icon: "photo",
     name: "Foto na galeria",
     text: `Uma captura sua, marcada com o jogo. Vale para até ${PHOTO_XP_DAILY_CAP} fotos por dia.`,
-    xp: `${PHOTO_XP}`,
+    xp: `+${PHOTO_XP} XP`,
   },
   {
     icon: "sabio",
     name: "Resposta que resolveu",
     text: "Quem abriu o tópico no fórum marcou a sua resposta como a que resolveu. Vai para Sábio.",
-    xp: `${FORUM_SOLVED_XP}`,
+    xp: `+${FORUM_SOLVED_XP} XP`,
   },
   {
     icon: "sabio",
     name: "Dica útil no guia",
     text: "Cada pessoa que vota na sua dica como útil. Também vai para Sábio.",
-    xp: `${TIP_VOTE_XP}`,
+    xp: `+${TIP_VOTE_XP} XP`,
   },
   {
     icon: "like",
     name: "Receber uma curtida",
     text: `Alguém curtiu seu comentário, foto, notícia ou guia. Até ${REACTION_RECEIVED_DAILY_CAP} por dia.`,
-    xp: `${REACTION_RECEIVED_XP}`,
+    xp: `+${REACTION_RECEIVED_XP} XP`,
   },
   {
     icon: "like",
     name: "Reagir",
     text: `Curtir ou não curtir algo dos outros. Uma vez por item, até ${REACTION_GIVEN_DAILY_CAP} por dia.`,
-    xp: `${REACTION_GIVEN_XP}`,
+    xp: `+${REACTION_GIVEN_XP} XP`,
   },
 ];
 
@@ -176,7 +188,7 @@ export default function ComoFuncionaPage() {
               // Square root scale: the early levels stay visible next to level 150.
               const width = Math.max(3, Math.sqrt(xp / maxLadder) * 100);
               return (
-                <li key={level} className="grid grid-cols-[72px_minmax(0,1fr)_76px] items-center gap-3">
+                <li key={level} className="grid grid-cols-[72px_minmax(0,1fr)_92px] items-center gap-3">
                   <span className="font-mono text-xs text-dim">
                     Nível <b className="text-[15px] font-black text-text tabular-nums">{level}</b>
                   </span>
@@ -216,6 +228,9 @@ export default function ComoFuncionaPage() {
               <span className="text-[15px] font-bold">{skill.name}</span>
             </li>
           ))}
+          <li className="flex items-center bg-surface px-4 py-3.5 text-[13.5px] text-muted">
+            A vocação vem das mais treinadas.
+          </li>
         </ul>
       </Section>
 
@@ -291,7 +306,7 @@ function LootTable({ caption, sources }: { caption: string; sources: Source[] })
         {sources.map((source) => (
           <li
             key={source.name}
-            className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-start gap-x-3.5 border-b border-divider px-5 py-4 last:border-b-0"
+            className="grid grid-cols-[40px_minmax(0,1fr)] items-start gap-x-3.5 gap-y-2 min-[480px]:grid-cols-[40px_minmax(0,1fr)_auto] border-b border-divider px-5 py-4 last:border-b-0"
           >
             <span
               aria-hidden="true"
@@ -303,11 +318,9 @@ function LootTable({ caption, sources }: { caption: string; sources: Source[] })
               <b className="text-[15.5px] font-bold">{source.name}</b>
               <span className="text-[14px] text-muted">{source.text}</span>
             </span>
-            <span className="flex flex-col items-end gap-0.5 pt-0.5 text-right">
-              <b className="font-mono text-[15px] font-bold whitespace-nowrap text-acc tabular-nums">
-                {source.xp.startsWith("+") ? source.xp : `+${source.xp}`}
-                {source.xp.endsWith("%") ? null : <span className="text-xs"> XP</span>}
-              </b>
+            <span className="col-start-2 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 min-[480px]:col-start-auto min-[480px]:flex-col min-[480px]:flex-nowrap min-[480px]:items-end min-[480px]:pt-0.5 min-[480px]:text-right">
+              {source.prefix ? <small className="font-mono text-xs text-dim">{source.prefix}</small> : null}
+              <b className="font-mono text-[15px] font-bold whitespace-nowrap text-acc tabular-nums">{source.xp}</b>
               {source.note ? <small className="font-mono text-xs text-dim">{source.note}</small> : null}
             </span>
           </li>

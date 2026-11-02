@@ -29,7 +29,7 @@ export function YouAreHere({
   if (!viewer) {
     return (
       <Bar>
-        <p className="text-sm text-text-2">Entre para ver a sua posição em cada ranking.</p>
+        <p className="text-sm text-text-2">Entre para ver a sua posição e disputar o pódio.</p>
         <Action href="/entrar">Entrar</Action>
       </Bar>
     );

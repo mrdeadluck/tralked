@@ -138,7 +138,10 @@
     min-height: 72px;
     align-items: center;
     border-top: 0;
-    border-left: 4px solid var(--medal);
+    /* Stacked: the step becomes a medal-lit block beside the player (no edge stripe). */
+    background:
+      linear-gradient(90deg, color-mix(in oklab, var(--medal) 26%, transparent), color-mix(in oklab, var(--medal) 8%, transparent)),
+      var(--surface);
     transform-origin: left;
     animation-name: hs-rise-x;
   }

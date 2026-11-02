@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import type { LevelChange } from "@/lib/progression/reward";
 import { LevelUpOverlay } from "./LevelUpOverlay";
@@ -15,9 +16,14 @@ const LEVEL_UP_DELAY_MS = 700;
  * happens, and nothing at all without JS.
  */
 export function RewardHost() {
+  const router = useRouter();
   const { toasts, push, dismiss } = useToasts();
   const [levelUp, setLevelUp] = useState<LevelChange | null>(null);
-  const close = useCallback(() => setLevelUp(null), []);
+  const close = useCallback(() => {
+    setLevelUp(null);
+    // The header's "NV" and the bell (a new level_up notification) catch up with the new level.
+    router.refresh();
+  }, [router]);
 
   useEffect(() => {
     const timers = new Set<ReturnType<typeof setTimeout>>();
