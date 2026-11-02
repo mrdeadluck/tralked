@@ -6,7 +6,6 @@ import { DailyQuestCard } from "@/components/news/DailyQuestCard";
 import { DiscordCard } from "@/components/news/DiscordCard";
 import { EditorialCard } from "@/components/news/EditorialCard";
 import { HeroMain } from "@/components/news/HeroMain";
-import { HeroSide } from "@/components/news/HeroSide";
 import { NewsTabs } from "@/components/news/NewsTabs";
 import { NewsWire } from "@/components/news/NewsWire";
 import type { ArticleView } from "@/components/news/ArticleTags";
@@ -19,7 +18,6 @@ import {
   buildWireItems,
   getWireHeadlines,
   getHomeNews,
-  getLatestArticles,
   getMostRead,
   getPressHeadlines,
   getTodayMission,
@@ -32,67 +30,62 @@ import { getReleasesCard, RELEASES_TAG } from "@/lib/queries/releases";
 import { ReleasesCard } from "@/components/releases/ReleasesCard";
 import { timeAgo } from "@/lib/time-ago";
 
-/** "Em circulação": latest articles and external headlines, cached. */
+/** Stories of the "Últimas" tab the panel shows: the lead, two secondary and eight more. */
+const LATEST_SHOWN = 11;
+
+/**
+ * The headline and the latest news, cached. One headline only, and no story repeats: "Últimas"
+ * leaves out the headline, and "Mais lidas" leaves out everything already on screen.
+ */
+async function NewsSection() {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(NEWS_TAG);
+
+  const [{ hero, latest }, mostRead, press] = await Promise.all([getHomeNews(), getMostRead(20), getPressHeadlines(6)]);
+  const now = new Date();
+  const view = (a: ArticleCard): ArticleView => ({ ...a, timeAgo: timeAgo(a.publishedAt, now) });
+  const shown = new Set([hero?.id, ...latest.slice(0, LATEST_SHOWN).map((a) => a.id)]);
+  const unseenMostRead = mostRead.filter((a) => !shown.has(a.id)).slice(0, 5);
+  return (
+    <div key="news" className="flex min-w-0 flex-[1_1_600px] flex-col gap-12">
+      {hero ? (
+        <section aria-label="Manchete" className="flex">
+          <HeroMain article={view(hero)} />
+        </section>
+      ) : null}
+      <section aria-label="Últimas notícias" className="flex min-w-0 flex-col gap-1">
+        <SectionHead title="Últimas notícias" aside={<Link href="/noticias">Todas as notícias →</Link>} />
+        {latest.length > 0 ? (
+          <NewsTabs
+            tabs={withPressHeadlines(buildNewsTabs(latest, now), press, now)}
+            mostRead={unseenMostRead.map((a) => articleStory(a, now))}
+          />
+        ) : hero ? null : (
+          <p className="py-6 text-[15px] text-muted">Nenhuma notícia publicada ainda.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/** "Em circulação": only the press's headlines, since the newsroom's stories are already above. */
 async function WireSection() {
   "use cache";
   cacheLife("minutes");
   cacheTag(NEWS_TAG);
 
-  const [articles, external] = await Promise.all([getLatestArticles(10), getWireHeadlines(6)]);
-  const items = buildWireItems(articles, external, new Date());
+  const items = buildWireItems([], await getWireHeadlines(10), new Date());
+  if (items.length === 0) return null;
   return (
     <NewsWire
       // A cached component's root is replayed inside the page's children: keyed, so development
       // React does not report it as a keyless list item.
       key="wire"
       items={items}
-      description="Da redação e da imprensa de games, atualizado a cada hora"
-      label="Notícias em movimento"
+      description="Manchetes da imprensa de games, atualizadas a cada hora"
+      label="Na imprensa"
     />
-  );
-}
-
-/** Main and side highlights, cached. */
-async function HighlightsSection() {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag(NEWS_TAG);
-
-  const { hero, side } = await getHomeNews();
-  if (!hero) return null;
-  const now = new Date();
-  const view = (a: ArticleCard): ArticleView => ({ ...a, timeAgo: timeAgo(a.publishedAt, now) });
-  return (
-    <section aria-label="Destaques" className="flex flex-wrap gap-3">
-      <HeroMain article={view(hero)} />
-      {side.length > 0 ? (
-        <div className="grid flex-[1_1_520px] grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
-          {side.map((article) => (
-            <HeroSide key={article.slug} article={view(article)} />
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-/** "Últimas notícias" tabs and "Mais lidas", cached. */
-async function LatestSection() {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag(NEWS_TAG);
-
-  const [{ latest }, mostRead, press] = await Promise.all([getHomeNews(), getMostRead(5), getPressHeadlines(6)]);
-  const now = new Date();
-  return (
-    <section aria-label="Últimas notícias" className="flex min-w-0 flex-col gap-1">
-      <SectionHead title="Últimas notícias" aside={<Link href="/noticias">Todas as notícias →</Link>} />
-      {latest.length > 0 ? (
-        <NewsTabs tabs={withPressHeadlines(buildNewsTabs(latest, now), press, now)} mostRead={mostRead.map((a) => articleStory(a, now))} />
-      ) : (
-        <p className="py-6 text-[15px] text-muted">Nenhuma notícia publicada ainda.</p>
-      )}
-    </section>
   );
 }
 
@@ -118,6 +111,21 @@ async function RankingSection() {
   return <CommunityRanking players={await getTopPlayers(5)} />;
 }
 
+/** Below the ranking: the way in is connecting a Steam account. */
+function SteamInvite() {
+  return (
+    <div className="rounded-[4px] border border-dashed border-line-2 p-4 text-[14px] text-muted">
+      <p>Conecte sua Steam e entre no ranking da comunidade.</p>
+      <Link
+        href="/conta/conexoes"
+        className="mt-3 inline-flex min-h-11 items-center rounded-[4px] bg-acc px-[18px] text-[14px] font-extrabold text-bg"
+      >
+        Conectar a Steam
+      </Link>
+    </div>
+  );
+}
+
 /** Depends on the session cookie, so it renders at request time. */
 async function QuestSection() {
   const user = await getSessionUser();
@@ -128,33 +136,32 @@ async function QuestSection() {
 const sidebarFallback = <Card className="h-40" aria-hidden="true" />;
 
 /*
- * The wire and the news are cached, so they render in the static shell itself, outside any
+ * The news and the wire are cached, so they render in the static shell itself, outside any
  * <Suspense>: a boundary that resolves after the shell is streamed as a hidden <div> that only a
  * script reveals, which would leave the home empty without JavaScript (and for crawlers that do
- * not run it). Only the per-visitor sidebar cards stream behind their own boundaries. No JSX is
- * passed into a cached component (React would re-validate it as a keyless list in development).
+ * not run it). Only the per-visitor quest card streams behind its own boundary. No JSX is passed
+ * into a cached component (React would re-validate it as a keyless list in development).
  */
 export default function Home() {
   return (
     <div className="flex flex-col gap-12">
-      <HighlightsSection />
       <div className="flex flex-wrap items-start gap-12">
-        {/* The latest news fill the left column; the sidebar (releases first) keeps the right one. */}
-        <div className="flex min-w-0 flex-[1_1_600px] flex-col gap-12">
-          <LatestSection />
-        </div>
+        {/* One headline and the news on the left; only releases and the ranking on the right. */}
+        <NewsSection />
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
-          {/* Releases sit at the top of the sidebar, above the Discord card. */}
           <ReleasesSection />
-          <DiscordCard />
-          <Suspense fallback={sidebarFallback}>
-            <QuestSection />
-          </Suspense>
           <RankingSection />
-          <EditorialCard />
+          <SteamInvite />
         </aside>
       </div>
       <WireSection />
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] items-start gap-5">
+        <DiscordCard />
+        <Suspense fallback={sidebarFallback}>
+          <QuestSection />
+        </Suspense>
+        <EditorialCard />
+      </div>
     </div>
   );
 }

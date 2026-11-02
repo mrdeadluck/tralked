@@ -189,21 +189,23 @@ function Panel({ tab, mostRead, mostReadTitle }: { tab: NewsTab; mostRead: Story
           ))}
         </ul>
       ) : null}
-      <div className="tkt-most" style={delay(3)}>
-        <h3>{mostReadTitle}</h3>
-        <ol>
-          {mostRead.map((story) => (
-            <li key={story.id}>
-              <span>
-                <StoryLink story={story}>{story.title}</StoryLink>
-                <small>
-                  {story.kicker} · {story.when}
-                </small>
-              </span>
-            </li>
-          ))}
-        </ol>
-      </div>
+      {mostRead.length > 0 ? (
+        <div className="tkt-most" style={delay(3)}>
+          <h3>{mostReadTitle}</h3>
+          <ol>
+            {mostRead.map((story) => (
+              <li key={story.id}>
+                <span>
+                  <StoryLink story={story}>{story.title}</StoryLink>
+                  <small>
+                    {story.kicker} · {story.when}
+                  </small>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
       {tab.moreHref ? (
         <Link href={tab.moreHref} className="tkt-more" style={delay(4)}>
           Ver todas{tab.id === "ultimas" ? "" : ` em ${tab.label}`} →

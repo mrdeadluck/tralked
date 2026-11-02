@@ -3,29 +3,26 @@ import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { Suspense } from "react";
 import { GameArt } from "@/components/art/GameArt";
-import { NewsTabs } from "@/components/news/NewsTabs";
+import { HeroMain } from "@/components/news/HeroMain";
 import { NewsWire } from "@/components/news/NewsWire";
 import { SectionHead } from "@/components/ui/SectionHead";
 import {
   articleStory,
-  buildNewsTabs,
   buildWireItems,
   CATEGORIES,
   categoryFromSlug,
   getWireHeadlines,
   getLatestArticles,
-  getMostRead,
   getNewsIndex,
   getAreaHeadlines,
-  getPressHeadlines,
   headlineStory,
   isPressArea,
   NEWS_TAG,
   pressAreaLabel,
-  withPressHeadlines,
   type ArticleCategory,
   type PressArea,
 } from "@/lib/queries/news";
+import { timeAgo } from "@/lib/time-ago";
 
 export const metadata: Metadata = {
   title: "Notícias | Tralked",
@@ -34,31 +31,42 @@ export const metadata: Metadata = {
 
 const PAGE_SIZE = 20;
 
-/** Wire and category tabs: public and the same for everyone, so cached into the static shell. */
+/** The page's single headline: the newest article, cached. */
+async function loadHeadline() {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(NEWS_TAG);
+  const [article] = await getLatestArticles(1);
+  if (!article) return null;
+  return { ...article, timeAgo: timeAgo(article.publishedAt, new Date()) };
+}
+
+/**
+ * One headline, then the press's headlines in the wire. The newsroom's stories live only in the
+ * archive below (which leaves the headline out), so no story shows twice on the page.
+ */
 async function FrontSection() {
   "use cache";
   cacheLife("minutes");
   cacheTag(NEWS_TAG);
 
-  const [articles, external, mostRead, press] = await Promise.all([
-    getLatestArticles(30),
-    getWireHeadlines(6),
-    getMostRead(5),
-    getPressHeadlines(6),
-  ]);
-  const now = new Date();
+  const [headline, external] = await Promise.all([loadHeadline(), getWireHeadlines(10)]);
+  const items = buildWireItems([], external, new Date());
   return (
     <>
-      <NewsWire
-        items={buildWireItems(articles, external, now)}
-        description="Da redação e da imprensa de games, atualizado a cada hora"
-        label="Notícias em movimento"
-        className="tkw-compact"
-      />
-      <section aria-label="Notícias por categoria" className="flex flex-col gap-1">
-        <SectionHead title="Por categoria" />
-        <NewsTabs tabs={withPressHeadlines(buildNewsTabs(articles, now), press, now)} mostRead={mostRead.map((a) => articleStory(a, now))} />
-      </section>
+      {headline ? (
+        <section aria-label="Manchete" className="flex">
+          <HeroMain article={headline} />
+        </section>
+      ) : null}
+      {items.length > 0 ? (
+        <NewsWire
+          items={items}
+          description="Manchetes da imprensa de games, atualizadas a cada hora"
+          label="Na imprensa"
+          className="tkw-compact"
+        />
+      ) : null}
     </>
   );
 }
@@ -135,7 +143,13 @@ async function Archive({ searchParams }: { searchParams: PageProps<"/noticias">[
   const category = categoryFromSlug(categorySlug ?? undefined);
   const activeSlug = category ? categorySlug : null;
   const requested = Number.parseInt(first(params.pagina) ?? "1", 10);
-  const { stories, page, pageCount, total } = await loadIndex(category, Number.isFinite(requested) ? requested : 1);
+  const [index, headline] = await Promise.all([
+    loadIndex(category, Number.isFinite(requested) ? requested : 1),
+    loadHeadline(),
+  ]);
+  const { page, pageCount, total } = index;
+  // The headline already leads the page: the unfiltered first page leaves it out.
+  const stories = index.stories.filter((s) => category || page > 1 || s.id !== headline?.id);
 
   return (
     <>
