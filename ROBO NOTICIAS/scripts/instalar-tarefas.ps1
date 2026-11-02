@@ -5,7 +5,8 @@
 .DESCRIPTION
   Tarefas criadas (nome da pasta de trabalho: a pasta "ROBO NOTICIAS", pai deste script):
     Tralked Robo - Coleta   a cada 30 minutos, nos minutos :20 e :50, sem fim: pnpm coleta
-    Tralked Robo - Publica  todo dia as 06:00, 07:00 ... 23:00: pnpm publica
+    Tralked Robo - Publica  todo dia das 06:00 as 23:59, a cada 7 minutos: pnpm publica (o robo so publica
+                            quando ja passaram 21 minutos da ultima materia, ate 15 por dia)
     Tralked Robo - Resumo   todo dia as 00:10, resumo do dia anterior: pnpm resumo ontem
 
   Cada tarefa roda "cmd /c pnpm ...", entao o PATH resolve o pnpm. As tarefas rodam com o usuario logado ou
@@ -13,8 +14,8 @@
   script diz qual dos dois valeu. Rodar de novo substitui as tarefas existentes. Cada tarefa grava a saida no
   seu proprio log: data\logs\agendador-coleta.log, agendador-publica.log e agendador-resumo.log. (Um log so
   para todas fazia a coleta falhar quando comecava no mesmo minuto da publicacao: o cmd nao abre para escrita
-  um arquivo que outro cmd ja esta escrevendo.) A coleta roda nos minutos :20 e :50, longe das :00 da
-  publicacao, para as duas nao disputarem o banco no mesmo instante.
+  um arquivo que outro cmd ja esta escrevendo.) As duas usam o mesmo banco, que espera a vez quando estao
+  ao mesmo tempo; a publicacao segura uma trava propria (publica.lock).
 
   Fuso: os horarios sao do relogio deste PC; o robo decide a grade de publicacao em America/Sao_Paulo.
 
@@ -97,21 +98,23 @@ function Register-RoboTask([string]$Nome, $Action, $Triggers, $Settings, [string
   }
 }
 
-# Coleta: a cada 30 minutos, nos minutos :20 e :50 (longe das :00 da publicacao), sem data final (sem
+# Coleta: a cada 30 minutos, nos minutos :20 e :50, sem data final (sem
 # RepetitionDuration a repeticao nao termina).
 $gatilhoColeta = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(20) -RepetitionInterval (New-TimeSpan -Minutes 30)
 
-# Publica: um gatilho diario por hora, das 06:00 as 23:00 (18 horarios).
-$gatilhosPublica = foreach ($hora in 6..23) {
-  New-ScheduledTaskTrigger -Daily -At ('{0:00}:00' -f $hora)
-}
+# Publica: todo dia as 06:00, repetindo a cada 7 minutos por 17h59 (ate 23:59). O robo decide se publica:
+# no minimo PUBLISH_GAP_MINUTES (21) depois da ultima materia e ate MAX_PER_DAY (15) por dia; as chamadas
+# entre uma materia e outra terminam em segundos, sem gastar IA.
+$gatilhosPublica = New-ScheduledTaskTrigger -Daily -At '06:00'
+$gatilhosPublica.Repetition = (New-ScheduledTaskTrigger -Once -At '06:00' `
+    -RepetitionInterval (New-TimeSpan -Minutes 7) -RepetitionDuration (New-TimeSpan -Hours 17 -Minutes 59)).Repetition
 
 # Resumo: 00:10, sobre o dia anterior.
 $gatilhoResumo = New-ScheduledTaskTrigger -Daily -At '00:10'
 
 $tarefas = @(
   @{ Nome = $NomeColeta;  Comando = 'pnpm coleta';       Log = 'agendador-coleta.log';  Gatilhos = $gatilhoColeta;    Limite = 55;  Descricao = 'Coleta, triagem e fila do robo de noticias do Tralked (a cada 30 minutos, :20 e :50).' }
-  @{ Nome = $NomePublica; Comando = 'pnpm publica';      Log = 'agendador-publica.log'; Gatilhos = @($gatilhosPublica); Limite = 55;  Descricao = 'Publica a melhor materia da fila (06:00 a 23:00, de hora em hora).' }
+  @{ Nome = $NomePublica; Comando = 'pnpm publica';      Log = 'agendador-publica.log'; Gatilhos = @($gatilhosPublica); Limite = 55;  Descricao = 'Publica a melhor materia da fila (06:00 a 23:59, uma a cada 21 minutos, ate 15 por dia).' }
   @{ Nome = $NomeResumo;  Comando = 'pnpm resumo ontem'; Log = 'agendador-resumo.log';  Gatilhos = $gatilhoResumo;   Limite = 30;  Descricao = 'Resumo diario do robo de noticias, por e-mail (00:10, dia anterior).' }
 )
 

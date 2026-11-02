@@ -355,7 +355,7 @@ describe("publica: slot window", () => {
     const result = await h.publica({ rand: () => 0.25 });
     if (inside) {
       expect(result.published).toBe("site-1");
-      expect(h.sleep).toHaveBeenCalledWith(3 * 60 * 1000); // 0.25 * 12 min
+      expect(h.sleep).toHaveBeenCalledWith(30 * 1000); // 0.25 * 2 min
     } else {
       expect(result.published).toBeNull();
       expect(result.reason).toMatch(/grade/);
@@ -372,7 +372,7 @@ describe("publica: slot window", () => {
     expect(h.sleep).not.toHaveBeenCalled();
   });
 
-  it("--fora-do-horario publishes at 02:00 local without waiting, once per hour", async () => {
+  it("--fora-do-horario publishes at 02:00 local without waiting, still 21 min apart", async () => {
     const h = harness(local("2026-10-31T02:00"));
     seedQueued(h, "Hades II recebe arma nova");
     seedQueued(h, "Hades II ganha modo novo");
@@ -380,7 +380,7 @@ describe("publica: slot window", () => {
     expect(result.published).toBe("site-1");
     expect(h.sleep).not.toHaveBeenCalled();
     expect(h.db.publishedCountOn("2026-10-31")).toBe(1);
-    expect((await h.publica({ foraDoHorario: true })).reason).toMatch(/neste horário/);
+    expect((await h.publica({ foraDoHorario: true })).reason).toMatch(/intervalo mínimo de 21 min/);
   });
 
   it("--fora-do-horario still honors the daily cap; --ignorar-limite overrides it", async () => {
@@ -415,6 +415,22 @@ describe("publica: command flags", () => {
       ignorarLimite: true,
     });
     expect(() => parsePublicaArgs(["--fora-de-horario"])).toThrow();
+  });
+});
+
+describe("publica: 21 minutes apart", () => {
+  it("publishes again once 21 min have passed since the last article, in the same hour", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    seedQueued(h, "Primeira", { score: 90 });
+    seedQueued(h, "Segunda", { score: 80 });
+    seedQueued(h, "Terceira", { score: 70 });
+    expect((await h.publica({ agora: true })).published).toBe("site-1");
+    h.at(local("2026-10-31T10:20"));
+    expect((await h.publica({ agora: true })).reason).toMatch(/faltam 1 min/);
+    h.at(local("2026-10-31T10:21"));
+    expect((await h.publica({ agora: true })).published).toBe("site-2");
+    h.at(local("2026-10-31T10:42"));
+    expect((await h.publica({ agora: true })).published).toBe("site-3");
   });
 });
 
@@ -910,16 +926,16 @@ describe("concurrency", () => {
     expect(h.db.publishedCountOn("2026-10-31")).toBe(15);
   });
 
-  it("publishes at most one article per local hour, but bombs are exempt", async () => {
+  it("leaves at least 21 min between articles, but bombs are exempt", async () => {
     const h = harness(local("2026-10-31T10:05"));
     seedQueued(h, "Primeira", { score: 90 });
     seedQueued(h, "Segunda", { score: 80 });
     expect((await h.publica()).published).toBe("site-1");
 
-    h.at(local("2026-10-31T10:40"));
+    h.at(local("2026-10-31T10:20"));
     const again = await h.publica({ agora: true });
     expect(again.published).toBeNull();
-    expect(again.reason).toMatch(/neste horário/);
+    expect(again.reason).toBe("intervalo mínimo de 21 min entre matérias: faltam 6 min");
 
     h.at(local("2026-10-31T10:45"));
     const fact: Fact = { headline: "GTA 6 ganha data de lançamento", importance: 95, games: ["Grand Theft Auto VI"] };
@@ -1175,9 +1191,9 @@ describe("publica: pautas", () => {
     expect(h.db.storyById(news)!.status).toBe("queued");
     expect(h.db.publishedCountOn("2026-10-31")).toBe(1);
 
-    // One article per hour, pauta or not.
-    h.at(local("2026-10-31T10:40"));
-    expect((await h.publica()).reason).toMatch(/neste horário/);
+    // At least 21 min between articles, pauta or not.
+    h.at(local("2026-10-31T10:15"));
+    expect((await h.publica()).reason).toMatch(/intervalo mínimo/);
     expect(h.site.created).toHaveLength(1);
   });
 

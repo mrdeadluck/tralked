@@ -45,9 +45,9 @@ Every command ends by e-mailing the alerts not yet sent (see below).
 
 | Flag | Effect |
 |---|---|
-| `--agora` | Skips the 0–12 min wait. Everything else as in a scheduled run. |
-| `--fora-do-horario` | Publishes even outside `SLOT_FIRST_HOUR`–`SLOT_LAST_HOUR` (06h–23h). Implies `--agora`. `MAX_PER_DAY`, the one-per-hour rule and the daily budget still apply. |
-| `--ignorar-limite` | Also skips `MAX_PER_DAY` and the one-per-hour rule. It does not skip the window (combine it with `--fora-do-horario` at night). |
+| `--agora` | Skips the 0–2 min wait. Everything else as in a scheduled run. |
+| `--fora-do-horario` | Publishes even outside `SLOT_FIRST_HOUR`–`SLOT_LAST_HOUR` (06h–23h). Implies `--agora`. `MAX_PER_DAY`, the 21-minute gap (`PUBLISH_GAP_MINUTES`) and the daily budget still apply. |
+| `--ignorar-limite` | Also skips `MAX_PER_DAY` and the 21-minute gap (`PUBLISH_GAP_MINUTES`). It does not skip the window (combine it with `--fora-do-horario` at night). |
 
 ```
 pnpm publica --fora-do-horario                    # one story now, at 02:00 for example, within the daily cap
@@ -84,7 +84,7 @@ The `coleta` report line shows how many video stories were dropped or merged as 
 | Task | When | Runs |
 |---|---|---|
 | `Tralked Robo - Coleta` | every 30 min at :20 and :50, indefinitely | `pnpm coleta` |
-| `Tralked Robo - Publica` | daily at 06:00, 07:00 ... 23:00 | `pnpm publica` |
+| `Tralked Robo - Publica` | daily 06:00–23:59, every 7 min (the robot publishes once 21 min have passed since the last article, up to 15 a day) | `pnpm publica` |
 | `Tralked Robo - Resumo` | daily at 00:10 | `pnpm resumo ontem` |
 
 ```

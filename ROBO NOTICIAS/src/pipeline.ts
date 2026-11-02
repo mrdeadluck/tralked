@@ -64,8 +64,11 @@ export const FEED_WINDOW_MS = 3 * 24 * HOUR_MS;
 export const UPDATE_MIN_IMPORTANCE = 50;
 /** New items of a story published on an earlier day start a follow-up from this importance. */
 export const FOLLOW_UP_MIN_IMPORTANCE = 70;
-/** `publica` waits 0–12 min before publishing, so articles do not land on the hour. */
-export const JITTER_MAX_MS = 12 * 60 * 1000;
+/**
+ * `publica` waits 0–2 min before publishing, so articles do not land on the scheduler's exact minute
+ * (it runs every 7 min; a longer wait would run into the next call).
+ */
+export const JITTER_MAX_MS = 2 * 60 * 1000;
 /** Sources given to the writer, full-text and higher tiers first (keeps the Opus prompt bounded). */
 export const MAX_WRITER_SOURCES = 8;
 /** A story's article is updated at most once an hour (counting from publication) and 3 times a local day. */
@@ -73,7 +76,7 @@ export const UPDATE_MIN_GAP_MS = 60 * 60 * 1000;
 export const MAX_UPDATES_PER_DAY = 3;
 /** Held by whoever publishes (`publica`, and `coleta` for bombs); stale after 30 min. */
 export const PUBLISH_LOCK_FILE = "publica.lock";
-/** Meta key holding the last local slot (`YYYY-MM-DD HH`) in which `publica` published. */
+/** Meta key holding when `publica` last published (ISO), for the PUBLISH_GAP_MINUTES rule. */
 /**
  * A source counts as text only with a real article body: a page that gave just its footer or menu
  * (Steam News pages without the post) wrote a story about missing information.
@@ -81,7 +84,7 @@ export const PUBLISH_LOCK_FILE = "publica.lock";
 export const MIN_TEXT_CHARS = 400;
 export const hasRealText = (text: string | null | undefined) => (text ?? "").trim().length >= MIN_TEXT_CHARS;
 
-const LAST_SLOT_KEY = "publica.lastSlot";
+const LAST_PUBLISH_KEY = "publica.lastAt";
 /** Stories a publishing slot may try, and rejections it accepts before giving the hour up. */
 const SLOT_ATTEMPTS = 5;
 const SLOT_REJECTIONS = 4;
@@ -131,11 +134,11 @@ export type PublicaDeps = PipelineDeps & {
   agora?: boolean;
   /**
    * Manual run outside the SLOT_FIRST_HOUR–SLOT_LAST_HOUR window (`--fora-do-horario`, implies `agora`).
-   * The daily cap, the one-per-hour rule and the daily budget still apply.
+   * The daily cap, the minimum gap between articles and the daily budget still apply.
    */
   foraDoHorario?: boolean;
   /**
-   * Manual override (`--ignorar-limite`): skips `MAX_PER_DAY` and the one-per-hour rule. The daily budget
+   * Manual override (`--ignorar-limite`): skips `MAX_PER_DAY` and the minimum gap between articles. The daily budget
    * (`DAILY_BUDGET_USD`) is never skipped by a flag.
    */
   ignorarLimite?: boolean;
@@ -224,8 +227,13 @@ function expired(story: StoryRow, deps: PipelineDeps, now: Date): boolean {
   );
 }
 
-/** Local slot (São Paulo day and hour) used for the one-article-per-hour rule of `publica`. */
-const slotOf = (d: Date) => `${localDay(d)} ${String(localHour(d)).padStart(2, "0")}`;
+/** Minutes left before `publica` may publish again (PUBLISH_GAP_MINUTES after the last article), or 0. */
+function gapLeft(deps: PublicaDeps, now: Date): number {
+  const last = deps.db.getMeta(LAST_PUBLISH_KEY);
+  const at = last ? Date.parse(last) : NaN;
+  if (Number.isNaN(at)) return 0;
+  return Math.max(0, Math.ceil((at + deps.config.PUBLISH_GAP_MINUTES * 60_000 - now.getTime()) / 60_000));
+}
 
 /** Runs `fn` holding the publish lock; returns `null` without running it when another run holds the lock. */
 async function withPublishLock<T>(deps: PipelineDeps, fn: () => Promise<T>): Promise<{ value: T } | null> {
@@ -1291,7 +1299,8 @@ function refusal(deps: PublicaDeps, now: Date): string | null {
   }
   if (deps.ignorarLimite) return null;
   if (db.publishedCountOn(localDay(now)) >= config.MAX_PER_DAY) return `limite diário de ${config.MAX_PER_DAY} matérias atingido`;
-  if (db.getMeta(LAST_SLOT_KEY) === slotOf(now)) return "já houve publicação neste horário";
+  const wait = gapLeft(deps, now);
+  if (wait > 0) return `intervalo mínimo de ${config.PUBLISH_GAP_MINUTES} min entre matérias: faltam ${wait} min`;
   return null;
 }
 
@@ -1403,8 +1412,8 @@ async function publishLivePauta(deps: PublicaDeps, now: Date): Promise<{ id: str
 }
 
 /**
- * One slot: refuses when paused, outside 06–23 (unless `foraDoHorario`), at the daily cap or when this
- * local hour already had a `publica` article (bombs are exempt; `ignorarLimite` skips both); waits 0–12 min
+ * One slot: refuses when paused, outside 06–23 (unless `foraDoHorario`), at the daily cap or less than
+ * PUBLISH_GAP_MINUTES after the last `publica` article (bombs are exempt; `ignorarLimite` skips both); waits 0–2 min
  * (not with `--agora` or `--fora-do-horario`); then, holding the publish
  * lock, re-checks and publishes a Pauta Tralked when the slot is one (`wantsPauta`; news when no pauta can
  * be made), else the best queued story, trying the next one once after a failed check.
@@ -1425,7 +1434,7 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
       try {
         const pauta = await publishLivePauta(deps, now);
         if (pauta) {
-          deps.db.setMeta(LAST_SLOT_KEY, slotOf(now));
+          deps.db.setMeta(LAST_PUBLISH_KEY, deps.now().toISOString());
           return { published: pauta.id, reason: `publicada a pauta: ${pauta.title}` };
         }
         deps.log?.("pauta: nenhuma pauta possível agora; o horário fica com a notícia");
@@ -1443,7 +1452,7 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
       try {
         const outcome = await publishOne(story, deps);
         if (outcome.kind === "published") {
-          deps.db.setMeta(LAST_SLOT_KEY, slotOf(now));
+          deps.db.setMeta(LAST_PUBLISH_KEY, deps.now().toISOString());
           return { published: outcome.id, reason: `publicada a história ${story.id}: ${story.headline}` };
         }
         if (outcome.kind === "rejected") rejected++;
