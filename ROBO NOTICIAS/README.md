@@ -121,7 +121,7 @@ To add a source: append an object, run `pnpm test` (it validates the file), then
 ## Sources (`config/fontes.json`)
 
 Verified on 2026-10-31 with real HTTP fetches using `User-Agent: TralkedBot/1.0 (+https://tralked.com)`.
-44 sources: 42 active, 2 inactive. 12 have a dated `backfill` sitemap.
+51 sources: 49 active, 2 inactive (Flow Games and PXN Games added on 2026-11-02). 12 have a dated `backfill` sitemap.
 
 Bot-protection rule: when a site answers 403, shows a Cloudflare/Akamai challenge, or serves a JS-only shell to our honest User-Agent, we do not work around it (no browser-imitating headers). We only use feeds published for consumption: the site's own RSS/sitemap, YouTube channel feeds, and Google News RSS search.
 

@@ -37,6 +37,8 @@
   { "id": "circana", "name": "Circana (blog)", "kind": "rss", "url": "https://www.circana.com/blog-feed.xml", "tier": "portal", "category": "MERCADO", "gamingFilter": true, "active": true },
 
   { "id": "ign-brasil", "name": "IGN Brasil", "kind": "rss", "url": "https://br.ign.com/feed.xml", "tier": "portal", "category": "GAMES", "gamingFilter": false, "active": true },
+  { "id": "flow-games", "name": "Flow Games", "kind": "rss", "url": "https://flowgames.gg/feed/", "tier": "outro", "category": "GAMES", "gamingFilter": true, "active": true },
+  { "id": "pxn-games", "name": "PXN Games", "kind": "rss", "url": "https://pxngames.com/feed.xml", "tier": "outro", "category": "GAMES", "gamingFilter": false, "active": true },
   { "id": "canaltech", "name": "Canaltech", "kind": "rss", "url": "https://canaltech.com.br/rss/", "tier": "outro", "category": "TECNOLOGIA", "gamingFilter": true, "backfill": { "kind": "sitemap", "url": "https://canaltech.com.br/smap/sitemap.xml" }, "active": true },
   { "id": "adrenaline", "name": "Adrenaline", "kind": "rss", "url": "https://www.adrenaline.com.br/feed/", "tier": "outro", "category": "TECNOLOGIA", "gamingFilter": true, "active": true },
   { "id": "tecmundo", "name": "Tecmundo", "kind": "rss", "url": "https://rss.tecmundo.com.br/feed", "tier": "outro", "category": "TECNOLOGIA", "gamingFilter": true, "active": true },
