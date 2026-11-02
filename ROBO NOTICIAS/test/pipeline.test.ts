@@ -260,8 +260,8 @@ function harness(start = local("2026-10-31T10:00")) {
       clock.now = d;
     },
     coleta: () => runColeta(deps),
-    publica: (over: { rand?: () => number; agora?: boolean } = {}) =>
-      runPublica({ ...deps, sleep, rand: over.rand ?? (() => 0.5), agora: over.agora }),
+    publica: (over: { rand?: () => number; agora?: boolean; foraDoHorario?: boolean; ignorarLimite?: boolean } = {}) =>
+      runPublica({ ...deps, sleep, rand: over.rand ?? (() => 0.5), ...over }),
   };
 }
 
@@ -349,6 +349,51 @@ describe("publica: slot window", () => {
     const result = await h.publica({ agora: true });
     expect(result.published).toBe("site-1");
     expect(h.sleep).not.toHaveBeenCalled();
+  });
+
+  it("--fora-do-horario publishes at 02:00 local without waiting, once per hour", async () => {
+    const h = harness(local("2026-10-31T02:00"));
+    seedQueued(h, "Hades II recebe arma nova");
+    seedQueued(h, "Hades II ganha modo novo");
+    const result = await h.publica({ foraDoHorario: true });
+    expect(result.published).toBe("site-1");
+    expect(h.sleep).not.toHaveBeenCalled();
+    expect(h.db.publishedCountOn("2026-10-31")).toBe(1);
+    expect((await h.publica({ foraDoHorario: true })).reason).toMatch(/neste horário/);
+  });
+
+  it("--fora-do-horario still honors the daily cap; --ignorar-limite overrides it", async () => {
+    const h = harness(local("2026-10-31T23:30"));
+    h.at(local("2026-11-01T01:00"));
+    seedPublished(h, minutesBefore(h.clock.now, 15));
+    seedQueued(h, "Hades II recebe arma nova");
+    expect((await h.publica({ foraDoHorario: true })).reason).toMatch(/limite/);
+    expect(h.site.created).toHaveLength(0);
+    const forced = await h.publica({ foraDoHorario: true, ignorarLimite: true });
+    expect(forced.published).toBe("site-1");
+  });
+
+  it("--ignorar-limite alone still refuses outside the window", async () => {
+    const h = harness(local("2026-10-31T03:00"));
+    seedQueued(h, "Hades II recebe arma nova");
+    const result = await h.publica({ ignorarLimite: true });
+    expect(result.published).toBeNull();
+    expect(result.reason).toMatch(/--fora-do-horario/);
+  });
+});
+
+describe("publica: command flags", () => {
+  it("parses the flags; --fora-do-horario implies --agora; unknown flags throw", async () => {
+    const { parsePublicaArgs } = await import("../src/commands/publica.js");
+    expect(parsePublicaArgs([])).toEqual({ agora: false, foraDoHorario: false, ignorarLimite: false });
+    expect(parsePublicaArgs(["--agora"])).toEqual({ agora: true, foraDoHorario: false, ignorarLimite: false });
+    expect(parsePublicaArgs(["--fora-do-horario"])).toEqual({ agora: true, foraDoHorario: true, ignorarLimite: false });
+    expect(parsePublicaArgs(["--agora", "--fora-do-horario", "--ignorar-limite"])).toEqual({
+      agora: true,
+      foraDoHorario: true,
+      ignorarLimite: true,
+    });
+    expect(() => parsePublicaArgs(["--fora-de-horario"])).toThrow();
   });
 });
 

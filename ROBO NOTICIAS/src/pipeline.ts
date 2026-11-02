@@ -118,6 +118,16 @@ export type PublicaDeps = PipelineDeps & {
   rand: () => number;
   /** Manual run (`--agora`): skip the jitter wait. */
   agora?: boolean;
+  /**
+   * Manual run outside the SLOT_FIRST_HOUR–SLOT_LAST_HOUR window (`--fora-do-horario`, implies `agora`).
+   * The daily cap, the one-per-hour rule and the daily budget still apply.
+   */
+  foraDoHorario?: boolean;
+  /**
+   * Manual override (`--ignorar-limite`): skips `MAX_PER_DAY` and the one-per-hour rule. The daily budget
+   * (`DAILY_BUDGET_USD`) is never skipped by a flag.
+   */
+  ignorarLimite?: boolean;
 };
 
 export type ColetaReport = {
@@ -1028,15 +1038,16 @@ function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
   return null;
 }
 
-function refusal(deps: PipelineDeps, now: Date): string | null {
+function refusal(deps: PublicaDeps, now: Date): string | null {
   const { config, db } = deps;
   if (isPaused(config)) {
     pausedAlert(deps, now);
     return "pausado (arquivo PAUSADO)";
   }
-  if (!inSlotWindow(now, config.SLOT_FIRST_HOUR, config.SLOT_LAST_HOUR)) {
-    return `fora da grade (${config.SLOT_FIRST_HOUR}h–${config.SLOT_LAST_HOUR}h, horário de Brasília)`;
+  if (!deps.foraDoHorario && !inSlotWindow(now, config.SLOT_FIRST_HOUR, config.SLOT_LAST_HOUR)) {
+    return `fora da grade (${config.SLOT_FIRST_HOUR}h–${config.SLOT_LAST_HOUR}h, horário de Brasília); para publicar mesmo assim, use --fora-do-horario`;
   }
+  if (deps.ignorarLimite) return null;
   if (db.publishedCountOn(localDay(now)) >= config.MAX_PER_DAY) return `limite diário de ${config.MAX_PER_DAY} matérias atingido`;
   if (db.getMeta(LAST_SLOT_KEY) === slotOf(now)) return "já houve publicação neste horário";
   return null;
@@ -1150,8 +1161,9 @@ async function publishLivePauta(deps: PublicaDeps, now: Date): Promise<{ id: str
 }
 
 /**
- * One slot: refuses when paused, outside 06–23, at the daily cap or when this local hour already had a
- * `publica` article (bombs are exempt); waits 0–12 min (not with `--agora`); then, holding the publish
+ * One slot: refuses when paused, outside 06–23 (unless `foraDoHorario`), at the daily cap or when this
+ * local hour already had a `publica` article (bombs are exempt; `ignorarLimite` skips both); waits 0–12 min
+ * (not with `--agora` or `--fora-do-horario`); then, holding the publish
  * lock, re-checks and publishes a Pauta Tralked when the slot is one (`wantsPauta`; news when no pauta can
  * be made), else the best queued story, trying the next one once after a failed check.
  */
@@ -1159,7 +1171,7 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
   const before = refusal(deps, deps.now());
   if (before) return { published: null, reason: before };
 
-  if (!deps.agora) await deps.sleep(Math.floor(deps.rand() * JITTER_MAX_MS));
+  if (!deps.agora && !deps.foraDoHorario) await deps.sleep(Math.floor(deps.rand() * JITTER_MAX_MS));
 
   const ran = await withPublishLock(deps, async (): Promise<PublicaResult> => {
     // A bomb, a pause or another publisher may have acted during the wait.
