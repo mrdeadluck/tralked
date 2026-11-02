@@ -94,6 +94,9 @@ describe("contentBlocksSchema", () => {
     expect(parse([{ type: "embed", src: "https://x" }]).success).toBe(false);
     expect(parse([{ type: "heading", level: 1, text: "H1" }]).success).toBe(false);
     expect(parse([{ type: "video", youtubeId: "https://youtu.be/x" }]).success).toBe(false);
+    expect(parse([{ type: "video", youtubeId: "dQw4w9WgXcQ", title: "Trailer" }]).success).toBe(true);
+    expect(parse([{ type: "video", youtubeId: "dQw4w9WgXcQ", title: "<b>Trailer</b>" }]).success).toBe(false);
+    expect(parse([{ type: "video", youtubeId: "dQw4w9WgXcQ", title: "" }]).success).toBe(false);
     expect(parse([{ type: "achievement", apiName: "A", platform: "stadia" }]).success).toBe(false);
   });
 

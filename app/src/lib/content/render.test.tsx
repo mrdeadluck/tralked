@@ -55,6 +55,18 @@ describe("<Blocks>", () => {
     { type: "divider" },
   ]);
 
+  it("names a titled video for screen readers and captions it, lazy and privacy-enhanced", () => {
+    const { container } = render(
+      <Blocks blocks={contentBlocksSchema.parse([{ type: "video", youtubeId: "dQw4w9WgXcQ", title: "Trailer de lançamento" }])} />,
+    );
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+    expect(iframe?.getAttribute("title")).toBe("Vídeo do YouTube: Trailer de lançamento");
+    expect(iframe?.getAttribute("loading")).toBe("lazy");
+    expect(container.querySelector("figcaption")?.textContent).toBe("Trailer de lançamento");
+    expect(iframe?.parentElement?.className).toContain("aspect-video");
+  });
+
   it("renders each block as the expected markup", () => {
     const { container } = render(
       <Blocks

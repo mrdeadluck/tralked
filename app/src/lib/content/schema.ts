@@ -98,6 +98,8 @@ export const imageBlockSchema = z.strictObject({
 export const videoBlockSchema = z.strictObject({
   type: z.literal("video"),
   youtubeId: z.string().regex(/^[A-Za-z0-9_-]{11}$/, "ID de vídeo do YouTube inválido"),
+  /** What the video is ("Trailer de lançamento de Hades II"): the player's accessible name and caption. */
+  title: plainText(200).optional(),
 });
 
 export const calloutBlockSchema = z.strictObject({

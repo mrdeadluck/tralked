@@ -69,6 +69,7 @@ describe("JSON Schema and OpenAPI exports", () => {
       "/api/v1/games",
       "/api/v1/games/{slug}/dossie",
       "/api/v1/games/{slug}/insights",
+      "/api/v1/games/{slug}/media",
       "/api/v1/guides",
       "/api/v1/guides/{id}",
     ]);

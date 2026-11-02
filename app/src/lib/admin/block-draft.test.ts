@@ -9,6 +9,7 @@ const EVERY_BLOCK: ContentBlock[] = [
   { type: "quote", text: "Frase.", author: "Alguém" },
   { type: "image", url: "https://exemplo.com/a.png", alt: "Uma tela", credit: "Estúdio" },
   { type: "video", youtubeId: "dQw4w9WgXcQ" },
+  { type: "video", youtubeId: "dQw4w9WgXcQ", title: "Trailer de lançamento" },
   { type: "callout", tone: "spoiler", text: "Cuidado." },
   { type: "table", header: ["Chefe", "Dica"], rows: [["Hornet", "Pule"], ["Mantis", "Paciência"]] },
   { type: "achievement", apiName: "ACH_1", platform: "psn" },

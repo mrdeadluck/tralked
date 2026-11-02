@@ -46,7 +46,7 @@ export const EXAMPLE_ARTICLE = {
       alt: "Zagreus diante do quadro de provações no saguão da Casa de Hades",
       credit: "Divulgação/Supergiant Games",
     },
-    { type: "video", youtubeId: "ID_DO_VIDEO" },
+    { type: "video", youtubeId: "ID_DO_VIDEO", title: "Trailer do modo de provações de Hades II" },
     {
       type: "callout",
       tone: "info",

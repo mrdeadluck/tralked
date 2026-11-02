@@ -43,6 +43,7 @@ Uma chave revogada para de funcionar na hora e passa a receber `401`. Cada chave
 | GET | `/api/v1/games` | qualquer chave | Procura jogos por nome, slug, `steamAppId` ou `igdbId`; esconde os stubs do catálogo e ordena por popularidade. |
 | GET | `/api/v1/games/{slug}/insights` | qualquer chave | Dados agregados do jogo entre os jogadores do Tralked. |
 | GET | `/api/v1/games/{slug}/dossie` | qualquer chave | Dossiê do jogo: ficha, números do Tralked e todas as conquistas visíveis. |
+| GET | `/api/v1/games/{slug}/media` | qualquer chave | Imagens largas (banner, capturas de tela, artes) e vídeos do YouTube que o catálogo guarda do jogo. |
 | GET | `/api/v1/openapi.json` | pública | Descrição OpenAPI 3.1 da API inteira. |
 | GET | `/api/v1/schemas/article.json` | pública | JSON Schema do corpo de uma notícia. |
 | GET | `/api/v1/schemas/guide.json` | pública | JSON Schema do corpo de um guia. |
@@ -143,7 +144,8 @@ O exemplo abaixo usa todos os tipos de bloco:
     },
     {
       "type": "video",
-      "youtubeId": "ID_DO_VIDEO"
+      "youtubeId": "ID_DO_VIDEO",
+      "title": "Trailer do modo de provações de Hades II"
     },
     {
       "type": "callout",
@@ -287,7 +289,7 @@ As quebras de linha `\r\n` e `\r` viram `\n` antes da validação. Os outros car
 | `list` | `ordered`, `items[]` | De 1 a 100 itens, com marcação inline. |
 | `quote` | `text`, `author?` | Citação com marcação inline. O autor é texto puro. |
 | `image` | `url`, `alt`, `credit` | Só `https://`. O texto alternativo e o crédito são obrigatórios. |
-| `video` | `youtubeId` | Os 11 caracteres do ID do YouTube, não a URL. |
+| `video` | `youtubeId`, `title?` | Os 11 caracteres do ID do YouTube, não a URL. `title` (texto puro, até 200 caracteres) diz o que é o vídeo: vira a legenda e o nome acessível do player. O site embute pelo youtube-nocookie.com, com carregamento preguiçoso e proporção 16:9. |
 | `callout` | `tone`, `text` | `tone` é `info`, `aviso` ou `spoiler`. O spoiler aparece fechado. |
 | `table` | `header[]`, `rows[][]` | Até 8 colunas. Toda linha tem o mesmo número de colunas do cabeçalho. |
 | `achievement` | `apiName`, `platform?` | Mostra o cartão da conquista com raridade e XP. `platform` é `steam` (padrão), `psn`, `xbox` ou `retro`. |
@@ -476,7 +478,7 @@ curl "$TRALKED_URL/api/v1/games?q=hades" \
 
 ## Dados de um jogo
 
-Dois endpoints dão ao robô material para escrever sobre um jogo famoso. Os dois aceitam qualquer chave ativa, devolvem `404 not_found` para um slug que não existe no catálogo ou que é um stub, e trazem só números agregados, nunca usuários.
+Três endpoints dão ao robô material sobre um jogo. Os três aceitam qualquer chave ativa e devolvem `404 not_found` para um slug que não existe no catálogo ou que é um stub. `/insights` e `/dossie` trazem só números agregados, nunca usuários; `/media` traz a mídia oficial que o catálogo já guarda.
 
 `GET /api/v1/games/{slug}/insights` é o resumo curto:
 
@@ -495,6 +497,14 @@ Conquistas ocultas nunca aparecem. Para proteger os jogadores, `avgPlaytimeMin` 
 ```bash
 curl "$TRALKED_URL/api/v1/games/hades/dossie"   -H "Authorization: Bearer $TRALKED_KEY"
 ```
+
+`GET /api/v1/games/{slug}/media` é a mídia do jogo, para ilustrar uma matéria cuja fonte não trouxe imagem nem vídeo:
+
+- `game`: `slug`, `name`, `developer` e `publisher` (para o crédito);
+- `images`: até 12 imagens largas, todas https: primeiro o banner (`kind: "hero"`), depois as capturas de tela (`screenshot`) e as artes (`artwork`), na ordem do catálogo, com `width`, `height` e `source` (`igdb`, `sgdb`, `steam`…) quando conhecidos. Imagens do IGDB vêm no tamanho 1080p. A capa em retrato e o logo não entram;
+- `videos`: até 6 vídeos do YouTube (`youtubeId`), na ordem do IGDB, que lista o trailer principal primeiro.
+
+Use a imagem num bloco `image` com crédito (por exemplo, "Divulgação/Supergiant Games") e o vídeo num bloco `video`. A página da notícia não repete na capa uma imagem que já está no corpo.
 
 ## Respostas e erros
 
@@ -524,7 +534,7 @@ Todo erro tem o mesmo formato. Em `issues`, `path` é um JSON Pointer para o cam
 | 400 | `idempotency_key_required` | Falta o cabeçalho `Idempotency-Key` em POST ou PATCH. |
 | 401 | `unauthorized` | A chave está ausente, é inválida ou foi revogada. |
 | 403 | `forbidden` | A chave não tem o escopo do endpoint, ou pediu `published` sem o escopo `publish`. |
-| 404 | `not_found` | O id não existe, ou o conteúdo foi criado por outra chave. Em `/insights` e `/dossie`, o jogo não existe no catálogo ou é um stub. |
+| 404 | `not_found` | O id não existe, ou o conteúdo foi criado por outra chave. Em `/insights`, `/dossie` e `/media`, o jogo não existe no catálogo ou é um stub. |
 | 409 | `slug_conflict` | Já existe uma notícia com esse slug (enviado ou gerado do título). |
 | 409 | `guide_exists` | O jogo já tem guia. A mensagem traz o id; se o guia for desta chave, use PATCH. |
 | 409 | `published_locked` | A redação já publicou o conteúdo, e só uma chave com `publish` pode alterá-lo. |
