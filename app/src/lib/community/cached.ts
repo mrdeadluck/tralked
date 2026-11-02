@@ -9,7 +9,7 @@ import {
   recentThreads,
   type ForumSection,
 } from "./forum";
-import { galleryGames, getPhoto, listPhotos, photoOfTheWeek } from "./gallery";
+import { galleryGame, galleryGames, getPhoto, listPhotos, photoOfTheWeek } from "./gallery";
 
 /** Every public gallery listing (grid, filter, photo of the week). */
 export const GALLERY_TAG = "gallery";
@@ -39,6 +39,13 @@ export async function galleryGamesCached() {
   cacheLife("hours");
   cacheTag(GALLERY_TAG);
   return galleryGames();
+}
+
+export async function galleryGameCached(slug: string) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(GALLERY_TAG);
+  return galleryGame(slug);
 }
 
 export async function getPhotoCached(id: string) {

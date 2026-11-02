@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { GameArt, type Hues } from "@/components/art/GameArt";
+import { RemoteImg } from "@/components/ui/RemoteImg";
 
 /**
  * Catalog cover of a game related to an article (Plan 4 F12). Decorative: the game's name is
@@ -19,15 +20,8 @@ export function GameCoverThumb({
   seed: number;
   hues: Hues;
 }) {
-  const ref = useRef<HTMLImageElement>(null);
+  // RemoteImg also reports an image that failed before hydration.
   const [failed, setFailed] = useState(false);
-
-  // An image that failed before hydration fired its error event before React listened.
-  useEffect(() => {
-    const img = ref.current;
-    // currentSrc: the browser did try this URL (a lazy image not yet requested is not "complete").
-    if (img?.complete && img.currentSrc && img.naturalWidth === 0) setFailed(true);
-  }, [coverUrl]);
 
   if (!coverUrl || failed) {
     return variant === "chip" ? (
@@ -37,16 +31,14 @@ export function GameCoverThumb({
     );
   }
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- remote catalog hosts are not configured for next/image
-    <img
-      ref={ref}
-      src={coverUrl}
-      alt=""
+    <RemoteImg
+      url={coverUrl}
       width={variant === "chip" ? 27 : 48}
       height={variant === "chip" ? 36 : 64}
-      loading="lazy"
-      decoding="async"
-      onError={() => setFailed(true)}
+      sizes={variant === "chip" ? "27px" : "48px"}
+      shape="fit"
+      alt=""
+      onFail={() => setFailed(true)}
       className={variant === "chip" ? "h-9 w-[27px] flex-none rounded-[2px] object-cover" : "block size-full object-cover"}
     />
   );

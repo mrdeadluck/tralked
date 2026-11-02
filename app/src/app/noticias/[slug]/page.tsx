@@ -243,6 +243,8 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
           light
           width={1200}
           height={514}
+          sizes="(max-width: 940px) calc(100vw - 40px), 900px"
+          priority
         />
       </div>
 

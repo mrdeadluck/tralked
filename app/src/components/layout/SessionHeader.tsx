@@ -53,7 +53,9 @@ async function HeaderWithUser() {
 function HeaderFallback() {
   return (
     // usePathname (aria-current) pode suspender em rotas dinâmicas com Cache Components.
-    <Suspense fallback={<div className="h-[71px] border-b border-line" />}>
+    // Same height as the header it stands for (it wraps to two rows below 1150 px), so the page
+    // does not jump when the header streams in.
+    <Suspense fallback={<div className="h-[127px] border-b border-line nav:h-[123px] min-[1150px]:h-[71px]" />}>
       <Header />
     </Suspense>
   );

@@ -58,7 +58,8 @@ export async function BoardScreen({ board }: { board: Board }) {
               />
             </>
           )}
-          <Suspense fallback={null}>
+          {/* Room for the "Você está aqui" bar (mt-6 + its height), so the footer does not jump when it streams. */}
+          <Suspense fallback={<div aria-hidden="true" className="mt-6 h-[89px] sm:h-[62px]" />}>
             <ViewerIsland board={board} view={view} leaderValue={leaderValue} since={since} />
           </Suspense>
         </section>

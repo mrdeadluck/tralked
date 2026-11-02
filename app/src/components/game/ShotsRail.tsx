@@ -20,7 +20,7 @@ export function ShotsRail({ shots, gameName, hues }: { shots: GameShot[]; gameNa
               rel="noopener noreferrer"
               aria-label={`${shot.label} (abre em nova aba)`}
             >
-              <GameArt seed={shot.seed} hues={hues} imageUrl={shot.url} alt="" width={560} height={350} />
+              <GameArt seed={shot.seed} hues={hues} imageUrl={shot.url} alt="" width={560} height={350} sizes="320px" />
             </a>
           </div>
         ) : (

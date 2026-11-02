@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { sizedImage, type ArtShape } from "@/lib/images/sized";
 
 export type Hues = [number, number];
 
@@ -13,9 +14,16 @@ type GameArtProps = {
   figure?: boolean;
   /** Brighter sky at the top. */
   light?: boolean;
-  /** Canvas resolution; CSS stretches it to the box. */
+  /**
+   * Canvas resolution; CSS stretches it to the box. For a real image, `width` is also the widest
+   * the box renders (CSS px): the CDN copy that covers it is requested (lib/images/sized.ts).
+   */
   width?: number;
   height?: number;
+  /** `sizes` of the real image: with it, the browser picks the CDN copy for the screen's density. */
+  sizes?: string;
+  /** Box shape for the CDN copy: `wide` boxes take 16:9 crops (default), `fit` uncropped sizes. */
+  shape?: ArtShape;
   /** Alt text for a real image. Empty (decorative) by default: cards label their link instead. */
   alt?: string;
   /** Above-the-fold art: load the real image eagerly with high fetch priority. */
@@ -131,29 +139,55 @@ export function GameArt({
   light = false,
   width = 600,
   height = 480,
+  sizes,
+  shape = "wide",
   alt = "",
   priority = false,
   className = "",
   style,
 }: GameArtProps) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const img = useRef<HTMLImageElement>(null);
+  // A guessed CDN thumbnail that does not exist moves on to the next fallback (the original last).
+  const [failed, setFailed] = useState<{ url: string; count: number } | null>(null);
   const [h1, h2] = hues;
+  const sized = imageUrl ? sizedImage(imageUrl, width, shape) : null;
+  const fallbacks = sized?.fallbacks ?? [];
+  const step = failed && failed.url === imageUrl ? failed.count : 0;
+  const canFallBack = step < fallbacks.length;
 
   useEffect(() => {
     if (!imageUrl && ref.current) paint(ref.current, [h1, h2], seed, { figure, light });
   }, [imageUrl, h1, h2, seed, figure, light]);
 
-  if (imageUrl) {
+  // A thumbnail that 404'd before React attached onError is "complete" with no pixels.
+  useEffect(() => {
+    const el = img.current;
+    if (imageUrl && canFallBack && el?.complete && el.currentSrc && el.naturalWidth === 0) {
+      setFailed({ url: imageUrl, count: step + 1 });
+    }
+  }, [imageUrl, canFallBack, step]);
+
+  if (imageUrl && sized) {
+    const responsive = step === 0 && sizes !== undefined;
     return (
-      // Hosts vary (IGDB, SteamGridDB, article credits); next/image would need remotePatterns for each.
+      // Hosts vary (IGDB, SteamGridDB, article credits): next/image would need remotePatterns for each,
+      // and these CDNs already serve the size asked for (no image-optimizer quota spent).
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={imageUrl}
+        ref={img}
+        key={step}
+        src={step === 0 ? sized.src : fallbacks[step - 1]}
+        srcSet={responsive ? sized.srcSet : undefined}
+        sizes={responsive ? sizes : undefined}
+        width={width}
+        height={height}
         alt={alt}
         loading={priority ? "eager" : "lazy"}
         fetchPriority={priority ? "high" : undefined}
         decoding="async"
         draggable={false}
+        onError={canFallBack ? () => setFailed({ url: imageUrl, count: step + 1 }) : undefined}
         className={`block size-full object-cover ${className}`}
         style={style}
       />

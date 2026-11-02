@@ -26,7 +26,18 @@ export default function EntrarPage({ searchParams }: PageProps<"/entrar">) {
   return (
     <div className="mx-auto flex w-full max-w-[880px] flex-col gap-8">
       <PageHead title="Entrar" lede="Entre com o e-mail e a senha da sua conta do Tralked." />
-      <Suspense fallback={<p className="font-mono text-xs text-dim">Carregando…</p>}>
+      {/* The fallback keeps the form's room (taller with the Google button), so the footer does not jump. */}
+      <Suspense
+        fallback={
+          <p
+            className={`font-mono text-xs text-dim ${
+              googleLoginEnabled() ? "min-h-[690px] min-[801px]:min-h-[424px]" : "min-h-[560px] min-[801px]:min-h-[296px]"
+            }`}
+          >
+            Carregando…
+          </p>
+        }
+      >
         <EntrarContent searchParams={searchParams} />
       </Suspense>
     </div>

@@ -37,7 +37,7 @@ export function SimilarShelf({ games, aside }: { games: SimilarGame[]; aside: st
             <li key={g.slug}>
               <a href={`/jogos/${g.slug}`}>
                 <span className="gpe-box">
-                  <GameArt seed={g.seed} hues={g.hues} imageUrl={g.coverUrl} figure width={300} height={414} />
+                  <GameArt seed={g.seed} hues={g.hues} imageUrl={g.coverUrl} figure width={300} height={414} shape="fit" sizes="150px" />
                   {g.coverUrl ? null : <span className="gpe-top" />}
                   {/* A real cover already carries the title art: the name stays for screen readers. */}
                   <span className={g.coverUrl ? "sr-only" : "gpe-nm"} style={g.coverUrl ? undefined : titleFitStyle(g.name)}>

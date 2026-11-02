@@ -8,8 +8,10 @@ import type { UploadResponse } from "@/app/galeria/enviar/route";
 import { PHOTO_XP } from "@/lib/community/rewards";
 import { CAPTION_MAX } from "@/lib/community/text";
 import { MAX_UPLOAD_BYTES, TOO_LARGE_MESSAGE } from "@/lib/community/upload-limits";
+import type { UploadGameOption } from "@/lib/community/gallery";
 import { compressForUpload } from "./compress-image";
 import { UploadIcon } from "./icons";
+import { UploadGamePicker } from "./UploadGamePicker";
 
 /** Files above this are refused before the browser even tries to decode them. */
 const MAX_SOURCE_BYTES = 40 * 1024 * 1024;
@@ -17,11 +19,10 @@ const SOURCE_TOO_LARGE = "Essa imagem é grande demais. Escolha uma de até 40 M
 const ACCEPT = "image/jpeg,image/png,image/webp";
 
 type UploadPhotoProps = {
-  games: { slug: string; name: string }[];
   loggedIn: boolean;
   returnTo: string;
-  /** Preselected game (the gallery filter). */
-  defaultGame?: string | null;
+  /** Preselected game (the gallery filter). The form searches the catalog itself (UploadGamePicker). */
+  defaultGame?: UploadGameOption | null;
   /** Anonymous fallback shown before the session is known. */
   pending?: boolean;
 };
@@ -29,7 +30,7 @@ type UploadPhotoProps = {
 type Outcome = { kind: "error"; field?: string; message: string } | { kind: "done"; href: string; xp: boolean };
 
 /** "Poste sua foto": file + game + caption, sent to the upload route (the server re-checks everything). */
-export function UploadPhoto({ games, loggedIn, returnTo, defaultGame, pending = false }: UploadPhotoProps) {
+export function UploadPhoto({ loggedIn, returnTo, defaultGame, pending = false }: UploadPhotoProps) {
   const router = useRouter();
   const id = useId();
   const [preview, setPreview] = useState<string | null>(null);
@@ -72,6 +73,10 @@ export function UploadPhoto({ games, loggedIn, returnTo, defaultGame, pending = 
     }
     if (file.size > MAX_SOURCE_BYTES) {
       setOutcome({ kind: "error", field: "foto", message: SOURCE_TOO_LARGE });
+      return;
+    }
+    if (!data.get("jogo")) {
+      setOutcome({ kind: "error", field: "jogo", message: "Escolha o jogo da foto na lista da busca." });
       return;
     }
     startTransition(async () => {
@@ -150,30 +155,19 @@ export function UploadPhoto({ games, loggedIn, returnTo, defaultGame, pending = 
         ) : null}
       </div>
 
-      <label className="flex flex-col gap-1.5 text-[13px] text-muted">
-        Jogo
-        <select
+      <div className="flex flex-col gap-1.5">
+        <UploadGamePicker
           name="jogo"
-          required
-          defaultValue={defaultGame ?? ""}
-          aria-invalid={fieldError("jogo") ? true : undefined}
-          className="h-11 rounded-[2px] border border-line-2 bg-bg px-3 text-[14px] text-text"
-        >
-          <option value="" disabled>
-            Escolha o jogo
-          </option>
-          {games.map((game) => (
-            <option key={game.slug} value={game.slug}>
-              {game.name}
-            </option>
-          ))}
-        </select>
+          defaultGame={defaultGame}
+          invalid={Boolean(fieldError("jogo"))}
+          errorId={`${id}-jogo-error`}
+        />
         {fieldError("jogo") ? (
-          <span role="alert" className="text-[13px] text-nin">
+          <span id={`${id}-jogo-error`} role="alert" className="text-[13px] text-nin">
             {fieldError("jogo")}
           </span>
         ) : null}
-      </label>
+      </div>
 
       <label className="flex flex-col gap-1.5 text-[13px] text-muted">
         Legenda (opcional)

@@ -40,7 +40,9 @@ const SORT_LABEL: Record<CatalogSort, string> = { popular: "Popular", nome: "Nom
 
 export default function JogosPage({ searchParams }: PageProps<"/jogos">) {
   return (
-    <Suspense fallback={<div className="min-h-[60vh]" aria-busy="true" />}>
+    // A full screen of room: the catalog (40 cases) is always taller, so the footer starts below the
+    // fold and nothing on screen moves when it streams in.
+    <Suspense fallback={<div className="min-h-[100svh]" aria-busy="true" />}>
       <Catalog searchParams={searchParams} />
     </Suspense>
   );

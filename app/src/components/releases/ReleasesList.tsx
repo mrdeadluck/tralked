@@ -37,7 +37,7 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
   const tabInfo = RELEASE_TABS.find((t) => t.id === tab)!;
 
   return (
-    <div key="releases-list" className="mx-auto flex w-full max-w-[980px] flex-col gap-8">
+    <div key="releases-list" className="flex w-full flex-col gap-8">
       <PageHead
         title="Lançamentos"
         lede="Os jogos que acabaram de sair e os que estão chegando, do PC (Steam) aos consoles. Datas da Steam e do IGDB, atualizadas a cada 6 horas."
@@ -95,7 +95,12 @@ export async function ReleasesList({ tab, filter }: { tab: ReleaseTab; filter: R
                     href={`/jogos/${r.slug}`}
                     slug={r.slug}
                     name={r.name}
-                    art={caseArt({ coverUrl: r.coverUrl, steamAppId: steamAppIdFromUrl(r.capsuleUrl), wideUrl: r.capsuleUrl })}
+                    art={caseArt({
+                      coverUrl: r.coverUrl,
+                      steamAppId: steamAppIdFromUrl(r.capsuleUrl),
+                      wideUrl: r.capsuleUrl,
+                      portraitChecked: !r.stub,
+                    })}
                   >
                     <span className="cs-name">{r.name}</span>
                     <span className="cs-meta">

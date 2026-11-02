@@ -2,6 +2,7 @@ import Link from "next/link";
 import { formatAgo } from "@/components/character/format";
 import { formatHours } from "@/components/profile/format";
 import { Placeholder } from "@/components/ui/Placeholder";
+import { RemoteImg } from "@/components/ui/RemoteImg";
 import { SectionHead } from "@/components/ui/SectionHead";
 import type { RecentlyPlayedGame } from "@/lib/library/queries";
 import { PLATFORM_LABEL, PLATFORM_TOKEN } from "./platforms";
@@ -26,8 +27,15 @@ export function RecentlyPlayed({ games, now, libraryHref }: RecentlyPlayedProps)
                 className="flex h-full flex-col overflow-hidden rounded-[4px] border border-line bg-surface hover:border-line-2"
               >
                 {game.coverUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- capa externa (Steam/IGDB/SteamGridDB)
-                  <img src={game.coverUrl} alt={`Capa de ${game.name}`} className="aspect-[3/4] w-full object-cover" />
+                  <RemoteImg
+                    url={game.coverUrl}
+                    width={200}
+                    height={267}
+                    sizes="200px"
+                    shape="fit"
+                    alt={`Capa de ${game.name}`}
+                    className="aspect-[3/4] h-auto w-full object-cover"
+                  />
                 ) : (
                   <div className="[&>div]:rounded-none">
                     <Placeholder label={`capa: ${game.name.toLowerCase()}`} />

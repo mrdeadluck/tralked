@@ -55,7 +55,7 @@ export function GameHead({ game }: { game: GameDetail }) {
       )}
       <div className="grid items-center gap-7 border-b-2 border-text pb-7 grid-cols-[minmax(0,360px)_minmax(0,1fr)_auto] max-[900px]:grid-cols-[1fr_auto]">
         <div className="max-[900px]:col-span-full">
-          <GameCover name={game.name} coverUrl={game.coverUrl} />
+          <GameCover name={game.name} coverUrl={game.coverUrl} width={360} sizes="(max-width: 900px) calc(100vw - 40px), 360px" />
         </div>
         <div>
           <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs tracking-[0.1em] uppercase">

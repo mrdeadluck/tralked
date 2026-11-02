@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Chip } from "@/components/ui/Chip";
 import { Placeholder } from "@/components/ui/Placeholder";
+import { RemoteImg } from "@/components/ui/RemoteImg";
 import { Ring } from "@/components/ui/Ring";
 import { SectionHead } from "@/components/ui/SectionHead";
 import type { CharacterAlmostGame } from "@/lib/queries/players";
@@ -28,11 +29,13 @@ export function AlmostThere({ games }: AlmostThereProps) {
               className="flex flex-col overflow-hidden rounded-[4px] border border-line bg-surface hover:border-line-2"
             >
               {game.coverUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- capa externa (SteamGridDB/Steam)
-                <img
-                  src={game.coverUrl}
+                <RemoteImg
+                  url={game.coverUrl}
+                  width={400}
+                  height={250}
+                  sizes="(max-width: 640px) calc(100vw - 40px), 400px"
                   alt={`Capa de ${game.name}`}
-                  className="aspect-[16/10] w-full object-cover"
+                  className="aspect-[16/10] h-auto w-full object-cover"
                 />
               ) : (
                 <div className="[&>div]:rounded-none">

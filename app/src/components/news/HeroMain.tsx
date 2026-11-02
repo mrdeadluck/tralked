@@ -4,7 +4,14 @@ import { artHues, hashSeed } from "@/lib/queries/news";
 import { ArticleByline, ArticleTags, type ArticleView } from "./ArticleTags";
 
 /** The home's main highlight: the article's image (or its game's art) under the headline. */
-export function HeroMain({ article }: { article: ArticleView }) {
+export function HeroMain({
+  article,
+  sizes = "(max-width: 1000px) calc(100vw - 40px), 820px",
+}: {
+  article: ArticleView;
+  /** Rendered width of the art (the home column by default), for the CDN copy to request. */
+  sizes?: string;
+}) {
   return (
     <Link
       href={`/noticias/${article.slug}`}
@@ -18,6 +25,7 @@ export function HeroMain({ article }: { article: ArticleView }) {
         light
         width={960}
         height={640}
+        sizes={sizes}
         priority
         className="absolute inset-0 object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03] motion-reduce:transition-none"
       />

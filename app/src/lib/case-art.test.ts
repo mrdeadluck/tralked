@@ -15,6 +15,15 @@ describe("caseArt", () => {
     expect(caseArt({})).toEqual([]);
   });
 
+  it("does not guess the Steam portrait when it is known to be missing", () => {
+    const hashed = "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/4115450/aef06490c9a4ad912142fe3b766ee08a2b38ef80/capsule_231x87.jpg?t=1";
+    expect(caseArt({ steamAppId: 4115450, wideUrl: hashed })).toEqual([{ url: hashed, wide: true }]);
+    expect(caseArt({ steamAppId: 10, portraitChecked: true })).toEqual([{ url: steamHeaderUrl(10), wide: true }]);
+    // Plain (older) asset folders still try the portrait first.
+    const plain = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/10/capsule_231x87.jpg";
+    expect(caseArt({ steamAppId: 10, wideUrl: plain })[0]).toEqual({ url: steamPortraitUrl(10), wide: false });
+  });
+
   it("does not repeat a source", () => {
     expect(caseArt({ coverUrl: steamPortraitUrl(3), steamAppId: 3 })).toHaveLength(2);
   });
