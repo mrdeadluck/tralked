@@ -191,7 +191,7 @@ function GameCase({ game }: { game: GameCard }) {
       name={game.name}
       art={game.art}
       platforms={bandPlatforms(game.platforms)}
-      flag={owned && unlockedCount === achievementCount ? "PLATINADO" : undefined}
+      flag={owned && unlockedCount === achievementCount ? "TRALKED!" : undefined}
       progress={pct}
     >
       <h3 className="cs-name">{game.name}</h3>

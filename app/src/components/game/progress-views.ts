@@ -34,7 +34,7 @@ export function catalogViews(
       catalog: true,
       detail: `${note.prefix ?? ""}${p.total === 1 ? "conquista" : "conquistas"} na ${name} · `,
       link: note.link,
-      platLabel: `PLATINADO · ${fmt(p.total)}/${fmt(p.total)}`,
+      platLabel: `TRALKED! · ${fmt(p.total)}/${fmt(p.total)}`,
       // Without a native platinum the 100% earns the Tralked one: "+1", outside the total.
       trophies: {
         platinum: p.nativePlatinum ? fmt(p.tiers.platinum) : "+1",
@@ -81,9 +81,9 @@ export function progressViews(
     completed: combined.completed,
     badge: combined.completed ? "100%" : null,
     detail: `conquistas somadas de ${progress.byPlatform.length} plataformas · ${combined.pct}% no total · ${
-      combined.completed ? "tudo platinado" : `${left(combined.unlocked, combined.total)} no total`
+      combined.completed ? "tudo Tralked!" : `${left(combined.unlocked, combined.total)} no total`
     }`,
-    platLabel: `PLATINADO · ${combined.unlocked}/${combined.total}`,
+    platLabel: `TRALKED! · ${combined.unlocked}/${combined.total}`,
     trophies: trophyValues(combined.trophies),
     trophiesLabel: "Seus troféus neste jogo em todas as plataformas, por nível",
   };
@@ -99,9 +99,9 @@ export function progressViews(
       completed: p.completed,
       badge: p.completed ? (p.platinumTrophy ? "Platina" : "100%") : null,
       detail: p.completed
-        ? `conquistas na ${name} · 100% · platinado`
+        ? `conquistas na ${name} · 100% · Tralked!`
         : `conquistas na ${name} · ${p.pct}% · ${left(p.unlocked, p.total)} para platinar`,
-      platLabel: `PLATINADO · ${p.unlocked}/${p.total}`,
+      platLabel: `TRALKED! · ${p.unlocked}/${p.total}`,
       trophies: trophyValues(p.trophies),
       trophiesLabel: `Seus troféus na ${name}, por nível`,
       tralkedPlatinum: !p.platinumTrophy,

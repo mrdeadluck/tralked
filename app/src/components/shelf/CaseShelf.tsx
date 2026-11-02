@@ -65,7 +65,7 @@ type CaseItemProps = {
   art: CaseArtSource[];
   /** Platform families of the band across the top (lib/releases/platforms `bandPlatforms`). */
   platforms: { platform: BandPlatform; label: string }[];
-  /** Ribbon on the case ("PLATINADO"). */
+  /** Ribbon on the case ("TRALKED!" at 100%). */
   flag?: string;
   /** 0–100: the visitor's progress, as a bar at the foot of the case. */
   progress?: number | null;

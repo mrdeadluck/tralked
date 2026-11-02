@@ -116,7 +116,7 @@ async function IntroIsland({ profile }: { profile: GameProfile }) {
       disc={profile.art.disc}
       platformLabel={platformLabel}
       plat={Boolean(best?.completed)}
-      discLabel={best?.completed ? `PLATINADO · ${best.best.unlocked}/${best.best.total}` : "TRALKED · DISCO 1"}
+      discLabel={best?.completed ? `TRALKED! · ${best.best.unlocked}/${best.best.total}` : "TRALKED · DISCO 1"}
       bookletNote={profile.guide ? "Guia de conquistas 100%" : "Encarte do jogo"}
       account={me ? { opened: Boolean(me.profile?.opened), introOff: me.introOff } : null}
     />

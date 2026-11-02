@@ -35,7 +35,7 @@ describe("progressViews (game page platform tabs)", () => {
     expect(all.detail).toBe("conquistas somadas de 2 plataformas · 99% no total · falta 1 no total");
     expect(steam.detail).toBe("conquistas na Steam · 98% · falta 1 para platinar");
     expect(steam.trophies.platinum).toBe("0/1");
-    expect(psn).toMatchObject({ completed: true, pct: 100, platLabel: "PLATINADO · 40/40", detail: "conquistas na PSN · 100% · platinado" });
+    expect(psn).toMatchObject({ completed: true, pct: 100, platLabel: "TRALKED! · 40/40", detail: "conquistas na PSN · 100% · Tralked!" });
     expect(all.trophies.platinum).toBe("1/2");
   });
 
@@ -47,7 +47,7 @@ describe("progressViews (game page platform tabs)", () => {
       ]),
     );
     expect(split?.views.map((v) => v.badge)).toEqual(["100%", "100%", "100%"]);
-    expect(split?.views[0].detail).toContain("tudo platinado");
+    expect(split?.views[0].detail).toContain("tudo Tralked!");
     // Steam and Xbox have no platinum trophy: theirs is the Tralked one; "Todas" pools both kinds.
     expect(split?.views.map((v) => v.tralkedPlatinum)).toEqual([undefined, true, true]);
   });

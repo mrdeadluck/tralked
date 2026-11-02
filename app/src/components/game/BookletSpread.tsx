@@ -167,7 +167,7 @@ export function BookletProgress({
     </>
   );
   const detail = completed
-    ? `conquistas na ${PLATFORM_NAME[best.platform]} · 100% · platinado`
+    ? `conquistas na ${PLATFORM_NAME[best.platform]} · 100% · Tralked!`
     : `conquistas na ${PLATFORM_NAME[best.platform]} · ${best.pct}% · ${left === 1 ? "falta 1" : `faltam ${fmt(left)}`} para platinar`;
 
   return (
@@ -180,7 +180,7 @@ export function BookletProgress({
         pct={best.pct}
         platinum={completed}
         label="TRALKED · DISCO 1"
-        platLabel={`PLATINADO · ${best.unlocked}/${best.total}`}
+        platLabel={`TRALKED! · ${best.unlocked}/${best.total}`}
       >
         <div className="gpg gp-veil" style={delay(".3s")}>
           <b>{headline}</b>
