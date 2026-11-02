@@ -6,6 +6,8 @@ import { loadMoreComments, postComment, removeComment, updateComment } from "@/l
 import type { CommentPage, CommentTargetType, CommentView } from "@/lib/community/comments";
 import { formatWhen, plural } from "@/lib/community/format";
 import type { Viewer } from "@/lib/community/viewer";
+import { CommentModActions } from "@/components/moderation/CommentModActions";
+import { DiscussionLockToggle, LockedNotice } from "@/components/moderation/DiscussionLock";
 import { AuthorBadge } from "./AuthorBadge";
 import { ReportButton } from "./ReportButton";
 import { TextComposer } from "./TextComposer";
@@ -17,10 +19,13 @@ type CommentsClientProps = {
   initial: CommentPage;
   viewer: Viewer;
   returnTo: string;
+  /** The moderation locked the discussion: no comment box. */
+  locked?: boolean;
 };
 
-export function CommentsClient({ targetType, targetId, initial, viewer, returnTo }: CommentsClientProps) {
+export function CommentsClient({ targetType, targetId, initial, viewer, returnTo, locked: initialLocked = false }: CommentsClientProps) {
   const [comments, setComments] = useState(initial.comments);
+  const [locked, setLocked] = useState(initialLocked);
   const [cursor, setCursor] = useState(initial.nextCursor);
   const [total, setTotal] = useState(initial.total);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -48,9 +53,26 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
     });
   }
 
+  /** Pinning moves the comment to the top and unpins the previous one (one per discussion). */
+  function setPinned(id: string, pinned: boolean) {
+    setComments((list) => {
+      const next = list.map((c) => (c.id === id ? { ...c, pinned } : pinned ? { ...c, pinned: false } : c));
+      if (!pinned) return next;
+      const target = next.find((c) => c.id === id);
+      return target ? [target, ...next.filter((c) => c.id !== id)] : next;
+    });
+  }
+
   return (
     <div className="flex flex-col gap-5">
-      {viewer ? (
+      {viewer?.moderator ? (
+        <div className="flex justify-end">
+          <DiscussionLockToggle targetType={targetType} targetId={targetId} locked={locked} onChange={setLocked} />
+        </div>
+      ) : null}
+      {locked ? (
+        <LockedNotice />
+      ) : viewer ? (
         <TextComposer
           label="Escreva um comentário"
           placeholder="O que você achou?"
@@ -82,11 +104,20 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
               onDeleted={() => {
                 setComments((list) =>
                   list.map((c) =>
-                    c.id === comment.id ? { ...c, deleted: true, body: "", author: null, editedAt: null } : c,
+                    c.id === comment.id ? { ...c, deleted: true, pinned: false, body: "", author: null, editedAt: null } : c,
                   ),
                 );
                 setTotal((n) => Math.max(0, n - 1));
               }}
+              onRemoved={() => {
+                setComments((list) =>
+                  list.map((c) =>
+                    c.id === comment.id ? { ...c, removed: true, pinned: false, body: "", author: null, editedAt: null } : c,
+                  ),
+                );
+                setTotal((n) => Math.max(0, n - 1));
+              }}
+              onPinned={(pinned) => setPinned(comment.id, pinned)}
             />
           ))}
         </ul>
@@ -117,9 +148,11 @@ type CommentItemProps = {
   returnTo: string;
   onChanged: (comment: CommentView) => void;
   onDeleted: () => void;
+  onRemoved: () => void;
+  onPinned: (pinned: boolean) => void;
 };
 
-function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted }: CommentItemProps) {
+function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted, onRemoved, onPinned }: CommentItemProps) {
   const [mode, setMode] = useState<"view" | "edit" | "confirm-delete">("view");
   const [error, setError] = useState<string | null>(null);
   const [busy, startTransition] = useTransition();
@@ -141,18 +174,28 @@ function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted }: Commen
     });
   }
 
-  if (comment.deleted) {
+  if (comment.deleted || comment.removed) {
     return (
       <li id={`comentario-${comment.id}`} className="border-b border-divider py-4 first:pt-0">
-        <p className="font-mono text-[12px] text-dim italic">Comentário apagado</p>
+        <p className="font-mono text-[12px] text-dim italic">
+          {comment.removed ? "Comentário removido pela moderação" : "Comentário apagado"}
+        </p>
       </li>
     );
   }
+  const what = `comentário de ${comment.author ? `@${comment.author.handle}` : "conta removida"}`;
 
   return (
     <li id={`comentario-${comment.id}`} className="flex flex-col gap-2.5 border-b border-divider py-4 first:pt-0">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <AuthorBadge author={comment.author} size={28} />
+        <span className="flex flex-wrap items-center gap-3">
+          <AuthorBadge author={comment.author} size={28} />
+          {comment.pinned ? (
+            <span className="rounded-[2px] border border-acc px-1.5 py-0.5 font-mono text-xs leading-none tracking-[0.08em] text-acc uppercase">
+              Fixado
+            </span>
+          ) : null}
+        </span>
         <time dateTime={new Date(comment.createdAt).toISOString()} className="font-mono text-xs text-dim">
           {formatWhen(comment.createdAt, true)}
           {comment.editedAt ? " · editado" : ""}
@@ -182,15 +225,12 @@ function CommentItem({ comment, viewer, returnTo, onChanged, onDeleted }: Commen
                 Apagar
               </button>
             </>
-          ) : (
-            <ReportButton
-              targetType="comment"
-              targetId={comment.id}
-              loggedIn={viewer !== null}
-              returnTo={returnTo}
-              what={`comentário de ${comment.author ? `@${comment.author.handle}` : "conta removida"}`}
-            />
+          ) : viewer?.moderator ? null : (
+            <ReportButton targetType="comment" targetId={comment.id} loggedIn={viewer !== null} returnTo={returnTo} what={what} />
           )}
+          {viewer?.moderator ? (
+            <CommentModActions commentId={comment.id} pinned={comment.pinned} what={what} onRemoved={onRemoved} onPinned={onPinned} />
+          ) : null}
         </div>
       ) : null}
 

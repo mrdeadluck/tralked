@@ -20,6 +20,7 @@ let reporter: string;
 async function cleanup() {
   const users = await prisma.user.findMany({ where: { handle: { startsWith: PREFIX } }, select: { id: true } });
   const ids = users.map((u) => u.id);
+  await prisma.moderationLog.deleteMany({ where: { actorId: { in: ids } } });
   await prisma.report.deleteMany({ where: { OR: [{ reporterId: { in: ids } }, { targetId: { startsWith: PREFIX } }] } });
   await prisma.photo.deleteMany({ where: { authorId: { in: ids } } });
   await prisma.comment.deleteMany({ where: { authorId: { in: ids } } });

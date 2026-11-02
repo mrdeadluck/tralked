@@ -9,6 +9,7 @@ import { Trail } from "@/components/community/PageHead";
 import { PhotoGrid } from "@/components/community/PhotoGrid";
 import { PhotoMedia } from "@/components/community/PhotoMedia";
 import { ReportButton } from "@/components/community/ReportButton";
+import { PhotoModBar } from "@/components/moderation/PhotoModBar";
 import { UserText } from "@/components/community/UserText";
 import { getPhotoCached, listPhotosCached } from "@/lib/community/cached";
 import { formatWhen } from "@/lib/community/format";
@@ -123,27 +124,38 @@ export default async function PhotoPage({ params }: PageProps<"/galeria/[id]">) 
   );
 }
 
-type ActionsProps = { photo: PhotoDetail; liked: boolean; loggedIn: boolean; returnTo: string; pending?: boolean };
+type ActionsProps = {
+  photo: PhotoDetail;
+  liked: boolean;
+  loggedIn: boolean;
+  returnTo: string;
+  pending?: boolean;
+  /** Moderators get "Ocultar" and "Remover" (checked again on the server). */
+  moderator?: boolean;
+};
 
-function PhotoActions({ photo, liked, loggedIn, returnTo, pending }: ActionsProps) {
+function PhotoActions({ photo, liked, loggedIn, returnTo, pending, moderator = false }: ActionsProps) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <LikeButton
-        photoId={photo.id}
-        liked={liked}
-        likeCount={photo.likeCount}
-        loggedIn={loggedIn}
-        returnTo={returnTo}
-        pending={pending}
-      />
-      <ReportButton
-        targetType="photo"
-        targetId={photo.id}
-        loggedIn={loggedIn}
-        returnTo={returnTo}
-        what="esta foto"
-        pending={pending}
-      />
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <LikeButton
+          photoId={photo.id}
+          liked={liked}
+          likeCount={photo.likeCount}
+          loggedIn={loggedIn}
+          returnTo={returnTo}
+          pending={pending}
+        />
+        <ReportButton
+          targetType="photo"
+          targetId={photo.id}
+          loggedIn={loggedIn}
+          returnTo={returnTo}
+          what="esta foto"
+          pending={pending}
+        />
+      </div>
+      {moderator ? <PhotoModBar photoId={photo.id} /> : null}
     </div>
   );
 }
@@ -151,7 +163,9 @@ function PhotoActions({ photo, liked, loggedIn, returnTo, pending }: ActionsProp
 async function PhotoActionsIsland({ photo, returnTo }: { photo: PhotoDetail; returnTo: string }) {
   const viewer = await currentViewer();
   const liked = viewer ? (await likedPhotoIds(viewer.id, [photo.id])).has(photo.id) : false;
-  return <PhotoActions photo={photo} liked={liked} loggedIn={viewer !== null} returnTo={returnTo} />;
+  return (
+    <PhotoActions photo={photo} liked={liked} loggedIn={viewer !== null} returnTo={returnTo} moderator={viewer?.moderator} />
+  );
 }
 
 async function MoreFromGame({ gameSlug, gameName, exceptId }: { gameSlug: string; gameName: string; exceptId: string }) {

@@ -27,6 +27,14 @@ describe("requireStaffPage (/admin pages)", () => {
     expect(notFound).not.toHaveBeenCalled();
   });
 
+  it("lets moderators into moderation pages only", async () => {
+    as("moderator");
+    await expect(requireStaffPage("moderation")).resolves.toMatchObject({ role: "moderator" });
+    await expect(requireStaffPage()).rejects.toThrow("404");
+    as("user");
+    await expect(requireStaffPage("moderation")).rejects.toThrow("404");
+  });
+
   it("keeps editors out of admin-only pages", async () => {
     as("editor");
     await expect(requireStaffPage("admin")).rejects.toThrow("404");

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GameArt } from "@/components/art/GameArt";
 import { Comments } from "@/components/community/Comments";
+import { ArticleModeration } from "@/components/moderation/Islands";
 import { AdSlot } from "@/components/ui/AdSlot";
 import { ArticleBody } from "@/components/news/ArticleBody";
 import { ArticleTags } from "@/components/news/ArticleTags";
@@ -213,6 +214,13 @@ function ArticleLayout({ article }: { article: ArticleFull }) {
             </span>
           ) : null}
         </div>
+        {/* Session island: newsroom tools for admin/editor, "Denunciar" for everyone else. */}
+        <ArticleModeration
+          articleId={article.id}
+          category={article.category}
+          featured={article.featured}
+          returnTo={`/noticias/${article.slug}`}
+        />
       </header>
 
       <div className="aspect-[21/9] overflow-hidden rounded-[3px] bg-surface">

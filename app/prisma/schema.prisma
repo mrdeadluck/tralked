@@ -59,8 +59,12 @@ model User {
   displayName       String
   avatarUrl         String?
   profilePublic     Boolean   @default(false)
-  /// admin | editor | author | user
+  /// admin | editor | moderator | author | user
   role              String    @default("user")
+  /// Muted by the moderation until this time: cannot comment, post in the forum or upload photos.
+  mutedUntil        DateTime?
+  /// Banned by the moderation until this time: cannot log in or interact (the session is refused).
+  bannedUntil       DateTime?
   /// Last successful sync.
   lastSyncedAt      DateTime?
   /// Last sync attempt (success or failure); cron rotates on this so failing users cannot starve it.
@@ -104,7 +108,15 @@ model User {
   notifications  Notification[]
   passwordResets PasswordResetToken[]
   wishlist       WishlistItem[]
+<<<<<<< HEAD
   setup          PlayerSetup?
+=======
+  moderationDone ModerationLog[]     @relation("ModerationActor")
+  moderationOn   ModerationLog[]     @relation("ModerationTargetUser")
+
+  @@index([mutedUntil])
+  @@index([bannedUntil])
+>>>>>>> worktree-agent-ab9221bc5c850667c
 }
 
 /// A "set a new password" link (forgot password, or `pnpm user:invite`). Only the SHA-256 of the
@@ -853,6 +865,8 @@ model Comment {
   body       String
   /// visible | hidden | removed | deleted
   status     String    @default("visible")
+  /// Pinned by the moderation: shown first in its discussion, marked "Fixado" (one per target).
+  pinned     Boolean   @default(false)
   createdAt  DateTime  @default(now())
   editedAt   DateTime?
   author     User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
@@ -878,6 +892,41 @@ model Report {
 
   @@index([status, createdAt])
   @@index([targetType, targetId])
+}
+
+/// A discussion (comments of an article, guide, photo or thread) locked by the moderation: no new
+/// comments while the row exists. Polymorphic target, no FK (like Comment).
+model DiscussionLock {
+  targetType String
+  targetId   String
+  lockedById String?
+  createdAt  DateTime @default(now())
+
+  @@id([targetType, targetId])
+}
+
+/// Moderation history (/admin/moderacao): who did what, to which target, why and when.
+model ModerationLog {
+  id           String   @id @default(cuid())
+  actorId      String?
+  /// "<target>.<verb>", e.g. comment.remove, comment.pin, discussion.lock, article.unpublish,
+  /// photo.remove, guide.remove, user.mute, user.ban, user.unmute, user.unban, report.resolved.
+  action       String
+  /// comment | post | thread | photo | guide | article | user | report | discussion
+  targetType   String
+  targetId     String
+  /// Owner of the target (author or sanctioned user), when there is one.
+  targetUserId String?
+  reason       String?
+  /// Small extra facts (previous/new value, sanction end).
+  details      Json?
+  createdAt    DateTime @default(now())
+  actor        User?    @relation("ModerationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetUser   User?    @relation("ModerationTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([targetType, targetId])
+  @@index([targetUserId, createdAt])
 }
 
 model ForumCategory {
@@ -1021,7 +1070,7 @@ model Notification {
   id        String    @id @default(cuid())
   userId    String
   /// level_up | skill_up | attribute_up | comment_reply | forum_reply | thread_solved |
-  /// photo_like | content_published | report_resolved | system
+  /// photo_like | content_published | report_resolved | moderation | system
   kind      String
   title     String
   body      String?

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { AdminNav, type AdminNavItem } from "@/components/admin/AdminNav";
 import { adminQueues } from "@/lib/admin/dashboard";
-import { requireStaffPage } from "@/lib/admin/guard";
+import { canAccess, requireStaffPage } from "@/lib/admin/guard";
 import { ROLE_LABEL, type Role } from "@/lib/admin/roles";
 
 export const metadata: Metadata = {
@@ -14,15 +14,21 @@ export const metadata: Metadata = {
 export const instant = false;
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
-  const user = await requireStaffPage();
+  // Moderators get in too, but only reach /admin/moderacao (each page checks its own level).
+  const user = await requireStaffPage("moderation");
   const queues = await adminQueues();
   const admin = user.role === "admin";
+  const newsroom = canAccess(user.role, "staff");
 
   const items: AdminNavItem[] = [
-    { href: "/admin", label: "Painel" },
-    { href: "/admin/revisao", label: "Revisão", count: queues.articlesInReview + queues.guidesInReview },
-    { href: "/admin/noticias", label: "Notícias" },
-    { href: "/admin/guias", label: "Guias" },
+    ...(newsroom
+      ? [
+          { href: "/admin", label: "Painel" },
+          { href: "/admin/revisao", label: "Revisão", count: queues.articlesInReview + queues.guidesInReview },
+          { href: "/admin/noticias", label: "Notícias" },
+          { href: "/admin/guias", label: "Guias" },
+        ]
+      : []),
     { href: "/admin/moderacao", label: "Moderação", count: queues.openReports },
     ...(admin
       ? [

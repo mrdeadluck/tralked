@@ -3,7 +3,8 @@
  * documented next to the pages, which check the same level again on the server.
  */
 
-export type AccessLevel = "staff" | "admin";
+/** staff: admin and editor; admin: admin only; moderation: admin, editor and moderator. */
+export type AccessLevel = "staff" | "admin" | "moderation";
 
 /** Sections only admins manage (API keys, feeds, roles, fraud, game overrides). */
 export const ADMIN_ONLY_SECTIONS = ["/admin/fraude", "/admin/jogos", "/admin/robos", "/admin/feeds", "/admin/usuarios"];
@@ -30,15 +31,25 @@ export function adminPath(pathname: string): string | null {
   return /^\/admin(?:[/;.]|$)/.test(path) ? path : null;
 }
 
+/** Sections moderators reach too (the rest of /admin stays with the newsroom). */
+export const MODERATION_SECTIONS = ["/admin/moderacao"];
+
+const within = (path: string, sections: string[]) =>
+  sections.some((section) => path === section || path.startsWith(`${section}/`));
+
 export function requiredLevel(pathname: string): AccessLevel {
   const path = adminPath(pathname) ?? pathname;
-  return ADMIN_ONLY_SECTIONS.some((section) => path === section || path.startsWith(`${section}/`))
-    ? "admin"
-    : "staff";
+  if (within(path, ADMIN_ONLY_SECTIONS)) return "admin";
+  if (within(path, MODERATION_SECTIONS)) return "moderation";
+  return "staff";
 }
 
 export const isStaffRole = (role: string | null | undefined) => role === "admin" || role === "editor";
 
+export const isModeratorRole = (role: string | null | undefined) => isStaffRole(role) || role === "moderator";
+
 export function canAccess(role: string | null | undefined, level: AccessLevel): boolean {
-  return level === "admin" ? role === "admin" : isStaffRole(role);
+  if (level === "admin") return role === "admin";
+  if (level === "moderation") return isModeratorRole(role);
+  return isStaffRole(role);
 }

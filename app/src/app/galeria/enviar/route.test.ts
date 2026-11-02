@@ -36,6 +36,14 @@ beforeEach(() => {
 });
 
 describe("POST /galeria/enviar", () => {
+  it("refuses a muted user with 403 before reading the photo", async () => {
+    getSessionUser.mockResolvedValue({ id: "u1", mutedUntil: new Date(Date.now() + 86_400_000) });
+    const response = await POST(request());
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ status: "forbidden", message: expect.stringMatching(/silenciado/) });
+    expect(uploadPhoto).not.toHaveBeenCalled();
+  });
+
   it("answers 503 with a clear message when image storage is not configured (production without Blob)", async () => {
     const { StorageNotConfiguredError } = await import("@/lib/storage");
     uploadPhoto.mockRejectedValue(new StorageNotConfiguredError());

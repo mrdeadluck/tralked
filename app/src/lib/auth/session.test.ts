@@ -101,6 +101,15 @@ describe("cookie session", () => {
     expect(findUnique).not.toHaveBeenCalled();
   });
 
+  it("getSessionUser refuses a banned account until the ban ends", async () => {
+    await createSession("user-1");
+    findUnique.mockResolvedValue({ id: "user-1", handle: "lucas", bannedUntil: new Date(Date.now() + 60_000) });
+    await expect(getSessionUser()).resolves.toBeNull();
+    const expired = { id: "user-1", handle: "lucas", bannedUntil: new Date(Date.now() - 60_000) };
+    findUnique.mockResolvedValue(expired);
+    await expect(getSessionUser()).resolves.toBe(expired);
+  });
+
   it("destroySession removes the cookie", async () => {
     await createSession("user-1");
     await destroySession();

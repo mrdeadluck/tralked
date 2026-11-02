@@ -22,6 +22,7 @@ import {
 } from "./rate-limit";
 import { DEFAULT_RETURN_TO, sanitizeReturnTo } from "./return-to";
 import { createSession } from "./session";
+import { bannedMessage, isBanned } from "@/lib/moderation/permissions";
 
 /**
  * Sign-up, login and password reset (useActionState forms on /cadastrar, /entrar,
@@ -91,6 +92,8 @@ export async function loginAction(_previous: AuthFormState, formData: FormData):
     return { message: WRONG_CREDENTIALS, values };
   }
   loginEmailLimiter.reset(emailKey);
+  // Right password, but the moderation suspended the account: say so (no session).
+  if (isBanned(user)) return { message: bannedMessage(user.bannedUntil!), values };
   await createSession(user.id);
   redirect(landing(sanitizeReturnTo(text(formData, "returnTo")), user.handle));
 }

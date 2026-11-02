@@ -59,6 +59,32 @@ describe("community actions", () => {
     expect(results[1]).toMatchObject({ message: expect.stringMatching(/HTML/), field: "body" });
   });
 
+  it("a muted user cannot comment, edit or post in the forum, but can still like and report", async () => {
+    getSessionUser.mockResolvedValue({ id: "u1", handle: "eu", mutedUntil: new Date(Date.now() + 86_400_000) });
+    const refused = await Promise.all([
+      actions.postComment({ targetType: "photo", targetId: "p1", body: "oi" }),
+      actions.updateComment({ id: "c1", body: "oi" }),
+      actions.startThread({ section: "geral", title: "Um título", body: "corpo" }),
+      actions.replyToThread({ threadId: "t1", body: "oi" }),
+    ]);
+    for (const result of refused) {
+      expect(result).toMatchObject({ status: "forbidden", message: expect.stringMatching(/silenciado até/) });
+    }
+    // Not a posting action: it gets past the sanction check (and fails on validation here).
+    expect((await actions.likePhoto("not an object")).status).toBe("invalid");
+  });
+
+  it("a banned user (stale session object) is refused everywhere before the database", async () => {
+    getSessionUser.mockResolvedValue({ id: "u1", handle: "eu", bannedUntil: new Date(Date.now() + 86_400_000) });
+    const results = await Promise.all([
+      actions.postComment({ targetType: "photo", targetId: "p1", body: "oi" }),
+      actions.likePhoto({ photoId: "p1" }),
+      actions.reportContent({ targetType: "comment", targetId: "c1", reason: "Spam ou propaganda" }),
+      actions.removeComment({ id: "c1" }),
+    ]);
+    for (const result of results) expect(result).toMatchObject({ status: "forbidden", message: expect.stringMatching(/suspensa/) });
+  });
+
   it("loading more comments validates its arguments", async () => {
     expect((await actions.loadMoreComments({ targetType: "nope", targetId: "x", cursor: "c" })) as { status: string }).toMatchObject({
       status: "invalid",
