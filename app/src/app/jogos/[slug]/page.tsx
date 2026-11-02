@@ -22,6 +22,7 @@ import {
   type GameProfile,
 } from "@/lib/queries/game-profile";
 import { listGameSlugs } from "@/lib/queries/games";
+import { getSteamPlayers } from "@/lib/queries/steam-players";
 import { JsonLd, videoGameJsonLd } from "@/lib/seo/json-ld";
 import { gameMetadata } from "./metadata";
 
@@ -170,6 +171,8 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
   const { slug } = await params;
   const profile = await getGameProfile(slug);
   if (!profile) notFound();
+  // Cached on its own (the hourly samples change faster than the profile).
+  const steamPlayers = await getSteamPlayers(profile.id);
 
   const login = loginHref(`/jogos/${profile.slug}`);
   const { news, gallery } = profile;
@@ -196,6 +199,7 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
 
       <BookletSpread
         profile={profile}
+        steamPlayers={steamPlayers}
         progress={
           <Suspense fallback={<BookletProgress profile={profile} loginHref={login} />}>
             <ProgressIsland profile={profile} login={login} />

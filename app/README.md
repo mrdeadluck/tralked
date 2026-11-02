@@ -201,6 +201,18 @@ Uma biblioteca grande (PSN com 700 jogos, Steam com milhares) não cabe nos 50 s
 
 Há uma fila por plataforma, todas em paralelo. Cada conta recebe fatias de 5 min (`--slice-minutes`) e volta para o fim da fila, então uma biblioteca enorme não segura quem acabou de entrar. Uma conta privada, desconectada, com erro ou cuja fatia não gravou nada fica para a próxima execução. Uma conta que o cron ou o "Sincronizar agora" começou há menos de 3 min é deixada terminar. Enquanto trabalha, o worker mantém uma trava (`SyncCursor` `platform-import-worker`, 15 min, renovada a cada 5) com as contas que pegou, e os jobs `users` e `platforms` pulam essas contas. Se o processo morrer, a trava vence sozinha. Uma conta recém-conectada recebe os primeiros 50 s logo ao conectar e o resto no worker. Segredos do repositório: `DATABASE_URL`, `STEAM_API_KEY`, `PSN_NPSSO`, `XBOX_OPENXBL_KEY`, `RA_USERNAME`, `RA_API_KEY` (plataforma sem segredo é pulada pelo worker e continua só no cron) e `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`. Disparo manual: `gh workflow run platform-import.yml -f hours=2`.
 
+### Jogadores na Steam (worker no GitHub Actions)
+
+A página do jogo mostra "Jogando agora na Steam: X · pico hoje Y · maior pico medido Z" para os jogos da Steam com amostras. O worker `pnpm steam:players` (`scripts/steam-players-worker.ts`, lógica em `src/lib/sync/steam-players.ts`) roda de hora em hora no `.github/workflows/steam-players.yml`, às :23 (logo depois do `platform-import` das :22, com o Neon em geral já acordado):
+
+- pega os **2.000 jogos da Steam mais populares** do catálogo (`Game.popularity`, `--limit`);
+- pergunta a cada um `ISteamUserStats/GetNumberOfCurrentPlayers`, que **não precisa de chave** (não gasta a cota da `STEAM_API_KEY`), com 16 pedidos em paralelo (`--concurrency`); depois de 20 recusas (429/5xx) para de começar pedidos e grava o que leu;
+- grava tudo num único `INSERT … ON CONFLICT` em `SteamPlayerCount`: **uma linha por jogo**, reescrita a cada hora, com a amostra atual, o pico do dia (dia de Brasília; zera quando o dia muda) e o **maior pico medido pelo Tralked** (a Steam não publica o pico histórico) com a hora em que foi medido. Nunca guarda o histórico de amostras.
+
+Na página, a amostra só vale como "agora" por 3 h (jogo que saiu do top ou worker parado mostra só "Maior pico na Steam"), e o "pico hoje" só aparece no próprio dia. O dado tem cache próprio de 15 min (`getSteamPlayers`), separado do perfil do jogo.
+
+**Custo:** a tabela fica em ~2.000 linhas de ~60 bytes (mais índice e versões mortas, menos de 1 MB). Cada rodada leva 1 a 3 min, quase tudo esperando a Steam, e faz 2 consultas ao banco (a lista e a gravação). Se o banco já está acordado pelo `platform-import`, o custo é desprezível (menos de 3 CU-h por mês). Se a rodada acordar o Neon sozinha, cada uma custa ~5 min de computação mínima (0,25 CU), cerca de **15 CU-h por mês** dos 100 do plano grátis; nesse caso, rode a cada 2 ou 3 h (`23 */2 * * *`). Segredo do repositório: só `DATABASE_URL`. Disparo manual: `gh workflow run steam-players.yml -f limit=2000`.
+
 ### Agendamento (pronto para o `vercel.json`)
 
 O repositório ainda não tem `vercel.json` (a configuração de deploy fica para o plano de produção). Os horários sugeridos, em UTC, já estão no formato da chave `crons`; basta colar no `vercel.json` ao configurar o deploy. A Vercel chama cada rota com `GET` e, quando a variável `CRON_SECRET` existe no projeto, envia `Authorization: Bearer $CRON_SECRET` sozinha. No plano Hobby a Vercel só aceita jobs diários: lá, use `0 3 * * *` (ou outro horário diário) para `news`, `platforms` e `users`.
@@ -285,6 +297,7 @@ Feeds sugeridos (conferidos em 31/10/2026: https, RSS válido, sem redirecioname
 | `pnpm sample:rename [--dry-run]` | Renomeia os personagens fictícios de um banco semeado antes do Plano 4 (seed, bylines, notificações). Idempotente. Exige `DATABASE_URL`. |
 | `pnpm highscores:backfill [--dry-run] [--snapshot]` | Grava os totais dos Highscores (`UserRankStats`) de todos os usuários a partir da biblioteca e das conquistas válidas (só essa tabela; XP, missões e atributos ficam como estão) e, com `--snapshot`, tira a foto do dia dos rankings (o mesmo que o cron `highscores`). Idempotente. Exige `DATABASE_URL`. |
 | `pnpm news:feeds [--dry-run] [--paused]` | Cadastra os feeds de manchetes de Entretenimento e Tecnologia (`src/lib/news/feed-catalog.ts`), ativos (ou pausados com `--paused`). Idempotente: feed já cadastrado (mesma URL) nunca é alterado. Exige `DATABASE_URL`. |
+| `pnpm steam:players [--limit 2000] [--concurrency 16]` | Amostra os jogadores atuais na Steam dos jogos mais populares e grava atual, pico do dia e maior pico medido (veja "Jogadores na Steam"). Exige `DATABASE_URL`. |
 | `pnpm steam:import` | Importa um perfil Steam público (`<id64\|vanity> [--admin] [--verified] [--psn <onlineId>]`). Exige `DATABASE_URL`. |
 | `pnpm api:key` | `"<nome>" <escopo>...`: cria uma chave de robô e imprime o segredo `tk_live_…` uma vez (só no terminal). Exige `DATABASE_URL`. |
 | `pnpm user:invite` | `<handle> <email>`: grava o e-mail de login de uma conta e imprime um link de "definir senha" (1 h, uso único; só no terminal). Exige `DATABASE_URL`; o link usa `APP_URL`. |
