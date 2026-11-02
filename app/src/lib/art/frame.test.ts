@@ -68,6 +68,22 @@ describe("pickArt (scene: a news story)", () => {
   });
 });
 
+describe("pickArt (scene: official art before game captures)", () => {
+  const artwork: ArtAsset = { url: "https://images.igdb.com/igdb/image/upload/t_1080p/ar9.jpg", kind: "artwork", w: 1920, h: 1080 };
+  const igdbShot: ArtAsset = { url: "https://images.igdb.com/igdb/image/upload/t_1080p/sc9.jpg", kind: "screenshot", w: 1920, h: 1080 };
+
+  it("shows an official artwork whole before any screenshot in a card", () => {
+    expect(pickArt([igdbShot, shot(1), artwork], 16 / 10, { mode: "scene" })).toEqual({ url: artwork.url, kind: "artwork", whole: true });
+  });
+
+  it("takes Steam's screenshots (publisher picks) before IGDB's captures, which often show menus", () => {
+    for (const seed of ["a", "bb", "ccc", "dddd"]) {
+      expect(pickArt([igdbShot, shot(1)], 16 / 10, { mode: "scene", seed })?.url).toBe(shot(1).url);
+    }
+    expect(pickArt([igdbShot], 16 / 10, { mode: "scene" })?.url).toBe(igdbShot.url);
+  });
+});
+
 describe("artAssets", () => {
   it("joins media rows and columns, https only, without repeats", () => {
     const assets = artAssets({

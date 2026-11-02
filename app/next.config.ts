@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
+import { SECURITY_HEADERS } from "./src/lib/security-headers";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  // Clickjacking, sniffing and referrer protection on every response (src/lib/security-headers.ts).
+  async headers() {
+    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+  },
   cacheComponents: true,
   partialPrefetching: false,
   // No preload `Link` headers from React: Next replays a prerendered route's headers on its

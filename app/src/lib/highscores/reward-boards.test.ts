@@ -166,8 +166,8 @@ describe.skipIf(!reachable)("reward-loop boards and nudges (database)", () => {
       const { notifyStreakRisk } = await import("@/lib/notifications/streak-risk");
       const now = new Date();
       const [atRisk, safe, shielded] = await players(tx, 3);
-      const game = await tx.game.findFirstOrThrow({ select: { id: true } });
-      const achievement = await tx.achievement.findFirstOrThrow({ where: { gameId: game.id }, select: { id: true } });
+      // Any achievement (the first game in the table may have none: other tests add bare games).
+      const achievement = await tx.achievement.findFirstOrThrow({ select: { id: true } });
       await tx.userStats.createMany({
         data: [
           { userId: atRisk.id, totalXp: 1, level: 1, vocation: "Recruta", streakCurrent: 4 },

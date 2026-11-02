@@ -88,8 +88,9 @@ function pickIndex(seed: string, length: number): number {
  * - `identity` (default; a game's card or case): lettered art of nearly the box's shape (the cover
  *   in a case, the capsule in a card), else the clean hero with the logo over it (wide boxes), else
  *   clean art of a near shape;
- * - `scene` (a news story about the game, whose headline sits on the image): clean art of a near
- *   shape (heroes, screenshots; varied by `seed`), else lettered art of nearly the box's shape.
+ * - `scene` (a news story about the game, whose headline sits on the image): the clean hero, else an
+ *   official artwork of nearly the box's shape (whole), else screenshots (Steam's before IGDB's,
+ *   varied by `seed`), else lettered art of nearly the box's shape.
  *
  * Last resort: the closest image (a portrait cover in a wide box has `kind: "cover"`, which the
  * caller shows whole). Images in `exclude` are skipped while another one is left.
@@ -140,7 +141,28 @@ export function pickArt(
     return heroes[0] ? at(heroes[0], { logo }) : null;
   };
 
-  const pick = mode === "scene" ? (cleanFit() ?? letteredFit()) : (letteredFit() ?? heroWithLogo() ?? cleanFit());
+  // A story's scene, official art first: the clean hero; an official artwork of nearly the box's
+  // shape (shown whole); then screenshots, Steam's (chosen by the publisher, rarely with the game's
+  // interface on screen) before IGDB's (often captures with menus and HUD).
+  const sceneFit = () => {
+    const heroes = measured.filter((m) => m.asset.kind === "hero" && m.d <= CLEAN_FIT).sort((a, b) => a.d - b.d);
+    if (heroes[0]) return at(heroes[0]);
+    const artworks = measured.filter((m) => m.asset.kind === "artwork" && m.d <= LETTERED_FIT);
+    if (artworks.length > 0) {
+      const chosen = artworks[pickIndex(seed, artworks.length)];
+      return at(chosen, chosen.d > 0.02 ? { whole: true } : {});
+    }
+    const shots = measured.filter((m) => m.asset.kind === "screenshot" && m.d <= CLEAN_FIT);
+    if (shots.length === 0) return null;
+    const igdb = (m: (typeof shots)[number]) => /images\.igdb\.com/.test(m.asset.url);
+    const steam = shots.filter((m) => !igdb(m));
+    const pool = steam.length > 0 ? steam : shots;
+    const best = Math.min(...pool.map((m) => m.d));
+    const near = pool.filter((m) => m.d <= best + 0.08);
+    return at(near[pickIndex(seed, near.length)]);
+  };
+
+  const pick = mode === "scene" ? (sceneFit() ?? cleanFit() ?? letteredFit()) : (letteredFit() ?? heroWithLogo() ?? cleanFit());
   if (pick) return pick;
   measured.sort((a, b) => a.d - b.d);
   return at(measured[0]);

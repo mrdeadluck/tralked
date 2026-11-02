@@ -1,0 +1,49 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/users",
+      "schedule": "17 */6 * * *"
+    },
+    {
+      "path": "/api/cron/releases",
+      "schedule": "18 */6 * * *"
+    },
+    {
+      "path": "/api/cron/media",
+      "schedule": "19 */6 * * *"
+    },
+    {
+      "path": "/api/cron/steam-catalog",
+      "schedule": "23 1-23/2 * * *"
+    },
+    {
+      "path": "/api/cron/news",
+      "schedule": "24 1-23/2 * * *"
+    },
+    {
+      "path": "/api/cron/platforms",
+      "schedule": "25 1-23/2 * * *"
+    },
+    {
+      "path": "/api/cron/igdb-catalog",
+      "schedule": "26 1-23/2 * * *"
+    },
+    {
+      "path": "/api/cron/catalog",
+      "schedule": "19 3 * * *"
+    },
+    {
+      "path": "/api/cron/rarity",
+      "schedule": "20 3 * * *"
+    },
+    {
+      "path": "/api/cron/highscores",
+      "schedule": "21 3 * * *"
+    },
+    {
+      "path": "/api/cron/notifications",
+      "schedule": "22 3 * * *"
+    }
+  ]
+}

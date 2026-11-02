@@ -264,25 +264,29 @@ O worker `pnpm retro:catalog` (`scripts/retro-catalog-worker.ts`, lógica em `sr
 
 **Custo de computação:** a primeira rodada leva alguns minutos (cerca de 45 consoles e ~25 lotes de 500 jogos). As seguintes levam ~1 min, porque só reescrevem o que mudou. Uma vez por semana, com o banco já acordado, fica abaixo de 0,5 CU-h por mês. A leitura sob demanda é uma requisição curta por jogo (na Vercel, uma vez por conjunto). Segredos do repositório: `DATABASE_URL`, `RA_API_KEY` e `RA_USERNAME`; sem `RA_API_KEY` o worker sai com erro. Disparo manual: `gh workflow run retro-catalog.yml -f minutes=30`.
 
-### Agendamento (pronto para o `vercel.json`)
+### Agendamento (Vercel Cron, em `app/vercel.json`)
 
-O repositório ainda não tem `vercel.json` (a configuração de deploy fica para o plano de produção). Os horários sugeridos, em UTC, já estão no formato da chave `crons`; basta colar no `vercel.json` ao configurar o deploy. A Vercel chama cada rota com `GET` e, quando a variável `CRON_SECRET` existe no projeto, envia `Authorization: Bearer $CRON_SECRET` sozinha. No plano Hobby a Vercel só aceita jobs diários: lá, use `0 3 * * *` (ou outro horário diário) para `news`, `platforms` e `users`.
+Desde 02/11/2026 as rotas `/api/cron/<job>` são chamadas pelo **Vercel Cron** (plano Pro), configurado em `app/vercel.json`. Antes elas eram chamadas pelo GitHub Actions, mas os agendamentos do GitHub são de "melhor esforço" e ficaram 12 h sem disparar. A Vercel chama cada rota com `GET` e manda `Authorization: Bearer $CRON_SECRET` sozinha.
+
+- **Horários:** os mesmos de antes, em UTC, com 1 minuto entre as rotinas de cada janela.
+- **Disparo manual:** continua no `.github/workflows/cron.yml`, com `gh workflow run cron.yml -f jobs="users"`.
+- **Fonte da verdade:** `CRON_SCHEDULES` em `src/lib/cron/schedules.ts`. Um teste confere que o `vercel.json` e o bloco abaixo são iguais a ela.
 
 <!-- crons:start -->
 ```json
 {
   "crons": [
-    { "path": "/api/cron/news", "schedule": "0 * * * *" },
-    { "path": "/api/cron/platforms", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/users", "schedule": "*/30 * * * *" },
-    { "path": "/api/cron/catalog", "schedule": "0 3 * * *" },
-    { "path": "/api/cron/rarity", "schedule": "30 3 * * *" },
-    { "path": "/api/cron/media", "schedule": "0 4 * * *" },
-    { "path": "/api/cron/notifications", "schedule": "15 5 * * *" },
-    { "path": "/api/cron/steam-catalog", "schedule": "20 * * * *" },
-    { "path": "/api/cron/releases", "schedule": "40 */6 * * *" },
-    { "path": "/api/cron/igdb-catalog", "schedule": "50 * * * *" },
-    { "path": "/api/cron/highscores", "schedule": "5 3 * * *" }
+    { "path": "/api/cron/users", "schedule": "17 */6 * * *" },
+    { "path": "/api/cron/releases", "schedule": "18 */6 * * *" },
+    { "path": "/api/cron/media", "schedule": "19 */6 * * *" },
+    { "path": "/api/cron/steam-catalog", "schedule": "23 1-23/2 * * *" },
+    { "path": "/api/cron/news", "schedule": "24 1-23/2 * * *" },
+    { "path": "/api/cron/platforms", "schedule": "25 1-23/2 * * *" },
+    { "path": "/api/cron/igdb-catalog", "schedule": "26 1-23/2 * * *" },
+    { "path": "/api/cron/catalog", "schedule": "19 3 * * *" },
+    { "path": "/api/cron/rarity", "schedule": "20 3 * * *" },
+    { "path": "/api/cron/highscores", "schedule": "21 3 * * *" },
+    { "path": "/api/cron/notifications", "schedule": "22 3 * * *" }
   ]
 }
 ```

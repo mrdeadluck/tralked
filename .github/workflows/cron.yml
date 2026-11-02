@@ -1,16 +1,10 @@
-# Scheduled jobs for the production site (the Vercel Hobby plan only runs daily crons).
-# Each schedule calls the app's cron route with the CRON_SECRET repository secret.
-# Times are UTC. GitHub delays (and under load skips) scheduled runs at busy minutes (:00, :15,
-# :30, :45), so every schedule here and in the worker workflows sits on an odd, quiet minute, and
-# the workers start right after a cron run (the free Neon database is awake then) and never
-# overlap each other. The whole timetable is in app/README.md ("Workers no GitHub Actions").
+# Runs the app's cron routes BY HAND (gh workflow run cron.yml -f jobs="users releases").
+# Their schedule lives in app/vercel.json (Vercel Cron, since 02/11/2026): GitHub's scheduled
+# runs are best-effort and went silent for 12 h that day. The worker workflows (platform-import,
+# steam-details, ...) keep their GitHub schedules: they run for minutes to hours, not as functions.
 name: cron
 
 on:
-  schedule:
-    - cron: "17 */6 * * *"    # users (libraries, achievements, hours), releases, media
-    - cron: "23 1-23/2 * * *" # steam-catalog, news, platforms, igdb-catalog
-    - cron: "19 3 * * *"      # catalog, rarity, highscores, notifications
   workflow_dispatch:
     inputs:
       jobs:
@@ -27,15 +21,9 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           APP_URL: ${{ vars.APP_URL || 'https://tralked.com' }}
-          SCHEDULE: ${{ github.event.schedule }}
           MANUAL: ${{ github.event.inputs.jobs }}
         run: |
-          case "$SCHEDULE" in
-            "17 */6 * * *") JOBS="users releases media" ;;
-            "23 1-23/2 * * *") JOBS="steam-catalog news platforms igdb-catalog" ;;
-            "19 3 * * *") JOBS="catalog rarity highscores notifications" ;;
-            *) JOBS="$MANUAL" ;;
-          esac
+          JOBS="$MANUAL"
           status=0
           for job in $JOBS; do
             code=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 310 \
