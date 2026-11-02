@@ -4,7 +4,7 @@ import { BoardScreen } from "@/components/highscores/BoardScreen";
 import { boardFromPath, boardTitle, METRICS } from "@/lib/highscores/boards";
 
 export function generateStaticParams() {
-  return METRICS.filter((m) => m !== "nivel").map((categoria) => ({ categoria }));
+  return METRICS.map((categoria) => ({ categoria }));
 }
 
 export async function generateMetadata({ params }: PageProps<"/highscores/[categoria]">): Promise<Metadata> {
@@ -12,7 +12,7 @@ export async function generateMetadata({ params }: PageProps<"/highscores/[categ
   if (!board) return {};
   const title = boardTitle(board);
   return {
-    title: `Highscores: ${title} | Tralked`,
+    title: `Ranking: ${title} | Tralked`,
     description: `Ranking dos jogadores do Tralked em ${title.toLowerCase()}.`,
   };
 }

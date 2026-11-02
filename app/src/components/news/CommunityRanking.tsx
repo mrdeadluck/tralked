@@ -2,13 +2,7 @@ import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { hashSeed, type TopPlayer } from "@/lib/queries/news";
-
-/** 12400 -> "12k", 1_250_000 -> "1,3M" (preview fmtK). */
-function formatXp(xp: number): string {
-  if (xp >= 1_000_000) return `${(xp / 1_000_000).toFixed(1).replace(".", ",")}M`;
-  if (xp >= 1_000) return `${Math.round(xp / 1_000)}k`;
-  return String(xp);
-}
+import { formatCompact, formatExact } from "@/lib/xp-format";
 
 /** Below this many players the list ends with an invitation to take a place. */
 const FULL = 5;
@@ -73,8 +67,8 @@ export function CommunityRanking({ players }: { players: TopPlayer[] }) {
               />
             </div>
             <div className="flex flex-col items-end gap-1 font-mono">
-              <b className="text-[13px]">
-                {formatXp(player.totalXp)}
+              <b className="text-[13px]" title={`${formatExact(player.totalXp)} XP`}>
+                {formatCompact(player.totalXp)}
                 <small className="text-xs font-normal text-dim-2"> XP</small>
               </b>
               <span className="text-xs tracking-[0.06em] text-[#a3a6ae]">NV {player.level}</span>

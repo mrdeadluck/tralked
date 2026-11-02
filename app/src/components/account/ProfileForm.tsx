@@ -67,14 +67,14 @@ export function ProfileForm({ bio: initialBio, profilePublic: initialPublic, han
           checked={profilePublic}
           onSelect={() => setProfilePublic(true)}
           title="Público"
-          text={`Qualquer pessoa vê /jogador/${handle}, e você aparece nos highscores e no ranking da família.`}
+          text={`Qualquer pessoa vê /jogador/${handle}, e você aparece no ranking do Tralked e no da família.`}
         />
         <VisibilityOption
           name={`${id}-visibility`}
           checked={!profilePublic}
           onSelect={() => setProfilePublic(false)}
           title="Privado"
-          text="Só você vê a ficha. Você sai dos highscores; fotos, comentários e posts continuam públicos."
+          text="Só você vê a ficha. Você sai do ranking; fotos, comentários e posts continuam públicos."
         />
       </fieldset>
 

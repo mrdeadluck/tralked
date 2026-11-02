@@ -30,8 +30,9 @@ describe("boardFromPath", () => {
     expect(boardTitle({ metric: "novatos" })).toBe("Novatos");
   });
 
-  it("rejects anything else", () => {
-    expect(boardFromPath("nivel")).toBeNull();
+  it("reads /highscores/nivel as Nível (the tab's own address) and rejects anything else", () => {
+    expect(boardFromPath("nivel")).toEqual({ metric: "nivel" });
+    expect(boardFromPath("nivel", "steam")).toBeNull();
     expect(boardFromPath("nope")).toBeNull();
   });
 

@@ -30,9 +30,26 @@ export function PlayerAvatar({
   );
 }
 
+/** Drawn marks of the rank change (no text glyphs): up, down, or a still dot. */
+function DeltaMark({ kind }: { kind: "up" | "down" | "same" }) {
+  if (kind === "same") {
+    return (
+      <svg viewBox="0 0 10 10" aria-hidden="true" className="size-2">
+        <circle cx="5" cy="5" r="3" fill="currentColor" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 10 10" aria-hidden="true" className={`size-2.5 ${kind === "down" ? "rotate-180" : ""}`}>
+      <path d="M5 1.5 9.5 8.5H.5z" fill="currentColor" />
+    </svg>
+  );
+}
+
 /**
- * Rank change since the reference snapshot: ▲ up (brand purple), ▼ down, = same, "novo" for a
- * player who entered the snapshot's range; a dash without history. Screen readers get the sentence.
+ * Rank change since the reference snapshot: a lime triangle up, a red one down, a gray dot for the
+ * same place, "novo" for a player who entered the snapshot's range; a dash without history.
+ * Screen readers get the sentence ("Subiu 2 posições desde 30/10").
  */
 export function RankDelta({
   rank,
@@ -51,28 +68,38 @@ export function RankDelta({
   const text = deltaText(rank, previousRank, isNew);
   if (!text || !since) {
     return (
-      <span aria-hidden="true" className="font-mono text-xs text-ph">
+      <span aria-hidden="true" className="font-mono text-xs text-dim">
         –
       </span>
     );
   }
   const delta = previousRank === null ? 0 : previousRank - rank;
-  const look = isNew
-    ? { mark: "novo", color: "var(--brand-2)" }
-    : delta > 0
-      ? { mark: `▲ ${delta}`, color: "var(--brand-2)" }
-      : delta < 0
-        ? { mark: `▼ ${-delta}`, color: "var(--nin)" }
-        : { mark: "=", color: "var(--dim)" };
+  const kind = delta > 0 ? "up" : delta < 0 ? "down" : "same";
+  const color = isNew
+    ? "var(--brand-2)"
+    : kind === "up"
+      ? "var(--acc)"
+      : kind === "down"
+        ? "var(--nin)"
+        : "var(--dim)";
   return (
     <span
-      className={`hs-delta inline-flex items-center font-mono text-xs font-bold whitespace-nowrap ${
+      className={`hs-delta inline-flex items-center gap-1 font-mono text-xs font-bold whitespace-nowrap ${
         isNew ? "rounded-[2px] border px-1.5 py-px text-xs tracking-[0.08em] uppercase" : ""
       }`}
-      style={{ color: look.color, borderColor: look.color, "--i": index } as CSSProperties}
+      style={{ color, borderColor: color, "--i": index } as CSSProperties}
       title={`${text} desde ${since}`}
     >
-      <span aria-hidden="true">{look.mark}</span>
+      <span aria-hidden="true" className="inline-flex items-center gap-1">
+        {isNew ? (
+          "novo"
+        ) : (
+          <>
+            <DeltaMark kind={kind} />
+            {kind === "same" ? null : Math.abs(delta)}
+          </>
+        )}
+      </span>
       <span className="sr-only">
         {text} desde {since}
       </span>

@@ -10,12 +10,12 @@ import {
   REACTION_GIVEN_XP,
   REACTION_RECEIVED_DAILY_CAP,
   REACTION_RECEIVED_XP,
+  TIP_VOTE_XP,
 } from "@/lib/community/rewards";
 import { DAILY_TEMPLATES, WEEKLY_TEMPLATES } from "@/lib/engine/missions";
 import { PLAYTIME_MAX_GAMES, PLAYTIME_MIN_PAID_H, PLAYTIME_NEW_GAMES_PER_DAY, playtimeXp } from "@/lib/engine/playtime";
 import { SKILLS } from "@/lib/engine/types";
 import { expFor, xpForAchievement } from "@/lib/engine/xp";
-import { TIP_VOTE_XP } from "@/lib/guide/votes";
 import { NOVATO_MAX_LEVEL } from "@/lib/highscores/boards";
 import { formatCompact, formatExact } from "@/lib/xp-format";
 
@@ -103,14 +103,14 @@ const COMMUNITY: Source[] = [
   },
   {
     icon: "sabio",
-    name: "Dica útil no guia",
-    text: "Cada pessoa que vota na sua dica como útil. Também vai para Sábio.",
+    name: "Voto “útil” na sua dica",
+    text: "Nas Dicas da comunidade de um guia, cada pessoa que marca a sua dica como útil. Também vai para Sábio.",
     xp: `+${TIP_VOTE_XP} XP`,
   },
   {
     icon: "like",
     name: "Receber uma curtida",
-    text: `Alguém curtiu seu comentário, foto, notícia ou guia. Até ${REACTION_RECEIVED_DAILY_CAP} por dia.`,
+    text: `Alguém curtiu seu comentário (as dicas nos comentários do guia contam), foto, notícia ou guia. Até ${REACTION_RECEIVED_DAILY_CAP} por dia.`,
     xp: `+${REACTION_RECEIVED_XP} XP`,
   },
   {
@@ -257,7 +257,8 @@ export default function ComoFuncionaPage() {
         <div className="flex flex-col gap-4 text-[15.5px] text-muted">
           <p className="max-w-[64ch]">
             O ranking de <b className="text-text">Nível</b> é o geral. Para disputar desde já, olhe{" "}
-            <b className="text-text">Esta semana</b> (XP dos últimos 7 dias: o nível não importa) e{" "}
+            <b className="text-text">Esta semana</b> (XP dos últimos 7 dias, inclusive o da comunidade: o nível não
+            importa) e{" "}
             <b className="text-text">Novatos</b> (até o nível {NOVATO_MAX_LEVEL}). Há também rankings de
             horas, conquistas, raras, platinas, acervo e um por gênero. Se alguém te passar, o sino avisa.
           </p>

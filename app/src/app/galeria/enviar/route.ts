@@ -1,4 +1,4 @@
-import type { LevelChange } from "@/lib/progression/reward";
+import type { LevelChange, LevelProgress } from "@/lib/progression/reward";
 import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
@@ -13,7 +13,15 @@ import { StorageNotConfiguredError } from "@/lib/storage";
 const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + 64 * 1024;
 
 export type UploadResponse =
-  | { status: "ok"; photoId: string; xpAwarded: boolean; levelUp: LevelChange | null; href: string }
+  | {
+      status: "ok";
+      photoId: string;
+      xpAwarded: boolean;
+      levelUp: LevelChange | null;
+      progress?: LevelProgress | null;
+      weekXp?: number | null;
+      href: string;
+    }
   | { status: "unauthenticated" | "forbidden" | "bad_request" | "unavailable"; message: string }
   | Exclude<UploadResult, { status: "ok" }>;
 

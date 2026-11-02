@@ -6,8 +6,9 @@ import { ImageRejectedError, MAX_UPLOAD_BYTES, processImage } from "./images";
 import { RATE_LIMIT_MESSAGES, withinRateLimit } from "./limits";
 import { captionSchema } from "./text";
 import { TOO_LARGE_MESSAGE } from "./upload-limits";
-import { levelChange, type LevelChange } from "@/lib/progression/reward";
-import { awardPhotoXp, recomputeQuietly } from "./xp";
+import { weeklyXpOf } from "@/lib/highscores/queries";
+import { levelChange, levelProgress, type LevelChange, type LevelProgress } from "@/lib/progression/reward";
+import { awardPhotoXp, PHOTO_XP, recomputeQuietly } from "./xp";
 
 export const uploadFieldsSchema = z.object({
   gameSlug: z.string({ error: "Escolha o jogo da foto." }).trim().min(1, "Escolha o jogo da foto.").max(120),
@@ -15,7 +16,16 @@ export const uploadFieldsSchema = z.object({
 });
 
 export type UploadResult =
-  | { status: "ok"; photoId: string; xpAwarded: boolean; levelUp: LevelChange | null }
+  | {
+      status: "ok";
+      photoId: string;
+      xpAwarded: boolean;
+      levelUp: LevelChange | null;
+      /** The toast's level bar, when XP was paid and the player has stats. */
+      progress: LevelProgress | null;
+      /** XP of the last 7 days after this photo (Esta semana), same condition. */
+      weekXp: number | null;
+    }
   | { status: "invalid"; field: "foto" | "jogo" | "legenda"; message: string }
   | { status: "too_large"; message: string }
   | { status: "rate_limited"; message: string };
@@ -100,12 +110,20 @@ export async function uploadPhoto(
   }
 
   let levelUp: LevelChange | null = null;
+  let progress: LevelProgress | null = null;
+  let weekXp: number | null = null;
   if (xpAwarded) {
-    const levelOf = () =>
-      prisma.userStats.findUnique({ where: { userId: input.userId }, select: { level: true } }).then((r) => r?.level);
-    const before = await levelOf();
+    const statsOf = () =>
+      prisma.userStats.findUnique({ where: { userId: input.userId }, select: { level: true, totalXp: true } });
+    const before = await statsOf();
     await recomputeQuietly(input.userId);
-    levelUp = levelChange(before, await levelOf());
+    const after = await statsOf();
+    levelUp = levelChange(before?.level, after?.level);
+    // The toast's level bar and Esta semana total (unknown before the player's first sync).
+    if (after) {
+      progress = levelProgress(after.totalXp, PHOTO_XP);
+      weekXp = await weeklyXpOf(input.userId, now);
+    }
   }
-  return { status: "ok", photoId, xpAwarded, levelUp };
+  return { status: "ok", photoId, xpAwarded, levelUp, progress, weekXp };
 }

@@ -1,8 +1,9 @@
 import type { CSSProperties } from "react";
 import { Card } from "@/components/ui/Card";
 import type { CharacterAchievement } from "@/lib/queries/players";
+import { formatCompact } from "@/lib/xp-format";
 import { CardHead } from "./CardHead";
-import { formatAgo, formatNumber, formatPercent, RARITY_COLOR, RARITY_LABEL } from "./format";
+import { formatAgo, formatPercent, RARITY_COLOR, RARITY_LABEL } from "./format";
 
 type ActivityFeedProps = {
   items: CharacterAchievement[];
@@ -34,7 +35,7 @@ export function ActivityFeed({ items, now }: ActivityFeedProps) {
                 </small>
               </div>
               <span className="font-mono text-xs font-bold whitespace-nowrap text-acc">
-                +{formatNumber(item.xp)}
+                +{formatCompact(item.xp)}
               </span>
             </li>
           ))}

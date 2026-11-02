@@ -303,7 +303,8 @@ describe("AttributesGained", () => {
 
   it("logged in: what this game added, by attribute", () => {
     render(<AttributesGained attributes={attrs} loggedIn genre="Soulslike" aside="Steam · 141 h jogadas" loginHref="/login" sample={attrs} gameName="Hollow Knight" />);
-    expect(screen.getByText("120k")).toBeInTheDocument();
+    // The one XP format of the site (lib/xp-format): "120,4 mil".
+    expect(screen.getByText(/^120,4\smil$/)).toBeInTheDocument();
     expect(screen.getByText("+286")).toBeInTheDocument();
     expect(screen.getByText("141 horas jogadas viram resistência.")).toBeInTheDocument();
     expect(screen.getByText("+3 níveis vieram deste jogo.")).toBeInTheDocument();

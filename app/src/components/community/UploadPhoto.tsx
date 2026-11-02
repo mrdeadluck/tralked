@@ -111,7 +111,15 @@ export function UploadPhoto({ loggedIn, returnTo, defaultGame, pending = false }
         setPreview(null);
         setOutcome({ kind: "done", href: body.href, xp: body.xpAwarded });
         announceReward(
-          body.xpAwarded ? { xpGained: PHOTO_XP, reason: "Foto publicada", levelUp: body.levelUp ?? null } : null,
+          body.xpAwarded
+            ? {
+                xpGained: PHOTO_XP,
+                reason: "Foto publicada",
+                levelUp: body.levelUp ?? null,
+                progress: body.progress ?? null,
+                weekXp: body.weekXp ?? null,
+              }
+            : null,
         );
         router.refresh();
         return;

@@ -8,6 +8,12 @@ import { PhotoMedia } from "@/components/community/PhotoMedia";
 import { SideCard } from "@/components/community/SideCard";
 import { UploadPhoto } from "@/components/community/UploadPhoto";
 import { CommentIcon, HeartIcon } from "@/components/community/icons";
+import {
+  CommunityShowcase,
+  CommunityShowcaseSkeleton,
+  SHOWCASE_PRIMARY,
+} from "@/components/community/CommunityShowcase";
+import { showcaseShotsCached } from "@/lib/community/showcase";
 import { galleryGameCached, galleryGamesCached, listPhotosCached, photoOfTheWeekCached } from "@/lib/community/cached";
 import type { GameOption, PhotoCardView } from "@/lib/community/gallery";
 import { currentViewer } from "@/lib/community/viewer";
@@ -36,7 +42,10 @@ function galleryHref(game: string | null, page = 1) {
   return query ? `/galeria?${query}` : "/galeria";
 }
 
-export default function GalleryPage({ searchParams }: PageProps<"/galeria">) {
+export default async function GalleryPage({ searchParams }: PageProps<"/galeria">) {
+  // Cached (part of the static shell): is there anything to show at all? The loading state takes
+  // the shape of what will land, the photo grid or the empty gallery's invitation, so nothing jumps.
+  const anyPhoto = (await listPhotosCached(null, 1)).photos.length > 0;
   return (
     <div className="flex flex-col gap-8">
       <PageHead
@@ -44,11 +53,11 @@ export default function GalleryPage({ searchParams }: PageProps<"/galeria">) {
         lede="Capturas dos jogos que a comunidade está jogando agora. A foto mais curtida da semana ganha destaque."
       />
       <div className="grid grid-cols-[minmax(0,1fr)_300px] items-start gap-7 max-[1000px]:grid-cols-1">
-        <Suspense fallback={<GridSkeleton />}>
+        <Suspense fallback={anyPhoto ? <GridSkeleton /> : <CommunityShowcaseSkeleton />}>
           <GalleryContent searchParams={searchParams} />
         </Suspense>
         <aside className="flex flex-col gap-4" aria-label="Enviar e regras da galeria">
-          <SideCard title="Poste sua foto">
+          <SideCard title="Poste sua foto" id="enviar-foto">
             <p className="text-[14px] text-muted">
               Suas capturas aparecem aqui e no seu perfil. Cada foto rende {PHOTO_XP} XP, até {PHOTO_XP_DAILY_CAP} fotos
               por dia.
@@ -79,16 +88,42 @@ async function GalleryContent({ searchParams }: { searchParams: SearchParams }) 
   const listing = await listPhotosCached(game?.slug ?? null, pageParam(params.pagina));
   const featured = !game && listing.page === 1 ? await photoOfTheWeekCached() : null;
 
+  // Nobody has posted yet: an invitation over the games people play, not a dashed box.
+  if (!game && listing.page === 1 && listing.photos.length === 0) {
+    return (
+      <div className="flex min-w-0 flex-col gap-6">
+        <CommunityShowcase
+          id="galeria-vazia"
+          title="Seja a primeira foto da galeria"
+          text="Uma captura sua, marcada com o jogo, abre a galeria do Tralked e aparece no seu perfil. Vale o chefe que custou a cair, a paisagem, a platina na tela."
+          xp={`+${PHOTO_XP} XP`}
+          xpNote={`por foto, até ${PHOTO_XP_DAILY_CAP} por dia`}
+          shots={await showcaseShotsCached(3)}
+          shotHref={(slug) => galleryHref(slug)}
+          actions={
+            // On wide screens the upload card sits right beside it: the button is for phones.
+            <a href="#enviar-foto" className={`${SHOWCASE_PRIMARY} min-[1001px]:hidden`}>
+              Enviar a primeira foto
+            </a>
+          }
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-6">
       {featured ? <PhotoOfTheWeek photo={featured} /> : null}
 
-      <nav aria-label="Filtrar por jogo" className="flex flex-wrap gap-1.5">
-        <FilterLink href={galleryHref(null)} current={!game} label="Todos" />
-        {withPhotos.map((g) => (
-          <FilterLink key={g.slug} href={galleryHref(g.slug)} current={game?.slug === g.slug} label={g.name} count={g.photoCount} />
-        ))}
-      </nav>
+      {/* Only when there is something to filter: a lone "Todos" chip filters nothing. */}
+      {withPhotos.length > 0 ? (
+        <nav aria-label="Filtrar por jogo" className="flex flex-wrap gap-1.5">
+          <FilterLink href={galleryHref(null)} current={!game} label="Todos" />
+          {withPhotos.map((g) => (
+            <FilterLink key={g.slug} href={galleryHref(g.slug)} current={game?.slug === g.slug} label={g.name} count={g.photoCount} />
+          ))}
+        </nav>
+      ) : null}
 
       <PhotoGrid
         photos={listing.photos}

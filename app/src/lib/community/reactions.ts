@@ -159,11 +159,12 @@ async function awardReactionXp(tx: Db, input: AwardInput): Promise<Award> {
     skipDuplicates: true,
   });
   if (created.count === 0) return NO_AWARD;
-  return { xp, levelUp: await bumpStats(tx, userId, xp, now) };
+  return { xp, ...(await bumpStats(tx, userId, xp, now)) };
 }
 
-type Award = { xp: number; levelUp: LevelChange | null };
-const NO_AWARD: Award = { xp: 0, levelUp: null };
+/** XP credited, the level change and the user's total XP after it (null without a stats row). */
+type Award = { xp: number; levelUp: LevelChange | null; totalXp: number | null };
+const NO_AWARD: Award = { xp: 0, levelUp: null, totalXp: null };
 
 /**
  * Adds ledger XP to the user's stats without the full recompute: reaction entries carry no
@@ -171,19 +172,25 @@ const NO_AWARD: Award = { xp: 0, levelUp: null };
  * theirs from the ledger at their first recompute. A level rise is returned (the giver sees the
  * level-up overlay) and written to the bell as `level_up`.
  */
-async function bumpStats(tx: Db, userId: string, xp: number, now: Date): Promise<LevelChange | null> {
+async function bumpStats(
+  tx: Db,
+  userId: string,
+  xp: number,
+  now: Date,
+): Promise<{ levelUp: LevelChange | null; totalXp: number | null }> {
   const [row] = await tx.userStats.updateManyAndReturn({
     where: { userId },
     data: { totalXp: { increment: xp } },
     select: { totalXp: true, level: true },
   });
-  if (!row) return null;
-  const level = levelFromXp(row.totalXp).level;
-  if (level === row.level) return null;
+  if (!row) return { levelUp: null, totalXp: null };
+  const totalXp = row.totalXp;
+  const level = levelFromXp(totalXp).level;
+  if (level === row.level) return { levelUp: null, totalXp };
   await tx.userStats.update({ where: { userId }, data: { level } });
-  if (level < row.level) return null;
+  if (level < row.level) return { levelUp: null, totalXp };
   await notifyLevelUp(tx, userId, row.level, level, now);
-  return { from: row.level, to: level };
+  return { levelUp: { from: row.level, to: level }, totalXp };
 }
 
 export type ReactResult =
@@ -194,6 +201,8 @@ export type ReactResult =
       xp: { given: number; received: number };
       /** The reactor's level change, when the XP they got for reacting took them up a level. */
       levelUp: LevelChange | null;
+      /** The reactor's total XP after the reward (null when nothing was paid or before a first sync). */
+      totalXp: number | null;
     }
   | { status: "not_found" }
   | { status: "rate_limited" };
@@ -236,8 +245,9 @@ export async function react(
   const plan = reactionXpPlan({ reactorId: userId, ownerId: target.ownerId, value: after });
   const xp = { given: 0, received: 0 };
   let levelUp: LevelChange | null = null;
+  let totalXp: number | null = null;
   if (plan.giver) {
-    ({ xp: xp.given, levelUp } = await awardReactionXp(db, {
+    ({ xp: xp.given, levelUp, totalXp } = await awardReactionXp(db, {
       userId,
       source: "reaction_given",
       sourceKey: `${targetType}:${targetId}`,
@@ -264,7 +274,7 @@ export async function react(
     // received likes per author): undo/redo or a like over the cap writes nothing.
     await notifyLike(db, { likerId: userId, ownerId: plan.receiverId, targetType, targetId, now });
   }
-  return { status: "ok", mine: after, counts, xp, levelUp };
+  return { status: "ok", mine: after, counts, xp, levelUp, totalXp };
 }
 
 const LIKED_NOUN: Record<Exclude<ReactionTargetType, "photo">, string> = {

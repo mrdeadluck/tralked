@@ -43,6 +43,8 @@ export function announceReward(reward: Reward | null | undefined) {
         title: reward.reason,
         icon: reward.skill ?? REASON_ICON[reward.reason] ?? "level",
         key: `xp:${reward.reason}`,
+        progress: reward.progress ?? undefined,
+        weekXp: reward.weekXp ?? undefined,
       },
     });
   }

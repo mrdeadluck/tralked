@@ -87,8 +87,10 @@
     var(--bg);
 }
 
+/* A ghost numeral: outlined in --dim (5:1 on the plinth), barely filled, so the empty step still reads. */
 .hs-slot-open .hs-plinth-rank {
-  color: var(--border-2);
+  color: color-mix(in oklab, var(--dim) 14%, var(--bg));
+  -webkit-text-stroke: 1.5px var(--dim);
 }
 
 .hs-plinth {
@@ -213,17 +215,29 @@
  * never under it (WCAG 2.4.11, focus not obscured). The bar is at most ~110px tall (two lines on
  * phones).
  */
-html:has(.hs-you) {
+html:has(.hs-you[data-pinned]) {
   scroll-padding-bottom: 136px;
 }
 
-/* "Você está aqui": pinned to the bottom of the viewport while the board scrolls. */
 .hs-you {
+  animation: hs-appear 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: 600ms;
+}
+
+/*
+ * "Você está aqui" (the viewer's own rank): pinned to the bottom of the viewport while the board
+ * scrolls. Invitations (logged out, unranked) stay in place at the end of the board, so they never
+ * sit on top of the podium on a short page.
+ */
+.hs-you[data-pinned] {
   position: sticky;
   bottom: 12px;
   z-index: 10;
-  animation: hs-appear 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  animation-delay: 600ms;
+}
+
+.hs-you:not([data-pinned]) {
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 @keyframes hs-rise {

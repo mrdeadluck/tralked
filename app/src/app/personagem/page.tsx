@@ -9,9 +9,11 @@ import {
   ExampleTag,
   OnboardingSteps,
   SAMPLE,
+  SAMPLE_PROGRESS,
   SAMPLE_SKILLS,
   SampleCharacterCard,
 } from "@/components/onboarding/SampleCharacter";
+import { DAILY_TEMPLATES, WEEKLY_TEMPLATES, type MissionTemplate } from "@/lib/engine/missions";
 import type { CharacterMission } from "@/lib/queries/players";
 
 export const metadata: Metadata = {
@@ -33,11 +35,28 @@ const PRIMARY =
 const GHOST =
   "inline-flex h-12 items-center justify-center rounded-[2px] border border-line-2 px-6 font-mono text-xs font-bold tracking-[0.1em] text-text uppercase transition-colors duration-150 hover:border-text";
 
-/** Sample missions: one done, two in progress (an example, like everything on this page). */
+/**
+ * Sample missions: the real daily and weekly templates with their real rewards, one done and two
+ * under way, for an example player whose strongest skill is Soulslike.
+ */
+const sampleMission = (
+  id: string,
+  kind: CharacterMission["kind"],
+  template: MissionTemplate,
+  progress: number,
+): CharacterMission => ({
+  id,
+  kind,
+  title: template.title.replace("{skill}", SAMPLE_SKILLS[0].name),
+  progress: Math.min(progress, template.minCount),
+  goal: template.minCount,
+  rewardXp: template.rewardXp,
+  done: progress >= template.minCount,
+});
 const SAMPLE_MISSIONS: CharacterMission[] = [
-  { id: "m1", kind: "daily", title: "Desbloqueie 3 conquistas", progress: 3, goal: 3, rewardXp: 150, done: true },
-  { id: "m2", kind: "daily", title: "Jogue um Soulslike por 1 hora", progress: 40, goal: 60, rewardXp: 120, done: false },
-  { id: "m3", kind: "weekly", title: "Consiga uma conquista rara", progress: 0, goal: 1, rewardXp: 600, done: false },
+  sampleMission("m1", "daily", DAILY_TEMPLATES[0], 3),
+  sampleMission("m2", "daily", DAILY_TEMPLATES[2], 2),
+  sampleMission("m3", "weekly", WEEKLY_TEMPLATES[0], 6),
 ];
 
 const SAMPLE_TROPHIES = {
@@ -116,7 +135,7 @@ export default function PersonagemPage() {
                 </span>
                 <b className="pb-1 text-lg font-extrabold font-stretch-[112%]">Nível do personagem</b>
               </div>
-              <XpBar level={SAMPLE.level} current={6200} next={10000} />
+              <XpBar level={SAMPLE.level} current={SAMPLE_PROGRESS.current} next={SAMPLE_PROGRESS.next} />
             </div>
             <div className="grid gap-x-8 gap-y-6 min-[901px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
               <SkillsWindow skills={SAMPLE_SKILLS} />

@@ -155,8 +155,11 @@ async function weeklyTotals(
   return groups.map((g) => ({ userId: g.userId, xp: g._sum.xp ?? 0 }));
 }
 
+/** Ledger sources paid by the community: photos, reactions, forum answers and guide tip votes. */
+export const COMMUNITY_SOURCES = ["photo_approved", "reaction_given", "reaction_received", "forum_solved", "guide_vote"];
+
 /** XP a player earned in the last 7 days (0 when none). */
-async function weeklyXpOf(userId: string, now: Date, db: Db): Promise<number> {
+export async function weeklyXpOf(userId: string, now: Date = new Date(), db: Db = prisma): Promise<number> {
   const sum = await db.xpLedgerEntry.aggregate({
     where: { userId, createdAt: { gte: weekStart(now), lte: now }, voidedAt: null },
     _sum: { xp: true },
@@ -164,15 +167,48 @@ async function weeklyXpOf(userId: string, now: Date, db: Db): Promise<number> {
   return sum._sum.xp ?? 0;
 }
 
-/** Players behind weekly totals, in the totals' order (ties on the handle, like every board). */
-async function weeklyPlayers(rows: WeeklyRow[], db: Db): Promise<RankedPlayer[]> {
+/** The community part of each player's XP of the last 7 days (absent: none). */
+async function weeklyCommunityXp(userIds: string[], now: Date, db: Db): Promise<Map<string, number>> {
+  if (userIds.length === 0) return new Map();
+  const groups = await db.xpLedgerEntry.groupBy({
+    by: ["userId"],
+    where: {
+      userId: { in: userIds },
+      source: { in: COMMUNITY_SOURCES },
+      createdAt: { gte: weekStart(now), lte: now },
+      voidedAt: null,
+    },
+    _sum: { xp: true },
+  });
+  return new Map(groups.map((g) => [g.userId, g._sum.xp ?? 0]));
+}
+
+/** A player's XP of the last 7 days and how much of it came from the community. */
+export async function weeklyXpSplit(
+  userId: string,
+  now: Date = new Date(),
+  db: Db = prisma,
+): Promise<{ total: number; community: number }> {
+  const [total, community] = await Promise.all([weeklyXpOf(userId, now, db), weeklyCommunityXp([userId], now, db)]);
+  return { total, community: community.get(userId) ?? 0 };
+}
+
+/**
+ * Players behind weekly totals, in the totals' order (ties on the handle, like every board).
+ * `secondary` is the community part of the week (shown on the row, never ranked).
+ */
+async function weeklyPlayers(rows: WeeklyRow[], db: Db, now: Date): Promise<RankedPlayer[]> {
   if (rows.length === 0) return [];
-  const users = await db.user.findMany({ where: { id: { in: rows.map((r) => r.userId) } }, select: USER_SELECT });
+  const ids = rows.map((r) => r.userId);
+  const [users, community] = await Promise.all([
+    db.user.findMany({ where: { id: { in: ids } }, select: USER_SELECT }),
+    weeklyCommunityXp(ids, now, db),
+  ]);
   const byId = new Map(users.map((u) => [u.id, u]));
   return rows
     .flatMap((r) => {
       const user = byId.get(r.userId);
-      return user ? [player(user, r.xp, 0)] : [];
+      return user ? [player(user, r.xp, community.get(r.userId) ?? 0)] : [];
     })
     .sort((a, b) => b.value - a.value || a.handle.localeCompare(b.handle));
 }
@@ -183,7 +219,7 @@ async function playersOf(board: Board, window: Window, db: Db, now = new Date())
   const publicUser = { user: { profilePublic: true } };
 
   if (board.metric === "semana") {
-    return weeklyPlayers(await weeklyTotals(db, now, { take: window.take }), db);
+    return weeklyPlayers(await weeklyTotals(db, now, { take: window.take }), db, now);
   }
 
   if (board.metric === "nivel" || board.metric === "novatos") {
@@ -239,8 +275,9 @@ async function valuesOf(
   now = new Date(),
 ): Promise<{ values: number[]; extra: number } | null> {
   if (board.metric === "semana") {
-    const xp = await weeklyXpOf(userId, now, db);
-    return xp > 0 ? { values: [xp], extra: 0 } : null;
+    // The community part rides along as the second value: shown on the row, not ranked.
+    const week = await weeklyXpSplit(userId, now, db);
+    return week.total > 0 ? { values: [week.total, week.community], extra: 0 } : null;
   }
   if (board.metric === "nivel" || board.metric === "novatos") {
     const stats = await db.userStats.findUnique({ where: { userId } });
@@ -391,7 +428,7 @@ export async function getStanding(
 
   const above =
     board.metric === "semana"
-      ? weeklyTotals(db, now, { take: 1, above: values[0], reverse: true }).then((rows) => weeklyPlayers(rows, db))
+      ? weeklyTotals(db, now, { take: 1, above: values[0], reverse: true }).then((rows) => weeklyPlayers(rows, db, now))
       : playersOf(board, { where: aheadOf(fieldsOf(board), values, user.handle), take: 1, reverse: true }, db, now);
   const [ahead, aboveRows, history] = await Promise.all([
     countAhead(board, values, user.handle, db, now),

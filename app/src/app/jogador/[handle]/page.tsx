@@ -25,7 +25,9 @@ import { reactionStats } from "@/lib/community/reactions";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
 import { getCharacterSheetExtras } from "@/lib/character/sheet";
 import { getRecentlyPlayed } from "@/lib/library/queries";
-import { getTotalPlaytimeMin } from "@/lib/profile/queries";
+import { ProfileHeader } from "@/components/profile/ProfileHeader";
+import { weeklyXpSplit } from "@/lib/highscores/queries";
+import { getProfileSummary } from "@/lib/profile/queries";
 import { getPlayerSetup } from "@/lib/setup/queries";
 import { getCharacter, hoursUntilDailyReset, type PlayerHeader } from "@/lib/queries/players";
 import { getPlayerHeaderCached } from "@/lib/queries/players-cached";
@@ -68,6 +70,11 @@ export default async function PlayerPage({ params }: PageProps<"/jogador/[handle
 function SheetSkeleton() {
   return (
     <div aria-busy="true" aria-label="Carregando personagem" className="flex flex-col gap-10">
+      {/* Header and tab bar, as on every profile tab. */}
+      <div className="flex flex-col gap-6">
+        <div className="h-[88px] animate-pulse rounded-[4px] border border-line bg-surface" />
+        <div className="h-11 border-b border-line" />
+      </div>
       <div className="h-[420px] animate-pulse rounded-[4px] border border-line bg-surface" />
       <div className="h-[260px] animate-pulse rounded-[4px] border border-line bg-surface" />
     </div>
@@ -94,14 +101,16 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
 
   const character = await getCharacter(header.handle);
   if (!character) notFound();
-  const [extras, despertar, playtimeMin, recentlyPlayed, setup, reactions] = await Promise.all([
+  const [extras, despertar, summary, recentlyPlayed, setup, reactions, week] = await Promise.all([
     getCharacterSheetExtras(character.userId),
     isOwner ? pendingDespertar(character.userId) : Promise.resolve(null),
-    getTotalPlaytimeMin(character.userId),
+    getProfileSummary(character.userId),
     getRecentlyPlayed(character.userId),
     getPlayerSetup(character.userId),
     reactionStats(character.userId),
+    weeklyXpSplit(character.userId),
   ]);
+  if (!summary) notFound();
 
   const now = new Date();
   const daily = character.missions.filter((m) => m.kind === "daily");
@@ -109,6 +118,12 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
 
   return (
     <div className="flex flex-col gap-10">
+      {/* The same identity header and tab bar as every profile tab: switching tabs moves nothing. */}
+      <div className="flex flex-col gap-6">
+        <ProfileHeader summary={summary} section="Ficha" />
+        <ProfileTabs handle={character.handle} active="ficha" />
+      </div>
+
       {isOwner && !character.profilePublic && extras.steamSyncFailing ? (
         <div
           role="alert"
@@ -131,19 +146,18 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
         </div>
       ) : isOwner && !character.profilePublic ? (
         <p className="rounded-[2px] border border-line-2 bg-surface px-[18px] py-4 text-sm text-text-2">
-          Seu perfil está privado: só você vê esta ficha, e ela fica fora dos highscores.{" "}
+          Seu perfil está privado: só você vê esta ficha, e ela fica fora do ranking.{" "}
           <Link href="/conta" className="font-semibold text-acc underline underline-offset-2">
             Mudar em Conta
           </Link>
         </p>
       ) : null}
 
-      <ProfileTabs handle={character.handle} active="ficha" />
-
       <div className="grid gap-5 min-[901px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <CharacterCard
           character={character}
-          playtimeMin={playtimeMin}
+          identity={false}
+          week={week}
           platforms={extras.platforms}
           bio={extras.bio}
           isOwner={isOwner}

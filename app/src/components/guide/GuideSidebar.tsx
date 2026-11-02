@@ -3,7 +3,8 @@ import { Card } from "@/components/ui/Card";
 import { Ring } from "@/components/ui/Ring";
 import { SKILLS } from "@/lib/engine/types";
 import type { GuideDetail } from "@/lib/queries/games";
-import { fmt, loginHref } from "./format";
+import { formatCompact } from "@/lib/xp-format";
+import { loginHref } from "./format";
 import { Toc, type TocItem } from "./Toc";
 
 const SKILL_NAME = Object.fromEntries(SKILLS.map((s) => [s.id, s.name]));
@@ -75,7 +76,7 @@ export function GuideSidebar({ guide, loggedIn, returnTo, pending = false }: Gui
               {totals.pendingCount > 0 ? (
                 <>
                   , e as {totals.pendingCount} pendentes deste guia valem{" "}
-                  <b className="text-acc">+{fmt(totals.pendingXp)} XP</b>
+                  <b className="text-acc">+{formatCompact(totals.pendingXp)} XP</b>
                 </>
               ) : null}
               .
