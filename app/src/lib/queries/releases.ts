@@ -49,6 +49,8 @@ const GAME_SELECT = {
   slug: true,
   name: true,
   coverUrl: true,
+  // The store's 616×353 capsule (key art with the logo, nearly 16:9) for wide thumbnails.
+  media: { where: { kind: "capsule", url: { not: null } }, orderBy: { order: "asc" }, take: 1, select: { url: true } },
   stub: true,
   popularity: true,
   steamReviewTotal: true,
@@ -84,6 +86,7 @@ export function groupReleases(rows: Row[], tab: ReleaseTab, todayKey: string): R
       name: game.name,
       coverUrl: game.coverUrl,
       capsuleUrl: group.find((r) => r.imageUrl)?.imageUrl ?? null,
+      wideUrl: game.media[0]?.url ?? null,
       platforms,
       day,
       dateText: day ? releaseDateText(day, todayKey) : (label ?? "a definir"),

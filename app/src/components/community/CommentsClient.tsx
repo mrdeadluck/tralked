@@ -1,5 +1,6 @@
 "use client";
 
+import { announceReward } from "@/components/fx/reward-bus";
 import { createContext, useContext, useState, useTransition, type ReactNode } from "react";
 import { loginHref } from "@/components/guide/format";
 import { loadMoreComments, postComment, removeComment, updateComment } from "@/lib/community/actions";
@@ -44,6 +45,7 @@ export function CommentsClient({ targetType, targetId, initial, viewer, returnTo
   async function submit(body: string) {
     const result = await postComment({ targetType, targetId, body });
     if (result.status !== "ok") return result.message;
+    announceReward(result.reward);
     setComments((list) => [{ ...result.comment, replies: [], replyCount: 0 }, ...list]);
     setTotal((n) => n + 1);
     return null;

@@ -9,8 +9,12 @@ export const TIP_VOTE_XP = 25;
 /** XP for giving a like or a dislike: once per item ever (undo/redo pays nothing new). */
 export const REACTION_GIVEN_XP = 5;
 /** XP for the author of an item each time a different person likes it (dislikes pay nothing). */
-export const REACTION_RECEIVED_XP = 10;
+export const REACTION_RECEIVED_XP = 5;
 /** At most this many reactions per user per day (America/Sao_Paulo) pay `REACTION_GIVEN_XP`. */
 export const REACTION_GIVEN_DAILY_CAP = 20;
 /** At most this many received likes per user per day pay `REACTION_RECEIVED_XP`. */
 export const REACTION_RECEIVED_DAILY_CAP = 50;
+/** XP for each comment or reply (articles, photos, guides) and each forum reply. */
+export const COMMENT_XP = 5;
+/** At most this many comments and forum replies per user per day (America/Sao_Paulo) pay `COMMENT_XP`. */
+export const COMMENT_XP_DAILY_CAP = 10;

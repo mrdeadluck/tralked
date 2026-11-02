@@ -21,6 +21,8 @@ export type ReleaseView = {
   coverUrl: string | null;
   /** Wide store capsule otherwise (Steam). */
   capsuleUrl: string | null;
+  /** The store's 616×353 main capsule (nearly 16:9, logo whole): what a wide thumbnail shows first. */
+  wideUrl?: string | null;
   platforms: ReleasePlatform[];
   /** "2026-11-14", or null when not set to a day. */
   day: string | null;

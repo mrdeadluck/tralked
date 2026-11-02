@@ -1,5 +1,6 @@
 "use client";
 
+import { announceReward } from "@/components/fx/reward-bus";
 import { useState, useTransition } from "react";
 import { loginHref } from "@/components/guide/format";
 import { markThreadSolved, replyToThread } from "@/lib/community/actions";
@@ -50,6 +51,7 @@ export function ThreadView({ thread, viewer, pending = false }: ThreadViewProps)
   async function reply(body: string) {
     const result = await replyToThread({ threadId: thread.id, body });
     if (result.status !== "ok") return result.message;
+    announceReward(result.reward);
     setPosts((list) => [...list, result.post]);
     return null;
   }

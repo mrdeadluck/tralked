@@ -247,6 +247,10 @@ export function MonthView({ month, todayKey, events, kinds, query = "", subject,
                                 width={240}
                                 height={240}
                                 sizes="(max-width: 640px) 50vw, 240px"
+                                // A portrait cover in a wide cell: uncropped from the CDN, framed on its
+                                // upper part (logo and face) instead of a centre strip.
+                                shape="fit"
+                                style={{ objectPosition: "center 22%" }}
                                 className={`absolute inset-0 size-full object-cover ${lead.big ? "opacity-60" : "opacity-30"}`}
                               />
                               {/* Scrim: the day and the titles sit on the cover, so it stays dark under them. */}

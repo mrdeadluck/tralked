@@ -147,10 +147,15 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
     expect(data!.user).toMatchObject({ id: a.id, handle: a.handle, email: a.email, bio: a.bio });
     expect(data!.linkedAccounts).toEqual([expect.objectContaining({ platform: "psn", handle: "psn_a" })]);
     // B's like paid A "reaction_received" XP: the entry is A's, but not B's user id in its key.
-    expect(data!.progress.ledger).toEqual([
-      expect.objectContaining({ xp: 1234 }),
-      expect.objectContaining({ source: "reaction_received", sourceKey: `photo:${mineA.photo.id}` }),
-    ]);
+    // A's own comment paid "comment_posted" (5 XP); the recompute it triggers may also complete a mission.
+    expect(data!.progress.ledger).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ xp: 1234 }),
+        expect.objectContaining({ source: "reaction_received", sourceKey: `photo:${mineA.photo.id}` }),
+        expect.objectContaining({ source: "comment_posted", xp: 5 }),
+      ]),
+    );
+    expect(data!.progress.ledger.every((e) => !String(e.sourceKey).includes(b.id))).toBe(true);
     expect(json).not.toContain(b.id);
     expect(data!.progress.achievements).toHaveLength(1);
     expect(data!.community.photos).toEqual([expect.objectContaining({ id: mineA.photo.id, likeCount: 1 })]);

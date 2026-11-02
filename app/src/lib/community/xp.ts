@@ -1,9 +1,41 @@
 import { toLocalDay } from "@/lib/engine/streak";
 import { recomputeUser } from "@/lib/progression/recompute";
 import type { Db } from "./limits";
-import { FORUM_SOLVED_XP, PHOTO_XP, PHOTO_XP_DAILY_CAP } from "./rewards";
+import { COMMENT_XP, COMMENT_XP_DAILY_CAP, FORUM_SOLVED_XP, PHOTO_XP, PHOTO_XP_DAILY_CAP } from "./rewards";
 
-export { FORUM_SOLVED_XP, PHOTO_XP, PHOTO_XP_DAILY_CAP };
+export { COMMENT_XP, COMMENT_XP_DAILY_CAP, FORUM_SOLVED_XP, PHOTO_XP, PHOTO_XP_DAILY_CAP };
+
+/** Ledger sources of the comment XP: a comment or reply, and a forum reply (shared daily cap). */
+export const COMMENT_SOURCES = ["comment_posted", "forum_post"] as const;
+export type CommentSource = (typeof COMMENT_SOURCES)[number];
+
+/**
+ * Credits `COMMENT_XP` (no skills) for a comment or reply (`comment_posted`, sourceKey = commentId)
+ * or a forum reply (`forum_post`, sourceKey = postId), unless the user already earned it
+ * `COMMENT_XP_DAILY_CAP` times today across both. Locks the user's row like the photo XP, so two
+ * posts at once cannot both take the last slot. Idempotent per item. Moderation's "Remover" voids
+ * it (lib/admin/moderation). Returns whether a ledger entry was created.
+ */
+export async function awardCommentXp(
+  tx: Db,
+  userId: string,
+  source: CommentSource,
+  sourceKey: string,
+  now: Date = new Date(),
+): Promise<boolean> {
+  await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+  const recent = await tx.xpLedgerEntry.findMany({
+    where: { userId, source: { in: [...COMMENT_SOURCES] }, createdAt: { gte: new Date(now.getTime() - TWO_DAYS_MS) } },
+    select: { createdAt: true },
+  });
+  const today = toLocalDay(now);
+  if (recent.filter((e) => toLocalDay(e.createdAt) === today).length >= COMMENT_XP_DAILY_CAP) return false;
+  const created = await tx.xpLedgerEntry.createMany({
+    data: [{ userId, source, sourceKey, xp: COMMENT_XP, skills: [], createdAt: now }],
+    skipDuplicates: true,
+  });
+  return created.count > 0;
+}
 
 const TWO_DAYS_MS = 2 * 86_400_000;
 

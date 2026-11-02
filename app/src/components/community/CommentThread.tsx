@@ -1,5 +1,6 @@
 "use client";
 
+import { announceReward } from "@/components/fx/reward-bus";
 import { useState, useTransition, type ReactNode } from "react";
 import { postComment } from "@/lib/community/actions";
 import type { CommentTargetType, CommentThreadView, CommentView } from "@/lib/community/comments";
@@ -102,6 +103,7 @@ export function CommentThread({
     if (!answering) return null;
     const result = await postComment({ targetType, targetId, body, parentId: answering.id });
     if (result.status !== "ok") return result.message;
+    announceReward(result.reward);
     setReplies((list) => [...list, result.comment]);
     setReplyCount((n) => n + 1);
     // The new reply is at the end: show the whole list so it is on screen.

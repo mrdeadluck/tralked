@@ -96,7 +96,7 @@ export function DiscProgress({
       {hydrated && !platinum && canPreview ? (
         <label className="gpp-toggle gp-veil" style={{ "--d": ".44s" } as CSSProperties}>
           <input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} />
-          Ver o disco platinado
+          Ver o disco Tralked!
         </label>
       ) : null}
     </>

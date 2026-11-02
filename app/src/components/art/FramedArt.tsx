@@ -1,13 +1,12 @@
 import type { CSSProperties } from "react";
 import { pickArt, type ArtAsset } from "@/lib/art/frame";
 import { sizedImage } from "@/lib/images/sized";
-import { CoverArt } from "./CoverArt";
 import { GameArt, type Hues } from "./GameArt";
 
 /*
  * A game's art in a box of a known shape (lib/art/frame `pickArt`): the image made for that shape,
  * or the clean hero with the game's logo set whole over it, or — with nothing wide — the portrait
- * cover standing whole on a stage (CoverArt). With no image at all, `fallbackUrl` (an article's own
+ * cover filling the box from its upper part. With no image at all, `fallbackUrl` (an article's own
  * picture, a company's art) or the generated art.
  */
 
@@ -69,24 +68,9 @@ export function FramedArt({
   const h = height ?? Math.round(width / ratio);
   const shape = ratio < 1 ? "fit" : "wide";
 
-  // Only a portrait cover for a wide box: stood whole on a stage, never cropped to a strip.
-  if (chosen?.kind === "cover" && ratio > 1) {
-    return (
-      <CoverArt
-        name={alt || "Capa"}
-        sources={[{ url: chosen.url, wide: false }]}
-        ratio={`${ratio} / 1`}
-        seed={seed}
-        hues={hues}
-        alt={alt}
-        width={width}
-        sizes={sizes}
-        className={className}
-        style={{ height: "100%", ...style }}
-      />
-    );
-  }
-
+  // Only a portrait cover for a wide box: it fills the box (a cover standing in the middle left
+  // empty sides), cropped from its upper part, where covers set the logo and the hero's face.
+  const coverInWide = chosen?.kind === "cover" && ratio > 1;
   const imageUrl = chosen?.url ?? fallbackUrl ?? null;
   const image = (
     <GameArt
@@ -99,10 +83,18 @@ export function FramedArt({
       width={width}
       height={h}
       sizes={sizes}
-      shape={shape}
+      shape={coverInWide ? "fit" : shape}
       priority={priority}
       className={chosen?.logo || chosen?.whole ? "" : className}
-      style={chosen?.position ? { objectPosition: chosen.position, ...(chosen.logo || chosen.whole ? {} : style) } : chosen?.logo || chosen?.whole ? undefined : style}
+      style={
+        coverInWide
+          ? { objectPosition: "center 22%", ...style }
+          : chosen?.position
+            ? { objectPosition: chosen.position, ...(chosen.logo || chosen.whole ? {} : style) }
+            : chosen?.logo || chosen?.whole
+              ? undefined
+              : style
+      }
     />
   );
   if (chosen?.whole) {

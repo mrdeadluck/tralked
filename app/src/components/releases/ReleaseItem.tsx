@@ -4,10 +4,14 @@ import { RemoteImg } from "@/components/ui/RemoteImg";
 import type { ReleaseView } from "@/lib/releases/view";
 import { RELEASE_PLATFORM_COLOR, RELEASE_PLATFORM_LABEL } from "@/lib/releases/platforms";
 
-/** Art of a release: the catalog cover, else the store capsule, else the striped placeholder. */
+/**
+ * Art of a release in its 16:9 thumbnail: the store's 616×353 capsule (its own shape, logo whole),
+ * else the portrait cover filling the box from its upper part (logo and face), else the small
+ * search capsule, else the striped placeholder.
+ */
 function ReleaseArt({ release, size }: { release: ReleaseView; size: "sm" | "md" }) {
   const box = size === "md" ? "w-[132px]" : "w-[96px]";
-  const url = release.coverUrl ?? release.capsuleUrl;
+  const url = release.wideUrl ?? release.coverUrl ?? release.capsuleUrl;
   if (!url) {
     return (
       <span
@@ -18,6 +22,7 @@ function ReleaseArt({ release, size }: { release: ReleaseView; size: "sm" | "md"
     );
   }
   const width = size === "md" ? 132 : 96;
+  const portrait = !release.wideUrl && url === release.coverUrl;
   return (
     <RemoteImg
       url={url}
@@ -25,6 +30,8 @@ function ReleaseArt({ release, size }: { release: ReleaseView; size: "sm" | "md"
       height={Math.round((width * 9) / 16)}
       sizes={`${width}px`}
       alt=""
+      shape={portrait ? "fit" : "wide"}
+      style={portrait ? { objectPosition: "center 22%" } : undefined}
       className={`${box} aspect-[16/9] h-auto shrink-0 rounded-[3px] border border-line object-cover`}
     />
   );

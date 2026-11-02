@@ -155,8 +155,16 @@ async function weeklyTotals(
   return groups.map((g) => ({ userId: g.userId, xp: g._sum.xp ?? 0 }));
 }
 
-/** Ledger sources paid by the community: photos, reactions, forum answers and guide tip votes. */
-export const COMMUNITY_SOURCES = ["photo_approved", "reaction_given", "reaction_received", "forum_solved", "guide_vote"];
+/** Ledger sources paid by the community: photos, comments, reactions, forum answers and guide tip votes. */
+export const COMMUNITY_SOURCES = [
+  "photo_approved",
+  "comment_posted",
+  "forum_post",
+  "reaction_given",
+  "reaction_received",
+  "forum_solved",
+  "guide_vote",
+];
 
 /** XP a player earned in the last 7 days (0 when none). */
 export async function weeklyXpOf(userId: string, now: Date = new Date(), db: Db = prisma): Promise<number> {

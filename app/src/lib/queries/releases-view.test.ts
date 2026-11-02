@@ -14,7 +14,7 @@ const row = (gameId: string, platform: string, date: string | null, extra: Parti
   seenAt: new Date(),
   createdAt: new Date(),
   updatedAt: new Date(),
-  game: { slug: gameId, name: gameId.toUpperCase(), coverUrl: null, stub: false, popularity: 0, steamReviewTotal: null, steamPlayers: null },
+  game: { slug: gameId, name: gameId.toUpperCase(), coverUrl: null, media: [], stub: false, popularity: 0, steamReviewTotal: null, steamPlayers: null },
   ...extra,
 });
 
@@ -63,7 +63,7 @@ describe("release views", () => {
       row("gta", "PLAYSTATION", "2026-10-20", { source: "igdb", score: 4_000 }),
       row("hit", "PC", "2026-10-25", {
         score: 900,
-        game: { slug: "hit", name: "HIT", coverUrl: null, stub: false, popularity: 0, steamReviewTotal: 2_000, steamPlayers: { current: 3_000 } },
+        game: { slug: "hit", name: "HIT", coverUrl: null, media: [], stub: false, popularity: 0, steamReviewTotal: 2_000, steamPlayers: { current: 3_000 } },
       }),
     ];
     expect(groupReleases(rows, "ultimos", "2026-10-31").map((v) => v.gameId)).toEqual(["gta", "hit", "fresh"]);

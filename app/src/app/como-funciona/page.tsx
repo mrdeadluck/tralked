@@ -4,6 +4,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { SkillIcon } from "@/components/character/SkillIcon";
 import {
   FORUM_SOLVED_XP,
+  COMMENT_XP,
+  COMMENT_XP_DAILY_CAP,
   PHOTO_XP,
   PHOTO_XP_DAILY_CAP,
   REACTION_GIVEN_DAILY_CAP,
@@ -106,6 +108,12 @@ const COMMUNITY: Source[] = [
     name: "Voto “útil” na sua dica",
     text: "Nas Dicas da comunidade de um guia, cada pessoa que marca a sua dica como útil. Também vai para Sábio.",
     xp: `+${TIP_VOTE_XP} XP`,
+  },
+  {
+    icon: "like",
+    name: "Comentar ou responder",
+    text: `Um comentário numa notícia, foto ou guia, uma resposta a alguém ou uma resposta no fórum. Até ${COMMENT_XP_DAILY_CAP} por dia.`,
+    xp: `+${COMMENT_XP} XP`,
   },
   {
     icon: "like",

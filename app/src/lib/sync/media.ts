@@ -125,6 +125,28 @@ export function mediaQueue(now: Date) {
   };
 }
 
+/** Shown games are asked again after this long when IGDB had nothing wide for them. */
+export const SHOWN_RECHECK_MS = 3 * 24 * 60 * 60_000;
+
+/** Games the site shows (news, libraries, wishlists) with no wide art at all, not asked lately. */
+export function shownWithoutWideArt(now: Date) {
+  return {
+    heroUrl: null,
+    media: { none: { kind: { in: ["hero", "artwork", "screenshot", "capsule"] } } },
+    OR: [
+      { articleLinks: { some: {} } },
+      { articles: { some: {} } },
+      { users: { some: {} } },
+      { wishlistedBy: { some: {} } },
+    ],
+    AND: [
+      {
+        OR: [{ mediaCheckedAt: null }, { mediaCheckedAt: { lt: new Date(now.getTime() - SHOWN_RECHECK_MS) } }],
+      },
+    ],
+  };
+}
+
 /** Records a media attempt (with or without results), so the queue moves on. */
 export async function markMediaChecked(gameId: string, now = new Date()): Promise<void> {
   await prisma.game.updateMany({ where: { id: gameId }, data: { mediaCheckedAt: now } });
@@ -135,14 +157,27 @@ export async function markMediaChecked(gameId: string, now = new Date()): Promis
  * popular half first, the rest at random among the candidates.
  */
 export async function syncStaleMedia(limit = 20): Promise<{ processed: number; failed: number }> {
-  const candidates = await prisma.game.findMany({
-    // Stubs of the full Steam catalog (name only) wait for their store details first.
-    where: mediaQueue(new Date()),
+  const now = new Date();
+  // First the games the site shows without any wide art (a news story's game, a player's library or
+  // wishlist): their cards otherwise crop the portrait cover. Stubs too, asked again after 3 days.
+  const shown = await prisma.game.findMany({
+    where: shownWithoutWideArt(now),
+    orderBy: [{ popularity: "desc" }, { id: "asc" }],
+    take: Math.ceil(limit / 2),
     select: { id: true, popularity: true },
   });
-  // Half the run goes to the most popular games (those the news and players show most), the other
+  const candidates = await prisma.game.findMany({
+    // Stubs of the full Steam catalog (name only) wait for their store details first.
+    where: { ...mediaQueue(now), id: { notIn: shown.map((g) => g.id) } },
+    select: { id: true, popularity: true },
+  });
+  // Half the rest goes to the most popular games (those the news and players show most), the other
   // half is picked at random so games IGDB has nothing for cannot starve the rest.
-  const popular = [...candidates].sort((a, b) => b.popularity - a.popularity).slice(0, Math.ceil(limit / 2));
+  const left = limit - shown.length;
+  const popular = [
+    ...shown,
+    ...[...candidates].sort((a, b) => b.popularity - a.popularity).slice(0, Math.ceil(left / 2)),
+  ];
   const chosen = new Set(popular.map((c) => c.id));
   const random = candidates
     .filter((c) => !chosen.has(c.id))

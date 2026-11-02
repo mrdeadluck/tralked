@@ -29,7 +29,9 @@ import {
 } from "./forum";
 import { RATE_LIMIT_MESSAGES } from "./limits";
 import { createReport, reportSchema } from "./reports";
-import { recomputeQuietly } from "./xp";
+import { weeklyXpOf } from "@/lib/highscores/queries";
+import { levelChange, levelProgress, rewardOf, type Reward } from "@/lib/progression/reward";
+import { awardCommentXp, COMMENT_XP, recomputeQuietly, type CommentSource } from "./xp";
 import { articleTag, NEWS_TAG } from "@/lib/queries/news";
 
 /** Common failure shapes; `message` is pt-BR and ready to show. */
@@ -77,7 +79,27 @@ export async function loadMoreComments(raw: unknown): Promise<CommentPage | Fail
   return user ? withMyReactions(prisma, page, user.id) : page;
 }
 
-export async function postComment(raw: unknown): Promise<{ status: "ok"; comment: CommentView } | Failure> {
+/**
+ * Pays `COMMENT_XP` for a comment, reply or forum reply (within the shared daily cap) and builds
+ * the "+5 XP" toast: the level bar, the week's total and a level-up when it happened.
+ */
+async function commentReward(userId: string, source: CommentSource, key: string, reason: string): Promise<Reward | null> {
+  const awarded = await prisma.$transaction((tx) => awardCommentXp(tx, userId, source, key));
+  if (!awarded) return null;
+  const statsOf = () => prisma.userStats.findUnique({ where: { userId }, select: { level: true, totalXp: true } });
+  const before = await statsOf();
+  await recomputeQuietly(userId);
+  const after = await statsOf();
+  return rewardOf(COMMENT_XP, reason, {
+    levelUp: levelChange(before?.level, after?.level),
+    progress: after ? levelProgress(after.totalXp, COMMENT_XP) : null,
+    weekXp: after ? await weeklyXpOf(userId) : null,
+  });
+}
+
+export async function postComment(
+  raw: unknown,
+): Promise<{ status: "ok"; comment: CommentView; reward?: Reward | null } | Failure> {
   const ready = await prepare(newCommentSchema, raw, { posting: true });
   if (!ready.ok) return ready.failure;
   const result = await createComment(prisma, ready.user.id, ready.data);
@@ -86,7 +108,9 @@ export async function postComment(raw: unknown): Promise<{ status: "ok"; comment
   if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.comment };
   if (ready.data.targetType === "photo") updateTag(photoTag(ready.data.targetId));
   if (result.articleSlug) refreshArticleCount(result.articleSlug);
-  return result;
+  const reason = ready.data.parentId ? "Resposta" : "Comentário";
+  const reward = await commentReward(ready.user.id, "comment_posted", result.comment.id, reason);
+  return { ...result, reward };
 }
 
 /** The article page and the news cards show Article.comments. */
@@ -139,7 +163,9 @@ export async function startThread(raw: unknown): Promise<{ status: "ok"; threadI
   return result;
 }
 
-export async function replyToThread(raw: unknown): Promise<{ status: "ok"; post: PostView } | Failure> {
+export async function replyToThread(
+  raw: unknown,
+): Promise<{ status: "ok"; post: PostView; reward?: Reward | null } | Failure> {
   const ready = await prepare(newPostSchema, raw, { posting: true });
   if (!ready.ok) return ready.failure;
   const result = await prisma.$transaction((tx) => createPost(tx, ready.user.id, ready.data));
@@ -148,7 +174,8 @@ export async function replyToThread(raw: unknown): Promise<{ status: "ok"; post:
   if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.post };
   updateTag(threadTag(ready.data.threadId));
   updateTag(FORUM_TAG);
-  return result;
+  const reward = await commentReward(ready.user.id, "forum_post", result.post.id, "Resposta no fórum");
+  return { ...result, reward };
 }
 
 export async function markThreadSolved(raw: unknown): Promise<{ status: "ok" } | Failure> {

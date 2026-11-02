@@ -131,6 +131,7 @@ export async function moderateContent(
         if (!comment) return NOT_FOUND;
         current = comment.status;
         ownerId = comment.authorId;
+        earned = [comment.authorId, "comment_posted", targetId];
         if (comment.targetType === "photo") tags.push(photoTag(comment.targetId), GALLERY_TAG);
         if (comment.targetType === "thread") tags.push(threadTag(comment.targetId));
         if (comment.targetType === "article") articleCommentOf = comment.targetId;
@@ -155,6 +156,7 @@ export async function moderateContent(
         current = post.status;
         ownerId = post.authorId;
         tags.push(threadTag(post.threadId), FORUM_TAG);
+        earned = [post.authorId, "forum_post", targetId];
         if (post.solves) {
           // The answer no longer stands: its "Resolveu" XP goes and the thread author may mark another.
           earned = [post.authorId, "forum_solved", targetId];
