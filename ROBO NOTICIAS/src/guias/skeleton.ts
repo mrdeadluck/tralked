@@ -92,7 +92,7 @@ export function buildSkeleton(dossier: GuideDossier): GuideSkeleton {
 
   const itemKey = (chapter: DossierChapter, item: DossierItem) => {
     if (item.achievement) return claim(`conq-${item.achievement}`, "conq");
-    const what = item.index !== undefined ? `${item.collectibleType ?? item.nameEn ?? item.name} ${item.index}` : (item.nameEn ?? item.name);
+    const what = item.index !== undefined && !item.numberAssumed ? `${item.collectibleType ?? item.nameEn ?? item.name} ${item.index}` : (item.nameEn ?? item.name);
     return claim(`${slugify(chapter.title, 30)}-${slugify(what, 44)}`, "item");
   };
 

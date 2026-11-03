@@ -11,6 +11,7 @@ import { BudgetExceededError } from "../../src/ai/client.js";
 import { extractionKey, runGuideRequest, type GuidePipelineDeps, type GuideStages } from "../../src/guias/pipeline.js";
 import { dryRun } from "../../src/guias/dry-run.js";
 import { PAGE_TEXT_VERSION } from "../../src/guias/page-text.js";
+import { bodyBytes, imageBytes, REPORT_SLACK_BYTES, SITE_LIMITS } from "../../src/guias/limits.js";
 import { loadRunContext } from "../../src/guias/run-context.js";
 import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import type { FetchPage, SourceRef } from "../../src/guias/sources.js";
@@ -885,5 +886,77 @@ describe("Task 17: escrita em cache e confiabilidade", () => {
     expect(await runGuideRequest(makeDeps({ api, stages, sleep: async (ms) => void sleeps.push(ms) }))).toBe("waiting_sources");
     expect(tries).toBe(1);
     expect(sleeps).toEqual([]);
+  });
+});
+
+describe("Task 17 fix round 1", () => {
+  it("imagens decididas depois da escrita pelo tamanho real: sem espaço, nenhuma busca nem envio, e o guia sai", async () => {
+    // The guide's size without images, measured once.
+    const probe = fakeApi();
+    await runGuideRequest(makeDeps({ api: probe.api, stages: fakeStages({ pickItemImage: () => null }) }));
+    const bare = bodyBytes(probe.calls.created[0]!.payload);
+
+    const { api, calls } = fakeApi();
+    const full = writtenPayload();
+    // Room for the text, not for one image more.
+    full.walkthrough.chapters[0]!.steps[0]!.items[0]!.location = `Topo da torre velha${"x".repeat(SITE_LIMITS.bodyBytes - bare - REPORT_SLACK_BYTES / 2)}`;
+    const stages = fakeStages({ writeAndCheckGuide: async () => ({ ok: true as const, payload: full }) });
+    const deps = makeDeps({ api, stages });
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(stages.calls.locateTarget).toBeUndefined();
+    expect(calls.uploads).toEqual([]);
+    expect(calls.created).toHaveLength(1);
+    expect((calls.created[0]!.payload.report as RobotReport).notes).toContainEqual(expect.stringContaining("sem espaço para imagens"));
+  });
+
+  it("imagens: as perdíveis primeiro, e a busca para quando o orçamento de tamanho acaba", async () => {
+    /** A guide of two items (the second missable), with `pad` more characters of text, and what it sent. */
+    const send = async (pad: number, withImages = true) => {
+      const { api, calls } = fakeApi();
+      const payload = writtenPayload();
+      const step = payload.walkthrough.chapters[0]!.steps[0]!;
+      const base = step.items[0]!;
+      step.items = [
+        { ...base, key: "comum", name: "Comum", nameEn: "Plain", location: `Comum ${"x".repeat(pad)}` },
+        { ...base, key: "perdivel", name: "Perdível", nameEn: "Lost", missable: true },
+      ];
+      const located: string[] = [];
+      const stages = fakeStages({
+        writeAndCheckGuide: async () => ({ ok: true as const, payload }),
+        pickItemImage: (item) =>
+          withImages ? { url: `https://images.example/${item.nameEn}.jpg`, sourceName: "Wiki", sourceUrl: "https://wiki.example/x", thirdParty: true } : null,
+        locateTarget: async (_ai, _bytes, name) => {
+          located.push(name);
+          return { x: 0.5, y: 0.5, r: 0.1 };
+        },
+      });
+      expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("review");
+      return { located, bytes: bodyBytes(calls.created[0]!.payload) };
+    };
+    // Plenty of room: both, the missable first.
+    const both = await send(0);
+    expect(both.located).toEqual(["Lost", "Plain"]);
+    const none = await send(0, false);
+    const perImage = (both.bytes - none.bytes) / 2;
+    // Room for the first image (as the robot estimates it) and half of a second: only the missable's is fetched.
+    const estimate = imageBytes({ credit: "Imagem: Wiki", sourceName: "Wiki", sourceUrl: "https://wiki.example/x" });
+    const pad = SITE_LIMITS.bodyBytes - REPORT_SLACK_BYTES - none.bytes - estimate - Math.round(perImage / 2);
+    expect((await send(pad)).located).toEqual(["Lost"]);
+  });
+
+  it("escrita no cache é de graça: o prazo flexível passado não impede reaproveitar", async () => {
+    const db = openGuideDb(":memory:");
+    await runGuideRequest(makeDeps({ db, stages: fakeStages() }));
+    let t = Date.parse("2026-11-03T12:00:00Z");
+    const stages = fakeStages({
+      discoverSources: async () => {
+        t += 151 * 60_000;
+        return [POWERPYX, STEAM_GUIDE];
+      },
+    });
+    const { api, calls } = fakeApi({ claimNext: vi.fn(async () => ({ ...REQUEST, id: "req-3" })) });
+    expect(await runGuideRequest(makeDeps({ db, api, stages, now: () => new Date(t) }))).toBe("review");
+    expect(stages.calls.writeAndCheckGuide).toBeUndefined();
+    expect(calls.created).toHaveLength(1);
   });
 });

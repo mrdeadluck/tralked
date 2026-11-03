@@ -16,12 +16,51 @@ import { loadGuideStyle, type GuideModels } from "./writer.js";
 
 export type CachedWriting = { payload: GuidePayloadV2; internalErrors: string[]; savedAt: string };
 
+/**
+ * Bump this number whenever the writer (frameMessage, jobMessage, assemble), the checker (its prompts), the
+ * skeleton or the guide contract change: a writing cached by older code must not be reused.
+ */
+export const WRITER_CACHE_VERSION = 1;
+
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 
-export function writingKey(input: { dossier: GuideDossier; scope?: PsnWriteScope; game: GuideDossierSource["game"]; models: GuideModels }): string {
-  const { unreadSources: _unread, ...dossier } = input.dossier;
-  const content = JSON.stringify({ dossier, scope: input.scope ?? null, skeleton: buildSkeleton(input.dossier), game: input.game });
-  return `escrita:${sha([sha(content), sha(loadGuideStyle()), input.models.MODEL_WRITER, input.models.MODEL_FAST].join("\n"))}`;
+/** Steam rarity in coarse bands: the site refreshes it every day; the writer only uses it for "the rarest". */
+const rarityBand = (pct: number | null) => (pct === null ? null : pct < 1 ? "<1" : pct < 5 ? "<5" : pct < 20 ? "<20" : ">=20");
+
+/**
+ * What the writing depends on, without what the site refreshes every day (rarity, critic score, time to beat:
+ * coarse bands only) or what varies from run to run (the pages that could not be read).
+ */
+function stableInput(dossier: GuideDossier, game: GuideDossierSource["game"]) {
+  const { unreadSources: _unread, ...rest } = dossier;
+  return {
+    dossier: { ...rest, achievements: rest.achievements.map((a) => ({ ...a, globalPct: rarityBand(a.globalPct) })) },
+    game: {
+      ...game,
+      criticScore: game.criticScore === null ? null : Math.round(game.criticScore / 10),
+      timeToBeatCompleteMin: game.timeToBeatCompleteMin === null ? null : Math.round(game.timeToBeatCompleteMin / 600),
+    },
+  };
+}
+
+export function writingKey(input: {
+  dossier: GuideDossier;
+  scope?: PsnWriteScope;
+  game: GuideDossierSource["game"];
+  models: GuideModels;
+  version?: number;
+}): string {
+  const { dossier, game } = stableInput(input.dossier, input.game);
+  // The skeleton's shape (its keys); what each item says is in the dossier already.
+  const skel = buildSkeleton(input.dossier);
+  const skeleton = {
+    phases: skel.phases.map((p) => p.key),
+    chapters: skel.chapters.map((c) => ({ key: c.key, steps: c.steps.map((s) => ({ key: s.key, items: s.items.map((i) => i.key) })) })),
+    loose: skel.loose.map((l) => l.key),
+  };
+  const content = JSON.stringify({ dossier, scope: input.scope ?? null, skeleton, game });
+  const parts = [`v${input.version ?? WRITER_CACHE_VERSION}`, sha(content), sha(loadGuideStyle()), input.models.MODEL_WRITER, input.models.MODEL_FAST];
+  return `escrita:${sha(parts.join("|"))}`;
 }
 
 export function saveWriting(db: GuideDb, key: string, written: { payload: GuidePayloadV2; internalErrors?: string[] }, at: Date): void {

@@ -3,14 +3,13 @@ import { statedSequence } from "./chapter-order.js";
 import type { DryRunConfig } from "./config.js";
 import { independentGroups } from "./crossref.js";
 import type { GuideDb } from "./db.js";
-import { buildDossier, type DossierAchievement, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "./dossier.js";
-import type { ExtractedFacts } from "./facts.js";
-import { extractedFactsSchema } from "./facts.js";
+import { buildDossier, UNPLACED_MARK, type DossierAchievement, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "./dossier.js";
+import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate } from "./gate.js";
-import { estimatePayloadBytes, imagesWorthTrying, kib, SITE_LIMITS, skeletonLimitProblems } from "./limits.js";
+import { estimatePayloadBytes, IMAGE_BYTES, kib, REPORT_SLACK_BYTES, SITE_LIMITS, skeletonLimitProblems } from "./limits.js";
 import { PAGE_TEXT_VERSION, pageText } from "./page-text.js";
 import { extractionKey, readCachedFacts } from "./pipeline.js";
-import { buildReport } from "./report.js";
+import { buildReport, STAGE_ONLY_TITLE, UNPLACED_TITLE } from "./report.js";
 import { latestRunContext, loadRunContext, type RunContext } from "./run-context.js";
 import { psnScope, type PsnWriteScope } from "./scope.js";
 import { buildSkeleton } from "./skeleton.js";
@@ -18,7 +17,6 @@ import type { FetchPage, SourceRef } from "./sources.js";
 import { readSteamAliases, steamLanguagesIn } from "./steam-aliases.js";
 import { writerPlan } from "./writer.js";
 import { readWriting, writingKey } from "./writing-cache.js";
-import { UNPLACED_TITLE } from "./report.js";
 
 /**
  * The free dry run (`pnpm guia -- --ensaio --appid <n>` or `--pedido <id>`): replays a request on what the robot
@@ -275,7 +273,11 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
       log(`  - ${c.name}${c.nameEn && c.nameEn !== c.name ? ` (${c.nameEn})` : ""} — ${c.source}, capítulo "${c.chapter}"${flags.length > 0 ? ` [${flags.join("; ")}]` : ""}`);
     }
   }
-  const warnings = toWrite.divergences.filter((d) => d.includes("fora da rota (sem posição)"));
+  if (toWrite.stageOnly.length > 0) {
+    log(`${STAGE_ONLY_TITLE} (${toWrite.stageOnly.length}):`);
+    for (const c of toWrite.stageOnly) log(`  - ${c.name} — ${c.source}, etapa "${c.chapter}"${c.missable ? " [PERDÍVEL]" : ""}`);
+  }
+  const warnings = toWrite.divergences.filter((d) => d.includes(UNPLACED_MARK));
   for (const w of warnings) log(`aviso: ${w}`);
 
   // Site limits, size, cost.
@@ -291,8 +293,15 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   const size = estimatePayloadBytes(skeleton, toWrite, reportBytes);
   log(
     `tamanho estimado do guia: ~${kib(size.withoutImages)} KiB sem imagens, ~${kib(size.withImages)} KiB com imagens ` +
-      `(limite ${kib(SITE_LIMITS.bodyBytes)} KiB)${size.withoutImages > SITE_LIMITS.bodyBytes ? " → NÃO CABE" : !imagesWorthTrying(size) ? " → sai sem imagens" : size.withImages > SITE_LIMITS.bodyBytes ? " → no limite: as imagens saem no ajuste final se não couberem" : ""}`,
+      `(limite ${kib(SITE_LIMITS.bodyBytes)} KiB)${size.withoutImages > SITE_LIMITS.bodyBytes ? " → NÃO CABE" : ""}`,
   );
+  if (size.withoutImages <= SITE_LIMITS.bodyBytes) {
+    // Images are decided after writing, on the real size: the most useful first, while they fit.
+    const room = Math.max(0, Math.floor((SITE_LIMITS.bodyBytes - REPORT_SLACK_BYTES - size.withoutImages) / IMAGE_BYTES));
+    log(
+      `imagens (decididas depois da escrita, pelo tamanho real): cabem ~${Math.min(room, items.length)} de ${items.length} pela estimativa; perdíveis primeiro, depois coletáveis contados, depois o resto`,
+    );
+  }
   const cached = readWriting(db, writingKey({ dossier: toWrite, scope, game: context.game, models: config }));
   log(
     cached

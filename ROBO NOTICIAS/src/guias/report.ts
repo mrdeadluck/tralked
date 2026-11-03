@@ -40,7 +40,11 @@ export type RobotReport = {
    * position), listed here with what the source says (missable, until when, come back later, counts toward).
    */
   unplaced?: { title: typeof UNPLACED_TITLE; items: UnplacedItem[]; /** Cut to fit the 1 MiB body. */ omitted?: number };
+  /** Items the primary script names only in its roadmap stages and that match no item of the route. */
+  stageOnly?: { title: typeof STAGE_ONLY_TITLE; items: UnplacedItem[] };
 };
+
+export const STAGE_ONLY_TITLE = "Itens citados só nas etapas do roadmap do roteiro principal, não posicionados";
 
 export const UNPLACED_TITLE = "Itens só de fonte secundária, não posicionados";
 export type UnplacedItem = Omit<CorroborationOnly, "kind" | "collectibleType">;
@@ -120,6 +124,7 @@ export function buildReport(input: ReportInput): RobotReport {
     ...(input.internalErrors?.length ? { internalErrors: input.internalErrors } : {}),
     ...(input.notes?.length ? { notes: [...input.notes] } : {}),
     ...(d && (d.corroborationOnly ?? []).length > 0 ? { unplaced: { title: UNPLACED_TITLE, items: d.corroborationOnly.map(unplacedItem) } } : {}),
+    ...(d && (d.stageOnly ?? []).length > 0 ? { stageOnly: { title: STAGE_ONLY_TITLE, items: d.stageOnly.map(unplacedItem) } } : {}),
   };
 }
 

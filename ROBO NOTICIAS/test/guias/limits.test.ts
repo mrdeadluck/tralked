@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { GuidePayloadV2 } from "../../src/guias/contract.js";
 import { buildDossier } from "../../src/guias/dossier.js";
-import { bodyBytes, estimatePayloadBytes, fitBody, imagesWorthTrying, SITE_LIMITS, skeletonLimitProblems } from "../../src/guias/limits.js";
-import { buildReport } from "../../src/guias/report.js";
+import { bodyBytes, estimatePayloadBytes, fitBody, imageOrder, SITE_LIMITS, skeletonLimitProblems } from "../../src/guias/limits.js";
+import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import { buildSkeleton } from "../../src/guias/skeleton.js";
 import { chapter, fact, item, steamAch } from "./helpers-dossier.js";
 
@@ -40,10 +40,14 @@ describe("limites do site antes de gastar (C2)", () => {
   });
 });
 
-describe("imagens perto do limite", () => {
-  it("a estimativa é grosseira: um pouco acima do limite as imagens ainda são tentadas; bem acima, não", () => {
-    expect(imagesWorthTrying({ withImages: SITE_LIMITS.bodyBytes + 30_000 })).toBe(true);
-    expect(imagesWorthTrying({ withImages: SITE_LIMITS.bodyBytes * 1.3 })).toBe(false);
+describe("ordem das imagens depois da escrita (fix 4)", () => {
+  it("perdíveis primeiro, depois coletáveis contados, depois o resto, cada grupo na ordem da rota", () => {
+    const it = (key: string, extra: { missable?: boolean; countsFor?: string[] } = {}) => ({ key, missable: false, countsFor: [], ...extra });
+    const chapters = [
+      { steps: [{ items: [it("a"), it("b", { countsFor: ["ACH_X"] })] }] },
+      { steps: [{ items: [it("c", { missable: true }), it("d")] }, { items: [it("e", { countsFor: ["ACH_X"] }), it("f", { missable: true })] }] },
+    ];
+    expect(imageOrder(chapters).map((i) => i.key)).toEqual(["c", "f", "b", "e", "a", "d"]);
   });
 });
 
@@ -71,15 +75,43 @@ describe("fitBody: o corpo final cabe em 1 MiB", () => {
     expect(fitBody(body)).toEqual({ ok: true, body, bytes: bodyBytes(body), dropped: [] });
   });
 
-  it("passando por causa das imagens, as imagens saem primeiro", () => {
+  it("passando por causa das imagens, saem imagens aos poucos, do fim da rota para o começo, só as necessárias", () => {
     const body = withItems(2500, true);
     expect(bodyBytes(body)).toBeGreaterThan(SITE_LIMITS.bodyBytes);
     const fit = fitBody(body);
     expect(fit.ok).toBe(true);
     if (!fit.ok) return;
     expect(fit.bytes).toBeLessThanOrEqual(SITE_LIMITS.bodyBytes);
-    expect(fit.body.walkthrough!.chapters[0]!.steps.every((s) => s.items.every((i) => i.image === undefined))).toBe(true);
-    expect(fit.dropped).toEqual([expect.stringContaining("imagens dos itens ficaram de fora")]);
+    const items = fit.body.walkthrough!.chapters[0]!.steps.flatMap((s) => s.items);
+    const kept = items.filter((i) => i.image).length;
+    expect(kept).toBeGreaterThan(0);
+    // The ones kept are the first of the route, and one more would not fit.
+    expect(items.slice(0, kept).every((i) => i.image)).toBe(true);
+    expect(items.slice(kept).every((i) => !i.image)).toBe(true);
+    expect(SITE_LIMITS.bodyBytes - fit.bytes).toBeLessThan(400);
+    expect(fit.dropped).toEqual([`${2500 - kept} imagens de itens ficaram de fora, do fim da rota para o começo, para o guia caber em 1024 KiB`]);
+    // The input is not changed.
+    expect(body.walkthrough.chapters[0]!.steps.at(-1)!.items[0]!.image).toBeDefined();
+  });
+
+  it("no corte do relatório, os perdíveis não posicionados vêm primeiro e o aviso do R30 nunca sai", () => {
+    const unplaced = Array.from({ length: 30 }, (_, i) => ({ name: `Item ${i} ${"n".repeat(200)}`, chapter: "c", source: "s", missable: i >= 25, returnLater: false, countsFor: [], countsForEn: [] }));
+    const warning = "5 itens perdíveis aparecem só em fonte secundária e ficaram fora da rota (sem posição): x.";
+    const fullReport = {
+      ...report,
+      divergences: [...Array.from({ length: 40 }, (_, i) => `divergência ${i} ${"d".repeat(500)}`), warning],
+      unplaced: { title: "Itens só de fonte secundária, não posicionados" as const, items: unplaced },
+    };
+    // Just over the cap: the long lists of the report have to be cut.
+    const small = { ...withItems(1, false, "x"), report: fullReport };
+    const big = { ...withItems(1, false, "x".repeat(SITE_LIMITS.bodyBytes - bodyBytes(small) + 3000)), report: fullReport };
+    const fit = fitBody(big);
+    expect(fit.ok).toBe(true);
+    if (!fit.ok) return;
+    expect(fit.body.report.divergences).toContain(warning);
+    const cut = (fit.body.report as RobotReport).unplaced!;
+    expect(cut.items.slice(0, 5).every((i) => i.missable)).toBe(true);
+    expect(cut.omitted).toBe(10);
   });
 
   it("sem imagens ainda grande demais: não cabe", () => {

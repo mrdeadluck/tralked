@@ -206,6 +206,11 @@ export type GuideDossier = {
    * achievements still count as covered by that source.
    */
   corroborationOnly: CorroborationOnly[];
+  /**
+   * Items the primary script names only in its roadmap stages ("Step N") and that match no item of the route: no
+   * secondary source, but no place in the route either. Listed apart in the report.
+   */
+  stageOnly: CorroborationOnly[];
   /** Plain Portuguese sentences; they never fail the gate by themselves. */
   divergences: string[];
   unreadSources: { name: string; url: string; reason: string }[];
@@ -234,6 +239,9 @@ function primaryFacts(facts: ExtractedFacts[]): ExtractedFacts[] {
   const name = lead.source.name;
   return facts.filter((f) => f === lead || (hostOf(f.source.url) === host && f.source.name.startsWith(`${name} (`)));
 }
+
+/** Every warning about missables left out of the route carries this: the report never cuts those lines. */
+export const UNPLACED_MARK = "fora da rota (sem posição)";
 
 /** "Obtain all trophies": what the platinum asks for. */
 const ALL_TROPHIES = /\b(?:all|every)\b[^.]*\btroph|\btodos os trofeus\b/i;
@@ -318,6 +326,10 @@ function chapterForMilestone(
 
 /** Free-form regions name the same place: equal, or one contains the other ("Crimson Forest" / "The Crimson Forest"). */
 const sameRegion = (a: string, b: string) => a === b || a.includes(b) || b.includes(a);
+
+const ROMAN = /^(?:i|ii|iii|iv|v|vi|vii|viii|ix|x|xi|xii|xiii|xiv|xv|xvi|xvii|xviii|xix|xx)$/;
+/** The numbers in a normalized name, digits and roman numerals ("book reflections ii" -> "ii"). */
+const numbersIn = (name: string) => name.split(" ").filter((w) => /^\d+$/.test(w) || ROMAN.test(w)).join(" ");
 
 /** `uid`: creation number, part of the items' alignment ids (the list order may change as chapters are inserted). */
 type ChapterAcc = {
@@ -568,6 +580,8 @@ export function buildDossier(
 
   let chapterList: ChapterAcc[] = [];
   const corroborationOnly: CorroborationOnly[] = [];
+  const stageOnly: CorroborationOnly[] = [];
+  const stageItems: { item: FactItem; chapter: string }[] = [];
   let phaseChapters: { title: string; summary: string }[] = [];
   let uids = 0;
   const created = (title: string, region: string | undefined): ChapterAcc => ({
@@ -609,8 +623,9 @@ export function buildDossier(
       const pageRegionNorm = normalizeName(pageRegion ?? "");
       for (const chapter of ordered) {
         if (isPhase(page, chapter)) {
-          // A stage's items are no steps of their own: they corroborate (their achievements stay covered).
-          for (const item of chapter.items) corroborationOnly.push(orphan(item, chapter.title, nameOf(page)));
+          // A stage's items are no steps of their own: matched against the route below (their achievements stay
+          // covered either way).
+          for (const item of chapter.items) stageItems.push({ item, chapter: chapter.title });
           continue;
         }
         // A heading with nothing to pick up is no chapter.
@@ -646,7 +661,17 @@ export function buildDossier(
     const slotNames = new Map(slots.map((s) => [s.acc, namesOf([s.acc.nameEn, s.acc.name])]));
     const slotApi = new Map(slots.map((s) => [s.acc, s.acc.achievementNameEn ? toApiName(s.acc.achievementNameEn) : undefined]));
     const claimed = new Set<string>();
-    const unmatched: { item: FactItem; fact: ExtractedFacts; group: string; chapter: string }[] = [];
+    // The roadmap stages' items: the route item with the same achievement or the only one with the same name.
+    for (const { item, chapter } of stageItems) {
+      const api = item.achievementNameEn ? toApiName(item.achievementNameEn) : undefined;
+      const names = namesOf([item.nameEn, item.name]);
+      const byApi = api ? slots.find((s) => slotApi.get(s.acc) === api) : undefined;
+      const named = slots.filter((s) => slotNames.get(s.acc)!.some((n) => names.includes(n)));
+      const found = byApi ?? (named.length === 1 ? named[0] : undefined);
+      if (found) merge(found.acc, item, lead, true);
+      else stageOnly.push(orphan(item, chapter, nameOf(lead)));
+    }
+    const unmatched: { item: FactItem; fact: ExtractedFacts; group: string; chapter: string; scope: Slot[] }[] = [];
     for (const fact of facts.filter((f) => !primary.includes(f))) {
       const group = nameOf(fact);
       const claim = (s: Slot) => `${group}|${s.chapter.uid}|${s.acc.id}`;
@@ -696,19 +721,29 @@ export function buildDossier(
             claimed.add(claim(found));
             merge(found.acc, item, fact, true);
           } else {
-            unmatched.push({ item, fact, group, chapter: chapter.title });
+            unmatched.push({ item, fact, group, chapter: chapter.title, scope });
           }
         }
       }
     }
-    // Once more by the English name alone, anywhere: a localized or generic name may have hidden the match.
-    for (const { item, fact, group, chapter } of unmatched) {
+    // Once more by the English name alone: exactly, anywhere; or with a slip of spelling, but then only with the
+    // same numbers (digits and roman numerals: "Fragment 8" is not "Fragment 7"), the same type and in the same
+    // chapter or region. In doubt, no match.
+    const typeOf = (kind: string, type: string | undefined) => singular(normalizeName(type ?? kind));
+    for (const { item, fact, group, chapter, scope } of unmatched) {
       const claim = (s: Slot) => `${group}|${s.chapter.uid}|${s.acc.id}`;
       const en = item.nameEn ? normalizeName(item.nameEn) : "";
       let found: Slot | undefined;
       if (en.length >= 3) {
         const exact = slots.filter((s) => slotNames.get(s.acc)!.includes(en));
-        const close = exact.length > 0 || en.length < 6 ? exact : slots.filter((s) => slotNames.get(s.acc)!.some((n) => similarity(n, en) >= 0.92));
+        const close =
+          exact.length > 0 || en.length < 6
+            ? exact
+            : scope.filter(
+                (s) =>
+                  typeOf(s.acc.kind, s.acc.collectibleType) === typeOf(item.kind, item.collectibleType) &&
+                  slotNames.get(s.acc)!.some((n) => numbersIn(n) === numbersIn(en) && similarity(n, en) >= 0.92),
+              );
         if (close.length === 1 && !claimed.has(claim(close[0]!))) found = close[0];
       }
       if (found) {
@@ -771,27 +806,23 @@ export function buildDossier(
       };
     }),
   }));
-  // R28: a counting item with no number gets the next one of its type in its chapter (route order), for review.
-  for (const chapter of chapters) {
-    const typeOf = (i: DossierItem) => singular(normalizeName(i.collectibleType ?? i.kind));
-    const last = new Map<string, number>();
-    for (const i of chapter.items) if (i.index !== undefined) last.set(typeOf(i), Math.max(last.get(typeOf(i)) ?? 0, i.index));
-    for (const i of chapter.items) {
-      if (i.index !== undefined || i.countsFor.length === 0) continue;
-      const n = (last.get(typeOf(i)) ?? 0) + 1;
-      last.set(typeOf(i), n);
-      Object.assign(i, { index: n, numbering: "chapter" as const, numberAssumed: true });
-    }
-  }
-
   // R30: a missable that only a secondary source lists stays out of the route (no invented position): warn.
   const lostOnes = corroborationOnly.filter((c) => c.missable);
   if (lostOnes.length > 0) {
     const n = lostOnes.length;
     const names = lostOnes.slice(0, 10).map((c) => c.name).join(", ");
     divergences.push(
-      `${n} ${n === 1 ? "item perdível aparece só em fonte secundária e ficou" : "itens perdíveis aparecem só em fonte secundária e ficaram"} fora da rota (sem posição): ` +
+      `${n} ${n === 1 ? "item perdível aparece só em fonte secundária e ficou" : "itens perdíveis aparecem só em fonte secundária e ficaram"} ${UNPLACED_MARK}: ` +
         `${names}${n > 10 ? ` (e mais ${n - 10})` : ""}. Revise antes de publicar: veja "Itens só de fonte secundária, não posicionados" no relatório.`,
+    );
+  }
+  const stageLost = stageOnly.filter((c) => c.missable);
+  if (stageLost.length > 0) {
+    const n = stageLost.length;
+    const names = stageLost.slice(0, 10).map((c) => c.name).join(", ");
+    divergences.push(
+      `${n} ${n === 1 ? "item perdível citado só nas etapas do roadmap do roteiro principal ficou" : "itens perdíveis citados só nas etapas do roadmap do roteiro principal ficaram"} ${UNPLACED_MARK}: ` +
+        `${names}${n > 10 ? ` (e mais ${n - 10})` : ""}. Revise antes de publicar.`,
     );
   }
 
@@ -903,6 +934,29 @@ export function buildDossier(
     return { name, apiName: toApiName(name), grade: said.find((a) => a.grade)?.grade, howTo: said.find((a) => a.howTo)?.howTo };
   };
 
+  // R28: an item that counts toward a "collect N" and has no number gets the next one of its type in its chapter
+  // (the source lists in route order), for review. Only for achievements with a collect target.
+  const collectApis = new Set(
+    steamList
+      .filter(
+        (s) =>
+          [s.description, s.descriptionPt, accs.get(s.apiName)?.howTo].some((t) => collectTarget(t) !== undefined) ||
+          chapters.some((c) => c.items.some((i) => i.countsFor.includes(s.apiName) && i.total !== undefined)),
+      )
+      .map((s) => s.apiName),
+  );
+  for (const chapter of chapters) {
+    const typeOf = (i: DossierItem) => singular(normalizeName(i.collectibleType ?? i.kind));
+    const last = new Map<string, number>();
+    for (const i of chapter.items) if (i.index !== undefined) last.set(typeOf(i), Math.max(last.get(typeOf(i)) ?? 0, i.index));
+    for (const i of chapter.items) {
+      if (i.index !== undefined || !i.countsFor.some((a) => collectApis.has(a))) continue;
+      const n = (last.get(typeOf(i)) ?? 0) + 1;
+      last.set(typeOf(i), n);
+      Object.assign(i, { index: n, numbering: "chapter" as const, numberAssumed: true });
+    }
+  }
+
   const allItems = chapters.flatMap((c) => c.items);
   const chapterOf = new Map(chapters.flatMap((c) => c.items.map((i) => [i, c.title] as const)));
   const achievements: DossierAchievement[] = steamList.map((s): DossierAchievement => {
@@ -929,12 +983,9 @@ export function buildDossier(
         seenKeys.add(key);
         if (i.numbering !== "chapter") seen.add(i.index!);
       }
-      if (exact) {
-        // Numbers that count within a chapter cannot say which of 1..N is missing.
-        if (seen.size > 0) for (let n = 1; n <= target; n++) if (!seen.has(n)) indexProblems.push(`falta o número ${n}`);
-      } else {
-        for (const i of counting) if (i.index === undefined) indexProblems.push(`o item "${i.name}" está sem número`);
-      }
+      // Numbers that count within a chapter cannot say which of 1..N is missing. (Every counting item has a
+      // number by now: R28 gave one to those without.)
+      if (exact && seen.size > 0) for (let n = 1; n <= target; n++) if (!seen.has(n)) indexProblems.push(`falta o número ${n}`);
     }
     return {
       apiName: s.apiName,
@@ -1083,6 +1134,7 @@ export function buildDossier(
       ? { primaryScript: { name: nameOf(primary[0]!), chapters: chapters.map((c) => c.title) } }
       : {}),
     corroborationOnly,
+    stageOnly,
     divergences,
     unreadSources,
   };

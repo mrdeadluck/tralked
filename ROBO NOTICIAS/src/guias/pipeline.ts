@@ -14,7 +14,18 @@ import { extractFacts, extractionPrompt } from "./extract.js";
 import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate, type GateResult } from "./gate.js";
 import { composeImage, pickItemImage, type PagesInput } from "./images.js";
-import { bodyBytes, estimatePayloadBytes, fitBody, imagesWorthTrying, kib, SITE_LIMITS, skeletonLimitProblems, tooBigReason } from "./limits.js";
+import {
+  bodyBytes,
+  estimatePayloadBytes,
+  fitBody,
+  imageBytes,
+  imageOrder,
+  kib,
+  REPORT_SLACK_BYTES,
+  SITE_LIMITS,
+  skeletonLimitProblems,
+  tooBigReason,
+} from "./limits.js";
 import { locateTarget } from "./locate.js";
 import { PAGE_TEXT_MAX } from "./page-text.js";
 import { buildReport, spendByPurpose, type RobotReport, type SourceRead } from "./report.js";
@@ -395,22 +406,15 @@ async function processRequest(run: Run): Promise<Final> {
   if (estimate.withoutImages > SITE_LIMITS.bodyBytes) {
     return failed(run, `${tooBigReason(estimate.withoutImages)} (estimativa antes de escrever, sem imagens)`);
   }
-  const imagesFit = imagesWorthTrying(estimate);
-  if (!imagesFit) {
-    progress.notes.push(
-      `as imagens dos itens ficaram de fora: com elas o guia passaria de ${kib(SITE_LIMITS.bodyBytes)} KiB (estimativa: ${kib(estimate.withImages)} KiB)`,
-    );
-  }
-
-  // The soft deadline already passed: writing is the long, paid part. Stop here; the caches stay for the retry.
-  if (run.pastDeadline()) return failed(run, DEADLINE_BEFORE_WRITING);
-
   // Step 8: write and check, against the raw text of the pages read (copy check); an approved writing of the same
   // dossier is reused from the cache, without the AI.
-  await run.send({ status: "writing" });
   const models = { MODEL_WRITER: config.MODEL_WRITER, MODEL_FAST: config.MODEL_FAST };
   const cacheKey = writingKey({ dossier: toWrite, scope, game: source.game, models });
   const reused = readWriting(db, cacheKey);
+  // The soft deadline already passed: writing is the long, paid part. Stop here (the caches stay for the retry);
+  // a cached writing is free, so it still goes.
+  if (!reused && run.pastDeadline()) return failed(run, DEADLINE_BEFORE_WRITING);
+  await run.send({ status: "writing" });
   let written: GuideWriteResult;
   if (reused) {
     written = { ok: true, payload: reused.payload, ...(reused.internalErrors.length > 0 ? { internalErrors: reused.internalErrors } : {}) };
@@ -436,23 +440,25 @@ async function processRequest(run: Run): Promise<Final> {
   }
   const payload = written.payload;
 
-  // Steps 9–10: item images and the official soundtrack (each one optional). The guide is written: from here on
-  // it is always sent, without them when the soft deadline passes or the spend cap is hit.
+  // Steps 9–10: the official soundtrack, then item images (each one optional), sized on the written guide. From
+  // here on the guide is always sent, without them when the soft deadline passes or the spend cap is hit.
+  const bodyOf = (report: RobotReport) => {
+    const { game: _game, ...rest } = payload;
+    return existing ? { ...rest, status: "review" as const, report } : { ...payload, status: "review" as const, report };
+  };
   if (run.pastDeadline()) {
     progress.notes.push(`o prazo de ${run.deadlineMin} min passou depois de escrever: o guia saiu sem imagens e sem trilha sonora`);
   } else {
-    if (imagesFit) {
-      const pages: PagesInput = read.filter((r) => r.html).map((r) => ({ url: r.source.url, html: r.html!, sourceName: r.source.name }));
-      await addImages(run, payload, pages);
-    }
-    if (run.pastDeadline()) progress.notes.push(`o prazo de ${run.deadlineMin} min passou: o guia saiu sem trilha sonora`);
-    else await addSoundtrack(run, payload, source);
+    await addSoundtrack(run, payload, source);
+    // What is left of the 1 MiB for images (the report's last notes kept apart).
+    const budget = SITE_LIMITS.bodyBytes - bodyBytes(bodyOf(run.report({ internalErrors }))) - REPORT_SLACK_BYTES;
+    const pages: PagesInput = read.filter((r) => r.html).map((r) => ({ url: r.source.url, html: r.html!, sourceName: r.source.name }));
+    await addImages(run, payload, pages, budget);
   }
 
   // Step 11: create, or update the robot's guide of the game. Always `review`, always under the body cap.
   const report = run.report({ internalErrors });
-  const { game: _game, ...rest } = payload;
-  const body = existing ? { ...rest, status: "review" as const, report } : { ...payload, status: "review" as const, report };
+  const body = bodyOf(report);
   const fit = fitBody(body);
   if (!fit.ok) return failed(run, tooBigReason(fit.bytes), { internalErrors });
   const sentReport: RobotReport = fit.dropped.length > 0 ? { ...fit.body.report, notes: [...(fit.body.report.notes ?? []), ...fit.dropped] } : fit.body.report;
@@ -566,56 +572,63 @@ async function extractCached(run: Run, source: SourceRef, page: { url: string; t
 }
 
 /**
- * Image of each item: picked in the pages read, located, composed (third party never cropped), uploaded. Stops,
+ * Image of each item: picked in the pages read, located, composed (third party never cropped), uploaded. The most
+ * useful first (missables, counted collectibles, then the rest, each in route order), only while they fit in
+ * `budget` bytes of the body: no fetching, locating or uploading for an image that would be thrown away. Stops,
  * keeping what it has, when the soft deadline passes or the spend cap is hit (the guide is already written).
  */
-async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput): Promise<void> {
+async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, budget: number): Promise<void> {
   const { deps, stages, ai } = run;
   const bytesByUrl = new Map<string, Buffer | null>();
   let added = 0;
   let skipped = 0;
+  let left = budget;
   const report = () => deps.log(`guia: ${added} ${added === 1 ? "imagem" : "imagens"} enviadas${skipped ? `, ${skipped} com erro` : ""}`);
-  for (const chapter of payload.walkthrough.chapters) {
-    for (const step of chapter.steps) {
-      for (const item of step.items) {
-        if (item.image) continue;
-        if (run.pastDeadline()) {
-          run.progress.notes.push(`o prazo de ${run.deadlineMin} min passou: as imagens pararam em ${added}, o resto do guia saiu sem imagem`);
-          report();
-          return;
-        }
-        try {
-          const picked = stages.pickItemImage(item, pages);
-          if (!picked) continue;
-          if (!bytesByUrl.has(picked.url)) bytesByUrl.set(picked.url, await deps.fetchImage(picked.url));
-          const bytes = bytesByUrl.get(picked.url);
-          if (!bytes) continue;
-          const target = await stages.locateTarget(ai, bytes, item.nameEn ?? item.name, {
-            model: deps.config.MODEL_FAST,
-            bucket: "backfill",
-          });
-          const composed = await stages.composeImage(bytes, { target, thirdParty: picked.thirdParty });
-          const uploaded = await deps.api.uploadImage(new Uint8Array(composed), "image/webp", `guia-img-${sha(composed).slice(0, 40)}`);
-          // Names from the page: plain text, clipped to the site's limits (a stray "<" would refuse the guide).
-          const sourceName = plain(picked.sourceName, SOURCE_NAME_MAX) || hostName(picked.sourceUrl) || "Fonte";
-          item.image = {
-            url: uploaded.url,
-            credit: plain(`Imagem: ${picked.sourceName}`, CREDIT_MAX) || `Imagem: ${sourceName}`,
-            sourceName,
-            ...(isHttpUrl(picked.sourceUrl) ? { sourceUrl: picked.sourceUrl } : {}),
-          };
-          added++;
-        } catch (error) {
-          if (error instanceof BudgetExceededError) {
-            run.progress.notes.push(`teto de gasto atingido nas imagens: elas pararam em ${added}, o guia saiu assim`);
-            deps.log(`guia: ${error.message}; imagens interrompidas`);
-            report();
-            return;
-          }
-          skipped++;
-          deps.log(`guia: imagem de "${item.name}" ficou de fora: ${messageOf(error)}`);
-        }
+  if (left <= 0) {
+    run.progress.notes.push(`sem espaço para imagens: o guia escrito já ocupa quase os ${kib(SITE_LIMITS.bodyBytes)} KiB do envio`);
+    report();
+    return;
+  }
+  for (const item of imageOrder(payload.walkthrough.chapters)) {
+    if (item.image) continue;
+    if (run.pastDeadline()) {
+      run.progress.notes.push(`o prazo de ${run.deadlineMin} min passou: as imagens pararam em ${added}, o resto do guia saiu sem imagem`);
+      report();
+      return;
+    }
+    try {
+      const picked = stages.pickItemImage(item, pages);
+      if (!picked) continue;
+      // Names from the page: plain text, clipped to the site's limits (a stray "<" would refuse the guide).
+      const sourceName = plain(picked.sourceName, SOURCE_NAME_MAX) || hostName(picked.sourceUrl) || "Fonte";
+      const credit = plain(`Imagem: ${picked.sourceName}`, CREDIT_MAX) || `Imagem: ${sourceName}`;
+      const sourceUrl = isHttpUrl(picked.sourceUrl) ? picked.sourceUrl : undefined;
+      if (imageBytes({ credit, sourceName, ...(sourceUrl ? { sourceUrl } : {}) }) > left) {
+        run.progress.notes.push(`o espaço do envio (${kib(SITE_LIMITS.bodyBytes)} KiB) acabou nas imagens: ${added} enviadas, as demais ficaram de fora`);
+        report();
+        return;
       }
+      if (!bytesByUrl.has(picked.url)) bytesByUrl.set(picked.url, await deps.fetchImage(picked.url));
+      const bytes = bytesByUrl.get(picked.url);
+      if (!bytes) continue;
+      const target = await stages.locateTarget(ai, bytes, item.nameEn ?? item.name, {
+        model: deps.config.MODEL_FAST,
+        bucket: "backfill",
+      });
+      const composed = await stages.composeImage(bytes, { target, thirdParty: picked.thirdParty });
+      const uploaded = await deps.api.uploadImage(new Uint8Array(composed), "image/webp", `guia-img-${sha(composed).slice(0, 40)}`);
+      item.image = { url: uploaded.url, credit, sourceName, ...(sourceUrl ? { sourceUrl } : {}) };
+      left -= Buffer.byteLength(`,"image":${JSON.stringify(item.image)}`, "utf8");
+      added++;
+    } catch (error) {
+      if (error instanceof BudgetExceededError) {
+        run.progress.notes.push(`teto de gasto atingido nas imagens: elas pararam em ${added}, o guia saiu assim`);
+        deps.log(`guia: ${error.message}; imagens interrompidas`);
+        report();
+        return;
+      }
+      skipped++;
+      deps.log(`guia: imagem de "${item.name}" ficou de fora: ${messageOf(error)}`);
     }
   }
   report();

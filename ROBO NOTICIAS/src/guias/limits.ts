@@ -1,5 +1,5 @@
 import type { GuidePayloadV2 } from "./contract.js";
-import type { DossierItem, GuideDossier } from "./dossier.js";
+import { UNPLACED_MARK, type DossierItem, type GuideDossier } from "./dossier.js";
 import type { RobotReport } from "./report.js";
 import type { GuideSkeleton } from "./skeleton.js";
 
@@ -14,11 +14,23 @@ export const bodyBytes = (body: unknown) => Buffer.byteLength(JSON.stringify(bod
 
 export const kib = (bytes: number) => Math.ceil(bytes / 1024);
 
+/** Room kept in the body for the report's last notes when images are sized on the written guide. */
+export const REPORT_SLACK_BYTES = 4096;
+
 /**
- * The size estimate is rough: near the cap the images are still tried (the final fit drops them if the real body
- * does not fit); only well past it are they skipped before any work on them.
+ * Which items get an image first, once the guide is written and its real size known: missables, then collectibles
+ * that count toward an achievement, then the rest; each group in route order.
  */
-export const imagesWorthTrying = (estimate: { withImages: number }) => estimate.withImages <= SITE_LIMITS.bodyBytes * 1.2;
+export function imageOrder<T extends { missable: boolean; countsFor: string[] }>(chapters: { steps: { items: T[] }[] }[]): T[] {
+  const route = chapters.flatMap((c) => c.steps.flatMap((s) => s.items));
+  const rank = (i: T) => (i.missable ? 0 : i.countsFor.length > 0 ? 1 : 2);
+  return route.map((item, at) => ({ item, at })).sort((a, b) => rank(a.item) - rank(b.item) || a.at - b.at).map((x) => x.item);
+}
+
+/** What one image adds to the body, given its credit texts (the uploaded URL counted at its longest usual size). */
+export function imageBytes(image: { credit: string; sourceName: string; sourceUrl?: string }): number {
+  return bodyBytes({ image: { url: `https://${"x".repeat(110)}`, ...image } }) - 2;
+}
 
 /** One Portuguese sentence per site limit the skeleton breaks; empty when it fits. */
 export function skeletonLimitProblems(skel: GuideSkeleton): string[] {
@@ -43,7 +55,7 @@ export function skeletonLimitProblems(skel: GuideSkeleton): string[] {
 const STEP_TEXT_BYTES = 350;
 const ITEM_TEXT_BYTES = 220;
 /** An item's image: url, credit, source name and url. */
-const IMAGE_BYTES = 380;
+export const IMAGE_BYTES = 380;
 /** Cover, ficha, overview, "read first", soundtrack. */
 const FRAME_BYTES = 12_000;
 const PHASE_BYTES = 2_500;
@@ -95,8 +107,14 @@ export function estimatePayloadBytes(skel: GuideSkeleton, dossier: GuideDossier,
 type Body = Partial<GuidePayloadV2> & { walkthrough?: GuidePayloadV2["walkthrough"]; report: RobotReport };
 const LIST_KEEP = 20;
 
-function trimList(list: string[]): string[] {
-  return list.length <= LIST_KEEP ? list : [...list.slice(0, LIST_KEEP), `(e mais ${list.length - LIST_KEEP})`];
+/** The first lines of a long list; lines with `pinned` (the R30 warnings) always stay. */
+function trimList(list: string[], pinned?: string): string[] {
+  if (list.length <= LIST_KEEP) return list;
+  const keep = pinned ? list.filter((l) => l.includes(pinned)) : [];
+  const rest = list.filter((l) => !keep.includes(l));
+  const room = Math.max(0, LIST_KEEP - keep.length);
+  const cut = rest.length - room;
+  return [...keep, ...rest.slice(0, room), ...(cut > 0 ? [`(e mais ${cut})`] : [])];
 }
 
 /**
@@ -109,20 +127,22 @@ export function fitBody<T extends Body>(body: T): { ok: true; body: T; bytes: nu
   const dropped: string[] = [];
   if (bytes <= SITE_LIMITS.bodyBytes) return { ok: true, body: current, bytes, dropped };
 
-  const walkthrough = current.walkthrough;
-  if (walkthrough && walkthrough.chapters.some((c) => c.steps.some((s) => s.items.some((i) => i.image)))) {
-    current = {
-      ...current,
-      walkthrough: {
-        ...walkthrough,
-        chapters: walkthrough.chapters.map((c) => ({
-          ...c,
-          steps: c.steps.map((s) => ({ ...s, items: s.items.map(({ image: _image, ...item }) => item) })),
-        })),
-      },
-    };
-    dropped.push(`as imagens dos itens ficaram de fora: com elas o guia passava de ${kib(SITE_LIMITS.bodyBytes)} KiB (${kib(bytes)} KiB)`);
+  // Item images, a few at a time from the end of the route back, only as many as needed.
+  if (current.walkthrough?.chapters.some((c) => c.steps.some((s) => s.items.some((i) => i.image)))) {
+    const walkthrough = structuredClone(current.walkthrough);
+    current = { ...current, walkthrough };
+    const withImage = walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items)).filter((i) => i.image);
+    let removed = 0;
+    while (bytes > SITE_LIMITS.bodyBytes && withImage.length > 0) {
+      const item = withImage.pop()!;
+      // ',"image":{...}' leaves the item.
+      bytes -= Buffer.byteLength(`,"image":${JSON.stringify(item.image)}`, "utf8");
+      delete item.image;
+      removed++;
+      if (bytes <= SITE_LIMITS.bodyBytes) bytes = bodyBytes(current);
+    }
     bytes = bodyBytes(current);
+    dropped.push(`${removed} ${removed === 1 ? "imagem de item ficou" : "imagens de itens ficaram"} de fora, do fim da rota para o começo, para o guia caber em ${kib(SITE_LIMITS.bodyBytes)} KiB`);
     if (bytes <= SITE_LIMITS.bodyBytes) return { ok: true, body: current, bytes, dropped };
   }
 
@@ -133,10 +153,17 @@ export function fitBody<T extends Body>(body: T): { ok: true; body: T; bytes: nu
       ...current,
       report: {
         ...report,
-        divergences: trimList(report.divergences),
+        divergences: trimList(report.divergences, UNPLACED_MARK),
         singleSource: trimList(report.singleSource),
         ...(unplaced && unplaced.items.length > LIST_KEEP
-          ? { unplaced: { ...unplaced, items: unplaced.items.slice(0, LIST_KEEP), omitted: unplaced.items.length - LIST_KEEP + (unplaced.omitted ?? 0) } }
+          ? {
+              unplaced: {
+                ...unplaced,
+                // Missables first: they are the ones an editor must see.
+                items: [...unplaced.items.filter((i) => i.missable), ...unplaced.items.filter((i) => !i.missable)].slice(0, LIST_KEEP),
+                omitted: unplaced.items.length - LIST_KEEP + (unplaced.omitted ?? 0),
+              },
+            }
           : {}),
       },
     };

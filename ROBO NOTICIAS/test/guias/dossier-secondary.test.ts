@@ -86,3 +86,82 @@ describe("item contado sem número (R28)", () => {
     expect(gate(d, steam).missing.join("\n")).not.toContain("sem número");
   });
 });
+
+describe("casamento aproximado pelo nameEn: na dúvida, sem par (fix 3)", () => {
+  const primary = () =>
+    fact("PowerPyx", "roteiro_psn", {
+      chapters: [
+        chapter("Weeping Creek", [
+          item("Book: Reflections I", { collectibleType: "Book" }),
+          item("Blackstone Fragment 7", { collectibleType: "Blackstone" }),
+          item("Bell (Crimson Forest)", { collectibleType: "Bell" }),
+        ]),
+      ],
+    });
+  const secondary = (chapterTitle: string, nameEn: string, collectibleType: string) =>
+    fact("Steam: 指南", "roteiro_steam", { complete: false, chapters: [chapter(chapterTitle, [item("某物", { nameEn, collectibleType })])] });
+  const run = (s: ExtractedFacts) => {
+    const p = primary();
+    return buildDossier([steamAch("ACH_END", "The End", "Finish.")], [p, s], [[p.source.url], [s.source.url]]);
+  };
+
+  it("número diferente (algarismo ou romano) nunca casa", () => {
+    expect(run(secondary("Weeping Creek", "Book: Reflections II", "Book")).corroborationOnly).toHaveLength(1);
+    expect(run(secondary("Weeping Creek", "Blackstone Fragment 8", "Blackstone")).corroborationOnly).toHaveLength(1);
+    const d = run(secondary("Weeping Creek", "Blackstone Fragment 8", "Blackstone"));
+    expect(d.chapters[0]!.items.find((i) => i.name === "Blackstone Fragment 7")!.agreed).toBe(false);
+  });
+
+  it("um erro de grafia casa só com o mesmo tipo e no mesmo capítulo ou região", () => {
+    const d = run(secondary("Weeping Creek", "Bell (Crimson Forrest)", "Bell"));
+    expect(d.corroborationOnly).toEqual([]);
+    expect(d.chapters[0]!.items.find((i) => i.name === "Bell (Crimson Forest)")!.agreed).toBe(true);
+    expect(run(secondary("Weeping Creek", "Bell (Crimson Forrest)", "Shrine")).corroborationOnly).toHaveLength(1);
+    expect(run(secondary("Somewhere Else", "Bell (Crimson Forrest)", "Bell")).corroborationOnly).toHaveLength(1);
+  });
+});
+
+describe("R28 só para quem conta para um 'colete N' (fix 5)", () => {
+  it("item que conta para conquista sem meta de coleta continua sem número", () => {
+    const f = fact("PowerPyx", "roteiro_psn", {
+      chapters: [chapter("Weeping Creek", [item("The Warden", { kind: "boss", countsForEn: ["Warden Down"] })])],
+    });
+    const d = buildDossier([steamAch("ACH_WARDEN", "Warden Down", "Defeat the Warden.")], [f], [[f.source.url]]);
+    expect(d.chapters[0]!.items[0]).not.toHaveProperty("numberAssumed");
+    expect(d.chapters[0]!.items[0]!.index).toBeUndefined();
+  });
+
+  it("o número assumido não entra na chave do item: as marcas dos leitores ficam presas ao nome", async () => {
+    const { buildSkeleton } = await import("../../src/guias/skeleton.js");
+    const steam = [...fixture.steam, steamAch("ACH_FLOWER", "Listen to Every Flower", "Collect 2 Memory Flowers")];
+    const facts = fixture.facts.map((f) => ({
+      ...f,
+      chapters: f.chapters.map((c) => ({
+        ...c,
+        items: c.items.map((i) => (i.collectibleType === "Memory Flower" && c.title === "Mirage Estate" ? { ...i, countsForEn: ["Listen to Every Flower"] } : i)),
+      })),
+    }));
+    const skel = buildSkeleton(build(steam, facts));
+    const keys = skel.chapters.find((c) => c.title === "Mirage Estate")!.steps.flatMap((s) => s.items.map((i) => i.key));
+    expect(keys).toContain("mirage-estate-yu-er-s-memory-flower-1-struggle");
+  });
+});
+
+describe("itens das etapas do roadmap do roteiro principal (fix 8)", () => {
+  it("casam com o item da rota ou ficam numa lista à parte, nunca como 'só de fonte secundária'", () => {
+    const lead = fact("PowerPyx", "roteiro_psn", {
+      roadmap: [{ title: "Step 1: Story", summary: "Play." }],
+      chapters: [
+        chapter("Step 1: Story", [item("Ancient Armor Fragment"), item("Lembrete da missão", { missable: true, missableUntil: "fim da região" })], 1),
+        chapter("Weeping Creek", [item("Ancient Armor Fragment")], 2),
+      ],
+    });
+    const d = buildDossier([steamAch("ACH_END", "The End", "Finish.")], [lead], [[lead.source.url]]);
+    expect(d.corroborationOnly).toEqual([]);
+    expect(d.stageOnly.map((i) => i.name)).toEqual(["Lembrete da missão"]);
+    expect(d.divergences).toContainEqual(expect.stringContaining("perdível citado só nas etapas do roadmap"));
+    const report = buildReport({ sourcesRead: [], dossier: d, spendUsd: 0 });
+    expect(report.unplaced).toBeUndefined();
+    expect(report.stageOnly).toMatchObject({ title: "Itens citados só nas etapas do roadmap do roteiro principal, não posicionados", items: [{ name: "Lembrete da missão", missable: true }] });
+  });
+});
