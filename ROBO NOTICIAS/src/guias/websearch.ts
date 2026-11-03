@@ -26,6 +26,8 @@ export interface WebSearchDeps {
   maxUses?: number;
 }
 
+const MAX_PAUSED_TURNS = 4;
+
 const SYSTEM =
   "You are a search helper. Run the web search for the user's query and reply with the single word OK. " +
   "Do not summarize or analyze the results.";
@@ -55,22 +57,37 @@ export function createWebSearch(deps: WebSearchDeps): WebSearch {
   const { in: priceIn, out: priceOut } = price;
 
   async function search(query: string): Promise<SearchHit[]> {
-    const res = await client.messages.create({
-      model,
-      max_tokens: 2000,
-      system: SYSTEM,
-      tools: [{ type: WEB_SEARCH_TOOL_TYPE, name: "web_search", max_uses: maxUses }] as never,
-      messages: [{ role: "user", content: `Search the web for: ${query}` }],
-    });
-    const usage = res.usage as {
-      input_tokens: number;
-      output_tokens: number;
-      server_tool_use?: { web_search_requests?: number } | null;
-    };
-    const searches = usage.server_tool_use?.web_search_requests ?? 0;
-    const usd = (usage.input_tokens * priceIn + usage.output_tokens * priceOut) / 1e6 + searches * WEB_SEARCH_USD_PER_REQUEST;
+    const messages: { role: "user" | "assistant"; content: unknown }[] = [
+      { role: "user", content: `Search the web for: ${query}` },
+    ];
+    const blocks: Block[] = [];
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let searches = 0;
+    // `pause_turn`: the server-side tool loop hit its iteration limit; send the turn back to continue it.
+    for (let turn = 0; turn < MAX_PAUSED_TURNS; turn++) {
+      const res = await client.messages.create({
+        model,
+        max_tokens: 2000,
+        system: SYSTEM,
+        tools: [{ type: WEB_SEARCH_TOOL_TYPE, name: "web_search", max_uses: maxUses }] as never,
+        messages: messages as never,
+      });
+      const usage = res.usage as {
+        input_tokens: number;
+        output_tokens: number;
+        server_tool_use?: { web_search_requests?: number } | null;
+      };
+      inputTokens += usage.input_tokens;
+      outputTokens += usage.output_tokens;
+      searches += usage.server_tool_use?.web_search_requests ?? 0;
+      blocks.push(...(res.content as Block[]));
+      if (res.stop_reason !== "pause_turn") break;
+      messages.push({ role: "assistant", content: res.content });
+    }
+    const usd = (inputTokens * priceIn + outputTokens * priceOut) / 1e6 + searches * WEB_SEARCH_USD_PER_REQUEST;
     recordSpend(usd, `websearch: ${query}`.slice(0, 120));
-    return extractHits(res.content as Block[]);
+    return extractHits(blocks);
   }
 
   return { search };

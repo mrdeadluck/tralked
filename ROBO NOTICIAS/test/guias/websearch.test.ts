@@ -37,4 +37,29 @@ describe("createWebSearch", () => {
     // 1000*2/1e6 + 100*10/1e6 + 0.01
     expect(recordSpend).toHaveBeenCalledWith(expect.closeTo(0.013, 6), expect.stringContaining("websearch"));
   });
+
+  it("continues a pause_turn and sums usage over both calls", async () => {
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({
+        stop_reason: "pause_turn",
+        content: [{ type: "server_tool_use", name: "web_search" }],
+        usage: { input_tokens: 1000, output_tokens: 0, server_tool_use: { web_search_requests: 1 } },
+      })
+      .mockResolvedValueOnce({
+        stop_reason: "end_turn",
+        content: [
+          { type: "web_search_tool_result", content: [{ type: "web_search_result", title: "C", url: "https://c.com" }] },
+        ],
+        usage: { input_tokens: 500, output_tokens: 10 },
+      });
+    const recordSpend = vi.fn();
+    const ws = createWebSearch({ client: { messages: { create } } as never, model: "claude-sonnet-5-5", recordSpend });
+    expect(await ws.search("q")).toEqual([{ title: "C", url: "https://c.com" }]);
+    expect(create).toHaveBeenCalledTimes(2);
+    const second = create.mock.calls[1]![0] as { messages: { role: string }[] };
+    expect(second.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(recordSpend).toHaveBeenCalledTimes(1);
+    expect(recordSpend).toHaveBeenCalledWith(expect.closeTo(1500 * 2e-6 + 100e-6 + 0.01, 6), expect.any(String));
+  });
 });
