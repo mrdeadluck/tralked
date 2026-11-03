@@ -6,6 +6,8 @@ import { ReactionBar } from "@/components/community/ReactionBar";
 import { GuideModeration } from "@/components/moderation/Islands";
 import { FactsStrip } from "@/components/games/FactsStrip";
 import { GameHead } from "@/components/games/GameHead";
+import { AchievementsOnly } from "@/components/guide/AchievementsOnly";
+import { maskHidden } from "@/lib/queries/achievements-only";
 import { AchievementList } from "@/components/guide/AchievementList";
 import { Collectibles } from "@/components/guide/Collectibles";
 import { CommunityTips } from "@/components/guide/CommunityTips";
@@ -23,7 +25,7 @@ import {
 } from "@/components/guide/UserIslands";
 import { guideIdCached } from "@/lib/community/cached";
 import { listGameSlugs } from "@/lib/queries/games";
-import { getGameCached, getGuideCached } from "@/lib/queries/games-cached";
+import { getAchievementsOnlyCached, getGameCached, getGuideCached } from "@/lib/queries/games-cached";
 import { howToJsonLd, JsonLd } from "@/lib/seo/json-ld";
 import { gameMetadata } from "../metadata";
 
@@ -48,6 +50,15 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
   const { slug } = await params;
   const guide = await getGuideCached(slug);
   if (!guide) {
+    const only = await getAchievementsOnlyCached(slug);
+    if (only) {
+      return (
+        <>
+          <GameHead game={only.game} />
+          <AchievementsOnly lists={maskHidden(only.lists)} />
+        </>
+      );
+    }
     if (await getGameCached(slug)) redirect(`/jogos/${slug}`);
     notFound();
   }
