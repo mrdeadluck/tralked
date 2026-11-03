@@ -28,8 +28,9 @@ export { copiedRuns } from "./copy-check.js";
  * (`scope`, `psnList`, `steamOnly`); the Steam-only achievements get no item and no how-to.
  */
 
-export type GuideModels = Pick<GuideConfig, "MODEL_WRITER" | "MODEL_FAST">;
-export const DEFAULT_GUIDE_MODELS: GuideModels = { MODEL_WRITER: "claude-opus-5-5", MODEL_FAST: "claude-haiku-5-5" };
+/** The writer's model, and the checker's model and effort (Task 22). */
+export type GuideModels = Pick<GuideConfig, "MODEL_WRITER" | "MODEL_CHECK" | "CHECK_EFFORT">;
+export const DEFAULT_GUIDE_MODELS: GuideModels = { MODEL_WRITER: "claude-opus-5-5", MODEL_CHECK: "claude-sonnet-5-5", CHECK_EFFORT: "high" };
 
 const WRITER_MAX_TOKENS = 16000;
 const CONCURRENCY = 3;
@@ -1144,7 +1145,7 @@ export async function writeAndCheckGuide(
       ...(ficha.psn ? { trofeusPsn: ficha.psn.trophies, conquistasSteam: ficha.psn.steam, soNaSteam: ficha.psn.steamOnly } : {}),
     },
   };
-  const checkOpts = { bucket, model: ctx.models.MODEL_FAST, context: checkContext };
+  const checkOpts = { bucket, model: ctx.models.MODEL_CHECK, effort: ctx.models.CHECK_EFFORT, context: checkContext };
 
   // The probe: the frame and the jobs of the first N story chapters; problems of other parts are not its own.
   const probed = opts.probe ? new Set(ctx.skel.chapters.filter((c) => !c.cleanup).slice(0, Math.max(1, opts.probe.chapters))) : undefined;

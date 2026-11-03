@@ -1,4 +1,4 @@
-import { PRICES } from "../ai/client.js";
+import { PRICES, type Effort } from "../ai/client.js";
 import { statedSequence } from "./chapter-order.js";
 import type { DryRunConfig } from "./config.js";
 import { independentGroups } from "./crossref.js";
@@ -29,7 +29,7 @@ import { earlierDraftKeys, readWriting, writingBaseKey, writingKey } from "./wri
 
 export type DryRunInput = {
   db: GuideDb;
-  config: Pick<DryRunConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "GUIDE_STEAM_REFERENCE_ID">;
+  config: Pick<DryRunConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "MODEL_CHECK" | "CHECK_EFFORT" | "GUIDE_STEAM_REFERENCE_ID">;
   requestId?: string;
   appId?: number;
   log: (line: string) => void;
@@ -129,8 +129,12 @@ function cost(model: string, input: number, output: number): number | undefined 
 /**
  * The writer's estimated cost (rough): the frame and every write job on MODEL_WRITER, the system prompt cached
  * after the first call, about 220 tokens of text per step and 110 per item, effort high (thinking counted as half
- * the output again); each call checked once on MODEL_FAST. Worst case: all of it a second time (the rewrite).
+ * the output again); each call checked once on MODEL_CHECK at CHECK_EFFORT (its answer plus the thinking the effort
+ * buys, `CHECK_THINKING`). Worst case: all of it a second time (the rewrite).
  */
+/** Rough thinking tokens per checker call by effort (adaptive thinking is billed as output). */
+const CHECK_THINKING: Record<Effort, number> = { low: 500, medium: 1_500, high: 3_000, xhigh: 6_000, max: 10_000 };
+
 function writerCost(dossier: GuideDossier, game: GuideDossierSource, models: DryRunInput["config"], scope?: PsnWriteScope) {
   const plan = writerPlan(dossier, game, scope);
   const system = tokens(plan.system.length);
@@ -142,11 +146,11 @@ function writerCost(dossier: GuideDossier, game: GuideDossierSource, models: Dry
   const writeIn = Math.round(system * 1.25 + system * 0.1 * (calls.length - 1)) + calls.reduce((n, c) => n + c.input, 0);
   const writeOut = calls.reduce((n, c) => n + c.output, 0) * 1.5;
   const checkIn = calls.reduce((n, c) => n + 1_500 + c.input + c.output, 0);
-  const checkOut = calls.length * 600;
+  const checkOut = calls.length * (600 + CHECK_THINKING[models.CHECK_EFFORT]);
   const write = cost(models.MODEL_WRITER, writeIn, writeOut);
-  const check = cost(models.MODEL_FAST, checkIn, checkOut);
+  const check = cost(models.MODEL_CHECK, checkIn, checkOut);
   const onePass = write !== undefined && check !== undefined ? write + check : undefined;
-  return { calls: calls.length, writeIn, writeOut, onePass, worst: onePass === undefined ? undefined : onePass * 2 };
+  return { calls: calls.length, writeIn, writeOut, checkIn, checkOut, check, onePass, worst: onePass === undefined ? undefined : onePass * 2 };
 }
 
 export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
@@ -371,8 +375,13 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   const writer = writerCost(toWrite, { game: context.game, tralked: { players: 0, avgPlaytimeMin: null, completedPlayers: 0 }, achievements: context.steamList }, config, scope);
   log(
     `custo estimado da escrita: ${writer.calls} chamadas de ${config.MODEL_WRITER} (~${Math.round(writer.writeIn / 1000)}k tokens de entrada, ` +
-      `~${Math.round(writer.writeOut / 1000)}k de saída) + checagem em ${config.MODEL_FAST} (estimativa grosseira): ` +
+      `~${Math.round(writer.writeOut / 1000)}k de saída) + checagem em ${config.MODEL_CHECK} (estimativa grosseira): ` +
       (writer.onePass === undefined ? "sem preço para o modelo" : `~${usd(writer.onePass)} numa passada, até ~${usd(writer.worst!)} com a reescrita`),
+  );
+  log(
+    `checagem em ${config.MODEL_CHECK} (esforço ${config.CHECK_EFFORT}): ${writer.calls} chamadas, ~${Math.round(writer.checkIn / 1000)}k tokens de entrada, ` +
+      `~${Math.round(writer.checkOut / 1000)}k de saída com o pensamento: ` +
+      (writer.check === undefined ? "sem preço para o modelo" : `~${usd(writer.check)} numa passada (dentro do total acima)`),
   );
   return { ok: chosen !== undefined && limits.length === 0 && size.withoutImages <= SITE_LIMITS.bodyBytes };
 }

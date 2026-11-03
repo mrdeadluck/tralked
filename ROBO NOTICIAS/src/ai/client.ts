@@ -77,7 +77,9 @@ export function costUsd(model: string, usage: UsageLike, batch = false): number 
   return ((input + output) / 1e6) * (batch ? BATCH_MULT : 1);
 }
 
-type Effort = "low" | "medium" | "high";
+/** `output_config.effort`, as the SDK takes it (xhigh and max above high). */
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type Effort = (typeof EFFORTS)[number];
 
 export interface StructuredOpts<T> {
   bucket: SpendBucket;

@@ -12,7 +12,14 @@ import { saveRunContext } from "../../src/guias/run-context.js";
 
 type Fixture = { steam: SteamAchievement[]; facts: ExtractedFacts[]; intro: Record<string, string> };
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/pbz-trimmed-facts.json", import.meta.url), "utf8")) as Fixture;
-const CONFIG = { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", GUIDE_STEAM_REFERENCE_ID: "76561198012210783" };
+const CONFIG = {
+  MODEL_WRITER: "claude-opus-5-5",
+  MODEL_EXTRACT: "claude-sonnet-5-5",
+  MODEL_FAST: "claude-haiku-5-5",
+  MODEL_CHECK: "claude-sonnet-5-5",
+  CHECK_EFFORT: "high" as const,
+  GUIDE_STEAM_REFERENCE_ID: "76561198012210783",
+};
 const GAME = {
   slug: "phantom-blade-zero",
   name: "Phantom Blade Zero",
@@ -83,6 +90,8 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
     expect(out).toMatch(/limites do site: 7\/60 capítulos \(com a limpeza\), .* → cabe/);
     expect(out).toMatch(/tamanho estimado do guia: ~\d+ KiB sem imagens, ~\d+ KiB com imagens \(limite 1024 KiB\)/);
     expect(out).toMatch(/custo estimado da escrita: \d+ chamadas de claude-opus-5-5 .* ~US\$ \d+\.\d\d numa passada, até ~US\$ \d+\.\d\d com a reescrita/);
+    // Task 22: the checking on its own model and effort, priced apart.
+    expect(out).toMatch(/checagem em claude-sonnet-5-5 \(esforço high\): \d+ chamadas, ~\d+k tokens de entrada, ~\d+k de saída com o pensamento: ~US\$ \d+\.\d\d numa passada/);
     expect(out).toContain("Itens só de fonte secundária, não posicionados (1; fora da rota, no relatório):");
     expect(out).toContain('  - Apprentice Healer — allthings.how, capítulo "Quest objectives for story and side quest achievements" [conta para ACH_HEALER]');
     expect(out).toContain("escrita reaproveitável do cache: não");

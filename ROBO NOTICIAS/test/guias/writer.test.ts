@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { guidePayloadSchema } from "@/lib/content/guide-schema";
 import { walkAchievementRefs, walkItemKeys, walkthroughSchema } from "@/lib/content/walkthrough-schema";
+import { MAX_NONSTREAMING_TOKENS } from "../../src/ai/client.js";
 import { checkGuide } from "../../src/guias/checker.js";
 import { chronologyProblems } from "../../src/guias/chronology.js";
 import type { GuidePayloadV2 } from "../../src/guias/contract.js";
@@ -438,7 +439,7 @@ describe("writeAndCheckGuide", () => {
     });
     const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live");
     expect(result.ok).toBe(true);
-    for (const c of of("guide-check")) expect(c).toMatchObject({ model: "claude-haiku-5-5", effort: "low" });
+    for (const c of of("guide-check")) expect(c).toMatchObject({ model: "claude-sonnet-5-5", effort: "high" });
     // Only the job the problem points at is rewritten (no frame, no other chapter), with its problem.
     const retries = of("guide-write").filter((o) => o.purpose.endsWith("-retry"));
     expect(retries).toHaveLength(1);
@@ -513,7 +514,7 @@ describe("copiedRuns", () => {
 });
 
 describe("checkGuide", () => {
-  it("usa MODEL_FAST com esforço baixo, uma chamada por trecho, e devolve os problemas sem repetir", async () => {
+  it("usa o modelo do checador (Sonnet, esforço alto, sem stream) por padrão, uma chamada por trecho, e devolve os problemas sem repetir", async () => {
     const { ai, of } = fakeAi({ verdict: () => ({ ok: false, problems: [" A ficha diz 2 perdíveis. ", ""] }) });
     const payload = await writeGuide(ai, makeDossier(), GAME, "live");
     const verdict = await checkGuide(ai, payload, makeDossier());
@@ -522,7 +523,9 @@ describe("checkGuide", () => {
     const checks = of("guide-check");
     expect(checks).toHaveLength(5); // frame + Weeping Creek + Crimson Forest + Ashen Peak + cleanup
     for (const c of checks) {
-      expect(c).toMatchObject({ model: "claude-haiku-5-5", effort: "low" });
+      // Task 22: Sonnet with high effort; room for its thinking, under the non-streaming limit.
+      expect(c).toMatchObject({ model: "claude-sonnet-5-5", effort: "high", maxTokens: 16000 });
+      expect(c.maxTokens!).toBeLessThanOrEqual(MAX_NONSTREAMING_TOKENS);
       expect(c.user).toContain("<numeros_do_codigo>");
       expect(c.user).toContain("<dossie>");
       expect(c.user).toContain("<guia>");
@@ -1288,5 +1291,21 @@ describe("Task 21: os avisos do código nomeiam o que avisam e não são julgado
     expect(section(weeping.user, "guia")).toContain("Cuidado com a queda.");
     expect(section(weeping.user, "guia")).not.toContain("Perdível: pegue");
     expect(section(weeping.user, "avisos_do_codigo")).toContain("Perdível: pegue **Nome weeping-creek-old-lantern** agora, antes de seguir.");
+  });
+});
+
+describe("Task 22: o checador roda no modelo e no esforço do config", () => {
+  it("writeAndCheckGuide usa MODEL_CHECK e CHECK_EFFORT; acima de high, mais saída e stream", async () => {
+    const { ai, of } = fakeAi();
+    const models = { MODEL_WRITER: "claude-opus-5-5", MODEL_CHECK: "modelo-do-checador", CHECK_EFFORT: "xhigh" as const };
+    await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { models });
+    const checks = of("guide-check");
+    expect(checks.length).toBeGreaterThan(0);
+    for (const c of checks) {
+      expect(c).toMatchObject({ model: "modelo-do-checador", effort: "xhigh" });
+      expect(c.maxTokens!).toBeGreaterThan(MAX_NONSTREAMING_TOKENS);
+    }
+    // The writer keeps its own model and effort.
+    for (const w of of("guide-write")) expect(w).toMatchObject({ model: "claude-opus-5-5", effort: "high" });
   });
 });

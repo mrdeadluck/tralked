@@ -11,6 +11,8 @@ describe("loadGuideConfig", () => {
       MODEL_WRITER: "claude-opus-5-5",
       MODEL_EXTRACT: "claude-sonnet-5-5",
       MODEL_FAST: "claude-haiku-5-5",
+      MODEL_CHECK: "claude-sonnet-5-5",
+      CHECK_EFFORT: "high",
       GUIDE_BUDGET_USD: 25,
       DATA_DIR_GUIAS: "./data-guias",
       GUIDE_STEAM_REFERENCE_ID: "76561198012210783",
@@ -36,6 +38,11 @@ describe("loadGuideConfig", () => {
     expect(loadGuideConfig({ ...ENV, GUIDE_FORCE_DISCOVERY: "1" }).GUIDE_FORCE_DISCOVERY).toBe(true);
     expect(loadGuideConfig({ ...ENV, GUIDE_FORCE_DISCOVERY: "true" }).GUIDE_FORCE_DISCOVERY).toBe(true);
     expect(loadGuideConfig({ ...ENV, GUIDE_FORCE_DISCOVERY: "0" }).GUIDE_FORCE_DISCOVERY).toBe(false);
+    // Task 22: the checker's model and effort; effort above high is valid (the API takes xhigh and max).
+    expect(loadGuideConfig({ ...ENV, MODEL_CHECK: "claude-opus-5-5", CHECK_EFFORT: "xhigh" })).toMatchObject({ MODEL_CHECK: "claude-opus-5-5", CHECK_EFFORT: "xhigh" });
+    expect(loadGuideConfig({ ...ENV, CHECK_EFFORT: "max" }).CHECK_EFFORT).toBe("max");
+    expect(loadGuideConfig({ ...ENV, CHECK_EFFORT: "" }).CHECK_EFFORT).toBe("high");
+    expect(() => loadGuideConfig({ ...ENV, CHECK_EFFORT: "turbo" })).toThrow(/CHECK_EFFORT/);
   });
 
   it("o ensaio não precisa das chaves", () => {

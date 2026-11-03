@@ -284,7 +284,8 @@ A second robot in this folder writes the Tralked guides (format 2, the walkthrou
    | `GUIDE_SOFT_DEADLINE_MIN` | no | Minutes after which a written guide is sent without (more) images and soundtrack, default 150 (the lock goes stale at 180). |
    | `GUIDE_FORCE_DISCOVERY` | no | `1` searches the web for sources again even when a discovery of the last 7 days could be reused (default `0`). |
    | `RESEND_API_KEY` / `ALERT_EMAIL` | no | Same as the news robot: the guide robot's alerts (`guia-falha-robo`) are e-mailed at the end of each run. |
-   | `MODEL_WRITER` / `MODEL_EXTRACT` / `MODEL_FAST` | no | Defaults `claude-opus-5-5` (writing), `claude-sonnet-5-5` (extraction and web search), `claude-haiku-5-5` (checker, image locating). |
+   | `MODEL_WRITER` / `MODEL_EXTRACT` / `MODEL_FAST` | no | Defaults `claude-opus-5-5` (writing), `claude-sonnet-5-5` (extraction and web search), `claude-haiku-5-5` (image locating). |
+   | `MODEL_CHECK` / `CHECK_EFFORT` | no | The guide's fact-checker: default `claude-sonnet-5-5` at effort `high` (`low`, `medium`, `xhigh` and `max` are valid; above `high` the call gets 32k output tokens and is streamed). Both are part of the writing-cache key; a new checker never invalidates a draft (the base key has only the writer's model): the carried texts are checked again. |
    | `DATA_DIR_GUIAS` | no | Default `./data-guias` (gitignored): `robo-guias.db` (page cache, runs, spend, dossiers, extracted facts, write drafts), `guia.lock`, `logs/`, `relatorios/` (each run's report). |
 
 ### Requesting a guide

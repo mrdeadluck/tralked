@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Ai } from "../ai/client.js";
+import type { Ai, Effort } from "../ai/client.js";
 import { escapeText } from "../ai/escape.js";
 import type { SpendBucket } from "../db.js";
 import type { GuidePayloadV2, WalkStep } from "./contract.js";
@@ -8,7 +8,7 @@ import { abortOnError, inPool, type Abort } from "./pool.js";
 import { anchoredIn, buildSkeleton, placeableIn, writeJobs, type GuideSkeleton, type SkelItem, type WriteJob } from "./skeleton.js";
 
 /**
- * The guide's fact-checker (`MODEL_FAST`, low effort). It never sees the whole guide at once: one small call for the
+ * The guide's fact-checker (`MODEL_CHECK` at `CHECK_EFFORT`: Sonnet, high, by default; Task 22). It never sees the whole guide at once: one small call for the
  * frame (cover, ficha texts, overview, read-first, roadmap, chapter titles) and one call per write job (its steps
  * and items with the dossier facts behind them), so a long guide fits the fast model and a problem points at the
  * part to rewrite. The numbers the code computes are given as authoritative and are not judged.
@@ -33,6 +33,7 @@ export type CodeWarning = { step: string; text: string; base: Record<string, unk
 export type GuideCheckOpts = {
   bucket?: SpendBucket;
   model?: string;
+  effort?: Effort;
   context?: CheckContext;
   /** The code's warning callouts in the payload (by step): taken out of the text to judge, given as context. */
   codeWarnings?: CodeWarning[];
@@ -56,8 +57,15 @@ export const CHECKER_RIGHT: ProblemKind = "checador-correto";
 const NO_DESCRIPTION = "O checador reprovou este trecho do guia sem apontar o problema.";
 export type GuideProblem = { text: string; scope: string; kind?: ProblemKind };
 
-/** Same default as config `MODEL_FAST`. */
-const DEFAULT_FAST_MODEL = "claude-haiku-5-5";
+/** Same defaults as config `MODEL_CHECK` and `CHECK_EFFORT`. */
+const DEFAULT_CHECK_MODEL = "claude-sonnet-5-5";
+const DEFAULT_CHECK_EFFORT: Effort = "high";
+/**
+ * The answer is short, but adaptive thinking (on by default on the current models, more of it with more effort) is
+ * billed as output inside max_tokens. Up to high: 16k, under the client's `MAX_NONSTREAMING_TOKENS`. Above: 32k, which
+ * the client streams.
+ */
+export const checkMaxTokens = (effort: Effort) => (effort === "xhigh" || effort === "max" ? 32_000 : 16_000);
 const CONCURRENCY = 3;
 
 /**
@@ -285,12 +293,12 @@ async function ask(ai: Ai, user: string, opts: GuideCheckOpts): Promise<Answer> 
   const verdict = await ai.structured({
     bucket: opts.bucket ?? "live",
     purpose: "guide-check",
-    model: opts.model ?? DEFAULT_FAST_MODEL,
-    effort: "low",
+    model: opts.model ?? DEFAULT_CHECK_MODEL,
+    effort: opts.effort ?? DEFAULT_CHECK_EFFORT,
     system: SYSTEM,
     user,
     schema: CheckSchema,
-    maxTokens: 4000,
+    maxTokens: checkMaxTokens(opts.effort ?? DEFAULT_CHECK_EFFORT),
   });
   // A defect without a description still fails the part; a point listed as right is only recorded.
   return {

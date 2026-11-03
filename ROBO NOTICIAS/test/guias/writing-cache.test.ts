@@ -3,7 +3,7 @@ import { buildDossier, type GuideDossierSource } from "../../src/guias/dossier.j
 import { WRITER_CACHE_VERSION, earlierDraftKeys, writingBaseKey, writingKey } from "../../src/guias/writing-cache.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
 
-const MODELS = { MODEL_WRITER: "claude-opus-5-5", MODEL_FAST: "claude-haiku-5-5" };
+const MODELS = { MODEL_WRITER: "claude-opus-5-5", MODEL_CHECK: "claude-sonnet-5-5", CHECK_EFFORT: "high" as const };
 const GAME: GuideDossierSource["game"] = {
   slug: "phantom-test",
   name: "Phantom Test",
@@ -38,7 +38,9 @@ describe("chave do cache da escrita", () => {
     expect(key({ dossier: dossier(10.2, "Sino Dourado") })).not.toBe(base);
     expect(key({ scope: { psnList: { total: 1, names: ["The End"] }, steamOnly: [], steamTotal: 1 } })).not.toBe(base);
     expect(key({ models: { ...MODELS, MODEL_WRITER: "claude-sonnet-5-5" } })).not.toBe(base);
-    expect(key({ models: { ...MODELS, MODEL_FAST: "claude-sonnet-5-5" } })).not.toBe(base);
+    // Task 22: the checker's model and effort decide what was approved.
+    expect(key({ models: { ...MODELS, MODEL_CHECK: "claude-haiku-5-5" } })).not.toBe(base);
+    expect(key({ models: { ...MODELS, CHECK_EFFORT: "xhigh" } })).not.toBe(base);
     expect(key({ version: WRITER_CACHE_VERSION + 1 })).not.toBe(base);
     expect(WRITER_CACHE_VERSION).toBe(5);
     // A rarity that crosses a band (1% → 30%) is a different "rarest" list: it changes.
@@ -55,6 +57,8 @@ describe("chave do cache da escrita", () => {
     expect(base({ game: { ...GAME, name: "Outro Jogo" } })).not.toBe(base());
     expect(base({ scope: { psnList: { total: 1, names: ["The End"] }, steamOnly: [], steamTotal: 1 } })).not.toBe(base());
     expect(base({ models: { ...MODELS, MODEL_WRITER: "claude-sonnet-5-5" } })).not.toBe(base());
+    // Task 22: only the writer's model: a new checker (model or effort) still carries the accepted texts, checked again.
+    expect(base({ models: { ...MODELS, MODEL_CHECK: "claude-haiku-5-5", CHECK_EFFORT: "low" } })).toBe(base());
     // The writing key of the same inputs is a different thing (version and manual included).
     expect(key()).not.toBe(base());
   });
@@ -67,5 +71,12 @@ describe("chave do cache da escrita", () => {
     // Not the current key (another version and manual), and only for the same inputs.
     expect(earlier).not.toContain(key());
     expect(earlierDraftKeys({ ...input, dossier: dossier(10.2, "Sino Dourado") })[0]).not.toBe(earlier[0]);
+    // Task 22: still the exact v4 keys (v4 hashed MODEL_FAST, the checker's model then: Haiku), whatever checker now.
+    const v4 = [
+      "escrita:641abcb7d7950863a3ec5657a375ab646e159dd6fb345b1276342b001384af7e",
+      "escrita:8668192dbd950387b454ec0fc1db1ecac41c77ca4d1ae245ffca19b00ce9ba5c",
+    ];
+    expect(earlier).toEqual(v4);
+    expect(earlierDraftKeys({ ...input, models: { ...MODELS, MODEL_CHECK: "outro", CHECK_EFFORT: "max" } })).toEqual(v4);
   });
 });

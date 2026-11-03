@@ -229,7 +229,7 @@ function makeDeps(over: Partial<GuidePipelineDeps> = {}): GuidePipelineDeps & { 
     api,
     db: openGuideDb(":memory:"),
     client: unusedClient,
-    config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", GUIDE_BUDGET_USD: 25 },
+    config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", MODEL_CHECK: "claude-sonnet-5-5", CHECK_EFFORT: "high", GUIDE_BUDGET_USD: 25 },
     fetchPage,
     fetchImage: vi.fn(async () => Buffer.from("jpeg-bytes")),
     now: () => new Date("2026-11-03T12:00:00Z"),
@@ -366,7 +366,7 @@ describe("runGuideRequest", () => {
       client,
       stages,
       fetchPage: pages,
-      config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", GUIDE_BUDGET_USD: 1 },
+      config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", MODEL_CHECK: "claude-sonnet-5-5", CHECK_EFFORT: "high", GUIDE_BUDGET_USD: 1 },
     });
 
     const outcome = await runGuideRequest(deps);
@@ -749,7 +749,7 @@ describe("pedido nunca preso em researching / writing (I1)", () => {
     const { api, calls } = fakeApi();
     const deps = makeDeps({
       api,
-      config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "modelo-sem-preco", MODEL_FAST: "claude-haiku-5-5", GUIDE_BUDGET_USD: 25 },
+      config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "modelo-sem-preco", MODEL_FAST: "claude-haiku-5-5", MODEL_CHECK: "claude-sonnet-5-5", CHECK_EFFORT: "high", GUIDE_BUDGET_USD: 25 },
     });
     expect(await runGuideRequest(deps)).toBe("failed");
     expect(statuses(calls)).toEqual(["failed"]);
@@ -919,7 +919,7 @@ describe("Task 17: escrita em cache e confiabilidade", () => {
     // The dry run sees it (the page it read must be in the cache: the fake fetch does not store pages).
     db.savePage({ url: STEAM_GUIDE.url, fetchedAt: new Date(), status: "ok", finalUrl: STEAM_GUIDE.url, text: STEAM_GUIDE_TEXT, html: STEAM_GUIDE_HTML, textVersion: PAGE_TEXT_VERSION });
     const lines: string[] = [];
-    await dryRun({ db, config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", GUIDE_STEAM_REFERENCE_ID: "76561198012210783" }, requestId: "req-2", log: (l) => lines.push(l) });
+    await dryRun({ db, config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", MODEL_CHECK: "claude-sonnet-5-5", CHECK_EFFORT: "high", GUIDE_STEAM_REFERENCE_ID: "76561198012210783" }, requestId: "req-2", log: (l) => lines.push(l) });
     expect(lines).toContainEqual(expect.stringMatching(/^escrita reaproveitável do cache: sim/));
   });
 
@@ -1107,7 +1107,7 @@ describe("Task 19: modo direto por appid, sem pedido na fila", () => {
       client,
       direct,
       stages: fakeStages({ discoverSources: async () => [STEAM_GUIDE], extractFacts: undefined }),
-      config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", GUIDE_BUDGET_USD: 1 },
+      config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", MODEL_CHECK: "claude-sonnet-5-5", CHECK_EFFORT: "high", GUIDE_BUDGET_USD: 1 },
     });
 
     expect(await runGuideRequest(deps)).toBe("failed");

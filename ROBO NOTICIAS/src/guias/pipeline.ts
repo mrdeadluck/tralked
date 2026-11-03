@@ -84,7 +84,7 @@ export type GuidePipelineDeps = {
   db: GuideDb;
   /** Anthropic client: the AI calls go through `createAi` with the request's spend cap. */
   client: Anthropic;
-  config: Pick<GuideConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "GUIDE_BUDGET_USD"> &
+  config: Pick<GuideConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "MODEL_CHECK" | "CHECK_EFFORT" | "GUIDE_BUDGET_USD"> &
     Partial<Pick<GuideConfig, "GUIDE_STEAM_REFERENCE_ID" | "GUIDE_SOFT_DEADLINE_MIN" | "GUIDE_FORCE_DISCOVERY">>;
   /** `politeFetch` bound to the GuideDb (robots.txt, host intervals, challenge pages as unread). */
   fetchPage: FetchPage;
@@ -497,7 +497,7 @@ async function processRequest(run: Run): Promise<Final> {
   }
   // Step 8: write and check, against the raw text of the pages read (copy check); an approved writing of the same
   // dossier is reused from the cache, without the AI.
-  const models = { MODEL_WRITER: config.MODEL_WRITER, MODEL_FAST: config.MODEL_FAST };
+  const models = { MODEL_WRITER: config.MODEL_WRITER, MODEL_CHECK: config.MODEL_CHECK, CHECK_EFFORT: config.CHECK_EFFORT };
   const cacheKey = writingKey({ dossier: toWrite, scope, game: source.game, models });
   const reused = readWriting(db, cacheKey);
   const probe = deps.direct?.probe;

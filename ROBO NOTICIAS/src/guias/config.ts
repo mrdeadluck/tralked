@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { EFFORTS } from "../ai/client.js";
 import { REFERENCE_STEAM_ID } from "./steam-aliases.js";
 
 /** Treat empty strings (e.g. "KEY=" in .env) as unset. */
@@ -13,6 +14,10 @@ const GuideConfigSchema = z.object({
   MODEL_WRITER: opt(z.string().default("claude-opus-5-5")),
   MODEL_EXTRACT: opt(z.string().default("claude-sonnet-5-5")),
   MODEL_FAST: opt(z.string().default("claude-haiku-5-5")),
+  /** Task 22: the guide's fact-checker (the probe showed Haiku calling "defeito" what it described as right). */
+  MODEL_CHECK: opt(z.string().default("claude-sonnet-5-5")),
+  /** The checker's effort: high by default; xhigh and max are valid too (more thinking, more output, streamed). */
+  CHECK_EFFORT: opt(z.enum(EFFORTS).default("high")),
   /** Spending cap per guide request, in USD. */
   GUIDE_BUDGET_USD: opt(z.coerce.number().positive().default(25)),
   /**

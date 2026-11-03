@@ -28,8 +28,9 @@ export const WRITER_CACHE_VERSION = 5;
  * repository stores it (LF). Their drafts are found by the key they were saved under (`earlierDraftKeys`).
  */
 const EARLIER_WRITERS = [
-  { version: 4, styleSha: "9370203988e171c3c078769785708c0614a01a7358a59b43e6901af10d259bd4" },
-  { version: 4, styleSha: "31ede8b4f00a4cbb5b4c963ad897211fa7cdc2f0c7ac181b853442ec322ed058" },
+  // v4 hashed MODEL_FAST, which was the checker's model then (Haiku), and no effort.
+  { version: 4, styleSha: "9370203988e171c3c078769785708c0614a01a7358a59b43e6901af10d259bd4", checker: ["claude-haiku-5-5"] },
+  { version: 4, styleSha: "31ede8b4f00a4cbb5b4c963ad897211fa7cdc2f0c7ac181b853442ec322ed058", checker: ["claude-haiku-5-5"] },
 ];
 
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -68,29 +69,29 @@ function inputsOf(input: WritingInputs): string {
   return JSON.stringify({ dossier, scope: input.scope ?? null, skeleton, game });
 }
 
-/** `styleSha`: the manual's hash (the current one by default; an earlier writer's to find its drafts). */
-export function writingKey(input: WritingInputs & { version?: number; styleSha?: string }): string {
-  const parts = [
-    `v${input.version ?? WRITER_CACHE_VERSION}`,
-    sha(inputsOf(input)),
-    input.styleSha ?? sha(loadGuideStyle()),
-    input.models.MODEL_WRITER,
-    input.models.MODEL_FAST,
-  ];
-  return `escrita:${sha(parts.join("|"))}`;
+const keyOf = (version: number, inputs: WritingInputs, styleSha: string, checker: string[]) =>
+  `escrita:${sha([`v${version}`, sha(inputsOf(inputs)), styleSha, inputs.models.MODEL_WRITER, ...checker].join("|"))}`;
+
+/**
+ * The approved writing's key: the inputs, the writer's version, manual and model, and the checker that approved it
+ * (Task 22: its model and effort).
+ */
+export function writingKey(input: WritingInputs & { version?: number }): string {
+  return keyOf(input.version ?? WRITER_CACHE_VERSION, input, sha(loadGuideStyle()), [input.models.MODEL_CHECK, input.models.CHECK_EFFORT]);
 }
 
 /**
  * Task 21: the same inputs without the writer's version and manual. A draft keeps it: after a version bump (or a new
- * manual), the texts its checker accepted are still a starting point (drafts.ts `carriedDraft`).
+ * manual), the texts its checker accepted are still a starting point (drafts.ts `carriedDraft`). Task 22: only the
+ * writer's model, never the checker's: a new checker checks the carried texts again (`checagem-devida`).
  */
 export function writingBaseKey(input: WritingInputs): string {
-  return `base:${sha([sha(inputsOf(input)), input.models.MODEL_WRITER, input.models.MODEL_FAST].join("|"))}`;
+  return `base:${sha([sha(inputsOf(input)), input.models.MODEL_WRITER].join("|"))}`;
 }
 
 /** The keys the earlier writers (`EARLIER_WRITERS`) gave these inputs: their drafts have no base key. */
 export function earlierDraftKeys(input: WritingInputs): string[] {
-  return EARLIER_WRITERS.map((w) => writingKey({ ...input, version: w.version, styleSha: w.styleSha }));
+  return EARLIER_WRITERS.map((w) => keyOf(w.version, input, w.styleSha, w.checker));
 }
 
 export function saveWriting(db: GuideDb, key: string, written: { payload: GuidePayloadV2; internalErrors?: string[] }, at: Date): void {
