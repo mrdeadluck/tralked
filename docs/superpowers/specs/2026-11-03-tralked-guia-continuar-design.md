@@ -52,6 +52,25 @@ parou. Quem não tá precisa fazer manual."
    - Only for a guide that has both lists: a Steam-only guide with no PSN list, or a guide written from the PSN list
      (scope psn), shows no switch.
 
+6. **When the site syncs the visitor's achievements.** Lucas: "quando o sistema sincroniza uma conquista do usuário,
+   marca todas que o usuário já ganhou, mostra que talvez ele tenha perdido os perdíveis, e diz que, de acordo com seu
+   troféu, você está aqui na história, e leva ao ponto". This happens when the visitor's progress arrives on the page
+   (the seed) and after the existing "check Steam" action (`checkGameAchievements` in `guia/actions.ts`) finds new
+   unlocks.
+   - Every item whose achievement the visitor has is shown as done, which the row already does with `isUnlocked`, and
+     counts as done everywhere: chapter counts, lit chapters, resume point.
+   - **Possibly missed missables.** These are missable items that are not done and whose deadline is already behind the
+     resume point: their own position, or their deadline chapter, comes before it. They are listed in a short panel
+     titled like "Talvez você tenha perdido". Each entry has a link to the item, and the panel adds that the item may
+     need a new playthrough or chapter select. The wording is a "talvez", never a certainty, because a player may have
+     done it without ticking it. Hidden achievements and boss names stay masked, as everywhere.
+   - **"De acordo com suas conquistas, você está aqui na história"**, with the chapter and step, and the page scrolls
+     there. After a sync the visitor asked for, it scrolls by itself. When the progress merely arrives on page load, it
+     only offers the "Continuar de onde parou" button and does not move the page on its own.
+   - In the PlayStation version, only the 35 trophies that also exist on Steam can be synced today, and only through the
+     visitor's Steam account. PlayStation trophies sync once trophy unification exists (a separate project, design
+     approved 11-03). Until then, a PS5 player's resume point comes from the items they tick.
+
 ## Non-goals
 
 - No login wall: the whole guide stays public and indexable, as today.
