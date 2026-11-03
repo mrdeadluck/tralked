@@ -31,15 +31,27 @@ const STATUS_TEXT: Record<Exclude<SteamStatus, null | "login" | "invite">, strin
 
 const ALSO_ON: Record<"psn" | "xbox", string> = { psn: "PlayStation", xbox: "Xbox" };
 
-function Sources({ sources, review }: { sources: ItemSource[]; review: boolean }) {
+/**
+ * The sources an item was written from, credited and linked. How many confirm it and whether an
+ * editor still has to look ("em revisão") is for staff: only the staff preview shows that count.
+ */
+function Sources({ sources, review, staff }: { sources: ItemSource[]; review: boolean; staff: boolean }) {
   const n = sources.length;
   const confirmed = n >= 2 && !review;
   return (
     <p className="src">
-      <span className={confirmed ? "two" : "one"}>
-        {confirmed ? `✓ ${n} fontes` : `● ${n} ${n === 1 ? "fonte" : "fontes"}${review ? " · em revisão" : ""}`}
-      </span>
-      {" · "}
+      {staff ? (
+        <>
+          <span className={confirmed ? "two" : "one"}>
+            {confirmed ? `✓ ${n} fontes` : `● ${n} ${n === 1 ? "fonte" : "fontes"}${review ? " · em revisão" : ""}`}
+          </span>
+          {" · "}
+        </>
+      ) : n === 1 ? (
+        "Fonte: "
+      ) : (
+        "Fontes: "
+      )}
       {sources.map((s, i) => (
         <span key={i}>
           {i > 0 ? ", " : null}
@@ -106,7 +118,9 @@ export function WalkItemRow({ item }: { item: ItemView }) {
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   const achievement = item.achievement;
+  // Done: ticked, or its achievement unlocked on Steam. The box toggles the tick only.
   const done = progress.isDone(item.ref);
+  const ticked = progress.isTicked(item.ref);
   const confirmed = achievement ? progress.isUnlocked(achievement.id) : false;
 
   const name = item.name ?? revealed?.name ?? null;
@@ -127,7 +141,8 @@ export function WalkItemRow({ item }: { item: ItemView }) {
     if (first) setStatus("checking");
     let result;
     try {
-      result = await latest.current.check();
+      // The visitor asked for the first check (the page may follow it); the rechecks stay quiet.
+      result = await latest.current.check({ quiet: !first });
     } catch {
       setStatus("error");
       return;
@@ -164,18 +179,18 @@ export function WalkItemRow({ item }: { item: ItemView }) {
       setStatus("login");
       return;
     }
-    const next = !done;
+    const next = !ticked;
     progress.setDone(item.ref, next);
     let result;
     try {
       result = await toggleItem(progress.guideId, item.ref);
     } catch {
-      progress.setDone(item.ref, done);
+      progress.setDone(item.ref, ticked);
       setStatus("error");
       return;
     }
     if (result.status !== "ok") {
-      progress.setDone(item.ref, done);
+      progress.setDone(item.ref, ticked);
       setStatus(result.status === "unauthenticated" ? "login" : progress.preview ? "unpublished" : "gone");
       return;
     }
@@ -197,7 +212,7 @@ export function WalkItemRow({ item }: { item: ItemView }) {
   );
 
   return (
-    <div className={`wk-item${done ? " done" : ""}${achievement ? " ach" : ""}`}>
+    <div id={`item-${item.ref}`} className={`wk-item${done ? " done" : ""}${achievement ? " ach" : ""}`}>
       <button
         type="button"
         role="checkbox"
@@ -233,7 +248,7 @@ export function WalkItemRow({ item }: { item: ItemView }) {
           <p className="d">{revealedInline(revealed.location)}</p>
         ) : null}
         {image && name ? <Shot image={image} name={name} /> : null}
-        <Sources sources={sources} review={item.review} />
+        <Sources sources={sources} review={item.review} staff={progress.preview} />
         {achievement && confirmed && done ? <p className="wk-steam ok">✓ Confirmada pela Steam</p> : null}
         {status && !(confirmed && status !== "login") ? <StatusLine status={status} returnTo={progress.returnTo} /> : null}
       </div>

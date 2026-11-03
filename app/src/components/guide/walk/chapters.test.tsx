@@ -185,9 +185,9 @@ describe("WalkItemRow", () => {
     expect(document.body.textContent).not.toMatch(/PS5/);
   });
 
-  it("selos, fontes e crédito da imagem", () => {
+  it("selos, fontes e crédito da imagem (a contagem de fontes é da prévia da equipe)", () => {
     render(
-      <Page>
+      <Page preview>
         <WalkItemRow item={item("acessorio-hunters-insight")} />
         <WalkItemRow item={item("fragmento-ambar-1")} />
         <WalkItemRow item={item("acessorio-battle-wraps")} />

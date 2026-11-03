@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Blocks } from "@/lib/content/render";
 import { walkInline } from "./inline";
+import { ResumeMarker } from "./ResumeMarker";
 import { SpoilerCallout, SpoilerItemName } from "./spoilers";
 import type { BlockView, ItemView, StepView } from "./view";
 import { WalkItemRow } from "./WalkItemRow";
@@ -105,6 +106,7 @@ export function WalkStepView({ step, deadline }: { step: StepView; deadline: Rea
           {step.number}
         </span>
         <div className="wk-step-b">
+          <ResumeMarker step={step.number} />
           {step.body.map((block, i) => (
             <StepBlock key={i} block={block} scope={`${step.scope}.${i}`} />
           ))}

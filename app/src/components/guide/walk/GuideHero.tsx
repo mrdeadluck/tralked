@@ -9,12 +9,13 @@ import type { GuideDetail, WalkExtras } from "@/lib/queries/games";
 import { CompatSeal, PsnListSeal } from "./CompatSeal";
 import { editionLabel, MagazineCover } from "./MagazineCover";
 import { ProgressRing } from "./ProgressBits";
+import { ResumeButton } from "./ResumeButton";
 
 /*
  * Head of a walkthrough page: the magazine cover on the left, the game on the right (official
  * logo when the catalog has one, else its name), the platform and "Treina…" chips, the compat
- * seal, edition and sources, and the visitor's progress ring (streamed in, see progress.tsx). The
- * wide official art is behind.
+ * seal, edition and sources, "Continuar de onde parou" and the visitor's progress ring (streamed
+ * in, see progress.tsx). The wide official art is behind.
  */
 
 const isPlatform = (value: string): value is Platform => value in PLATFORM_COLOR;
@@ -112,6 +113,7 @@ export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
               Página do jogo →
             </Link>
           </p>
+          <ResumeButton />
         </div>
 
         <ProgressRing achievementCount={game.achievementCount} />

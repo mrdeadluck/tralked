@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { JourneyRow, useJourney } from "./journey";
 import { useWalkProgress } from "./progress";
+import { useJourneyLit } from "./resume-state";
 import { SpoilerToggle } from "./SpoilerToggle";
 
 /*
@@ -18,6 +19,7 @@ const READ_LINE = 0.55;
 export function WalkJourney() {
   const chapters = useJourney();
   const { doneCount, user } = useWalkProgress();
+  const lit = useJourneyLit();
   const navRef = useRef<HTMLElement>(null);
   const [slim, setSlim] = useState(false);
   const [top, setTop] = useState(0);
@@ -63,7 +65,7 @@ export function WalkJourney() {
     <>
       <nav ref={navRef} className="wk-journey" aria-label="Capítulos do detonado">
         <div className="wk-jr-in">
-          <JourneyRow chapters={chapters} counts={counts} user={Boolean(user)} current={current} currentAs="location" />
+          <JourneyRow chapters={chapters} counts={counts} user={Boolean(user)} current={current} currentAs="location" lit={lit} />
           <SpoilerToggle />
         </div>
       </nav>

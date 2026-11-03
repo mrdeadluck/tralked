@@ -7,6 +7,7 @@ import { GuideModeration } from "@/components/moderation/Islands";
 import { FactsStrip } from "@/components/games/FactsStrip";
 import { GameHead } from "@/components/games/GameHead";
 import { AchievementsOnly } from "@/components/guide/AchievementsOnly";
+import { BackToTop } from "@/components/guide/BackToTop";
 import { maskHidden } from "@/lib/queries/achievements-only";
 import { AchievementList } from "@/components/guide/AchievementList";
 import { Collectibles } from "@/components/guide/Collectibles";
@@ -164,6 +165,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
           <SidebarIsland guide={guide} returnTo={returnTo} />
         </Suspense>
       </div>
+      <BackToTop />
     </>
   );
 }

@@ -3,17 +3,20 @@
 import { useEffect, useRef } from "react";
 import { JourneyRow, useJourney } from "./journey";
 import { useWalkProgress } from "./progress";
+import { useJourneyLit } from "./resume-state";
 
 /*
  * The journey again, compact, in the gap before a chapter's scene (from chapter 2 on): the chapter
  * about to start is the current one, the ones before it are passed, each diamond links to its
- * chapter. It reads the chapters the page sent once (JourneyProvider) and carries only its number.
+ * chapter (for a signed-in visitor, the passed ones are lit and the resume point's chapter says
+ * "você está aqui"). It reads the chapters the page sent once (JourneyProvider) and carries only its number.
  * On a narrow screen the row scrolls sideways to the chapter about to start, without animation.
  */
 
 export function ChapterTimeline({ at }: { at: number }) {
   const chapters = useJourney();
   const { doneCount, user } = useWalkProgress();
+  const lit = useJourneyLit();
   const rowRef = useRef<HTMLOListElement>(null);
 
   useEffect(() => {
@@ -39,6 +42,7 @@ export function ChapterTimeline({ at }: { at: number }) {
           current={at}
           passed
           currentAs="step"
+          lit={lit}
         />
       </div>
     </nav>
