@@ -1,6 +1,7 @@
 import { createCall, TralkedError } from "../tralked-http.js";
-import type { Dossier, GameMedia } from "../tralked.js";
+import type { GameMedia } from "../tralked.js";
 import type { GuidePayloadV2 } from "./contract.js";
+import type { GuideDossierSource } from "./dossier.js";
 
 export type GuideRequest = { id: string; steamAppId: number; gameSlug: string; attempts: number };
 
@@ -30,7 +31,7 @@ export type GuideApi = {
   claimNext(): Promise<GuideRequest | null>;
   reportRequest(id: string, body: GuideRequestReport, idempotencyKey: string): Promise<void>;
   /** Every Steam achievement of the game, hidden ones included (`?all=1`). */
-  dossier(slug: string): Promise<Dossier | null>;
+  dossier(slug: string): Promise<GuideDossierSource | null>;
   media(slug: string): Promise<GameMedia | null>;
   uploadImage(
     bytes: Uint8Array,
@@ -66,7 +67,7 @@ export function createGuideApi(options: { baseUrl: string; key: string; fetchFn?
       await call("PATCH", `/api/v1/guide-requests/${encodeURIComponent(id)}`, { body, idempotencyKey });
     },
 
-    dossier: (slug) => getOrNull<Dossier>(`/api/v1/games/${encodeURIComponent(slug)}/dossie?all=1`),
+    dossier: (slug) => getOrNull<GuideDossierSource>(`/api/v1/games/${encodeURIComponent(slug)}/dossie?all=1`),
 
     media: (slug) => getOrNull<GameMedia>(`/api/v1/games/${encodeURIComponent(slug)}/media`),
 
