@@ -8,7 +8,7 @@ import { CHECK_DUE, CHECKER_RIGHT, checkScopes, FRAME_SCOPE, jobSteps, type Chec
 import { chronologyProblems } from "./chronology.js";
 import { DEFAULT_CHECK_EFFORT, DEFAULT_MODEL_CHECK, type GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
-import { deterministicProblems, dossierTexts } from "./copy-check.js";
+import { deterministicProblems, dossierTexts, knownNames } from "./copy-check.js";
 import type { DossierAchievement, GuideDossier, GuideDossierSource } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
 import type { PsnWriteScope } from "./scope.js";
@@ -1130,6 +1130,8 @@ export async function writeAndCheckGuide(
 ): Promise<GuideWriteResult> {
   const ctx = context(ai, dossier, game, bucket, opts);
   const sources = opts.sourceTexts ?? dossierTexts(dossier);
+  // Task 23: the proper names the guide must cite never count as copy.
+  const names = knownNames(dossier);
   // The ficha counts the frame writer was told to cite (the frame message's "## Ficha").
   const ficha = fichaOf(ctx.skel, dossier, game, ctx.scope);
   const checkContext: CheckContext = {
@@ -1152,17 +1154,27 @@ export async function writeAndCheckGuide(
   const only = probed ? new Set(ctx.jobs.filter((j) => probed.has(j.chapter)).map((j) => j.id)) : undefined;
   const inScope = (scope: string) => !only || scope === FRAME_SCOPE || only.has(scope);
 
-  const blocking = (written: WrittenGuide): GuideProblem[] => {
+  const jobOfStep = new Map(ctx.jobs.flatMap((j) => j.steps.map((s) => [s.key, j.id] as const)));
+  /** A walkthrough key's scope (an item's goes to the job of its step; null is the frame). */
+  const scoper = (written: WrittenGuide) => {
     const stepOfItem = new Map(written.payload.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items.map((i) => [i.key, s.key] as const))));
-    const jobOfStep = new Map(ctx.jobs.flatMap((j) => j.steps.map((s) => [s.key, j.id] as const)));
-    const scopeOf = (key: string | null) => (key === null ? FRAME_SCOPE : (jobOfStep.get(stepOfItem.get(key) ?? key) ?? FRAME_SCOPE));
+    return (key: string | null) => (key === null ? FRAME_SCOPE : (jobOfStep.get(stepOfItem.get(key) ?? key) ?? FRAME_SCOPE));
+  };
+  /** The copy and vocabulary findings, scoped. */
+  const textChecks = (written: WrittenGuide): GuideProblem[] => {
+    const scopeOf = scoper(written);
+    return deterministicProblems(written.payload, sources, names).map((p) => ({ text: p.text, scope: scopeOf(p.key), kind: p.kind }));
+  };
+  const blocking = (written: WrittenGuide): GuideProblem[] => {
+    const scopeOf = scoper(written);
     const byWriter = chronologyProblems(written.payload, ctx.skel, ctx.dossier)
       .filter((p) => p.owner === "writer")
-      .map((p) => ({ text: p.text, key: p.key, kind: "cronologia" as const }));
+      .map((p) => ({ text: p.text, scope: scopeOf(p.key), kind: "cronologia" as const }));
     return [
       // A note is the code's own honest placement: recorded with the draft, never a reason to rewrite.
       ...written.repairs.filter((r) => r.kind !== "nota"),
-      ...[...deterministicProblems(written.payload, sources), ...byWriter].map((p) => ({ text: p.text, scope: scopeOf(p.key), kind: p.kind })),
+      ...textChecks(written),
+      ...byWriter,
     ];
   };
   /** The code's own chronology violations: reported, never sent to the model. */
@@ -1180,6 +1192,15 @@ export async function writeAndCheckGuide(
   // What the previous texts render to (a blank frame when the saved one is unusable): a job whose rendering changed
   // is checked again.
   let before: WrittenGuide | undefined = texts ? assemble(ctx, { frame: texts.frame ?? BLANK_FRAME, jobs: texts.jobs }) : undefined;
+  // Task 23: the saved draft's copy and vocabulary findings are redone on its texts with the current check: one it no
+  // longer makes costs no rewrite, one it still makes is rewritten in the first round.
+  if (before && texts) {
+    const written = new Set([...(texts.frame ? [FRAME_SCOPE] : []), ...texts.jobs.keys()]);
+    problems = [
+      ...problems.filter((p) => p.kind !== "copia" && p.kind !== "vocabulario"),
+      ...textChecks(before).filter((p) => written.has(p.scope) && inScope(p.scope)),
+    ];
+  }
   let last: DraftRound | undefined;
   for (let round = 1; round <= (opts.probe ? 1 : 2); round++) {
     const next = await draft(ctx, texts, problems, only);

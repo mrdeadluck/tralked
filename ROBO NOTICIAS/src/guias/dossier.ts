@@ -400,24 +400,26 @@ const GENERIC = new Set([
 ]);
 
 /**
- * The bosses, NPCs and quests an achievement text names: what it puts in brackets ("Complete [A Severed Mindseal]")
+ * The bosses, NPCs and quests a text names, as written: what it puts in brackets ("Complete [A Severed Mindseal]")
  * and what it says to defeat ("Defeat Meng Hua, the Merciful Lady...", "defeating Jing Ye, The Outlaw / Bai
- * Chilian"), cut at commas, colons, slashes and "and"; each as its words.
+ * Chilian"), cut at commas, colons, slashes and "and". Task 23: the copy check takes them as known names too.
  */
+export function targetNames(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const names = [
+    ...[...text.matchAll(/[[【「『]([^\]】」』]{3,80})[\]】」』]/g)].map((m) => m[1]!),
+    ...[...text.matchAll(/\b(?:defeat|beat|kill|slay)(?:s|ed|ing)?\s+([^.;()[\]]+)/gi)].flatMap((m) => m[1]!.split(/[,:/]|\band\b/i)),
+  ];
+  // Not the generic pieces ("the normal final boss"): they name nothing of their own.
+  return names.filter((name) => {
+    const words = wordsOf(name);
+    return words.length > 0 && words.join("").length >= 4 && !words.some((w) => GENERIC.has(w));
+  });
+}
+
+/** `targetNames` of an achievement's texts, each as its words. */
 function namedTargets(texts: (string | null | undefined)[]): string[][] {
-  const out: string[][] = [];
-  for (const text of texts) {
-    if (!text) continue;
-    const names = [
-      ...[...text.matchAll(/[[【「『]([^\]】」』]{3,80})[\]】」』]/g)].map((m) => m[1]!),
-      ...[...text.matchAll(/\b(?:defeat|beat|kill|slay)(?:s|ed|ing)?\s+([^.;()[\]]+)/gi)].flatMap((m) => m[1]!.split(/[,:/]|\band\b/i)),
-    ];
-    for (const name of names) {
-      const words = wordsOf(name);
-      if (words.length > 0 && words.join("").length >= 4 && !words.some((w) => GENERIC.has(w))) out.push(words);
-    }
-  }
-  return out;
+  return texts.flatMap((text) => targetNames(text).map(wordsOf));
 }
 
 /**

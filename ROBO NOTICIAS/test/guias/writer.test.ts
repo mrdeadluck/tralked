@@ -9,6 +9,7 @@ import { buildDossier, type DossierChapter, type GuideDossier, type GuideDossier
 import { inPool } from "../../src/guias/pool.js";
 import { psnScope } from "../../src/guias/scope.js";
 import { buildSkeleton } from "../../src/guias/skeleton.js";
+import { knownNames } from "../../src/guias/copy-check.js";
 import { copiedRuns, loadGuideStyle, parseSavedTexts, writeAndCheckGuide, writeGuide, writeGuideDetailed, type DraftRound } from "../../src/guias/writer.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
 import { fakeAi, keysIn, OK } from "./helpers-writer.js";
@@ -53,6 +54,13 @@ function makeDossier(): GuideDossier {
     hours: { min: 10, max: 12 },
   });
   return buildDossier(STEAM, [powerpyx, steamGuide], [["PowerPyx"], ["SteamGuide"]]);
+}
+
+/** makeDossier with ACH_ENDING's how-to replaced (Task 23: targets it cites are known names). */
+function makeDossierWith(howTo: string): GuideDossier {
+  const dossier = makeDossier();
+  dossier.achievements.find((a) => a.apiName === "ACH_ENDING")!.howTo = howTo;
+  return dossier;
 }
 
 const GAME: GuideDossierSource = {
@@ -510,6 +518,41 @@ describe("copiedRuns", () => {
   it("ignora acento, caixa e pontuação", () => {
     const runs = copiedRuns("Suba no ANDAIME, pegue a escada à direita e chegue ao segundo sino agora", ["suba no andaime pegue a escada a direita e chegue ao segundo sino"], 9);
     expect(runs).toHaveLength(1);
+  });
+
+  describe("Task 23: nomes próprios conhecidos do dossiê não contam como cópia", () => {
+    // The real false positives of the PBZ run (the source lines and the dossier's names, as they are).
+    const pbzSource = "Memory Flower – Xuan Li’s Memory Flower – 6. Control: after the cutscene, defeat Meng Hua, the Merciful Lady of the Blossom Veil, the normal final boss.";
+    const pbzNames = [
+      "Memory Flower – Xuan Li’s Memory Flower – 6. Control",
+      "Boss: Meng Hua, the Merciful Lady of the Blossom Veil",
+      "Memory Flower",
+    ];
+
+    it("os dois casos reais da rodada completa não são cópia", () => {
+      expect(copiedRuns("Pegue a Memory Flower – Xuan Li's Memory Flower – 6. Control logo ali.", [pbzSource], 9)).toEqual([
+        "memory flower xuan li s memory flower 6 control",
+      ]);
+      expect(copiedRuns("Pegue a Memory Flower – Xuan Li's Memory Flower – 6. Control logo ali.", [pbzSource], 9, pbzNames)).toEqual([]);
+      expect(copiedRuns("A luta é contra ||Meng Hua, the Merciful Lady of the Blossom Veil||, no fim.", [pbzSource], 9, pbzNames)).toEqual([]);
+    });
+
+    it("um alvo citado no dossiê (\"defeat X\") também é nome conhecido", () => {
+      const names = knownNames(makeDossierWith("Defeat Meng Hua, the Merciful Lady of the Blossom Veil, the normal final boss."));
+      expect(copiedRuns("Vença Meng Hua, the Merciful Lady of the Blossom Veil para fechar.", [pbzSource], 9, names)).toEqual([]);
+    });
+
+    it("uma frase descritiva copiada continua contando, com ou sem nome no meio", () => {
+      const names = ["Second Bell", "Old Well"];
+      expect(copiedRuns("Depois disso, take the ladder on the right side to reach the second bell e siga.", [source], 9, names)).toEqual([
+        "take the ladder on the right side to reach the second bell",
+      ]);
+      // A name inside a copied run removes only its own words: 9 other equal words in a row still count.
+      const long = "Climb the scaffolding and take the ladder on the right side, then pass the Old Well and keep going up the stairs.";
+      expect(copiedRuns("Climb the scaffolding and take the ladder on the right side, then pass the Old Well e suba.", [long], 9, names)).toHaveLength(1);
+      // A one-word name never hides anything ("the" is no name).
+      expect(copiedRuns("Depois disso, take the ladder on the right side to reach the second bell e siga.", [source], 9, ["the", "Ladder"])).toHaveLength(1);
+    });
   });
 });
 
@@ -1307,5 +1350,32 @@ describe("Task 22: o checador roda no modelo e no esforço do config", () => {
     }
     // The writer keeps its own model and effort.
     for (const w of of("guide-write")) expect(w).toMatchObject({ model: "claude-opus-5-5", effort: "high" });
+  });
+});
+
+describe("Task 23: a checagem de cópia de um rascunho retomado é refeita com a regra atual", () => {
+  it("um problema de cópia salvo que a regra atual não acha não faz reescrever o trecho", async () => {
+    const full = await writeAndCheckGuide(fakeAi().ai, makeDossier(), GAME, "live");
+    expect(full.ok).toBe(true);
+    const stale = { kind: "copia" as const, scope: "crimson-forest-1", text: 'Trecho copiado de uma fonte em o passo crimson-forest-1: "um nome conhecido". Reescreva.' };
+    const { ai, of } = fakeAi();
+    const again = await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { resume: { texts: full.draft!.texts, problems: [stale] } });
+    expect(again.ok).toBe(true);
+    expect(of("guide-write")).toEqual([]);
+  });
+
+  it("uma cópia que a regra atual ainda acha continua fazendo reescrever o trecho", async () => {
+    const copied = "Climb the scaffolding and take the ladder on the right side to reach the second bell near the old well.";
+    const full = await writeAndCheckGuide(fakeAi().ai, makeDossier(), GAME, "live");
+    const texts = JSON.parse(JSON.stringify(full.draft!.texts)) as DraftRound["texts"];
+    texts.jobs["crimson-forest-1"]!.passos[0]!.blocos = [{ tipo: "paragrafo", texto: copied }];
+    const { ai, of } = fakeAi();
+    const rounds: DraftRound[] = [];
+    await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { resume: { texts, problems: [] }, onRound: (r) => rounds.push(r) });
+    // Found on the resumed texts before writing: rewritten in the first round, not after a wasted check.
+    expect(rounds.map((r) => [r.round, r.ok])).toEqual([[1, true]]);
+    const rewrite = of("guide-write").find((w) => w.user.includes('<passo key="crimson-forest-1">'))!;
+    expect(rewrite.purpose).toBe("guide-write-chapter-retry");
+    expect(rewrite.user).toContain("Trecho copiado de uma fonte");
   });
 });
