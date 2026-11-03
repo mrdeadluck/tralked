@@ -175,6 +175,17 @@ function fichaOf(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierS
 // Prompts
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Task 29: a fixed rule of every frame and job message (not the style manual, not the cache version: the writing key
+ * and the saved drafts stay the same). The checker kept refusing invented PT names for achievements without
+ * `nome_pt` and places translated from a Chinese-only milestone.
+ */
+export const NAMES_RULE =
+  "## Nomes\n" +
+  'Se `nome_pt` for nulo (vazio, `nome_pt=""`), use só o nome em inglês da conquista, sem tradução. ' +
+  "Não traduza nem nomeie lugares, chefes ou marcos que o dossiê só traz em outro idioma: cite o marco como " +
+  "'o ponto indicado pela fonte' ou use o nome em inglês que aparece no dossiê.";
+
 function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource, scope?: PsnWriteScope): string {
   const ficha = fichaOf(skel, dossier, game, scope);
   const f = dossier.facts;
@@ -184,6 +195,7 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
     .slice(0, 5);
   return [
     "Escreva a moldura do guia: capa, textos da ficha, visão geral, \"leia antes\", as etapas do roadmap e o título de cada capítulo. Os números da ficha são calculados pelo sistema; você só os cita.",
+    NAMES_RULE,
     [
       "## Jogo",
       `Nome: ${body(game.game.name)}`,
@@ -343,6 +355,7 @@ function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource
     `Escreva o texto dos passos abaixo, do capítulo "${body(chapter.title)}" do guia de ${body(game.game.name)}.`,
     `<capitulo key="${chapter.key}" titulo="${attr(chapter.title)}"${chapter.region ? ` regiao="${attr(chapter.region)}"` : ""}${chapter.deadlines.length ? ` prazo="${attr(chapter.deadlines.join("; "))}"` : ""}/>`,
     `Capítulo anterior: ${prev ? body(prev.title) : "nenhum"}. Próximo: ${next ? body(next.title) : "nenhum"}.`,
+    NAMES_RULE,
     chapter.cleanup
       ? "Este é o capítulo de limpeza: cada passo traz uma conquista que não tem um ponto fixo na história. Explique como fazê-la depois da história."
       : "",

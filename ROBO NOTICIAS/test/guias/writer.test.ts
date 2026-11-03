@@ -1459,3 +1459,27 @@ describe("R39: contagem incompleta aceita", () => {
     expect(of("guide-write-chapter").some((c) => c.user.includes('contagem_incompleta="as fontes localizam 38 de 40 Sha-Chi Amber Shards; 2 sem mapa"'))).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Task 29: names without nome_pt stay in English; foreign-only milestones are never translated
+// ---------------------------------------------------------------------------------------------
+
+describe("Task 29: regra fixa de nomes na mensagem da moldura e dos trechos", () => {
+  const RULE =
+    'Se `nome_pt` for nulo (vazio, `nome_pt=""`), use só o nome em inglês da conquista, sem tradução. ' +
+    "Não traduza nem nomeie lugares, chefes ou marcos que o dossiê só traz em outro idioma: cite o marco como " +
+    "'o ponto indicado pela fonte' ou use o nome em inglês que aparece no dossiê.";
+
+  it("a moldura e cada trecho (e a reescrita) trazem a regra", async () => {
+    const { ai, of } = fakeAi({ verdict: (_u, n) => (n === 0 ? { problems: ["Um problema."] } : OK) });
+    await writeAndCheckGuide(ai, makeDossier(), GAME, "live");
+    const writes = of("guide-write");
+    expect(writes.length).toBeGreaterThan(2);
+    for (const w of writes) expect(w.user).toContain(RULE);
+    expect(of("guide-write-frame")[0]!.user).toContain(RULE);
+  });
+
+  it("a regra não entra no manual de estilo nem na chave da escrita", () => {
+    expect(loadGuideStyle()).not.toContain("o ponto indicado pela fonte");
+  });
+});
