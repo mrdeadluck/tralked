@@ -255,7 +255,7 @@ function achievementLine(a: DossierAchievement, key?: string, tag = "conquista")
 /** A loose achievement offered for placement: just enough to recognize where it unlocks (no howTo). */
 function looseLine(l: SkelItem): string {
   const a = l.ach!;
-  return `<conquista key="${l.key}" apiName="${attr(a.apiName)}" nome="${attr(achName(a))}" descricao="${attr(a.descriptionPt ?? a.description ?? "")}"${a.hidden ? ' oculta="sim"' : ""}${a.missable ? ` ${missableAttr(true, a.missableUntil)}` : ""}/>`;
+  return `<conquista key="${l.key}" apiName="${attr(a.apiName)}" nome="${attr(achName(a))}" descricao="${attr(a.descriptionPt ?? a.description ?? "")}"${a.hidden ? ' oculta="sim"' : ""}${a.missable ? ` ${missableAttr(true, a.missableUntil)}` : ""}${a.missable && a.warnChapter ? ` comecar_em="${attr(a.warnChapter)}"` : ""}/>`;
 }
 
 function itemLine(s: SkelItem): string {
@@ -600,6 +600,17 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
           ? `A conquista perdível "${achName(a)}" (${a.apiName}) não foi posta num passo; o sistema a pôs no passo ${target}, antes do capítulo "${a.deadlineChapter}". Ponha-a no passo certo, antes do ponto de não retorno, e escreva o item dela.`
           : `A conquista perdível "${achName(a)}" (${a.apiName}) não coube em nenhum passo antes do capítulo "${a.deadlineChapter}" e ficou na limpeza.`,
       });
+    } else if (a.missable && a.doneChapter) {
+      // Task 18: no limit, only the last place its texts name: the end of that chapter (its warning stays at the anchor).
+      const at = chapterAt(a.doneChapter);
+      const steps = at >= 0 ? skel.chapters[at]!.steps : [];
+      target = withRoomFrom(steps[steps.length - 1]?.key);
+      if (target) {
+        repairs.push({
+          scope: scopeOfStep(target),
+          text: `A conquista perdível "${achName(a)}" (${a.apiName}) não foi posta num passo; o sistema a pôs no passo ${target}, no fim do capítulo "${a.doneChapter}". Ponha-a no passo em que ela se conclui e escreva o item dela.`,
+        });
+      }
     }
     // Otherwise its default cleanup step (one loose achievement per step, so always with room).
     target ??= skel.chapters.find((c) => c.cleanup)!.steps.find((s) => s.items.includes(l))!.key;
@@ -654,7 +665,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       // a number the code gave (R28) and a "collect N" link by a type that only loosely is the thing (Task 18).
       review: Boolean(
         (i && (!i.agreed || i.conflict || i.deadlineAssumed || i.orderAssumed || i.numberAssumed || i.countedByType === "ambiguous")) ||
-          (a && (!a.agreed || a.conflict || a.deadlineAssumed)) ||
+          (a && (!a.agreed || a.conflict || a.deadlineAssumed || a.collect?.byType)) ||
           sources.length === 0,
       ),
     };
@@ -684,10 +695,13 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       repairs.push({ scope: FRAME_SCOPE, text: `O capítulo "${c.title}" (${c.key}) tem perdíveis, mas ficou sem o prazo (ponto de não retorno).` });
       deadline = plain(c.deadlines.join("; "), 200);
     }
+    // Task 18: loose missables anchored here are warned at the chapter's start (they may be done later).
+    const anchored = c.cleanup ? [] : skel.loose.filter((l) => l.ach!.missable && l.ach!.warnChapter === c.title).map((l) => l.ach!);
     const walkSteps = steps.map(({ s, items }, n) => {
       const walkItems = items.map((item) => buildItem(item, s.key));
-      // Room for the code's missable warning and "later" note within the site's 20 blocks.
-      let blocks = (stepBlocks.get(s.key) ?? []).slice(0, 18);
+      const anchor = n === 0 && anchored.length > 0;
+      // Room for the code's missable warnings and "later" note within the site's 20 blocks.
+      let blocks = (stepBlocks.get(s.key) ?? []).slice(0, anchor ? 17 : 18);
       if (blocks.length === 0) {
         repairs.push({ scope: scopeOfStep(s.key), text: `O passo ${s.key} do capítulo "${c.title}" ficou sem texto; escreva o caminho deste passo.` });
         blocks = [{ type: "paragraph", text: walkItems.length > 0 ? `Neste ponto: ${walkItems.map((i) => i.name).join(", ")}.` : "Siga em frente pela história." }];
@@ -701,6 +715,20 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
           .join(", ");
         // No milestone here: it often names a boss (spoiler). The chapter's `deadline` carries it.
         blocks = [{ type: "callout", tone: "aviso", text: inline(`Perdível: pegue ${names} agora, antes de seguir.`, 2000) }, ...blocks];
+      }
+      if (anchor) {
+        const names = anchored.map((a) => (a.hidden ? "uma conquista oculta" : `**${achName(a)}**`)).join(", ");
+        blocks = [
+          {
+            type: "callout",
+            tone: "aviso",
+            text: inline(
+              `Perdível: comece aqui ${names}. O que ${anchored.length === 1 ? "ela pede" : "elas pedem"} pode se perder se você seguir adiante sem começar ou coletar neste capítulo; a conclusão vem no passo de cada uma.`,
+              2000,
+            ),
+          },
+          ...blocks,
+        ];
       }
       if (n === steps.length - 1 && laterNote.has(c.key)) {
         const text = inline(laterNote.get(c.key), 2000);

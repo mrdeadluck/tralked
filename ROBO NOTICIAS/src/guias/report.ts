@@ -42,6 +42,22 @@ export type RobotReport = {
   unplaced?: { title: typeof UNPLACED_TITLE; items: UnplacedItem[]; /** Cut to fit the 1 MiB body. */ omitted?: number };
   /** Items the primary script names only in its roadmap stages and that match no item of the route. */
   stageOnly?: { title: typeof STAGE_ONLY_TITLE; items: UnplacedItem[] };
+  /**
+   * Task 18: "collect N" achievements counted by the route's items of the type their text names (no source linked
+   * them): what was counted, and whether the type match is only loose (`ambiguous`, for review).
+   */
+  collectByType?: CollectByType[];
+};
+
+export type CollectByType = {
+  apiName: string;
+  name: string;
+  target: number;
+  counted: number;
+  type: string;
+  ambiguous: boolean;
+  /** Parts of the thing left out: no source says how many make one. */
+  unconverted: number;
 };
 
 export const STAGE_ONLY_TITLE = "Itens citados só nas etapas do roadmap do roteiro principal, não posicionados";
@@ -106,6 +122,7 @@ export function buildReport(input: ReportInput): RobotReport {
   const steam = (input.steamList ?? []).filter((a) => a.platform === "steam").length;
   const scope = input.scope === undefined ? "steam" : input.scope;
   const psn = scope === "psn" && d ? psnCoverage(d) : undefined;
+  const byType = collectByType(d);
   return {
     sourcesRead: input.sourcesRead.map((s) => ({ name: s.name, url: s.url, ok: s.ok, ...(s.reason ? { reason: s.reason } : {}) })),
     divergences: d ? [...d.divergences] : [],
@@ -125,7 +142,16 @@ export function buildReport(input: ReportInput): RobotReport {
     ...(input.notes?.length ? { notes: [...input.notes] } : {}),
     ...(d && (d.corroborationOnly ?? []).length > 0 ? { unplaced: { title: UNPLACED_TITLE, items: d.corroborationOnly.map(unplacedItem) } } : {}),
     ...(d && (d.stageOnly ?? []).length > 0 ? { stageOnly: { title: STAGE_ONLY_TITLE, items: d.stageOnly.map(unplacedItem) } } : {}),
+    ...(byType.length > 0 ? { collectByType: byType } : {}),
   };
+}
+
+function collectByType(d: GuideDossier | undefined): CollectByType[] {
+  return (d?.achievements ?? []).flatMap((a) =>
+    a.collect?.byType
+      ? [{ apiName: a.apiName, name: a.nameEn, target: a.collect.target, counted: a.collect.counted, ...a.collect.byType }]
+      : [],
+  );
 }
 
 function unplacedItem(c: CorroborationOnly): UnplacedItem {

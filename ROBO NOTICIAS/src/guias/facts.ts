@@ -68,10 +68,19 @@ export const extractedFactsSchema = llmFactsSchema
     source: sourceRefSchema,
     complete: z.boolean(),
     /**
-     * The page says how many entries it lists ("contains 76 Collectible Locations", "#1".."#76") and the extraction
-     * stayed under 90% of that even read again in parts: the source is incomplete (the report says so).
+     * The page numbers its entries ("#1".."#76", "contains 76 Collectible Locations") and the extraction stayed under
+     * 90% of them, or under the page's total of some type (`types`), even read again in parts: the source is
+     * incomplete (completeness.ts).
      */
-    shortfall: z.object({ stated: z.number(), extracted: z.number() }).optional(),
+    shortfall: z
+      .object({
+        stated: z.number(),
+        extracted: z.number(),
+        types: z.array(z.object({ label: z.string(), stated: z.number(), extracted: z.number() })).optional(),
+      })
+      .optional(),
+    /** The extraction brought more than 110% of the entries the page lists: its items never close a "collect N". */
+    suspect: z.object({ stated: z.number(), extracted: z.number() }).optional(),
   });
 
 export type LlmFacts = z.infer<typeof llmFactsSchema>;

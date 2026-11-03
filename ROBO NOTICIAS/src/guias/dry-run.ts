@@ -4,7 +4,7 @@ import type { DryRunConfig } from "./config.js";
 import { independentGroups } from "./crossref.js";
 import type { GuideDb } from "./db.js";
 import { buildDossier, UNPLACED_MARK, type DossierAchievement, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "./dossier.js";
-import { COMPLETE_SHARE, statedEntries } from "./extract.js";
+import { completeness, withVerdict } from "./completeness.js";
 import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate } from "./gate.js";
 import { estimatePayloadBytes, IMAGE_BYTES, kib, REPORT_SLACK_BYTES, SITE_LIMITS, skeletonLimitProblems } from "./limits.js";
@@ -203,25 +203,34 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
       stale++;
       reextractChars += page.text.length;
     }
-    facts.push(found.facts);
-    read.push({ source, text: page.text });
     const items = found.facts.chapters.reduce((n, c) => n + c.items.length, 0);
     log(
       `  - ${source.name} [${source.role}${found.facts.complete ? ", completo" : ""}]: ${found.facts.chapters.length} capítulos, ${items} itens, ` +
         `${found.facts.achievements.length} conquistas — extração ${found.stale ? "ANTIGA (prompt ou texto mudaram: a execução real extrai de novo)" : "atual"}`,
     );
-    // The page says how many entries it lists and the extraction brought less than 90% of them.
-    const stated = statedEntries(page.text);
-    if (found.facts.shortfall) {
-      log(`    extração incompleta (já relida em partes): diz ter ${found.facts.shortfall.stated} entradas, a extração trouxe ${found.facts.shortfall.extracted}`);
-    } else if (stated !== undefined && items < COMPLETE_SHARE * stated) {
+    // The page numbers its entries: under 90% of them, or under the total of a type, a real run reads it again in
+    // parts. The dry run cannot: it assumes the second reading recovers nothing (worst case, marked on the facts).
+    let pageFacts = found.facts;
+    const check = pageFacts.shortfall || pageFacts.suspect ? undefined : completeness(page.text, pageFacts);
+    if (pageFacts.shortfall) {
+      log(`    extração incompleta (já relida em partes): diz ter ${pageFacts.shortfall.stated} entradas, a extração trouxe ${pageFacts.shortfall.extracted}`);
+    } else if (check?.short) {
       rereadChars += page.text.length;
       const est = cost(config.MODEL_EXTRACT, tokens(page.text.length), Math.ceil(tokens(page.text.length) * 0.35));
+      const types = check.types.map((t) => `${t.label} ${t.extracted}/${t.stated}`).join(", ");
       log(
-        `    extração curta: ${source.name} diz ter ${stated} entradas e a extração tem ${items} (menos de 90%); a execução real relê a página em partes ` +
-          `(~${kib(page.text.length)} KiB${est !== undefined ? `, ~${usd(est)}` : ""})`,
+        `    extração curta: ${source.name} diz ter ${check.stated} entradas e a extração tem ${check.extracted}` +
+          `${check.extracted < 0.9 * check.stated ? " (menos de 90%)" : ""}${types ? `; tipos abaixo do total da página: ${types}` : ""}; ` +
+          `a execução real relê a página em partes (~${kib(page.text.length)} KiB${est !== undefined ? `, ~${usd(est)}` : ""}); ` +
+          "o ensaio supõe que a releitura não recupera nada",
       );
     }
+    if (check) {
+      pageFacts = withVerdict(pageFacts, check);
+      if (check.over) log(`    extração suspeita: ${check.extracted} entradas para ${check.stated} da página (mais de 110%); os itens dela não fecham contagem`);
+    }
+    facts.push(pageFacts);
+    read.push({ source, text: page.text });
   }
   if (rereadChars > 0) {
     const est = cost(config.MODEL_EXTRACT, tokens(rereadChars), Math.ceil(tokens(rereadChars) * 0.35));

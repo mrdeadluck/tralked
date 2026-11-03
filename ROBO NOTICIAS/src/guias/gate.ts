@@ -43,7 +43,7 @@ function achievementGaps(steam: SteamAchievement, a: DossierAchievement | undefi
     for (const item of c.withoutLocation) missing.push(`O item "${item}" da conquista ${name} está sem localização.`);
     for (const problem of c.indexProblems) missing.push(`A contagem da conquista ${name} está errada: ${problem}.`);
   }
-  if (a.missable && !a.deadlineChapter) {
+  if (a.missable && !a.deadlineChapter && !a.warnChapter) {
     missing.push(
       `O perdível ${name} não está ligado a nenhum capítulo: o "até quando" das fontes não aponta para um capítulo e nenhum item do roteiro é ele.`,
     );
@@ -62,6 +62,8 @@ function walkthroughGaps(d: GuideDossier): string[] {
       }
     }
   }
+  // R32: an incomplete extraction of the primary script is an incomplete guide.
+  missing.push(...(d.extractionGaps ?? []));
   if (d.scripts.length === 0) {
     missing.push("Nenhuma fonte de roteiro foi lida.");
   } else if (!d.scripts.some((s) => s.complete)) {

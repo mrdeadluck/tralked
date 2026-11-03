@@ -1,10 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { buildDossier, type SteamAchievement } from "../../src/guias/dossier.js";
+import { buildDossier, type GuideDossierSource, type SteamAchievement } from "../../src/guias/dossier.js";
 import type { ExtractedFacts } from "../../src/guias/facts.js";
 import { gate } from "../../src/guias/gate.js";
+import { buildReport } from "../../src/guias/report.js";
+import { writeGuideDetailed } from "../../src/guias/writer.js";
 import { parseAchievementSchemaPage } from "../../src/guias/steam-aliases.js";
 import { ach, fact, item, steamAch } from "./helpers-dossier.js";
+import { fakeAi, keysIn } from "./helpers-writer.js";
 
 /**
  * Task 18: the gaps that kept Phantom Blade Zero in waiting_sources on the third live run (2026-11-03), with the
@@ -125,6 +128,7 @@ function powerpyx(collectibles: { ambers?: number; blackstones?: number } = {}):
         title: "First Visit",
         region: "Crimson Forest",
         items: [
+          item("Outlaw Warblade (Weapon)", { collectibleType: "Weapon", location: "Reward for defeating Jing Ye, The Outlaw. Story-related." }),
           ...many(12, "Accessory"),
           ...many(Math.floor(ambers / 3), "Sha-Chi Amber Fragment"),
           ...many(Math.floor(blackstones / 3), "Blackstone Fragment"),
@@ -177,6 +181,24 @@ const build = (facts: ExtractedFacts[], aliases: Record<string, string[]> = {}) 
 
 const achOf = (d: ReturnType<typeof build>, apiName: string) => d.achievements.find((a) => a.apiName === apiName)!;
 
+const GAME: GuideDossierSource = {
+  game: {
+    slug: "phantom-blade-zero",
+    name: "Phantom Blade Zero",
+    steamAppId: 4115450,
+    summary: null,
+    developer: "S-GAME",
+    publisher: "S-GAME",
+    releaseDate: "2026-10-29",
+    platforms: ["PC"],
+    criticScore: null,
+    timeToBeatCompleteMin: null,
+    achievementCount: PBZ.length,
+  },
+  tralked: { players: 0, avgPlaytimeMin: null, completedPlayers: 0 },
+  achievements: PBZ,
+};
+
 describe("A: 'collect N' conta os itens do tipo que a conquista nomeia", () => {
   it("Collector’s Notes (30 Accessories): os 48 acessórios das páginas de região contam, ligados por tipo e sem revisão", () => {
     const d = build(powerpyx());
@@ -226,11 +248,12 @@ describe("A: 'collect N' conta os itens do tipo que a conquista nomeia", () => {
     expect(gate(full, PBZ).missing.filter((m) => /ACH_04[35]/.test(m))).toEqual([]);
   });
 
-  it("Listen to Every Flower: a fonte diz 2–6 pétalas por flor, então cada 'Memory Flower' conta 1/6 e a ligação vai para revisão", () => {
+  it("Listen to Every Flower: a fonte diz 2–6 pétalas por flor, então cada 'Memory Flower' conta 1/6 (limite inferior, revisão)", () => {
     const d = build(powerpyx());
     const flowers = achOf(d, "ACH_044");
-    // 93 'Memory Flower' + 3 'Memory Flower of the Monster' = 96 petals / 6 = 16 flowers at least.
-    expect(flowers.collect).toMatchObject({ target: 10, counted: 16, byType: { type: "Memory Flower", ambiguous: true } });
+    // 93 'Memory Flower' / 6 = 15.5 at least. 'Memory Flower of the Monster' only contains the name: linked for
+    // review, out of the count.
+    expect(flowers.collect).toMatchObject({ target: 10, counted: 15.5, byType: { type: "Memory Flower", ambiguous: true } });
     const petals = d.chapters.flatMap((c) => c.items).filter((i) => i.collectibleType?.startsWith("Memory Flower"));
     expect(petals).toHaveLength(96);
     for (const p of petals) expect(p).toMatchObject({ countsFor: ["ACH_044"], countedByType: "ambiguous" });
@@ -248,6 +271,43 @@ describe("A: 'collect N' conta os itens do tipo que a conquista nomeia", () => {
     expect(d.chapters[0]!.items.every((i) => i.countedByType === "ambiguous")).toBe(true);
   });
 
+  it("tipo que só contém o nome ('Relic Key' para 'Collect 5 Relics') fica ligado para revisão, mas fora da contagem", () => {
+    const steam = [steamAch("ACH_R", "Relic Hunter", "Collect 5 Relics")];
+    const lead = fact("PowerPyx", "roteiro_psn", {
+      achievements: [ach("Relic Hunter")],
+      chapters: [{ title: "Chapter 1", region: "Weeping Creek Valley", order: 1, items: [...many(5, "Relic Key"), ...many(2, "Relic")] }],
+    });
+    const d = buildDossier(steam, [lead], [[lead.source.url]]);
+    expect(d.achievements[0]!.collect).toMatchObject({ target: 5, counted: 2, byType: { type: "Relic", ambiguous: true } });
+    const keys = d.chapters[0]!.items.filter((i) => i.collectibleType === "Relic Key");
+    for (const k of keys) expect(k).toMatchObject({ countsFor: ["ACH_R"], countedByType: "ambiguous" });
+    expect(gate(d, steam).missing).toContain('A conquista "Relic Hunter" (ACH_R) pede 5, mas os itens encontrados somam 2.');
+  });
+
+  it("o nome diz que é parte: 'Sha-Chi Amber Shard' com tipo 'Sha-Chi Amber' (ou 'Upgrade') é fragmento, sem regra não conta", () => {
+    const steam = [steamAch("ACH_043", "Complete Mastery", "Collect 10 Sha-Chi Ambers")];
+    const lead = fact("PowerPyx", "roteiro_psn", {
+      achievements: [ach("Complete Mastery")],
+      chapters: [
+        {
+          title: "Chapter 1",
+          region: "Weeping Creek Valley",
+          order: 1,
+          items: [
+            ...many(10, "Sha-Chi Amber", { name: "Sha-Chi Amber Shard" }),
+            // The Mirage Estate page's "Upgrade: Sha-Chi Amber Fragment": typed by the page's label, named by the thing.
+            ...many(4, "Upgrade", { name: "Sha-Chi Amber Fragment" }),
+          ],
+        },
+      ],
+    });
+    const d = buildDossier(steam, [lead], [[lead.source.url]]);
+    expect(d.achievements[0]!.collect).toMatchObject({ counted: 0, byType: { unconverted: 14 } });
+    const ruled = { ...lead, achievements: [ach("Complete Mastery", { howTo: "Collect 10 Sha-Chi Ambers; 4 shards combine into a whole Amber." })] };
+    const withRule = buildDossier(steam, [ruled], [[lead.source.url]]);
+    expect(withRule.achievements[0]!.collect).toMatchObject({ counted: 3.5, byType: { unconverted: 0 } });
+  });
+
   it("The Healer’s Legacy: o 'collect 3 herbs' no meio do como-fazer não é a meta da conquista (ela pede 3 contos, não 3 ervas)", () => {
     const d = build(powerpyx());
     expect(achOf(d, "ACH_038").collect).toBeUndefined();
@@ -256,32 +316,79 @@ describe("A: 'collect N' conta os itens do tipo que a conquista nomeia", () => {
 });
 
 describe("B: perdível sem capítulo ligado por região, nome ou menção no texto", () => {
-  const expected: Record<string, string> = {
-    // (1) a region the milestone or the how-to names: the first chapter of the earliest one.
-    ACH_039: "First Visit — Crimson Forest",
-    ACH_029: "First Visit — Crimson Forest",
-    ACH_037: "First Visit — Weeping Creek Valley", // "Weeping Valley Creek": same words, other order
-    ACH_033: "First Visit — Weeping Creek Valley",
-    ACH_032: "First Visit — Village of Lu",
-    ACH_025: "First Visit — Meigu Lake",
-    ACH_023: "First Visit — Weeping Creek Valley", // "Crimson Manor" is no "Crimson Forest"
-    ACH_022: "Mountain of Imprisonment",
-    ACH_038: "First Visit — Weeping Creek Valley",
-    ACH_034: "First Visit — Crimson Forest",
-    ACH_021: "Mandate Encampment",
-    ACH_015: "First Visit — Weeping Creek Valley",
-    // (2) the boss it names is an item of the route.
-    ACH_027: "Mount Soulrend",
-    // (3) a route item's text places it ("requires true ending steps").
-    ACH_013: "Mount Soulrend",
+  /** apiName -> [anchor (start or collect before here), the last region or boss its texts name]. */
+  const expected: Record<string, [string, string]> = {
+    // (1) the milestone, whole (region, then boss), before the how-to.
+    ACH_037: ["First Visit — Weeping Creek Valley", "Mirage Estate"], // "Weeping Valley Creek": same words, other order
+    ACH_038: ["First Visit — Crimson Forest", "First Visit — Pangzhen"], // "defeating Jing Ye": the route item of that boss
+    // (2) a region the how-to names: the earliest is the anchor; the last is only the default spot.
+    ACH_039: ["First Visit — Crimson Forest", "Mirage Estate"],
+    ACH_029: ["First Visit — Crimson Forest", "Mirage Estate"],
+    ACH_033: ["First Visit — Weeping Creek Valley", "First Visit — Meigu Lake"],
+    ACH_032: ["First Visit — Village of Lu", "First Visit — Village of Lu"],
+    ACH_025: ["First Visit — Meigu Lake", "First Visit — Meigu Lake"],
+    ACH_023: ["First Visit — Weeping Creek Valley", "First Visit — Weeping Creek Valley"], // "Crimson Manor" is no "Crimson Forest"
+    ACH_022: ["Mountain of Imprisonment", "Mountain of Imprisonment"],
+    ACH_034: ["First Visit — Crimson Forest", "Mandate Encampment"],
+    ACH_021: ["Mandate Encampment", "Mandate Encampment"],
+    ACH_015: ["First Visit — Weeping Creek Valley", "First Visit — Weeping Creek Valley"],
+    // (3) the boss it names is an item of the route.
+    ACH_027: ["Mount Soulrend", "Mount Soulrend"],
+    // (4) a route item's text places it ("requires true ending steps").
+    ACH_013: ["Mount Soulrend", "Mount Soulrend"],
   };
 
-  it("os 14 perdíveis do PBZ ganham capítulo, com prazo assumido (revisão); o gate não acusa nenhum", () => {
+  it("os 14 perdíveis do PBZ ganham uma âncora de aviso, sem prazo de conclusão no capítulo dela; o gate não acusa nenhum", () => {
     const d = build([...powerpyx(), game8()]);
-    for (const [apiName, title] of Object.entries(expected)) {
-      expect(achOf(d, apiName), apiName).toMatchObject({ missable: true, deadlineChapter: title, deadlineAssumed: true });
+    for (const [apiName, [warn, done]] of Object.entries(expected)) {
+      const a = achOf(d, apiName);
+      expect(a, apiName).toMatchObject({ missable: true, warnChapter: warn, doneChapter: done, deadlineAssumed: true });
+      expect(a.deadlineChapter, apiName).toBeUndefined();
     }
     expect(gate(d, PBZ).missing.filter((m) => m.includes("não está ligado"))).toEqual([]);
+  });
+
+  it("Lost and Found pode ficar depois da Mirage Estate e recebe o aviso no capítulo da âncora", async () => {
+    const d = build([...powerpyx(), game8()]);
+    const { ai } = fakeAi({
+      chapter: (out, prompt) => {
+        const step = keysIn(prompt, "passo").find((k) => k.startsWith("mount-soulrend"));
+        if (step) out.passos.find((p) => p.key === step)!.conquistas.push("ACH_039");
+      },
+    });
+    const { payload, repairs } = await writeGuideDetailed(ai, d, GAME, "live");
+    const chapters = payload.walkthrough.chapters;
+    const placed = chapters.find((c) => c.steps.some((s) => s.items.some((i) => i.achievement === "ACH_039")))!;
+    expect(placed.key).toBe("mount-soulrend");
+    expect(repairs.some((r) => r.text.includes("ACH_039") && r.text.includes("depois do capítulo"))).toBe(false);
+    const anchor = chapters.find((c) => c.key === "first-visit-crimson-forest")!;
+    const warn = anchor.steps[0]!.body.find((b) => b.type === "callout" && b.tone === "aviso" && b.text.includes("Lost and Found"));
+    expect(warn).toBeDefined();
+  });
+
+  it("marco 'before entering Pangzhen' (Together Till the End): a âncora é o capítulo antes do primeiro de Pangzhen", () => {
+    const steam = [...PBZ, steamAch("ACH_035", "Together Till the End", "Complete [The Journey Home]")];
+    const facts = powerpyx();
+    facts[0]!.achievements.push(
+      ach("Together Till the End", {
+        missable: true,
+        missableUntil: "entering Pangzhen",
+        howTo: "Complete [The Journey Home]: accept from Old Man Gen in Village of Lu, after opening the locked door into Pangzhen return to him.",
+      }),
+    );
+    const d = buildDossier(steam, facts, [facts.map((f) => f.source.url)]);
+    expect(d.achievements.find((a) => a.apiName === "ACH_035")).toMatchObject({
+      warnChapter: "First Visit — Village of Lu",
+      doneChapter: "First Visit — Pangzhen",
+      deadlineAssumed: true,
+    });
+  });
+
+  it("sem o modelo pôr, a conquista vai para o fim do último capítulo que os textos dela citam (não para antes da âncora)", async () => {
+    const d = build([...powerpyx(), game8()]);
+    const { payload } = await writeGuideDetailed(fakeAi().ai, d, GAME, "live");
+    const placed = payload.walkthrough.chapters.find((c) => c.steps.some((s) => s.items.some((i) => i.achievement === "ACH_039")))!;
+    expect(placed.key).toBe("mirage-estate");
   });
 
   it("fontes discordam se é perdível (Game8 diz que não): continua perdível, com o conflito marcado", () => {
@@ -303,14 +410,69 @@ describe("B: perdível sem capítulo ligado por região, nome ou menção no tex
   });
 });
 
-describe("C: extração que perdeu itens aparece nas divergências", () => {
-  it("a página dizia 76 coletáveis e a extração trouxe 18 mesmo relendo em partes", () => {
+describe("C: extração que perdeu itens (R32: página do roteiro principal reprova a porta)", () => {
+  it("a página dizia 76 entradas e a extração trouxe 18 mesmo relendo em partes: divergência e lacuna da porta", () => {
     const facts = powerpyx();
-    const lu = facts.find((f) => f.source.name === "PowerPyx (Village Of Lu)")!;
-    lu.shortfall = { stated: 76, extracted: 18 };
+    facts.find((f) => f.source.name === "PowerPyx (Village Of Lu)")!.shortfall = { stated: 76, extracted: 18 };
     const d = build(facts);
-    expect(d.divergences[0]).toBe(
-      "Extração incompleta: PowerPyx (Village Of Lu) diz ter 76 entradas e a extração trouxe 18, mesmo relendo a página em partes; a rota dessa página pode estar incompleta. Revise antes de publicar.",
-    );
+    const sentence =
+      "Extração incompleta: PowerPyx (Village Of Lu) diz ter 76 entradas e a extração trouxe 18, mesmo relendo a página em partes; a rota dessa página pode estar incompleta. Revise antes de publicar.";
+    expect(d.divergences[0]).toBe(sentence);
+    expect(gate(d, PBZ).missing).toContain(sentence);
+  });
+
+  it("um tipo abaixo do total da página que conta para uma conquista reprova; um tipo que não conta, só avisa", () => {
+    const facts = powerpyx();
+    facts.find((f) => f.source.name === "PowerPyx (Crimson Forest)")!.shortfall = {
+      stated: 83,
+      extracted: 80,
+      types: [
+        { label: "Sha-Chi Amber Shards", stated: 6, extracted: 4 },
+        { label: "Bells", stated: 19, extracted: 16 },
+      ],
+    };
+    const d = build(facts);
+    const missing = gate(d, PBZ).missing.filter((m) => m.startsWith("Extração incompleta"));
+    expect(missing).toEqual([
+      'Extração incompleta: PowerPyx (Crimson Forest) diz ter 6 "Sha-Chi Amber Shards" e a extração trouxe 4, mesmo relendo a página em partes; isso conta para "Complete Mastery" (ACH_043).',
+    ]);
+    expect(d.divergences.some((x) => x.includes('diz ter 19 "Bells"'))).toBe(true);
+  });
+
+  it("fonte secundária incompleta só vai para as divergências", () => {
+    const g = { ...game8(), shortfall: { stated: 40, extracted: 10 } };
+    const d = build([...powerpyx(), g]);
+    expect(d.divergences.some((x) => x.startsWith("Extração incompleta: Game8"))).toBe(true);
+    expect(gate(d, PBZ).missing.filter((m) => m.startsWith("Extração incompleta"))).toEqual([]);
+  });
+
+  it("extração suspeita (mais de 110% das entradas): os itens dela não fecham contagem", () => {
+    const facts = powerpyx();
+    facts.find((f) => f.source.name === "PowerPyx (Mandate Encampment)")!.suspect = { stated: 20, extracted: 27 };
+    const d = build(facts);
+    expect(achOf(d, "ACH_046").collect).toMatchObject({ counted: 40 });
+    expect(d.divergences.some((x) => x.startsWith("Extração suspeita: PowerPyx (Mandate Encampment)"))).toBe(true);
+  });
+});
+
+describe("contagem por tipo no relatório e na revisão da conquista", () => {
+  it("collect.byType vai para o relatório (report.collectByType)", () => {
+    const report = buildReport({ sourcesRead: [], dossier: build(powerpyx()), steamList: PBZ, spendUsd: 0 });
+    expect(report.collectByType).toContainEqual({
+      apiName: "ACH_046",
+      name: "Collector’s Notes",
+      target: 30,
+      counted: 48,
+      type: "Accessory",
+      ambiguous: false,
+      unconverted: 3,
+    });
+    expect(report.collectByType).toContainEqual(expect.objectContaining({ apiName: "ACH_044", ambiguous: true }));
+  });
+
+  it("a conquista contada por tipo sai com review true no guia", async () => {
+    const { payload } = await writeGuideDetailed(fakeAi().ai, build(powerpyx()), GAME, "live");
+    const items = payload.walkthrough.chapters.flatMap((c) => c.steps.flatMap((st) => st.items));
+    expect(items.find((i) => i.achievement === "ACH_046")!.review).toBe(true);
   });
 });

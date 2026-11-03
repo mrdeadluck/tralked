@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { Ai, StructuredOpts } from "../../src/ai/client.js";
-import { extractFacts, extractionPrompt, RETRY_NOTE, splitText, statedEntries } from "../../src/guias/extract.js";
+import { completeness, statedEntries } from "../../src/guias/completeness.js";
+import { extractFacts, extractionPrompt, RETRY_NOTE, splitText } from "../../src/guias/extract.js";
 import { extractedFactsSchema, llmFactsSchema, type LlmFacts } from "../../src/guias/facts.js";
 import type { SourceRef } from "../../src/guias/sources.js";
 
@@ -150,7 +151,8 @@ ${"c".repeat(5000)}`;
   });
 });
 
-describe("extração completa: a página diz quantas entradas tem (Village of Lu, cache real)", () => {
+
+describe("extração completa: a página numera as entradas (Village of Lu, cache real)", () => {
   const lu: SourceRef = {
     name: "PowerPyx (Village Of Lu)",
     url: "https://www.powerpyx.com/phantom-blade-zero-village-of-lu-collectible-locations/",
@@ -159,20 +161,32 @@ describe("extração completa: a página diz quantas entradas tem (Village of Lu
   };
   const text = readFileSync(new URL("./fixtures/powerpyx-pbz-village-of-lu.txt", import.meta.url), "utf8");
   type Item = LlmFacts["chapters"][number]["items"][number];
-  /** What a faithful model returns for a text: one item per "#N – Name" entry in it. */
+  /** What a faithful model returns for a text: one item per numbered entry ("#30 & #31 – A / B" is two). */
   const entriesIn = (user: string): Item[] =>
-    [...user.matchAll(/^#(\d+)\s*[–-]\s*(.+)$/gm)].map((m) => ({
-      kind: "collectible", name: m[2]!.trim(), location: "x", missable: false, returnLater: false, countsForEn: [],
-    }));
+    [...user.matchAll(/^#(\d+)((?:\s*&\s*#\d+)*)\s*[–-]\s*(.+)$/gm)].flatMap((m) => {
+      const count = 1 + (m[2]!.match(/#/g)?.length ?? 0);
+      const names = m[3]!.split(" / ");
+      return Array.from({ length: count }, (_, i) => ({
+        kind: "collectible", name: (names[i] ?? names[0]!).trim(), location: "x", missable: false, returnLater: false, countsForEn: [],
+      }));
+    });
   const answer = (items: Item[]): LlmFacts => ({ ...base, chapters: [{ title: "First Visit", region: "Village of Lu", order: 1, items }] });
 
-  it("a página diz 76 (e numera até #76); um hub sem entradas numeradas não conta", () => {
-    expect(statedEntries(text)).toBe(76);
+  it("entradas da página: os números que o texto traz, limitados ao total declarado; hub sem entradas numeradas não conta", () => {
+    // "Contains 76", but the text holds 75 numbers (#30 & #31 share a line; one number is not on the page).
+    expect(statedEntries(text)).toBe(75);
     expect(statedEntries("Phantom Blade Zero contains 564 Collectibles Locations (161 Bells, ...). By region: ...")).toBeUndefined();
     expect(statedEntries("#1 – Bell\nx\n#2 – Memory Flower\ny\n#3 – Bell")).toBe(3);
   });
 
-  it("veio curta (18 de 76): relê em partes menores, com a regra de listar cada entrada numerada, e fica com a lista inteira", async () => {
+  it("Pangzhen: 161 declarados, mas a página só numera #1..#106 (o resto está na Mirage Estate) → 106", () => {
+    const page = `Pangzhen is the 4th region and contains 161 Collectible Locations.\n${Array.from({ length: 106 }, (_, i) => `#${i + 1} – Bell (Spot ${i + 1})\nWhere it is.`).join("\n")}`;
+    expect(statedEntries(page)).toBe(106);
+    const items = Array.from({ length: 100 }, (_, i) => ({ kind: "collectible", name: `Bell (Spot ${i + 1})`, location: "x", missable: false, returnLater: false, countsForEn: [] }));
+    expect(completeness(page, { chapters: [{ title: "First Visit", order: 1, items }] })).toMatchObject({ stated: 106, extracted: 100, short: false });
+  });
+
+  it("veio curta (18 de 75): relê em partes menores, com a regra de listar cada entrada numerada, e fica com a lista inteira", async () => {
     const { ai, calls } = fakeAi((opts, i) => (i === 0 ? answer(entriesIn(opts.user).slice(0, 18)) : answer(entriesIn(opts.user))));
     const facts = await extractFacts({ url: lu.url, text }, lu, { ai, model: "claude-sonnet-5-5" });
     // One first pass, then the page again in parts of at most 15k characters (and always at least two).
@@ -182,20 +196,20 @@ describe("extração completa: a página diz quantas entradas tem (Village of Lu
     expect(calls[0]!.user).not.toContain(RETRY_NOTE);
     expect(RETRY_NOTE).toMatch(/EVERY numbered entry/);
     expect(retries.every((c) => c.purpose.startsWith("guia-extracao:"))).toBe(true);
-    const items = facts.chapters.flatMap((c) => c.items);
-    expect(items.length).toBeGreaterThanOrEqual(69);
+    expect(facts.chapters.flatMap((c) => c.items)).toHaveLength(75);
     expect(facts.shortfall).toBeUndefined();
+    expect(facts.suspect).toBeUndefined();
     expect(extractedFactsSchema.safeParse(facts).success).toBe(true);
   });
 
-  it("continua curta depois de reler: a fonte fica marcada como incompleta (para o relatório)", async () => {
+  it("continua curta depois de reler: a fonte fica marcada como incompleta (para o relatório e a porta)", async () => {
     const { ai, calls } = fakeAi((opts) => answer(entriesIn(opts.user).slice(0, 9)));
     const facts = await extractFacts({ url: lu.url, text }, lu, { ai, model: "claude-sonnet-5-5" });
-    const retries = calls.length - 1;
-    expect(retries).toBeGreaterThanOrEqual(2);
-    expect(facts.shortfall).toEqual({ stated: 76, extracted: facts.chapters.flatMap((c) => c.items).length });
-    expect(facts.shortfall!.extracted).toBe(calls.slice(1).reduce((n, c) => n + Math.min(9, entriesIn(c.user).length), 0));
-    expect(facts.shortfall!.extracted).toBeLessThan(69);
+    expect(calls.length - 1).toBeGreaterThanOrEqual(2);
+    const extracted = facts.chapters.flatMap((c) => c.items).length;
+    expect(extracted).toBe(calls.slice(1).reduce((n, c) => n + Math.min(9, entriesIn(c.user).length), 0));
+    expect(facts.shortfall).toMatchObject({ stated: 75, extracted });
+    expect(extracted).toBeLessThan(0.9 * 75);
   });
 
   it("veio completa: nenhuma releitura", async () => {
@@ -203,6 +217,36 @@ describe("extração completa: a página diz quantas entradas tem (Village of Lu
     const facts = await extractFacts({ url: lu.url, text }, lu, { ai, model: "claude-sonnet-5-5" });
     expect(calls).toHaveLength(1);
     expect(facts.shortfall).toBeUndefined();
+  });
+
+  it("total geral passa de 90% mas falta um tipo do resumo da página (Sha-Chi Amber Shards): relê em partes", async () => {
+    // 74 of 75 entries (99%), but the one left out is a Sha-Chi Amber Fragment.
+    const dropShard = (items: Item[]) => {
+      const at = items.findIndex((x) => x.name.startsWith("Sha-Chi Amber Fragment"));
+      return items.filter((_, i) => i !== at);
+    };
+    const short = fakeAi((opts) => answer(dropShard(entriesIn(opts.user))));
+    const facts = await extractFacts({ url: lu.url, text }, lu, { ai: short.ai, model: "claude-sonnet-5-5" });
+    expect(short.calls.length).toBeGreaterThanOrEqual(3);
+    expect(facts.shortfall).toMatchObject({ stated: 75, types: [{ label: "Sha-Chi Amber Shards", stated: 4, extracted: 3 }] });
+
+    const fixed = fakeAi((opts, i) => answer(i === 0 ? dropShard(entriesIn(opts.user)) : entriesIn(opts.user)));
+    const again = await extractFacts({ url: lu.url, text }, lu, { ai: fixed.ai, model: "claude-sonnet-5-5" });
+    expect(fixed.calls.length).toBeGreaterThanOrEqual(3);
+    expect(again.shortfall).toBeUndefined();
+  });
+
+  it("'mais itens ganha' tem teto: uma releitura acima de 110% das entradas não é usada; sozinha acima, fica marcada como suspeita", async () => {
+    const doubled = fakeAi((opts, i) => answer(i === 0 ? entriesIn(opts.user).slice(0, 18) : [...entriesIn(opts.user), ...entriesIn(opts.user)]));
+    const facts = await extractFacts({ url: lu.url, text }, lu, { ai: doubled.ai, model: "claude-sonnet-5-5" });
+    expect(facts.chapters.flatMap((c) => c.items)).toHaveLength(18);
+    expect(facts.shortfall).toMatchObject({ stated: 75, extracted: 18 });
+    expect(facts.suspect).toBeUndefined();
+
+    const over = fakeAi((opts) => answer([...entriesIn(opts.user), ...entriesIn(opts.user).slice(0, 20)]));
+    const suspect = await extractFacts({ url: lu.url, text }, lu, { ai: over.ai, model: "claude-sonnet-5-5" });
+    expect(over.calls).toHaveLength(1);
+    expect(suspect.suspect).toEqual({ stated: 75, extracted: 95 });
   });
 
   it("o prompt manda listar cada entrada numerada, sem resumir", () => {

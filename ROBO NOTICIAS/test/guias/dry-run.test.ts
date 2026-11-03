@@ -89,7 +89,7 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("extração curta (a página diz 76 entradas, o cache tem 18): o ensaio avisa que a execução real relê em partes e estima", async () => {
+  it("extração curta (a página numera 75 entradas, o cache tem 18): o ensaio avisa que a execução real relê em partes e estima", async () => {
     const db = openGuideDb(":memory:");
     const text = readFileSync(new URL("./fixtures/powerpyx-pbz-village-of-lu.txt", import.meta.url), "utf8");
     const lu = { name: "PowerPyx (Village Of Lu)", url: "https://www.powerpyx.com/phantom-blade-zero-village-of-lu-collectible-locations/", role: "coletaveis" as const, language: "en" };
@@ -101,7 +101,7 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
     const lines: string[] = [];
     await dryRun({ db, config: CONFIG, requestId: "req-lu", log: (l) => lines.push(l) });
     expect(lines.join("\n")).toMatch(
-      /extração curta: PowerPyx \(Village Of Lu\) diz ter 76 entradas e a extração tem 18 \(menos de 90%\); a execução real relê a página em partes \(~\d+ KiB, ~US\$ \d+\.\d\d\)/,
+      /extração curta: PowerPyx \(Village Of Lu\) diz ter 75 entradas e a extração tem 18 \(menos de 90%\)(; tipos abaixo do total da página: [^;]+)?; a execução real relê a página em partes \(~\d+ KiB, ~US\$ \d+\.\d\d\); o ensaio supõe que a releitura não recupera nada/,
     );
   });
 
