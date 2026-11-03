@@ -20,6 +20,8 @@ import { mediaQueue, syncGameMedia, type MediaDeps } from "./media";
 
 /** Steam reviews are read again after this long. */
 export const REVIEWS_RECHECK_MS = 7 * 24 * 60 * 60_000;
+/** A game whose last read brought no totals is read again after this long. */
+export const REVIEWS_RETRY_MS = 24 * 60 * 60_000;
 const BATCH = 100;
 /** Games whose small writes are grouped into one statement. */
 const FLUSH_EVERY = 25;
@@ -109,11 +111,17 @@ export async function enrichReviews(
   while (now() < stopAt) {
     const more = await withDb("reviews batch", async () => {
       const stale = new Date(now() - REVIEWS_RECHECK_MS);
+      const retry = new Date(now() - REVIEWS_RETRY_MS);
       const games = await prisma.game.findMany({
         where: {
           stub: false,
           steamAppId: { not: null },
-          OR: [{ steamReviewsAt: null }, { steamReviewsAt: { lt: stale } }],
+          OR: [
+            { steamReviewsAt: null },
+            { steamReviewsAt: { lt: stale } },
+            // A read that brought nothing (Steam failing, as on 02/11) is tried again the next day.
+            { steamReviewTotal: null, steamReviewsAt: { lt: retry } },
+          ],
         },
         orderBy: [{ steamReviewsAt: { sort: "asc", nulls: "first" } }, { popularity: "desc" }],
         take: BATCH,

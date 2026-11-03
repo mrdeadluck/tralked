@@ -68,6 +68,38 @@ describe.skipIf(!reachable)("catalog enrichment", () => {
     expect(without.steamReviewsAt).not.toBeNull();
   });
 
+  it("reads again the next day a game whose last read brought nothing, not a week later", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { enrichReviews } = await import("./enrich");
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60_000);
+    const failed = await prisma.game.create({
+      data: { slug: `${SLUG}retry`, name: "Enrich Retry", steamAppId: APP + 4, achievementCount: 0, popularity: 1, steamReviewsAt: twoDaysAgo },
+    });
+    const fresh = await prisma.game.create({
+      data: {
+        slug: `${SLUG}fresh`,
+        name: "Enrich Fresh",
+        steamAppId: APP + 5,
+        achievementCount: 0,
+        popularity: 1,
+        steamReviewsAt: twoDaysAgo,
+        steamReviewTotal: 10,
+        steamReviewPositive: 9,
+      },
+    });
+    const asked: number[] = [];
+    const politeFetch = async (url: string) => {
+      const ids = [...decodeURIComponent(url).matchAll(/"appid":(\d+)/g)].map((m) => Number(m[1]));
+      asked.push(...ids);
+      return new Response(JSON.stringify({ response: { store_items: [] } }));
+    };
+    await enrichReviews(Date.now() + 60_000, politeFetch, silent);
+    expect(asked).toContain(APP + 4);
+    expect(asked).not.toContain(APP + 5);
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: failed.id } })).steamReviewsAt!.getTime()).toBeGreaterThan(twoDaysAgo.getTime());
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: fresh.id } })).steamReviewTotal).toBe(10);
+  });
+
   it("marks nothing when Steam does not answer: the games stay first in the queue", async () => {
     const { prisma } = await import("@/lib/db");
     const { enrichReviews } = await import("./enrich");
