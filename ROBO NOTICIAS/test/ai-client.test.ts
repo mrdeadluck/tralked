@@ -81,6 +81,21 @@ describe("costUsd", () => {
 });
 
 describe("structured", () => {
+  it("sends images as base64 blocks before the user text (vision)", async () => {
+    const { client, parse } = fakeClient();
+    const ai = createAi({ client, db, config, now: () => NOW });
+    await ai.structured({ ...baseOpts, bucket: "live", images: [{ mediaType: "image/jpeg", data: Buffer.from("abc") }] });
+    expect(parse.mock.calls[0]![0].messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: Buffer.from("abc").toString("base64") } },
+          { type: "text", text: "Headline: X" },
+        ],
+      },
+    ]);
+  });
+
   it("sends a cached system block and output_config, returns parsed output and records live spend", async () => {
     const { client, parse, betaParse } = fakeClient();
     const ai = createAi({ client, db, config, now: () => NOW });

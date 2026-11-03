@@ -82,6 +82,8 @@ export interface StructuredOpts<T> {
   /** Sent as a single text block with `cache_control: { type: "ephemeral" }`. */
   system: string;
   user: string;
+  /** Optional images sent before the user text (vision). The news robot never sets this. */
+  images?: { mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: Buffer }[];
   schema: z.ZodType<T>;
   maxTokens?: number;
   /** Live writer calls: use the server-side fallback beta with `fallbacks: "default"`. */
@@ -104,7 +106,20 @@ const systemBlocks = (system: string) => [
   { type: "text" as const, text: system, cache_control: { type: "ephemeral" as const } },
 ];
 
-const userMessages = (user: string) => [{ role: "user" as const, content: user }];
+const userMessages = (user: string, images?: StructuredOpts<unknown>["images"]) => [
+  {
+    role: "user" as const,
+    content: images?.length
+      ? [
+          ...images.map((img) => ({
+            type: "image" as const,
+            source: { type: "base64" as const, media_type: img.mediaType, data: img.data.toString("base64") },
+          })),
+          { type: "text" as const, text: user },
+        ]
+      : user,
+  },
+];
 
 export function createAi(deps: { client: Anthropic; db: SpendLedger; config: Pick<Config, "DAILY_BUDGET_USD" | "BACKFILL_BUDGET_USD">; now?: () => Date }): Ai {
   const { client, db, config } = deps;
@@ -148,7 +163,7 @@ export function createAi(deps: { client: Anthropic; db: SpendLedger; config: Pic
       model: opts.model,
       max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
       system: systemBlocks(opts.system),
-      messages: userMessages(opts.user),
+      messages: userMessages(opts.user, opts.images),
       output_config: { effort: opts.effort, format },
     };
 
