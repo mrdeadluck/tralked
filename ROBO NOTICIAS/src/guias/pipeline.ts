@@ -40,7 +40,7 @@ import { createWebSearch, type SearchHit } from "./websearch.js";
 import type { GuideProblem } from "./checker.js";
 import { carriedDraft, groupProblems, resumableDraft, saveDraft, writeReportFile } from "./drafts.js";
 import { plain, writeAndCheckGuide, type GuideWriteResult } from "./writer.js";
-import { earlierDraftKeys, readWriting, saveWriting, writingBaseKey, writingKey } from "./writing-cache.js";
+import { earlierBaseKeys, earlierDraftKeys, readWriting, saveWriting, writingBaseKey, writingKey } from "./writing-cache.js";
 
 /**
  * One guide request, start to end: claim → dossier → sources → extraction → crossref → gate → site limits →
@@ -521,7 +521,9 @@ async function processRequest(run: Run): Promise<Final> {
     const writing = { dossier: toWrite, scope, game: source.game, models };
     const baseKey = writingBaseKey(writing);
     const same = resumableDraft(db, cacheKey);
-    const previous = same ?? carriedDraft(db, { writingKey: cacheKey, baseKey, earlierKeys: earlierDraftKeys(writing) });
+    const previous =
+      same ??
+      carriedDraft(db, { writingKey: cacheKey, baseKey, earlierBaseKeys: earlierBaseKeys(writing), earlierKeys: earlierDraftKeys(writing) });
     if (same) {
       const parts = Object.keys(same.texts.jobs).length + (same.texts.frame ? 1 : 0);
       deps.log(
@@ -531,7 +533,7 @@ async function processRequest(run: Run): Promise<Final> {
     } else if (previous) {
       deps.log(
         `guia: rascunho de uma versão anterior do escritor (${previous.requestId}, ${previous.createdAt}${previous.probe ? ", sonda" : ""}): ` +
-          `só os ${Object.keys(previous.texts.jobs).length} trechos que o checador aprovou são reaproveitados, checados de novo; o resto é escrito`,
+          `trechos aprovados reaproveitados (checados de novo): ${Object.keys(previous.texts.jobs).length}; o resto é escrito`,
       );
     }
     let rounds = 0;

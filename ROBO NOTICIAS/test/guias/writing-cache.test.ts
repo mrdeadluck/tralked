@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDossier, type GuideDossierSource } from "../../src/guias/dossier.js";
-import { WRITER_CACHE_VERSION, earlierDraftKeys, writingBaseKey, writingKey } from "../../src/guias/writing-cache.js";
+import { WRITER_CACHE_VERSION, earlierBaseKeys, earlierDraftKeys, writingBaseKey, writingKey } from "../../src/guias/writing-cache.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
 
 const MODELS = { MODEL_WRITER: "claude-opus-5-5", MODEL_CHECK: "claude-sonnet-5-5", CHECK_EFFORT: "high" as const };
@@ -59,6 +59,11 @@ describe("chave do cache da escrita", () => {
     expect(base({ models: { ...MODELS, MODEL_WRITER: "claude-sonnet-5-5" } })).not.toBe(base());
     // Task 22: only the writer's model: a new checker (model or effort) still carries the accepted texts, checked again.
     expect(base({ models: { ...MODELS, MODEL_CHECK: "claude-haiku-5-5", CHECK_EFFORT: "low" } })).toBe(base());
+    // The v5 drafts (before Task 22) hashed the checker's model then (Haiku) into the base key: still found.
+    const input = { dossier: dossier(), game: GAME, models: MODELS };
+    // The exact base key d2f7bc2 gave these inputs (pinned).
+    expect(earlierBaseKeys(input)).toEqual(["base:d66ee92ec833ff50d818c8f32c8f9c1308e953c47dce093decdf62a8b9c9faeb"]);
+    expect(earlierBaseKeys(input)).not.toContain(base());
     // The writing key of the same inputs is a different thing (version and manual included).
     expect(key()).not.toBe(base());
   });

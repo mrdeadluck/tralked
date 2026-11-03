@@ -89,6 +89,16 @@ export function writingBaseKey(input: WritingInputs): string {
   return `base:${sha([sha(inputsOf(input)), input.models.MODEL_WRITER].join("|"))}`;
 }
 
+/**
+ * Task 22: the base keys of drafts saved before the checker left it (v5 at d2f7bc2 hashed MODEL_FAST, the checker's
+ * model then: Haiku). The probe of 2026-11-03 (direto-4115450, attempt 3) was saved under it.
+ */
+const EARLIER_BASE_CHECKERS = ["claude-haiku-5-5"];
+
+export function earlierBaseKeys(input: WritingInputs): string[] {
+  return EARLIER_BASE_CHECKERS.map((checker) => `base:${sha([sha(inputsOf(input)), input.models.MODEL_WRITER, checker].join("|"))}`);
+}
+
 /** The keys the earlier writers (`EARLIER_WRITERS`) gave these inputs: their drafts have no base key. */
 export function earlierDraftKeys(input: WritingInputs): string[] {
   return EARLIER_WRITERS.map((w) => keyOf(w.version, input, w.styleSha, w.checker));

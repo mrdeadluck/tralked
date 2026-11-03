@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Ai, Effort } from "../ai/client.js";
 import { escapeText } from "../ai/escape.js";
 import type { SpendBucket } from "../db.js";
+import { DEFAULT_CHECK_EFFORT, DEFAULT_MODEL_CHECK } from "./config.js";
 import type { GuidePayloadV2, WalkStep } from "./contract.js";
 import type { GuideDossier } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
@@ -57,9 +58,6 @@ export const CHECKER_RIGHT: ProblemKind = "checador-correto";
 const NO_DESCRIPTION = "O checador reprovou este trecho do guia sem apontar o problema.";
 export type GuideProblem = { text: string; scope: string; kind?: ProblemKind };
 
-/** Same defaults as config `MODEL_CHECK` and `CHECK_EFFORT`. */
-const DEFAULT_CHECK_MODEL = "claude-sonnet-5-5";
-const DEFAULT_CHECK_EFFORT: Effort = "high";
 /**
  * The answer is short, but adaptive thinking (on by default on the current models, more of it with more effort) is
  * billed as output inside max_tokens. Up to high: 16k, under the client's `MAX_NONSTREAMING_TOKENS`. Above: 32k, which
@@ -293,7 +291,7 @@ async function ask(ai: Ai, user: string, opts: GuideCheckOpts): Promise<Answer> 
   const verdict = await ai.structured({
     bucket: opts.bucket ?? "live",
     purpose: "guide-check",
-    model: opts.model ?? DEFAULT_CHECK_MODEL,
+    model: opts.model ?? DEFAULT_MODEL_CHECK,
     effort: opts.effort ?? DEFAULT_CHECK_EFFORT,
     system: SYSTEM,
     user,

@@ -6,7 +6,7 @@ import type { SpendBucket } from "../db.js";
 import type { ContentBlock } from "../tralked.js";
 import { CHECK_DUE, CHECKER_RIGHT, checkScopes, FRAME_SCOPE, jobSteps, type CheckContext, type CodeWarning, type GuideProblem } from "./checker.js";
 import { chronologyProblems } from "./chronology.js";
-import type { GuideConfig } from "./config.js";
+import { DEFAULT_CHECK_EFFORT, DEFAULT_MODEL_CHECK, type GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
 import { deterministicProblems, dossierTexts } from "./copy-check.js";
 import type { DossierAchievement, GuideDossier, GuideDossierSource } from "./dossier.js";
@@ -30,7 +30,7 @@ export { copiedRuns } from "./copy-check.js";
 
 /** The writer's model, and the checker's model and effort (Task 22). */
 export type GuideModels = Pick<GuideConfig, "MODEL_WRITER" | "MODEL_CHECK" | "CHECK_EFFORT">;
-export const DEFAULT_GUIDE_MODELS: GuideModels = { MODEL_WRITER: "claude-opus-5-5", MODEL_CHECK: "claude-sonnet-5-5", CHECK_EFFORT: "high" };
+export const DEFAULT_GUIDE_MODELS: GuideModels = { MODEL_WRITER: "claude-opus-5-5", MODEL_CHECK: DEFAULT_MODEL_CHECK, CHECK_EFFORT: DEFAULT_CHECK_EFFORT };
 
 const WRITER_MAX_TOKENS = 16000;
 const CONCURRENCY = 3;

@@ -6,6 +6,10 @@ import { REFERENCE_STEAM_ID } from "./steam-aliases.js";
 const blankToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
 const opt = <T extends z.ZodType>(schema: T) => z.preprocess(blankToUndefined, schema);
 
+/** Task 22: the checker's defaults (the checker and the writer's default models use these too). */
+export const DEFAULT_MODEL_CHECK = "claude-sonnet-5-5";
+export const DEFAULT_CHECK_EFFORT = "high" as const;
+
 const GuideConfigSchema = z.object({
   ANTHROPIC_API_KEY: opt(z.string({ error: "ANTHROPIC_API_KEY is required" }).min(1)),
   /** Site key with the `guides:write` and `media:write` scopes (never `publish`). */
@@ -15,9 +19,9 @@ const GuideConfigSchema = z.object({
   MODEL_EXTRACT: opt(z.string().default("claude-sonnet-5-5")),
   MODEL_FAST: opt(z.string().default("claude-haiku-5-5")),
   /** Task 22: the guide's fact-checker (the probe showed Haiku calling "defeito" what it described as right). */
-  MODEL_CHECK: opt(z.string().default("claude-sonnet-5-5")),
+  MODEL_CHECK: opt(z.string().default(DEFAULT_MODEL_CHECK)),
   /** The checker's effort: high by default; xhigh and max are valid too (more thinking, more output, streamed). */
-  CHECK_EFFORT: opt(z.enum(EFFORTS).default("high")),
+  CHECK_EFFORT: opt(z.enum(EFFORTS).default(DEFAULT_CHECK_EFFORT)),
   /** Spending cap per guide request, in USD. */
   GUIDE_BUDGET_USD: opt(z.coerce.number().positive().default(25)),
   /**

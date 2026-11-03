@@ -18,7 +18,7 @@ import { buildSkeleton } from "./skeleton.js";
 import type { FetchPage, SourceRef } from "./sources.js";
 import { readSteamAliases, steamLanguagesIn } from "./steam-aliases.js";
 import { writerPlan } from "./writer.js";
-import { earlierDraftKeys, readWriting, writingBaseKey, writingKey } from "./writing-cache.js";
+import { earlierBaseKeys, earlierDraftKeys, readWriting, writingBaseKey, writingKey } from "./writing-cache.js";
 
 /**
  * The free dry run (`pnpm guia -- --ensaio --appid <n>` or `--pedido <id>`): replays a request on what the robot
@@ -126,15 +126,15 @@ function cost(model: string, input: number, output: number): number | undefined 
   return price ? (input * price.in + output * price.out) / 1e6 : undefined;
 }
 
+/** Rough thinking tokens per checker call by effort (adaptive thinking is billed as output). */
+const CHECK_THINKING: Record<Effort, number> = { low: 500, medium: 1_500, high: 3_000, xhigh: 6_000, max: 10_000 };
+
 /**
  * The writer's estimated cost (rough): the frame and every write job on MODEL_WRITER, the system prompt cached
  * after the first call, about 220 tokens of text per step and 110 per item, effort high (thinking counted as half
  * the output again); each call checked once on MODEL_CHECK at CHECK_EFFORT (its answer plus the thinking the effort
  * buys, `CHECK_THINKING`). Worst case: all of it a second time (the rewrite).
  */
-/** Rough thinking tokens per checker call by effort (adaptive thinking is billed as output). */
-const CHECK_THINKING: Record<Effort, number> = { low: 500, medium: 1_500, high: 3_000, xhigh: 6_000, max: 10_000 };
-
 function writerCost(dossier: GuideDossier, game: GuideDossierSource, models: DryRunInput["config"], scope?: PsnWriteScope) {
   const plan = writerPlan(dossier, game, scope);
   const system = tokens(plan.system.length);
@@ -360,15 +360,22 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   // Task 21: a draft of another version of the writer: only the job texts its checker accepted.
   const writing = { dossier: toWrite, scope, game: context.game, models: config };
   const carried =
-    cached || draft ? undefined : carriedDraft(db, { writingKey: key, baseKey: writingBaseKey(writing), earlierKeys: earlierDraftKeys(writing) });
+    cached || draft
+      ? undefined
+      : carriedDraft(db, {
+          writingKey: key,
+          baseKey: writingBaseKey(writing),
+          earlierBaseKeys: earlierBaseKeys(writing),
+          earlierKeys: earlierDraftKeys(writing),
+        });
   if (!cached) {
     const parts = draft ? Object.keys(draft.texts.jobs).length + (draft.texts.frame ? 1 : 0) : 0;
     log(
       draft
         ? `rascunho para recomeçar: ${draft.requestId} (${draft.createdAt}${draft.probe ? ", sonda" : ""}), ${parts} partes escritas, ${draft.problems.length} problemas a corrigir; só o que falta e o que tem problema é escrito`
         : carried
-          ? `rascunho para recomeçar: ${carried.requestId} (${carried.createdAt}${carried.probe ? ", sonda" : ""}), de uma versão anterior do escritor: ` +
-            `só os ${Object.keys(carried.texts.jobs).length} trechos que o checador aprovou (${Object.keys(carried.texts.jobs).join(", ")}) são reaproveitados, checados de novo; o resto é escrito`
+          ? `rascunho para recomeçar: ${carried.requestId} (${carried.createdAt}${carried.probe ? ", sonda" : ""}), de uma versão anterior do escritor; ` +
+            `trechos aprovados reaproveitados (checados de novo): ${Object.keys(carried.texts.jobs).length} (${Object.keys(carried.texts.jobs).join(", ")}); o resto é escrito`
           : "rascunho para recomeçar: nenhum (a escrita começa do zero)",
     );
   }

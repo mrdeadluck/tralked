@@ -133,6 +133,16 @@ describe("rascunhos no GuideDb", () => {
       expect(carriedDraft(db, keys)).toBeUndefined();
     });
 
+    it("Task 22: um rascunho salvo com a chave de base antiga (com o Haiku do checador) é carregado", () => {
+      const db = openGuideDb(":memory:");
+      saveDraft(db, { requestId: "direto-1", attempt: 3, writingKey: "escrita:v5-haiku", baseKey: "base:antiga", draft: older({ probe: true }), at: new Date() });
+      expect(carriedDraft(db, keys)).toBeUndefined();
+      const carried = carriedDraft(db, { ...keys, earlierBaseKeys: ["base:antiga"] })!;
+      expect(carried).toMatchObject({ requestId: "direto-1", attempt: 3, baseKey: "base:antiga" });
+      expect(carried.texts).toEqual({ frame: null, jobs: { "cap-4": job, "cap-5": job } });
+      expect(carried.problems.map((p) => p.kind)).toEqual(["checagem-devida", "checagem-devida"]);
+    });
+
     it("um rascunho de antes da chave de base é achado pela chave que a versão de então daria", () => {
       const db = openGuideDb(":memory:");
       saveDraft(db, { requestId: "direto-1", attempt: 2, writingKey: "escrita:v4", draft: older(), at: new Date() });

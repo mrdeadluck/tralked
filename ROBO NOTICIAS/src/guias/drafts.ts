@@ -131,22 +131,25 @@ export function resumableDraft(db: GuideDb, writingKey: string): (SavedDraft & {
 
 /**
  * Task 21: the last draft of the same inputs written by another version of the writer (or with another manual): the
- * `baseKey` matches, or, for a draft saved before base keys, one of `earlierKeys` (writing-cache.ts `earlierDraftKeys`).
+ * `baseKey` (or, Task 22, one of the `earlierBaseKeys` of drafts saved before the checker left it) matches, or, for a
+ * draft saved before base keys, one of `earlierKeys` (writing-cache.ts `earlierDraftKeys`).
  * Its frame and every part its checker failed or still owed (problems and pending, any kind) are dropped: written
  * again. Only the job texts the checker accepted carry over, and the new checker checks each again before any is used
  * (`checagem-devida`): a rewrite only if it rejects it. Undefined when no accepted job text is left.
  */
 export function carriedDraft(
   db: GuideDb,
-  keys: { writingKey: string; baseKey: string; earlierKeys?: string[] },
+  keys: { writingKey: string; baseKey: string; earlierBaseKeys?: string[]; earlierKeys?: string[] },
 ): (SavedDraft & { texts: SavedTexts; problems: GuideProblem[] }) | undefined {
+  const bases = [keys.baseKey, ...(keys.earlierBaseKeys ?? [])];
   const earlier = keys.earlierKeys ?? [];
+  const list = (values: string[]) => values.map(() => "?").join(", ") || "NULL";
   const row = db.raw
     .prepare(
-      `SELECT * FROM drafts WHERE writing_key != ? AND (base_key = ? OR (base_key IS NULL AND writing_key IN (${earlier.map(() => "?").join(", ") || "NULL"})))
+      `SELECT * FROM drafts WHERE writing_key != ? AND (base_key IN (${list(bases)}) OR (base_key IS NULL AND writing_key IN (${list(earlier)})))
        ORDER BY id DESC LIMIT 1`,
     )
-    .get(keys.writingKey, keys.baseKey, ...earlier) as unknown as DraftRow | undefined;
+    .get(keys.writingKey, ...bases, ...earlier) as unknown as DraftRow | undefined;
   if (!row) return undefined;
   const draft = fromRow(row);
   if (!draft.texts) return undefined;
