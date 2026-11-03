@@ -8,7 +8,7 @@ import { buildDossier, type DossierChapter, type GuideDossier, type GuideDossier
 import { inPool } from "../../src/guias/pool.js";
 import { psnScope } from "../../src/guias/scope.js";
 import { buildSkeleton } from "../../src/guias/skeleton.js";
-import { copiedRuns, loadGuideStyle, writeAndCheckGuide, writeGuide, writeGuideDetailed } from "../../src/guias/writer.js";
+import { copiedRuns, loadGuideStyle, parseSavedTexts, writeAndCheckGuide, writeGuide, writeGuideDetailed, type DraftRound } from "../../src/guias/writer.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
 import { fakeAi, keysIn, OK } from "./helpers-writer.js";
 
@@ -318,13 +318,13 @@ describe("estrutura feita pelo código", () => {
     return dossier;
   };
 
-  it("perdível que o modelo não posiciona vai para antes do capítulo do prazo, e vira problema", async () => {
+  it("perdível que o modelo não posiciona vai para antes do capítulo do prazo, e fica registrado como nota", async () => {
     const { payload, repairs } = await writeGuideDetailed(fakeAi().ai, missableSecret(), GAME, "live");
     const placed = itemsOf(payload).find((x) => x.i.achievement === "ACH_SECRET")!;
     expect(placed.step).toBe("weeping-creek-3");
     expect(placed.i.missable).toBe(true);
     expect(payload.facts.missables).toBe(1);
-    expect(repairs.map((r) => r.text).join(" ")).toMatch(/ACH_SECRET/);
+    expect(repairs.find((r) => r.text.includes("ACH_SECRET"))?.kind).toBe("nota");
   });
 
   it("perdível posto pelo modelo depois do capítulo do prazo é recusado e vai para antes dele", async () => {
@@ -716,5 +716,205 @@ describe("guia pela lista da PSN (scope psn)", () => {
     expect(payload.walkthrough.scope).toBeUndefined();
     expect(payload.walkthrough.psnList).toBeUndefined();
     expect(payload.walkthrough.steamOnly).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Task 20: what the checker judges, and with which facts (systematic first-check failures)
+// ---------------------------------------------------------------------------------------------
+
+const section = (user: string, tag: "dossie" | "guia") => user.split(`<${tag}>`)[1]!.split(`</${tag}>`)[0]!;
+const jobCheck = (calls: { purpose: string; user: string }[], stepKey: string) =>
+  calls.find((c) => c.purpose === "guide-check" && section(c.user, "guia").includes(`"key":"${stepKey}"`))!;
+
+describe("checador: julga cada parte só pelo que o escritor dela recebeu", () => {
+  it("o trecho de um capítulo não julga o título nem o prazo do capítulo (são textos da moldura)", async () => {
+    const { ai, calls } = fakeAi();
+    await writeAndCheckGuide(ai, makeDossier(), GAME, "live");
+    const weeping = jobCheck(calls, "weeping-creek-1");
+    // The frame wrote "Antes da floresta" as the chapter's deadline and "Capítulo weeping-creek" as its title.
+    expect(section(weeping.user, "guia")).not.toContain("Antes da floresta");
+    expect(section(weeping.user, "guia")).not.toContain("Capítulo weeping-creek");
+    // They are context for the step texts, on the dossier side.
+    expect(section(weeping.user, "dossie")).toContain('"tituloNoGuia":"Capítulo weeping-creek"');
+  });
+
+  it("o trecho recebe o jogo, os capítulos vizinhos e as conquistas sem lugar fixo que o escritor recebeu", async () => {
+    const { ai, calls } = fakeAi();
+    await writeAndCheckGuide(ai, makeDossier(), GAME, "live");
+    const dossier = section(jobCheck(calls, "crimson-forest-1").user, "dossie");
+    expect(dossier).toContain('"jogo":"Phantom Test"');
+    expect(dossier).toContain('"anterior":"Weeping Creek"');
+    expect(dossier).toContain('"proximo":"Ashen Peak"');
+    // The writer of this job was offered the loose achievements (to place them): the checker sees the same facts.
+    const loose = dossier.split('"conquistasSemLugarFixo"')[1]!;
+    for (const apiName of ["ACH_BELLS", "ACH_ENDING", "ACH_SECRET"]) expect(loose).toContain(`"apiName":"${apiName}"`);
+    // ...without the how-to the writer did not get either.
+    expect(loose).not.toContain("Climb the scaffolding");
+  });
+
+  it("o aviso de perdível que o código põe no início do capítulo vai ao checador com a conquista avisada", async () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_ENDING")!, {
+      missable: true,
+      warnChapter: "Crimson Forest",
+      doneChapter: "Crimson Forest",
+    });
+    const { ai, calls } = fakeAi();
+    const result = await writeAndCheckGuide(ai, dossier, GAME, "live");
+    const crimson = jobCheck(calls, "crimson-forest-1");
+    expect(section(crimson.user, "guia")).toContain("Perdível: comece aqui **The End**");
+    const warned = section(crimson.user, "dossie").split('"conquistasAvisadasAqui"')[1]!;
+    expect(warned).toContain('"apiName":"ACH_ENDING"');
+    expect(warned).toContain('"perdivel":true');
+    expect(result.ok).toBe(true);
+  });
+
+  it("a moldura é checada com o que o escritor da moldura recebeu: catálogo e números da ficha", async () => {
+    const game = { ...GAME, game: { ...GAME.game, summary: "Um jogo de espadas e fantasmas." } };
+    const { ai, of } = fakeAi();
+    await writeAndCheckGuide(ai, makeDossier(), game, "live");
+    const frame = of("guide-check").find((c) => c.user.includes('"leiaAntes"'))!;
+    const dossier = section(frame.user, "dossie");
+    expect(dossier).toContain('"nome":"Phantom Test"');
+    expect(dossier).toContain('"desenvolvedora":"S-Game"');
+    expect(dossier).toContain("Um jogo de espadas e fantasmas.");
+    expect(dossier).toContain('"prazos":["Crimson Forest"]');
+    const numbers = frame.user.split("</numeros_do_codigo>")[0]!;
+    expect(numbers).toContain('"ficha":{"conquistas":4,"ocultas":2');
+    expect(numbers).toContain('"capitulos":3');
+  });
+
+  it("o 'depois' de um capítulo longo é só o do trecho que tem o último passo dele", async () => {
+    const dossier = makeDossier();
+    const ashen = dossier.chapters.find((c) => c.title === "Ashen Peak")!;
+    const base = ashen.items[0]!;
+    ashen.items = Array.from({ length: 25 }, (_, n) => ({ ...base, id: `ash-${n}`, name: `Ash Feather ${n + 1}`, nameEn: `Ash Feather ${n + 1}` }));
+    const { ai } = fakeAi({
+      chapter: (out, prompt) => {
+        if (!prompt.includes('capitulo key="ashen-peak"')) return;
+        out.depois = prompt.includes('<passo key="ashen-peak-1">') ? "Nota do primeiro trecho." : null;
+      },
+    });
+    const result = await writeAndCheckGuide(ai, dossier, GAME, "live");
+    expect(JSON.stringify(result.payload)).not.toContain("Nota do primeiro trecho.");
+  });
+
+  it("perdível posto pelo código no lugar que o dossiê indica é nota, não problema: não paga reescrita", async () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_SECRET")!, {
+      missable: true,
+      missableUntil: "Crimson Forest",
+      deadlineChapter: "Crimson Forest",
+    });
+    const { ai, of } = fakeAi();
+    const result = await writeAndCheckGuide(ai, dossier, GAME, "live");
+    expect(result.ok).toBe(true);
+    expect(of("guide-write").filter((o) => o.purpose.endsWith("-retry"))).toEqual([]);
+    // Still recorded with the draft, as a note.
+    const note = result.draft!.repairs.find((r) => r.text.includes("ACH_SECRET"))!;
+    expect(note).toMatchObject({ kind: "nota", scope: "weeping-creek-1" });
+    expect(result.draft!.problems).toEqual([]);
+  });
+});
+
+describe("rascunhos: nada pago se perde, e a próxima tentativa recomeça do último", () => {
+  const failCrimson = (user: string) =>
+    section(user, "guia").includes('"key":"crimson-forest-1"') ? { ok: false, problems: ["O passo crimson-forest-1 inventa um chefe."] } : OK;
+
+  it("cada rodada vai a onRound com os textos, o payload e os problemas com escopo e tipo", async () => {
+    const rounds: DraftRound[] = [];
+    const { ai } = fakeAi({ verdict: failCrimson });
+    const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { onRound: (r) => rounds.push(r) });
+    expect(result.ok).toBe(false);
+    expect(rounds.map((r) => r.round)).toEqual([1, 2]);
+    const last = rounds[1]!;
+    expect(last.ok).toBe(false);
+    expect(last.problems).toEqual([{ text: "O passo crimson-forest-1 inventa um chefe.", scope: "crimson-forest-1", kind: "checador" }]);
+    expect(Object.keys(last.texts.jobs).sort()).toEqual(["ashen-peak-1", "crimson-forest-1", "limpeza-1", "weeping-creek-1"]);
+    expect(last.texts.frame?.capa.manchete).toBeDefined();
+    expect(last.payload.walkthrough.chapters.length).toBeGreaterThan(0);
+    expect(result.draft).toEqual(last);
+  });
+
+  it("recomeçar de um rascunho reprovado reescreve só a parte com problema e só ela é checada de novo", async () => {
+    const first = await writeAndCheckGuide(fakeAi({ verdict: failCrimson }).ai, makeDossier(), GAME, "live");
+    const saved = JSON.parse(JSON.stringify(first.draft!)) as DraftRound;
+    const { ai, of } = fakeAi();
+    const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { resume: { texts: saved.texts, problems: saved.problems } });
+    expect(result.ok).toBe(true);
+    const writes = of("guide-write");
+    expect(writes.map((w) => w.purpose)).toEqual(["guide-write-chapter-retry"]);
+    expect(writes[0]!.user).toContain('<passo key="crimson-forest-1">');
+    expect(writes[0]!.user).toContain("O passo crimson-forest-1 inventa um chefe.");
+    // Only the rewritten job goes to the checker; the frame and the accepted jobs are not paid again.
+    const checks = of("guide-check");
+    expect(checks).toHaveLength(1);
+    expect(section(checks[0]!.user, "guia")).toContain('"key":"crimson-forest-1"');
+  });
+
+  it("sonda: escreve só a moldura e os N primeiros capítulos, checa só essas partes e não reescreve", async () => {
+    const rounds: DraftRound[] = [];
+    const { ai, of } = fakeAi({ verdict: (user) => (user.includes('"leiaAntes"') ? { ok: false, problems: ["A capa exagera."] } : OK) });
+    const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { probe: { chapters: 1 }, onRound: (r) => rounds.push(r) });
+    expect(of("guide-write").map((w) => w.purpose).sort()).toEqual(["guide-write-chapter", "guide-write-frame"]);
+    expect(of("guide-write-chapter")[0]!.user).toContain('<passo key="weeping-creek-1">');
+    expect(of("guide-check")).toHaveLength(2);
+    expect(result.ok).toBe(false);
+    // Only the probed parts' problems (the unwritten chapters' gaps are not problems of the probe).
+    expect(result.draft!.problems).toEqual([{ text: "A capa exagera.", scope: "frame", kind: "checador" }]);
+    expect(result.draft!.probe).toBe(true);
+    expect(Object.keys(result.draft!.texts.jobs)).toEqual(["weeping-creek-1"]);
+    expect(rounds).toHaveLength(1);
+  });
+
+  it("a rodada completa depois da sonda aproveita o que a sonda aprovou e escreve o resto", async () => {
+    const probe = await writeAndCheckGuide(fakeAi().ai, makeDossier(), GAME, "live", { probe: { chapters: 1 } });
+    expect(probe.draft!.problems).toEqual([]);
+    const { ai, of } = fakeAi();
+    const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { resume: { texts: probe.draft!.texts, problems: probe.draft!.problems } });
+    expect(result.ok).toBe(true);
+    // Frame and Weeping Creek were approved by the probe: only the other chapters are written (first time: no retry).
+    expect(of("guide-write").map((w) => w.purpose).sort()).toEqual(["guide-write-chapter", "guide-write-chapter", "guide-write-chapter"]);
+    expect(of("guide-write").some((w) => w.user.includes('<passo key="weeping-creek-1">'))).toBe(false);
+    expect(of("guide-check").some((c) => c.user.includes('"leiaAntes"'))).toBe(false);
+  });
+
+  it("um rascunho salvo inválido não é aproveitado (parseSavedTexts)", () => {
+    expect(parseSavedTexts({ frame: { capa: 1 }, jobs: { a: { passos: "x" } } })).toEqual({ frame: null, jobs: {} });
+    expect(parseSavedTexts("lixo")).toBeUndefined();
+  });
+});
+
+describe("texto de conquista sem lugar fixo posta pelo código (Task 20)", () => {
+  const missableSecret = () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_SECRET")!, {
+      missable: true,
+      missableUntil: "Crimson Forest",
+      deadlineChapter: "Crimson Forest",
+    });
+    return dossier;
+  };
+
+  it("sem texto, o problema vai para o trecho da limpeza (quem escreve esse texto) e o local não copia a fonte", async () => {
+    const { ai } = fakeAi({
+      chapter: (out, prompt) => {
+        if (prompt.includes("capítulo de limpeza")) out.itens = out.itens.filter((i) => i.key !== "conq-ach-secret");
+      },
+    });
+    const { payload, repairs } = await writeGuideDetailed(ai, missableSecret(), GAME, "live");
+    const placed = itemsOf(payload).find((x) => x.i.achievement === "ACH_SECRET")!;
+    expect(placed.step).toBe("weeping-creek-3");
+    // ACH_SECRET's how-to is the source's own sentence: it never goes into the guide as the item's text.
+    expect(placed.i.location).toBeUndefined();
+    const missing = repairs.find((r) => r.text.includes("conq-ach-secret") && r.text.includes("sem texto"))!;
+    expect(missing).toMatchObject({ scope: "limpeza-1", kind: "reparo" });
+  });
+
+  it("na sonda, um trecho sondado não é culpado pelo texto que a limpeza (não escrita) daria", async () => {
+    const result = await writeAndCheckGuide(fakeAi().ai, missableSecret(), GAME, "live", { probe: { chapters: 1 } });
+    expect(result.draft!.problems).toEqual([]);
+    expect(result.ok).toBe(true);
   });
 });

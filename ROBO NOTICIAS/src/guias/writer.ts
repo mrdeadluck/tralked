@@ -4,7 +4,7 @@ import type { Ai } from "../ai/client.js";
 import { escapeAttr, escapeText } from "../ai/escape.js";
 import type { SpendBucket } from "../db.js";
 import type { ContentBlock } from "../tralked.js";
-import { checkScopes, FRAME_SCOPE, jobSteps, type GuideProblem } from "./checker.js";
+import { checkScopes, FRAME_SCOPE, jobSteps, type CheckContext, type GuideProblem } from "./checker.js";
 import { chronologyProblems } from "./chronology.js";
 import type { GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
@@ -12,7 +12,7 @@ import { deterministicProblems, dossierTexts } from "./copy-check.js";
 import type { DossierAchievement, GuideDossier, GuideDossierSource } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
 import type { PsnWriteScope } from "./scope.js";
-import { buildSkeleton, isMissable, untilOf, writeJobs, type GuideSkeleton, type SkelChapter, type SkelItem, type WriteJob } from "./skeleton.js";
+import { anchoredIn, buildSkeleton, isMissable, placeableIn, writeJobs, type GuideSkeleton, type SkelItem, type WriteJob } from "./skeleton.js";
 
 export { copiedRuns } from "./copy-check.js";
 
@@ -270,21 +270,11 @@ function itemLine(s: SkelItem): string {
     missableAttr(i.missable, i.missableUntil),
     `volta_depois="${yes(i.returnLater)}"`,
     s.ach ? `conquista="${attr(s.ach.apiName)}" conquista_pt="${attr(s.ach.namePt ?? "")}" conquista_en="${attr(s.ach.nameEn)}" oculta="${yes(s.ach.hidden)}"` : "",
+    // The checker sees what the item counts toward: the writer is told too.
+    i.countsFor.length > 0 ? `conta_para="${attr(i.countsFor.join(", "))}"` : "",
     `fontes="${i.sources.length}${!i.agreed || i.conflict ? " (revisar)" : ""}"`,
   ].filter(Boolean);
   return `<item ${attrs.join(" ")}>${body(i.location)}</item>`;
-}
-
-/** Loose achievements this chapter may hold: all of them, except missables whose milestone chapter came before. */
-function placeableIn(skel: GuideSkeleton, chapter: SkelChapter): SkelItem[] {
-  if (chapter.cleanup) return [];
-  const at = skel.chapters.indexOf(chapter);
-  return skel.loose.filter((l) => {
-    const deadline = l.ach!.missable ? l.ach!.deadlineChapter : undefined;
-    if (!deadline) return true;
-    const d = skel.chapters.findIndex((c) => !c.cleanup && c.title === deadline);
-    return d < 0 || at <= d;
-  });
 }
 
 function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource): string {
@@ -456,6 +446,32 @@ type Ctx = {
 
 /** The model's texts: the frame and one answer per write job (by job id). */
 type Texts = { frame: Frame; jobs: Map<string, ChapterText> };
+/** Texts of a draft that may lack parts: a probe's (frame + a few chapters), or a saved draft read back. */
+type PartialTexts = { frame: Frame | null; jobs: Map<string, ChapterText> };
+
+/** A draft's texts as saved in the GuideDb (JSON): what a later attempt resumes from. */
+export type SavedTexts = { frame: Frame | null; jobs: Record<string, ChapterText> };
+
+/** A saved draft's texts, validated part by part (an invalid part is dropped and written again); undefined if unusable. */
+export function parseSavedTexts(raw: unknown): SavedTexts | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as { frame?: unknown; jobs?: unknown };
+  const frame = FrameSchema.safeParse(value.frame);
+  const jobs: Record<string, ChapterText> = {};
+  if (value.jobs && typeof value.jobs === "object") {
+    for (const [id, text] of Object.entries(value.jobs as Record<string, unknown>)) {
+      const parsed = ChapterTextSchema.safeParse(text);
+      if (parsed.success) jobs[id] = parsed.data;
+    }
+  }
+  return { frame: frame.success ? frame.data : null, jobs };
+}
+
+const toSaved = (t: PartialTexts): SavedTexts => ({ frame: t.frame, jobs: Object.fromEntries(t.jobs) });
+const fromSaved = (t: SavedTexts): PartialTexts => ({ frame: t.frame, jobs: new Map(Object.entries(t.jobs)) });
+
+/** A job the probe did not write: no text (assemble fills the gaps; their repairs are out of the probe's scope). */
+const NO_TEXT: ChapterText = { passos: [], itens: [], depois: null };
 
 function context(ai: Ai, dossier: GuideDossier, game: GuideDossierSource, bucket: SpendBucket, opts: WriteGuideOpts): Ctx {
   const skel = buildSkeleton(dossier);
@@ -472,37 +488,56 @@ function context(ai: Ai, dossier: GuideDossier, game: GuideDossierSource, bucket
   };
 }
 
+/** The parts a draft round (re)wrote. */
+type Redone = { frame: boolean; jobs: WriteJob[] };
+
 /**
- * Asks the model for the texts. Without `previous`, everything; with it, only the frame and the jobs some problem
- * points at (each call gets only its own problems), keeping the other texts. The first failing call stops the rest.
+ * Asks the model for the texts. Without `previous`, everything (within `only`, the probe's jobs); with it, only the
+ * frame and the jobs some problem points at (each call gets only its own problems) and the parts `previous` lacks,
+ * keeping the other texts. A part that had a text before is a "-retry". The first failing call stops the rest.
  */
-async function draft(ctx: Ctx, previous?: Texts, problems: GuideProblem[] = []): Promise<Texts> {
+async function draft(
+  ctx: Ctx,
+  previous: PartialTexts | undefined,
+  problems: GuideProblem[] = [],
+  only?: Set<string>,
+): Promise<{ texts: Texts; redone: Redone }> {
   const own = (scope: string) => problems.filter((p) => p.scope === scope).map((p) => p.text);
-  const call = <T>(purpose: string, user: string, schema: z.ZodType<T>, fixes: string[]) =>
+  const call = <T>(purpose: string, retry: boolean, user: string, schema: z.ZodType<T>, fixes: string[]) =>
     ctx.ai.structured({
       bucket: ctx.bucket,
-      purpose: previous ? `${purpose}-retry` : purpose,
+      purpose: retry ? `${purpose}-retry` : purpose,
       model: ctx.models.MODEL_WRITER,
       effort: "high",
       system: loadGuideStyle(),
-      user: fixes.length > 0 ? `${user}\n\n${problemsMessage(fixes)}` : user,
+      user: fixes.length > 0 ? `${user}
+
+${problemsMessage(fixes)}` : user,
       schema,
       maxTokens: WRITER_MAX_TOKENS,
       fallbacks: ctx.fallbacks,
     });
 
-  const redoFrame = !previous || own(FRAME_SCOPE).length > 0;
-  const redoJobs = ctx.jobs.filter((j) => !previous || own(j.id).length > 0);
+  const redoFrame = !previous?.frame || own(FRAME_SCOPE).length > 0;
+  const redoJobs = ctx.jobs.filter((j) => (!only || only.has(j.id)) && (!previous?.jobs.has(j.id) || own(j.id).length > 0));
   const abort: Abort = { aborted: false };
   const [frame, answers] = await Promise.all([
     redoFrame
-      ? abortOnError(call("guide-write-frame", frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope), FrameSchema, own(FRAME_SCOPE)), abort)
-      : Promise.resolve(previous!.frame),
-    inPool(redoJobs, CONCURRENCY, (job) => call("guide-write-chapter", jobMessage(ctx.skel, job, ctx.game), ChapterTextSchema, own(job.id)), abort),
+      ? abortOnError(
+          call("guide-write-frame", Boolean(previous?.frame), frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope), FrameSchema, own(FRAME_SCOPE)),
+          abort,
+        )
+      : Promise.resolve(previous!.frame!),
+    inPool(
+      redoJobs,
+      CONCURRENCY,
+      (job) => call("guide-write-chapter", Boolean(previous?.jobs.has(job.id)), jobMessage(ctx.skel, job, ctx.game), ChapterTextSchema, own(job.id)),
+      abort,
+    ),
   ]);
   const jobs = new Map(previous?.jobs ?? []);
   redoJobs.forEach((job, n) => jobs.set(job.id, answers[n]!));
-  return { frame, jobs };
+  return { texts: { frame, jobs }, redone: { frame: redoFrame, jobs: redoJobs } };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -526,14 +561,16 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   const stepBlocks = new Map<string, ContentBlock[]>();
   const itemText = new Map<string, ChapterText["itens"][number]>();
   const laterNote = new Map<string, string>();
-  const answered = jobs.map((job) => ({ job, text: texts.jobs.get(job.id)! }));
+  const answered = jobs.map((job) => ({ job, text: texts.jobs.get(job.id) ?? NO_TEXT }));
+  // Only the job holding a chapter's last step writes its "later" note (it is shown there).
+  const lastJobOf = new Map(skel.chapters.map((c) => [c.key, jobs.filter((j) => j.chapter === c).at(-1)?.id]));
   // Cleanup texts first: a loose achievement keeps the cleanup text unless a chapter places it (below).
   const ordered = [...answered.filter((a) => a.job.chapter.cleanup), ...answered.filter((a) => !a.job.chapter.cleanup)];
   for (const { job, text } of ordered) {
     const own = new Set(job.steps.map((s) => s.key));
     for (const step of text.passos) if (own.has(step.key)) stepBlocks.set(step.key, toBlocks(step.blocos));
     for (const i of text.itens) if (itemKeys.has(i.key) && !itemText.has(i.key)) itemText.set(i.key, i);
-    if (text.depois) laterNote.set(job.chapter.key, text.depois);
+    if (text.depois && lastJobOf.get(job.chapter.key) === job.id) laterNote.set(job.chapter.key, text.depois);
   }
 
   // --- placement of the loose achievements --------------------------------------------------------------------
@@ -594,12 +631,20 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     let target: string | undefined;
     if (a.missable && a.deadlineChapter) {
       target = withRoomFrom(stepBefore(a.deadlineChapter));
-      repairs.push({
-        scope: target ? scopeOfStep(target) : FRAME_SCOPE,
-        text: target
-          ? `A conquista perdível "${achName(a)}" (${a.apiName}) não foi posta num passo; o sistema a pôs no passo ${target}, antes do capítulo "${a.deadlineChapter}". Ponha-a no passo certo, antes do ponto de não retorno, e escreva o item dela.`
-          : `A conquista perdível "${achName(a)}" (${a.apiName}) não coube em nenhum passo antes do capítulo "${a.deadlineChapter}" e ficou na limpeza.`,
-      });
+      // Task 20: placed by the code before its point of no return, it is a note (recorded, no rewrite): the problem
+      // would go to the job of that step, which may not hold the right place and could never clear it.
+      repairs.push(
+        target
+          ? {
+              scope: scopeOfStep(target),
+              kind: "nota",
+              text: `A conquista perdível "${achName(a)}" (${a.apiName}) não foi posta num passo pelo escritor; o sistema a pôs no passo ${target}, antes do capítulo "${a.deadlineChapter}".`,
+            }
+          : {
+              scope: FRAME_SCOPE,
+              text: `A conquista perdível "${achName(a)}" (${a.apiName}) não coube em nenhum passo antes do capítulo "${a.deadlineChapter}" e ficou na limpeza.`,
+            },
+      );
     } else if (a.missable && a.doneChapter) {
       // Task 18: no limit, only the last place its texts name: the end of that chapter (its warning stays at the anchor).
       const at = chapterAt(a.doneChapter);
@@ -608,7 +653,8 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       if (target) {
         repairs.push({
           scope: scopeOfStep(target),
-          text: `A conquista perdível "${achName(a)}" (${a.apiName}) não foi posta num passo; o sistema a pôs no passo ${target}, no fim do capítulo "${a.doneChapter}". Ponha-a no passo em que ela se conclui e escreva o item dela.`,
+          kind: "nota",
+          text: `A conquista perdível "${achName(a)}" (${a.apiName}) não foi posta num passo pelo escritor; o sistema a pôs no passo ${target}, no fim do capítulo "${a.doneChapter}".`,
         });
       }
     }
@@ -618,6 +664,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   }
 
   // --- items ----------------------------------------------------------------------------------------------------
+  const cleanupStepOf = new Map(skel.chapters.filter((c) => c.cleanup).flatMap((c) => c.steps.flatMap((s) => s.items.map((i) => [i.key, s.key] as const))));
   const fallbackSources = (): WalkSource[] =>
     game.game.steamAppId ? [{ name: "Steam", url: `https://steamcommunity.com/stats/${game.game.steamAppId}/achievements` }] : [];
   const compatSteamOnly = dossier.facts.compat === "steam_only";
@@ -636,10 +683,13 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       name = plain(t?.nome, 80) || plain(en, 80) || "Item";
       nameEn = name.toLowerCase() !== en.toLowerCase() ? plain(en, 80) || undefined : undefined;
     }
-    let location = inline(t?.local, 400);
+    const location = inline(t?.local, 400);
     if (!location) {
-      repairs.push({ scope: scopeOfStep(stepKey), text: `O item "${name}" (${s.key}) ficou sem texto próprio de local; escreva onde fica e como pegar.` });
-      location = inline(i?.location || a?.howTo || a?.descriptionPt || a?.description, 400);
+      // Task 20: a loose achievement's text is the cleanup job's (a chapter that places it may write its own): that
+      // job is asked for it. No fallback text: the sources' own sentences (location, how-to) would fail the copy check
+      // in another job's scope, and a guide with this repair never goes out anyway.
+      const owner = cleanupStepOf.get(s.key) ?? stepKey;
+      repairs.push({ scope: scopeOfStep(owner), text: `O item "${name}" (${s.key}) ficou sem texto próprio de local; escreva onde fica e como pegar.` });
     }
     const index = i?.index;
     const total = i?.total;
@@ -696,7 +746,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       deadline = plain(c.deadlines.join("; "), 200);
     }
     // Task 18: loose missables anchored here are warned at the chapter's start (they may be done later).
-    const anchored = c.cleanup ? [] : skel.loose.filter((l) => l.ach!.missable && l.ach!.warnChapter === c.title).map((l) => l.ach!);
+    const anchored = anchoredIn(skel, c).map((l) => l.ach!);
     const walkSteps = steps.map(({ s, items }, n) => {
       const walkItems = items.map((item) => buildItem(item, s.key));
       const anchor = n === 0 && anchored.length > 0;
@@ -865,7 +915,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       chapters,
     },
   };
-  return { payload, repairs };
+  return { payload, repairs: repairs.map((r) => ({ ...r, kind: r.kind ?? "reparo" })) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -902,7 +952,7 @@ export async function writeGuideDetailed(
   opts: WriteGuideOpts = {},
 ): Promise<WrittenGuide> {
   const ctx = context(ai, dossier, game, bucket, opts);
-  return assemble(ctx, await draft(ctx));
+  return assemble(ctx, (await draft(ctx, undefined)).texts);
 }
 
 /** Writes the guide: structure and numbers from the dossier, text from `MODEL_WRITER`. No images, no soundtrack. */
@@ -917,17 +967,44 @@ export async function writeGuide(
 }
 
 /**
+ * One write-and-check round, as the GuideDb keeps it (Task 20): what was paid for is never lost, and a later attempt
+ * resumes from it. `problems` are the blocking ones (scope + kind), what the next round rewrites; `repairs` everything
+ * the code filled or corrected (notes included); `texts` the model's answers (a probe's lack the unwritten chapters).
+ */
+export type DraftRound = {
+  round: number;
+  ok: boolean;
+  /** Written by a probe (`probe`): only the frame and the first chapters. */
+  probe: boolean;
+  texts: SavedTexts;
+  payload: GuidePayloadV2;
+  problems: GuideProblem[];
+  repairs: GuideProblem[];
+  internalErrors: string[];
+};
+
+/**
  * `internalErrors`: chronology violations of the code's own structure (chapter order, phases, the skeleton's items):
- * a robot bug, not the model's to rewrite. The guide still goes to review, with them in the report.
+ * a robot bug, not the model's to rewrite. The guide still goes to review, with them in the report. `draft`: the last
+ * round (absent only from test fakes).
  */
 export type GuideWriteResult = (
   | { ok: true; payload: GuidePayloadV2 }
   | { ok: false; problems: string[]; payload: GuidePayloadV2 }
-) & { internalErrors?: string[] };
+) & { internalErrors?: string[]; draft?: DraftRound };
 
 export type WriteAndCheckOpts = WriteGuideOpts & {
   /** Text of the source pages, for the copy check; defaults to the source texts the dossier carries. */
   sourceTexts?: string[];
+  /**
+   * Task 20: a saved draft of the same writing key. Its accepted parts are kept; only the parts its problems point at
+   * and the parts it lacks are written (then checked); a failure still gets one more rewrite.
+   */
+  resume?: { texts: SavedTexts; problems: GuideProblem[] };
+  /** The cheap probe: only the frame and the first `chapters` story chapters, checked once, never rewritten. */
+  probe?: { chapters: number };
+  /** Called after each round is checked (the pipeline saves it at once: a later failure loses nothing paid). */
+  onRound?: (round: DraftRound) => void;
 };
 
 /** Item keys per job, as they ended up in the payload: a job whose items changed must be checked again. */
@@ -938,10 +1015,11 @@ function jobSignature(payload: GuidePayloadV2, job: WriteJob): string {
 }
 
 /**
- * Writes and checks: the code's repairs, the deterministic checks (copy, vocabulary, the model's chronology slips), then the LLM checker per
- * frame and per job. With problems, rewrites once only the frame and the jobs they point at, then checks again
- * (the LLM only where the text or the items changed). `ok: false` after that: the pipeline marks the request
- * `failed`.
+ * Writes and checks: the code's repairs, the deterministic checks (copy, vocabulary, the model's chronology slips),
+ * then the LLM checker per frame and per job. With problems, rewrites once only the frame and the jobs they point at,
+ * then checks again (the LLM only where the text or the items changed). `ok: false` after that: the pipeline marks
+ * the request `failed`. With `resume`, the first round writes only what the saved draft still needs; with `probe`,
+ * one round over the frame and the first chapters.
  */
 export async function writeAndCheckGuide(
   ai: Ai,
@@ -952,40 +1030,80 @@ export async function writeAndCheckGuide(
 ): Promise<GuideWriteResult> {
   const ctx = context(ai, dossier, game, bucket, opts);
   const sources = opts.sourceTexts ?? dossierTexts(dossier);
-  const checkOpts = { bucket, model: ctx.models.MODEL_FAST };
+  // The ficha counts the frame writer was told to cite (the frame message's "## Ficha").
+  const ficha = fichaOf(ctx.skel, dossier, game, ctx.scope);
+  const checkContext: CheckContext = {
+    game: { name: game.game.name, developer: game.game.developer, publisher: game.game.publisher, summary: game.game.summary },
+    ficha: {
+      conquistas: ficha.achievements,
+      ocultas: ficha.hidden,
+      perdiveis: ficha.missables,
+      online: ficha.online,
+      comBug: ficha.bugged,
+      capitulos: ficha.chapters,
+      regioes: ficha.regions,
+      ...(ficha.psn ? { trofeusPsn: ficha.psn.trophies, conquistasSteam: ficha.psn.steam, soNaSteam: ficha.psn.steamOnly } : {}),
+    },
+  };
+  const checkOpts = { bucket, model: ctx.models.MODEL_FAST, context: checkContext };
 
-  const deterministic = (written: WrittenGuide): GuideProblem[] => {
+  // The probe: the frame and the jobs of the first N story chapters; problems of other parts are not its own.
+  const probed = opts.probe ? new Set(ctx.skel.chapters.filter((c) => !c.cleanup).slice(0, Math.max(1, opts.probe.chapters))) : undefined;
+  const only = probed ? new Set(ctx.jobs.filter((j) => probed.has(j.chapter)).map((j) => j.id)) : undefined;
+  const inScope = (scope: string) => !only || scope === FRAME_SCOPE || only.has(scope);
+
+  const blocking = (written: WrittenGuide): GuideProblem[] => {
     const stepOfItem = new Map(written.payload.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items.map((i) => [i.key, s.key] as const))));
     const jobOfStep = new Map(ctx.jobs.flatMap((j) => j.steps.map((s) => [s.key, j.id] as const)));
     const scopeOf = (key: string | null) => (key === null ? FRAME_SCOPE : (jobOfStep.get(stepOfItem.get(key) ?? key) ?? FRAME_SCOPE));
-    const byWriter = chronologyProblems(written.payload, ctx.skel, ctx.dossier).filter((p) => p.owner === "writer");
+    const byWriter = chronologyProblems(written.payload, ctx.skel, ctx.dossier)
+      .filter((p) => p.owner === "writer")
+      .map((p) => ({ text: p.text, key: p.key, kind: "cronologia" as const }));
     return [
-      ...written.repairs,
-      ...[...deterministicProblems(written.payload, sources), ...byWriter].map((p) => ({ text: p.text, scope: scopeOf(p.key) })),
+      // A note is the code's own honest placement: recorded with the draft, never a reason to rewrite.
+      ...written.repairs.filter((r) => r.kind !== "nota"),
+      ...[...deterministicProblems(written.payload, sources), ...byWriter].map((p) => ({ text: p.text, scope: scopeOf(p.key), kind: p.kind })),
     ];
   };
   /** The code's own chronology violations: reported, never sent to the model. */
-  const internal = (written: WrittenGuide) => {
-    const errors = chronologyProblems(written.payload, ctx.skel, ctx.dossier).filter((p) => p.owner === "code").map((p) => p.text);
-    return errors.length > 0 ? { internalErrors: errors } : {};
-  };
+  const internalOf = (written: WrittenGuide) =>
+    chronologyProblems(written.payload, ctx.skel, ctx.dossier).filter((p) => p.owner === "code").map((p) => p.text);
 
-  const firstTexts = await draft(ctx);
-  const first = assemble(ctx, firstTexts);
-  const firstProblems = [
-    ...deterministic(first),
-    ...(await checkScopes(ai, first.payload, dossier, ctx.skel, { frame: true, jobs: ctx.jobs }, checkOpts)),
-  ];
-  if (firstProblems.length === 0) return { ok: true, payload: first.payload, ...internal(first) };
-
-  const secondTexts = await draft(ctx, firstTexts, firstProblems);
-  const second = assemble(ctx, secondTexts);
-  const rewritten = new Set(firstProblems.map((p) => p.scope));
-  const recheck = ctx.jobs.filter((j) => rewritten.has(j.id) || jobSignature(first.payload, j) !== jobSignature(second.payload, j));
-  const secondProblems = [
-    ...deterministic(second),
-    ...(await checkScopes(ai, second.payload, dossier, ctx.skel, { frame: rewritten.has(FRAME_SCOPE), jobs: recheck }, checkOpts)),
-  ];
-  if (secondProblems.length === 0) return { ok: true, payload: second.payload, ...internal(second) };
-  return { ok: false, problems: [...new Set(secondProblems.map((p) => p.text))], payload: second.payload, ...internal(second) };
+  let texts: PartialTexts | undefined = opts.resume ? fromSaved(opts.resume.texts) : undefined;
+  let problems: GuideProblem[] = opts.resume ? opts.resume.problems.filter((p) => inScope(p.scope)) : [];
+  // What the previous texts assemble to: an accepted job whose items moved must be checked again.
+  let before: WrittenGuide | undefined = texts?.frame ? assemble(ctx, { frame: texts.frame, jobs: texts.jobs }) : undefined;
+  let last: DraftRound | undefined;
+  for (let round = 1; round <= (opts.probe ? 1 : 2); round++) {
+    const next = await draft(ctx, texts, problems, only);
+    const written = assemble(ctx, next.texts);
+    const recheck = ctx.jobs.filter(
+      (j) =>
+        (!only || only.has(j.id)) &&
+        (next.redone.jobs.includes(j) || (before !== undefined && jobSignature(before.payload, j) !== jobSignature(written.payload, j))),
+    );
+    const found = [
+      ...blocking(written),
+      ...(await checkScopes(ai, written.payload, dossier, ctx.skel, { frame: next.redone.frame, jobs: recheck }, checkOpts)),
+    ].filter((p) => inScope(p.scope));
+    last = {
+      round,
+      ok: found.length === 0,
+      probe: Boolean(opts.probe),
+      texts: toSaved(next.texts),
+      payload: written.payload,
+      problems: found,
+      repairs: written.repairs.filter((r) => inScope(r.scope)),
+      internalErrors: internalOf(written),
+    };
+    opts.onRound?.(last);
+    texts = next.texts;
+    problems = found;
+    before = written;
+    if (found.length === 0) break;
+  }
+  const done = last!;
+  const internal = done.internalErrors.length > 0 ? { internalErrors: done.internalErrors } : {};
+  if (done.ok) return { ok: true, payload: done.payload, ...internal, draft: done };
+  return { ok: false, problems: [...new Set(done.problems.map((p) => p.text))], payload: done.payload, ...internal, draft: done };
 }

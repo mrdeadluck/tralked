@@ -93,13 +93,16 @@ export function guideProse(p: GuidePayloadV2): { where: string; key: string | nu
 }
 
 /** Copy (9+ equal words) and vocabulary ("platina") problems, in Portuguese, one per finding, with their key. */
-export function deterministicProblems(p: GuidePayloadV2, sources: readonly string[]): { text: string; key: string | null }[] {
-  const problems: { text: string; key: string | null }[] = [];
+export function deterministicProblems(
+  p: GuidePayloadV2,
+  sources: readonly string[],
+): { text: string; key: string | null; kind: "copia" | "vocabulario" }[] {
+  const problems: { text: string; key: string | null; kind: "copia" | "vocabulario" }[] = [];
   for (const { where, key, text } of guideProse(p)) {
     for (const run of copiedRuns(text, sources, 9)) {
-      problems.push({ key, text: `Trecho copiado de uma fonte em ${where}: "${run}". Reescreva com palavras próprias (no máximo 8 palavras seguidas iguais).` });
+      problems.push({ key, kind: "copia", text: `Trecho copiado de uma fonte em ${where}: "${run}". Reescreva com palavras próprias (no máximo 8 palavras seguidas iguais).` });
     }
-    if (/platin/i.test(text)) problems.push({ key, text: `Em ${where}, use "Tralked" no lugar de "platina".` });
+    if (/platin/i.test(text)) problems.push({ key, kind: "vocabulario", text: `Em ${where}, use "Tralked" no lugar de "platina".` });
   }
   return problems;
 }

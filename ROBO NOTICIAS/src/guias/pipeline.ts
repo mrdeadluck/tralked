@@ -37,6 +37,8 @@ import type { FetchPage, SourceRef } from "./sources.js";
 import { guideAiConfig, guideSpend } from "./spend.js";
 import { readSteamAliases, steamAliasUrl, steamLanguagesIn, type AliasLanguage } from "./steam-aliases.js";
 import { createWebSearch, type SearchHit } from "./websearch.js";
+import type { GuideProblem } from "./checker.js";
+import { groupProblems, resumableDraft, saveDraft, writeReportFile } from "./drafts.js";
 import { plain, writeAndCheckGuide, type GuideWriteResult } from "./writer.js";
 import { readWriting, saveWriting, writingKey } from "./writing-cache.js";
 
@@ -53,7 +55,8 @@ import { readWriting, saveWriting, writingKey } from "./writing-cache.js";
  * the soft deadline passes or the spend cap is hit (the report says so).
  */
 
-export type GuideOutcome = "idle" | "review" | "waiting_sources" | "failed";
+/** "probe": the cheap probe of the direct mode ended (nothing sent, see `direct.probe`). */
+export type GuideOutcome = "idle" | "review" | "waiting_sources" | "failed" | "probe";
 
 /** The modules the pipeline calls; tests swap them for fakes. */
 export type GuideStages = {
@@ -95,14 +98,20 @@ export type GuidePipelineDeps = {
   /**
    * Direct mode (`pnpm guia -- --appid <n>`): no request is claimed and none is reported to the site. The run uses the
    * synthetic request `direto-<appid>` for spend cap, caches and logs; an existing robot guide is updated only with `update`.
+   * `probe` (Task 20, `--sonda`): write only the frame and the first `chapters` chapters, check them once, save and print
+   * the problems, and stop (nothing sent, no images, no soundtrack).
    */
-  direct?: { appId: number; update: boolean };
+  direct?: { appId: number; update: boolean; probe?: { chapters: number } };
+  /** Where each run's report file goes (`relatorios/<request>-<attempt>.json`); default the GuideDb's folder. */
+  reportDir?: string;
 };
 
 export const BUDGET_REASON = "teto de gasto";
 export const DEADLINE_BEFORE_WRITING = "tempo esgotado antes da escrita";
 export const directRequestId = (appId: number) => `direto-${appId}`;
 const REASON_MAX = 2000;
+/** Problems the direct mode prints (the whole list is in the report file). */
+const PRINTED_PROBLEMS = 30;
 const SOURCE_NAME_MAX = 120;
 const CREDIT_MAX = 200;
 const SOUNDTRACK_TEXT_MAX = 120;
@@ -110,7 +119,14 @@ const DEFAULT_SOFT_DEADLINE_MIN = 150;
 /** Waits before each new try of the final report (about 2 minutes in all). */
 const FINAL_REPORT_RETRIES_MS = [2_000, 10_000, 30_000, 60_000];
 
-type Final = { status: "review" | "waiting_sources" | "failed"; reason?: string; report: RobotReport; guideId?: string };
+type Final = {
+  status: "review" | "waiting_sources" | "failed";
+  reason?: string;
+  report: RobotReport;
+  guideId?: string;
+  /** The probe ended: nothing to report anywhere but the local log and file. */
+  probe?: boolean;
+};
 
 /** The site closed the request (cancelled or published, 422) or it is gone (404): stop, report nothing more. */
 class RequestClosedError extends Error {}
@@ -158,6 +174,10 @@ type Run = {
   search: (query: string) => Promise<SearchHit[]>;
   /** What the failure report can still say. `notes`: what was left out to deliver the guide. */
   progress: {
+    /** The last write round's problems, with scope and kind (the report file keeps them; the site gets the texts). */
+    problems?: GuideProblem[];
+    /** The last write round's code repairs and notes (report file only). */
+    repairs?: GuideProblem[];
     sourcesRead: SourceRead[];
     steamList?: GuideDossierSource["achievements"];
     dossier?: GuideDossier;
@@ -173,8 +193,14 @@ type Run = {
 };
 
 export async function runGuideRequest(deps: GuidePipelineDeps): Promise<GuideOutcome> {
+  // Direct mode: each run is a new attempt of `direto-<appid>` (drafts and report files are numbered by it).
   const request: GuideRequest | null = deps.direct
-    ? { id: directRequestId(deps.direct.appId), steamAppId: deps.direct.appId, gameSlug: "", attempts: 1 }
+    ? {
+        id: directRequestId(deps.direct.appId),
+        steamAppId: deps.direct.appId,
+        gameSlug: "",
+        attempts: deps.db.runCount(directRequestId(deps.direct.appId)) + 1,
+      }
     : await deps.api.claimNext();
   if (!request) return "idle";
   const startedAt = deps.now();
@@ -202,9 +228,10 @@ export async function runGuideRequest(deps: GuidePipelineDeps): Promise<GuideOut
     if (!closed) {
       // Reached even if the catch above threw: the request must never stay in researching / writing.
       final ??= { status: "failed", reason: "erro inesperado", report: safeReport(deps, request, run) };
-      closed = await sendFinal(deps, reports, request, final);
+      if (!final.probe) closed = await sendFinal(deps, reports, request, final);
     }
-    const outcome = closed ? "fechado no site" : (final?.status ?? "failed");
+    if (final) saveReportFile(deps, request, final, run?.progress);
+    const outcome = closed ? "fechado no site" : final?.probe ? "sonda" : (final?.status ?? "failed");
     deps.db.recordRun({ requestId: request.id, attempt: request.attempts, startedAt, finishedAt: deps.now(), outcome });
     const spend = safeReport(deps, request, run);
     deps.log(
@@ -212,7 +239,43 @@ export async function runGuideRequest(deps: GuidePipelineDeps): Promise<GuideOut
         `(${Object.entries(spend.spendByPurpose).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ") || "nada"})`,
     );
   }
+  if (final?.probe && !closed) return "probe";
   return final && !closed ? final.status : "failed";
+}
+
+/**
+ * Task 20: every run's report goes to `relatorios/<request>-<attempt>.json` (the problems with scope and kind); the
+ * direct mode prints the first problems and the path. Never throws (a disk error is a log line).
+ */
+function saveReportFile(deps: GuidePipelineDeps, request: GuideRequest, final: Final, progress: Run["progress"] | undefined): void {
+  const problems: GuideProblem[] = progress?.problems ?? (final.report.problems ?? []).map((text) => ({ text, scope: "?" }));
+  const dir = deps.reportDir ?? (deps.db.dir === ":memory:" ? undefined : deps.db.dir);
+  let path: string | undefined;
+  try {
+    if (dir) {
+      path = writeReportFile(dir, request.id, request.attempts, {
+        requestId: request.id,
+        attempt: request.attempts,
+        at: deps.now().toISOString(),
+        status: final.probe ? "sonda" : final.status,
+        ...(final.reason ? { reason: final.reason } : {}),
+        problems,
+        ...(progress?.repairs?.length ? { repairs: progress.repairs } : {}),
+        report: final.report,
+      });
+    }
+  } catch (error) {
+    deps.log(`guia: não consegui salvar o relatório local: ${messageOf(error)}`);
+  }
+  if (!deps.direct) return;
+  if (final.probe) {
+    for (const line of groupProblems(problems)) deps.log(`guia: [sonda] ${line}`);
+  } else if (problems.length > 0) {
+    deps.log(`guia: ${problems.length} ${problems.length === 1 ? "problema" : "problemas"}${problems.length > PRINTED_PROBLEMS ? ` (os ${PRINTED_PROBLEMS} primeiros)` : ""}:`);
+    for (const p of problems.slice(0, PRINTED_PROBLEMS)) deps.log(`  - [${p.scope}]${p.kind ? ` (${p.kind})` : ""} ${p.text}`);
+    if (problems.length > PRINTED_PROBLEMS) deps.log(`  (e mais ${problems.length - PRINTED_PROBLEMS})`);
+  }
+  if (path) deps.log(`guia: relatório completo em ${path}`);
 }
 
 /**
@@ -437,6 +500,11 @@ async function processRequest(run: Run): Promise<Final> {
   const models = { MODEL_WRITER: config.MODEL_WRITER, MODEL_FAST: config.MODEL_FAST };
   const cacheKey = writingKey({ dossier: toWrite, scope, game: source.game, models });
   const reused = readWriting(db, cacheKey);
+  const probe = deps.direct?.probe;
+  if (probe && reused) {
+    deps.log(`guia: [sonda] já há uma escrita aprovada deste mesmo dossiê (salva em ${reused.savedAt}); nada a sondar`);
+    return { status: "failed", reason: "sonda: escrita aprovada já em cache", report: run.report(), probe: true };
+  }
   // The soft deadline already passed: writing is the long, paid part. Stop here (the caches stay for the retry);
   // a cached writing is free, so it still goes.
   if (!reused && run.pastDeadline()) return failed(run, DEADLINE_BEFORE_WRITING);
@@ -447,11 +515,54 @@ async function processRequest(run: Run): Promise<Final> {
     progress.notes.push("escrita reaproveitada do cache");
     deps.log(`guia: escrita reaproveitada do cache (salva em ${reused.savedAt}); sem chamar a IA`);
   } else {
+    // Task 20: a failed (or probe) draft of the same writing key is the starting point: only what it still lacks or
+    // what its problems point at is written again. Every round is saved as soon as it is checked.
+    const previous = resumableDraft(db, cacheKey);
+    if (previous) {
+      const parts = Object.keys(previous.texts.jobs).length + (previous.texts.frame ? 1 : 0);
+      deps.log(
+        `guia: rascunho anterior reaproveitado (${previous.requestId}, ${previous.createdAt}${previous.probe ? ", sonda" : ""}): ` +
+          `${parts} partes escritas, ${previous.problems.length} problemas a corrigir`,
+      );
+    }
+    let rounds = 0;
+    const saveRound = (draft: Parameters<typeof saveDraft>[1]["draft"]) =>
+      saveDraft(db, { requestId: request.id, attempt: request.attempts, writingKey: cacheKey, draft, at: deps.now() });
     written = await stages.writeAndCheckGuide(run.ai, toWrite, source, "backfill", {
       models,
       sourceTexts: read.map((r) => r.text),
       ...(scope ? { scope } : {}),
+      ...(previous ? { resume: { texts: previous.texts, problems: previous.problems } } : {}),
+      ...(probe ? { probe } : {}),
+      onRound: (round) => {
+        rounds++;
+        saveRound(round);
+      },
     });
+    // A stage that reported no round (a test fake) is still saved, without texts to resume from.
+    if (rounds === 0) {
+      saveRound({
+        round: 1,
+        ok: written.ok,
+        probe: Boolean(probe),
+        texts: null,
+        payload: written.payload,
+        problems: written.ok ? [] : written.problems.map((text) => ({ text, scope: "?" })),
+        repairs: [],
+        internalErrors: written.internalErrors ?? [],
+      });
+    }
+    progress.problems = written.draft?.problems ?? (written.ok ? [] : written.problems.map((text) => ({ text, scope: "?" })));
+    progress.repairs = written.draft?.repairs ?? [];
+    if (probe) {
+      const n = progress.problems.length;
+      return {
+        status: "failed",
+        reason: `sonda: ${n} ${n === 1 ? "problema" : "problemas"} na moldura e nos ${probe.chapters} primeiros capítulos`,
+        report: run.report(written.ok ? {} : { problems: written.problems }),
+        probe: true,
+      };
+    }
     // Saved before images and soundtrack touch the payload.
     if (written.ok) saveWriting(db, cacheKey, written, deps.now());
   }

@@ -48,6 +48,25 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT NOT NULL
 );
 
+-- Task 20: every write-and-check round (payload, scoped problems, repairs, texts): never lose a paid writing.
+CREATE TABLE IF NOT EXISTS drafts (
+  id INTEGER PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  attempt INTEGER NOT NULL,
+  writing_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  round INTEGER NOT NULL,
+  ok INTEGER NOT NULL,
+  probe INTEGER NOT NULL DEFAULT 0,
+  payload_json TEXT NOT NULL,
+  problems_json TEXT NOT NULL,
+  repairs_json TEXT NOT NULL,
+  internal_errors_json TEXT NOT NULL,
+  texts_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_drafts_request ON drafts(request_id);
+CREATE INDEX IF NOT EXISTS idx_drafts_key ON drafts(writing_key);
+
 CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY,
   at TEXT NOT NULL,
@@ -95,6 +114,8 @@ export interface GuideDb {
   getPage(url: string): PageRow | undefined;
   savePage(page: PageInput): void;
   recordRun(run: RunInput): void;
+  /** Runs recorded for a request (the direct mode numbers its attempts with it). */
+  runCount(requestId: string): number;
   /** Spend of one guide request, in USD. */
   spentForRequest(requestId: string): number;
   recordSpend(requestId: string, purpose: string, model: string, usd: number, at?: Date): void;
@@ -152,6 +173,8 @@ export function openGuideDb(dir: string): GuideDb {
         .prepare("INSERT INTO runs (request_id, attempt, started_at, finished_at, outcome) VALUES (?, ?, ?, ?, ?)")
         .run(run.requestId, run.attempt, run.startedAt.toISOString(), run.finishedAt?.toISOString() ?? null, run.outcome ?? null);
     },
+
+    runCount: (requestId) => one<{ n: number }>("SELECT COUNT(*) AS n FROM runs WHERE request_id = ?", requestId)!.n,
 
     spentForRequest: (requestId) =>
       one<{ total: number }>("SELECT COALESCE(SUM(usd), 0) AS total FROM spend WHERE request_id = ?", requestId)!.total,

@@ -86,6 +86,7 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
     expect(out).toContain("Itens só de fonte secundária, não posicionados (1; fora da rota, no relatório):");
     expect(out).toContain('  - Apprentice Healer — allthings.how, capítulo "Quest objectives for story and side quest achievements" [conta para ACH_HEALER]');
     expect(out).toContain("escrita reaproveitável do cache: não");
+    expect(out).toContain("rascunho para recomeçar: nenhum (a escrita começa do zero)");
     expect(result.ok).toBe(false);
   });
 

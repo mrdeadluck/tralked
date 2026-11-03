@@ -137,3 +137,23 @@ export function writeJobs(skel: GuideSkeleton): WriteJob[] {
     chunk(chapter.steps, Math.ceil(chapter.steps.length / STEPS_PER_CALL)).map((steps) => ({ id: steps[0]!.key, chapter, steps })),
   );
 }
+
+/**
+ * Loose achievements a chapter's writer is offered to place: all of them, except missables whose milestone chapter
+ * came before. The checker of that chapter gets the same list (what the writer was told is what it is judged by).
+ */
+export function placeableIn(skel: GuideSkeleton, chapter: SkelChapter): SkelItem[] {
+  if (chapter.cleanup) return [];
+  const at = skel.chapters.indexOf(chapter);
+  return skel.loose.filter((l) => {
+    const deadline = l.ach!.missable ? l.ach!.deadlineChapter : undefined;
+    if (!deadline) return true;
+    const d = skel.chapters.findIndex((c) => !c.cleanup && c.title === deadline);
+    return d < 0 || at <= d;
+  });
+}
+
+/** Task 18: loose missables whose warning the code puts at the start of this chapter ("comece aqui"). */
+export function anchoredIn(skel: GuideSkeleton, chapter: SkelChapter): SkelItem[] {
+  return chapter.cleanup ? [] : skel.loose.filter((l) => l.ach!.missable && l.ach!.warnChapter === chapter.title);
+}

@@ -2,6 +2,7 @@ import { PRICES } from "../ai/client.js";
 import { statedSequence } from "./chapter-order.js";
 import type { DryRunConfig } from "./config.js";
 import { independentGroups } from "./crossref.js";
+import { resumableDraft } from "./drafts.js";
 import type { GuideDb } from "./db.js";
 import { buildDossier, UNPLACED_MARK, type DossierAchievement, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "./dossier.js";
 import { completeness, withVerdict } from "./completeness.js";
@@ -343,12 +344,23 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
       `imagens (decididas depois da escrita, pelo tamanho real): cabem ~${Math.min(room, items.length)} de ${items.length} pela estimativa; perdíveis primeiro, depois coletáveis contados, depois o resto`,
     );
   }
-  const cached = readWriting(db, writingKey({ dossier: toWrite, scope, game: context.game, models: config }));
+  const key = writingKey({ dossier: toWrite, scope, game: context.game, models: config });
+  const cached = readWriting(db, key);
   log(
     cached
       ? `escrita reaproveitável do cache: sim (salva em ${cached.savedAt}); a execução real não chama a IA para escrever`
       : "escrita reaproveitável do cache: não (nenhuma escrita aprovada deste mesmo dossiê, escopo, estilo e modelos)",
   );
+  // Task 20: a failed (or probe) draft of the same writing key: the real run writes only what it still needs.
+  const draft = cached ? undefined : resumableDraft(db, key);
+  if (!cached) {
+    const parts = draft ? Object.keys(draft.texts.jobs).length + (draft.texts.frame ? 1 : 0) : 0;
+    log(
+      draft
+        ? `rascunho para recomeçar: ${draft.requestId} (${draft.createdAt}${draft.probe ? ", sonda" : ""}), ${parts} partes escritas, ${draft.problems.length} problemas a corrigir; só o que falta e o que tem problema é escrito`
+        : "rascunho para recomeçar: nenhum (a escrita começa do zero)",
+    );
+  }
   const writer = writerCost(toWrite, { game: context.game, tralked: { players: 0, avgPlaytimeMin: null, completedPlayers: 0 }, achievements: context.steamList }, config, scope);
   log(
     `custo estimado da escrita: ${writer.calls} chamadas de ${config.MODEL_WRITER} (~${Math.round(writer.writeIn / 1000)}k tokens de entrada, ` +

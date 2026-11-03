@@ -1,4 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { parseReport } from "@/lib/admin/guide-report";
 import { guidePatchSchema, guidePayloadSchema } from "@/lib/content/guide-schema";
@@ -16,7 +19,9 @@ import { loadRunContext } from "../../src/guias/run-context.js";
 import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import type { FetchPage, SourceRef } from "../../src/guias/sources.js";
 import { steamAliasUrl, steamProfileXmlUrl } from "../../src/guias/steam-aliases.js";
-import { writeAndCheckGuide } from "../../src/guias/writer.js";
+import type { GuideProblem } from "../../src/guias/checker.js";
+import { latestDraft } from "../../src/guias/drafts.js";
+import { writeAndCheckGuide, type DraftRound, type SavedTexts, type WriteAndCheckOpts } from "../../src/guias/writer.js";
 import { TralkedError } from "../../src/tralked-http.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
 import { fakeAi } from "./helpers-writer.js";
@@ -1109,5 +1114,113 @@ describe("Task 19: modo direto por appid, sem pedido na fila", () => {
     expect(parse).not.toHaveBeenCalled(); // US$ 1 already spent under direto-4115450 = the cap: the first extraction is refused
     expect(deps.lines.some((l) => l.includes("teto de gasto"))).toBe(true);
     expect(calls.created).toEqual([]);
+  });
+});
+
+describe("Task 20: nenhuma escrita paga se perde", () => {
+  const direct = { appId: 4115450, update: false };
+  const tempDb = () => openGuideDb(mkdtempSync(join(tmpdir(), "guias-t20-")));
+  const scoped = (n: number): GuideProblem[] =>
+    Array.from({ length: n }, (_, i) => ({ text: `Problema ${i + 1} do trecho.`, scope: i % 2 ? "cap-2" : "cap-1", kind: "checador" as const }));
+  const savedTexts: SavedTexts = { frame: null, jobs: { "cap-1": { passos: [], itens: [], depois: null } } };
+  /** A writer stage that fails the check, reporting its rounds like the real one. */
+  const failingWriter = (problems: GuideProblem[]) =>
+    vi.fn(async (_ai, _d, _g, _b, opts) => {
+      const draft: DraftRound = {
+        round: 2,
+        ok: false,
+        probe: Boolean(opts?.probe),
+        texts: savedTexts,
+        payload: writtenPayload(),
+        problems,
+        repairs: [{ text: "O sistema pôs a conquista X.", scope: "cap-1", kind: "nota" }],
+        internalErrors: [],
+      };
+      opts?.onRound?.(draft);
+      return { ok: false as const, problems: problems.map((p) => p.text), payload: writtenPayload(), draft };
+    }) as unknown as GuideStages["writeAndCheckGuide"] & { mock: { calls: unknown[][] } };
+
+  it("checador recusa → rascunho salvo no banco e relatório com problemas (escopo e tipo) em relatorios/", async () => {
+    const { api, calls } = fakeApi();
+    const db = tempDb();
+    const deps = makeDeps({ api, db, stages: fakeStages({ writeAndCheckGuide: failingWriter(scoped(3)) }) });
+
+    expect(await runGuideRequest(deps)).toBe("failed");
+
+    const draft = latestDraft(db, REQUEST.id)!;
+    expect(draft).toMatchObject({ attempt: 1, round: 2, ok: false });
+    expect(draft.problems).toEqual(scoped(3));
+    expect(draft.repairs[0]!.kind).toBe("nota");
+    expect(draft.texts).toEqual(savedTexts);
+    const file = JSON.parse(readFileSync(join(db.dir, "relatorios", `${REQUEST.id}-1.json`), "utf8"));
+    expect(file).toMatchObject({ requestId: REQUEST.id, attempt: 1, status: "failed" });
+    expect(file.problems).toEqual(scoped(3));
+    expect(file.repairs).toEqual([{ text: "O sistema pôs a conquista X.", scope: "cap-1", kind: "nota" }]);
+    expect(file.report.problems).toEqual(scoped(3).map((p) => p.text));
+    // The queue mode still sends the problems to the site.
+    expect((calls.reports.at(-1)!.body.report as RobotReport).problems).toEqual(scoped(3).map((p) => p.text));
+  });
+
+  it("modo direto imprime os 30 primeiros problemas e o caminho do arquivo; cada execução é uma tentativa nova", async () => {
+    const db = tempDb();
+    const stages = fakeStages({ writeAndCheckGuide: failingWriter(scoped(35)) });
+    const first = makeDeps({ db, direct, stages });
+    await runGuideRequest(first);
+    const printed = first.lines.join("\n");
+    expect(printed).toContain("Problema 30 do trecho.");
+    expect(printed).not.toContain("Problema 31 do trecho.");
+    expect(printed).toContain("(e mais 5)");
+    expect(printed).toContain("[cap-2] (checador) Problema 2 do trecho.");
+    expect(printed).toContain(join(db.dir, "relatorios", "direto-4115450-1.json"));
+
+    const second = makeDeps({ db, direct, stages });
+    await runGuideRequest(second);
+    expect(second.lines[0]).toContain("tentativa 2");
+    expect(second.lines.join("\n")).toContain(join(db.dir, "relatorios", "direto-4115450-2.json"));
+  });
+
+  it("uma escrita sem rodadas informadas (estágio falso) ainda é salva como rascunho", async () => {
+    const db = openGuideDb(":memory:");
+    const deps = makeDeps({ db });
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(latestDraft(db, REQUEST.id)).toMatchObject({ ok: true, texts: null });
+  });
+
+  it("nova tentativa com a mesma chave de escrita recomeça do último rascunho reprovado", async () => {
+    const db = openGuideDb(":memory:");
+    const stagesA = fakeStages({ writeAndCheckGuide: failingWriter(scoped(2)) });
+    await runGuideRequest(makeDeps({ db, stages: stagesA }));
+    const writerB = failingWriter(scoped(1));
+    const deps = makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writerB }) });
+    await runGuideRequest(deps);
+    const opts = writerB.mock.calls[0]![4] as WriteAndCheckOpts;
+    expect(opts.resume).toEqual({ texts: savedTexts, problems: scoped(2) });
+    expect(deps.lines.some((l) => l.includes("rascunho anterior reaproveitado"))).toBe(true);
+  });
+
+  it("sonda: escreve só a moldura e N capítulos, salva e imprime os problemas agrupados, não envia nada", async () => {
+    const { api, calls } = fakeApi();
+    const db = tempDb();
+    const writer = failingWriter(scoped(4));
+    const stages = fakeStages({ writeAndCheckGuide: writer });
+    const deps = makeDeps({ api, db, direct: { ...direct, probe: { chapters: 2 } }, stages });
+
+    expect(await runGuideRequest(deps)).toBe("probe");
+
+    const opts = writer.mock.calls[0]![4] as WriteAndCheckOpts;
+    expect(opts.probe).toEqual({ chapters: 2 });
+    expect(calls.created).toEqual([]);
+    expect(calls.patched).toEqual([]);
+    expect(stages.calls.findSoundtrack).toBeUndefined();
+    expect(stages.calls.composeImage).toBeUndefined();
+    expect(latestDraft(db, "direto-4115450")).toMatchObject({ probe: true });
+    const printed = deps.lines.join("\n");
+    expect(printed).toContain("4 problemas");
+    expect(printed).toContain("checador (4):");
+    expect(printed).toContain("  cap-1 (2):");
+    expect(printed).toContain(join(db.dir, "relatorios", "direto-4115450-1.json"));
+    expect(deps.lines.some((l) => l.includes("direto-4115450 → sonda"))).toBe(true);
+    // Never written to the writing cache as an approved guide.
+    expect(db.raw.prepare("SELECT COUNT(*) AS n FROM meta WHERE key LIKE 'escrita:%'").get()).toMatchObject({ n: 0 });
   });
 });
