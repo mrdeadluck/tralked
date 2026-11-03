@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guia Tralked — híbrido A + B</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:oklch(0.17 0.006 250);--bg-deep:oklch(0.145 0.005 250);--surface:oklch(0.205 0.007 250);
+    --surface-2:oklch(0.225 0.007 250);--border:oklch(0.3 0.008 250);--border-2:oklch(0.38 0.01 250);
+    --text:oklch(0.95 0.004 250);--text-2:oklch(0.83 0.006 250);--muted:oklch(0.71 0.008 250);
+    --acc:#c6f432;--acc-ink:#11160a;--acc-dim:oklch(0.72 0.15 128);--moss:oklch(0.34 0.075 135);
+    --warn:oklch(0.78 0.15 60);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg-deep);color:var(--text);font-family:Archivo,system-ui,sans-serif;padding:32px 24px 80px}
+  .wrap{max-width:1180px;margin:0 auto}
+  .lbl{font-stretch:75%;font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--muted)}
+  h1{font-stretch:125%;font-weight:900;font-size:30px;margin:6px 0}
+  .intro{color:var(--text-2);max-width:780px;line-height:1.5;font-size:15px}
+  .cut{clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,0 100%)}
+  .opt{margin-top:36px;border:1px solid var(--border);background:var(--bg);cursor:pointer;
+       clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%)}
+  .opt.selected{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}
+  .opt-head{display:flex;align-items:baseline;gap:14px;padding:16px 20px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .opt-head .letter{font-stretch:125%;font-weight:900;font-size:22px;color:var(--acc)}
+  .opt-head h2{font-size:17px;font-weight:800}
+  .opt-head p{color:var(--muted);font-size:13px;margin-left:auto;max-width:560px;text-align:right}
+  .stage{padding:22px}
+  .state{font-family:"JetBrains Mono";font-size:10px;color:var(--acc-dim);margin:0 0 8px;letter-spacing:.05em}
+  .screen{border:1px solid var(--border);background:var(--bg);position:relative;overflow:hidden}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+
+  /* journey horizontal */
+  .jr{display:flex;align-items:center;padding:12px 16px 14px}
+  .hn{flex:1;position:relative;text-align:center}
+  .hn::before{content:"";position:absolute;left:0;right:0;top:9px;height:2px;background:var(--border)}
+  .hn.d::before,.hn.c::before{background:var(--acc)}
+  .dot{position:relative;width:20px;height:20px;margin:0 auto;background:var(--bg);border:2px solid var(--border-2);transform:rotate(45deg)}
+  .hn.d .dot{background:var(--acc);border-color:var(--acc)}
+  .hn.c .dot{border-color:var(--acc);box-shadow:0 0 0 5px oklch(0.85 0.2 125 / .18)}
+  .hn p{font-size:10px;margin-top:8px;color:var(--muted)}
+  .hn.c p{color:var(--acc);font-weight:700}
+  .zs{width:2px;height:34px;background:var(--acc-dim);margin:0 4px;flex:none}
+
+  /* slim sticky bar */
+  .slim{display:flex;align-items:center;gap:12px;padding:8px 14px;background:oklch(0.205 0.007 250 / .95);border-bottom:1px solid var(--border)}
+  .slim .segs{display:flex;gap:3px;flex:1}
+  .slim .segs i{height:6px;flex:1;background:var(--border)}
+  .slim .segs i.d{background:var(--acc)}
+  .slim .segs i.c{background:linear-gradient(90deg,var(--acc) 36%,var(--border) 36%)}
+  .slim .segs i.z{flex:none;width:2px;background:var(--acc-dim);height:12px;margin-top:-3px}
+  .slim b{font-size:12px}
+  .pct{font-family:"JetBrains Mono";font-size:11px;color:var(--acc)}
+
+  /* scene */
+  .scene{position:relative;height:190px;background:
+     linear-gradient(90deg,var(--bg-deep) 0%,transparent 75%),
+     linear-gradient(160deg,oklch(0.3 0.03 250),oklch(0.18 0.01 250) 60%,oklch(0.25 0.06 135));
+     padding:22px;display:flex;flex-direction:column;justify-content:flex-end;border-bottom:1px solid var(--border)}
+  .big{font-stretch:125%;font-weight:900;font-size:40px;line-height:.95;letter-spacing:-.02em;text-transform:uppercase}
+  .big span{color:var(--acc)}
+  .meta{display:flex;gap:16px;margin-top:10px;font-size:12px;color:var(--text-2)}
+
+  /* items */
+  .body{padding:14px 16px}
+  .item{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;background:var(--surface);border:1px solid var(--border);margin-top:8px}
+  .chk{width:16px;height:16px;border:1.5px solid var(--border-2);flex:none;margin-top:2px}
+  .chk.on{background:var(--moss);border-color:var(--acc-dim);position:relative}
+  .chk.on::after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;border:solid var(--acc);border-width:0 2px 2px 0;transform:rotate(45deg)}
+  .item b{font-size:13px}
+  .item small{display:block;color:var(--muted);font-size:12px;margin-top:2px;line-height:1.4}
+  .tag{font-stretch:75%;font-weight:800;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;display:inline-block;margin-left:6px;vertical-align:1px}
+  .t-ok{background:oklch(0.3 0.04 135);color:var(--acc-dim)}
+  .t-miss{background:oklch(0.32 0.08 60);color:var(--warn)}
+  .t-tro{background:var(--acc);color:var(--acc-ink)}
+  .mapimg{height:80px;margin-top:8px;background:
+     radial-gradient(circle at 62% 48%,transparent 9px,var(--acc) 10px,var(--acc) 12px,transparent 13px),
+     repeating-linear-gradient(45deg,oklch(0.24 0.01 250) 0 6px,oklch(0.22 0.01 250) 6px 12px);border:1px solid var(--border);position:relative}
+  .mapimg::after{content:"TRALKED";position:absolute;right:6px;bottom:4px;font-size:9px;font-weight:900;letter-spacing:.15em;color:oklch(0.95 0 0 / .35)}
+  .mapimg span{position:absolute;left:6px;bottom:4px;font-size:9px;color:var(--muted)}
+
+  /* rail */
+  .withrail{display:grid;grid-template-columns:170px 1fr}
+  .rail{position:relative;padding:14px 10px 14px 30px;border-right:1px solid var(--border);background:var(--bg-deep)}
+  .rail::before{content:"";position:absolute;left:14px;top:20px;bottom:20px;width:2px;background:var(--border)}
+  .rail::after{content:"";position:absolute;left:14px;top:20px;height:40%;width:2px;background:var(--acc)}
+  .nd{position:relative;padding:4px 0 10px}
+  .nd::before{content:"";position:absolute;left:-20px;top:7px;width:8px;height:8px;background:var(--bg);border:2px solid var(--border-2);transform:rotate(45deg)}
+  .nd.d::before{background:var(--acc);border-color:var(--acc)}
+  .nd.c::before{border-color:var(--acc);box-shadow:0 0 0 4px oklch(0.85 0.2 125 / .18)}
+  .nd b{display:block;font-size:12px}
+  .nd.c b{color:var(--acc)}
+  .nd em{font-style:normal;font-size:10px;color:var(--muted)}
+  .zh{margin:8px 0 4px;color:var(--acc-dim);font-size:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="lbl">Guia Tralked · híbrido A + B · dados fictícios</div>
+  <h1>A beleza do B com a densidade do A</h1>
+  <p class="intro">Nos dois, cada capítulo abre com a cena do B. Enquanto você rola o detonado, entram os itens completos do A (local, imagem, selo de perdível, marcar como feito). A diferença é onde a linha do tempo fica <b>enquanto você rola</b>. Cada opção mostra duas telas: a abertura do capítulo e o meio dele.</p>
+
+  <!-- H1 -->
+  <div class="opt" data-choice="h1" onclick="toggleSelect(this)">
+    <div class="opt-head"><span class="letter">1</span><h2>Jornada no topo, que encolhe</h2>
+      <p>Na abertura, o mapa de fases grande do B. Ao rolar, ele vira uma barra fina presa no topo, com o progresso de cada capítulo. O detonado ocupa a largura toda. Funciona igual no celular.</p></div>
+    <div class="stage pair">
+      <div>
+        <div class="state">ABERTURA DO CAPÍTULO</div>
+        <div class="screen cut">
+          <div class="jr">
+            <div class="hn d"><div class="dot"></div><p>Prólogo</p></div>
+            <div class="hn d"><div class="dot"></div><p>Cap. 2</p></div>
+            <div class="hn c"><div class="dot"></div><p>Cap. 3</p></div>
+            <div class="hn"><div class="dot"></div><p>Cap. 4</p></div>
+            <div class="zs"></div>
+            <div class="hn"><div class="dot"></div><p>Zerada 2</p></div>
+            <div class="hn"><div class="dot"></div><p>Platina</p></div>
+          </div>
+          <div class="scene">
+            <div class="lbl" style="color:var(--acc-dim)">Zerada 1 · Capítulo 3 de 9</div>
+            <div class="big">Capítulo <span>3</span></div>
+            <div class="meta"><span>11 coletáveis</span><span>3 troféus</span><span style="color:var(--warn)">1 perdível</span><span>~2 h</span></div>
+          </div>
+          <div class="body"><div class="item"><div class="chk on"></div><div><b>Coletável 13/40 <span class="tag t-ok">volta depois</span></b><small>Logo após a ponte, escada à esquerda, atrás da carroça.</small></div></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="state">ROLANDO O DETONADO</div>
+        <div class="screen cut">
+          <div class="slim"><b>Cap. 3</b><div class="segs"><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i class="z"></i><i></i><i></i></div><span class="pct">38%</span></div>
+          <div class="body">
+            <div class="item"><div class="chk"></div><div style="flex:1"><b>Coletável 14/40 <span class="tag t-miss">perdível · pegue agora</span></b><small>Antes da porta do salão do chefe, vire à direita. Depois da luta a área fecha.</small><div class="mapimg cut"><span>Imagem: fonte X</span></div></div></div>
+            <div class="item"><div class="chk"></div><div><b>Troféu “Nome do troféu” <span class="tag t-tro">troféu</span></b><small>Derrote o chefe do capítulo sem usar cura.</small></div></div>
+            <div class="item"><div class="chk"></div><div><b>Coletável 15/40 <span class="tag t-ok">volta depois</span></b><small>No pátio, suba no telhado pelo andaime.</small></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- H2 -->
+  <div class="opt" data-choice="h2" onclick="toggleSelect(this)">
+    <div class="opt-head"><span class="letter">2</span><h2>Cena no topo, trilha ao lado</h2>
+      <p>Na abertura, a cena grande do B. Ao rolar, a trilha vertical do A aparece fixa à esquerda, com todos os capítulos e zeradas e a contagem de cada um. No celular, ela vira a barra fina da opção 1.</p></div>
+    <div class="stage pair">
+      <div>
+        <div class="state">ABERTURA DO CAPÍTULO</div>
+        <div class="screen cut">
+          <div class="scene" style="height:230px">
+            <div class="lbl" style="color:var(--acc-dim)">Zerada 1 · Capítulo 3 de 9</div>
+            <div class="big">Capítulo <span>3</span></div>
+            <div class="meta"><span>11 coletáveis</span><span>3 troféus</span><span style="color:var(--warn)">1 perdível</span><span>~2 h</span></div>
+          </div>
+          <div class="body"><div class="item"><div class="chk on"></div><div><b>Coletável 13/40 <span class="tag t-ok">volta depois</span></b><small>Logo após a ponte, escada à esquerda, atrás da carroça.</small></div></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="state">ROLANDO O DETONADO</div>
+        <div class="screen cut withrail">
+          <div class="rail">
+            <div class="lbl zh">Zerada 1</div>
+            <div class="nd d"><b>Prólogo</b><em>8/8</em></div>
+            <div class="nd d"><b>Cap. 2</b><em>12/12</em></div>
+            <div class="nd c"><b>Cap. 3</b><em>4/11 · 1 perdível</em></div>
+            <div class="nd"><b>Cap. 4</b><em>0/9</em></div>
+            <div class="lbl zh">Zerada 2</div>
+            <div class="nd"><b>Limpeza final</b><em>6 troféus</em></div>
+          </div>
+          <div class="body">
+            <div class="item"><div class="chk"></div><div style="flex:1"><b>Coletável 14/40 <span class="tag t-miss">perdível</span></b><small>Antes da porta do salão do chefe, vire à direita.</small><div class="mapimg cut"><span>Imagem: fonte X</span></div></div></div>
+            <div class="item"><div class="chk"></div><div><b>Troféu “Nome do troféu” <span class="tag t-tro">troféu</span></b><small>Derrote o chefe sem usar cura.</small></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Detonado Phantom Blade Zero — Tralked</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:oklch(0.17 0.006 250);--bg-deep:oklch(0.145 0.005 250);--surface:oklch(0.205 0.007 250);
+    --surface-2:oklch(0.225 0.007 250);--border:oklch(0.3 0.008 250);--border-2:oklch(0.38 0.01 250);
+    --text:oklch(0.95 0.004 250);--text-2:oklch(0.83 0.006 250);--muted:oklch(0.71 0.008 250);
+    --acc:#c6f432;--acc-ink:#11160a;--acc-dim:oklch(0.72 0.15 128);--moss:oklch(0.34 0.075 135);
+    --warn:oklch(0.78 0.15 60);--red:oklch(0.7 0.17 25);
+    --hero:url("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/1cd52ca84a3d974c4206e9cb90231956324c5999/library_hero.jpg");
+    --ss1:url("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/b2ebc232d3d88eafa8546f65b90d8dc8d2ece0b4/ss_b2ebc232d3d88eafa8546f65b90d8dc8d2ece0b4.1920x1080.jpg");
+    --ss2:url("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/53cc6faf8d70d29593495b2eaffc4c08761989ce/ss_53cc6faf8d70d29593495b2eaffc4c08761989ce.1920x1080.jpg");
+    --ss3:url("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/b0e2a5cbc38c67ffa2264d4067a6dc26aff2d9c6/ss_b0e2a5cbc38c67ffa2264d4067a6dc26aff2d9c6.1920x1080.jpg");
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg-deep);color:var(--text);font-family:Archivo,system-ui,sans-serif}
+  .lbl{font-stretch:75%;font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--muted)}
+  .mono{font-family:"JetBrains Mono",monospace}
+  .cut{clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%)}
+  .note{background:oklch(0.25 0.05 128);color:var(--acc);font-size:12px;padding:8px 16px;text-align:center}
+  .note b{color:var(--text)}
+
+  /* site header */
+  .site{height:52px;display:flex;align-items:center;gap:24px;padding:0 28px;border-bottom:1px solid var(--border);background:var(--bg-deep)}
+  .site .logo{font-stretch:125%;font-weight:900;letter-spacing:.04em;color:var(--acc);font-size:18px}
+  .site span{font-size:12px;color:var(--muted)}
+
+  /* HERO */
+  .hero{position:relative;min-height:520px;display:flex;align-items:flex-end;padding:0 0 34px;
+    background:linear-gradient(0deg,var(--bg-deep) 2%,transparent 55%),linear-gradient(90deg,var(--bg-deep) 5%,oklch(0.145 0.005 250 / .4) 50%,transparent 80%),var(--hero) center/cover}
+  .in{max-width:1180px;margin:0 auto;width:100%;padding:0 28px}
+  .hero .kick{display:flex;gap:10px;align-items:center}
+  .chip{font-stretch:80%;font-weight:800;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:4px 8px;background:var(--acc);color:var(--acc-ink)}
+  .chip.g{background:oklch(0.25 0.01 250 / .8);color:var(--text-2);border:1px solid var(--border-2)}
+  .gname{font-stretch:125%;font-weight:900;font-size:76px;line-height:.86;letter-spacing:-.025em;text-transform:uppercase;margin-top:16px;text-shadow:0 4px 40px rgba(0,0,0,.6)}
+  .gname span{display:block;color:var(--acc)}
+  .logo-note{font-size:10px;color:var(--muted);margin-top:6px}
+  .hero p.sub{margin-top:14px;color:var(--text-2);font-size:15px;max-width:560px;line-height:1.5}
+  .myprog{margin-top:22px;display:flex;gap:28px;align-items:flex-end}
+  .myprog .k{font-stretch:115%;font-weight:900;font-size:30px}
+  .myprog .k small{font-size:14px;color:var(--muted);font-weight:600}
+  .ring{width:58px;height:58px;border-radius:50%;background:conic-gradient(var(--acc) 0 23%,var(--border) 23% 100%);display:grid;place-items:center}
+  .ring i{width:46px;height:46px;border-radius:50%;background:var(--bg-deep);display:grid;place-items:center;font-style:normal;font-family:"JetBrains Mono";font-size:12px;color:var(--acc)}
+  .sync{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .sync::before{content:"";width:7px;height:7px;background:var(--acc-dim);box-shadow:0 0 8px var(--acc)}
+
+  /* JOURNEY (big) */
+  .journey{border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg)}
+  .jr{display:flex;align-items:flex-start;padding:18px 0 16px;overflow-x:auto}
+  .hn{flex:1;min-width:92px;position:relative;text-align:center;cursor:pointer;text-decoration:none;color:inherit}
+  .hn::before{content:"";position:absolute;left:0;right:0;top:10px;height:2px;background:var(--border)}
+  .hn:first-child::before{left:50%}
+  .hn:last-child::before{right:50%}
+  .hn.d::before{background:var(--acc)}
+  .hn.c::before{background:linear-gradient(90deg,var(--acc) 50%,var(--border) 50%)}
+  .dot{position:relative;width:22px;height:22px;margin:0 auto;background:var(--bg);border:2px solid var(--border-2);transform:rotate(45deg)}
+  .hn.d .dot{background:var(--acc);border-color:var(--acc)}
+  .hn.c .dot{border-color:var(--acc);box-shadow:0 0 0 6px oklch(0.85 0.2 125 / .16)}
+  .hn .t{font-size:11px;margin-top:10px;color:var(--text-2);font-weight:700}
+  .hn.c .t{color:var(--acc)}
+  .hn .s{font-family:"JetBrains Mono";font-size:10px;color:var(--muted);margin-top:2px}
+  .hn .w{color:var(--warn)}
+  .zs{flex:none;width:1px;align-self:stretch;background:var(--acc-dim);margin:0 6px;position:relative}
+  .zs b{position:absolute;top:-2px;left:6px;font-size:9px;color:var(--acc-dim);white-space:nowrap;font-stretch:75%;letter-spacing:.1em}
+
+  /* SLIM sticky */
+  .slim{position:fixed;top:0;left:0;right:0;z-index:20;background:oklch(0.17 0.006 250 / .94);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);transform:translateY(-100%);transition:transform .25s ease}
+  .slim.on{transform:none}
+  .slim .in{display:flex;align-items:center;gap:16px;height:46px}
+  .slim b{font-size:12px;white-space:nowrap}
+  .segs{display:flex;gap:3px;flex:1;align-items:center}
+  .segs i{height:6px;flex:1;background:var(--border)}
+  .segs i.d{background:var(--acc)}
+  .segs i.c{background:linear-gradient(90deg,var(--acc) var(--p,30%),var(--border) var(--p,30%))}
+  .segs i.z{flex:none;width:2px;height:14px;background:var(--acc-dim)}
+  .pct{font-family:"JetBrains Mono";font-size:12px;color:var(--acc);white-space:nowrap}
+  .sp{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-2);cursor:pointer;white-space:nowrap}
+  .tg{width:30px;height:16px;background:var(--moss);border:1px solid var(--acc-dim);position:relative}
+  .tg::after{content:"";position:absolute;right:2px;top:2px;width:10px;height:10px;background:var(--acc);transition:right .15s}
+  body.spoil .tg{background:var(--border)} body.spoil .tg::after{right:16px;background:var(--muted)}
+
+  /* CHAPTER */
+  .chapter{padding-top:40px}
+  .scene{position:relative;height:340px;display:flex;flex-direction:column;justify-content:flex-end;padding:30px;overflow:hidden;
+    background:linear-gradient(0deg,var(--bg-deep) 0%,transparent 60%),linear-gradient(90deg,var(--bg-deep) 0%,oklch(0.145 0.005 250 / .35) 55%,transparent),var(--img) center/cover;border:1px solid var(--border)}
+  .scene .big{font-stretch:125%;font-weight:900;font-size:58px;line-height:.9;letter-spacing:-.02em;text-transform:uppercase}
+  .scene .big span{color:var(--acc)}
+  .scene .meta{display:flex;flex-wrap:wrap;gap:20px;margin-top:14px;font-size:13px;color:var(--text-2)}
+  .scene .meta b{color:var(--text);font-family:"JetBrains Mono"}
+  .scene .meta .w b{color:var(--warn)}
+  .reveal{opacity:0;transform:translateY(24px);transition:opacity .6s ease,transform .6s ease}
+  .reveal.vis{opacity:1;transform:none}
+
+  .cols{display:grid;grid-template-columns:1fr 290px;gap:28px;margin-top:22px}
+  .side{position:sticky;top:64px;align-self:start}
+  .box{background:var(--surface);border:1px solid var(--border);padding:14px 16px;margin-bottom:12px}
+  .box h4{margin-bottom:10px}
+  .cnt{display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px dashed var(--border);color:var(--text-2)}
+  .cnt:last-child{border:0}
+  .cnt b{font-family:"JetBrains Mono";color:var(--text)}
+
+  /* steps */
+  .step{display:grid;grid-template-columns:44px 1fr;gap:14px;padding:18px 0;border-bottom:1px solid var(--divider,var(--border))}
+  .num{font-family:"JetBrains Mono";font-size:13px;color:var(--acc);padding-top:2px}
+  .step p.txt{font-size:15px;line-height:1.6;color:var(--text-2)}
+  .step p.txt b{color:var(--text)}
+  .item{display:flex;gap:12px;align-items:flex-start;padding:14px;background:var(--surface);border:1px solid var(--border);margin-top:12px;transition:border-color .2s,background .3s}
+  .item.done{background:oklch(0.22 0.025 135);border-color:var(--moss)}
+  .chk{width:22px;height:22px;border:2px solid var(--border-2);flex:none;margin-top:1px;cursor:pointer;position:relative;background:var(--bg);transition:all .15s}
+  .chk:hover{border-color:var(--acc)}
+  .item.done .chk{background:var(--moss);border-color:var(--acc-dim)}
+  .item.done .chk::after{content:"";position:absolute;left:6px;top:2px;width:6px;height:11px;border:solid var(--acc);border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+  .item h5{font-size:15px;font-weight:800}
+  .item .d{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+  .tag{font-stretch:75%;font-weight:800;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;display:inline-block;margin-left:8px;vertical-align:2px}
+  .t-ok{background:oklch(0.3 0.04 135);color:var(--acc-dim)}
+  .t-miss{background:oklch(0.32 0.08 60);color:var(--warn)}
+  .t-col{background:var(--surface-2);color:var(--text-2);border:1px solid var(--border-2)}
+  .ach{display:flex;gap:12px;align-items:center}
+  .ach img{width:52px;height:52px;flex:none;border:1px solid var(--border-2)}
+  .ach .rar{font-family:"JetBrains Mono";font-size:11px;color:var(--muted)}
+  .item.ach-item{border-left:3px solid var(--acc)}
+  .hidden-ach .nm{filter:blur(6px);transition:filter .2s}
+  body.spoil .hidden-ach .nm{filter:none}
+  .hidden-ach img{filter:blur(4px) grayscale(1)}
+  body.spoil .hidden-ach img{filter:none}
+  .unhide{font-size:11px;color:var(--acc);text-decoration:underline;cursor:pointer;margin-left:6px}
+  body.spoil .unhide{display:none}
+  .status{font-size:11px;margin-top:8px;display:none;align-items:center;gap:6px;font-family:"JetBrains Mono"}
+  .status.show{display:flex}
+  .spin{width:10px;height:10px;border:2px solid var(--border-2);border-top-color:var(--acc);border-radius:50%;animation:sp 0.7s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .st-ok{color:var(--acc)} .st-wait{color:var(--warn)}
+
+  /* map image */
+  .map{position:relative;margin-top:12px;height:230px;background:var(--img) var(--pos,60% 40%)/220%;border:1px solid var(--border-2);overflow:hidden}
+  .map svg{position:absolute;inset:0;width:100%;height:100%}
+  .map .wm{position:absolute;right:10px;bottom:8px;font-stretch:125%;font-weight:900;font-size:13px;letter-spacing:.14em;color:oklch(0.95 0 0 / .55)}
+  .map .wm i{font-style:normal;color:var(--acc)}
+  .map .cr{position:absolute;left:10px;bottom:8px;font-size:10px;color:oklch(0.95 0 0 / .75);background:oklch(0.1 0 0 / .55);padding:2px 6px}
+  .map .cr a{color:var(--acc)}
+  .map .zoom{position:absolute;right:10px;top:10px;font-size:10px;background:oklch(0.1 0 0 / .6);padding:3px 7px;color:var(--text-2)}
+
+  .callout{padding:14px 16px;border:1px solid oklch(0.45 0.1 60);background:oklch(0.22 0.04 60);margin-top:12px;font-size:14px;line-height:1.5;color:var(--text-2)}
+  .callout b{color:var(--warn)}
+  .back{padding:12px 16px;border:1px solid var(--moss);background:oklch(0.2 0.02 135);margin-top:12px;font-size:13px;color:var(--text-2)}
+  .back b{color:var(--acc-dim)}
+
+  /* reward toast */
+  .reward{position:fixed;left:50%;bottom:34px;transform:translate(-50%,140%);z-index:40;display:flex;gap:14px;align-items:center;padding:14px 20px 14px 14px;
+    background:var(--bg-deep);border:1px solid var(--acc);box-shadow:0 0 0 1px var(--acc),0 0 60px oklch(0.85 0.2 125 / .35);transition:transform .45s cubic-bezier(.2,1.4,.4,1)}
+  .reward.on{transform:translate(-50%,0)}
+  .reward img{width:56px;height:56px;border:1px solid var(--acc)}
+  .reward .big{font-stretch:125%;font-weight:900;font-size:22px;color:var(--acc);letter-spacing:.02em}
+  .reward .sm{font-size:12px;color:var(--text-2)}
+  .reward .xp{font-family:"JetBrains Mono";font-size:14px;color:var(--acc);margin-left:12px;padding-left:14px;border-left:1px solid var(--border-2)}
+  .burst{position:fixed;inset:0;pointer-events:none;z-index:39}
+  .burst i{position:absolute;width:8px;height:8px;background:var(--acc);transform:rotate(45deg);opacity:0}
+
+  .next{display:flex;justify-content:space-between;align-items:center;margin:34px 0 60px;padding:18px 20px;background:var(--surface);border:1px solid var(--border)}
+  .btn{font-stretch:85%;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.08em;padding:12px 20px;background:var(--acc);color:var(--acc-ink);border:0;cursor:pointer}
+  .demo{position:fixed;right:16px;bottom:16px;z-index:50;background:var(--surface);border:1px solid var(--border-2);padding:10px 12px;font-size:11px;color:var(--muted);max-width:230px;line-height:1.45}
+  .demo b{color:var(--acc)}
+  @media (max-width:860px){.cols{grid-template-columns:1fr}.side{position:static}.gname{font-size:48px}.scene .big{font-size:38px}}
+</style>
+</head>
+<body>
+<div class="note"><b>Mockup.</b> Arte, logo e nomes das conquistas são os oficiais da Steam (Phantom Blade Zero, 66 conquistas). Capítulos, locais e passos são inventados só para mostrar o layout.</div>
+
+<header class="site"><span class="logo">TRALKED</span><span>Jogos</span><span>Notícias</span><span style="color:var(--text)">Guias</span><span>Comunidade</span></header>
+
+<!-- SLIM BAR -->
+<div class="slim" id="slim"><div class="in">
+  <b id="slimCap">Cap. 1 · Estrada Principal</b>
+  <div class="segs"><i class="c" id="seg1" style="--p:0%"></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="z"></i><i></i><i></i></div>
+  <span class="pct" id="slimPct">15 / 66</span>
+  <span class="sp" onclick="document.body.classList.toggle('spoil')">Spoilers <span class="tg"></span></span>
+</div></div>
+
+<!-- HERO -->
+<section class="hero"><div class="in">
+  <div class="kick"><span class="chip">Detonado · Platina</span><span class="chip g">Steam · 66 conquistas</span><span class="chip g">v1.0 · 03/11/2026</span></div>
+  <div class="gname">Phantom<span>Blade Zero</span></div>
+  <div class="logo-note">↑ aqui entra o logotipo oficial do jogo, que o catálogo já guarda</div>
+  <p class="sub">Roadmap completo em ordem cronológica: todos os coletáveis e as 66 conquistas na ordem em que você passa por eles.</p>
+  <div class="myprog">
+    <div class="ring"><i>23%</i></div>
+    <div><div class="lbl">Seu progresso</div><div class="k">15<small> / 66 conquistas</small></div></div>
+    <div><div class="lbl">Coletáveis</div><div class="k">7<small> / 50</small></div></div>
+    <div class="sync">Sincronizado com a Steam há 2 min</div>
+  </div>
+</div></section>
+
+<!-- JOURNEY -->
+<nav class="journey"><div class="in"><div class="jr">
+  <a class="hn c" href="#cap1"><div class="dot"></div><div class="t">Cap. 1</div><div class="s">3/9</div></a>
+  <a class="hn"><div class="dot"></div><div class="t">Cap. 2</div><div class="s">0/7 <span class="w">· 1 ⚠</span></div></a>
+  <a class="hn"><div class="dot"></div><div class="t">Cap. 3</div><div class="s">0/8</div></a>
+  <a class="hn"><div class="dot"></div><div class="t">Cap. 4</div><div class="s">0/6</div></a>
+  <a class="hn"><div class="dot"></div><div class="t">Cap. 5</div><div class="s">0/9 <span class="w">· 2 ⚠</span></div></a>
+  <a class="hn"><div class="dot"></div><div class="t">Cap. 6</div><div class="s">0/5</div></a>
+  <a class="hn"><div class="dot"></div><div class="t">Final</div><div class="s">0/4</div></a>
+  <div class="zs"><b>LIMPEZA</b></div>
+  <a class="hn"><div class="dot"></div><div class="t">Missões</div><div class="s">0/9</div></a>
+  <a class="hn"><div class="dot"></div><div class="t">Armas</div><div class="s">0/18</div></a>
+  <a class="hn"><div class="dot"></div><div class="t">Platina</div><div class="s">0/1</div></a>
+</div></div></nav>
+
+<!-- CHAPTER 1 -->
+<main class="in chapter" id="cap1">
+  <div class="scene cut reveal" style="--img:var(--ss1)">
+    <div class="lbl" style="color:var(--acc-dim)">Zerada 1 · Capítulo 1 de 7</div>
+    <div class="big">Estrada <span>Principal</span></div>
+    <div class="meta"><span><b>9</b> itens</span><span><b>3</b> conquistas</span><span><b>4</b> coletáveis</span><span class="w"><b>1</b> perdível</span><span><b>~2 h</b></span></div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <div class="step reveal"><div class="num">1.1</div><div>
+        <p class="txt">Depois da cena de abertura, siga a <b>Estrada Principal</b> até a primeira fogueira. Ainda não dá para lutar contra os perseguidores. O jogo quer que você fuja, então não gaste tempo tentando vencer.</p>
+        <div class="item ach-item" data-ach="1" data-confirm="1">
+          <div class="chk" onclick="tick(this)"></div>
+          <div style="flex:1"><div class="ach"><img src="https://shared.akamai.steamstatic.com/community_assets/images/apps/4115450/b87e7283d3006cba458d80bdf5d3b5b2fe5b402c.jpg" alt="">
+            <div><h5>A Jornada do Coração <span class="tag t-ok">história · impossível perder</span></h5><div class="d">Escape dos perseguidores na Estrada Principal.</div><div class="rar">93,8% dos jogadores na Steam</div></div></div>
+            <div class="status"></div></div>
+        </div>
+      </div></div>
+
+      <div class="step reveal"><div class="num">1.2</div><div>
+        <p class="txt">Na bifurcação depois da ponte, vá para a <b>esquerda</b>, descendo até o riacho. Atrás da pedra grande fica a primeira <b>Flor da Memória</b>.</p>
+        <div class="item" data-confirm="0">
+          <div class="chk" onclick="tick(this)"></div>
+          <div style="flex:1"><h5>Flor da Memória 1/10 <span class="tag t-ok">dá para voltar depois</span> <span class="tag t-col">coletável</span></h5>
+            <div class="d">Conta para a conquista “Ouça Cada Flor”. Se passar direto, ela continua aqui depois do capítulo.</div>
+            <div class="map cut" style="--img:var(--ss2);--pos:35% 60%">
+              <svg viewBox="0 0 600 230" preserveAspectRatio="none"><path d="M120 190 C 200 170, 260 120, 330 112" stroke="#c6f432" stroke-width="4" fill="none" stroke-dasharray="10 8"/><path d="M318 100 L 338 112 L 316 124" stroke="#c6f432" stroke-width="4" fill="none"/><circle cx="372" cy="104" r="26" stroke="#c6f432" stroke-width="4" fill="none"/><circle cx="372" cy="104" r="4" fill="#c6f432"/></svg>
+              <span class="zoom">🔍 ampliar</span><span class="cr">Imagem: <a>fonte X</a> · recorte Tralked</span><span class="wm"><i>T</i>RALKED</span>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="step reveal"><div class="num">1.3</div><div>
+        <p class="txt">Antes de entrar no vilarejo, suba a escada da torre de vigia à direita. No topo fica uma <b>Pedra Negra</b>.</p>
+        <div class="callout"><b>⚠ Perdível.</b> Quando você entra no vilarejo, a torre desaba na cena seguinte. Pegue a pedra <b>agora</b>. Ela não volta pelo menu de capítulos.</div>
+        <div class="item" data-confirm="0">
+          <div class="chk" onclick="tick(this)"></div>
+          <div style="flex:1"><h5>Pedra Negra 1/10 <span class="tag t-miss">perdível · pegue agora</span> <span class="tag t-col">coletável</span></h5>
+            <div class="d">Conta para “Revire Cada Pedra”.</div>
+            <div class="map cut" style="--img:var(--ss3);--pos:70% 30%">
+              <svg viewBox="0 0 600 230" preserveAspectRatio="none"><rect x="380" y="40" width="120" height="120" stroke="#c6f432" stroke-width="3" fill="none"/><path d="M260 200 L 372 110" stroke="#c6f432" stroke-width="4"/><path d="M356 108 L 374 108 L 372 126" stroke="#c6f432" stroke-width="4" fill="none"/></svg>
+              <span class="zoom">🔍 ampliar</span><span class="cr">Imagem: <a>PowerPyx ↗</a> · recorte Tralked</span><span class="wm"><i>T</i>RALKED</span>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <div class="step reveal"><div class="num">1.4</div><div>
+        <p class="txt">Chefe do capítulo. Vença normalmente: a conquista é da história e fica oculta na Steam.</p>
+        <div class="item ach-item hidden-ach" data-ach="2" data-confirm="0">
+          <div class="chk" onclick="tick(this)"></div>
+          <div style="flex:1"><div class="ach"><img src="https://shared.akamai.steamstatic.com/community_assets/images/apps/4115450/1dbb0e112a7bd93e1bb156336cf4d09f4c89a2e4.jpg" alt="">
+            <div><h5><span class="nm">Coração Resoluto</span> <span class="tag t-ok">história</span><span class="unhide" onclick="this.parentNode.parentNode.parentNode.parentNode.parentNode.classList.remove('hidden-ach')">mostrar</span></h5><div class="d">Conquista oculta. Liga “Spoilers” no topo para ver o nome.</div><div class="rar">80,1% dos jogadores na Steam</div></div></div>
+            <div class="status"></div></div>
+        </div>
+        <div class="back"><b>Dá para voltar depois:</b> tudo deste capítulo, menos a Pedra Negra 1, pode ser pego no menu de capítulos depois de zerar.</div>
+      </div></div>
+
+      <div class="next"><div><div class="lbl">Próximo</div><b style="font-size:17px">Capítulo 2 · 1 perdível</b></div><button class="btn cut">Continuar →</button></div>
+    </div>
+
+    <aside class="side">
+      <div class="box"><h4 class="lbl">Neste capítulo</h4>
+        <div class="cnt"><span>Conquistas</span><b>0 / 3</b></div>
+        <div class="cnt"><span>Flores da Memória</span><b>0 / 1</b></div>
+        <div class="cnt"><span>Pedras Negras</span><b>0 / 1</b></div>
+        <div class="cnt"><span style="color:var(--warn)">Perdíveis</span><b style="color:var(--warn)">1</b></div>
+      </div>
+      <div class="box"><h4 class="lbl">No jogo todo</h4>
+        <div class="cnt"><span>Flores da Memória</span><b>3 / 10</b></div>
+        <div class="cnt"><span>Pedras Negras</span><b>2 / 10</b></div>
+        <div class="cnt"><span>Âmbares de Sha-Chi</span><b>2 / 10</b></div>
+        <div class="cnt"><span>Acessórios</span><b>0 / 30</b></div>
+      </div>
+      <div class="box"><h4 class="lbl">Sincronização</h4>
+        <div style="font-size:12px;color:var(--text-2);line-height:1.5">Quando você marca uma conquista, a Tralked confere na Steam na hora. Se a Steam ainda não mostrou, o item fica “aguardando” e confere sozinho depois. Pode seguir o guia normalmente.</div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<div class="burst" id="burst"></div>
+<div class="reward" id="reward"><img id="rwImg" src="" alt=""><div><div class="big">TRALKED!</div><div class="sm" id="rwName"></div></div><div class="xp">+50 XP</div></div>
+
+<div class="demo"><b>Teste:</b> marque a conquista 1.1 (a Steam “confirma” na hora) e a 1.4 (a Steam “ainda não mostrou”). Role a página para ver a barra encolher.</div>
+
+<script>
+  // slim bar
+  const slim=document.getElementById('slim'),jr=document.querySelector('.journey');
+  addEventListener('scroll',()=>{slim.classList.toggle('on',jr.getBoundingClientRect().bottom<0)});
+  // reveal
+  const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('vis')}),{threshold:.15});
+  document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+  // progress
+  let done=0;const total=4;
+  function progress(){done=document.querySelectorAll('.item.done').length;document.getElementById('seg1').style.setProperty('--p',(done/total*100)+'%');
+    document.querySelector('.hn.c .s').textContent=(3+done)+'/9';document.getElementById('slimPct').textContent=(15+document.querySelectorAll('.ach-item.done.ok').length)+' / 66';}
+  function burst(){const b=document.getElementById('burst');b.innerHTML='';const cx=innerWidth/2,cy=innerHeight-80;
+    for(let i=0;i<26;i++){const p=document.createElement('i');p.style.left=cx+'px';p.style.top=cy+'px';b.appendChild(p);
+      const a=Math.random()*Math.PI-Math.PI,d=120+Math.random()*180;
+      p.animate([{opacity:1,transform:'translate(0,0) rotate(45deg) scale(1)'},{opacity:0,transform:`translate(${Math.cos(a)*d}px,${Math.sin(a)*d}px) rotate(225deg) scale(.4)`}],{duration:900+Math.random()*400,easing:'cubic-bezier(.1,.8,.3,1)'});}}
+  function tick(chk){
+    const it=chk.closest('.item');
+    if(it.classList.contains('done')){it.classList.remove('done','ok');const s=it.querySelector('.status');if(s){s.className='status'}progress();return}
+    it.classList.add('done');progress();
+    if(!it.dataset.ach)return;
+    const s=it.querySelector('.status');s.className='status show';s.innerHTML='<span class="spin"></span> conferindo na Steam…';
+    setTimeout(()=>{
+      if(it.dataset.confirm==='1'){
+        it.classList.add('ok');s.innerHTML='<span class="st-ok">✓ confirmada na Steam agora</span>';progress();
+        document.getElementById('rwImg').src=it.querySelector('img').src;document.getElementById('rwName').textContent=it.querySelector('h5').childNodes[0].textContent.trim()+' · confirmada na Steam';
+        const r=document.getElementById('reward');r.classList.add('on');burst();setTimeout(()=>r.classList.remove('on'),3200);
+      }else{
+        s.innerHTML='<span class="st-wait">● marcada por você · a Steam ainda não mostrou. A gente confere de novo sozinho. Pode seguir.</span>';
+      }
+    },1400);
+  }
+</script>
+</body>
+</html>

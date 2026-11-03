@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guia Tralked — abertura</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:oklch(0.17 0.006 250);--bg-deep:oklch(0.145 0.005 250);--surface:oklch(0.205 0.007 250);
+    --surface-2:oklch(0.225 0.007 250);--border:oklch(0.3 0.008 250);--border-2:oklch(0.38 0.01 250);
+    --text:oklch(0.95 0.004 250);--text-2:oklch(0.83 0.006 250);--muted:oklch(0.71 0.008 250);
+    --acc:#c6f432;--acc-ink:#11160a;--acc-dim:oklch(0.72 0.15 128);--moss:oklch(0.34 0.075 135);
+    --warn:oklch(0.78 0.15 60);--red:oklch(0.7 0.17 25);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg-deep);color:var(--text);font-family:Archivo,system-ui,sans-serif;padding:32px 24px 80px}
+  .wrap{max-width:1100px;margin:0 auto}
+  .lbl{font-stretch:75%;font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--muted)}
+  .mono{font-family:"JetBrains Mono",monospace}
+  .cut{clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%)}
+  .ask h1{font-stretch:125%;font-weight:900;font-size:26px;margin:6px 0}
+  .ask p{color:var(--text-2);max-width:780px;line-height:1.5;font-size:15px;margin-bottom:24px}
+
+  .page{border:1px solid var(--border);background:var(--bg)}
+  .hero{position:relative;height:300px;padding:30px;display:flex;flex-direction:column;justify-content:flex-end;
+    background:linear-gradient(0deg,var(--bg) 0%,transparent 60%),linear-gradient(90deg,var(--bg-deep) 0%,transparent 70%),
+    linear-gradient(135deg,oklch(0.32 0.04 30),oklch(0.2 0.02 250) 55%,oklch(0.28 0.07 135));border-bottom:1px solid var(--border)}
+  .hero .top{position:absolute;top:20px;left:30px;right:30px;display:flex;justify-content:space-between}
+  .sp{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2)}
+  .tg{width:34px;height:18px;background:var(--moss);border:1px solid var(--acc-dim);position:relative}
+  .tg::after{content:"";position:absolute;right:2px;top:2px;width:12px;height:12px;background:var(--acc)}
+  .hero h1{font-stretch:125%;font-weight:900;font-size:52px;line-height:.92;letter-spacing:-.02em;text-transform:uppercase}
+  .hero h1 span{color:var(--acc)}
+  .hero .sub{margin-top:12px;color:var(--text-2);font-size:14px;max-width:620px;line-height:1.5}
+  .hero .by{margin-top:10px;font-size:11px;color:var(--muted)}
+
+  .ficha{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border)}
+  .f{padding:16px 18px;border-right:1px solid var(--border)}
+  .f:nth-child(4n){border-right:0}
+  .f:nth-child(-n+4){border-bottom:1px solid var(--border)}
+  .f .v{font-stretch:115%;font-weight:900;font-size:26px;margin-top:4px}
+  .f .v small{font-size:13px;color:var(--muted);font-weight:600}
+  .f .d{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4}
+  .diff{display:flex;gap:3px;margin-top:8px}
+  .diff i{width:100%;height:6px;background:var(--border)}
+  .diff i.on{background:var(--acc)}
+  .warn .v{color:var(--warn)}
+  .bug .v{color:var(--red)}
+
+  .sec{padding:24px 30px;border-bottom:1px solid var(--border)}
+  .sec h2{font-stretch:115%;font-weight:900;font-size:20px;margin:4px 0 14px}
+  .read{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .r{padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--acc-dim)}
+  .r.w{border-left-color:var(--warn)}
+  .r b{font-size:13px;display:block}
+  .r p{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.45}
+  .blur{filter:blur(5px);user-select:none}
+  .rev{font-size:11px;color:var(--acc);margin-left:6px;text-decoration:underline;cursor:pointer}
+
+  .road{display:grid;grid-template-columns:repeat(4,1fr);gap:0;position:relative;margin-top:6px}
+  .stp{padding:16px 16px 14px;background:var(--surface);border:1px solid var(--border);margin-right:-1px;position:relative}
+  .stp .n{font-stretch:125%;font-weight:900;font-size:30px;color:var(--acc);line-height:1}
+  .stp b{display:block;font-size:14px;margin-top:8px}
+  .stp p{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.45}
+  .stp .h{font-family:"JetBrains Mono";font-size:11px;color:var(--text-2);margin-top:10px}
+  .stp::after{content:"";position:absolute;right:-7px;top:24px;width:12px;height:12px;background:var(--bg);border:2px solid var(--acc);transform:rotate(45deg);z-index:1}
+  .stp:last-child::after{display:none}
+  .cta{display:flex;justify-content:space-between;align-items:center;padding:20px 30px}
+  .btn{font-stretch:85%;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.08em;padding:12px 20px;background:var(--acc);color:var(--acc-ink)}
+  .src{font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="ask">
+    <div class="lbl">Guia Tralked · topo do guia, antes do detonado · dados fictícios</div>
+    <h1>É assim que o guia deve abrir?</h1>
+    <p>É tudo o que o PowerPyx coloca antes do detonado (ficha, “leia antes”, roadmap por zerada), na cara da Tralked. Depois do botão “Começar”, entra a jornada que encolhe (opção 1). Comenta no terminal o que falta, o que sobra ou o que mudaria de lugar.</p>
+  </div>
+
+  <div class="page cut">
+    <div class="hero">
+      <div class="top"><span class="lbl" style="color:var(--acc-dim)">Guia de platina · Steam</span>
+        <span class="sp">Sem spoilers <span class="tg"></span></span></div>
+      <h1>Phantom <span>Blade</span></h1>
+      <p class="sub">Roadmap completo, em ordem cronológica, para pegar todos os coletáveis e as 41 conquistas sem precisar procurar nada em outro lugar.</p>
+      <div class="by">Equipe Tralked · versão 1.0 · atualizado em 03/11/2026 · 6 fontes cruzadas</div>
+    </div>
+
+    <div class="ficha">
+      <div class="f"><div class="lbl">Dificuldade</div><div class="v">7<small>/10</small></div>
+        <div class="diff"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div>
+        <div class="d">Chefes da dificuldade máxima pesam a nota.</div></div>
+      <div class="f"><div class="lbl">Tempo até a platina</div><div class="v">45–60<small> h</small></div><div class="d">Média dos jogadores do Tralked: 52 h</div></div>
+      <div class="f"><div class="lbl">Conquistas</div><div class="v">41</div><div class="d">Lista oficial da Steam · 6 ocultas</div></div>
+      <div class="f"><div class="lbl">Zeradas mínimas</div><div class="v">2</div><div class="d">História + dificuldade máxima (NG+)</div></div>
+      <div class="f warn"><div class="lbl">Perdíveis</div><div class="v">3</div><div class="d">Todos marcados no detonado</div></div>
+      <div class="f"><div class="lbl">Online</div><div class="v">0</div><div class="d">Dá para platinar offline</div></div>
+      <div class="f bug"><div class="lbl">Com bug</div><div class="v">1</div><div class="d">Tem jeito de contornar (veja abaixo)</div></div>
+      <div class="f"><div class="lbl">Mais difícil</div><div class="v" style="font-size:17px;margin-top:8px">“Nome da conquista”</div><div class="d">0,8% dos jogadores na Steam</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="lbl">Antes de começar</div>
+      <h2>Leia isto para não perder nada</h2>
+      <div class="read">
+        <div class="r w"><b>Pontos de não retorno</b><p>Dois momentos fecham áreas para sempre. O detonado avisa <b style="color:var(--text)">antes</b> de cada um. <span class="blur">Depois do chefe do capítulo 6</span><span class="rev">mostrar</span></p></div>
+        <div class="r"><b>Pode voltar depois</b><p>Fora os 3 perdíveis, todo coletável pode ser pego depois de zerar, pelo menu de capítulos.</p></div>
+        <div class="r w"><b>Conquista com bug</b><p>“Nome da conquista” às vezes não destrava. Faça antes de um save manual. O detonado mostra como.</p></div>
+        <div class="r"><b>Dificuldade</b><p>As conquistas de dificuldade não acumulam: a da máxima não destrava as menores. O roadmap já leva isso em conta.</p></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="lbl">Roadmap</div>
+      <h2>O caminho até a platina</h2>
+      <div class="road">
+        <div class="stp"><div class="n">1</div><b>Zerada 1: história + coletáveis</b><p>Siga o detonado capítulo a capítulo. Pega todos os coletáveis e os perdíveis.</p><div class="h">~30 h · 28 conquistas</div></div>
+        <div class="stp"><div class="n">2</div><b>Limpeza por capítulo</b><p>O que faltar, pegue pelo menu de capítulos.</p><div class="h">~3 h · 4 conquistas</div></div>
+        <div class="stp"><div class="n">3</div><b>Zerada 2: dificuldade máxima</b><p>NG+ com tudo melhorado. Dicas para cada chefe.</p><div class="h">~15 h · 8 conquistas</div></div>
+        <div class="stp"><div class="n">4</div><b>Platina</b><p>A última conquista destrava ao fechar as outras 40.</p><div class="h">1 conquista</div></div>
+      </div>
+    </div>
+
+    <div class="cta">
+      <span class="src">Fontes: PowerPyx · PSNProfiles · TrueAchievements · Fextralife · +2</span>
+      <span class="btn cut">Começar o detonado →</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

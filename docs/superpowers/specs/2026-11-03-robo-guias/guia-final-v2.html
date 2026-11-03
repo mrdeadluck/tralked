@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guia final — Phantom Blade Zero</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:oklch(0.17 0.006 250);--bg-deep:oklch(0.145 0.005 250);--surface:oklch(0.205 0.007 250);
+    --surface-2:oklch(0.225 0.007 250);--border:oklch(0.3 0.008 250);--border-2:oklch(0.38 0.01 250);
+    --text:oklch(0.95 0.004 250);--text-2:oklch(0.83 0.006 250);--muted:oklch(0.71 0.008 250);
+    --acc:#c6f432;--acc-ink:#11160a;--acc-dim:oklch(0.72 0.15 128);--moss:oklch(0.34 0.075 135);
+    --warn:oklch(0.78 0.15 60);--red:oklch(0.7 0.17 25);--info:oklch(0.75 0.1 230);
+    --A:https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg-deep);color:var(--text);font-family:Archivo,system-ui,sans-serif}
+  .lbl{font-stretch:75%;font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--muted)}
+  .cut{clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%)}
+  .in{max-width:1180px;margin:0 auto;width:100%;padding:0 28px}
+  .note{background:oklch(0.25 0.05 128);color:var(--acc);font-size:12px;padding:9px 16px;text-align:center;line-height:1.5}
+  .note b{color:var(--text)}
+
+  .hero{position:relative;min-height:470px;display:flex;align-items:flex-end;padding-bottom:30px;
+    background:linear-gradient(0deg,var(--bg-deep) 2%,transparent 55%),linear-gradient(90deg,var(--bg-deep) 5%,oklch(0.145 0.005 250 / .4) 50%,transparent 80%),
+    url("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/1cd52ca84a3d974c4206e9cb90231956324c5999/library_hero.jpg") center/cover}
+  .chip{font-stretch:80%;font-weight:800;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:4px 8px;background:var(--acc);color:var(--acc-ink);margin-right:6px}
+  .chip.g{background:oklch(0.25 0.01 250 / .8);color:var(--text-2);border:1px solid var(--border-2)}
+  .gname{font-stretch:125%;font-weight:900;font-size:72px;line-height:.86;letter-spacing:-.025em;text-transform:uppercase;margin-top:16px;text-shadow:0 4px 40px rgba(0,0,0,.6)}
+  .gname span{display:block;color:var(--acc)}
+  .sub{margin-top:14px;color:var(--text-2);font-size:15px;max-width:600px;line-height:1.5}
+  .by{margin-top:10px;font-size:11px;color:var(--muted)}
+
+  .ficha{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--border);background:var(--bg);margin-top:-1px}
+  .f{padding:16px 18px;border-right:1px solid var(--border);border-bottom:1px solid var(--border)}
+  .f:nth-child(4n){border-right:0}
+  .f:nth-last-child(-n+4){border-bottom:0}
+  .f .v{font-stretch:115%;font-weight:900;font-size:26px;margin-top:4px}
+  .f .v small{font-size:13px;color:var(--muted);font-weight:600}
+  .f .d{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4}
+  .diff{display:flex;gap:3px;margin-top:8px}
+  .diff i{flex:1;height:6px;background:var(--border)}
+  .diff i.on{background:var(--acc)} .diff i.h{background:var(--acc-dim);opacity:.5}
+  .warn .v{color:var(--warn)}
+
+  .sec{padding:26px 0;border-bottom:1px solid var(--border)}
+  .sec h2{font-stretch:115%;font-weight:900;font-size:22px;margin:4px 0 14px}
+  .read{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .r{padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--acc-dim)}
+  .r.w{border-left-color:var(--warn)}
+  .r b{font-size:13px;display:block}
+  .r p{font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.5}
+  .r p strong{color:var(--text-2)}
+  .miss{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .mi{display:flex;align-items:center;gap:8px;padding:6px 10px 6px 6px;background:var(--surface);border:1px solid oklch(0.45 0.1 60)}
+  .mi img{width:30px;height:30px}
+  .mi span{font-size:12px}
+  .mi em{font-style:normal;font-size:10px;color:var(--warn);display:block}
+
+  .road{display:grid;grid-template-columns:repeat(4,1fr);margin-top:6px}
+  .stp{padding:16px;background:var(--surface);border:1px solid var(--border);margin-right:-1px;position:relative}
+  .stp .n{font-stretch:125%;font-weight:900;font-size:30px;color:var(--acc);line-height:1}
+  .stp b{display:block;font-size:14px;margin-top:8px}
+  .stp p{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}
+  .stp::after{content:"";position:absolute;right:-7px;top:24px;width:12px;height:12px;background:var(--bg);border:2px solid var(--acc);transform:rotate(45deg);z-index:1}
+  .stp:last-child::after{display:none}
+
+  /* journey */
+  .journey{border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg);margin-top:26px}
+  .jr{display:flex;align-items:flex-start;padding:18px 0 16px;overflow-x:auto}
+  .hn{flex:1;min-width:96px;position:relative;text-align:center}
+  .hn::before{content:"";position:absolute;left:0;right:0;top:10px;height:2px;background:var(--border)}
+  .hn:first-child::before{left:50%} .hn:last-child::before{right:50%}
+  .hn.c::before{background:linear-gradient(90deg,var(--acc) 50%,var(--border) 50%)}
+  .dot{position:relative;width:22px;height:22px;margin:0 auto;background:var(--bg);border:2px solid var(--border-2);transform:rotate(45deg)}
+  .hn.c .dot{border-color:var(--acc);box-shadow:0 0 0 6px oklch(0.85 0.2 125 / .16)}
+  .hn .t{font-size:11px;margin-top:10px;color:var(--text-2);font-weight:700}
+  .hn.c .t{color:var(--acc)}
+  .hn .s{font-family:"JetBrains Mono";font-size:10px;color:var(--muted);margin-top:2px}
+  .hn .w{color:var(--warn)}
+
+  .slim{position:fixed;top:0;left:0;right:0;z-index:20;background:oklch(0.17 0.006 250 / .94);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);transform:translateY(-100%);transition:transform .25s}
+  .slim.on{transform:none}
+  .slim .in{display:flex;align-items:center;gap:16px;height:46px}
+  .slim b{font-size:12px;white-space:nowrap}
+  .segs{display:flex;gap:3px;flex:1}
+  .segs i{height:6px;flex:1;background:var(--border)}
+  .segs i.c{background:linear-gradient(90deg,var(--acc) var(--p,0%),var(--border) var(--p,0%))}
+  .pct{font-family:"JetBrains Mono";font-size:12px;color:var(--acc)}
+  .sp{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-2);cursor:pointer}
+  .tg{width:30px;height:16px;background:var(--border);border:1px solid var(--border-2);position:relative}
+  .tg::after{content:"";position:absolute;left:2px;top:2px;width:10px;height:10px;background:var(--muted);transition:left .15s}
+  body.spoil .tg{background:var(--moss);border-color:var(--acc-dim)} body.spoil .tg::after{left:16px;background:var(--acc)}
+
+  .scene{position:relative;height:300px;display:flex;flex-direction:column;justify-content:flex-end;padding:28px;margin-top:34px;
+    background:linear-gradient(0deg,var(--bg-deep) 0%,transparent 60%),linear-gradient(90deg,var(--bg-deep) 0%,oklch(0.145 0.005 250 / .35) 55%,transparent),
+    url("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/53cc6faf8d70d29593495b2eaffc4c08761989ce/ss_53cc6faf8d70d29593495b2eaffc4c08761989ce.1920x1080.jpg") center/cover;border:1px solid var(--border)}
+  .scene .big{font-stretch:125%;font-weight:900;font-size:52px;line-height:.9;letter-spacing:-.02em;text-transform:uppercase}
+  .scene .big span{color:var(--acc)}
+  .scene .meta{display:flex;flex-wrap:wrap;gap:20px;margin-top:14px;font-size:13px;color:var(--text-2)}
+  .scene .meta b{color:var(--text);font-family:"JetBrains Mono"}
+  .scene .meta .w b{color:var(--warn)}
+
+  .cols{display:grid;grid-template-columns:1fr 300px;gap:28px;margin-top:22px}
+  .side{position:sticky;top:62px;align-self:start}
+  .box{background:var(--surface);border:1px solid var(--border);padding:14px 16px;margin-bottom:12px}
+  .box h4{margin-bottom:10px}
+  .cnt{display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px dashed var(--border);color:var(--text-2)}
+  .cnt:last-child{border:0}
+  .cnt b{font-family:"JetBrains Mono";color:var(--text)}
+
+  .step{display:grid;grid-template-columns:44px 1fr;gap:14px;padding:18px 0;border-bottom:1px solid var(--border)}
+  .num{font-family:"JetBrains Mono";font-size:13px;color:var(--acc);padding-top:2px}
+  .txt{font-size:15px;line-height:1.6;color:var(--text-2)}
+  .txt b{color:var(--text)}
+  .item{display:flex;gap:12px;align-items:flex-start;padding:13px 14px;background:var(--surface);border:1px solid var(--border);margin-top:10px}
+  .item.done{background:oklch(0.22 0.025 135);border-color:var(--moss)}
+  .chk{width:22px;height:22px;border:2px solid var(--border-2);flex:none;cursor:pointer;position:relative;background:var(--bg)}
+  .chk:hover{border-color:var(--acc)}
+  .item.done .chk{background:var(--moss);border-color:var(--acc-dim)}
+  .item.done .chk::after{content:"";position:absolute;left:6px;top:2px;width:6px;height:11px;border:solid var(--acc);border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+  .item h5{font-size:14.5px;font-weight:800}
+  .item .d{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+  .tag{font-stretch:75%;font-weight:800;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;display:inline-block;margin-left:6px;vertical-align:2px}
+  .t-ok{background:oklch(0.3 0.04 135);color:var(--acc-dim)}
+  .t-miss{background:oklch(0.32 0.08 60);color:var(--warn)}
+  .t-col{background:var(--surface-2);color:var(--text-2);border:1px solid var(--border-2)}
+  .t-back{background:oklch(0.28 0.05 230);color:var(--info)}
+  .src{font-family:"JetBrains Mono";font-size:10px;margin-top:6px;color:var(--muted)}
+  .src .two{color:var(--acc-dim)} .src .one{color:var(--warn)}
+  .ach{display:flex;gap:12px;align-items:center}
+  .ach img{width:52px;height:52px;flex:none;border:1px solid var(--border-2)}
+  .rar{font-family:"JetBrains Mono";font-size:11px;color:var(--muted)}
+  .ach-item{border-left:3px solid var(--acc)}
+  .hid .nm,.hid img{filter:blur(6px)}
+  body.spoil .hid .nm,body.spoil .hid img{filter:none}
+  .callout{padding:14px 16px;border:1px solid oklch(0.45 0.1 60);background:oklch(0.22 0.04 60);margin-top:12px;font-size:14px;line-height:1.55;color:var(--text-2)}
+  .callout b{color:var(--warn)}
+  .callout ul{margin:8px 0 0 18px}
+  .back{padding:12px 16px;border:1px solid oklch(0.4 0.06 230);background:oklch(0.2 0.02 230);margin-top:12px;font-size:13px;color:var(--text-2);line-height:1.55}
+  .back b{color:var(--info)}
+  .map{position:relative;margin-top:10px;height:200px;background:url("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/b0e2a5cbc38c67ffa2264d4067a6dc26aff2d9c6/ss_b0e2a5cbc38c67ffa2264d4067a6dc26aff2d9c6.1920x1080.jpg") 60% 40%/200%;border:1px solid var(--border-2)}
+  .map .wm{position:absolute;right:10px;bottom:8px;font-stretch:125%;font-weight:900;font-size:13px;letter-spacing:.14em;color:oklch(0.95 0 0 / .55)}
+  .map .cr{position:absolute;left:10px;bottom:8px;font-size:10px;color:oklch(0.95 0 0 / .8);background:oklch(0.1 0 0 / .6);padding:2px 6px}
+  .map .ill{position:absolute;left:10px;top:10px;font-size:10px;background:oklch(0.1 0 0 / .7);padding:3px 7px;color:var(--warn)}
+  .more{margin:24px 0;padding:18px 20px;border:1px dashed var(--border-2);color:var(--muted);font-size:13px;line-height:1.6}
+  .more b{color:var(--text)}
+
+  .report{margin:40px 0 70px;border:1px solid var(--info);background:oklch(0.18 0.015 230)}
+  .report-h{padding:14px 18px;border-bottom:1px solid oklch(0.35 0.05 230);display:flex;justify-content:space-between;align-items:center}
+  .report-h b{font-size:16px}
+  .report-b{padding:16px 18px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .report h4{color:var(--info);margin-bottom:8px}
+  .report li{font-size:13px;color:var(--text-2);line-height:1.55;margin:0 0 6px 16px}
+  .report li b{color:var(--text)}
+  .report .stop{grid-column:1/-1;padding:12px 14px;background:oklch(0.25 0.06 25);border:1px solid var(--red);font-size:13.5px;line-height:1.55}
+  .report .stop b{color:var(--red)}
+  @media (max-width:860px){.cols,.read,.report-b{grid-template-columns:1fr}.side{position:static}.ficha,.road{grid-template-columns:1fr 1fr}.gname{font-size:46px}}
+/* ===== MAGAZINE ===== */
+  .mag{--w:300px;width:var(--w);aspect-ratio:8.5/11;position:relative;overflow:hidden;container-type:inline-size;
+    background:var(--cap) center 18%/cover;box-shadow:0 22px 50px rgba(0,0,0,.7),0 0 0 1px oklch(0.95 0 0 / .15);transform:rotate(-2.5deg)}
+  .mag::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,oklch(0.08 0 0 / .78) 0%,oklch(0.08 0 0 / .25) 24%,transparent 40%,transparent 52%,oklch(0.08 0 0 / .7) 74%,oklch(0.06 0 0 / .95) 100%)}
+  .mag::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(118deg,oklch(1 0 0 / .14),transparent 30%)}
+  .mag > *{position:absolute;z-index:1}
+
+  /* faixa superior: masthead em largura total + linha de edição */
+  .mh{top:4.2cqw;left:5cqw;right:5cqw}
+  .mh svg{display:block;width:100%;height:auto;overflow:visible}
+  .mh svg text{font-family:Archivo;font-stretch:125%;font-weight:900;fill:var(--acc)}
+  .mh .ed{display:flex;justify-content:space-between;margin-top:2.4cqw;padding-top:1.6cqw;border-top:.5cqw solid var(--acc);
+    font-family:"JetBrains Mono";font-size:2.9cqw;letter-spacing:.06em;color:var(--text);text-transform:uppercase}
+
+  /* chamadas à esquerda, em coluna, com número em destaque */
+  .calls{top:31cqw;left:5cqw;display:flex;flex-direction:column;gap:3cqw}
+  .call{border-left:.8cqw solid var(--acc);padding:.6cqw 2.6cqw .8cqw 2.4cqw;background:oklch(0.08 0 0 / .55)}
+  .call b{display:block;font-stretch:125%;font-weight:900;font-size:7cqw;line-height:.9;color:var(--acc)}
+  .call span{display:block;white-space:nowrap;font-stretch:80%;font-weight:800;font-size:3.2cqw;line-height:1.15;text-transform:uppercase;letter-spacing:.04em;margin-top:.8cqw}
+
+  /* selo no canto direito, abaixo do masthead, sem encostar em nada */
+  .seal{top:31cqw;right:5cqw;width:25cqw;height:25cqw;border-radius:50%;background:var(--acc);color:var(--acc-ink);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.6cqw;text-align:center;transform:rotate(9deg);box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  .seal small{font-stretch:75%;font-weight:800;font-size:2.7cqw;letter-spacing:.1em;white-space:nowrap}
+  .seal b{font-stretch:100%;font-weight:900;font-size:5.4cqw;line-height:1;white-space:nowrap}
+
+  /* bloco inferior: rótulo, manchete, linha fina */
+  .foot{left:5cqw;right:5cqw;bottom:5cqw}
+  .kick{display:inline-block;font-stretch:75%;font-weight:800;font-size:3cqw;letter-spacing:.2em;background:var(--acc);color:var(--acc-ink);padding:.8cqw 2cqw}
+  .head{font-stretch:112%;font-weight:900;font-size:8.6cqw;line-height:.9;letter-spacing:-.02em;text-transform:uppercase;margin-top:2.4cqw;text-shadow:0 2px 12px rgba(0,0,0,.7)}
+  .head em{display:block}
+  .head em{font-style:normal;color:var(--acc)}
+  .deck{display:flex;justify-content:space-between;align-items:flex-end;gap:4cqw;margin-top:2.8cqw;padding-top:2.4cqw;border-top:.4cqw solid oklch(0.95 0 0 / .35)}
+  .deck p{font-size:3.3cqw;line-height:1.35;color:var(--text-2)}
+  .bc{flex:none;width:15cqw;background:#fff;padding:1.2cqw 1.2cqw .6cqw}
+  .bc i{display:block;height:6cqw;background:repeating-linear-gradient(90deg,#000 0 .5cqw,#fff .5cqw .9cqw,#000 .9cqw 1.6cqw,#fff 1.6cqw 1.9cqw,#000 1.9cqw 2.2cqw,#fff 2.2cqw 2.9cqw)}
+  .bc span{display:block;font-family:"JetBrains Mono";font-size:1.7cqw;color:#000;text-align:center;margin-top:.4cqw}
+
+  
+  /* final page additions */
+  .hero2{position:relative;padding:34px 0 38px;border-bottom:1px solid var(--border);
+    background:linear-gradient(90deg,var(--bg-deep) 26%,oklch(0.145 0.005 250 / .55) 64%,oklch(0.145 0.005 250 / .25)),
+    url("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/1cd52ca84a3d974c4206e9cb90231956324c5999/library_hero.jpg") center 30%/cover}
+  .hero2 .in{display:grid;grid-template-columns:auto 1fr auto;gap:46px;align-items:center}
+  .hero2 .top{grid-column:1/-1;display:flex;justify-content:space-between;margin-bottom:-14px}
+  .hero2 .gname{font-size:68px;margin-top:0}
+  .chips2{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+  .chips2 span{font-family:"JetBrains Mono";font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:4px 8px;background:oklch(0.22 0.008 250 / .9);border:1px solid var(--border);color:var(--text-2)}
+  .chips2 i{display:inline-block;width:6px;height:6px;margin-right:6px;background:#d4a24c}
+  .meta2{margin-top:12px;font-size:11px;color:var(--muted)} .meta2 a{color:var(--acc);margin-left:14px;font-family:"JetBrains Mono"}
+  .ring2{width:104px;height:104px;border-radius:50%;background:conic-gradient(var(--acc) 0 23%,var(--border) 23% 100%);display:grid;place-items:center}
+  .ring2 i{width:88px;height:88px;border-radius:50%;background:var(--bg-deep);display:grid;place-items:center;font-style:normal;font-stretch:115%;font-weight:900;font-size:22px}
+  .ring2 + small{display:block;text-align:center;font-family:"JetBrains Mono";font-size:10px;color:var(--muted);margin-top:8px}
+  .ficha{margin-top:28px}
+  .intro2{display:grid;grid-template-columns:1fr 300px;gap:28px;margin-top:8px}
+  .vg h3{font-stretch:115%;font-weight:900;font-size:20px;text-transform:uppercase;padding:26px 0 8px;border-bottom:1px solid var(--border);position:relative}
+  .vg h3::after{content:"";position:absolute;left:0;bottom:-1px;width:54px;height:2px;background:var(--acc)}
+  .vg > p{font-size:15px;line-height:1.7;color:var(--text-2);margin-top:12px}
+  .vg > p b{color:var(--text)}
+  .side2{padding-top:26px;position:sticky;top:62px;align-self:start}
+  .card{background:var(--surface);border:1px solid var(--border);padding:14px 16px;margin-bottom:12px}
+  .card h4{font-stretch:115%;font-weight:900;font-size:14px;text-transform:uppercase;margin-bottom:10px}
+  .card .row{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--text-2)} .card .row b{font-family:"JetBrains Mono";color:var(--text)}
+  .toc a{display:flex;justify-content:space-between;font-size:12px;padding:6px 10px;border-left:1px solid var(--border);color:var(--muted);font-family:"JetBrains Mono";text-decoration:none}
+  .toc a:hover{color:var(--text)} .toc a.on{border-color:var(--acc);color:var(--acc)}
+  .sec{border-bottom:0}
+  @media (max-width:900px){.hero2 .in,.intro2{grid-template-columns:1fr}.side2{position:static}}
+
+
+  /* fundo animado */
+  .bgfx{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+  .bgfx i{position:absolute;inset:-8%;background-size:cover;background-position:center;opacity:0;
+    filter:brightness(.42) saturate(.8) blur(1px);transition:opacity 1.4s ease;will-change:transform,opacity}
+  .bgfx i.on{opacity:1}
+  .bgfx::after{content:"";position:absolute;inset:0;background:
+    radial-gradient(ellipse at 50% 40%,transparent 0%,oklch(0.145 0.005 250 / .55) 70%),
+    linear-gradient(90deg,oklch(0.145 0.005 250 / .55),oklch(0.145 0.005 250 / .2) 50%,oklch(0.145 0.005 250 / .55))}
+  body > *:not(.bgfx):not(.slim){position:relative;z-index:1}
+  .sec .r,.box,.card,.item,.road .stp{backdrop-filter:blur(6px)}
+  .journey{background:oklch(0.17 0.006 250 / .82);backdrop-filter:blur(8px)}
+  /* linha verde */
+  .trail{position:relative;padding-left:38px}
+  .trail::before{content:"";position:absolute;left:11px;top:0;bottom:0;width:2px;background:var(--border)}
+  .trail .fill{position:absolute;left:11px;top:0;width:2px;height:0;background:var(--acc);box-shadow:0 0 12px var(--acc),0 0 2px var(--acc);transition:height .15s linear}
+  .trail .fill::after{content:"";position:absolute;left:-5px;bottom:-6px;width:12px;height:12px;background:var(--acc);transform:rotate(45deg);box-shadow:0 0 14px var(--acc)}
+  .trail .step{position:relative}
+  .trail .step::before{content:"";position:absolute;left:-32px;top:22px;width:10px;height:10px;transform:rotate(45deg);border:2px solid var(--border-2);background:var(--bg-deep);transition:all .3s}
+  .trail .step.passed::before{background:var(--acc);border-color:var(--acc);box-shadow:0 0 10px var(--acc)}
+</style>
+</head>
+<body>
+<div class="bgfx" id="bgfx"><i style="background-image:url('https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/b2ebc232d3d88eafa8546f65b90d8dc8d2ece0b4/ss_b2ebc232d3d88eafa8546f65b90d8dc8d2ece0b4.1920x1080.jpg')" class="on"></i><i style="background-image:url('https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/53cc6faf8d70d29593495b2eaffc4c08761989ce/ss_53cc6faf8d70d29593495b2eaffc4c08761989ce.1920x1080.jpg')"></i><i style="background-image:url('https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/b0e2a5cbc38c67ffa2264d4067a6dc26aff2d9c6/ss_b0e2a5cbc38c67ffa2264d4067a6dc26aff2d9c6.1920x1080.jpg')"></i><i style="background-image:url('https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/f478e4ba5f5ba2e6c733be3a351c0b3e48af159d/ss_f478e4ba5f5ba2e6c733be3a351c0b3e48af159d.1920x1080.jpg')"></i></div>
+<div class="note"><b>Versão final v2.</b> “Platina” virou “Tralked”, linha verde acompanhando o detonado, fundo com imagens do jogo trocando ao rolar. Revista + tabelinha + visão geral + roadmap + detonado. Dados reais do Phantom Blade Zero (PowerPyx, Grindnstrat, Steam); a região 1 mostra os 9 primeiros passos. O relatório no fim só o admin vê.</div>
+<div class="slim" id="slim"><div class="in">
+  <b>Região 1 · Weeping Creek Valley</b>
+  <div class="segs"><i class="c" id="seg"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <span class="pct" id="pct">0 / 61</span>
+  <span class="sp" onclick="document.body.classList.toggle('spoil')">Spoilers <span class="tg"></span></span>
+</div></div>
+<section class="hero2"><div class="in">
+  <div class="top"><span class="lbl" style="color:var(--text)">Manual · Guia Tralked · Steam</span><span class="lbl">Tralked</span></div>
+  <div class="mag">
+      <div class="mh"><svg viewBox="0 0 300 54"><text x="0" y="50" font-size="62" textLength="300" lengthAdjust="spacingAndGlyphs">TRALKED</text></svg><div class="ed"><span>Guias</span><span>Edição #001</span><span>Nov · 2026</span></div></div>
+      <div class="calls">
+        <div class="call"><b>66</b><span>conquistas Steam</span></div>
+        <div class="call"><b>7</b><span>perdíveis avisados</span></div>
+        <div class="call"><b>9</b><span>regiões em ordem</span></div>
+      </div>
+      <div class="seal"><small>TRALKED EM</small><b>30–40 h</b><small>1 ZERADA</small></div>
+      <div class="foot">
+        <span class="kick">DETONADO COMPLETO</span>
+        <div class="head">Phantom Blade <em>Zero</em></div>
+        <div class="deck"><p>Do início ao Tralked.<br>Final verdadeiro sem spoiler.</p><div class="bc"><i></i><span>4115450</span></div></div>
+      </div>
+    </div>
+  <div>
+    <div class="gname">Phantom<span>Blade Zero</span></div>
+    <p class="sub">Roteiro em 4 etapas pelas 9 regiões, cada conquista no ponto exato do caminho e todos os coletáveis em ordem.</p>
+    <div class="chips2"><span><i></i>PC</span><span><i style="background:oklch(0.74 0.14 255)"></i>PlayStation</span><span>Treina Soulslike</span><span>Treina Exploração</span></div>
+    <div class="meta2">Edição #001 · Equipe Tralked · fontes: PowerPyx, Grindnstrat, Steam <a href="#">PÁGINA DO JOGO →</a></div>
+  </div>
+  <div><div class="ring2"><i>23%</i></div><small>15 de 66</small></div>
+</div></section>
+<div class="in">
+  <div class="ficha cut">
+    <div class="f"><div class="lbl">Dificuldade</div><div class="v">5<small>/10</small></div>
+      <div class="diff"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="h"></i><i></i><i></i><i></i><i></i></div>
+      <div class="d">4/10 no Fácil, 6/10 no Normal. Nenhuma conquista pede dificuldade.</div></div>
+    <div class="f"><div class="lbl">Tempo até o Tralked</div><div class="v">30–40<small> h</small></div><div class="d">Seguindo o detonado, sem refazer região.</div></div>
+    <div class="f"><div class="lbl">Conquistas</div><div class="v">66</div><div class="d">Lista oficial da Steam · 36 delas ocultas</div></div>
+    <div class="f"><div class="lbl">Zeradas mínimas</div><div class="v">1</div><div class="d">NG+ existe, mas é opcional, só para limpeza.</div></div>
+    <div class="f warn"><div class="lbl">Perdíveis</div><div class="v">7</div><div class="d">Todas ligadas a missões e ao final verdadeiro.</div></div>
+    <div class="f"><div class="lbl">Online</div><div class="v">0</div><div class="d">Tralked 100% offline.</div></div>
+    <div class="f"><div class="lbl">Com bug</div><div class="v">0</div><div class="d">Nenhum relato até 03/11.</div></div>
+    <div class="f"><div class="lbl">Mais difícil</div><div class="v" style="font-size:17px;margin-top:8px" ><span class="hid"><span class="nm">Sangue e Coração</span></span></div><div class="d">Final verdadeiro · 4,7% dos jogadores na Steam</div></div>
+  </div>
+  <div class="intro2">
+    <div class="vg">
+      <h3 id="visao">Visão geral</h3>
+      <p>Phantom Blade Zero é um soulslike de ação com nove regiões ligadas, muitas missões secundárias e coletáveis divididos em fragmentos. O Tralked sai em <b>uma zerada só</b>, mas pede atenção: sete conquistas dependem de missões que <b>falham sozinhas</b> quando a história avança.</p>
+      <p>O mais difícil não é lutar. É não perder o prazo das missões e chegar à região 9 com todas as missões roxas do Diário concluídas, para liberar o final verdadeiro.</p>
+  <div class="sec" id="leia">
+    <div class="lbl">Antes de começar</div>
+    <h2>Leia isto para não perder nada</h2>
+    <div class="read">
+      <div class="r w"><b>Saves manuais</b><p>Faça um save manual <strong>no começo e no fim de cada região</strong>. Se perder uma missão, você volta sem refazer o jogo.</p></div>
+      <div class="r w"><b>Final verdadeiro</b><p>Antes de entrar na <strong>região 9</strong>, conclua <strong>todas as missões com ícone roxo</strong> no Diário. O detonado avisa cada uma no caminho.</p></div>
+      <div class="r w"><b>A região 1 tem prazo</b><p>Quatro missões do Posto Avançado falham depois do <strong>chefe principal da Crimson Forest</strong> (região 2), e uma depois de <strong>Jing Ye, o Fora da Lei</strong>. Faça tudo antes de seguir.</p></div>
+      <div class="r"><b>Pode voltar depois</b><p>Depois do chefe final, você volta ao mundo livre para pegar coletáveis que faltaram. Missões perdidas não voltam.</p></div>
+    </div>
+    <div class="lbl" style="margin-top:18px">As 7 perdíveis</div>
+    <div class="miss">
+      <div class="mi hid"><img src="https://shared.akamai.steamstatic.com/community_assets/images/apps/4115450/117989b4a3fdc371e6be514ebe8bfe44981dd231.jpg" alt=""><span><span class="nm">Sangue e Coração</span><em>final verdadeiro</em></span></div>
+      <div class="mi"><img src="https://shared.akamai.steamstatic.com/community_assets/images/apps/4115450/ce78e073a76f87908d92e31b5f5dd102d7572563.jpg" alt=""><span>Legado da Curandeira<em>antes de Jing Ye</em></span></div>
+      <div class="mi"><img src="https://shared.akamai.steamstatic.com/community_assets/images/apps/4115450/bef9e6d5775cd50ad132c38b8274aa308196b1a2.jpg" alt=""><span>Lâmina Espectral<em>missão Selo Mental Partido</em></span></div>
+      <div class="mi"><span style="padding-left:6px">Artes Proibidas Sob o Lago<em>missão do lago</em></span></div>
+      <div class="mi"><span style="padding-left:6px">A Última de Baishan<em>missão da Escola Baishan</em></span></div>
+      <div class="mi"><span style="padding-left:6px">Para Sempre Juntos<em>missão Regresso a Casa</em></span></div>
+      <div class="mi"><span style="padding-left:6px">A Honra de um Andarilho<em>missão Jovem Mestre Lan</em></span></div>
+    </div>
+  </div>
+  <div class="sec" id="roadmap">
+    <div class="lbl">Roadmap</div>
+    <h2>O caminho até o Tralked</h2>
+    <div class="road">
+      <div class="stp"><div class="n">1</div><b>Até a Mirage Estate</b><p>Jogue as regiões 1 a 7 seguindo o detonado, com as missões perdíveis de cada região. A etapa termina quando você entra na região 8 pela Green Serpent House, em Pangzhen.</p></div>
+      <div class="stp"><div class="n">2</div><b>Requisitos do final verdadeiro</b><p>Feche todas as missões com ícone roxo no Diário.</p></div>
+      <div class="stp"><div class="n">3</div><b>Final verdadeiro</b><p>Siga para a região 9 (Mount Soulrend), limpe o que faltar e libere o final verdadeiro.</p></div>
+      <div class="stp"><div class="n">4</div><b>Limpeza</b><p>Depois do chefe final, volte ao mundo livre para os coletáveis que faltaram, ou use o NG+.</p></div>
+    </div>
+  </div>
+    </div>
+    <aside class="side2">
+      <div class="card"><h4>Seu progresso</h4><div class="row"><span>Conquistas</span><b>15 / 66</b></div><div class="row"><span>Coletáveis</span><b>0 / 61</b></div><div class="row"><span>Faltam neste guia</span><b style="color:var(--acc)">+ XP do site</b></div><div style="font-size:11px;color:var(--muted);margin-top:6px">Sincronizado com a Steam há 2 min</div></div>
+      <div class="card"><h4>Neste guia</h4><div class="toc"><a class="on" href="#visao">Visão geral</a><a href="#leia">Antes de começar</a><a href="#roadmap">Roadmap <span>4 etapas</span></a><a href="#journey">Detonado <span>9 regiões</span></a><a href="#">Conquistas <span>66</span></a><a href="#">Fontes <span>3</span></a></div></div>
+    </aside>
+  </div>
+</div>
+<nav class="journey" id="journey"><div class="in"><div class="jr">
+  <div class="hn c"><div class="dot"></div><div class="t">Weeping Creek</div><div class="s">0/61 <span class="w">· 6 ⚠</span></div></div>
+  <div class="hn"><div class="dot"></div><div class="t">Crimson Forest</div><div class="s">—</div></div>
+  <div class="hn"><div class="dot"></div><div class="t">Village of Lu</div><div class="s">—</div></div>
+  <div class="hn"><div class="dot"></div><div class="t">Pangzhen</div><div class="s">—</div></div>
+  <div class="hn"><div class="dot"></div><div class="t">Mandate</div><div class="s">—</div></div>
+  <div class="hn"><div class="dot"></div><div class="t">Meigu Lake</div><div class="s">—</div></div>
+  <div class="hn"><div class="dot"></div><div class="t">Mt. Imprisonment</div><div class="s">—</div></div>
+  <div class="hn"><div class="dot"></div><div class="t">Mirage Estate</div><div class="s">—</div></div>
+  <div class="hn"><div class="dot"></div><div class="t">Mt. Soulrend</div><div class="s">—</div></div>
+</div></div></nav>
+
+<main class="in">
+  <div class="scene cut">
+    <div class="lbl" style="color:var(--acc-dim)">Etapa 1 · Região 1 de 9</div>
+    <div class="big">Weeping <span>Creek Valley</span></div>
+    <div class="meta"><span><b>61</b> itens</span><span><b>22</b> sinos</span><span><b>4</b> fragmentos de âmbar</span><span><b>4</b> fragmentos de pedra negra</span><span class="w"><b>6</b> perdíveis</span></div>
+  </div>
+
+  <div class="cols">
+    <div class="trail" id="trail"><span class="fill" id="fill"></span>
+      <div class="step"><div class="num">1.1</div><div>
+        <p class="txt">O primeiro sino, <b>The Beginning</b>, vem com a história. Siga até o andaime e desça a escada da direita para chegar ao sino <b>The Lady's Rift</b>.</p>
+        <div class="item"><div class="chk" onclick="tick(this)"></div><div><h5>Sino · The Lady's Rift <span class="tag t-col">sino 2/22</span></h5><div class="src"><span class="two">✓ 2 fontes</span> · PowerPyx, Grindnstrat</div></div></div>
+      </div></div>
+
+      <div class="step"><div class="num">1.2</div><div>
+        <p class="txt">Ao lado do sino tem uma estátua. Interaja para aceitar a missão <b>Triple Threat</b>, mas <b>não tente terminar agora</b>: o chefe é forte demais para o começo do jogo.</p>
+        <div class="item"><div class="chk" onclick="tick(this)"></div><div><h5>Missão · Triple Threat <span class="tag t-back">volte depois</span></h5><div class="d">O detonado avisa quando você estiver forte o bastante.</div><div class="src"><span class="one">● 1 fonte</span> · PowerPyx</div></div></div>
+      </div></div>
+
+      <div class="step"><div class="num">1.3</div><div>
+        <p class="txt">Do sino The Lady's Rift, suba a escada e atravesse a corrente. O inimigo que espera do outro lado deixa cair um acessório.</p>
+        <div class="item"><div class="chk" onclick="tick(this)"></div><div style="flex:1"><h5>Acessório · Hunter's Insight <span class="tag t-col">acessório 1/30</span> <span class="tag t-ok">volta depois</span></h5>
+          <div class="d">Conta para “Anotações de Colecionador” (30 acessórios).</div>
+          <div class="map cut"><span class="ill">imagem ilustrativa · no guia real entra a captura do local</span><span class="cr">Imagem: fonte · recorte Tralked</span><span class="wm">TRALKED</span></div>
+          <div class="src"><span class="two">✓ 2 fontes</span> · PowerPyx, Grindnstrat</div></div></div>
+      </div></div>
+
+      <div class="step"><div class="num">1.4</div><div>
+        <p class="txt">Fale com <b>Yu'er</b>: a missão <b>Flesh Lily</b> começa sozinha. Ela é a primeira das três que formam a conquista abaixo. Logo depois de Yu'er, na base da cachoeira, examine a rocha com a arma.</p>
+        <div class="item ach-item"><div class="chk" onclick="tick(this)"></div><div style="flex:1"><div class="ach"><img src="https://shared.akamai.steamstatic.com/community_assets/images/apps/4115450/ce78e073a76f87908d92e31b5f5dd102d7572563.jpg" alt="">
+          <div><h5>Legado da Curandeira <span class="tag t-miss">perdível</span></h5><div class="d">Conclua [Lírio Carnal], [Curandeira Aprendiz] e [Misericórdia da Cura]. Começa aqui e termina mais tarde.</div><div class="rar">13,9% dos jogadores na Steam</div></div></div>
+          <div class="src"><span class="two">✓ 2 fontes</span> · Steam (descrição oficial), PowerPyx</div></div></div>
+        <div class="item"><div class="chk" onclick="tick(this)"></div><div><h5>Arma · Sanguine Twin <span class="tag t-ok">volta depois</span></h5><div class="src"><span class="two">✓ 2 fontes</span> · PowerPyx, Grindnstrat</div></div></div>
+      </div></div>
+
+      <div class="step"><div class="num">1.5</div><div>
+        <p class="txt">Suba a escada ao lado da cachoeira (sino <b>First Meeting with Yu'er</b>) e atravesse a ponte. Dois guerreiros mascarados estão lutando: derrube <b>o da espada grande</b>.</p>
+        <div class="item"><div class="chk" onclick="tick(this)"></div><div><h5>Acessório · Battle Wraps <span class="tag t-col">acessório 2/30</span> <span class="tag t-ok">volta depois</span></h5><div class="src"><span class="two">✓ 2 fontes</span> · PowerPyx, Grindnstrat</div></div></div>
+      </div></div>
+
+      <div class="step"><div class="num">1.6</div><div>
+        <p class="txt">Para abrir a <b>barreira de fio vermelho</b>, derrote o inimigo que a protege. O baú ao lado dele guarda o primeiro fragmento de âmbar.</p>
+        <div class="item"><div class="chk" onclick="tick(this)"></div><div><h5>Fragmento de Âmbar de Sha-Chi 1/4 da região <span class="tag t-ok">volta depois</span></h5>
+          <div class="d">Ligado a “Domínio Total” (10 Âmbares de Sha-Chi). <b style="color:var(--warn)">Em revisão:</b> as fontes falam em “fragmentos” e a conquista em “âmbares”. Ainda não sabemos quantos fragmentos formam um âmbar.</div>
+          <div class="src"><span class="two">✓ 2 fontes</span> · PowerPyx, Grindnstrat</div></div></div>
+      </div></div>
+
+      <div class="step"><div class="num">1.7</div><div>
+        <p class="txt">Chegando ao <b>Posto Avançado</b>, pare. Esta é a parte mais importante da região.</p>
+        <div class="callout"><b>⚠ Perdíveis do Posto Avançado.</b> Faça tudo isto <b>antes de vencer o chefe principal da Crimson Forest</b> (a próxima região):
+          <ul>
+            <li><b style="color:var(--text)">Purge the Sect</b>: fale com o arqueiro velho no telhado do Posto.</li>
+            <li><b style="color:var(--text)">Festering Secrets</b>: começa sozinha quando você se aproxima dos guardas, depois de falar com o ferreiro.</li>
+            <li><b style="color:var(--text)">Feather Bow</b>: leve o arco quebrado (do acampamento dos arqueiros, mais à frente) ao mesmo arqueiro.</li>
+            <li><b style="color:var(--text)">Converse com o homem atrás das caixas</b>, no prédio à direita do arqueiro, até ele falar de um túmulo perto dos estábulos. Sem isso, o acessório Boulderguard some.</li>
+          </ul>
+          E <b>antes de vencer Jing Ye</b>: a missão <b style="color:var(--text)">Apprentice Healer</b>, da Yu'er (três ervas). Ela dá o acessório Medicine Case e é parte do Legado da Curandeira.</div>
+        <div class="item"><div class="chk" onclick="tick(this)"></div><div><h5>Acessório · Boulderguard <span class="tag t-miss">perdível</span> <span class="tag t-col">acessório</span></h5><div class="d">Depois da conversa acima, interaja com o túmulo no fim da passarela, saindo do sino The Axemaster's Holding Cell.</div><div class="src"><span class="one">● 1 fonte</span> · PowerPyx · a 2ª fonte não cita · <b style="color:var(--warn)">em revisão</b></div></div></div>
+      </div></div>
+
+      <div class="step"><div class="num">1.8</div><div>
+        <p class="txt">Do sino do Posto, siga reto e suba a escada até um pátio: um corpo ali carrega a <b>Chave da Cela</b>. Volte ao portão do Posto, desça a rampa até uma caverna pequena e abra a grade com a chave.</p>
+        <div class="item"><div class="chk" onclick="tick(this)"></div><div><h5>Fragmento de Pedra Negra 1/4 da região <span class="tag t-ok">volta depois</span></h5><div class="d">Ligado a “Revire Cada Pedra” (10 Pedras Negras), que só 3,3% dos jogadores têm na Steam.</div><div class="src"><span class="two">✓ 2 fontes</span> · PowerPyx, Grindnstrat</div></div></div>
+      </div></div>
+
+      <div class="step"><div class="num">1.9</div><div>
+        <p class="txt">Do primeiro andar da torre de Sha-Chi, contorne a torre pela direita, escorregue pela ponte de madeira no buraco e siga a trilha à esquerda até o fim. Ali você enfrenta <span class="hid"><span class="nm"><b>Hua, a Noiva Mortal</b></span></span>.</p>
+        <div class="item ach-item"><div class="chk" onclick="tick(this)"></div><div style="flex:1"><div class="ach hid"><img src="https://shared.akamai.steamstatic.com/community_assets/images/apps/4115450/45cd7e3e0ac2df91ded2df2e0910f63dc918bbcd.jpg" alt="">
+          <div><h5><span class="nm">Lâmina Espectral Escarlate</span> <span class="tag t-ok">chefe opcional</span></h5><div class="d">Conquista oculta. Ligue “Spoilers” no topo para ver o nome. A vitória também dá a arma.</div><div class="rar">67,1% dos jogadores na Steam</div></div></div>
+          <div class="src"><span class="two">✓ 2 fontes</span> · PowerPyx, Grindnstrat</div></div></div>
+      </div></div>
+
+      <div class="more"><b>…mais 52 itens até o fim da região</b>, na mesma ordem do jogo: a missão do Selo Mental Partido (que leva à conquista Lâmina Espectral, perdível), os sinos da torre, o Long Pillar (difícil, volte depois), a Crimson Manor (acesso só mais tarde) e as visitas de limpeza depois da Village of Lu.
+        <div class="back" style="margin-top:12px"><b>Dá para voltar depois:</b> Triple Threat, o desafio do Long Pillar e a Crimson Manor. Ficam para quando você estiver mais forte, e o detonado lembra na hora certa. <b style="color:var(--warn)">Não volta:</b> as 5 missões do Posto e a da Yu'er.</div>
+      </div>
+
+      <section class="report">
+        <div class="report-h"><b>Relatório do robô</b><span class="lbl" style="color:var(--info)">só o admin vê · antes de publicar</span></div>
+        <div class="report-b">
+          <div><h4 class="lbl">O que ele leu</h4><ul>
+            <li><b>Steam</b>: 66 conquistas (PT-BR e inglês), descrições, ocultas e raridade de hoje.</li>
+            <li><b>PowerPyx</b>: roadmap + região 1 (61 itens em ordem).</li>
+            <li><b>Grindnstrat</b>: região 1 (confirmou 12 dos itens checados).</li>
+          </ul></div>
+          <div><h4 class="lbl">Divergências marcadas</h4><ul>
+            <li>O PowerPyx diz <b>23 sinos</b> e lista <b>22</b>. Diz <b>6 missões</b> e lista <b>7</b>.</li>
+            <li><b>Boulderguard</b>: só o PowerPyx cita.</li>
+            <li><b>Fragmento × âmbar</b>: a conquista pede 10 âmbares, e as fontes contam fragmentos.</li>
+            <li>Comentários dizem que o Counterstrike Bracers pode <b>não contar</b> no total de acessórios.</li>
+          </ul></div>
+          <div class="stop"><b>⛔ Porta de completude: bloqueado.</b> O PowerPyx cobre a lista do <b>PS5 (36 troféus)</b>. A Steam tem <b>66</b>. Pelo menos 30 conquistas de armas e golpes, como “Neve e Geada” e “Punhos de Fúria”, não aparecem no PowerPyx. O robô precisa de outra fonte (TrueAchievements, guias da Steam) para cobrir essas 30 antes de enviar o guia.</div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="side">
+      <div class="box"><h4 class="lbl">Weeping Creek Valley</h4>
+        <div class="cnt"><span>Itens marcados</span><b id="cnt">0 / 61</b></div>
+        <div class="cnt"><span>Sinos</span><b>22</b></div>
+        <div class="cnt"><span>Âmbar (fragmentos)</span><b>4</b></div>
+        <div class="cnt"><span>Pedra Negra (fragmentos)</span><b>4</b></div>
+        <div class="cnt"><span>Acessórios</span><b>~11</b></div>
+        <div class="cnt"><span style="color:var(--warn)">Perdíveis</span><b style="color:var(--warn)">6</b></div>
+      </div>
+      <div class="box"><h4 class="lbl">Prazo desta região</h4>
+        <div style="font-size:12.5px;color:var(--text-2);line-height:1.55">Tudo que é perdível aqui fecha no <b style="color:var(--warn)">chefe principal da Crimson Forest</b> ou em <b style="color:var(--warn)">Jing Ye</b>. Termine as missões do Posto antes de seguir.</div>
+      </div>
+    </aside>
+  </div>
+</main>
+<script>
+  const slim=document.getElementById('slim'),jr=document.getElementById('journey');
+  addEventListener('scroll',()=>slim.classList.toggle('on',jr.getBoundingClientRect().bottom<0));
+  function tick(c){c.closest('.item').classList.toggle('done');const n=document.querySelectorAll('.item.done').length;
+    document.getElementById('pct').textContent=n+' / 61';document.getElementById('cnt').textContent=n+' / 61';
+    document.getElementById('seg').style.setProperty('--p',(n/61*100)+'%');}
+</script>
+
+<script>
+  (function(){
+    const layers=[...document.querySelectorAll('#bgfx i')],trail=document.getElementById('trail'),fill=document.getElementById('fill'),steps=[...trail.querySelectorAll('.step')];
+    let cur=0;
+    function onScroll(){
+      const max=document.documentElement.scrollHeight-innerHeight, p=max>0?scrollY/max:0;
+      const idx=Math.min(layers.length-1,Math.floor(p*layers.length));
+      if(idx!==cur){layers[cur].classList.remove('on');layers[idx].classList.add('on');cur=idx;}
+      layers.forEach(l=>l.style.transform='translateY('+(-p*70)+'px) scale('+(1.04+p*.06)+')');
+      const r=trail.getBoundingClientRect(), mid=innerHeight*.55;
+      fill.style.height=Math.max(0,Math.min(r.height,mid-r.top))+'px';
+      steps.forEach(st=>st.classList.toggle('passed',st.getBoundingClientRect().top+22<mid));
+    }
+    addEventListener('scroll',onScroll,{passive:true}); onScroll();
+  })();
+</script>
+</body>
+</html>
