@@ -329,6 +329,33 @@ describe("estrutura feita pelo código", () => {
     expect(ashen.user).toContain('apiName="ACH_ENDING"');
   });
 
+  it("um passo nunca passa de 40 itens, nem com muitas conquistas postas nele nem com o perdível de reserva", async () => {
+    const dossier = missableSecret();
+    const ending = dossier.achievements.find((a) => a.apiName === "ACH_ENDING")!;
+    const extra = Array.from({ length: 45 }, (_, n) => ({ ...ending, apiName: `ACH_X${n + 1}`, nameEn: `Extra ${n + 1}` }));
+    dossier.achievements.push(...extra);
+    const { ai } = fakeAi({
+      chapter: (out, prompt) => {
+        if (!prompt.includes('<passo key="weeping-creek-3">')) return;
+        // 45 placements in a step that already holds the lantern.
+        out.passos.find((p) => p.key === "weeping-creek-3")!.conquistas.push(...extra.map((a) => a.apiName));
+      },
+    });
+    const { payload, repairs } = await writeGuideDetailed(ai, dossier, GAME, "live");
+    const steps = new Map(payload.walkthrough.chapters.flatMap((c) => c.steps.map((s) => [s.key, s] as const)));
+    for (const s of steps.values()) expect(s.items.length).toBeLessThanOrEqual(40);
+    expect(steps.get("weeping-creek-3")!.items).toHaveLength(40);
+    // The 6 that did not fit stay in cleanup, with a problem for the job that placed them.
+    const inCleanup = itemsOf(payload).filter((x) => x.chapter === "limpeza" && x.i.achievement?.startsWith("ACH_X"));
+    expect(inCleanup).toHaveLength(6);
+    expect(repairs.filter((r) => r.text.includes("não coube") && r.scope === "weeping-creek-1")).toHaveLength(6);
+    // The missable's fallback step (end of Weeping Creek) is full: it goes to the nearest earlier step with room.
+    expect(itemsOf(payload).find((x) => x.i.achievement === "ACH_SECRET")!.step).toBe("weeping-creek-2");
+    // Every Steam achievement is still in the guide, and the site accepts it.
+    for (const a of dossier.achievements) expect(itemsOf(payload).some((x) => x.i.achievement === a.apiName)).toBe(true);
+    expect(walkthroughSchema.safeParse(payload.walkthrough).error?.issues).toBeUndefined();
+  });
+
   it("o prazo fica no capítulo do perdível, não no capítulo do marco", async () => {
     const p = await writeGuide(fakeAi().ai, makeDossier(), GAME, "live");
     const byKey = new Map(p.walkthrough.chapters.map((c) => [c.key, c]));

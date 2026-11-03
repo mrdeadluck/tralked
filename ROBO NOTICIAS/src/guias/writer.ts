@@ -485,6 +485,13 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     const prev = skel.chapters[at - 1];
     return prev && !prev.cleanup ? prev.steps[prev.steps.length - 1]?.key : skel.chapters[at]!.steps[0]?.key;
   };
+  const hasRoom = (stepKey: string) => (stepsOf.get(stepKey)?.length ?? MAX_ITEMS_PER_STEP) < MAX_ITEMS_PER_STEP;
+  /** `start`, or the nearest earlier story step that still has room for an item (earlier is still before the deadline). */
+  const storySteps = skel.chapters.filter((c) => !c.cleanup).flatMap((c) => c.steps.map((s) => s.key));
+  const withRoomFrom = (start: string | undefined) => {
+    for (let i = start ? storySteps.indexOf(start) : -1; i >= 0; i--) if (hasRoom(storySteps[i]!)) return storySteps[i];
+    return undefined;
+  };
   const placement = new Map<string, string>(); // loose apiName -> step key
   // The first job (in reading order) that puts a loose achievement in one of its steps wins, with its text.
   for (const { job, text } of answered) {
@@ -504,8 +511,16 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
           });
           continue;
         }
-        if ((stepsOf.get(step.key)?.length ?? MAX_ITEMS_PER_STEP) >= MAX_ITEMS_PER_STEP) continue;
+        // The site takes at most 40 items per step; placements count as soon as they are made.
+        if (!hasRoom(step.key)) {
+          repairs.push({
+            scope: job.id,
+            text: `O passo ${step.key} já tem ${MAX_ITEMS_PER_STEP} itens; a conquista "${achName(a)}" (${a.apiName}) não coube nele. Distribua as conquistas entre os passos.`,
+          });
+          continue;
+        }
         placement.set(apiName, step.key);
+        stepsOf.get(step.key)!.push(l);
         const own = text.itens.find((i) => i.key === l.key);
         if (own) itemText.set(l.key, own);
       }
@@ -513,17 +528,18 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   }
   for (const l of skel.loose) {
     const a = l.ach!;
-    let target = placement.get(a.apiName);
-    if (!target && a.missable && a.deadlineChapter) {
-      target = stepBefore(a.deadlineChapter);
-      if (target) {
-        repairs.push({
-          scope: scopeOfStep(target),
-          text: `A conquista perdível "${achName(a)}" (${a.apiName}) não foi posta num passo; o sistema a pôs no passo ${target}, antes do capítulo "${a.deadlineChapter}". Ponha-a no passo certo, antes do ponto de não retorno, e escreva o item dela.`,
-        });
-      }
+    if (placement.has(a.apiName)) continue;
+    let target: string | undefined;
+    if (a.missable && a.deadlineChapter) {
+      target = withRoomFrom(stepBefore(a.deadlineChapter));
+      repairs.push({
+        scope: target ? scopeOfStep(target) : FRAME_SCOPE,
+        text: target
+          ? `A conquista perdível "${achName(a)}" (${a.apiName}) não foi posta num passo; o sistema a pôs no passo ${target}, antes do capítulo "${a.deadlineChapter}". Ponha-a no passo certo, antes do ponto de não retorno, e escreva o item dela.`
+          : `A conquista perdível "${achName(a)}" (${a.apiName}) não coube em nenhum passo antes do capítulo "${a.deadlineChapter}" e ficou na limpeza.`,
+      });
     }
-    // Otherwise its default cleanup step.
+    // Otherwise its default cleanup step (one loose achievement per step, so always with room).
     target ??= skel.chapters.find((c) => c.cleanup)!.steps.find((s) => s.items.includes(l))!.key;
     stepsOf.get(target)!.push(l);
   }
