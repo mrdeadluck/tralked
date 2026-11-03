@@ -44,6 +44,11 @@ describe("documented examples", () => {
     expect(markdownExample("noticia")).toEqual(EXAMPLE_ARTICLE);
     expect(markdownExample("guia")).toEqual(EXAMPLE_GUIDE);
   });
+
+  it("the format-2 example of docs/robos.md validates as a format-2 guide", () => {
+    const parsed = guidePayloadSchema.safeParse(markdownExample("guia-v2"));
+    expect(parsed.success && parsed.data.format === 2 && parsed.data.walkthrough !== undefined).toBe(true);
+  });
 });
 
 describe("JSON Schema and OpenAPI exports", () => {
@@ -74,8 +79,11 @@ describe("JSON Schema and OpenAPI exports", () => {
       "/api/v1/games/{slug}/dossie",
       "/api/v1/games/{slug}/insights",
       "/api/v1/games/{slug}/media",
+      "/api/v1/guide-requests/next",
+      "/api/v1/guide-requests/{id}",
       "/api/v1/guides",
       "/api/v1/guides/{id}",
+      "/api/v1/media",
     ]);
     expect(Object.keys(doc.paths["/api/v1/articles/{id}"]).sort()).toEqual(["get", "patch"]);
   });

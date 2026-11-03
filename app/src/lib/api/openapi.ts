@@ -88,7 +88,7 @@ const writeErrors = {
   "401": errorResponse("Chave ausente, inválida ou revogada."),
   "403": errorResponse("A chave não tem o escopo necessário."),
   "409": errorResponse("Slug em uso, guia já existente, conteúdo publicado travado ou Idempotency-Key reutilizado."),
-  "413": errorResponse("Corpo maior que 1 MiB."),
+  "413": errorResponse("Corpo maior que 1 MiB (imagem maior que 8 MiB em /api/v1/media)."),
   "422": errorResponse("Campos inválidos; `issues` aponta cada campo por JSON Pointer."),
   "429": errorResponse(`Mais de ${RATE_LIMIT} requisições por minuto nesta chave.`),
 };
@@ -225,6 +225,58 @@ export function openApiDocument(): JsonSchema {
           },
         },
       },
+      "/api/v1/guide-requests/next": {
+        post: {
+          tags: ["Guias"],
+          summary: "Pegar o próximo pedido de guia da fila",
+          description:
+            "Escopo guides:write. O robô de guias pega o pedido de maior prioridade e, entre eles, o mais antigo (um pedido em waiting_sources volta quando chega a hora da nova tentativa). O pedido passa a researching e nenhum outro robô o recebe. gameSlug é o jogo do /dossie?all=1.",
+          responses: {
+            "200": { description: "Pedido pego.", headers: writeHeaders, content: json(ref("GuideRequestClaim")) },
+            "204": { description: "Nenhum pedido esperando." },
+            "401": writeErrors["401"],
+            "403": writeErrors["403"],
+            "429": writeErrors["429"],
+          },
+        },
+      },
+      "/api/v1/guide-requests/{id}": {
+        patch: {
+          tags: ["Guias"],
+          summary: "Relatar o andamento de um pedido de guia",
+          description:
+            "Escopo guides:write. waiting_sources agenda nova tentativa em 3 dias; depois de 30 dias esperando, o pedido vira failed (\"fontes insuficientes após 30 dias\"). Um pedido cancelado ou já publicado não aceita relato (422): o robô deve parar.",
+          parameters: [idParam, idempotencyParam],
+          requestBody: { required: true, content: json(ref("GuideRequestReport")) },
+          responses: {
+            "200": { description: "Relato salvo.", content: json(ref("GuideRequestState")) },
+            "404": errorResponse("O pedido não existe."),
+            ...writeErrors,
+          },
+        },
+      },
+      "/api/v1/media": {
+        post: {
+          tags: ["Guias"],
+          summary: "Enviar uma imagem para um guia",
+          description:
+            "Escopo media:write. O corpo é o arquivo cru (PNG, JPEG ou WebP, até 8 MiB), não JSON. A imagem é decodificada, convertida para WebP com no máximo 2048 px no lado maior e sem metadados. Use a URL da resposta em image.url de um item do roteiro.",
+          parameters: [idempotencyParam],
+          requestBody: {
+            required: true,
+            content: {
+              "image/png": { schema: { type: "string", format: "binary" } },
+              "image/jpeg": { schema: { type: "string", format: "binary" } },
+              "image/webp": { schema: { type: "string", format: "binary" } },
+            },
+          },
+          responses: {
+            "201": { description: "Imagem salva.", headers: writeHeaders, content: json(ref("MediaResult")) },
+            "415": errorResponse("Content-Type não aceito, ou o arquivo não é uma imagem válida."),
+            ...writeErrors,
+          },
+        },
+      },
       "/api/v1/games": {
         get: {
           tags: ["Catálogo"],
@@ -280,11 +332,21 @@ export function openApiDocument(): JsonSchema {
           tags: ["Catálogo"],
           summary: "Dossiê de um jogo: ficha, números do Tralked e conquistas",
           description:
-            "Qualquer chave ativa. Para pautas atemporais: a ficha do jogo, agregados dos jogadores do Tralked e todas as conquistas visíveis (até 500), da mais rara para a menos. Só agregados, sem usuários: a média de tempo de jogo só aparece com 3 ou mais jogadores que jogaram. Responde 404 para um stub do catálogo.",
-          parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
+            "Qualquer chave ativa. Para pautas atemporais: a ficha do jogo, agregados dos jogadores do Tralked e todas as conquistas visíveis (até 500), da mais rara para a menos. Com all=1 (escopo guides:write), também as ocultas, com hidden, namePt e descriptionPt (até 5000). Só agregados, sem usuários: a média de tempo de jogo só aparece com 3 ou mais jogadores que jogaram. Responde 404 para um stub do catálogo.",
+          parameters: [
+            { name: "slug", in: "path", required: true, schema: { type: "string" } },
+            {
+              name: "all",
+              in: "query",
+              required: false,
+              description: "1 lista todas as conquistas, ocultas incluídas. Exige guides:write.",
+              schema: { type: "string", enum: ["1"] },
+            },
+          ],
           responses: {
             "200": { description: "Dossiê do jogo.", content: json(ref("GameDossier")) },
             "401": writeErrors["401"],
+            "403": errorResponse("all=1 sem o escopo guides:write."),
             "404": errorResponse("Jogo não encontrado."),
             "429": writeErrors["429"],
           },
@@ -321,6 +383,55 @@ export function openApiDocument(): JsonSchema {
             id: { type: "string" },
             status: { type: "string", enum: ["pending_review"] },
             pendingId: { type: "string" },
+          },
+        },
+        GuideRequestClaim: {
+          type: "object",
+          required: ["request"],
+          properties: {
+            request: {
+              type: "object",
+              required: ["id", "steamAppId", "gameSlug", "attempts"],
+              properties: {
+                id: { type: "string" },
+                steamAppId: { type: "integer" },
+                gameSlug: { type: ["string", "null"], description: "Slug do jogo para /dossie?all=1." },
+                attempts: { type: "integer", description: "Conta esta tentativa." },
+              },
+            },
+          },
+        },
+        GuideRequestReport: {
+          type: "object",
+          required: ["status"],
+          additionalProperties: false,
+          properties: {
+            status: { type: "string", enum: ["researching", "writing", "review", "waiting_sources", "failed"] },
+            reason: { type: "string", maxLength: 2000 },
+            report: {
+              type: ["object", "array"],
+              description: "O relatório do robô (fontes lidas, o que falta, cobertura, gasto), mostrado só à redação.",
+            },
+            guideId: { type: "string", minLength: 1, maxLength: 100 },
+          },
+        },
+        GuideRequestState: {
+          type: "object",
+          required: ["id", "status", "attempts", "nextAttemptAt"],
+          properties: {
+            id: { type: "string" },
+            status: { type: "string" },
+            attempts: { type: "integer" },
+            nextAttemptAt: { type: ["string", "null"], format: "date-time" },
+          },
+        },
+        MediaResult: {
+          type: "object",
+          required: ["url", "width", "height"],
+          properties: {
+            url: { type: "string", format: "uri", description: "URL https da imagem WebP." },
+            width: { type: "integer" },
+            height: { type: "integer" },
           },
         },
         ArticleStatus: {
@@ -470,7 +581,8 @@ export function openApiDocument(): JsonSchema {
             },
             achievements: {
               type: "array",
-              description: "Conquistas visíveis, da menor para a maior raridade global (sem raridade no fim); até 500.",
+              description:
+                "Conquistas visíveis, da menor para a maior raridade global (sem raridade no fim); até 500. Com all=1, as ocultas também (até 5000).",
               items: {
                 type: "object",
                 properties: {
@@ -479,6 +591,9 @@ export function openApiDocument(): JsonSchema {
                   name: { type: "string" },
                   description: { type: ["string", "null"] },
                   globalPct: { type: ["number", "null"] },
+                  hidden: { type: "boolean", description: "Só com all=1." },
+                  namePt: { type: ["string", "null"], description: "Só com all=1: o nome em PT-BR da Steam." },
+                  descriptionPt: { type: ["string", "null"], description: "Só com all=1." },
                 },
               },
             },

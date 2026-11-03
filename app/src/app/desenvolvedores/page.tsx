@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { EXAMPLE_ARTICLE, EXAMPLE_GUIDE } from "@/lib/api/examples";
+import { EXAMPLE_ARTICLE, EXAMPLE_GUIDE, EXAMPLE_GUIDE_V2 } from "@/lib/api/examples";
 import { ERROR_STATUS, type ApiErrorCode } from "@/lib/api/errors";
 import { RATE_LIMIT } from "@/lib/api/rate-limit";
 import { CopyButton } from "./CopyButton";
@@ -18,6 +18,9 @@ const SECTIONS = [
   { id: "noticias", label: "Criar uma notícia" },
   { id: "blocos", label: "Blocos de conteúdo" },
   { id: "guias", label: "Criar um guia" },
+  { id: "formato-2", label: "Guia formato 2" },
+  { id: "pedidos", label: "Pedidos de guia" },
+  { id: "imagens", label: "Enviar imagens" },
   { id: "jogos", label: "Encontrar o jogo" },
   { id: "erros", label: "Respostas e erros" },
   { id: "idempotencia", label: "Idempotência" },
@@ -44,6 +47,39 @@ const CURL_PATCH = `curl -X PATCH "$TRALKED_URL/api/v1/guides/ID_DO_GUIA" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: $(uuidgen)" \\
   --data '{"version": "v1.1", "warnings": ["Aviso revisado."]}'`;
+
+const CURL_REQUEST_REPORT = `curl -X PATCH "$TRALKED_URL/api/v1/guide-requests/ID_DO_PEDIDO" \\
+  -H "Authorization: Bearer $TRALKED_KEY" \\
+  -H "Content-Type: application/json" \\
+  -H "Idempotency-Key: $(uuidgen)" \\
+  --data '{"status": "review", "guideId": "ID_DO_GUIA"}'`;
+
+const CURL_MEDIA = `curl -X POST "$TRALKED_URL/api/v1/media" \\
+  -H "Authorization: Bearer $TRALKED_KEY" \\
+  -H "Content-Type: image/png" \\
+  -H "Idempotency-Key: $(uuidgen)" \\
+  --data-binary @sino.png`;
+
+const CLAIMED = pretty({
+  request: { id: "cmw0d15eg0000m4tsev1lx0vq", steamAppId: 4115450, gameSlug: "phantom-blade-zero", attempts: 1 },
+});
+
+const MEDIA_CREATED = pretty({
+  url: "https://exemplo.public.blob.vercel-storage.com/guias/2026/11/3f2c9a7e-5b1d-4c2e-9a10-7d4e2b8c6f01.webp",
+  width: 1280,
+  height: 720,
+});
+
+const REQUEST_STATUSES: { status: string; when: string }[] = [
+  { status: "researching", when: "Lendo as fontes." },
+  { status: "writing", when: "Escrevendo o guia." },
+  { status: "review", when: "O guia foi criado ou atualizado e está na fila de revisão. Mande o guideId." },
+  {
+    status: "waiting_sources",
+    when: "Faltam fontes para cobrir o jogo; mande em report o que falta. Nova tentativa em 3 dias; depois de 30 dias esperando, o pedido vira failed.",
+  },
+  { status: "failed", when: "O robô desistiu. Mande o motivo em reason." },
+];
 
 const CURL_STATUS = `curl "$TRALKED_URL/api/v1/articles/ID_DA_NOTICIA" \\
   -H "Authorization: Bearer $TRALKED_KEY"`;
@@ -90,20 +126,24 @@ const ERROR_MEANING: Record<ApiErrorCode, string> = {
   idempotency_key_required: "Falta o cabeçalho Idempotency-Key em POST ou PATCH.",
   unauthorized: "Chave ausente, inválida ou revogada.",
   forbidden: "A chave não tem o escopo do endpoint, ou pediu status published sem o escopo publish.",
-  not_found: "O id não existe ou o conteúdo foi criado por outra chave.",
+  not_found: "O id não existe ou o conteúdo foi criado por outra chave. Em /insights, /dossie e /games/{slug}/media, o jogo não existe ou é um stub.",
   slug_conflict: "Já existe uma notícia com esse slug (enviado ou gerado do título).",
   guide_exists: "O jogo já tem guia. A mensagem traz o id; se o guia for desta chave, use PATCH.",
-  published_locked: "A redação já publicou o conteúdo; só uma chave com publish pode alterá-lo.",
+  published_locked: "A redação já publicou a notícia; só uma chave com publish pode alterá-la. Num guia publicado, o PATCH responde 202 pending_review.",
   idempotency_conflict: "O Idempotency-Key já foi usado com outro corpo ou em outro endpoint.",
-  unsupported_media_type: "O Content-Type não é aceito neste endpoint.",
-  payload_too_large: "O corpo passa de 1 MiB.",
-  validation_failed: "Campos inválidos. Cada item de issues aponta o campo por JSON Pointer.",
+  unsupported_media_type: "Em POST /api/v1/media, o Content-Type não é image/png, image/jpeg ou image/webp, ou o arquivo não é uma imagem válida.",
+  payload_too_large: "O corpo passa de 1 MiB, ou a imagem de POST /api/v1/media passa de 8 MiB.",
+  validation_failed:
+    "Campos inválidos. Cada item de issues aponta o campo por JSON Pointer. Em PATCH /api/v1/guide-requests/{id}, também quando o pedido foi cancelado ou publicado.",
   rate_limited: `Mais de ${RATE_LIMIT} requisições no minuto. Espere os segundos de Retry-After.`,
 };
 
 const SCOPES: { scope: string; allows: string }[] = [
   { scope: "articles:write", allows: "Criar notícias, alterar as próprias e consultar o status delas." },
-  { scope: "guides:write", allows: "Criar o guia de um jogo, atualizar os próprios e consultar o status." },
+  {
+    scope: "guides:write",
+    allows: "Criar o guia de um jogo, atualizar os próprios e consultar o status. Pegar e relatar os pedidos de guia e ler o dossiê completo (?all=1).",
+  },
   { scope: "publish", allows: "Publicar direto, sem passar pela fila de revisão, e alterar o que já está publicado." },
   { scope: "media:write", allows: "Enviar imagens (PNG, JPEG ou WebP, até 8 MiB) para as páginas do robô, em POST /api/v1/media." },
 ];
@@ -115,9 +155,23 @@ const ENDPOINTS: { method: string; path: string; scope: string; does: string }[]
   { method: "PATCH", path: "/api/v1/articles/{id}", scope: "articles:write", does: "Altera campos de uma notícia desta chave." },
   { method: "POST", path: "/api/v1/guides", scope: "guides:write", does: "Cria o guia de um jogo (um por jogo). Responde 201." },
   { method: "GET", path: "/api/v1/guides/{id}", scope: "guides:write", does: "Status e versão de um guia desta chave." },
-  { method: "PATCH", path: "/api/v1/guides/{id}", scope: "guides:write", does: "Atualiza um guia desta chave e salva uma nova versão." },
+  {
+    method: "PATCH",
+    path: "/api/v1/guides/{id}",
+    scope: "guides:write",
+    does: "Atualiza um guia desta chave e salva uma nova versão. Num guia publicado, sem publish, responde 202 pending_review e espera um editor.",
+  },
+  { method: "POST", path: "/api/v1/guide-requests/next", scope: "guides:write", does: "Pega o próximo pedido de guia da fila. 204 quando não há pedido." },
+  { method: "PATCH", path: "/api/v1/guide-requests/{id}", scope: "guides:write", does: "Relata o andamento de um pedido de guia." },
+  { method: "POST", path: "/api/v1/media", scope: "media:write", does: "Envia uma imagem (corpo cru) e responde 201 com a URL https da versão WebP." },
   { method: "GET", path: "/api/v1/games", scope: "qualquer chave", does: "Procura jogos por nome, slug, steamAppId ou igdbId." },
   { method: "GET", path: "/api/v1/games/{slug}/insights", scope: "qualquer chave", does: "Dados agregados do jogo no Tralked: jogadores, tempo médio e conquistas mais raras. Sem dados de usuários." },
+  {
+    method: "GET",
+    path: "/api/v1/games/{slug}/dossie",
+    scope: "qualquer chave (?all=1: guides:write)",
+    does: "Ficha do jogo, números do Tralked e as conquistas visíveis. Com ?all=1, também as ocultas, com os nomes em PT-BR.",
+  },
   { method: "GET", path: "/api/v1/games/{slug}/media", scope: "qualquer chave", does: "Imagens largas (banner, capturas de tela, artes) e IDs de vídeos do YouTube do jogo, para ilustrar matérias." },
   { method: "GET", path: "/api/v1/openapi.json", scope: "pública", does: "Descrição OpenAPI 3.1 de toda a API." },
   { method: "GET", path: "/api/v1/schemas/article.json", scope: "pública", does: "JSON Schema do corpo de uma notícia." },
@@ -377,6 +431,11 @@ export default function DesenvolvedoresPage() {
             guia, que a redação pode comparar e restaurar; a resposta traz o número em <C>revision</C>.
           </p>
           <p className={prose}>
+            Guia já publicado e chave sem <C>publish</C>: a resposta é <C>202</C> com <C>id</C>,{" "}
+            <C>status: &quot;pending_review&quot;</C> e <C>pendingId</C>. O guia no ar não muda; a atualização
+            espera um editor aplicá-la ou descartá-la no admin. Com <C>publish</C>, a alteração vale na hora.
+          </p>
+          <p className={prose}>
             Etapas e progresso dos leitores: dê a cada etapa uma <C>key</C> estável (letras minúsculas, números e
             hífens, como <C>chefe-final</C>), em todas ou em nenhuma. Com <C>key</C>, as etapas são casadas pela{" "}
             <C>key</C>: dá para reordenar, incluir e remover etapas, e a marca de cada leitor continua na etapa
@@ -386,6 +445,66 @@ export default function DesenvolvedoresPage() {
             <C>/steps</C>.
           </p>
           <Code label="Atualizar o guia" code={CURL_PATCH} />
+        </Section>
+
+        <Section id="formato-2" title="Guia formato 2 (roteiro do robô)">
+          <p className={prose}>
+            O robô de guias envia <C>&quot;format&quot;: 2</C>: além dos campos do guia clássico, um roteiro (
+            <C>walkthrough</C>) que o leitor segue e marca item por item. O roteiro tem a capa (<C>cover</C>, com
+            exatamente 3 destaques), <C>extraFacts</C>, o selo de plataforma <C>compat</C> (<C>steam_only</C>,{" "}
+            <C>psn_xbox</C>, <C>psn</C> ou <C>xbox</C>), de 1 a 8 avisos em <C>readFirst</C>, os capítulos (
+            <C>chapters</C>) e, opcional, a trilha oficial do YouTube (<C>soundtrack</C>). Cada capítulo aponta em{" "}
+            <C>phaseKey</C> a <C>key</C> de uma etapa; cada passo tem até 40 itens (coletáveis, conquistas,
+            missões, chefes), com fontes, local, perdível e a imagem opcional. O <C>report</C> opcional guarda o
+            relatório do robô e só a redação o vê.
+          </p>
+          <p className={prose}>
+            Regras conferidas com o catálogo (<C>422</C> no caminho exato): toda etapa tem <C>key</C>; toda{" "}
+            <C>key</C> de capítulo, passo e item é única no guia, porque as marcas dos leitores ficam presas à{" "}
+            <C>key</C> do item; toda conquista Steam do jogo, ocultas incluídas, aparece em <C>achievement</C> de
+            algum item; e <C>facts.missables</C> é igual ao número de itens do tipo <C>achievement</C> com{" "}
+            <C>missable: true</C>.
+          </p>
+          <Code label="guia-formato-2.json" code={pretty(EXAMPLE_GUIDE_V2)} tall />
+        </Section>
+
+        <Section id="pedidos" title="Pedidos de guia">
+          <p className={prose}>
+            O robô de guias não escolhe jogos: atende, um por vez, os pedidos que a redação põe na fila do admin.
+            Os dois endpoints exigem <C>guides:write</C>.
+          </p>
+          <p className={prose}>
+            <C>POST /api/v1/guide-requests/next</C> pega o pedido de maior prioridade e, entre eles, o mais antigo
+            (um pedido em <C>waiting_sources</C> volta quando chega a hora da nova tentativa). O pedido passa a{" "}
+            <C>researching</C> e nenhum outro robô o recebe. Sem pedido, a resposta é <C>204</C>, sem corpo.{" "}
+            <C>gameSlug</C> é o jogo para ler <C>GET /api/v1/games/&#123;slug&#125;/dossie?all=1</C>, que traz
+            também as conquistas ocultas.
+          </p>
+          <Code label="Resposta 200" code={CLAIMED} />
+          <p className={prose}>
+            <C>PATCH /api/v1/guide-requests/&#123;id&#125;</C> relata o andamento: <C>status</C> e, se quiser,{" "}
+            <C>reason</C> (até 2000 caracteres), <C>report</C> (objeto ou lista JSON) e <C>guideId</C>. A resposta
+            traz <C>id</C>, <C>status</C>, <C>attempts</C> e <C>nextAttemptAt</C>. Um pedido cancelado ou já
+            publicado não aceita relato (<C>422</C>): o robô deve parar.
+          </p>
+          <Table
+            label="Status de um pedido"
+            head={["status", "Quando usar"]}
+            rows={REQUEST_STATUSES.map((r) => [<C key={r.status}>{r.status}</C>, r.when])}
+          />
+          <Code label="Relatar um pedido" code={CURL_REQUEST_REPORT} />
+        </Section>
+
+        <Section id="imagens" title="Enviar imagens">
+          <p className={prose}>
+            <C>POST /api/v1/media</C> (escopo <C>media:write</C>) recebe o arquivo cru, não JSON, com{" "}
+            <C>Content-Type</C> <C>image/png</C>, <C>image/jpeg</C> ou <C>image/webp</C>, até 8 MiB. O Tralked
+            decodifica a imagem, converte para WebP com no máximo 2048 px no lado maior e remove os metadados. Outro
+            tipo, ou um arquivo que não é imagem, dá <C>415</C>; acima de 8 MiB, <C>413</C>. A resposta{" "}
+            <C>201</C> traz a URL https para usar em <C>image.url</C> de um item do roteiro.
+          </p>
+          <Code label="Enviar uma imagem" code={CURL_MEDIA} />
+          <Code label="Resposta 201" code={MEDIA_CREATED} />
         </Section>
 
         <Section id="jogos" title="Encontrar o jogo">
@@ -400,7 +519,9 @@ export default function DesenvolvedoresPage() {
 
         <Section id="erros" title="Respostas e erros">
           <p className={prose}>
-            Sucesso: <C>201</C> ao criar e <C>200</C> ao alterar ou consultar. Todo erro tem o mesmo formato. Em{" "}
+            Sucesso: <C>201</C> ao criar e <C>200</C> ao alterar ou consultar; <C>202</C> no PATCH de um guia
+            publicado sem <C>publish</C> e <C>204</C> quando a fila de pedidos está vazia. Todo erro tem o mesmo
+            formato. Em{" "}
             <C>issues</C>, <C>path</C> é um JSON Pointer para o campo do corpo (<C>&quot;&quot;</C> é o corpo
             inteiro); em <C>GET /api/v1/games</C> ele aponta o parâmetro, como <C>?steamAppId</C>.
           </p>
@@ -446,9 +567,18 @@ export default function DesenvolvedoresPage() {
               <C>X-RateLimit-Limit</C>, <C>X-RateLimit-Remaining</C> e <C>X-RateLimit-Reset</C> (segundos até a
               janela zerar). Acima do limite: <C>429</C> com <C>Retry-After</C>.
             </li>
-            <li>Corpo de até 1 MiB, com no máximo 64 níveis de listas e objetos aninhados.</li>
-            <li>Até 300 blocos por notícia, 60 etapas por guia e 10 jogos por notícia.</li>
-            <li>Imagens só por URL https, com texto alternativo e crédito. Não há envio de arquivos.</li>
+            <li>
+              Corpo de até 1 MiB (imagem de até 8 MiB em <C>POST /api/v1/media</C>), com no máximo 64 níveis de
+              listas e objetos aninhados.
+            </li>
+            <li>
+              Até 300 blocos por notícia, 60 etapas por guia e 10 jogos por notícia. No formato 2, até 60
+              capítulos, 80 passos por capítulo e 40 itens por passo.
+            </li>
+            <li>
+              Imagens por URL https, com texto alternativo e crédito. Para hospedar no Tralked, envie o arquivo em{" "}
+              <C>POST /api/v1/media</C> e use a URL da resposta.
+            </li>
           </ul>
         </Section>
 
