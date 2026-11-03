@@ -4,7 +4,7 @@ import type { Ai } from "../ai/client.js";
 import { escapeAttr, escapeText } from "../ai/escape.js";
 import type { SpendBucket } from "../db.js";
 import type { ContentBlock } from "../tralked.js";
-import { checkScopes, FRAME_SCOPE, jobSteps, type CheckContext, type GuideProblem } from "./checker.js";
+import { CHECK_DUE, checkScopes, FRAME_SCOPE, jobSteps, type CheckContext, type GuideProblem } from "./checker.js";
 import { chronologyProblems } from "./chronology.js";
 import type { GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
@@ -358,6 +358,10 @@ const comparable = (text: string) =>
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+
+/** `name` appears in `text` as whole words ("old lantern" is not in "old lanternkeeper"); both `comparable`. */
+const mentions = (text: string, name: string) =>
+  name.length > 0 && new RegExp(`(^|[^\\p{L}\\p{N}])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\p{L}\\p{N}])`, "u").test(text);
 
 /** Text without **bold** / *italic* markers and line breaks. */
 const unmark = (text: string) =>
@@ -770,7 +774,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       // Task 20 review: a writer's "aviso" about something else does not replace it; an item the writer's warnings
       // already cite (by its name or its English name) needs no second one.
       const warnings = blocks.filter((b) => b.type === "callout" && b.tone === "aviso").map((b) => comparable((b as { text: string }).text));
-      const cited = (i: WalkItem) => [i.name, i.nameEn].some((n) => n && warnings.some((w) => w.includes(comparable(n))));
+      const cited = (i: WalkItem) => [i.name, i.nameEn].some((n) => n && warnings.some((w) => mentions(w, comparable(n))));
       const warn = items.filter((x) => isMissable(x) && !x.item?.returnLater);
       const unwarned = walkItems.filter((i) => warn.some((x) => x.key === i.key) && !cited(i));
       if (unwarned.length > 0) {
@@ -1099,6 +1103,9 @@ export async function writeAndCheckGuide(
 
   let texts: PartialTexts | undefined = opts.resume ? fromSaved(opts.resume.texts) : undefined;
   let problems: GuideProblem[] = opts.resume ? opts.resume.problems.filter((p) => inScope(p.scope)) : [];
+  // Jobs a probe left to be checked again (their rendering changed outside its chapters): checked, not rewritten.
+  const due = new Set(problems.filter((p) => p.kind === CHECK_DUE).map((p) => p.scope));
+  problems = problems.filter((p) => p.kind !== CHECK_DUE);
   // Task 20 review: a probe resumed from a failed draft keeps the failures outside its chapters (its texts keep those
   // parts): they never trigger a rewrite in the probe nor count in its verdict, but the next full run rewrites them.
   const pending = opts.resume ? opts.resume.problems.filter((p) => !inScope(p.scope)) : [];
@@ -1112,8 +1119,22 @@ export async function writeAndCheckGuide(
     const recheck = ctx.jobs.filter(
       (j) =>
         (!only || only.has(j.id)) &&
-        (next.redone.jobs.includes(j) || (before !== undefined && jobSignature(before.payload, j) !== jobSignature(written.payload, j))),
+        (next.redone.jobs.includes(j) ||
+          (round === 1 && due.has(j.id)) ||
+          (before !== undefined && jobSignature(before.payload, j) !== jobSignature(written.payload, j))),
     );
+    // Task 20 review: in a probe, a kept job outside its chapters whose rendering changed (a loose achievement the
+    // probe's rewrite stopped placing went there, with the cleanup's text) is owed a check by the next run.
+    const owed: GuideProblem[] = only
+      ? ctx.jobs
+          .filter((j) => !only.has(j.id) && next.texts.jobs.has(j.id) && !pending.some((p) => p.scope === j.id))
+          .filter((j) => before !== undefined && jobSignature(before.payload, j) !== jobSignature(written.payload, j))
+          .map((j) => ({
+            scope: j.id,
+            kind: CHECK_DUE,
+            text: `O trecho ${j.id} mudou com a sonda (um item foi posto nele ou saiu dele) e precisa ser checado de novo.`,
+          }))
+      : [];
     const found = [
       ...blocking(written),
       ...(await checkScopes(ai, written.payload, dossier, ctx.skel, { frame: next.redone.frame, jobs: recheck }, checkOpts)),
@@ -1127,7 +1148,7 @@ export async function writeAndCheckGuide(
       problems: found,
       repairs: written.repairs.filter((r) => inScope(r.scope)),
       internalErrors: internalOf(written),
-      pending,
+      pending: [...pending, ...owed],
     };
     opts.onRound?.(last);
     texts = next.texts;

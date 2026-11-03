@@ -40,6 +40,7 @@ describe("chave do cache da escrita", () => {
     expect(key({ models: { ...MODELS, MODEL_WRITER: "claude-sonnet-5-5" } })).not.toBe(base);
     expect(key({ models: { ...MODELS, MODEL_FAST: "claude-sonnet-5-5" } })).not.toBe(base);
     expect(key({ version: WRITER_CACHE_VERSION + 1 })).not.toBe(base);
+    expect(WRITER_CACHE_VERSION).toBe(4);
     // A rarity that crosses a band (1% → 30%) is a different "rarest" list: it changes.
     expect(key({ dossier: dossier(0.5) })).not.toBe(key({ dossier: dossier(30) }));
   });

@@ -32,9 +32,11 @@ export const FRAME_SCOPE = "frame";
 /**
  * Where a problem comes from: the LLM checker, a code repair (the code had to fill or correct the model's text), a
  * note (the code placed something honestly by itself: recorded, never a reason to rewrite), the copy and vocabulary
- * checks, or the chronology check.
+ * checks, or the chronology check. "checagem-devida": a probe changed how a job outside its chapters renders (a loose
+ * achievement moved there): the next run checks that job again, and rewrites it only if the checker rejects it.
  */
-export type ProblemKind = "checador" | "reparo" | "nota" | "copia" | "vocabulario" | "cronologia";
+export type ProblemKind = "checador" | "reparo" | "nota" | "copia" | "vocabulario" | "cronologia" | "checagem-devida";
+export const CHECK_DUE: ProblemKind = "checagem-devida";
 export type GuideProblem = { text: string; scope: string; kind?: ProblemKind };
 
 /** Same default as config `MODEL_FAST`. */

@@ -20,7 +20,7 @@ export type CachedWriting = { payload: GuidePayloadV2; internalErrors: string[];
  * Bump this number whenever the writer (frameMessage, jobMessage, assemble), the checker (its prompts), the
  * skeleton or the guide contract change: a writing cached by older code must not be reused.
  */
-export const WRITER_CACHE_VERSION = 3;
+export const WRITER_CACHE_VERSION = 4;
 
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 

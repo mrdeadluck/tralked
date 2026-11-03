@@ -1027,3 +1027,84 @@ describe("Task 20, revisão 1: sonda → rodada completa e checagem do que mudou
     expect(step.body.filter((b) => b.type === "callout" && b.tone === "aviso")).toHaveLength(1);
   });
 });
+
+describe("Task 20, revisão 2: o que a sonda mudou fora do escopo dela é checado na rodada seguinte", () => {
+  const inGuia = (user: string, key: string) => section(user, "guia").includes(`"key":"${key}"`);
+  /** ACH_ENDING: a loose missable done in Ashen Peak (the code puts it at the end of that chapter by default). */
+  const doneInAshen = () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_ENDING")!, { missable: true, doneChapter: "Ashen Peak" });
+    return dossier;
+  };
+
+  it("rodada completa → sonda que deixa de pôr a conquista → rodada completa: o trecho que passou a mostrá-la é checado, sem reescrita", async () => {
+    // Full run: the Weeping Creek writer places ACH_ENDING in its step 2; the checker keeps failing Weeping Creek.
+    const full = await writeAndCheckGuide(
+      fakeAi({
+        chapter: (out, prompt) => {
+          if (prompt.includes('<passo key="weeping-creek-2">')) out.passos.find((p) => p.key === "weeping-creek-2")!.conquistas.push("ACH_ENDING");
+        },
+        verdict: (user) => (inGuia(user, "weeping-creek-1") ? { ok: false, problems: ["Weeping Creek inventa um atalho."] } : OK),
+      }).ai,
+      doneInAshen(),
+      GAME,
+      "live",
+    );
+    expect(full.ok).toBe(false);
+    expect(itemsOf(full.payload).find((x) => x.i.achievement === "ACH_ENDING")!.step).toBe("weeping-creek-2");
+
+    // Probe of Weeping Creek: its rewrite no longer places ACH_ENDING; the code puts it in Ashen Peak (out of scope).
+    const probe = await writeAndCheckGuide(fakeAi().ai, doneInAshen(), GAME, "live", {
+      probe: { chapters: 1 },
+      resume: { texts: full.draft!.texts, problems: full.draft!.problems },
+    });
+    expect(itemsOf(probe.payload).find((x) => x.i.achievement === "ACH_ENDING")!.step).toBe("ashen-peak-1");
+    expect(probe.draft!.problems).toEqual([]);
+    expect(probe.draft!.pending).toEqual([expect.objectContaining({ scope: "ashen-peak-1", kind: "checagem-devida" })]);
+
+    // Next full run: Ashen Peak is checked again (not rewritten); nothing else is paid.
+    const { ai, of } = fakeAi();
+    const again = await writeAndCheckGuide(ai, doneInAshen(), GAME, "live", {
+      resume: { texts: probe.draft!.texts, problems: [...probe.draft!.problems, ...probe.draft!.pending] },
+    });
+    expect(again.ok).toBe(true);
+    expect(of("guide-write")).toEqual([]);
+    const checks = of("guide-check");
+    expect(checks).toHaveLength(1);
+    expect(inGuia(checks[0]!.user, "ashen-peak-1")).toBe(true);
+    expect(checks[0]!.user).not.toContain("Correções obrigatórias");
+  });
+
+  it("a checagem devida reprovada faz o trecho ser reescrito", async () => {
+    const full = await writeAndCheckGuide(fakeAi().ai, doneInAshen(), GAME, "live");
+    const due = { text: "O trecho mudou na sonda e precisa ser checado de novo.", scope: "ashen-peak-1", kind: "checagem-devida" as const };
+    let failed = false;
+    const { ai, of } = fakeAi({
+      verdict: (user) => {
+        if (!failed && inGuia(user, "ashen-peak-1")) {
+          failed = true;
+          return { ok: false, problems: ["Ashen Peak erra o requisito."] };
+        }
+        return OK;
+      },
+    });
+    const again = await writeAndCheckGuide(ai, doneInAshen(), GAME, "live", { resume: { texts: full.draft!.texts, problems: [due] } });
+    expect(again.ok).toBe(true);
+    const writes = of("guide-write");
+    expect(writes.map((w) => w.purpose)).toEqual(["guide-write-chapter-retry"]);
+    expect(writes[0]!.user).toContain("Ashen Peak erra o requisito.");
+    expect(writes[0]!.user).not.toContain("precisa ser checado de novo");
+  });
+
+  it("'já citado' no aviso é por palavra inteira, não pedaço de palavra", async () => {
+    const { ai } = fakeAi({
+      chapter: (out, prompt) => {
+        if (!prompt.includes('<passo key="weeping-creek-3">')) return;
+        out.passos.find((p) => p.key === "weeping-creek-3")!.blocos.unshift({ tipo: "aviso", texto: "Fale com o Old Lanternkeeper antes." } as never);
+      },
+    });
+    const payload = await writeGuide(ai, makeDossier(), GAME, "live");
+    const step = payload.walkthrough.chapters.flatMap((c) => c.steps).find((s) => s.key === "weeping-creek-3")!;
+    expect(step.body.filter((b) => b.type === "callout" && b.tone === "aviso")).toHaveLength(2);
+  });
+});
