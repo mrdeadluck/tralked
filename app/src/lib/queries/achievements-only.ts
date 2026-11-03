@@ -4,6 +4,7 @@ import { getGame, type GameDetail } from "./games";
 export type AchievementsOnlyPlatform = "steam" | "psn" | "xbox" | "retro";
 
 export type AchievementsOnlyItem = {
+  id: string;
   name: string;
   description: string | null;
   iconUrl: string | null;
@@ -35,6 +36,7 @@ export async function getAchievementsOnly(slug: string): Promise<AchievementsOnl
     const achievements = rows
       .filter((r) => r.platform === platform)
       .map((r) => ({
+        id: r.id,
         name: r.namePt ?? r.name,
         description: r.descriptionPt ?? r.description,
         iconUrl: r.iconUrl,
@@ -44,4 +46,17 @@ export async function getAchievementsOnly(slug: string): Promise<AchievementsOnl
     return achievements.length > 0 ? [{ platform, achievements }] : [];
   });
   return { game, lists };
+}
+
+/**
+ * Hidden achievements lose their text (the name becomes empty) before reaching the page, so the
+ * spoiler is neither in the HTML nor in the client payload; the visitor fetches it on "mostrar".
+ */
+export function maskHidden(lists: AchievementsOnly["lists"]): AchievementsOnly["lists"] {
+  return lists.map((l) => ({
+    ...l,
+    achievements: l.achievements.map((a) =>
+      a.hidden ? { ...a, name: "", description: null, iconUrl: null } : a,
+    ),
+  }));
 }

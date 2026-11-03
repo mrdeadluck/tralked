@@ -46,3 +46,13 @@ describe("getAchievementsOnly", () => {
     expect(await getAchievementsOnly("nao-existe-t11")).toBeNull();
   });
 });
+
+describe("maskHidden", () => {
+  it("tira o texto das ocultas e mantém as demais", async () => {
+    const { maskHidden } = await import("./achievements-only");
+    const r = await getAchievementsOnly(SLUG);
+    const steam = maskHidden(r!.lists)[0].achievements;
+    expect(steam[0].name).toBe("Primeira");
+    expect(steam[1]).toMatchObject({ name: "", description: null, hidden: true });
+  });
+});

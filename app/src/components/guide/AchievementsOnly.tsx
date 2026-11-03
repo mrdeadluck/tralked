@@ -4,6 +4,7 @@ import { useState, type CSSProperties } from "react";
 import { SectionHead } from "@/components/ui/SectionHead";
 import type { AchievementsOnlyItem, AchievementsOnlyPlatform } from "@/lib/queries/achievements-only";
 import { pctText } from "./format";
+import { revealAchievement } from "./reveal-achievement";
 
 const LABEL: Record<AchievementsOnlyPlatform, string> = {
   steam: "Steam",
@@ -21,17 +22,27 @@ const COLOR: Record<AchievementsOnlyPlatform, string> = {
 };
 
 function Row({ a, platform }: { a: AchievementsOnlyItem; platform: AchievementsOnlyPlatform }) {
-  const [revealed, setRevealed] = useState(false);
-  const blurred = a.hidden && !revealed;
+  // A hidden achievement arrives without its text; it is fetched only when the visitor asks.
+  const [text, setText] = useState<{ name: string; description: string | null } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const masked = a.hidden && !text;
+  const name = text?.name ?? a.name;
+  const description = text ? text.description : a.description;
+
+  async function reveal() {
+    const r = await revealAchievement(a.id);
+    if (r) setText(r);
+    else setFailed(true);
+  }
 
   return (
     <li
-      data-hidden={blurred ? "true" : "false"}
+      data-hidden={masked ? "true" : "false"}
       style={{ "--rc": COLOR[platform] } as CSSProperties}
-      className="relative grid grid-cols-[52px_minmax(0,1fr)_auto] gap-x-[18px] gap-y-1 border-b border-line py-5 max-[640px]:grid-cols-[44px_minmax(0,1fr)]"
+      className="grid grid-cols-[52px_minmax(0,1fr)_auto] gap-x-[18px] gap-y-1 border-b border-line py-5 max-[640px]:grid-cols-[44px_minmax(0,1fr)]"
     >
       <div className="tk-cut-b col-start-1 row-span-2 row-start-1 grid size-[52px] place-items-center overflow-hidden border-2 border-(--rc) bg-surface">
-        {a.iconUrl && !blurred ? (
+        {a.iconUrl && !masked ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={a.iconUrl} alt="" width={48} height={48} loading="lazy" className="size-full object-cover" />
         ) : (
@@ -40,27 +51,33 @@ function Row({ a, platform }: { a: AchievementsOnlyItem; platform: AchievementsO
           </svg>
         )}
       </div>
-      <div
-        className={`col-start-2 row-span-2 row-start-1 flex min-w-0 flex-col gap-1 ${blurred ? "blur-[6px] select-none" : ""}`}
-      >
-        <h3 className="text-[19px] font-extrabold font-stretch-[105%] tracking-[-0.015em]">{a.name}</h3>
-        {a.description ? <p className="text-[15.5px] text-muted">{a.description}</p> : null}
+      <div className="col-start-2 row-span-2 row-start-1 flex min-w-0 flex-col gap-1">
+        {masked ? (
+          <>
+            <h3 className="text-[19px] font-extrabold font-stretch-[105%] tracking-[-0.015em]">Conquista oculta</h3>
+            <div aria-hidden="true" className="flex flex-col gap-1.5 blur-[6px] select-none">
+              <span className="h-3 w-3/4 bg-line" />
+              <span className="h-3 w-1/2 bg-line" />
+            </div>
+            <button
+              type="button"
+              onClick={reveal}
+              className="tk-cut-sm mt-1 w-fit cursor-pointer bg-bg px-3 py-1 font-mono text-xs tracking-[0.1em] text-acc uppercase shadow-[inset_0_0_0_1px_var(--border)]"
+            >
+              mostrar
+            </button>
+            {failed ? <span className="font-mono text-xs text-dim">Não foi possível mostrar agora.</span> : null}
+          </>
+        ) : (
+          <>
+            <h3 className="text-[19px] font-extrabold font-stretch-[105%] tracking-[-0.015em]">{name}</h3>
+            {description ? <p className="text-[15.5px] text-muted">{description}</p> : null}
+          </>
+        )}
       </div>
       <small className="col-start-3 row-start-1 text-right font-mono text-xs text-dim max-[640px]:col-start-2 max-[640px]:row-start-3 max-[640px]:text-left">
         {pctText(a.globalPct)} dos jogadores
       </small>
-      {blurred ? (
-        <button
-          type="button"
-          aria-label="Conquista oculta: mostrar"
-          onClick={() => setRevealed(true)}
-          className="absolute inset-0 grid cursor-pointer place-items-center"
-        >
-          <span className="tk-cut-sm bg-bg px-3 py-1 font-mono text-xs tracking-[0.1em] text-acc uppercase shadow-[inset_0_0_0_1px_var(--border)]">
-            Oculta · mostrar
-          </span>
-        </button>
-      ) : null}
     </li>
   );
 }

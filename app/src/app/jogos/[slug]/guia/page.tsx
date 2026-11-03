@@ -7,6 +7,7 @@ import { GuideModeration } from "@/components/moderation/Islands";
 import { FactsStrip } from "@/components/games/FactsStrip";
 import { GameHead } from "@/components/games/GameHead";
 import { AchievementsOnly } from "@/components/guide/AchievementsOnly";
+import { maskHidden } from "@/lib/queries/achievements-only";
 import { AchievementList } from "@/components/guide/AchievementList";
 import { Collectibles } from "@/components/guide/Collectibles";
 import { CommunityTips } from "@/components/guide/CommunityTips";
@@ -54,7 +55,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
       return (
         <>
           <GameHead game={only.game} />
-          <AchievementsOnly lists={only.lists} />
+          <AchievementsOnly lists={maskHidden(only.lists)} />
         </>
       );
     }
