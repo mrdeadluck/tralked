@@ -5,11 +5,13 @@ import { escapeAttr, escapeText } from "../ai/escape.js";
 import type { SpendBucket } from "../db.js";
 import type { ContentBlock } from "../tralked.js";
 import { checkScopes, FRAME_SCOPE, jobSteps, type GuideProblem } from "./checker.js";
+import { chronologyProblems } from "./chronology.js";
 import type { GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
 import { deterministicProblems, dossierTexts } from "./copy-check.js";
 import type { DossierAchievement, GuideDossier, GuideDossierSource } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
+import type { PsnWriteScope } from "./scope.js";
 import { buildSkeleton, isMissable, untilOf, writeJobs, type GuideSkeleton, type SkelChapter, type SkelItem, type WriteJob } from "./skeleton.js";
 
 export { copiedRuns } from "./copy-check.js";
@@ -20,6 +22,10 @@ export { copiedRuns } from "./copy-check.js";
  * model only writes the text: one "frame" call (cover, ficha texts, overview, read-first, roadmap, chapter titles)
  * and one call per write job (a run of at most 20 steps of a chapter). After a check, only the frame and the jobs a
  * problem points at are rewritten. Images and the soundtrack are added later by the pipeline.
+ *
+ * Chapters and steps keep the order of the primary script (the dossier's order); each chapter's roadmap phase only
+ * moves forward. With a PSN scope (R22) the dossier holds only the PSN list's achievements and the payload says so
+ * (`scope`, `psnList`, `steamOnly`); the Steam-only achievements get no item and no how-to.
  */
 
 export type GuideModels = Pick<GuideConfig, "MODEL_WRITER" | "MODEL_FAST">;
@@ -144,9 +150,11 @@ function hoursOf(dossier: GuideDossier, game: GuideDossierSource): { min: number
   return null;
 }
 
-function fichaOf(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource) {
+function fichaOf(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource, scope?: PsnWriteScope) {
   const achItems = skel.chapters.flatMap((c) => c.steps.flatMap((s) => s.items)).filter((i) => i.ach);
   return {
+    /** Scope psn: the PSN trophies (platinum included), the Steam list size and the Steam-only count. */
+    psn: scope ? { trophies: scope.psnList.total, steam: scope.steamTotal, steamOnly: scope.steamOnly.length } : null,
     achievements: dossier.achievements.length,
     hidden: dossier.achievements.filter((a) => a.hidden).length,
     missables: achItems.filter(isMissable).length,
@@ -163,8 +171,8 @@ function fichaOf(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierS
 // Prompts
 // ---------------------------------------------------------------------------------------------
 
-function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource): string {
-  const ficha = fichaOf(skel, dossier, game);
+function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource, scope?: PsnWriteScope): string {
+  const ficha = fichaOf(skel, dossier, game, scope);
   const f = dossier.facts;
   const rarest = [...dossier.achievements]
     .filter((a) => a.globalPct !== null)
@@ -182,7 +190,13 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
       .join("\n"),
     [
       "## Ficha (use só estes números)",
-      `- Conquistas na Steam: ${ficha.achievements} (ocultas: ${ficha.hidden})`,
+      ...(ficha.psn
+        ? [
+            `- Troféus na lista da PSN: ${ficha.psn.trophies} (o guia segue esta lista)`,
+            `- Conquistas na Steam: ${ficha.psn.steam}, das quais ${ficha.psn.steamOnly} só na Steam (fora do roteiro, sem como fazer)`,
+            `- Conquistas da Steam no roteiro: ${ficha.achievements} (ocultas: ${ficha.hidden})`,
+          ]
+        : [`- Conquistas na Steam: ${ficha.achievements} (ocultas: ${ficha.hidden})`]),
       `- Perdíveis: ${ficha.missables}`,
       `- Online: ${ficha.online}`,
       `- Com bug: ${ficha.bugged}`,
@@ -192,6 +206,16 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
       `- Dificuldade segundo as fontes (escala delas): ${f.difficulty ? `${f.difficulty.value.value} (${body(f.difficulty.value.note)})` : "sem dado"}`,
       `- Compatibilidade: ${f.compat}`,
       `- Mais raras na Steam: ${rarest.map((a) => `${a.apiName} ${pct(a.globalPct)}`).join(", ") || "sem dado"}`,
+    ].join("\n"),
+    ficha.psn
+      ? [
+          "## Escopo: guia pela lista da PSN",
+          `Nenhuma fonte explica ainda as ${ficha.psn.steamOnly} conquistas que só existem na Steam, então este guia segue a lista de troféus da PSN (${ficha.psn.trophies} troféus). Diga isso com franqueza na capa ou no "leia antes": o roteiro cobre a lista da PSN, e as conquistas só da Steam ficam num bloco à parte, sem roteiro ainda. Nunca explique como fazer uma conquista que não está nesta lista.`,
+        ].join("\n")
+      : "",
+    [
+      "## Ordem do jogo",
+      `Os capítulos já estão na ordem cronológica do roteiro principal${dossier.primaryScript ? ` (${body(dossier.primaryScript.name)})` : ""}; o roadmap é o da fonte, com o mínimo de zeradas. Cada capítulo fica na mesma etapa do anterior ou numa etapa seguinte, nunca numa anterior. A limpeza (seleção de capítulo) é só para o que não dá para fazer antes.`,
     ].join("\n"),
     ["## Etapas do roadmap (keys prontas)", ...skel.phases.map((p) => `<etapa key="${p.key}" titulo="${attr(p.title)}">${body(p.summary)}</etapa>`)].join("\n"),
     [
@@ -412,6 +436,8 @@ function kindOf(s: SkelItem): WalkItemKind {
 
 export type WriteGuideOpts = {
   models?: GuideModels;
+  /** R22: write the guide from the PSN list (the dossier already holds only its achievements, see scope.ts). */
+  scope?: PsnWriteScope;
   /** Server-side fallbacks; defaults to `bucket === "live"`. */
   fallbacks?: boolean;
 };
@@ -425,6 +451,7 @@ type Ctx = {
   fallbacks: boolean;
   skel: GuideSkeleton;
   jobs: WriteJob[];
+  scope?: PsnWriteScope;
 };
 
 /** The model's texts: the frame and one answer per write job (by job id). */
@@ -441,6 +468,7 @@ function context(ai: Ai, dossier: GuideDossier, game: GuideDossierSource, bucket
     fallbacks: opts.fallbacks ?? bucket === "live",
     skel,
     jobs: writeJobs(skel),
+    scope: opts.scope,
   };
 }
 
@@ -468,7 +496,7 @@ async function draft(ctx: Ctx, previous?: Texts, problems: GuideProblem[] = []):
   const abort: Abort = { aborted: false };
   const [frame, answers] = await Promise.all([
     redoFrame
-      ? abortOnError(call("guide-write-frame", frameMessage(ctx.skel, ctx.dossier, ctx.game), FrameSchema, own(FRAME_SCOPE)), abort)
+      ? abortOnError(call("guide-write-frame", frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope), FrameSchema, own(FRAME_SCOPE)), abort)
       : Promise.resolve(previous!.frame),
     inPool(redoJobs, CONCURRENCY, (job) => call("guide-write-chapter", jobMessage(ctx.skel, job, ctx.game), ChapterTextSchema, own(job.id)), abort),
   ]);
@@ -630,7 +658,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   };
 
   // --- chapters -------------------------------------------------------------------------------------------------
-  const phaseKeys = new Set(skel.phases.map((p) => p.key));
+  const phaseAt = new Map(skel.phases.map((p, i) => [p.key, i]));
   const metaBy = new Map(frame.capitulos.map((c) => [c.key, c]));
   const chapters: WalkChapter[] = [];
   let lastPhase = skel.phases[0]!.key;
@@ -638,7 +666,15 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     const meta = metaBy.get(c.key);
     const steps = c.steps.map((s) => ({ s, items: stepsOf.get(s.key)! })).filter(({ items }) => !c.cleanup || items.length > 0);
     if (steps.length === 0) continue;
-    const phaseKey = meta && phaseKeys.has(meta.fase) ? meta.fase : c.cleanup ? skel.phases[skel.phases.length - 1]!.key : lastPhase;
+    let phaseKey = meta && phaseAt.has(meta.fase) ? meta.fase : c.cleanup ? skel.phases[skel.phases.length - 1]!.key : lastPhase;
+    // The roadmap only moves forward: a chapter never goes back to an earlier phase.
+    if (phaseAt.get(phaseKey)! < phaseAt.get(lastPhase)!) {
+      repairs.push({
+        scope: FRAME_SCOPE,
+        text: `O capítulo ${c.key} foi posto na etapa ${phaseKey}, antes da etapa ${lastPhase} do capítulo anterior; ficou na ${lastPhase}. As etapas seguem o roadmap, na ordem.`,
+      });
+      phaseKey = lastPhase;
+    }
     lastPhase = phaseKey;
     let deadline = c.deadlines.length > 0 ? plainWithSpoilers(meta?.prazo, 200) : "";
     if (c.deadlines.length > 0 && !deadline) {
@@ -698,7 +734,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   });
 
   // --- ficha and cover ----------------------------------------------------------------------------------------
-  const ficha = fichaOf(skel, dossier, game);
+  const ficha = fichaOf(skel, dossier, game, ctx.scope);
   const missables = allItems.filter((i) => i.missable && i.kind === "achievement").length;
   // No source for the hours: zero, as the site's schema has no "unknown". Never a number from the model.
   const hours = ficha.hours ?? { min: 0, max: 0 };
@@ -710,6 +746,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       ficha.achievements, ficha.hidden, missables, ficha.online, ficha.bugged, ficha.chapters, ficha.regions, difficulty,
       ...(ficha.hours ? [hours.min, hours.max] : []),
       ...(ficha.playthroughs !== undefined ? [ficha.playthroughs] : []),
+      ...(ficha.psn ? [ficha.psn.trophies, ficha.psn.steam, ficha.psn.steamOnly] : []),
       ...dossier.achievements.flatMap((a) => (a.globalPct === null ? [] : [a.globalPct])),
     ].map(Number),
   );
@@ -726,7 +763,8 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     ...(missables > 0 ? [{ value: String(missables), label: missables === 1 ? "Perdível" : "Perdíveis" }] : []),
     ...(ficha.online === 0 ? [{ value: "0", label: "Online" }] : []),
     ficha.regions > 1 ? { value: String(ficha.regions), label: "Regiões" } : { value: String(ficha.chapters), label: "Capítulos" },
-    { value: String(ficha.achievements), label: "Conquistas" },
+    // Scope psn: the count the guide covers is the PSN list's (the Steam total stays in the ficha text).
+    ficha.psn ? { value: String(ficha.psn.trophies), label: "Troféus PSN" } : { value: String(ficha.achievements), label: "Conquistas" },
     { value: `${difficulty}/10`, label: "Dificuldade" },
   ];
   for (const d of defaults) {
@@ -791,6 +829,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
         difficultyNote: need(plain(frame.ficha.justificativaDificuldade, 160), `${difficulty}/10.`, "a justificativa da dificuldade"),
       },
       compat: dossier.facts.compat,
+      ...(ctx.scope ? { scope: "psn" as const, psnList: ctx.scope.psnList, steamOnly: ctx.scope.steamOnly } : {}),
       readFirst,
       chapters,
     },
@@ -840,7 +879,7 @@ function jobSignature(payload: GuidePayloadV2, job: WriteJob): string {
 }
 
 /**
- * Writes and checks: the code's repairs, the deterministic checks (copy, vocabulary), then the LLM checker per
+ * Writes and checks: the code's repairs, the deterministic checks (copy, vocabulary, chronology), then the LLM checker per
  * frame and per job. With problems, rewrites once only the frame and the jobs they point at, then checks again
  * (the LLM only where the text or the items changed). `ok: false` after that: the pipeline marks the request
  * `failed`.
@@ -860,7 +899,13 @@ export async function writeAndCheckGuide(
     const stepOfItem = new Map(written.payload.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items.map((i) => [i.key, s.key] as const))));
     const jobOfStep = new Map(ctx.jobs.flatMap((j) => j.steps.map((s) => [s.key, j.id] as const)));
     const scopeOf = (key: string | null) => (key === null ? FRAME_SCOPE : (jobOfStep.get(stepOfItem.get(key) ?? key) ?? FRAME_SCOPE));
-    return [...written.repairs, ...deterministicProblems(written.payload, sources).map((p) => ({ text: p.text, scope: scopeOf(p.key) }))];
+    return [
+      ...written.repairs,
+      ...[...deterministicProblems(written.payload, sources), ...chronologyProblems(written.payload, ctx.skel, ctx.dossier)].map((p) => ({
+        text: p.text,
+        scope: scopeOf(p.key),
+      })),
+    ];
   };
 
   const firstTexts = await draft(ctx);

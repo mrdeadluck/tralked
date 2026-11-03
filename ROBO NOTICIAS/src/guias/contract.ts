@@ -9,9 +9,12 @@ import type { ContentBlock, GameRef } from "../tralked.js";
 
 export const WALK_ITEM_KINDS = ["collectible", "achievement", "mission", "key_item", "boss", "other"] as const;
 export const GUIDE_COMPAT = ["steam_only", "psn_xbox", "psn", "xbox"] as const;
+/** "steam": the guide covers the whole Steam list; "psn": it follows the PSN trophy list (R22). */
+export const GUIDE_SCOPES = ["steam", "psn"] as const;
 
 export type WalkItemKind = (typeof WALK_ITEM_KINDS)[number];
 export type GuideCompat = (typeof GUIDE_COMPAT)[number];
+export type GuideScope = (typeof GUIDE_SCOPES)[number];
 
 export type WalkSource = { name: string; url: string };
 
@@ -66,6 +69,12 @@ export type Walkthrough = {
     difficultyNote: string;
   };
   compat: GuideCompat;
+  /** Absent = "steam". */
+  scope?: GuideScope;
+  /** Scope psn: the PSN list the guide follows (platinum included); `names` has exactly `total` names. */
+  psnList?: { total: number; names: string[] };
+  /** Scope psn: Steam apiNames the guide has no route for (never an item of the guide). */
+  steamOnly?: string[];
   readFirst: { title: string; text: string; tone: "aviso" | "info"; spoiler: boolean }[];
   chapters: WalkChapter[];
   soundtrack?: { youtubeId?: string; playlistId?: string; title: string; channel: string };

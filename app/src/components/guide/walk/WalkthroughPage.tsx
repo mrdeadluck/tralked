@@ -8,6 +8,7 @@ import { WalkProgressProvider } from "./progress";
 import { ReadFirst } from "./ReadFirst";
 import { SoundtrackPlayer } from "./SoundtrackPlayer";
 import { SpoilerProvider } from "./spoilers";
+import { SteamOnlyList } from "./SteamOnlyList";
 import { walkView } from "./view";
 import { WalkChapters } from "./WalkChapters";
 import { WalkJourney, type JourneyChapter } from "./WalkJourney";
@@ -18,7 +19,8 @@ import "./walk-chapters.css";
 /*
  * Page of a format-2 guide (the guide robot's walkthrough). Top: magazine cover and hero, the
  * ficha, overview, "leia antes" and the roadmap beside the sidebar; then the journey, the chapters
- * along the green line, the robot report (staff) and the soundtrack player, over the animated
+ * along the green line, the Steam-only achievements of a guide written from the PSN list
+ * (scope psn), the robot report (staff) and the soundtrack player, over the animated
  * backdrop. Spoilers start off for everyone and are not in the page at all (view.ts).
  *
  * The page is the public guide, the same for everyone (cached). What is per visitor streams into
@@ -84,6 +86,7 @@ export function WalkthroughPage({ guide, user = null, report = null, preview = f
           <section id="g-detonado" className="wk-detonado" aria-label="Detonado">
             <WalkJourney chapters={journey} />
             <WalkChapters chapters={view.chapters} screenshots={walk.screenshots} />
+            <SteamOnlyList achievements={view.steamOnly} />
             {report}
           </section>
           {walkthrough.soundtrack ? <SoundtrackPlayer soundtrack={walkthrough.soundtrack} /> : null}

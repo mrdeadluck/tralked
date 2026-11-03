@@ -11,7 +11,7 @@ import { parseHTML } from "linkedom";
  * recomputed from the stored HTML (no new fetch).
  */
 
-export const PAGE_TEXT_VERSION = 2;
+export const PAGE_TEXT_VERSION = 3;
 /** Upper bound of a page's text. `extractFacts` splits it into 60,000-char parts. */
 export const PAGE_TEXT_MAX = 400_000;
 

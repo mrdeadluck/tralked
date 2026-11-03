@@ -126,6 +126,71 @@ describe("WalkthroughPage (topo)", () => {
   });
 });
 
+describe("guia pela lista da PSN (scope psn, R22)", () => {
+  /** PBZ written from PowerPyx: 36 PSN trophies; two Steam-only achievements, one of them hidden. */
+  function psnGuide() {
+    const guide = pbzGuide();
+    const names = Array.from({ length: 36 }, (_, i) => (i === 35 ? "Phantom Blade Zero Platinum Trophy" : `Trophy ${i + 1}`));
+    const secret: WalkAchievementView = { ...ach("ACH_STEAM_SECRET", null, 0.8, true), id: "cm-steam-secret" };
+    const open: WalkAchievementView = {
+      ...ach("ACH_STEAM_ARENA", "Mestre da Arena", 2.3),
+      id: "cm-steam-arena",
+      description: "Vença todas as lutas da arena.",
+      iconUrl: "https://cdn.example/arena.jpg",
+    };
+    return pbzGuide({
+      walkthrough: { ...walkthrough, scope: "psn", psnList: { total: 36, names }, steamOnly: ["ACH_STEAM_ARENA", "ACH_STEAM_SECRET"] },
+      walk: { ...guide.walk!, achievements: { ...guide.walk!.achievements, ACH_STEAM_ARENA: open, ACH_STEAM_SECRET: secret } },
+    });
+  }
+
+  it("mostra o selo da lista da PSN no lugar do APENAS STEAM, com a nota honesta", () => {
+    render(<WalkthroughPage guide={psnGuide()} />);
+    expect(screen.getByText("GUIA PELA LISTA DA PSN (36 troféus)")).toBeInTheDocument();
+    expect(screen.queryByText("APENAS STEAM")).toBeNull();
+    expect(
+      screen.getByText("As 2 conquistas que só existem na Steam ainda não têm roteiro; quando aparecer fonte, o guia é atualizado."),
+    ).toBeInTheDocument();
+  });
+
+  it('lista "Só na Steam — sem roteiro ainda" com nome, descrição, ícone e raridade', () => {
+    render(<WalkthroughPage guide={psnGuide()} />);
+    const block = screen.getByRole("region", { name: "Só na Steam — sem roteiro ainda" });
+    const rows = within(block).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Mestre da Arena");
+    expect(rows[0]).toHaveTextContent("Vença todas as lutas da arena.");
+    expect(rows[0]).toHaveTextContent("2,3% dos jogadores");
+    expect(rows[0].querySelector("img")).toHaveAttribute("src", "https://cdn.example/arena.jpg");
+    expect(rows[1]).toHaveTextContent("Conquista oculta");
+    expect(rows[1].querySelector('[data-spoiler="hidden"]')).not.toBeNull();
+    expect(rows[1].querySelector("img")).toBeNull();
+  });
+
+  it("a conquista oculta só da Steam é revelada pelo leitor", async () => {
+    render(<WalkthroughPage guide={psnGuide()} />);
+    const block = screen.getByRole("region", { name: "Só na Steam — sem roteiro ainda" });
+    fireEvent.click(within(block).getByRole("button", { name: /mostrar/i }));
+    expect(await within(block).findByText("Nome Revelado")).toBeInTheDocument();
+  });
+
+  it("nem o apiName nem o nome da oculta chegam ao navegador; nada de platina", () => {
+    const page = <WalkthroughPage guide={psnGuide()} />;
+    const out = shipped(page).join(" ");
+    expect(out).toContain("cm-steam-secret");
+    expect(out).not.toContain("ACH_STEAM_SECRET");
+    expect(out).not.toContain("ACH_STEAM_ARENA");
+    const { container } = render(page);
+    expect(container.textContent).not.toMatch(/platina|platinum/i);
+  });
+
+  it("guia pela lista da Steam não mostra o bloco", () => {
+    render(<WalkthroughPage guide={pbzGuide()} />);
+    expect(screen.queryByRole("region", { name: "Só na Steam — sem roteiro ainda" })).toBeNull();
+    expect(screen.queryByText(/GUIA PELA LISTA DA PSN/)).toBeNull();
+  });
+});
+
 describe("applyGuideUserState (formato 2)", () => {
   it("marca os itens feitos e as conquistas da Steam do visitante", () => {
     const view = applyGuideUserState(pbzGuide(), {

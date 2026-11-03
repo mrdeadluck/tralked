@@ -6,7 +6,7 @@ import { PLATFORM_COLOR, type Platform } from "@/components/ui/PlatformChips";
 import { genreName, orderedGenres } from "@/lib/engine/genres";
 import type { Walkthrough } from "@/lib/content/walkthrough-schema";
 import type { GuideDetail, WalkExtras } from "@/lib/queries/games";
-import { CompatSeal } from "./CompatSeal";
+import { CompatSeal, PsnListSeal } from "./CompatSeal";
 import { editionLabel, MagazineCover } from "./MagazineCover";
 import { ProgressRing } from "./ProgressBits";
 
@@ -41,6 +41,7 @@ export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
   const phases = guide.steps.length;
   const [lead, ...rest] = game.name.trim().split(/\s+/);
   const sources = sourceNames(guide, walkthrough);
+  const psnList = walkthrough.scope === "psn" ? walkthrough.psnList : undefined;
 
   return (
     <section className="wk-hero" aria-label={`Guia Tralked de ${game.name}`}>
@@ -80,8 +81,9 @@ export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
             </h1>
           )}
           <p className="wk-sub">
-            Roteiro em {phases} {phases === 1 ? "etapa" : "etapas"} {through}, cada conquista no ponto exato do
-            caminho e todos os coletáveis em ordem.
+            Roteiro em {phases} {phases === 1 ? "etapa" : "etapas"} {through}, cada{" "}
+            {psnList ? "conquista da lista da PSN" : "conquista"} no ponto exato do caminho e todos os coletáveis em
+            ordem.
           </p>
           <div className="wk-chips">
             {game.platforms.filter(isPlatform).map((platform) => (
@@ -95,7 +97,11 @@ export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
               </Chip>
             ))}
           </div>
-          {guide.compat ? <CompatSeal compat={guide.compat} counts={walk.compatCounts} /> : null}
+          {psnList ? (
+            <PsnListSeal trophies={psnList.total} steamOnly={walkthrough.steamOnly?.length ?? 0} />
+          ) : guide.compat ? (
+            <CompatSeal compat={guide.compat} counts={walk.compatCounts} />
+          ) : null}
           <p className="wk-meta">
             <span>
               Edição {editionLabel(guide.edition)} · Equipe Tralked

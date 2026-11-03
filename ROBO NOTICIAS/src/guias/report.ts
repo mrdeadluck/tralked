@@ -1,3 +1,4 @@
+import type { GuideScope } from "./contract.js";
 import type { GuideDb } from "./db.js";
 import type { GuideDossier, SteamAchievement } from "./dossier.js";
 
@@ -18,6 +19,10 @@ export type RobotReport = {
   singleSource: string[];
   /** Steam achievements; how many some source covers; how many are not on the PSN list (or there is none). */
   coverage: { steam: number; covered: number; steamOnly: number };
+  /** The list the guide covers: the whole Steam list, or the PSN trophy list (R22). */
+  scope: GuideScope;
+  /** Scope psn: PSN trophies (platinum included) and how many some source covers (the platinum once all others are). */
+  psnCoverage?: { total: number; covered: number };
   /** AI spend of the request so far (every attempt), in USD. */
   spendUsd: number;
   /** The same spend by purpose ("guia-extracao", "guide-write-chapter", "websearch"...). */
@@ -36,6 +41,8 @@ export type ReportInput = {
   steamList?: SteamAchievement[];
   spendUsd: number;
   spendByPurpose?: Record<string, number>;
+  /** Absent = "steam". */
+  scope?: GuideScope;
   missing?: string[];
   problems?: string[];
 };
@@ -65,9 +72,22 @@ function singleSourceFacts(d: GuideDossier): string[] {
   return out;
 }
 
+/** PSN trophies some source covers: every matched trophy with a source, and the platinum once all of them are. */
+function psnCoverage(d: GuideDossier): { total: number; covered: number } | undefined {
+  const list = d.facts.psnList;
+  if (!list) return undefined;
+  const sourced = new Set(d.achievements.filter((a) => a.sources.length > 0).map((a) => a.apiName));
+  const trophies = list.matches.filter((m) => !m.platinum);
+  const covered = trophies.filter((m) => m.apiName && sourced.has(m.apiName)).length;
+  const platinum = list.matches.length - trophies.length;
+  return { total: list.total, covered: covered + (covered === trophies.length ? platinum : 0) };
+}
+
 export function buildReport(input: ReportInput): RobotReport {
   const d = input.dossier;
   const steam = (input.steamList ?? []).filter((a) => a.platform === "steam").length;
+  const scope = input.scope ?? "steam";
+  const psn = scope === "psn" && d ? psnCoverage(d) : undefined;
   return {
     sourcesRead: input.sourcesRead.map((s) => ({ name: s.name, url: s.url, ok: s.ok, ...(s.reason ? { reason: s.reason } : {}) })),
     divergences: d ? [...d.divergences] : [],
@@ -77,6 +97,8 @@ export function buildReport(input: ReportInput): RobotReport {
       covered: d ? d.achievements.filter((a) => a.sources.length > 0).length : 0,
       steamOnly: d ? d.achievements.filter((a) => a.steamOnly).length : 0,
     },
+    scope,
+    ...(psn ? { psnCoverage: psn } : {}),
     spendUsd: usd(input.spendUsd),
     spendByPurpose: Object.fromEntries(Object.entries(input.spendByPurpose ?? {}).map(([k, v]) => [k, usd(v)])),
     ...(input.missing ? { missing: input.missing } : {}),

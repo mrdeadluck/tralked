@@ -95,11 +95,17 @@ export type DossierAchievement = {
     counted: number;
     /** Where N came from: the achievement text, or the `total` the sources print on the items. */
     from: "texto" | "total";
+    /**
+     * R23: the count must be exactly N only when a source says the game has exactly N (N came from the totals the
+     * items print, or they print the same N as the text). Otherwise "collect N" asks for at least N, and every item
+     * the sources list stays in the guide.
+     */
+    exact: boolean;
     /** Distinct `total`s printed by the counting items when the text gave no N and they disagree. */
     conflictingTotals: number[];
     /** Counting items with no location. */
     withoutLocation: string[];
-    /** Problems with the numbering 1..N of the counting items (duplicates, absent). */
+    /** Problems with the numbering of the counting items (duplicates, absent; at least N: an item without number). */
     indexProblems: string[];
   };
   /** Sources contradict each other on missable / until. Task 8 maps it to `review = true`. */
@@ -111,6 +117,18 @@ export type AchievementAliases = Record<string, string[]>;
 
 export type Scalar<T> = { value: T; sources: string[]; agreed: boolean };
 
+/** The whole PSN trophy list as one complete PSN script gives it (R22: the guide may follow it). */
+export type PsnTrophyList = {
+  /** Trophies on the list, platinum included (the source's trophy count). */
+  total: number;
+  /** English names as the source lists them: exactly `total`. */
+  names: string[];
+  /** The source group that gave the list. */
+  source: string;
+  /** Each name and the Steam achievement it is; none for the platinum and for a trophy with no Steam twin. */
+  matches: { name: string; apiName?: string; platinum: boolean }[];
+};
+
 export type GuideDossier = {
   chapters: DossierChapter[];
   achievements: DossierAchievement[];
@@ -120,6 +138,8 @@ export type GuideDossier = {
     hours?: Scalar<{ min: number; max: number }>;
     roadmap: { title: string; summary: string; sources: string[] }[];
     psnTrophyListSize?: number;
+    /** The full PSN list, when a complete PSN script names every trophy (count and names). */
+    psnList?: PsnTrophyList;
     /** Seal computed from the PSN list the sources gave. */
     compat: GuideCompat;
     /** "N fragments = 1 unit" as the sources state it. */
@@ -127,12 +147,42 @@ export type GuideDossier = {
   };
   /** Script sources (roteiro_*), one per independent group: is the group complete? Input of gate rule (e). */
   scripts: { name: string; complete: boolean }[];
+  /**
+   * The primary script (the complete PSN script, PowerPyx and its region pages; else the complete Steam script) and
+   * its chapters in its own order: the guide's chapters follow it (the chronology check).
+   */
+  primaryScript?: { name: string; chapters: string[] };
   /** Plain Portuguese sentences; they never fail the gate by themselves. */
   divergences: string[];
   unreadSources: { name: string; url: string; reason: string }[];
 };
 
 const ROLE_ORDER: Record<SourceRole, number> = { roteiro_psn: 0, roteiro_steam: 1, coletaveis: 2, confirmacao: 3 };
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+};
+
+/**
+ * The facts of the primary script, in reading order: the first complete PSN script (PowerPyx), else the first
+ * complete Steam script, plus the pages of the same guide (same site, "PowerPyx (Crimson Forest)" for "PowerPyx").
+ * Empty when no script is complete.
+ */
+function primaryFacts(facts: ExtractedFacts[]): ExtractedFacts[] {
+  const lead =
+    facts.find((f) => f.source.role === "roteiro_psn" && f.complete) ?? facts.find((f) => f.source.role === "roteiro_steam" && f.complete);
+  if (!lead) return [];
+  const host = hostOf(lead.source.url);
+  const name = lead.source.name;
+  return facts.filter((f) => f === lead || (hostOf(f.source.url) === host && f.source.name.startsWith(`${name} (`)));
+}
+
+/** Platinum (PlayStation's last trophy): it has no Steam twin. */
+const isPlatinum = (name: string) => /platin/.test(normalizeName(name));
 
 const FRAGMENT_WORD = /\b(fragment\w*|shard\w*|piece\w*|pedaco\w*)\b/;
 
@@ -160,10 +210,11 @@ function alignId(chapter: string, item: ExtractedFacts["chapters"][number]["item
 }
 
 /**
- * The chapter a "until X" milestone belongs to: X names a chapter, or an item inside one. Failing that, X names a
- * region ("Crimson Forest region main boss"): the first chapter of that region at or after `from` (the missable's
- * own chapter, so a revisit never gets a deadline before the item can be had). That last one is the code's reading
- * of the milestone, not a chapter the source named: `assumed`, so it goes to review.
+ * The chapter a "until X" milestone belongs to, looking only at or after `from` (the missable's own chapter: a
+ * deadline never comes before the item can be had, so the guide's warning always precedes it): X names a chapter,
+ * or an item inside one. Failing that, X names a region ("Crimson Forest region main boss"): the first chapter of
+ * that region. That last one is the code's reading of the milestone, not a chapter the source named: `assumed`, so
+ * it goes to review. A milestone that only matches earlier chapters matches nothing (R20 then takes the own chapter).
  */
 function chapterForMilestone(
   milestone: string | undefined,
@@ -173,11 +224,12 @@ function chapterForMilestone(
   if (!milestone) return undefined;
   const wanted = normalizeName(milestone);
   if (wanted.length < 3) return undefined;
-  for (const chapter of chapters) {
+  const ahead = chapters.slice(Math.max(0, from));
+  for (const chapter of ahead) {
     const title = normalizeName(chapter.title);
     if (title.length >= 3 && (wanted.includes(title) || title.includes(wanted))) return { title: chapter.title, assumed: false };
   }
-  for (const chapter of chapters) {
+  for (const chapter of ahead) {
     for (const item of chapter.items) {
       for (const name of [item.nameEn, item.name]) {
         const n = name ? normalizeName(name) : "";
@@ -185,7 +237,7 @@ function chapterForMilestone(
       }
     }
   }
-  for (const chapter of chapters.slice(Math.max(0, from))) {
+  for (const chapter of ahead) {
     const region = normalizeName(chapter.region ?? "");
     if (region.length >= 3 && wanted.includes(region)) return { title: chapter.title, assumed: true };
   }
@@ -195,14 +247,16 @@ function chapterForMilestone(
 /** Free-form regions name the same place: equal, or one contains the other ("Crimson Forest" / "The Crimson Forest"). */
 const sameRegion = (a: string, b: string) => a === b || a.includes(b) || b.includes(a);
 
-type ChapterAcc = { title: string; region?: string; norm: string; regionNorm: string; order: number; items: Map<string, Acc> };
+/** `uid`: creation number, part of the items' alignment ids (the list order may change as chapters are inserted). */
+type ChapterAcc = { title: string; region?: string; norm: string; regionNorm: string; uid: number; items: Map<string, Acc> };
 
 /**
  * The dossier chapter a source's chapter joins. Chapters merge by title; they split by region only when both
  * have a region and the regions differ ("First Visit" of Crimson Forest and of Meigu Lake). A chapter without
  * region joins the only chapter of that title; with several of different regions it stays apart (no guessing).
+ * A new chapter goes right after `after` (the chapter before it in the same source), or at the end.
  */
-function chapterFor(list: ChapterAcc[], title: string, region: string | undefined): ChapterAcc {
+function chapterFor(list: ChapterAcc[], title: string, region: string | undefined, uid: () => number, after?: ChapterAcc): ChapterAcc {
   const norm = normalizeName(title);
   const regionNorm = normalizeName(region ?? "");
   const same = list.filter((c) => c.norm === norm);
@@ -219,8 +273,8 @@ function chapterFor(list: ChapterAcc[], title: string, region: string | undefine
     found = same.length === 1 ? same[0] : same.find((c) => !c.regionNorm);
   }
   if (found) return found;
-  const created: ChapterAcc = { title, region, norm, regionNorm, order: list.length + 1, items: new Map() };
-  list.push(created);
+  const created: ChapterAcc = { title, region, norm, regionNorm, uid: uid(), items: new Map() };
+  list.splice(after ? list.indexOf(after) + 1 : list.length, 0, created);
   return created;
 }
 
@@ -262,10 +316,13 @@ export function buildDossier(
 ): GuideDossier {
   // `?all=1` returns the rows of every platform; the master list is the Steam ones only.
   const steamList = fullList.filter((s) => s.platform === "steam");
-  const facts = rawFacts
+  const byRole = rawFacts
     .map((f, i) => ({ f, i }))
     .sort((a, b) => ROLE_ORDER[a.f.source.role] - ROLE_ORDER[b.f.source.role] || a.i - b.i)
     .map((x) => x.f);
+  // The primary script goes first: chapters are created in its order, the others slot in around them.
+  const primary = primaryFacts(byRole);
+  const facts = [...primary, ...byRole.filter((f) => !primary.includes(f))];
   const { nameOf } = buildSourceGroups(facts, groups);
   const divergences: string[] = [];
   const steam: SteamEntry[] = steamList.map((s) => ({
@@ -283,11 +340,17 @@ export function buildDossier(
 
   // --- chapters and items -------------------------------------------------------------------------------------
   const chapterList: ChapterAcc[] = [];
+  const primaryOrder: ChapterAcc[] = [];
+  let uids = 0;
+  const nextUid = () => ++uids;
   for (const fact of facts) {
+    let previous: ChapterAcc | undefined;
     for (const chapter of [...fact.chapters].sort((a, b) => a.order - b.order)) {
-      const target = chapterFor(chapterList, chapter.title, chapter.region);
+      const target = chapterFor(chapterList, chapter.title, chapter.region, nextUid, previous);
+      previous = target;
+      if (primary.includes(fact) && !primaryOrder.includes(target)) primaryOrder.push(target);
       for (const item of chapter.items) {
-        const id = alignId(`${target.norm} ${target.order}`, item);
+        const id = alignId(`${target.norm} ${target.uid}`, item);
         let acc = target.items.get(id);
         if (!acc) {
           acc = {
@@ -343,10 +406,10 @@ export function buildDossier(
   const shownTitle = (c: { title: string; region?: string }) =>
     c.region && (titleCount.get(normalizeName(c.title)) ?? 0) > 1 ? `${c.title} — ${c.region}` : c.title;
 
-  const chapters: DossierChapter[] = chapterList.map((c) => ({
+  const chapters: DossierChapter[] = chapterList.map((c, at) => ({
     title: shownTitle(c),
     region: c.region,
-    order: c.order,
+    order: at + 1,
     items: [...c.items.values()].map((acc): DossierItem => {
       const { groups: g, links, platforms, achievementNameEn, countsForEn, missSeen: _m, conflicts, ...rest } = acc;
       const achievement = achievementNameEn ? toApiName(achievementNameEn) : undefined;
@@ -477,17 +540,24 @@ export function buildDossier(
     const textTarget = [s.description, s.descriptionPt, a?.howTo].map(collectTarget).find((n) => n !== undefined);
     const totals = [...new Set(counting.map((i) => i.total).filter((t): t is number => t !== undefined))];
     const target = textTarget ?? (totals.length > 0 ? Math.max(...totals) : undefined);
+    // R23: exactly N only when a source says the game has N (the items print it as their total).
+    const exact = textTarget === undefined || totals.includes(textTarget);
     const weights = counting.map(weightOf);
     const counted = weights.reduce((sum, w) => sum + w, 0);
     const indexProblems: string[] = [];
     const indexed = counting.filter((i) => i.index !== undefined);
-    if (target !== undefined && indexed.length > 0 && weights.every((w) => w === 1) && counted === target) {
+    const whole = weights.every((w) => w === 1);
+    if (target !== undefined && whole && (exact ? indexed.length > 0 && counted === target : counted >= target)) {
       const seen = new Set<number>();
       for (const i of indexed) {
         if (seen.has(i.index!)) indexProblems.push(`o número ${i.index} aparece mais de uma vez`);
         seen.add(i.index!);
       }
-      for (let n = 1; n <= target; n++) if (!seen.has(n)) indexProblems.push(`falta o número ${n}`);
+      if (exact) {
+        for (let n = 1; n <= target; n++) if (!seen.has(n)) indexProblems.push(`falta o número ${n}`);
+      } else {
+        for (const i of counting) if (i.index === undefined) indexProblems.push(`o item "${i.name}" está sem número`);
+      }
     }
     return {
       apiName: s.apiName,
@@ -514,6 +584,7 @@ export function buildDossier(
               target,
               counted: Math.round(counted * 1000) / 1000,
               from: textTarget !== undefined ? "texto" : "total",
+              exact,
               conflictingTotals: textTarget === undefined && totals.length > 1 ? totals : [],
               withoutLocation: counting.filter((i) => !i.location.trim()).map((i) => i.name),
               indexProblems,
@@ -549,7 +620,7 @@ export function buildDossier(
           {
             platform: "psn",
             // The PlayStation platinum has no Steam twin: it never makes the list "unmatched".
-            matchedAll: psnNames.every((nameEn) => steamBy.has(toApiName(nameEn) ?? "") || /platin/.test(normalizeName(nameEn))),
+            matchedAll: psnNames.every((nameEn) => steamBy.has(toApiName(nameEn) ?? "") || isPlatinum(nameEn)),
             size: psnTrophyListSize ?? psnNames.length,
           },
         ],
@@ -581,6 +652,30 @@ export function buildDossier(
 
   const roadmapFact = facts.find((f) => (f.roadmap?.length ?? 0) > 0);
 
+  // The full PSN list: a complete PSN script that names as many trophies as it says the list has.
+  const trophyNames = (f: ExtractedFacts) => {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const name of [...f.achievements.map((a) => a.nameEn), ...f.chapters.flatMap((c) => c.items.flatMap((i) => (i.achievementNameEn ? [i.achievementNameEn] : [])))]) {
+      const key = normalizeName(name);
+      if (!seen.has(key)) {
+        seen.add(key);
+        names.push(name);
+      }
+    }
+    return names;
+  };
+  const listFact = psnFacts.find(
+    (f) => f.source.role === "roteiro_psn" && f.complete && f.trophyListSize !== undefined && trophyNames(f).length === f.trophyListSize,
+  );
+  const listNames = listFact ? trophyNames(listFact) : [];
+  const psnList: PsnTrophyList | undefined = listFact && {
+    total: listFact.trophyListSize!,
+    names: listNames,
+    source: nameOf(listFact),
+    matches: listNames.map((name) => (isPlatinum(name) ? { name, platinum: true } : { name, apiName: toApiName(name), platinum: false })),
+  };
+
   return {
     chapters,
     achievements,
@@ -590,10 +685,14 @@ export function buildDossier(
       hours: pickScalar(facts, nameOf, (f) => f.hours, (v) => `${v.min}-${v.max}`, (v) => `${v.min} a ${v.max} horas`, "Horas", divergences),
       roadmap: (roadmapFact?.roadmap ?? []).map((r) => ({ ...r, sources: [nameOf(roadmapFact!)] })),
       psnTrophyListSize,
+      ...(psnList ? { psnList } : {}),
       compat,
       fragmentRules,
     },
     scripts,
+    ...(primary.length > 0
+      ? { primaryScript: { name: nameOf(primary[0]!), chapters: primaryOrder.map((c) => shownTitle(c)) } }
+      : {}),
     divergences,
     unreadSources,
   };

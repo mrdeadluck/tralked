@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { GuidePayloadInput } from "@/lib/content/guide-schema";
-import { GUIDE_COMPAT, WALK_ITEM_KINDS, walkthroughSchema } from "@/lib/content/walkthrough-schema";
+import { GUIDE_COMPAT, GUIDE_SCOPES, WALK_ITEM_KINDS, walkthroughSchema } from "@/lib/content/walkthrough-schema";
 import {
   GUIDE_COMPAT as ROBOT_COMPAT,
+  GUIDE_SCOPES as ROBOT_SCOPES,
   WALK_ITEM_KINDS as ROBOT_KINDS,
   type GuidePayloadV2,
   type Walkthrough,
@@ -24,6 +25,7 @@ describe("contrato do guia formato 2", () => {
   it("as listas de valores do robô são as do site", () => {
     expect([...ROBOT_KINDS]).toEqual([...WALK_ITEM_KINDS]);
     expect([...ROBOT_COMPAT]).toEqual([...GUIDE_COMPAT]);
+    expect([...ROBOT_SCOPES]).toEqual([...GUIDE_SCOPES]);
   });
 
   it("GuidePayloadV2 é atribuível ao tipo de entrada do site", () => {

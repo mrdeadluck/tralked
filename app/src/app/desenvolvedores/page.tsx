@@ -456,7 +456,8 @@ export default function DesenvolvedoresPage() {
             O robô de guias envia <C>&quot;format&quot;: 2</C>: além dos campos do guia clássico, um roteiro (
             <C>walkthrough</C>) que o leitor segue e marca item por item. O roteiro tem a capa (<C>cover</C>, com
             exatamente 3 destaques), <C>extraFacts</C>, o selo de plataforma <C>compat</C> (<C>steam_only</C>,{" "}
-            <C>psn_xbox</C>, <C>psn</C> ou <C>xbox</C>), de 1 a 8 avisos em <C>readFirst</C>, os capítulos (
+            <C>psn_xbox</C>, <C>psn</C> ou <C>xbox</C>), a lista que ele cobre em <C>scope</C> (<C>steam</C>, o
+            padrão, ou <C>psn</C>), de 1 a 8 avisos em <C>readFirst</C>, os capítulos (
             <C>chapters</C>) e, opcional, a trilha oficial do YouTube (<C>soundtrack</C>). Cada capítulo aponta em{" "}
             <C>phaseKey</C> a <C>key</C> de uma etapa; cada passo tem até 40 itens (coletáveis, conquistas,
             missões, chefes), com fontes, local, perdível e a imagem opcional. O <C>report</C> opcional guarda o
@@ -468,6 +469,15 @@ export default function DesenvolvedoresPage() {
             <C>key</C> do item; toda conquista Steam do jogo, ocultas incluídas, aparece em <C>achievement</C> de
             algum item; e <C>facts.missables</C> é igual ao número de itens do tipo <C>achievement</C> com{" "}
             <C>missable: true</C>.
+          </p>
+          <p className={prose}>
+            Guia pela lista da PSN: quando nenhuma fonte explica as conquistas que só existem na Steam, o robô
+            escreve o roteiro pela lista de troféus da PSN, com <C>scope: &quot;psn&quot;</C>,{" "}
+            <C>psnList</C> (<C>total</C> de troféus e os <C>names</C> em inglês, exatamente <C>total</C> nomes) e{" "}
+            <C>steamOnly</C> (os apiNames Steam sem roteiro). Aí cada conquista Steam aparece em{" "}
+            <C>achievement</C> de algum item <strong>ou</strong> em <C>steamOnly</C>, nunca nos dois, e todo
+            apiName de <C>steamOnly</C> existe no jogo. A página mostra o selo &quot;Guia pela lista da PSN&quot; e
+            lista as conquistas de <C>steamOnly</C> em &quot;Só na Steam — sem roteiro ainda&quot;.
           </p>
           <Code label="guia-formato-2.json" code={pretty(EXAMPLE_GUIDE_V2)} tall />
         </Section>

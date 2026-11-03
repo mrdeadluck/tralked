@@ -200,6 +200,45 @@ describe("POST /api/v1/guides, format 2", () => {
     expect(((await json(r2)).error.issues as { path: string }[]).map((i) => i.path)).toContain("/walkthrough/chapters/0/phaseKey");
   });
 
+  describe("scope psn (guia pela lista da PSN, R22)", () => {
+    /** ACH_B and ACH_HIDDEN are not on the PSN list: steamOnly, no item. */
+    const psnWalk = (steamOnly: string[]) => ({
+      ...walkthrough([{ key: "i-1" }, { key: "i-2", achievement: "ACH_A" }], [{ key: "i-3" }]),
+      scope: "psn",
+      psnList: { total: 2, names: ["A", "Platinum"] },
+      steamOnly,
+    });
+    const noMissables = { facts: { difficulty: 5, hoursMin: 1, hoursMax: 2, playthroughs: "1", missables: 0, online: 0 } };
+
+    it("aceita quando toda conquista Steam sem item está em steamOnly", async () => {
+      const game = await makeGame();
+      const body = payload(game.slug, psnWalk(["ACH_B", "ACH_HIDDEN"]), noMissables);
+      const response = await guides.POST(call("POST", "/api/v1/guides", { key: keys.robot, body }));
+      expect(response.status).toBe(201);
+      const guide = await prisma.guide.findUniqueOrThrow({ where: { id: (await json(response)).id } });
+      expect(guide.status).toBe("review");
+      expect(guide.walkthrough).toMatchObject({ scope: "psn", psnList: { total: 2 }, steamOnly: ["ACH_B", "ACH_HIDDEN"] });
+    });
+
+    it("recusa quando uma conquista Steam fica sem item e fora de steamOnly", async () => {
+      const game = await makeGame();
+      const body = payload(game.slug, psnWalk(["ACH_B"]), noMissables);
+      const response = await guides.POST(call("POST", "/api/v1/guides", { key: keys.robot, body }));
+      expect(response.status).toBe(422);
+      const issues = (await json(response)).error.issues as { path: string; message: string }[];
+      expect(issues).toEqual([{ path: "/walkthrough", message: expect.stringContaining("ACH_HIDDEN") }]);
+    });
+
+    it("steamOnly só aceita conquistas Steam do jogo, e sem item", async () => {
+      const game = await makeGame();
+      const body = payload(game.slug, psnWalk(["ACH_B", "ACH_HIDDEN", "PSN_1", "ACH_A"]), noMissables);
+      const response = await guides.POST(call("POST", "/api/v1/guides", { key: keys.robot, body }));
+      expect(response.status).toBe(422);
+      const paths = ((await json(response)).error.issues as { path: string }[]).map((i) => i.path);
+      expect(paths).toEqual(["/walkthrough/steamOnly/2", "/walkthrough/steamOnly/3"]);
+    });
+  });
+
   it("a steps PATCH on a format-2 guide needs keys", async () => {
     const { body } = await createV2();
     const steps = [{ title: "Tudo", hours: "1 h", body: [{ type: "paragraph", text: "x" }], achievements: [] }];

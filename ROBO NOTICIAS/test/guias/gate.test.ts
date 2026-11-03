@@ -254,3 +254,76 @@ describe("gate", () => {
     expect(d.achievements.find((x) => x.apiName === "ACH_HID")!.conflict).toContain("prazo");
   });
 });
+
+describe("R23: coletar pelo menos N", () => {
+  const withStones = (items: ReturnType<typeof blackstones>) =>
+    powerpyx({ chapters: [chapter("Weeping Creek", items), chapter("Village of Lu", [], 2)] });
+
+  it("12 listados para um \"collect 10\" passa (todos entram no guia)", () => {
+    const { d, result } = run(baseSteam(), [withStones(blackstones(12))]);
+    expect(result).toEqual({ ok: true, missing: [] });
+    expect(d.achievements.find((a) => a.apiName === "ACH_STONE")!.collect).toMatchObject({ target: 10, counted: 12, exact: false });
+  });
+
+  it("igualdade exata só quando a fonte diz que o jogo tem exatamente N", () => {
+    // Every Blackstone says "n of 10", but 12 are listed.
+    const { result } = run(baseSteam(), [withStones(blackstones(12).map((i) => ({ ...i, total: 10 })))]);
+    expect(result.missing).toContain('A conquista "Leave No Stone Unturned" (ACH_STONE) pede 10, mas os itens encontrados somam 12.');
+  });
+
+  it("no \"pelo menos N\", item sem número ou número repetido reprova", () => {
+    const stones = blackstones(12);
+    stones[4] = { ...stones[4]!, index: undefined };
+    const again = item("Pedra Negra 3 de novo", { collectibleType: "Blackstone", index: 3, countsForEn: ["Leave No Stone Unturned"] });
+    const f = powerpyx({ chapters: [chapter("Weeping Creek", stones), chapter("Village of Lu", [again], 2)] });
+    const { result } = run(baseSteam(), [f]);
+    expect(result.missing).toEqual([
+      'A contagem da conquista "Leave No Stone Unturned" (ACH_STONE) está errada: o número 3 aparece mais de uma vez.',
+      'A contagem da conquista "Leave No Stone Unturned" (ACH_STONE) está errada: o item "Pedra Negra 5" está sem número.',
+    ]);
+  });
+});
+
+describe("gate com scope psn (R22)", () => {
+  /** Steam has two weapon achievements no source covers; the PSN list (3 + platinum) is fully covered. */
+  const steamPlus = (): SteamAchievement[] => [
+    ...baseSteam(),
+    steamAch("ACH_W1", "Master of Weapon 1", "Upgrade weapon 1 fully."),
+    steamAch("ACH_W2", "Master of Weapon 2", "Upgrade weapon 2 fully."),
+  ];
+  const psnList = (over: Partial<Omit<ExtractedFacts, "source">> = {}) =>
+    powerpyx({ trophyListSize: 4, achievements: [...powerpyx().achievements, ach("Phantom Test Platinum")], ...over });
+
+  it("a Steam reprova pelas exclusivas, a lista da PSN completa e coberta passa", () => {
+    const { d, result } = run(steamPlus(), [psnList()]);
+    expect(result.ok).toBe(false);
+    expect(d.facts.psnList).toMatchObject({ total: 4, source: "PowerPyx" });
+    expect(d.facts.psnList!.names).toEqual(["With Heart and Blood", "Shadow Blade", "Leave No Stone Unturned", "Phantom Test Platinum"]);
+    expect(gate(d, steamPlus(), { scope: "psn" })).toEqual({ ok: true, missing: [] });
+  });
+
+  it("contagens, perdíveis e roteiro completo valem para a lista da PSN", () => {
+    const f = psnList({ chapters: [chapter("Weeping Creek", blackstones(9)), chapter("Village of Lu", [], 2)], complete: true });
+    const { d } = run(steamPlus(), [f]);
+    expect(gate(d, steamPlus(), { scope: "psn" }).missing).toEqual([
+      'A conquista "Leave No Stone Unturned" (ACH_STONE) pede 10, mas os itens encontrados somam 9.',
+    ]);
+  });
+
+  it("troféu da PSN que não casa com nenhuma conquista da Steam reprova", () => {
+    const f = psnList({ trophyListSize: 5, achievements: [...psnList().achievements, ach("Only On PlayStation")] });
+    const { d } = run(steamPlus(), [f]);
+    expect(gate(d, steamPlus(), { scope: "psn" }).missing).toEqual([
+      'O troféu "Only On PlayStation" da lista da PSN não casa com nenhuma conquista da Steam.',
+    ]);
+  });
+
+  it("sem a lista inteira da PSN (total e nomes) numa fonte completa, o scope psn não sai", () => {
+    const { d } = run(steamPlus(), [psnList({ trophyListSize: 36 })]);
+    expect(d.facts.psnList).toBeUndefined();
+    expect(gate(d, steamPlus(), { scope: "psn" })).toEqual({
+      ok: false,
+      missing: ["Nenhuma fonte de roteiro da PSN completa traz a lista inteira de troféus (o total e todos os nomes)."],
+    });
+  });
+});

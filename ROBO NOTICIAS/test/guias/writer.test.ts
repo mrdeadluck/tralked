@@ -1,13 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { guidePayloadSchema } from "@/lib/content/guide-schema";
 import { walkAchievementRefs, walkItemKeys, walkthroughSchema } from "@/lib/content/walkthrough-schema";
-import type { Ai, StructuredOpts } from "../../src/ai/client.js";
 import { checkGuide } from "../../src/guias/checker.js";
+import { chronologyProblems } from "../../src/guias/chronology.js";
 import type { GuidePayloadV2 } from "../../src/guias/contract.js";
 import { buildDossier, type DossierChapter, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "../../src/guias/dossier.js";
 import { inPool } from "../../src/guias/pool.js";
+import { psnScope } from "../../src/guias/scope.js";
+import { buildSkeleton } from "../../src/guias/skeleton.js";
 import { copiedRuns, loadGuideStyle, writeAndCheckGuide, writeGuide, writeGuideDetailed } from "../../src/guias/writer.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
+import { fakeAi, keysIn, OK } from "./helpers-writer.js";
 
 const STEAM: SteamAchievement[] = [
   { ...steamAch("ACH_BELLS", "Bell Ringer", "Ring 2 bells."), namePt: "Sineiro", descriptionPt: "Toque 2 sinos." },
@@ -68,88 +71,6 @@ const GAME: GuideDossierSource = {
   tralked: { players: 0, avgPlaytimeMin: null, completedPlayers: 0 },
   achievements: STEAM,
 };
-
-const keysIn = (prompt: string, tag: string) => [...prompt.matchAll(new RegExp(`<${tag} key="([^"]+)"`, "g"))].map((m) => m[1]!);
-
-/** A writer that answers in the shape asked for, echoing the ready-made keys of the prompt (and inventing one). */
-function goodFrame(prompt: string, variant = 0) {
-  return {
-    capa: {
-      chamadas: [
-        { valor: "1", rotulo: "Perdível" },
-        { valor: "0", rotulo: "Online" },
-        { valor: "3", rotulo: "Capítulos" },
-      ],
-      manchete: `O caminho até o Tralked ${variant}`,
-      linhaFina: "Todos os sinos e as 4 conquistas, na ordem do jogo.",
-    },
-    ficha: {
-      dificuldade: 4,
-      justificativaDificuldade: "Nenhuma conquista pede dificuldade alta.",
-      notaZeradas: "Uma zerada basta.",
-      maisDificil: "ACH_SECRET",
-    },
-    visaoGeral: ["Um jogo de ação curto.", "O Tralked sai numa zerada."],
-    leiaAntes: [{ titulo: "Lanterna", texto: "Pegue a lanterna antes da floresta.", tom: "aviso" as const, spoiler: false }],
-    etapas: keysIn(prompt, "etapa").map((key) => ({ key, titulo: `Etapa ${key}`, blocos: [{ tipo: "paragrafo" as const, texto: "Siga a história." }] })),
-    capitulos: [
-      ...keysIn(prompt, "capitulo").map((key) => ({ key, fase: "inventada", titulo: `Capítulo ${key}`, prazo: "Antes da floresta" as string | null })),
-      { key: "capitulo-inventado", fase: "x", titulo: "Inventado", prazo: null },
-    ],
-  };
-}
-
-function goodChapter(prompt: string, variant = 0) {
-  return {
-    passos: [
-      ...keysIn(prompt, "passo").map((key) => ({
-        key,
-        blocos: [{ tipo: "paragrafo" as const, texto: `Texto próprio do passo ${variant}.` }],
-        conquistas: [] as string[],
-      })),
-      { key: "passo-inventado", blocos: [{ tipo: "paragrafo" as const, texto: "x" }], conquistas: [] as string[] },
-    ],
-    itens: [
-      ...keysIn(prompt, "item").map((key) => ({ key, nome: `Nome ${key}`, local: "Perto da entrada.", spoiler: false })),
-      { key: "item-inventado", nome: "Inventado", local: "Lugar", spoiler: false },
-    ],
-    depois: "Dá para voltar depois e pegar o que faltou." as string | null,
-  };
-}
-
-type Verdict = { ok: boolean; problems: string[] };
-const OK: Verdict = { ok: true, problems: [] };
-
-type Fake = {
-  /** The checker's answer to each call (the check prompt and the call's number). */
-  verdict?: (user: string, n: number) => Verdict;
-  variant?: number;
-  frame?: (out: ReturnType<typeof goodFrame>) => void;
-  chapter?: (out: ReturnType<typeof goodChapter>, prompt: string, n: number) => void | Promise<void>;
-};
-
-function fakeAi(fake: Fake = {}) {
-  const calls: StructuredOpts<unknown>[] = [];
-  let checks = 0;
-  let chapters = 0;
-  const structured = vi.fn(async (opts: StructuredOpts<unknown>) => {
-    calls.push(opts);
-    if (opts.purpose.startsWith("guide-write-frame")) {
-      const out = goodFrame(opts.user, fake.variant);
-      fake.frame?.(out);
-      return out;
-    }
-    if (opts.purpose.startsWith("guide-write-chapter")) {
-      const out = goodChapter(opts.user, fake.variant);
-      await fake.chapter?.(out, opts.user, chapters++);
-      return out;
-    }
-    return (fake.verdict ?? (() => OK))(opts.user, checks++);
-  });
-  const ai = { structured, batchRequest: vi.fn(), recordBatchUsage: vi.fn(), assertBudget: vi.fn() } as unknown as Ai;
-  const of = (prefix: string) => calls.filter((o) => o.purpose.startsWith(prefix));
-  return { ai, calls, of };
-}
 
 const allKeys = (p: GuidePayloadV2) => [
   ...p.walkthrough.chapters.map((c) => c.key),
@@ -606,5 +527,136 @@ describe("checkGuide", () => {
     const verdict = await checkGuide(ai, payload, makeDossier());
     expect(verdict.ok).toBe(false);
     expect(verdict.problems).toHaveLength(1);
+  });
+});
+
+describe("ordem cronológica (checagem do código)", () => {
+  const check = (payload: GuidePayloadV2, dossier = makeDossier()) => chronologyProblems(payload, buildSkeleton(dossier), dossier);
+
+  it("o guia sai na ordem do roteiro principal e passa", async () => {
+    const dossier = makeDossier();
+    expect(dossier.primaryScript?.chapters).toEqual(["Weeping Creek", "Crimson Forest", "Ashen Peak"]);
+    const payload = await writeGuide(fakeAi().ai, dossier, GAME, "live");
+    expect(check(payload, dossier)).toEqual([]);
+  });
+
+  it("um capítulo fora da ordem da fonte principal é pego", async () => {
+    const payload = await writeGuide(fakeAi().ai, makeDossier(), GAME, "live");
+    const [first, second, ...rest] = payload.walkthrough.chapters;
+    payload.walkthrough.chapters = [second!, first!, ...rest];
+    expect(check(payload)).toContainEqual({
+      key: null,
+      text: 'O capítulo weeping-creek veio depois de crimson-forest, mas no roteiro principal (PowerPyx) "Weeping Creek" vem antes de "Crimson Forest". Siga a ordem da fonte.',
+    });
+  });
+
+  it("um perdível depois do capítulo em que se perde é pego", async () => {
+    const payload = await writeGuide(fakeAi().ai, makeDossier(), GAME, "live");
+    const [weeping, , ashen] = payload.walkthrough.chapters;
+    const from = weeping!.steps.find((s) => s.items.some((i) => i.nameEn === "Old Lantern"))!;
+    const lantern = from.items.find((i) => i.nameEn === "Old Lantern")!;
+    from.items = from.items.filter((i) => i !== lantern);
+    ashen!.steps[0]!.items.push(lantern);
+    const problems = check(payload);
+    expect(problems).toContainEqual({
+      key: lantern.key,
+      text: `O perdível "${lantern.name}" (${lantern.key}) está no capítulo ashen-peak, depois de crimson-forest, onde ele se perde. O aviso tem que vir antes do ponto de não retorno.`,
+    });
+  });
+
+  it("um passo com perdível sem o aviso é pego", async () => {
+    const payload = await writeGuide(fakeAi().ai, makeDossier(), GAME, "live");
+    const step = payload.walkthrough.chapters[0]!.steps.find((s) => s.items.some((i) => i.missable))!;
+    step.body = step.body.filter((b) => !(b.type === "callout" && b.tone === "aviso"));
+    expect(check(payload)).toEqual([{ key: step.key, text: `O passo ${step.key} tem perdível e não traz o aviso de perdível.` }]);
+  });
+
+  it("um capítulo numa etapa anterior à do capítulo de antes é pego; o escritor já corrige a fase", async () => {
+    const payload = await writeGuide(fakeAi().ai, makeDossier(), GAME, "live");
+    const [story, cleanup] = payload.steps.map((s) => s.key!);
+    payload.walkthrough.chapters[0]!.phaseKey = cleanup!;
+    payload.walkthrough.chapters[1]!.phaseKey = story!;
+    expect(check(payload)).toContainEqual({
+      key: null,
+      text: `O capítulo crimson-forest está na etapa ${story}, que vem antes da etapa ${cleanup} do capítulo anterior. As etapas seguem o roadmap, na ordem.`,
+    });
+
+    // The writer never lets the model send a chapter back to an earlier phase.
+    const { ai } = fakeAi({
+      frame: (out) => {
+        out.capitulos = out.capitulos.map((c, i) => ({ ...c, fase: i === 0 ? cleanup! : story! }));
+      },
+    });
+    const written = await writeGuideDetailed(ai, makeDossier(), GAME, "live");
+    expect(written.payload.walkthrough.chapters.map((c) => c.phaseKey)).toEqual([cleanup, cleanup, cleanup, cleanup]);
+    expect(written.repairs.map((r) => r.text)).toContain(
+      `O capítulo crimson-forest foi posto na etapa ${story}, antes da etapa ${cleanup} do capítulo anterior; ficou na ${cleanup}. As etapas seguem o roadmap, na ordem.`,
+    );
+  });
+});
+
+describe("guia pela lista da PSN (scope psn)", () => {
+  const STEAM_PLUS: SteamAchievement[] = [...STEAM, steamAch("ACH_ARENA", "Arena Master", "Win every arena fight.")];
+  /** One Steam-only achievement no source covers; PowerPyx lists the 4 PSN trophies + platinum. */
+  const psnDossier = () =>
+    buildDossier(
+      STEAM_PLUS,
+      [
+        fact("PowerPyx", "roteiro_psn", {
+          trophyListSize: 5,
+          chapters: [
+            chapter("Weeping Creek", [
+              item("Bell", { collectibleType: "Bell", index: 1, total: 2, countsForEn: ["Bell Ringer"] }),
+              item("Bell", { collectibleType: "Bell", index: 2, total: 2, countsForEn: ["Bell Ringer"] }),
+            ], 1),
+            chapter("Crimson Forest", [item("The Warden", { kind: "boss", location: "Arena", achievementNameEn: "Warden Down" })], 2),
+          ],
+          achievements: [ach("Bell Ringer"), ach("Warden Down"), ach("The End"), ach("Hidden Path"), ach("Phantom Test Platinum")],
+          roadmap: [{ title: "Story playthrough", summary: "Play the story." }],
+        }),
+      ],
+      [["https://example.com/powerpyx"]],
+    );
+  const game = { ...GAME, achievements: STEAM_PLUS, game: { ...GAME.game, achievementCount: STEAM_PLUS.length } };
+
+  it("o payload sai com scope psn, a lista da PSN e as exclusivas da Steam, e passa no schema do site", async () => {
+    const scoped = psnScope(psnDossier(), STEAM_PLUS);
+    const { ai, of } = fakeAi({
+      frame: (out) => {
+        out.capa.chamadas[2] = { valor: "5", rotulo: "Troféus PSN" };
+      },
+    });
+    const result = await writeAndCheckGuide(ai, scoped.dossier, game, "live", { scope: scoped.scope });
+    expect(result.ok).toBe(true);
+    const payload = result.payload;
+    expect(guidePayloadSchema.safeParse(payload).error?.issues).toBeUndefined();
+    expect(payload.walkthrough).toMatchObject({
+      scope: "psn",
+      psnList: { total: 5, names: ["Bell Ringer", "Warden Down", "The End", "Hidden Path", "Phantom Test Platinum"] },
+      steamOnly: ["ACH_ARENA"],
+    });
+    // Every Steam achievement is an item or is in steamOnly, never both; the Steam-only one has no item.
+    const covered = new Set(
+      payload.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items.flatMap((i) => (i.achievement ? [i.achievement] : [])))),
+    );
+    for (const a of STEAM_PLUS) expect(covered.has(a.apiName) !== payload.walkthrough.steamOnly!.includes(a.apiName)).toBe(true);
+    expect(walkAchievementRefs(walkthroughSchema.parse(payload.walkthrough)).map((r) => r.apiName)).not.toContain("ACH_ARENA");
+    // The cover may cite the PSN count; the frame is told the guide follows the PSN list.
+    expect(payload.walkthrough.cover.calls[2]).toEqual({ value: "5", label: "Troféus PSN" });
+    const frame = of("guide-write-frame")[0]!.user;
+    expect(frame).toContain("Troféus na lista da PSN: 5 (o guia segue esta lista)");
+    expect(frame).toContain("Conquistas na Steam: 5, das quais 1 só na Steam (fora do roteiro, sem como fazer)");
+    expect(frame).not.toContain("ACH_ARENA");
+    // The checker gets the scope's numbers as authoritative too (the Steam-only ones are left out on purpose).
+    const frameCheck = of("guide-check").find((c) => c.user.includes('"leiaAntes"'))!;
+    expect(frameCheck.user.split("</numeros_do_codigo>")[0]).toContain('"listaDaPsn":{"trofeus":5,"conquistasSteam":5,"soNaSteamSemRoteiro":1}');
+    expect(frameCheck.system).toMatch(/listaDaPsn/);
+  });
+
+  it("sem scope, o guia sai pela lista da Steam", async () => {
+    const payload = await writeGuide(fakeAi().ai, makeDossier(), GAME, "live");
+    expect(payload.walkthrough.scope).toBeUndefined();
+    expect(payload.walkthrough.psnList).toBeUndefined();
+    expect(payload.walkthrough.steamOnly).toBeUndefined();
   });
 });

@@ -79,6 +79,8 @@ export type WalkView = {
   missables: MissableView[];
   /** The roadmap phases, masked (their spans at phaseTitleScope / phaseBodyScope). */
   roadmap: PhaseText[];
+  /** Scope psn: the Steam achievements the guide has no route for (hidden ones masked). */
+  steamOnly: AchView[];
 };
 
 /** What revealWalkSpoilers sends once the reader asks for spoilers. */
@@ -217,6 +219,10 @@ export function walkView(
     })),
     chapters,
     roadmap: phases.map((p) => ({ title: maskSpans(p.title), body: maskSpans(p.body) })),
+    steamOnly: (walkthrough.scope === "psn" ? (walkthrough.steamOnly ?? []) : []).flatMap((apiName) => {
+      const a = walk.achievements[apiName];
+      return a ? [achView(a, a.hidden)] : [];
+    }),
     missables: chapters.flatMap((chapter) =>
       chapter.steps.flatMap((step) =>
         step.items.filter((item) => item.missable).map((item) => ({ item, chapter: chapter.title })),

@@ -14,11 +14,20 @@ import { contentBlocksSchema, INLINE_SPOILER, inlineText, plainText, STEP_KEY_PA
  * locations) and a chapter's `deadline` may wrap a spoiler in `||…||` (a boss name, a twist, a
  * hidden achievement's name): the page leaves it out until the reader turns spoilers on (the
  * guide's roadmap steps too). Every `||` must close.
+ *
+ * `scope` (R22): "steam" (default) covers every Steam achievement; "psn" follows the PSN trophy list
+ * (`psnList`) and names the Steam achievements left without a route (`steamOnly`).
  */
 
 export const WALK_ITEM_KINDS = ["collectible", "achievement", "mission", "key_item", "boss", "other"] as const;
 /** Platform seal of the guide: Steam only, or the Steam list also covers PSN / Xbox / both. */
 export const GUIDE_COMPAT = ["steam_only", "psn_xbox", "psn", "xbox"] as const;
+/**
+ * Which list the guide covers: the whole Steam list (default), or the PSN trophy list when no source
+ * covers the Steam-only achievements yet (R22). A "psn" guide names its PSN list and the Steam
+ * achievements it has no route for (`steamOnly`).
+ */
+export const GUIDE_SCOPES = ["steam", "psn"] as const;
 
 const keySchema = z.string().trim().min(1).max(80).regex(STEP_KEY_PATTERN, "Use letras minúsculas, números e hífens");
 const apiNameSchema = z.string().trim().min(1).max(200).regex(/^[^<>\s]+$/, "apiName inválido");
@@ -119,6 +128,39 @@ function blockTexts(block: ContentBlock): { text: string; path: (string | number
 
 const SPOILER_UNCLOSED = "Spoiler sem fechamento: use ||texto||";
 
+type ScopeFields = {
+  scope: (typeof GUIDE_SCOPES)[number];
+  psnList?: { total: number; names: string[] };
+  steamOnly?: string[];
+};
+
+/** psnList and steamOnly go with scope "psn" (both required there) and nowhere else. */
+function scopeIssues(w: ScopeFields, ctx: z.RefinementCtx) {
+  if (w.scope === "steam") {
+    if (w.psnList) ctx.addIssue({ code: "custom", path: ["psnList"], message: 'psnList só vale com scope "psn"' });
+    if (w.steamOnly) ctx.addIssue({ code: "custom", path: ["steamOnly"], message: 'steamOnly só vale com scope "psn"' });
+    return;
+  }
+  if (!w.psnList) {
+    ctx.addIssue({ code: "custom", path: ["psnList"], message: 'Guia com scope "psn" exige psnList (total e nomes dos troféus)' });
+  } else if (w.psnList.names.length !== w.psnList.total) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["psnList", "names"],
+      message: `psnList.names tem ${w.psnList.names.length} nomes, mas total é ${w.psnList.total}`,
+    });
+  }
+  if (!w.steamOnly) {
+    ctx.addIssue({ code: "custom", path: ["steamOnly"], message: 'Guia com scope "psn" exige steamOnly (pode ser vazio)' });
+    return;
+  }
+  const seen = new Set<string>();
+  w.steamOnly.forEach((apiName, i) => {
+    if (seen.has(apiName)) ctx.addIssue({ code: "custom", path: ["steamOnly", i], message: `apiName repetido: ${apiName}` });
+    seen.add(apiName);
+  });
+}
+
 export const walkthroughSchema = z
   .strictObject({
     cover: z.strictObject({
@@ -136,6 +178,13 @@ export const walkthroughSchema = z
       difficultyNote: plainText(160),
     }),
     compat: z.enum(GUIDE_COMPAT),
+    scope: z.enum(GUIDE_SCOPES).default("steam"),
+    /** Scope psn: the PSN trophy list the guide follows (platinum included), names as the source lists them. */
+    psnList: z
+      .strictObject({ total: z.number().int().min(1).max(1000), names: z.array(plainText(160)).min(1).max(1000) })
+      .optional(),
+    /** Scope psn: Steam apiNames this guide has no route for (they are not on the PSN list). */
+    steamOnly: z.array(apiNameSchema).max(1000).optional(),
     readFirst: z.array(walkReadFirstSchema).min(1).max(8),
     chapters: z.array(walkChapterSchema).min(1).max(60),
     soundtrack: z
@@ -156,6 +205,7 @@ export const walkthroughSchema = z
     const spoilers = (text: string | undefined, path: (string | number)[]) => {
       if (text && unclosedSpoiler(text)) ctx.addIssue({ code: "custom", path, message: SPOILER_UNCLOSED });
     };
+    scopeIssues(w, ctx);
     w.readFirst.forEach((note, n) => spoilers(note.text, ["readFirst", n, "text"]));
     w.chapters.forEach((chapter, c) => {
       claim(chapter.key, ["chapters", c, "key"]);
@@ -176,6 +226,7 @@ export const walkthroughSchema = z
 export type Walkthrough = z.output<typeof walkthroughSchema>;
 export type WalkthroughInput = z.input<typeof walkthroughSchema>;
 export type GuideCompat = (typeof GUIDE_COMPAT)[number];
+export type GuideScope = (typeof GUIDE_SCOPES)[number];
 export type WalkChapter = z.output<typeof walkChapterSchema>;
 export type WalkStep = z.output<typeof walkStepSchema>;
 export type WalkItem = z.output<typeof walkItemSchema>;

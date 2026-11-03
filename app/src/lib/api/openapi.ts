@@ -177,7 +177,7 @@ export function openApiDocument(): JsonSchema {
           tags: ["Guias"],
           summary: "Criar o guia de um jogo",
           description:
-            "Escopo guides:write (publicar direto: publish). Um guia por jogo. format 1 = guia clássico; format 2 = roteiro do robô (walkthrough), que exige key em toda etapa, cobertura de todas as conquistas Steam e facts.missables igual aos itens perdíveis do tipo achievement.",
+            "Escopo guides:write (publicar direto: publish). Um guia por jogo. format 1 = guia clássico; format 2 = roteiro do robô (walkthrough), que exige key em toda etapa, cobertura de todas as conquistas Steam e facts.missables igual aos itens perdíveis do tipo achievement. Com walkthrough.scope = \"psn\" (guia pela lista da PSN), walkthrough.psnList traz o total e os nomes dos troféus da PSN e cada conquista Steam fica num item ou em walkthrough.steamOnly (apiNames Steam sem roteiro), nunca fora dos dois.",
           parameters: [idempotencyParam],
           requestBody: {
             required: true,

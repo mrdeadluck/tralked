@@ -82,6 +82,48 @@ describe("walkthroughSchema", () => {
   });
 });
 
+describe("walkthroughSchema: escopo do guia (R22)", () => {
+  const psn = (over: Record<string, unknown> = {}) => ({
+    ...fixture(),
+    scope: "psn",
+    psnList: { total: 3, names: ["With Heart and Blood", "Shadow Blade", "Phantom Blade Zero Platinum"] },
+    steamOnly: ["ACH_STEAM_1", "ACH_STEAM_2"],
+    ...over,
+  });
+
+  it("sem scope o guia é pela lista da Steam", () => {
+    const w = walkthroughSchema.parse(fixture());
+    expect(w.scope).toBe("steam");
+    expect(w.psnList).toBeUndefined();
+    expect(w.steamOnly).toBeUndefined();
+  });
+
+  it("scope psn com psnList e steamOnly é aceito", () => {
+    const result = walkthroughSchema.safeParse(psn());
+    expect(result.error?.issues).toBeUndefined();
+    expect(result.data).toMatchObject({ scope: "psn", psnList: { total: 3 }, steamOnly: ["ACH_STEAM_1", "ACH_STEAM_2"] });
+  });
+
+  it("scope psn sem psnList ou sem steamOnly é recusado", () => {
+    expect(pointers(walkthroughSchema.safeParse(psn({ psnList: undefined })))).toContain("/psnList");
+    expect(pointers(walkthroughSchema.safeParse(psn({ steamOnly: undefined })))).toContain("/steamOnly");
+  });
+
+  it("psnList.names precisa ter os total troféus", () => {
+    const result = walkthroughSchema.safeParse(psn({ psnList: { total: 36, names: ["Shadow Blade"] } }));
+    expect(pointers(result)).toContain("/psnList/names");
+  });
+
+  it("steamOnly repetido é recusado", () => {
+    expect(pointers(walkthroughSchema.safeParse(psn({ steamOnly: ["ACH_X", "ACH_X"] })))).toContain("/steamOnly/1");
+  });
+
+  it("scope steam não leva psnList nem steamOnly", () => {
+    const result = walkthroughSchema.safeParse(psn({ scope: "steam" }));
+    expect(pointers(result)).toEqual(expect.arrayContaining(["/psnList", "/steamOnly"]));
+  });
+});
+
 describe("guidePayloadSchema com format", () => {
   it("payload com format 2 sem walkthrough é recusado", () => {
     const result = guidePayloadSchema.safeParse({ ...EXAMPLE_GUIDE, format: 2 });

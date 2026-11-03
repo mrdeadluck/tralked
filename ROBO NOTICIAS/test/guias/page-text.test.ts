@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { extractText } from "../../src/collect/index.js";
-import { PAGE_TEXT_MAX, pageText } from "../../src/guias/page-text.js";
+import { PAGE_TEXT_MAX, PAGE_TEXT_VERSION, pageText } from "../../src/guias/page-text.js";
 
 const fx = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 
@@ -100,6 +100,8 @@ describe("pageText (texto de página de guia)", () => {
       <h1>Trophy Guide</h1><p>All 36 trophies.</p><select><option>Sort by</option></select><button>Search</button>
       <label>Name</label></form></body></html>`;
     expect(pageText(html).text).toBe(["# Trophy Guide", "All 36 trophies.", "Name"].join("\n"));
+    // Version 3 keeps <form> content: pages cached by version 2 get their text rebuilt from the stored HTML.
+    expect(PAGE_TEXT_VERSION).toBe(3);
   });
 
   it("corta só acima do teto e avisa que cortou", () => {

@@ -3,7 +3,8 @@ import type { GuideCompat } from "@/lib/content/walkthrough-schema";
 /*
  * Platform seal of a walkthrough. The Steam list is the master list: "APENAS STEAM" (amber) when
  * the other platforms' lists differ, with both sizes when the robot report has them; otherwise
- * which other lists it also covers (lime).
+ * which other lists it also covers (lime). A guide written from the PSN list (scope psn, R22)
+ * shows PsnListSeal instead (PSN blue), with how many Steam achievements are left without a route.
  */
 
 const COMPATIBLE: Record<Exclude<GuideCompat, "steam_only">, { title: string; note: string }> = {
@@ -38,6 +39,29 @@ export function CompatSeal({ compat, counts }: CompatSealProps) {
       <i aria-hidden="true">✓</i>
       <b>{title}</b>
       <span>{note}</span>
+    </p>
+  );
+}
+
+type PsnListSealProps = {
+  /** PSN trophies the guide follows (psnList.total). */
+  trophies: number;
+  /** Steam achievements without a route (steamOnly). */
+  steamOnly: number;
+};
+
+export function PsnListSeal({ trophies, steamOnly }: PsnListSealProps) {
+  return (
+    <p className="wk-compat psn">
+      <i aria-hidden="true">✓</i>
+      <b>GUIA PELA LISTA DA PSN ({trophies} troféus)</b>
+      <span>
+        {steamOnly === 0
+          ? "Todas as conquistas da Steam também estão no roteiro."
+          : steamOnly === 1
+            ? "A conquista que só existe na Steam ainda não tem roteiro; quando aparecer fonte, o guia é atualizado."
+            : `As ${steamOnly} conquistas que só existem na Steam ainda não têm roteiro; quando aparecer fonte, o guia é atualizado.`}
+      </span>
     </p>
   );
 }

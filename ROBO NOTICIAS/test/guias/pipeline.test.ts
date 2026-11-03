@@ -11,8 +11,10 @@ import { runGuideRequest, type GuidePipelineDeps, type GuideStages } from "../..
 import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import type { FetchPage, SourceRef } from "../../src/guias/sources.js";
 import { steamAliasUrl } from "../../src/guias/steam-aliases.js";
+import { writeAndCheckGuide } from "../../src/guias/writer.js";
 import { TralkedError } from "../../src/tralked-http.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
+import { fakeAi } from "./helpers-writer.js";
 
 // ---------------------------------------------------------------------------------------------
 // Fixtures
@@ -256,9 +258,14 @@ describe("runGuideRequest", () => {
     expect(statuses(calls)).toEqual(["waiting_sources"]);
     const sent = calls.reports[0]!.body;
     expect(sent.reason).toContain("The End");
-    const report = sent.report as { missing: string[]; coverage: unknown; sourcesRead: unknown[] };
-    expect(report.missing).toHaveLength(1);
+    const report = sent.report as { missing: string[]; coverage: unknown; sourcesRead: unknown[]; scope: string };
+    // Neither scope: the Steam gaps, then why the PSN list could not be used either.
+    expect(report.missing).toHaveLength(2);
     expect(report.missing[0]).toContain('"The End" (ACH_END)');
+    expect(report.missing[1]).toBe(
+      "O guia pela lista da PSN também não sai (1 lacuna): Nenhuma fonte de roteiro da PSN completa traz a lista inteira de troféus (o total e todos os nomes).",
+    );
+    expect(report.scope).toBe("steam");
     expect(report.coverage).toEqual({ steam: 1, covered: 0, steamOnly: 1 });
     expect(report.sourcesRead).toContainEqual({
       name: "PowerPyx",
@@ -285,8 +292,10 @@ describe("runGuideRequest", () => {
     expect(calls.reports.at(-1)!.body.guideId).toBe("guide-new");
 
     // The writer got the raw text of the pages read, for the copy check.
-    const writerOpts = stages.calls.writeAndCheckGuide![0]![4] as { sourceTexts: string[] };
+    const writerOpts = stages.calls.writeAndCheckGuide![0]![4] as { sourceTexts: string[]; scope?: unknown };
     expect(writerOpts.sourceTexts).toEqual([STEAM_GUIDE_TEXT]);
+    // The Steam gate passed: the guide covers the Steam list.
+    expect(writerOpts.scope).toBeUndefined();
 
     expect(calls.created).toHaveLength(1);
     const { payload } = calls.created[0]!;
@@ -311,6 +320,8 @@ describe("runGuideRequest", () => {
     // The same report goes with the guide and with the request, in the shape the admin reads.
     const report = payload.report as Record<string, unknown>;
     expect(calls.reports.at(-1)!.body.report).toEqual(report);
+    expect(report.scope).toBe("steam");
+    expect(report.psnCoverage).toBeUndefined();
     expect(parseReport(report)).toEqual({
       sourcesRead: [
         { name: "Busca: Phantom Test trophy guide site:psnprofiles.com", url: "", ok: false, reason: "search overloaded" },
@@ -524,6 +535,94 @@ describe("runGuideRequest", () => {
   });
 });
 
+describe("scope psn: a Steam não fecha, a lista da PSN do PowerPyx fecha (R22)", () => {
+  const STEAM_PLUS: SteamAchievement[] = [...STEAM, steamAch("ACH_ARENA", "Arena Master", "Win every arena fight.")];
+  const POWERPYX_TEXT = "PowerPyx roadmap: The End. Golden Feather on the old tower. Platinum at the end.";
+  const pages: FetchPage = async (url) =>
+    url === POWERPYX.url ? { status: "ok", text: POWERPYX_TEXT, finalUrl: url } : fetchPage(url);
+  /** PowerPyx: complete PSN script with the whole trophy list (The End + platinum). */
+  const powerpyxFacts = (source: SourceRef): ExtractedFacts => ({
+    ...fact("x", "roteiro_psn", {
+      trophyListSize: 2,
+      achievements: [ach("The End"), ach("Phantom Test Platinum")],
+      chapters: [chapter("Chapter 1", [item("Golden Feather")])],
+      roadmap: [{ title: "Story", summary: "Play the story once." }],
+    }),
+    source,
+  });
+
+  function setup(extract: GuideStages["extractFacts"]) {
+    const { api, calls } = fakeApi({ dossier: vi.fn(async () => ({ ...DOSSIER_SOURCE, achievements: STEAM_PLUS })) });
+    // Cover calls with numbers of this small guide's ficha (0 online, 2 PSN trophies, 1 chapter).
+    const writer = fakeAi({
+      frame: (out) => {
+        out.capa.chamadas = [
+          { valor: "0", rotulo: "Online" },
+          { valor: "2", rotulo: "Troféus PSN" },
+          { valor: "1", rotulo: "Capítulos" },
+        ];
+      },
+    });
+    const stages = fakeStages({
+      extractFacts: extract,
+      // The real writer (fake model): the payload is what the robot would send.
+      writeAndCheckGuide: async (_ai, d, src, bucket, opts) => writeAndCheckGuide(writer.ai, d, src, bucket, opts),
+    });
+    return { api, calls, stages, deps: makeDeps({ api, stages, fetchPage: pages }) };
+  }
+
+  it("Steam reprova pela exclusiva sem fonte, a lista inteira da PSN passa → guia scope psn em review", async () => {
+    const { calls, deps } = setup(async (_page, source) => (source.url === POWERPYX.url ? powerpyxFacts(source) : steamFacts(source)));
+    const outcome = await runGuideRequest(deps);
+
+    expect(outcome).toBe("review");
+    expect(calls.created).toHaveLength(1);
+    const { payload } = calls.created[0]!;
+    const parsed = guidePayloadSchema.safeParse(payload);
+    expect(parsed.error?.issues).toBeUndefined();
+    expect(payload.walkthrough).toMatchObject({
+      scope: "psn",
+      psnList: { total: 2, names: ["The End", "Phantom Test Platinum"] },
+      steamOnly: ["ACH_ARENA"],
+    });
+    const items = payload.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items));
+    expect(items.some((i) => i.achievement === "ACH_END")).toBe(true);
+    expect(items.some((i) => i.achievement === "ACH_ARENA")).toBe(false);
+    expect(payload.report).toMatchObject({ scope: "psn", psnCoverage: { total: 2, covered: 2 } });
+    expect(deps.lines.some((l) => l.includes("pela lista da PSN"))).toBe(true);
+  });
+
+  it("nem a Steam nem a lista da PSN fecham → waiting_sources com as duas razões", async () => {
+    // PowerPyx says the list has 3 trophies but names 2: not the whole list.
+    const { calls, deps } = setup(async (_page, source) =>
+      source.url === POWERPYX.url ? { ...powerpyxFacts(source), trophyListSize: 3 } : steamFacts(source),
+    );
+    const outcome = await runGuideRequest(deps);
+
+    expect(outcome).toBe("waiting_sources");
+    expect(calls.created).toEqual([]);
+    const report = calls.reports.at(-1)!.body.report as { missing: string[]; scope: string };
+    expect(report.scope).toBe("steam");
+    expect(report.missing).toEqual([
+      'A conquista "Arena Master" (ACH_ARENA) da Steam não aparece em nenhuma fonte.',
+      "O guia pela lista da PSN também não sai (1 lacuna): Nenhuma fonte de roteiro da PSN completa traz a lista inteira de troféus (o total e todos os nomes).",
+    ]);
+  });
+
+  it("a lista da PSN existe mas tem lacuna → as duas razões, com a lacuna da PSN", async () => {
+    const { calls, deps } = setup(async (_page, source) =>
+      source.url === POWERPYX.url
+        ? { ...powerpyxFacts(source), trophyListSize: 3, achievements: [...powerpyxFacts(source).achievements, ach("Only On PlayStation")] }
+        : steamFacts(source),
+    );
+    expect(await runGuideRequest(deps)).toBe("waiting_sources");
+    const report = calls.reports.at(-1)!.body.report as { missing: string[] };
+    expect(report.missing.at(-1)).toBe(
+      'O guia pela lista da PSN também não sai (1 lacuna): O troféu "Only On PlayStation" da lista da PSN não casa com nenhuma conquista da Steam.',
+    );
+  });
+});
+
 describe("buildReport", () => {
   it("tem o formato que o admin e o selo de compatibilidade leem", () => {
     const report = buildReport({
@@ -544,7 +643,9 @@ describe("buildReport", () => {
       singleSource: [],
       coverage: { steam: 1, covered: 0, steamOnly: 0 },
       spendUsd: 1.2346,
+      scope: "steam",
     });
+    expect(report.psnCoverage).toBeUndefined();
     expect(parseReport(report)).toEqual({
       sourcesRead: [
         { name: "PowerPyx", url: "https://www.powerpyx.com/x/", ok: true, reason: null },

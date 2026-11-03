@@ -4,18 +4,19 @@ import { BudgetExceededError, createAi, type Ai } from "../ai/client.js";
 import { TralkedError } from "../tralked-http.js";
 import type { GuideApi, GuideRequest, GuideRequestReport } from "./api.js";
 import type { GuideConfig } from "./config.js";
-import type { GuidePayloadV2 } from "./contract.js";
+import type { GuidePayloadV2, GuideScope } from "./contract.js";
 import { independentGroups } from "./crossref.js";
 import type { GuideDb } from "./db.js";
 import { discoverSources } from "./discover.js";
 import { buildDossier, type AchievementAliases, type GuideDossier, type GuideDossierSource } from "./dossier.js";
 import { extractFacts, extractionPrompt } from "./extract.js";
 import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
-import { gate } from "./gate.js";
+import { gate, type GateResult } from "./gate.js";
 import { composeImage, pickItemImage, type PagesInput } from "./images.js";
 import { locateTarget } from "./locate.js";
 import { PAGE_TEXT_MAX } from "./page-text.js";
 import { buildReport, spendByPurpose, type RobotReport, type SourceRead } from "./report.js";
+import { psnScope, type PsnWriteScope } from "./scope.js";
 import { findSoundtrack } from "./soundtrack.js";
 import type { FetchPage, SourceRef } from "./sources.js";
 import { guideAiConfig, guideSpend } from "./spend.js";
@@ -27,6 +28,9 @@ import { writeAndCheckGuide } from "./writer.js";
  * One guide request, start to end: claim → dossier → sources → extraction → crossref → gate → write/check →
  * images → soundtrack → send → report. Robot guides always go to `review`. Whatever happens after the claim,
  * the request ends in `review`, `waiting_sources` or `failed` (never left in `researching` / `writing`).
+ *
+ * The gate judges the Steam list first. When it fails and a complete PSN script gives the whole PSN trophy list
+ * that passes the gate, the guide follows the PSN list instead (R22, scope "psn"); otherwise `waiting_sources`.
  */
 
 export type GuideOutcome = "idle" | "review" | "waiting_sources" | "failed";
@@ -89,7 +93,7 @@ type Run = {
   ai: Ai;
   search: (query: string) => Promise<SearchHit[]>;
   /** What the failure report can still say. */
-  progress: { sourcesRead: SourceRead[]; steamList?: GuideDossierSource["achievements"]; dossier?: GuideDossier };
+  progress: { sourcesRead: SourceRead[]; steamList?: GuideDossierSource["achievements"]; dossier?: GuideDossier; scope?: GuideScope };
   report(extra?: { missing?: string[]; problems?: string[] }): RobotReport;
   /** PATCH of the request; throws RequestClosedError when the site no longer takes reports for it. */
   send(body: GuideRequestReport): Promise<void>;
@@ -166,6 +170,7 @@ function startRun(deps: GuidePipelineDeps, request: GuideRequest): Run {
         sourcesRead: progress.sourcesRead,
         dossier: progress.dossier,
         steamList: progress.steamList,
+        scope: progress.scope,
         spendUsd: db.spentForRequest(request.id),
         spendByPurpose: spendByPurpose(db, request.id),
         ...extra,
@@ -270,23 +275,36 @@ async function processRequest(run: Run): Promise<Final> {
   progress.dossier = dossier;
   db.saveDossier(request.id, dossier, deps.now());
 
-  // Step 7: the completeness gate. Nothing is sent when it fails.
+  // Step 7: the completeness gate, on the Steam list, else on the PSN list (R22). Nothing is sent when both fail.
   const verdict = gate(dossier, source.achievements);
+  let toWrite = dossier;
+  let scope: PsnWriteScope | undefined;
   if (!verdict.ok) {
-    const head = verdict.missing.slice(0, 3).join(" ");
-    const more = verdict.missing.length > 3 ? ` (e mais ${verdict.missing.length - 3})` : "";
-    return {
-      status: "waiting_sources",
-      reason: `${verdict.missing.length} ${verdict.missing.length === 1 ? "lacuna" : "lacunas"}: ${head}${more}`,
-      report: run.report({ missing: verdict.missing }),
-    };
+    const psn = gate(dossier, source.achievements, { scope: "psn" });
+    if (!psn.ok) {
+      const missing = [...verdict.missing, psnFailure(psn)];
+      const head = missing.slice(0, 3).join(" ");
+      const more = missing.length > 3 ? ` (e mais ${missing.length - 3})` : "";
+      return {
+        status: "waiting_sources",
+        reason: `${missing.length} ${missing.length === 1 ? "lacuna" : "lacunas"}: ${head}${more}`,
+        report: run.report({ missing }),
+      };
+    }
+    ({ dossier: toWrite, scope } = psnScope(dossier, source.achievements));
+    progress.scope = "psn";
+    deps.log(
+      `guia: a lista da Steam não fecha (${verdict.missing.length} ${verdict.missing.length === 1 ? "lacuna" : "lacunas"}); ` +
+        `o guia sai pela lista da PSN (${scope.psnList.total} troféus, ${scope.steamOnly.length} só na Steam sem roteiro)`,
+    );
   }
 
   // Step 8: write and check, against the raw text of the pages read (copy check).
   await run.send({ status: "writing" });
-  const written = await stages.writeAndCheckGuide(run.ai, dossier, source, "backfill", {
+  const written = await stages.writeAndCheckGuide(run.ai, toWrite, source, "backfill", {
     models: { MODEL_WRITER: config.MODEL_WRITER, MODEL_FAST: config.MODEL_FAST },
     sourceTexts: read.map((r) => r.text),
+    ...(scope ? { scope } : {}),
   });
   if (!written.ok) {
     return {
@@ -324,6 +342,14 @@ async function processRequest(run: Run): Promise<Final> {
 
   // Step 12 (the final report) happens in runGuideRequest.
   return { status: "review", report, guideId };
+}
+
+/** One line of `missing` saying why the PSN list could not stand in for the Steam one. */
+function psnFailure(psn: GateResult): string {
+  const n = psn.missing.length;
+  const head = psn.missing.slice(0, 3).join(" ");
+  const more = n > 3 ? ` (e mais ${n - 3})` : "";
+  return `O guia pela lista da PSN também não sai (${n} ${n === 1 ? "lacuna" : "lacunas"}): ${head}${more}`;
 }
 
 const TRUNCATED = `a página passa de ${PAGE_TEXT_MAX.toLocaleString("pt-BR")} caracteres; só o começo foi lido`;

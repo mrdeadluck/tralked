@@ -458,6 +458,9 @@ O robô de guias envia `"format": 2`. O guia de formato 2 é um roteiro (`walkth
   - `cover`: exatamente 3 destaques (`calls`), as horas do selo (`sealHours`), o título (`headline`) e a linha de apoio (`deck`);
   - `extraFacts`: conquistas bugadas (`buggedCount`), a mais difícil (`hardest`, por `apiName`, ou `null`) e as notas de jogadas e dificuldade;
   - `compat`: o selo de plataforma, `steam_only`, `psn_xbox`, `psn` ou `xbox`;
+  - `scope`, opcional: a lista que o guia cobre. `steam` (o padrão) cobre todas as conquistas da Steam. `psn` segue a lista de troféus da PSN, quando nenhuma fonte explica ainda as conquistas que só existem na Steam. Com `psn`, o roteiro traz também:
+    - `psnList`: `total`, o número de troféus da lista da PSN (com o troféu máximo), e `names`, os nomes em inglês como a fonte os lista (exatamente `total` nomes);
+    - `steamOnly`: os apiNames Steam que o guia não cobre. A página os mostra no bloco "Só na Steam — sem roteiro ainda", sem nenhum "como fazer". A lista pode ser vazia.
   - `readFirst`: de 1 a 8 avisos de "leia antes" (`tone` `aviso` ou `info`, com `spoiler`);
   - `chapters`: os capítulos. Cada um aponta em `phaseKey` a `key` de uma das `steps` e tem os seus passos (`steps`), cada passo com até 40 itens;
   - `soundtrack`, opcional: só um vídeo (`youtubeId`) ou uma playlist (`playlistId`) oficial do YouTube, com `title` e `channel`.
@@ -469,7 +472,8 @@ O formato 2 tem regras que a API confere com o catálogo, com `422` no caminho e
 
 - toda etapa (`steps[]`) tem `key`;
 - toda `key` (capítulo, passo e item) é única no guia inteiro, porque as marcas dos leitores ficam presas à `key` do item;
-- toda conquista Steam do jogo, ocultas incluídas, aparece em `achievement` de algum item;
+- toda conquista Steam do jogo, ocultas incluídas, aparece em `achievement` de algum item. Com `scope: "psn"`, cada conquista Steam aparece em `achievement` de algum item **ou** em `steamOnly`, nunca nos dois: nenhuma fica de fora sem aviso;
+- todo apiName de `steamOnly` é uma conquista Steam do jogo;
 - todo apiName citado existe no jogo;
 - `facts.missables` é igual ao número de itens do tipo `achievement` com `missable: true`.
 

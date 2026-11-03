@@ -153,3 +153,57 @@ describe("buildDossier: prazo de perdível (R20)", () => {
     expect(loose.achievements.find((a) => a.apiName === "ACH_LOST")!.deadlineChapter).toBeUndefined();
   });
 });
+
+describe("buildDossier: ordem da fonte principal (cronológica)", () => {
+  const titles = (d: ReturnType<typeof build>) => d.chapters.map((c) => c.title);
+  const chapters = (...names: string[]) => names.map((n, i) => chapter(n, [item(`Item de ${n}`)], i + 1));
+
+  it("os capítulos seguem o roteiro principal (PowerPyx completo), mesmo que outra fonte venha antes", () => {
+    const steamGuide = fact("Steam Guide", "roteiro_steam", { chapters: chapters("Crimson Forest", "Weeping Creek") });
+    const powerpyx = fact("PowerPyx", "roteiro_psn", { chapters: chapters("Weeping Creek", "Crimson Forest", "Ashen Peak") });
+    const d = build([steamGuide, powerpyx]);
+    expect(titles(d)).toEqual(["Weeping Creek", "Crimson Forest", "Ashen Peak"]);
+    expect(d.chapters.map((c) => c.order)).toEqual([1, 2, 3]);
+    expect(d.primaryScript).toEqual({ name: "PowerPyx", chapters: ["Weeping Creek", "Crimson Forest", "Ashen Peak"] });
+  });
+
+  it("PowerPyx incompleto: o roteiro completo da Steam é o principal, e o roadmap é o dele", () => {
+    const powerpyx = fact("PowerPyx", "roteiro_psn", {
+      complete: false,
+      chapters: chapters("Ashen Peak", "Weeping Creek"),
+      roadmap: [{ title: "Do PowerPyx", summary: "x" }],
+    });
+    const steamGuide = fact("Steam Guide", "roteiro_steam", {
+      chapters: chapters("Weeping Creek", "Crimson Forest"),
+      roadmap: [{ title: "Zerada única", summary: "y" }],
+    });
+    const d = build([powerpyx, steamGuide]);
+    expect(d.primaryScript?.name).toBe("Steam Guide");
+    expect(titles(d)).toEqual(["Weeping Creek", "Crimson Forest", "Ashen Peak"]);
+    expect(d.facts.roadmap.map((r) => r.title)).toEqual(["Zerada única"]);
+  });
+
+  it("capítulo que só uma fonte secundária tem entra logo depois do que o antecede nela", () => {
+    const powerpyx = fact("PowerPyx", "roteiro_psn", { chapters: chapters("Weeping Creek", "Crimson Forest", "Ashen Peak") });
+    const steamGuide = fact("Steam Guide", "roteiro_steam", { chapters: chapters("Weeping Creek", "Hidden Cave", "Crimson Forest") });
+    const d = build([powerpyx, steamGuide]);
+    expect(titles(d)).toEqual(["Weeping Creek", "Hidden Cave", "Crimson Forest", "Ashen Peak"]);
+    expect(d.primaryScript?.chapters).toEqual(["Weeping Creek", "Crimson Forest", "Ashen Peak"]);
+    // Items still align inside each chapter (both sources list the Weeping Creek item).
+    expect(d.chapters[0]!.items).toHaveLength(1);
+    expect(d.chapters[0]!.items[0]!.sources).toEqual(["PowerPyx", "Steam Guide"]);
+  });
+});
+
+describe("buildDossier: prazo de perdível nunca antes do próprio capítulo", () => {
+  it("marco que só casa com um capítulo anterior vira o próprio capítulo (R20, revisão)", () => {
+    const f = fact("PowerPyx", "roteiro_psn", {
+      chapters: [
+        chapter("Weeping Creek", [item("Bell")], 1),
+        chapter("Crimson Forest", [item("Old Lantern", { kind: "key_item", missable: true, missableUntil: "leaving Weeping Creek" })], 2),
+      ],
+    });
+    const lantern = build([f]).chapters[1]!.items[0]!;
+    expect(lantern).toMatchObject({ deadlineChapter: "Crimson Forest", deadlineAssumed: true });
+  });
+});

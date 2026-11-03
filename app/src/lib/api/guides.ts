@@ -182,8 +182,10 @@ const MISSING_LIST_CAP = 20;
  * Format 2 rules that need the catalog (422 with the exact path): every reference is a Steam
  * achievement of the game, every Steam achievement (hidden ones included) is covered by some
  * item, every chapter points at a roadmap step, and facts.missables counts the missable
- * achievement items. `stepKeys` / `missables` come from the payload or, for a partial PATCH,
- * from the stored guide.
+ * achievement items. A guide with scope "psn" (R22) may leave Steam achievements without an item
+ * only by naming them in `steamOnly` (real Steam achievements of the game, none of them with an
+ * item): nothing is left out silently. `stepKeys` / `missables` come from the payload or, for a
+ * partial PATCH, from the stored guide.
  */
 async function walkthroughIssues(
   gameId: string,
@@ -209,13 +211,23 @@ async function walkthroughIssues(
       }
     }
   }
-  const missing = [...known].filter((apiName) => !covered.has(apiName)).sort();
+  const steamOnlyList = walkthrough.scope === "psn" ? (walkthrough.steamOnly ?? []) : [];
+  const steamOnly = new Set(steamOnlyList);
+  steamOnlyList.forEach((apiName, i) => {
+    const path = `/walkthrough/steamOnly/${i}`;
+    if (!known.has(apiName)) issues.push({ path, message: `Conquista Steam "${apiName}" não existe neste jogo` });
+    else if (covered.has(apiName)) issues.push({ path, message: `A conquista "${apiName}" tem item no roteiro e não pode estar em steamOnly` });
+  });
+  const missing = [...known].filter((apiName) => !covered.has(apiName) && !steamOnly.has(apiName)).sort();
   if (missing.length > 0) {
     const shown = missing.slice(0, MISSING_LIST_CAP).join(", ");
     const more = missing.length > MISSING_LIST_CAP ? ` e mais ${missing.length - MISSING_LIST_CAP}` : "";
     issues.push({
       path: "/walkthrough",
-      message: `Faltam ${missing.length} conquistas Steam (ocultas incluídas) em algum item.achievement: ${shown}${more}`,
+      message:
+        walkthrough.scope === "psn"
+          ? `Faltam ${missing.length} conquistas Steam (ocultas incluídas) sem item.achievement e fora de steamOnly: ${shown}${more}`
+          : `Faltam ${missing.length} conquistas Steam (ocultas incluídas) em algum item.achievement: ${shown}${more}`,
     });
   }
   const keys = new Set(stepKeys);
