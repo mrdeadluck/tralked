@@ -1,0 +1,563 @@
+{
+ "_comment": "Trimmed from the real Phantom Blade Zero cache (robo-guias.db, old extractor): PowerPyx roadmap (complete as the new extraction reads it) + 3 region pages in discovery order (Mirage Estate before Crimson Forest), one zh Steam guide and one allthings.how page. intro = first line of each page text.",
+ "steam": [
+  {
+   "platform": "steam",
+   "apiName": "ACH_HEART",
+   "name": "With Heart and Blood",
+   "description": "All Comes to Light",
+   "globalPct": 3,
+   "hidden": false,
+   "namePt": null,
+   "descriptionPt": null
+  },
+  {
+   "platform": "steam",
+   "apiName": "ACH_HEALER",
+   "name": "The Healer’s Legacy",
+   "description": "Complete [Flesh Lily], [Apprentice Healer], and [A Healer’s Mercy]",
+   "globalPct": 20,
+   "hidden": false,
+   "namePt": null,
+   "descriptionPt": null
+  },
+  {
+   "platform": "steam",
+   "apiName": "ACH_FORBIDDEN",
+   "name": "Forbidden Arts Beneath the Lake",
+   "description": "Complete [Secrets at the Heart of the Lake]",
+   "globalPct": 10,
+   "hidden": false,
+   "namePt": null,
+   "descriptionPt": null
+  }
+ ],
+ "aliases": {
+  "ACH_FORBIDDEN": [
+   "禁法湖底沉"
+  ]
+ },
+ "facts": [
+  {
+   "source": {
+    "name": "PowerPyx",
+    "url": "https://www.powerpyx.com/phantom-blade-zero-trophy-guide-roadmap/",
+    "role": "roteiro_psn",
+    "language": "en"
+   },
+   "chapters": [
+    {
+     "title": "Step 1: Complete the Game up to the Mirage Estate",
+     "order": 1,
+     "items": []
+    },
+    {
+     "title": "Step 2: Complete True Ending Requirements",
+     "order": 2,
+     "items": []
+    },
+    {
+     "title": "Step 3: Obtain the True Ending",
+     "order": 3,
+     "items": []
+    },
+    {
+     "title": "Step 4: Trophy Clean Up",
+     "order": 4,
+     "items": []
+    }
+   ],
+   "achievements": [
+    {
+     "nameEn": "With Heart and Blood",
+     "howTo": "Obtain the true ending of the game. Complete all tales with a purple icon in the journal once the objective to enter Region 8: Mirage Estate appears, progress to Region 9: Mount Soulrend, then trigger the True Ending.",
+     "missable": true,
+     "bugged": false,
+     "online": false
+    }
+   ],
+   "playthroughs": {
+    "min": 1,
+    "note": "Minimum Playthroughs: 1"
+   },
+   "difficulty": {
+    "value": 4,
+    "note": "4/10 on Easy (6/10 Normal)"
+   },
+   "hours": {
+    "min": 30,
+    "max": 40
+   },
+   "roadmap": [
+    {
+     "title": "Step 1: Complete the Game up to the Mirage Estate",
+     "summary": "Play through the game normally and grab items to become stronger. Watch out for trophies that become missable early, and keep manual saves at the start and end of each region."
+    },
+    {
+     "title": "Step 2: Complete True Ending Requirements",
+     "summary": "Once you get the objective to enter Region 8: Mirage Estate through the Green Serpent House in Pangzhen, complete all tales with a purple icon in your journal (see the True Ending Guide)."
+    },
+    {
+     "title": "Step 3: Obtain the True Ending",
+     "summary": "Progress to Region 9: Mount Soulrend, clean up anything missed or remaining true ending requirements, then trigger the True Ending."
+    },
+    {
+     "title": "Step 4: Trophy Clean Up",
+     "summary": "After the final boss, resume in free-roam to return to all areas and grab anything still needed (except missable trophy-related tales), or continue in New Game+."
+    }
+   ],
+   "trophyListSize": 36,
+   "platform": "psn",
+   "complete": true
+  },
+  {
+   "source": {
+    "name": "PowerPyx (Weeping Creek Valley)",
+    "url": "https://www.powerpyx.com/phantom-blade-zero-weeping-creek-valley-collectible-locations/",
+    "role": "coletaveis",
+    "language": "en"
+   },
+   "chapters": [
+    {
+     "title": "First Visit",
+     "region": "Weeping Creek Valley",
+     "order": 1,
+     "items": [
+      {
+       "kind": "collectible",
+       "name": "Bell (The Beginning)",
+       "collectibleType": "Bell",
+       "index": 1,
+       "location": "Automatically obtained through the story.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Bell (The Lady's Rift)",
+       "collectibleType": "Bell",
+       "index": 2,
+       "location": "While on the scaffolding, go down the ladder on the right.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Triple Threat",
+       "collectibleType": "Tale",
+       "index": 3,
+       "location": "Accepted by entering the statue next to The Lady's Rift Bell. Cannot be completed now as you are too underpowered to defeat the boss.",
+       "missable": false,
+       "returnLater": true,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Hunter's Insight",
+       "collectibleType": "Accessory",
+       "index": 4,
+       "location": "From The Lady's Rift Bell, climb the ladder and go across the chain. The enemy directly after the chain drops it.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Flesh Lily",
+       "collectibleType": "Tales",
+       "index": 5,
+       "location": "Automatically accepted when talking to Yu'er.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Sanguine Twin",
+       "collectibleType": "Weapon",
+       "index": 6,
+       "location": "On the waterfall, just past Yu'er.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Bell (First Meeting with Yu'er)",
+       "collectibleType": "Bell",
+       "index": 7,
+       "location": "Up the ladder by the waterfall.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Ancient Armor Fragment",
+       "collectibleType": "Accessory",
+       "index": 55,
+       "location": "To the left of the Crimson Manor Bell.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      }
+     ]
+    },
+    {
+     "title": "Clean Up Visits",
+     "region": "Weeping Creek Valley",
+     "order": 2,
+     "items": [
+      {
+       "kind": "key_item",
+       "name": "Prayer Beads",
+       "location": "From the Outpost Bell, defeat the monk near the shop and he drops it. Requires reaching Village of Lu and unlocking the Leave None Alive tale.",
+       "missable": false,
+       "returnLater": true,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Bell (The Lady's Cave)",
+       "collectibleType": "Bell",
+       "index": 56,
+       "location": "From the Outpost Bell, cross the bridge previously blocked by NPCs into the small town, climb the building on the left and destroy the barricade to enter the cave; the bell is in an opened room.",
+       "missable": false,
+       "returnLater": true,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Shenji's Ring / Colorful Pinwheel",
+       "collectibleType": "Accessory / Key Item",
+       "index": 57,
+       "location": "From The Lady's Cave Bell, follow the path out of the cave; chest on the right. Interact with a pinwheel to pick it up.",
+       "missable": false,
+       "returnLater": true,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Memory Flower",
+       "collectibleType": "Memory Flower",
+       "index": 58,
+       "location": "From the Crimson Manor Bell, open the door; on the second floor balcony. Item required: Puppet's Tongue.",
+       "missable": false,
+       "returnLater": true,
+       "countsForEn": []
+      }
+     ]
+    }
+   ],
+   "achievements": [],
+   "platform": "unknown",
+   "complete": false
+  },
+  {
+   "source": {
+    "name": "PowerPyx (Mirage Estate Pangzhen)",
+    "url": "https://www.powerpyx.com/phantom-blade-zero-mirage-estate-pangzhen-collectible-locations/",
+    "role": "coletaveis",
+    "language": "en"
+   },
+   "chapters": [
+    {
+     "title": "Mirage Estate",
+     "order": 1,
+     "items": [
+      {
+       "kind": "mission",
+       "name": "The Way Forward",
+       "nameEn": "The Way Forward",
+       "location": "Bell: Green Serpent House. Make sure you have completed all possible quests before progressing.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Yu’er’s Memory Flower – 1. Struggle",
+       "nameEn": "Yu’er’s Memory Flower – 1. Struggle",
+       "collectibleType": "Memory Flower",
+       "location": "Bell: Estate Rear Gate. Southeast of the bell, in the first area where you fight enemies and are spoken to by the Herald.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Blackstone Fragment",
+       "nameEn": "Blackstone Fragment",
+       "collectibleType": "Upgrade",
+       "location": "Bell: Nuo Mask Altar. Follow the path around instead of dropping into the building, climb the cliffs, grapple to the upper floor; in a chest.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      }
+     ]
+    },
+    {
+     "title": "Crimson Forest Cleanup #3",
+     "order": 3,
+     "items": [
+      {
+       "kind": "collectible",
+       "name": "Song of Parting",
+       "nameEn": "Song of Parting",
+       "collectibleType": "Weapon Tempering Material",
+       "location": "Bell: Cliffside Lodge. Go into the underground area from the bell, to the north end of the tunnel and blow up the wall with Tiger Cannon; in the small cave beside a chest.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Frostward",
+       "nameEn": "Frostward",
+       "collectibleType": "Accessory",
+       "location": "Bell: Burial Grounds. Southwest of the bell, follow the path up and west to the frozen water leading to the Sha-Chi tower; in the first area.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      }
+     ]
+    }
+   ],
+   "achievements": [],
+   "platform": "unknown",
+   "complete": false
+  },
+  {
+   "source": {
+    "name": "PowerPyx (Crimson Forest)",
+    "url": "https://www.powerpyx.com/phantom-blade-zero-crimson-forest-collectible-locations/",
+    "role": "coletaveis",
+    "language": "en"
+   },
+   "chapters": [
+    {
+     "title": "First Visit",
+     "region": "Crimson Forest",
+     "order": 1,
+     "items": [
+      {
+       "kind": "collectible",
+       "name": "Bell (Crimson Forest)",
+       "collectibleType": "Bell",
+       "location": "Directly ahead after the story cutscene.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Memory Flower",
+       "collectibleType": "Memory Flower",
+       "location": "Directly beside the Crimson Forest Bell.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Bell (Abandoned Main Road)",
+       "collectibleType": "Bell",
+       "location": "On the side of the road after jumping over the barricade.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "Shieldbreaker Talisman",
+       "collectibleType": "Accessory",
+       "location": "After jumping over the broken bridge, the chest is on a small scaffolding near some enemies.",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      }
+     ]
+    },
+    {
+     "title": "Clean Up Visits",
+     "region": "Crimson Forest",
+     "order": 2,
+     "items": [
+      {
+       "kind": "collectible",
+       "name": "Seal of Dugu",
+       "collectibleType": "Accessory",
+       "location": "Requires reaching Village of Lu and unlocking the Leave None Alive tale. From the Thieves' Camp Bell, go onto the giant wooden bridge and defeat the enemy there.",
+       "missable": false,
+       "returnLater": true,
+       "countsForEn": []
+      },
+      {
+       "kind": "key_item",
+       "name": "Thief's Manual",
+       "location": "Requires reaching Village of Lu and unlocking the Leave None Alive tale. Go towards Quick Hand Zhang's hideout and defeat the enemy by the entrance.",
+       "missable": false,
+       "returnLater": true,
+       "countsForEn": []
+      }
+     ]
+    }
+   ],
+   "achievements": [],
+   "platform": "unknown",
+   "complete": false
+  },
+  {
+   "source": {
+    "name": "Steam: 影之刃零全成就指南 (Lankec)",
+    "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=3829258710",
+    "role": "roteiro_steam",
+    "language": "zh"
+   },
+   "chapters": [
+    {
+     "title": "必读注意事项",
+     "region": "悲泣溪谷",
+     "order": 1,
+     "items": [
+      {
+       "kind": "mission",
+       "name": "见习医师",
+       "location": "先找「玉儿」接取，收齐3种药草回交；建议离开本区前处理",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "other",
+       "name": "隔绝楔子",
+       "location": "悲泣溪谷首次取石、交付；离开溪谷前交付",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": []
+      }
+     ]
+    },
+    {
+     "title": "陆家村",
+     "region": "陆家村",
+     "order": 2,
+     "items": [
+      {
+       "kind": "collectible",
+       "name": "少主红丝带",
+       "collectibleType": "少主红丝带",
+       "total": 5,
+       "location": "乘升降梯挑战「“组织”少主：沐小葵」前集齐5条",
+       "missable": true,
+       "missableUntil": "乘电梯离开陆家村",
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "乱莺剑",
+       "location": "战后木桥尽头；乘电梯离开前拾取，离开后无法返回",
+       "missable": true,
+       "missableUntil": "乘电梯离开陆家村",
+       "returnLater": false,
+       "countsForEn": []
+      },
+      {
+       "kind": "collectible",
+       "name": "杀气琥珀碎片",
+       "collectibleType": "杀气琥珀碎片",
+       "location": "战后左侧树旁宝箱；乘电梯离开前拾取",
+       "missable": true,
+       "missableUntil": "乘电梯离开陆家村",
+       "returnLater": false,
+       "countsForEn": []
+      }
+     ]
+    }
+   ],
+   "achievements": [
+    {
+     "nameEn": "逆天改命",
+     "howTo": "完成其余全部成就；缺少「妖锯」时，检查是否完成「“组织”少主：沐小葵」隐藏阶段",
+     "missable": false,
+     "bugged": false,
+     "online": false
+    },
+    {
+     "nameEn": "禁法湖底沉",
+     "howTo": "完成【湖心秘密】",
+     "missable": true,
+     "missableUntil": "进入戏梦山庄前",
+     "bugged": false,
+     "online": false
+    }
+   ],
+   "platform": "steam",
+   "complete": false
+  },
+  {
+   "source": {
+    "name": "allthings.how",
+    "url": "https://allthings.how/phantom-blade-zero-achievements/",
+    "role": "coletaveis"
+   },
+   "chapters": [
+    {
+     "title": "Quest objectives for story and side quest achievements",
+     "order": 2,
+     "items": [
+      {
+       "kind": "mission",
+       "name": "Flesh Lily",
+       "nameEn": "Flesh Lily",
+       "location": "Find the Flesh Lily for Yu'er and check on her father; after reaching Pangzhen, return to escort her home, then hand her the Flesh Lily",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": [
+        "The Healer's Legacy"
+       ]
+      },
+      {
+       "kind": "mission",
+       "name": "Apprentice Healer",
+       "nameEn": "Apprentice Healer",
+       "location": "Find the three herbs from Yu'er's medicinal recipe in Weeping Creek Valley and bring them to her",
+       "missable": false,
+       "returnLater": false,
+       "countsForEn": [
+        "The Healer's Legacy"
+       ]
+      }
+     ]
+    }
+   ],
+   "achievements": [
+    {
+     "nameEn": "The Healer's Legacy",
+     "howTo": "Complete three quests: Flesh Lily, Apprentice Healer, and A Healer's Mercy.",
+     "missable": false,
+     "bugged": false,
+     "online": false
+    }
+   ],
+   "difficulty": {
+    "value": 0,
+    "note": "Difficulty does not affect any achievement; all can be earned on Wayfarer, Pathbreaker, Hellwalker, or 66 Days."
+   },
+   "trophyListSize": 66,
+   "platform": "steam",
+   "complete": false
+  }
+ ],
+ "intro": {
+  "https://www.powerpyx.com/phantom-blade-zero-trophy-guide-roadmap/": "Estimated trophy difficulty: 4/10 on Easy (6/10 Normal)",
+  "https://www.powerpyx.com/phantom-blade-zero-weeping-creek-valley-collectible-locations/": "Weeping Creek Valley is the 1st region in Phantom Blade Zero and contains 61 Collectible Locations. This walkthrough will guide you to all the collectibles in Weeping Creek Valley Region in chronological order. Everything that’s needed for trophies and 100% completion is included. Anything that is m",
+  "https://www.powerpyx.com/phantom-blade-zero-mirage-estate-pangzhen-collectible-locations/": "Mirage Estate is the 8th region in Phantom Blade Zero. This walkthrough will guide you to all the collectibles in Mirage Estate Region in chronological order. Everything that’s needed for trophies and 100% completion is included. Anything that is missable will be marked with a warning, everything el",
+  "https://www.powerpyx.com/phantom-blade-zero-crimson-forest-collectible-locations/": "Crimson Forest is the 2nd region in Phantom Blade Zero and contains 83 Collectible Locations. This walkthrough will guide you to all the collectibles in the Crimson Forest Region in chronological order. Everything that’s needed for trophies and 100% completion is included. Anything that is missable ",
+  "https://steamcommunity.com/sharedfiles/filedetails/?id=3829258710": "说明｜阅读须知",
+  "https://allthings.how/phantom-blade-zero-achievements/": "Quick answer: Phantom Blade Zero has 66 Steam achievements, most of them from story progress, boss kills, side quests, upgrades and specific weapons. “Defy Destiny” unlocks once you have all the others."
+ }
+}

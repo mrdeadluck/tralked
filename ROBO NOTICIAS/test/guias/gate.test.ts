@@ -282,6 +282,24 @@ describe("R23: coletar pelo menos N", () => {
       'A contagem da conquista "Leave No Stone Unturned" (ACH_STONE) está errada: o item "Pedra Negra 5" está sem número.',
     ]);
   });
+
+  it("número corrido do PowerPyx (entre tipos, recomeça em cada página) não vira número repetido", () => {
+    // Each region page numbers everything it lists, #1, #2, #3... across types: the Blackstones of two pages
+    // carry 2, 4, 6... on both pages.
+    const page = (region: string) => {
+      const items = Array.from({ length: 6 }, (_, i) => [
+        item(`Sino ${region} ${i + 1}`, { collectibleType: "Bell", index: 2 * i + 1 }),
+        item(`Pedra Negra ${region} ${i + 1}`, { collectibleType: "Blackstone", index: 2 * i + 2, countsForEn: ["Leave No Stone Unturned"] }),
+      ]).flat();
+      return fact(`PowerPyx (${region})`, "coletaveis", { chapters: [{ title: "First Visit", region, order: 1, items }] }, `https://www.powerpyx.com/pbz-${region.toLowerCase()}/`);
+    };
+    const roadmap = powerpyx({ chapters: [] });
+    const lead = { ...roadmap, source: { ...roadmap.source, url: "https://www.powerpyx.com/pbz-roadmap/" } };
+    const { d, result } = run(baseSteam(), [lead, page("Weeping"), page("Crimson")]);
+    expect(result).toEqual({ ok: true, missing: [] });
+    expect(d.achievements.find((a) => a.apiName === "ACH_STONE")!.collect).toMatchObject({ counted: 12, indexProblems: [] });
+    expect(d.chapters[1]!.items.filter((i) => i.collectibleType === "Blackstone").map((i) => i.index)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
 });
 
 describe("gate com scope psn (R22)", () => {

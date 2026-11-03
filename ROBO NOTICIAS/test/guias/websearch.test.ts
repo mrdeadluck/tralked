@@ -38,7 +38,7 @@ describe("createWebSearch", () => {
     expect(recordSpend).toHaveBeenCalledWith(expect.closeTo(0.013, 6), expect.stringContaining("websearch"));
   });
 
-  it("continues a pause_turn and sums usage over both calls", async () => {
+  it("continues a pause_turn and records each paid turn as it happens", async () => {
     const create = vi
       .fn()
       .mockResolvedValueOnce({
@@ -59,7 +59,24 @@ describe("createWebSearch", () => {
     expect(create).toHaveBeenCalledTimes(2);
     const second = create.mock.calls[1]![0] as { messages: { role: string }[] };
     expect(second.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(recordSpend).toHaveBeenCalledTimes(2);
+    expect(recordSpend).toHaveBeenNthCalledWith(1, expect.closeTo(1000 * 2e-6 + 0.01, 6), expect.any(String));
+    expect(recordSpend).toHaveBeenNthCalledWith(2, expect.closeTo(500 * 2e-6 + 100e-6, 6), expect.any(String));
+  });
+
+  it("a turn that throws after a paid one: the paid turn is still recorded", async () => {
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({
+        stop_reason: "pause_turn",
+        content: [{ type: "server_tool_use", name: "web_search" }],
+        usage: { input_tokens: 1000, output_tokens: 0, server_tool_use: { web_search_requests: 1 } },
+      })
+      .mockRejectedValueOnce(new Error("overloaded"));
+    const recordSpend = vi.fn();
+    const ws = createWebSearch({ client: { messages: { create } } as never, model: "claude-sonnet-5-5", recordSpend });
+    await expect(ws.search("q")).rejects.toThrow("overloaded");
     expect(recordSpend).toHaveBeenCalledTimes(1);
-    expect(recordSpend).toHaveBeenCalledWith(expect.closeTo(1500 * 2e-6 + 100e-6 + 0.01, 6), expect.any(String));
+    expect(recordSpend).toHaveBeenCalledWith(expect.closeTo(1000 * 2e-6 + 0.01, 6), expect.stringContaining("websearch"));
   });
 });

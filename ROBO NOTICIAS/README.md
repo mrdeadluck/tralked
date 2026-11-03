@@ -281,6 +281,8 @@ A second robot in this folder writes the Tralked guides (format 2, the walkthrou
    | `TRALKED_GUIDES_API_KEY` | yes | The secret above. |
    | `ANTHROPIC_API_KEY` | yes | Same as the news robot. |
    | `GUIDE_BUDGET_USD` | no | Spend cap per request (every attempt of it), default US$ 25. |
+   | `GUIDE_SOFT_DEADLINE_MIN` | no | Minutes after which a written guide is sent without (more) images and soundtrack, default 150 (the lock goes stale at 180). |
+   | `RESEND_API_KEY` / `ALERT_EMAIL` | no | Same as the news robot: the guide robot's alerts (`guia-falha-robo`) are e-mailed at the end of each run. |
    | `MODEL_WRITER` / `MODEL_EXTRACT` / `MODEL_FAST` | no | Defaults `claude-opus-5-5` (writing), `claude-sonnet-5-5` (extraction and web search), `claude-haiku-5-5` (checker, image locating). |
    | `DATA_DIR_GUIAS` | no | Default `./data-guias` (gitignored): `robo-guias.db` (page cache, runs, spend, dossiers, extracted facts), `guia.lock`, `logs/`. |
 
@@ -300,7 +302,13 @@ One request, in order: claim the next request → the game's full Steam list (`/
 | `waiting_sources` | The gate found gaps. Nothing is sent; the request's report lists what is missing (`missing`). The site retries it every 3 days, for up to 30 days. |
 | `failed` | Reason `teto de gasto` when the request's cap was reached; the checker still rejected the guide after one rewrite (`problems` in the report); the game already has a guide written by the team (the robot never replaces it); or any other error, with its message. |
 
-Whatever happens after the claim, the request ends in one of these three: it is never left in `researching` or `writing`. If the request was cancelled on the site meanwhile, the robot stops and reports nothing more.
+Whatever happens after the claim, the request ends in one of these three: it is never left in `researching` or `writing` (the final report is retried for about 2 minutes). If the request was cancelled on the site meanwhile, the robot stops and reports nothing more.
+
+Chapters come from the **primary script** alone (complete PowerPyx and its region pages, else a complete Steam guide), in its order: region pages in the order they state ("Crimson Forest is the 2nd region"), the roadmap's "Step N" as phases, a page's own "Clean Up Visits" / "Second Visit" after the last first visit (marked for review), a revisit another page places ("Crimson Forest Cleanup #3" on the Mirage Estate page) where that page puts it. Other sources never make chapters: their items confirm the primary's items they match, the rest only corroborates. Pages of one site count as one source.
+
+Before writing, the guide's shape is checked against the site's limits (60 chapters, 80 steps per chapter, 40 items per step, 1 MiB per request); a guide that cannot fit ends `failed` with the reason before any writing spend. Once written, the guide is always sent: images (then the report's long lists) are dropped if the body would pass 1 MiB, and images and the soundtrack are skipped after `GUIDE_SOFT_DEADLINE_MIN` or when the spend cap is hit; `report.notes` says what was left out.
+
+**Free dry run:** `pnpm guia -- --ensaio --appid <n>` (or `--pedido <id>`, optional `--dados <dir>` for another data folder, e.g. a copy). No AI, no network: it replays the request on the cached pages and cached extraction and prints the sources (with stale or missing extractions), the gate's gaps, the scope it would choose, the chapters in order with their item counts, agreed / single-source items, the site limits, the estimated size and a rough estimate of the writing cost.
 
 The **report** goes with the request and with the guide (`Guide.report`, staff only): `sourcesRead` (`{ name, url, ok, reason? }`, failed searches included), `divergences`, `singleSource`, `coverage` (`{ steam, covered, steamOnly }`, which the page's compat seal also reads), `spendUsd` (the request's total, every attempt) and `spendByPurpose`.
 

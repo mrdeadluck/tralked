@@ -33,6 +33,8 @@ export type RobotReport = {
   problems?: string[];
   /** Robot bugs found while writing (the code's own chapter order broke the chronology check). */
   internalErrors?: string[];
+  /** What the robot left out to deliver the guide (images or soundtrack after the deadline or the spend cap, ...). */
+  notes?: string[];
 };
 
 export type ReportInput = {
@@ -48,6 +50,7 @@ export type ReportInput = {
   missing?: string[];
   problems?: string[];
   internalErrors?: string[];
+  notes?: string[];
 };
 
 const usd = (value: number) => Math.round(value * 1e4) / 1e4;
@@ -107,6 +110,7 @@ export function buildReport(input: ReportInput): RobotReport {
     ...(input.missing ? { missing: input.missing } : {}),
     ...(input.problems ? { problems: input.problems } : {}),
     ...(input.internalErrors?.length ? { internalErrors: input.internalErrors } : {}),
+    ...(input.notes?.length ? { notes: [...input.notes] } : {}),
   };
 }
 

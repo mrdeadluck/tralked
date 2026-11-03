@@ -133,7 +133,10 @@ describe("buildDossier: prazo de perdível (R20)", () => {
   it("marco explícito que casa com um capítulo continua valendo", () => {
     const d = build([
       fact("PowerPyx", "roteiro_psn", {
-        chapters: [chapter("Weeping Creek", [item("Selo", { missable: true, missableUntil: "Village of Lu" })]), chapter("Village of Lu", [], 2)],
+        chapters: [
+          chapter("Weeping Creek", [item("Selo", { missable: true, missableUntil: "Village of Lu" })]),
+          chapter("Village of Lu", [item("Sino da vila")], 2),
+        ],
       }),
     ]);
     expect(d.chapters[0]!.items[0]!.deadlineChapter).toBe("Village of Lu");
@@ -179,27 +182,39 @@ describe("buildDossier: ordem da fonte principal (cronológica)", () => {
     });
     const d = build([powerpyx, steamGuide]);
     expect(d.primaryScript?.name).toBe("Steam Guide");
-    // In PowerPyx, Ashen Peak comes before Weeping Creek: it goes right before it.
-    expect(titles(d)).toEqual(["Ashen Peak", "Weeping Creek", "Crimson Forest"]);
+    // PowerPyx is a secondary source here: its Ashen Peak never becomes a chapter.
+    expect(titles(d)).toEqual(["Weeping Creek", "Crimson Forest"]);
+    expect(d.chapters[0]!.items[0]).toMatchObject({ agreed: true, sources: ["Steam Guide", "PowerPyx"] });
+    expect(d.corroborationOnly).toEqual([{ name: "Item de Ashen Peak", chapter: "Ashen Peak", source: "PowerPyx" }]);
     expect(d.facts.roadmap.map((r) => r.title)).toEqual(["Zerada única"]);
   });
 
-  it("capítulo que só uma fonte secundária tem entra logo depois do que o antecede nela", () => {
+  it("capítulo que só uma fonte secundária tem não vira capítulo: o item só corrobora", () => {
     const powerpyx = fact("PowerPyx", "roteiro_psn", { chapters: chapters("Weeping Creek", "Crimson Forest", "Ashen Peak") });
-    const steamGuide = fact("Steam Guide", "roteiro_steam", { chapters: chapters("Weeping Creek", "Hidden Cave", "Crimson Forest") });
+    const steamGuide = fact("Steam Guide", "roteiro_steam", { chapters: chapters("Prologue", "Weeping Creek", "Hidden Cave", "Crimson Forest") });
     const d = build([powerpyx, steamGuide]);
-    expect(titles(d)).toEqual(["Weeping Creek", "Hidden Cave", "Crimson Forest", "Ashen Peak"]);
+    expect(titles(d)).toEqual(["Weeping Creek", "Crimson Forest", "Ashen Peak"]);
     expect(d.primaryScript?.chapters).toEqual(["Weeping Creek", "Crimson Forest", "Ashen Peak"]);
     // Items still align inside each chapter (both sources list the Weeping Creek item).
     expect(d.chapters[0]!.items).toHaveLength(1);
     expect(d.chapters[0]!.items[0]!.sources).toEqual(["PowerPyx", "Steam Guide"]);
+    expect(d.corroborationOnly.map((c) => c.chapter)).toEqual(["Prologue", "Hidden Cave"]);
   });
 
-  it("fonte secundária que abre com capítulos que o principal não tem: eles ficam antes do primeiro capítulo que ela divide", () => {
-    const powerpyx = fact("PowerPyx", "roteiro_psn", { chapters: chapters("Weeping Creek", "Crimson Forest", "Ashen Peak") });
-    const steamGuide = fact("Steam Guide", "roteiro_steam", { chapters: chapters("Prologue", "Tutorial Cave", "Weeping Creek", "Crimson Forest") });
-    const d = build([powerpyx, steamGuide]);
-    expect(titles(d)).toEqual(["Prologue", "Tutorial Cave", "Weeping Creek", "Crimson Forest", "Ashen Peak"]);
+  it("item de fonte secundária casa com o item do principal pelo nome, mesmo em capítulo de nome diferente", () => {
+    const powerpyx = fact("PowerPyx", "roteiro_psn", {
+      chapters: [chapter("Weeping Creek", [item("Ancient Armor Fragment"), item("Memory Flower"), item("Memory Flower")])],
+    });
+    const wiki = fact("Wiki", "coletaveis", {
+      chapters: [chapter("Deep in the Valley", [item("Ancient Armor Fragment"), item("Memory Flower")])],
+    });
+    const d = build([powerpyx, wiki]);
+    const [armor, flowerA, flowerB] = d.chapters[0]!.items;
+    expect(armor).toMatchObject({ agreed: true, sources: ["PowerPyx", "Wiki"] });
+    // Two "Memory Flower" in the chapter: an ambiguous name never picks one of them.
+    expect(flowerA!.sources).toEqual(["PowerPyx"]);
+    expect(flowerB!.sources).toEqual(["PowerPyx"]);
+    expect(d.chapters[0]!.items).toHaveLength(3);
   });
 
   it("páginas que não dividem capítulo (uma por região) ficam na ordem em que chegaram", () => {

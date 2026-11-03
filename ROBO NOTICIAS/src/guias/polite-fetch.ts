@@ -23,7 +23,7 @@ export type PoliteResult = {
 
 export type PoliteState = {
   lastRequestAt: Map<string, number>;
-  robots: Map<string, RobotsRules>;
+  robots: Map<string, RobotsEntry>;
 };
 
 export const createPoliteState = (): PoliteState => ({ lastRequestAt: new Map(), robots: new Map() });
@@ -50,6 +50,8 @@ const TIMEOUT_MS = 20_000;
 
 type Rule = { allow: boolean; pattern: string };
 type RobotsRules = Rule[];
+/** A host's robots.txt as cached: its rules until `until` (ms); `unreachable` = it could not be read. */
+type RobotsEntry = { rules: RobotsRules; until: number; unreachable?: string };
 
 /** The rules that apply to us: those of our own group when there is one, otherwise those of `*`. */
 export function parseRobots(txt: string): RobotsRules {
@@ -114,7 +116,7 @@ type Resolved = {
   state: PoliteState;
   now: () => Date;
   sleep: (ms: number) => Promise<void>;
-  /** One GET honoring the host interval. */
+  /** One GET honoring the host interval; redirects are not followed (the caller checks each hop). */
   get: (u: URL, accept?: string) => Promise<Response>;
 };
 
@@ -133,21 +135,24 @@ function resolveOptions(opts: PoliteOptions): Resolved {
     state.lastRequestAt.set(u.hostname, now().getTime());
     return fetchFn(u.toString(), {
       headers: { "User-Agent": USER_AGENT, Accept: accept },
-      redirect: "follow",
+      redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   }
   return { db: opts.db, state, now, sleep, get };
 }
 
-/** robots.txt allows the url (rules cached per host in the state). */
-async function allowed(target: URL, r: Resolved): Promise<boolean> {
-  let rules = r.state.robots.get(target.host);
-  if (!rules) {
-    rules = await loadRobots(target, r.db, r.now, (u) => r.get(u));
-    r.state.robots.set(target.host, rules);
+/** What robots.txt says of a url: allowed or not; `unreachable` when robots.txt could not be read (5xx, network). */
+type RobotsVerdict = { allowed: boolean; unreachable?: string };
+
+async function robotsVerdict(target: URL, r: Resolved): Promise<RobotsVerdict> {
+  let entry = r.state.robots.get(target.host);
+  if (!entry || entry.until <= r.now().getTime()) {
+    entry = await loadRobots(target, r);
+    r.state.robots.set(target.host, entry);
   }
-  return robotsAllows(rules, `${target.pathname}${target.search}`);
+  if (entry.unreachable !== undefined) return { allowed: false, unreachable: entry.unreachable };
+  return { allowed: robotsAllows(entry.rules, `${target.pathname}${target.search}`) };
 }
 
 /** The GET, retried once after a 429 (Retry-After honored, capped). */
@@ -161,6 +166,42 @@ async function getWithRetry(target: URL, r: Resolved, accept?: string): Promise<
   }
   return response;
 }
+
+const MAX_REDIRECTS = 5;
+
+type Followed =
+  | { kind: "response"; response: Response; finalUrl: string }
+  | { kind: "blocked"; finalUrl: string }
+  | { kind: "robots-unreachable"; finalUrl: string; reason: string };
+
+/**
+ * The GET of `start`, following redirects by hand (at most 5): with `checkRobots`, robots.txt is asked for every
+ * url before it is requested, so a redirect never leads into a disallowed path; every hop waits its host interval.
+ */
+async function fetchFollowing(start: URL, r: Resolved, checkRobots: boolean, accept?: string): Promise<Followed> {
+  let url = start;
+  for (let hop = 0; ; hop++) {
+    if (checkRobots) {
+      const verdict = await robotsVerdict(url, r);
+      if (verdict.unreachable !== undefined) return { kind: "robots-unreachable", finalUrl: url.toString(), reason: verdict.unreachable };
+      if (!verdict.allowed) return { kind: "blocked", finalUrl: url.toString() };
+    }
+    const response = await getWithRetry(url, r, accept);
+    const location = response.status >= 300 && response.status < 400 ? response.headers.get("Location") : null;
+    if (!location) return { kind: "response", response, finalUrl: url.toString() };
+    void response.body?.cancel().catch(() => {});
+    if (hop >= MAX_REDIRECTS) throw new Error(`redirecionamentos demais (mais de ${MAX_REDIRECTS})`);
+    const next = new URL(location, url);
+    if (next.protocol !== "https:" && next.protocol !== "http:") throw new Error(`redirecionamento para ${next.protocol}`);
+    url = next;
+  }
+}
+
+const robotsUnreachable = (finalUrl: string, reason: string): PoliteResult => ({
+  status: "error",
+  finalUrl,
+  reason: `robots.txt inacessível (${reason})`,
+});
 
 export async function politeFetch(url: string, opts: PoliteOptions = {}): Promise<PoliteResult> {
   const r = resolveOptions(opts);
@@ -178,12 +219,12 @@ export async function politeFetch(url: string, opts: PoliteOptions = {}): Promis
   }
 
   try {
-    if (!(await allowed(target, r))) return { status: "blocked", finalUrl: url, reason: "robots.txt" };
-
-    const response = await getWithRetry(target, r);
+    const followed = await fetchFollowing(target, r, true);
+    if (followed.kind === "robots-unreachable") return robotsUnreachable(followed.finalUrl, followed.reason);
+    if (followed.kind === "blocked") return { status: "blocked", finalUrl: followed.finalUrl, reason: "robots.txt" };
+    const { response, finalUrl } = followed;
 
     const html = await response.text();
-    const finalUrl = response.url || url;
     if (isChallenge(html)) return { status: "challenge", finalUrl, reason: "bot-protection page" };
     if (!response.ok) return { status: "error", finalUrl, reason: `HTTP ${response.status}` };
 
@@ -217,8 +258,8 @@ const IMAGE_MAX_BYTES = 15 * 1024 * 1024;
 const IMAGE_ACCEPT = "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8";
 
 /**
- * Bytes of an image under the same rules as the pages (robots.txt, host interval, one retry on 429). Null when
- * it is not allowed, fails, is not an image (a challenge page is HTML) or is over 15 MB. Never cached.
+ * Bytes of an image under the same rules as the pages (robots.txt on every hop, host interval, one retry on 429).
+ * Null when it is not allowed, fails, is not an image (a challenge page is HTML) or is over 15 MB. Never cached.
  */
 export async function politeFetchImage(url: string, opts: PoliteOptions = {}): Promise<Buffer | null> {
   const r = resolveOptions(opts);
@@ -226,8 +267,9 @@ export async function politeFetchImage(url: string, opts: PoliteOptions = {}): P
   const target = new URL(url);
   if (target.protocol !== "https:" && target.protocol !== "http:") return null;
   try {
-    if (!(await allowed(target, r))) return null;
-    const response = await getWithRetry(target, r, IMAGE_ACCEPT);
+    const followed = await fetchFollowing(target, r, true, IMAGE_ACCEPT);
+    if (followed.kind !== "response") return null;
+    const { response } = followed;
     const type = response.headers.get("Content-Type") ?? "";
     const length = Number(response.headers.get("Content-Length") ?? 0);
     if (!response.ok || !type.startsWith("image/") || length > IMAGE_MAX_BYTES) {
@@ -241,24 +283,44 @@ export async function politeFetchImage(url: string, opts: PoliteOptions = {}): P
   }
 }
 
-/** robots.txt of a host, from the page cache when fresh; missing or unreadable means everything allowed. */
-async function loadRobots(
-  target: URL,
-  db: GuideDb | undefined,
-  now: () => Date,
-  get: (u: URL) => Promise<Response>,
-): Promise<RobotsRules> {
+/** robots.txt that could not be read (5xx, 429, network error): nothing is fetched from the host for a few minutes. */
+const ROBOTS_UNREACHABLE_MS = 10 * 60_000;
+const UNREACHABLE = "robots_unreachable";
+
+/**
+ * robots.txt of a host (RFC 9309), from the page cache when fresh. Read: its rules, for 7 days. 4xx (none there):
+ * everything allowed, for 7 days. 5xx, 429 or a network error (unreachable): everything disallowed, for 10 minutes
+ * only, so a passing outage does not hold the host back for long.
+ */
+async function loadRobots(target: URL, r: Resolved): Promise<RobotsEntry> {
   const robotsUrl = `${target.protocol}//${target.host}/robots.txt`;
-  const cached = db?.getPage(robotsUrl);
-  if (cached && now().getTime() - Date.parse(cached.fetched_at) < CACHE_MS) return parseRobots(cached.text ?? "");
-  let txt = "";
-  try {
-    const response = await get(new URL(robotsUrl));
-    if (response.ok) txt = await response.text();
-    else void response.body?.cancel().catch(() => {});
-  } catch {
-    // Unreachable robots.txt: treated as absent.
+  const now = r.now().getTime();
+  const cached = r.db?.getPage(robotsUrl);
+  if (cached) {
+    const at = Date.parse(cached.fetched_at);
+    if (cached.status === "robots" && now - at < CACHE_MS) return { rules: parseRobots(cached.text ?? ""), until: at + CACHE_MS };
+    if (cached.status === UNREACHABLE && now - at < ROBOTS_UNREACHABLE_MS) {
+      return { rules: [], until: at + ROBOTS_UNREACHABLE_MS, unreachable: cached.text ?? "inalcançável" };
+    }
   }
-  db?.savePage({ url: robotsUrl, fetchedAt: now(), status: "robots", finalUrl: robotsUrl, text: txt });
-  return parseRobots(txt);
+  let txt = "";
+  let unreachable: string | undefined;
+  try {
+    const followed = await fetchFollowing(new URL(robotsUrl), r, false);
+    if (followed.kind !== "response") throw new Error("robots.txt");
+    const { response } = followed;
+    if (response.ok) txt = await response.text();
+    else {
+      void response.body?.cancel().catch(() => {});
+      if (response.status >= 500 || response.status === 429 || response.status < 400) unreachable = `HTTP ${response.status}`;
+    }
+  } catch (error) {
+    unreachable = error instanceof Error ? error.message : String(error);
+  }
+  if (unreachable !== undefined) {
+    r.db?.savePage({ url: robotsUrl, fetchedAt: new Date(now), status: UNREACHABLE, finalUrl: robotsUrl, text: unreachable });
+    return { rules: [], until: now + ROBOTS_UNREACHABLE_MS, unreachable };
+  }
+  r.db?.savePage({ url: robotsUrl, fetchedAt: new Date(now), status: "robots", finalUrl: robotsUrl, text: txt });
+  return { rules: parseRobots(txt), until: now + CACHE_MS };
 }

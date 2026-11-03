@@ -7,7 +7,9 @@ import type { GuidePayloadV2 } from "../../src/guias/contract.js";
 import { openGuideDb, type GuideDb } from "../../src/guias/db.js";
 import type { GuideDossier, GuideDossierSource, SteamAchievement } from "../../src/guias/dossier.js";
 import type { ExtractedFacts, LlmFacts } from "../../src/guias/facts.js";
-import { runGuideRequest, type GuidePipelineDeps, type GuideStages } from "../../src/guias/pipeline.js";
+import { BudgetExceededError } from "../../src/ai/client.js";
+import { extractionKey, runGuideRequest, type GuidePipelineDeps, type GuideStages } from "../../src/guias/pipeline.js";
+import { loadRunContext } from "../../src/guias/run-context.js";
 import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import type { FetchPage, SourceRef } from "../../src/guias/sources.js";
 import { steamAliasUrl } from "../../src/guias/steam-aliases.js";
@@ -224,6 +226,7 @@ function makeDeps(over: Partial<GuidePipelineDeps> = {}): GuidePipelineDeps & { 
     fetchImage: vi.fn(async () => Buffer.from("jpeg-bytes")),
     now: () => new Date("2026-11-03T12:00:00Z"),
     log: (line) => lines.push(line),
+    sleep: async () => {},
     stages: fakeStages(),
     ...over,
     lines,
@@ -668,6 +671,160 @@ describe("buildReport", () => {
       singleSource: [],
       coverage: { steam: 1, covered: 0, steamOnly: 0 },
       spendUsd: 1.2346,
+    });
+  });
+});
+
+describe("pedido nunca preso em researching / writing (I1)", () => {
+  it("erro ao montar a execução (modelo sem preço) também termina em failed", async () => {
+    const { api, calls } = fakeApi();
+    const deps = makeDeps({
+      api,
+      config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "modelo-sem-preco", MODEL_FAST: "claude-haiku-5-5", GUIDE_BUDGET_USD: 25 },
+    });
+    expect(await runGuideRequest(deps)).toBe("failed");
+    expect(statuses(calls)).toEqual(["failed"]);
+    expect(calls.reports[0]!.body.reason).toContain("No price configured");
+  });
+
+  it("o relato final é tentado de novo, com a mesma chave, quando o site falha", async () => {
+    let failures = 0;
+    const keys: string[] = [];
+    const { api } = fakeApi({
+      reportRequest: vi.fn(async (_id: string, body: GuideRequestReport, key: string) => {
+        keys.push(key);
+        if (body.status === "waiting_sources" && failures < 2) {
+          failures++;
+          throw new Error("fetch failed");
+        }
+      }),
+    });
+    const stages = fakeStages({ extractFacts: async (_page, source) => ({ ...fact("x", "roteiro_steam"), source }) });
+    const sleeps: number[] = [];
+    const deps = makeDeps({ api, stages, sleep: async (ms) => void sleeps.push(ms) });
+    expect(await runGuideRequest(deps)).toBe("waiting_sources");
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys).size).toBe(1);
+    expect(sleeps).toEqual([2_000, 10_000]);
+  });
+
+  it("prazo suave: passou depois de escrever → o guia sai sem imagens e sem trilha, e o relatório diz", async () => {
+    const { api, calls } = fakeApi();
+    let t = Date.parse("2026-11-03T12:00:00Z");
+    const stages = fakeStages({
+      writeAndCheckGuide: async () => {
+        t += 151 * 60_000;
+        return { ok: true as const, payload: writtenPayload() };
+      },
+    });
+    const deps = makeDeps({ api, stages, now: () => new Date(t) });
+    expect(await runGuideRequest(deps)).toBe("review");
+    const { payload } = calls.created[0]!;
+    expect(stages.calls.locateTarget).toBeUndefined();
+    expect(stages.calls.findSoundtrack).toBeUndefined();
+    expect(payload.walkthrough.soundtrack).toBeUndefined();
+    expect((payload.report as RobotReport).notes).toEqual(["o prazo de 150 min passou depois de escrever: o guia saiu sem imagens e sem trilha sonora"]);
+    expect(calls.reports.at(-1)!.body.report).toMatchObject({ notes: (payload.report as RobotReport).notes });
+  });
+});
+
+describe("teto de gasto depois do guia escrito (I3)", () => {
+  it("nas imagens: para as imagens e envia o guia, com a nota", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      locateTarget: async () => {
+        throw new BudgetExceededError("backfill", 25.1, 25);
+      },
+    });
+    const deps = makeDeps({ api, stages });
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(calls.created).toHaveLength(1);
+    const { payload } = calls.created[0]!;
+    expect(payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.image).toBeUndefined();
+    expect((payload.report as RobotReport).notes).toEqual([expect.stringContaining("teto de gasto atingido nas imagens")]);
+    expect(statuses(calls)).toEqual(["writing", "review"]);
+  });
+
+  it("na trilha sonora: envia o guia sem música, com a nota", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      findSoundtrack: async () => {
+        throw new BudgetExceededError("backfill", 25.1, 25);
+      },
+    });
+    expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("review");
+    const { payload } = calls.created[0]!;
+    expect(payload.walkthrough.soundtrack).toBeUndefined();
+    expect((payload.report as RobotReport).notes).toEqual(["teto de gasto atingido na busca da trilha sonora: o guia saiu sem música"]);
+  });
+});
+
+describe("limites do site antes de gastar com a escrita (C2)", () => {
+  it("guia com mais de 60 capítulos: failed com o motivo, sem escrever", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      extractFacts: async (_page, source) => ({
+        ...fact("x", "roteiro_steam", {
+          achievements: [ach("The End")],
+          chapters: Array.from({ length: 61 }, (_, i) => chapter(`Capítulo ${i + 1}`, [item(`Item ${i + 1}`)], i + 1)),
+        }),
+        source,
+      }),
+    });
+    expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("failed");
+    expect(stages.calls.writeAndCheckGuide).toBeUndefined();
+    expect(statuses(calls)).toEqual(["failed"]);
+    expect(calls.reports[0]!.body.reason).toBe("o guia não cabe nos limites do site: O guia teria 62 capítulos; o site aceita até 60.");
+  });
+
+  it("corpo final acima de 1 MiB mesmo sem imagens: failed, nada enviado", async () => {
+    const { api, calls } = fakeApi();
+    const huge = writtenPayload();
+    huge.walkthrough.chapters[0]!.steps[0]!.items[0]!.location = "x".repeat(1_100_000);
+    const stages = fakeStages({ writeAndCheckGuide: async () => ({ ok: true as const, payload: huge }) });
+    expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("failed");
+    expect(calls.created).toEqual([]);
+    expect(calls.reports.at(-1)!.body.reason).toMatch(/^o guia ficaria com \d+ KiB e o site aceita até 1024 KiB \(1 MiB\) por envio$/);
+  });
+});
+
+describe("pequenos consertos do pipeline", () => {
+  it("cache de extração corrompido: extrai de novo em vez de marcar a página como não lida", async () => {
+    const db = openGuideDb(":memory:");
+    const key = extractionKey("claude-sonnet-5-5", STEAM_GUIDE, STEAM_GUIDE_TEXT);
+    db.setMeta(key, "{corrompido");
+    const stages = fakeStages();
+    expect(await runGuideRequest(makeDeps({ db, stages }))).toBe("review");
+    expect(stages.calls.extractFacts).toHaveLength(1);
+    expect(() => JSON.parse(db.getMeta(key)!)).not.toThrow();
+  });
+
+  it("nome de fonte e textos do oEmbed com '<' saem como texto puro, dentro dos limites do site", async () => {
+    const { api, calls } = fakeApi();
+    const odd: SourceRef = { ...STEAM_GUIDE, name: `Steam: <Mod> ${"Guia ".repeat(40)}` };
+    const stages = fakeStages({
+      discoverSources: async () => [odd],
+      findSoundtrack: async () => ({ youtubeId: "abcdefghijk", title: `<b>OST</b> ${"x".repeat(200)}`, channel: "S-Game <official>" }),
+    });
+    expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("review");
+    const { payload } = calls.created[0]!;
+    const image = payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.image!;
+    expect(image.credit).not.toMatch(/<[A-Za-z]/);
+    expect(image.sourceName.length).toBeLessThanOrEqual(120);
+    expect(payload.walkthrough.soundtrack!.title.length).toBeLessThanOrEqual(120);
+    expect(payload.walkthrough.soundtrack!.channel).not.toMatch(/<[A-Za-z]/);
+    expect(guidePayloadSchema.safeParse(payload).error?.issues).toBeUndefined();
+  });
+
+  it("guarda o contexto do pedido (fontes e lista da Steam) para o ensaio", async () => {
+    const deps = makeDeps();
+    await runGuideRequest(deps);
+    expect(loadRunContext(deps.db, REQUEST.id)).toMatchObject({
+      requestId: REQUEST.id,
+      steamAppId: REQUEST.steamAppId,
+      gameSlug: "phantom-test",
+      sources: [POWERPYX, STEAM_GUIDE],
+      steamList: STEAM,
     });
   });
 });

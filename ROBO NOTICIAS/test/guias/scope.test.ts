@@ -10,13 +10,23 @@ const steam = (): SteamAchievement[] => [
   steamAch("ACH_W2", "Collect 3 Relics", "Collect 3 relics."),
 ];
 
-/** PowerPyx carries the whole PSN list (2 trophies + a themed platinum, "all trophies"); a Steam guide covers a Steam-only one too. */
+/**
+ * PowerPyx carries the whole PSN list (2 trophies + a themed platinum, "all trophies") and the route, where a forge
+ * and a relic also serve Steam-only achievements; a Steam guide covers a Steam-only one too.
+ */
 function dossier() {
   const powerpyx = fact("PowerPyx", "roteiro_psn", {
     trophyListSize: 3,
     achievements: [ach("With Heart and Blood"), ach("Shadow Blade"), ach("Lord of the Phantoms", { howTo: "Unlock all other trophies." })],
-    chapters: [chapter("Weeping Creek", [item("Shrine", { kind: "other", achievementNameEn: "Shadow Blade" })])],
+    chapters: [
+      chapter("Weeping Creek", [
+        item("Shrine", { kind: "other", achievementNameEn: "Shadow Blade" }),
+        item("Forge", { kind: "other" }),
+        item("Relic", { collectibleType: "Relic", index: 1 }),
+      ]),
+    ],
   });
+  // The Steam guide names what PowerPyx's forge and relic are for: it only adds that to the same items.
   const steamGuide = fact("Steam Guide", "roteiro_steam", {
     complete: false,
     achievements: [ach("Master of Weapon 1")],

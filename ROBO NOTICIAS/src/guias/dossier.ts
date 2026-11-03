@@ -1,5 +1,6 @@
 import type { Dossier } from "../tralked.js";
 import type { GuideCompat } from "./contract.js";
+import { isRevisit, pageLabel, revisitPlace } from "./chapter-order.js";
 import { buildSourceGroups, collectTarget, detectFragmentRules, type FragmentRule } from "./crossref.js";
 import type { ExtractedFacts } from "./facts.js";
 import { computeCompat, matchAchievements, normalizeName, similarity, steamApiNameFor, type SteamEntry } from "./match.js";
@@ -59,9 +60,31 @@ export type DossierItem = {
   platforms: FactPlatform[];
   /** Sources contradict each other (total, missable, until). Task 8 maps it to `review = true`. */
   conflict?: string;
+  /**
+   * The source numbers everything on its page in one running sequence (PowerPyx: #1 Bell, #2 Tale, #3 Bell...):
+   * `index` was renumbered per collectible type within the chapter, and only counts within it.
+   */
+  numbering?: "chapter";
+  /** Its chapter is a revisit whose place in the game the primary script does not state: it goes to review. */
+  orderAssumed?: boolean;
 };
 
-export type DossierChapter = { title: string; region?: string; order: number; items: DossierItem[] };
+export type DossierChapter = {
+  title: string;
+  region?: string;
+  order: number;
+  items: DossierItem[];
+  /** Goes back to a place already visited ("Clean Up Visits", "Second Visit", "Crimson Forest Cleanup #3"). */
+  revisit?: boolean;
+  /**
+   * A revisit whose position the primary script does not state (each region page's own "Clean Up Visits"): placed
+   * after the last first visit, its items go to review.
+   */
+  orderAssumed?: boolean;
+};
+
+/** An item of a secondary source that matches no item of the primary script: it only corroborates. */
+export type CorroborationOnly = { name: string; chapter: string; source: string };
 
 export type DossierAchievement = {
   apiName: string;
@@ -155,6 +178,11 @@ export type GuideDossier = {
    * its chapters in its own order: the guide's chapters follow it (the chronology check).
    */
   primaryScript?: { name: string; chapters: string[] };
+  /**
+   * Items of secondary sources that match no item of the primary script (never a chapter of their own). Their
+   * achievements still count as covered by that source.
+   */
+  corroborationOnly: CorroborationOnly[];
   /** Plain Portuguese sentences; they never fail the gate by themselves. */
   divergences: string[];
   unreadSources: { name: string; url: string; reason: string }[];
@@ -269,7 +297,16 @@ function chapterForMilestone(
 const sameRegion = (a: string, b: string) => a === b || a.includes(b) || b.includes(a);
 
 /** `uid`: creation number, part of the items' alignment ids (the list order may change as chapters are inserted). */
-type ChapterAcc = { title: string; region?: string; norm: string; regionNorm: string; uid: number; items: Map<string, Acc> };
+type ChapterAcc = {
+  title: string;
+  region?: string;
+  norm: string;
+  regionNorm: string;
+  uid: number;
+  items: Map<string, Acc>;
+  revisit: boolean;
+  orderAssumed: boolean;
+};
 
 /**
  * The dossier chapter a source's chapter joins, if any. Chapters merge by title; they split by region only when
@@ -299,23 +336,22 @@ function findChapter(list: ChapterAcc[], title: string, region: string | undefin
 type SourceChapter = { title: string; region?: string };
 
 /**
- * The chapter of `chapters[at]` (one source's chapters, in its order), created when no dossier chapter matches.
- * A new chapter keeps the source's order around the chapters already there: right after `previous` (the chapter
- * before it in this source); with none, right before the next chapter of this source already in the list (a
- * secondary guide's "Prologue" stays before the primary's first chapter); with neither (the source shares no
- * chapter with the list yet, like each PowerPyx region page), at the end, so pages keep the order they came in.
+ * Without a primary script: the chapter of `chapters[at]` (one source's chapters, in its order), created when no
+ * dossier chapter matches. A new chapter keeps the source's order around the chapters already there: right after
+ * `previous` (the chapter before it in this source); with none, right before the next chapter of this source
+ * already in the list; with neither (the source shares no chapter with the list yet), at the end.
  */
 function chapterFor(
   list: ChapterAcc[],
   chapters: SourceChapter[],
   at: number,
-  uid: () => number,
+  create: () => ChapterAcc,
   previous: ChapterAcc | undefined,
 ): ChapterAcc {
   const { title, region } = chapters[at]!;
   const found = findChapter(list, title, region, true);
   if (found) return found;
-  const created: ChapterAcc = { title, region, norm: normalizeName(title), regionNorm: normalizeName(region ?? ""), uid: uid(), items: new Map() };
+  const created = create();
   let index = list.length;
   if (previous) {
     index = list.indexOf(previous) + 1;
@@ -352,9 +388,45 @@ function pickScalar<T>(
 }
 
 /**
- * Cross-references the extracted facts into one dossier: aligns items by (chapter, type, index) or name, ties
- * achievements to the Steam master list, counts the independent sources of every fact and records disagreements.
- * Pure code, no AI. `groups` come from `independentGroups`.
+ * Numbers that run across collectible types on one page (#1 Bell, #2 Tale, #3 Bell...: PowerPyx) say nothing about
+ * "n of a type": such a page gets its items renumbered per type within each chapter (and loses their totals). The
+ * renumbered items are recorded in `numbered`.
+ */
+function renumberRunning(fact: ExtractedFacts, numbered: Set<object>): ExtractedFacts {
+  const chapters = [...fact.chapters].sort((a, b) => a.order - b.order);
+  const indexed = chapters.flatMap((c) => c.items).filter((i) => i.index !== undefined);
+  const typeOf = (i: (typeof indexed)[number]) => singular(normalizeName(i.collectibleType ?? i.kind));
+  const running =
+    indexed.length >= 3 && new Set(indexed.map(typeOf)).size >= 2 && indexed.every((i, n) => n === 0 || i.index! > indexed[n - 1]!.index!);
+  if (!running) return fact;
+  return {
+    ...fact,
+    chapters: fact.chapters.map((c) => {
+      const counters = new Map<string, number>();
+      return {
+        ...c,
+        items: c.items.map((i) => {
+          if (i.index === undefined) return i;
+          const n = (counters.get(typeOf(i)) ?? 0) + 1;
+          counters.set(typeOf(i), n);
+          const { total: _total, ...rest } = i;
+          const copy = { ...rest, index: n };
+          numbered.add(copy);
+          return copy;
+        }),
+      };
+    }),
+  };
+}
+
+/**
+ * Cross-references the extracted facts into one dossier, pure code, no AI. With a primary script (complete
+ * PowerPyx and its region pages, else a complete Steam guide), it alone makes the chapters, in its own order:
+ * its pages in the order they state ("is the 2nd region", `sequence`: url -> number), the roadmap's "Step N"
+ * as phases, its own unplaced revisits after the last first visit. The other sources only add their names to the
+ * primary's items they match (by achievement, name, or type and number in the same place); what matches nothing
+ * only corroborates. Achievements are tied to the Steam master list, every fact counts its independent sources
+ * (`groups` from `independentGroups`) and disagreements are recorded.
  */
 export function buildDossier(
   fullList: SteamAchievement[],
@@ -362,14 +434,17 @@ export function buildDossier(
   groups: string[][],
   unreadSources: GuideDossier["unreadSources"] = [],
   aliases: AchievementAliases = {},
+  sequence: Record<string, number> = {},
 ): GuideDossier {
   // `?all=1` returns the rows of every platform; the master list is the Steam ones only.
   const steamList = fullList.filter((s) => s.platform === "steam");
+  const chapterNumbered = new Set<object>();
   const byRole = rawFacts
+    .map((f) => renumberRunning(f, chapterNumbered))
     .map((f, i) => ({ f, i }))
     .sort((a, b) => ROLE_ORDER[a.f.source.role] - ROLE_ORDER[b.f.source.role] || a.i - b.i)
     .map((x) => x.f);
-  // The primary script goes first: chapters are created in its order, the others slot in around them.
+  // The primary script goes first.
   const primary = primaryFacts(byRole);
   const facts = [...primary, ...byRole.filter((f) => !primary.includes(f))];
   const { nameOf } = buildSourceGroups(facts, groups);
@@ -388,85 +463,247 @@ export function buildDossier(
   };
 
   // --- chapters and items -------------------------------------------------------------------------------------
-  const chapterList: ChapterAcc[] = [];
-  const primaryOrder: ChapterAcc[] = [];
+  type FactItem = ExtractedFacts["chapters"][number]["items"][number];
+  const newAcc = (id: string, item: FactItem): Acc => ({
+    id,
+    kind: item.kind,
+    name: item.name,
+    nameEn: item.nameEn,
+    collectibleType: item.collectibleType,
+    index: item.index,
+    total: item.total,
+    location: item.location,
+    missable: false,
+    returnLater: false,
+    countsForEn: [],
+    groups: new Set(),
+    links: new Map(),
+    platforms: new Set(),
+    missSeen: new Set(),
+    conflicts: [],
+    ...(chapterNumbered.has(item) ? { numbering: "chapter" as const } : {}),
+  });
+  /**
+   * One more source for `acc`. A corroborating source never types or numbers it (it may name and count otherwise,
+   * in another language).
+   */
+  const merge = (acc: Acc, item: FactItem, fact: ExtractedFacts, corroborating: boolean) => {
+    acc.nameEn ??= item.nameEn;
+    if (!corroborating) acc.collectibleType ??= item.collectibleType;
+    if (!corroborating) acc.index ??= item.index;
+    if (acc.total !== undefined && item.total !== undefined && acc.total !== item.total) {
+      acc.conflicts.push(`total ${acc.total} numa fonte e ${item.total} em ${nameOf(fact)}`);
+    }
+    if (!corroborating) acc.total ??= item.total;
+    acc.location ||= item.location;
+    acc.missSeen.add(item.missable);
+    if (acc.missSeen.size > 1 && !acc.conflicts.some((c) => c.startsWith("perdível"))) {
+      acc.conflicts.push(`perdível segundo uma fonte e não perdível segundo ${nameOf(fact)}`);
+    }
+    acc.missable ||= item.missable;
+    if (acc.missableUntil && item.missableUntil && normalizeName(acc.missableUntil) !== normalizeName(item.missableUntil)) {
+      acc.conflicts.push(`prazo "${acc.missableUntil}" numa fonte e "${item.missableUntil}" em ${nameOf(fact)}`);
+    }
+    acc.missableUntil ??= item.missableUntil;
+    acc.returnLater ||= item.returnLater;
+    acc.achievementNameEn ??= item.achievementNameEn;
+    for (const c of item.countsForEn) if (!acc.countsForEn.includes(c)) acc.countsForEn.push(c);
+    acc.groups.add(nameOf(fact));
+    acc.links.set(fact.source.url, { name: fact.source.name, url: fact.source.url });
+    acc.platforms.add(fact.platform);
+  };
+  /** The chapter's items, aligned by type and index (or name); the n-th repeat of a name is an item of its own. */
+  const addItems = (target: ChapterAcc, items: FactItem[], fact: ExtractedFacts) => {
+    const seen = new Map<string, number>();
+    for (const item of items) {
+      const base = alignId(`${target.norm} ${target.uid}`, item);
+      const n = (seen.get(base) ?? 0) + 1;
+      seen.set(base, n);
+      const id = n === 1 ? base : `${base}#${n}`;
+      let acc = target.items.get(id);
+      if (!acc) {
+        acc = newAcc(id, item);
+        target.items.set(id, acc);
+      }
+      merge(acc, item, fact, false);
+    }
+  };
+  const byOrder = (chapters: ExtractedFacts["chapters"]) => [...chapters].sort((a, b) => a.order - b.order);
+
+  let chapterList: ChapterAcc[] = [];
+  const corroborationOnly: CorroborationOnly[] = [];
+  let phaseChapters: { title: string; summary: string }[] = [];
   let uids = 0;
-  const nextUid = () => ++uids;
-  for (const fact of facts) {
-    let previous: ChapterAcc | undefined;
-    const ordered = [...fact.chapters].sort((a, b) => a.order - b.order);
-    for (const [at, chapter] of ordered.entries()) {
-      const target = chapterFor(chapterList, ordered, at, nextUid, previous);
-      previous = target;
-      if (primary.includes(fact) && !primaryOrder.includes(target)) primaryOrder.push(target);
-      for (const item of chapter.items) {
-        const id = alignId(`${target.norm} ${target.uid}`, item);
-        let acc = target.items.get(id);
-        if (!acc) {
-          acc = {
-            id,
-            kind: item.kind,
-            name: item.name,
-            nameEn: item.nameEn,
-            collectibleType: item.collectibleType,
-            index: item.index,
-            total: item.total,
-            location: item.location,
-            missable: false,
-            returnLater: false,
-            countsForEn: [],
-            groups: new Set(),
-            links: new Map(),
-            platforms: new Set(),
-            missSeen: new Set(),
-            conflicts: [],
+  const created = (title: string, region: string | undefined): ChapterAcc => ({
+    title,
+    region,
+    norm: normalizeName(title),
+    regionNorm: normalizeName(region ?? ""),
+    uid: ++uids,
+    items: new Map(),
+    revisit: false,
+    orderAssumed: false,
+  });
+
+  const lead = primary[0];
+  if (lead) {
+    // The primary script alone makes the chapters. Its pages go in the order the source states for them ("is the
+    // 2nd region"); a page that states none goes after those that do, in the order it came.
+    const pages = [
+      lead,
+      ...primary
+        .slice(1)
+        .map((f, i) => ({ f, i, at: sequence[f.source.url] ?? Number.POSITIVE_INFINITY }))
+        .sort((a, b) => (a.at === b.at ? a.i - b.i : a.at - b.at))
+        .map((x) => x.f),
+    ];
+    // The roadmap page's "Step N" chapters are its phases (roadmap stages), not chapters.
+    const leadChapters = byOrder(lead.chapters);
+    const roadmapTitles = new Set((lead.roadmap ?? []).map((r) => normalizeName(r.title)));
+    const allEmpty = leadChapters.length > 0 && leadChapters.every((c) => c.items.length === 0);
+    const isPhase = (fact: ExtractedFacts, c: ExtractedFacts["chapters"][number]) =>
+      fact === lead && (roadmapTitles.has(normalizeName(c.title)) || (allEmpty && c.items.length === 0));
+    phaseChapters = leadChapters.filter((c) => isPhase(lead, c)).map((c) => ({ title: c.title, summary: "" }));
+
+    const main: ChapterAcc[] = [];
+    const later: ChapterAcc[] = [];
+    for (const page of pages) {
+      const ordered = byOrder(page.chapters);
+      const pageRegion = ordered.find((c) => c.region && !isRevisit(c.title))?.region ?? pageLabel(page.source.name);
+      const pageRegionNorm = normalizeName(pageRegion ?? "");
+      for (const chapter of ordered) {
+        if (isPhase(page, chapter)) {
+          // A stage's items are no steps of their own: they corroborate (their achievements stay covered).
+          for (const item of chapter.items) corroborationOnly.push({ name: item.name, chapter: chapter.title, source: nameOf(page) });
+          continue;
+        }
+        // A heading with nothing to pick up is no chapter.
+        if (chapter.items.length === 0) continue;
+        const revisit = isRevisit(chapter.title);
+        // A revisit that names another place ("Crimson Forest Cleanup #3" on the Mirage Estate page) sits where
+        // that page puts it: the source states its position. A page's own revisit ("Clean Up Visits") does not.
+        const place = revisit ? revisitPlace(chapter.title) : "";
+        const elsewhere = place.length >= 3 && !(pageRegionNorm.length >= 3 && sameRegion(place, pageRegionNorm));
+        const assumed = revisit && !elsewhere;
+        const region = chapter.region ?? (elsewhere ? undefined : pageRegion);
+        const list = assumed ? later : main;
+        let target = findChapter(list, chapter.title, region, true);
+        if (!target) {
+          target = created(chapter.title, region);
+          list.push(target);
+        }
+        target.revisit ||= revisit;
+        target.orderAssumed ||= assumed;
+        addItems(target, chapter.items, page);
+      }
+    }
+    // Revisits with no stated position go after the last first visit, in page order.
+    chapterList = [...main, ...later];
+
+    // Secondary sources never make chapters: their items join the primary's when they match, else corroborate.
+    const slots = chapterList.flatMap((c) => [...c.items.values()].map((acc) => ({ acc, chapter: c })));
+    type Slot = (typeof slots)[number];
+    const namesOf = (names: (string | undefined)[]) =>
+      [...new Set(names.filter((n): n is string => Boolean(n)).flatMap((n) => [n, ...n.split(/\s+\/\s+/)]).map(normalizeName))].filter(
+        (n) => n.length >= 3,
+      );
+    const slotNames = new Map(slots.map((s) => [s.acc, namesOf([s.acc.nameEn, s.acc.name])]));
+    const slotApi = new Map(slots.map((s) => [s.acc, s.acc.achievementNameEn ? toApiName(s.acc.achievementNameEn) : undefined]));
+    const claimed = new Set<string>();
+    for (const fact of facts.filter((f) => !primary.includes(f))) {
+      const group = nameOf(fact);
+      const claim = (s: Slot) => `${group}|${s.chapter.uid}|${s.acc.id}`;
+      for (const chapter of byOrder(fact.chapters)) {
+        const t = normalizeName(chapter.title);
+        const r = normalizeName(chapter.region ?? "");
+        // The primary chapters this one can be: same region, else same title (or a title that names the region).
+        const scope = slots.filter(({ chapter: c }) =>
+          r
+            ? c.regionNorm
+              ? sameRegion(c.regionNorm, r)
+              : c.norm === t
+            : c.norm === t || (t.length >= 3 && c.regionNorm.length >= 3 && sameRegion(c.regionNorm, t)),
+        );
+        for (const item of chapter.items) {
+          const api = item.achievementNameEn ? toApiName(item.achievementNameEn) : undefined;
+          const names = namesOf([item.nameEn, item.name]);
+          const type = singular(normalizeName(item.collectibleType ?? item.kind));
+          // Same type and number, when both sources count the same way.
+          const sameNumber = (s: Slot) =>
+            item.index !== undefined &&
+            s.acc.index === item.index &&
+            singular(normalizeName(s.acc.collectibleType ?? s.acc.kind)) === type &&
+            (s.acc.numbering === "chapter") === chapterNumbered.has(item);
+          /**
+           * The slot of `pool` that is this item: the same achievement; else the only one with its name (several:
+           * the one with its number too); else, inside the same place, the only one with its type and number.
+           */
+          const pick = (pool: Slot[], scoped: boolean): Slot | "ambiguous" | undefined => {
+            if (api) {
+              const hit = pool.find((s) => !claimed.has(claim(s)) && slotApi.get(s.acc) === api);
+              if (hit) return hit;
+            }
+            let named = pool.filter((s) => slotNames.get(s.acc)!.some((n) => names.includes(n)));
+            if (named.length > 1) named = named.filter(sameNumber);
+            if (named.length > 1) return "ambiguous";
+            if (named.length === 1) return claimed.has(claim(named[0]!)) ? "ambiguous" : named[0];
+            if (scoped) {
+              const numbered = pool.filter(sameNumber);
+              if (numbered.length === 1 && !claimed.has(claim(numbered[0]!))) return numbered[0];
+            }
+            return undefined;
           };
-          target.items.set(id, acc);
+          let found = scope.length > 0 ? pick(scope, true) : undefined;
+          if (found === undefined) found = pick(slots, false);
+          if (found && found !== "ambiguous") {
+            claimed.add(claim(found));
+            merge(found.acc, item, fact, true);
+          } else {
+            corroborationOnly.push({ name: item.name, chapter: chapter.title, source: group });
+          }
         }
-        acc.nameEn ??= item.nameEn;
-        acc.collectibleType ??= item.collectibleType;
-        acc.index ??= item.index;
-        if (acc.total !== undefined && item.total !== undefined && acc.total !== item.total) {
-          acc.conflicts.push(`total ${acc.total} numa fonte e ${item.total} em ${nameOf(fact)}`);
-        }
-        acc.total ??= item.total;
-        acc.location ||= item.location;
-        acc.missSeen.add(item.missable);
-        if (acc.missSeen.size > 1 && !acc.conflicts.some((c) => c.startsWith("perdível"))) {
-          acc.conflicts.push(`perdível segundo uma fonte e não perdível segundo ${nameOf(fact)}`);
-        }
-        acc.missable ||= item.missable;
-        if (acc.missableUntil && item.missableUntil && normalizeName(acc.missableUntil) !== normalizeName(item.missableUntil)) {
-          acc.conflicts.push(`prazo "${acc.missableUntil}" numa fonte e "${item.missableUntil}" em ${nameOf(fact)}`);
-        }
-        acc.missableUntil ??= item.missableUntil;
-        acc.returnLater ||= item.returnLater;
-        acc.achievementNameEn ??= item.achievementNameEn;
-        for (const c of item.countsForEn) if (!acc.countsForEn.includes(c)) acc.countsForEn.push(c);
-        acc.groups.add(nameOf(fact));
-        acc.links.set(fact.source.url, { name: fact.source.name, url: fact.source.url });
-        acc.platforms.add(fact.platform);
+      }
+    }
+  } else {
+    // No complete script: no primary order to follow (the gate refuses it anyway). Every source makes chapters.
+    for (const fact of facts) {
+      let previous: ChapterAcc | undefined;
+      const ordered = byOrder(fact.chapters);
+      for (const [at, chapter] of ordered.entries()) {
+        const target = chapterFor(chapterList, ordered, at, () => created(chapter.title, chapter.region), previous);
+        previous = target;
+        addItems(target, chapter.items, fact);
       }
     }
   }
 
-  // A title shared by chapters of different regions gets the region, so every chapter title stays unique.
+  // A title shared by chapters of different regions gets the region (and a number, as a last resort): every
+  // chapter title stays unique.
   const titleCount = new Map<string, number>();
   for (const c of chapterList) titleCount.set(c.norm, (titleCount.get(c.norm) ?? 0) + 1);
-  const shownTitle = (c: { title: string; region?: string }) =>
-    c.region && (titleCount.get(normalizeName(c.title)) ?? 0) > 1 ? `${c.title} — ${c.region}` : c.title;
+  const shown = new Map<ChapterAcc, string>();
+  const taken = new Set<string>();
+  for (const c of chapterList) {
+    const base = c.region && (titleCount.get(c.norm) ?? 0) > 1 ? `${c.title} — ${c.region}` : c.title;
+    let title = base;
+    for (let n = 2; taken.has(normalizeName(title)); n++) title = `${base} (${n})`;
+    taken.add(normalizeName(title));
+    shown.set(c, title);
+  }
 
   const chapters: DossierChapter[] = chapterList.map((c, at) => ({
-    title: shownTitle(c),
+    title: shown.get(c)!,
     region: c.region,
     order: at + 1,
+    ...(c.revisit ? { revisit: true } : {}),
+    ...(c.orderAssumed ? { orderAssumed: true } : {}),
     items: [...c.items.values()].map((acc): DossierItem => {
       const { groups: g, links, platforms, achievementNameEn, countsForEn, missSeen: _m, conflicts, ...rest } = acc;
       const achievement = achievementNameEn ? toApiName(achievementNameEn) : undefined;
       if (achievementNameEn && !achievement) {
         divergences.push(`O item "${acc.name}" aponta para a conquista "${achievementNameEn}", que não existe na lista da Steam.`);
       }
-      for (const c of conflicts) divergences.push(`O item "${acc.name}": ${c}.`);
+      for (const x of conflicts) divergences.push(`O item "${acc.name}": ${x}.`);
       return {
         ...rest,
         achievement,
@@ -475,7 +712,8 @@ export function buildDossier(
         sourceLinks: [...links.values()],
         agreed: g.size >= 2,
         platforms: [...platforms],
-        conflict: conflicts.length > 0 ? conflicts.join('; ') : undefined,
+        conflict: conflicts.length > 0 ? conflicts.join("; ") : undefined,
+        ...(c.orderAssumed ? { orderAssumed: true } : {}),
       };
     }),
   }));
@@ -588,6 +826,7 @@ export function buildDossier(
   };
 
   const allItems = chapters.flatMap((c) => c.items);
+  const chapterOf = new Map(chapters.flatMap((c) => c.items.map((i) => [i, c.title] as const)));
   const achievements: DossierAchievement[] = steamList.map((s): DossierAchievement => {
     const a = accs.get(s.apiName);
     const groupsSet = a?.groups ?? new Set<string>();
@@ -603,13 +842,18 @@ export function buildDossier(
     const indexed = counting.filter((i) => i.index !== undefined);
     const whole = weights.every((w) => w === 1);
     if (target !== undefined && whole && (exact ? indexed.length > 0 && counted === target : counted >= target)) {
+      // A number renumbered within its chapter (running numbers of the page) repeats only inside that chapter.
       const seen = new Set<number>();
+      const seenKeys = new Set<string>();
       for (const i of indexed) {
-        if (seen.has(i.index!)) indexProblems.push(`o número ${i.index} aparece mais de uma vez`);
-        seen.add(i.index!);
+        const key = i.numbering === "chapter" ? `${chapterOf.get(i)}|${singular(normalizeName(i.collectibleType ?? i.kind))}|${i.index}` : String(i.index);
+        if (seenKeys.has(key)) indexProblems.push(`o número ${i.index} aparece mais de uma vez`);
+        seenKeys.add(key);
+        if (i.numbering !== "chapter") seen.add(i.index!);
       }
       if (exact) {
-        for (let n = 1; n <= target; n++) if (!seen.has(n)) indexProblems.push(`falta o número ${n}`);
+        // Numbers that count within a chapter cannot say which of 1..N is missing.
+        if (seen.size > 0) for (let n = 1; n <= target; n++) if (!seen.has(n)) indexProblems.push(`falta o número ${n}`);
       } else {
         for (const i of counting) if (i.index === undefined) indexProblems.push(`o item "${i.name}" está sem número`);
       }
@@ -710,6 +954,11 @@ export function buildDossier(
   }));
 
   const roadmapFact = facts.find((f) => (f.roadmap?.length ?? 0) > 0);
+  // The primary's own roadmap; else its "Step N" chapters; else another source's roadmap.
+  const roadmap =
+    primary[0] && (primary[0].roadmap?.length ?? 0) === 0 && phaseChapters.length > 0
+      ? phaseChapters.map((r) => ({ ...r, sources: [nameOf(primary[0]!)] }))
+      : (roadmapFact?.roadmap ?? []).map((r) => ({ ...r, sources: [nameOf(roadmapFact!)] }));
 
   // The full PSN list: a complete PSN script that names as many trophies as it says the list has.
   const trophyNames = (f: ExtractedFacts) => {
@@ -745,7 +994,7 @@ export function buildDossier(
       playthroughs: pickScalar(facts, nameOf, (f) => f.playthroughs, (v) => String(v.min), (v) => `${v.min} jogada(s)`, "Número de jogadas", divergences),
       difficulty: pickScalar(facts, nameOf, (f) => f.difficulty, (v) => String(v.value), (v) => `dificuldade ${v.value}`, "Dificuldade", divergences),
       hours: pickScalar(facts, nameOf, (f) => f.hours, (v) => `${v.min}-${v.max}`, (v) => `${v.min} a ${v.max} horas`, "Horas", divergences),
-      roadmap: (roadmapFact?.roadmap ?? []).map((r) => ({ ...r, sources: [nameOf(roadmapFact!)] })),
+      roadmap,
       psnTrophyListSize,
       ...(psnList ? { psnList } : {}),
       compat,
@@ -753,8 +1002,9 @@ export function buildDossier(
     },
     scripts,
     ...(primary.length > 0
-      ? { primaryScript: { name: nameOf(primary[0]!), chapters: primaryOrder.map((c) => shownTitle(c)) } }
+      ? { primaryScript: { name: nameOf(primary[0]!), chapters: chapters.map((c) => c.title) } }
       : {}),
+    corroborationOnly,
     divergences,
     unreadSources,
   };

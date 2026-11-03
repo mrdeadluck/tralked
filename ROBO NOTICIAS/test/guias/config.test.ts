@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadGuideConfig } from "../../src/guias/config.js";
+import { loadDryRunConfig, loadGuideConfig } from "../../src/guias/config.js";
 
 const ENV = { ANTHROPIC_API_KEY: "a", TRALKED_GUIDES_API_KEY: "k" };
 
@@ -14,6 +14,7 @@ describe("loadGuideConfig", () => {
       GUIDE_BUDGET_USD: 25,
       DATA_DIR_GUIAS: "./data-guias",
       GUIDE_STEAM_REFERENCE_ID: "76561198012210783",
+      GUIDE_SOFT_DEADLINE_MIN: 150,
     });
     expect(c.RESEND_API_KEY).toBeUndefined();
   });
@@ -30,5 +31,10 @@ describe("loadGuideConfig", () => {
     expect(c.GUIDE_BUDGET_USD).toBe(40);
     expect(c.MODEL_FAST).toBe("x");
     expect(c.ALERT_EMAIL).toBe("a@b.c");
+    expect(loadGuideConfig({ ...ENV, GUIDE_SOFT_DEADLINE_MIN: "90" }).GUIDE_SOFT_DEADLINE_MIN).toBe(90);
+  });
+
+  it("o ensaio não precisa das chaves", () => {
+    expect(loadDryRunConfig({ DATA_DIR_GUIAS: "/tmp/x" })).toMatchObject({ DATA_DIR_GUIAS: "/tmp/x", MODEL_WRITER: "claude-opus-5-5" });
   });
 });
