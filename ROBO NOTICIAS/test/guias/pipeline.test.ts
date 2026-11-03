@@ -5,11 +5,12 @@ import { guidePatchSchema, guidePayloadSchema } from "@/lib/content/guide-schema
 import type { GameSearchHit, GuideApi, GuideRequest, GuideRequestReport } from "../../src/guias/api.js";
 import type { GuidePayloadV2 } from "../../src/guias/contract.js";
 import { openGuideDb, type GuideDb } from "../../src/guias/db.js";
-import type { GuideDossierSource, SteamAchievement } from "../../src/guias/dossier.js";
+import type { GuideDossier, GuideDossierSource, SteamAchievement } from "../../src/guias/dossier.js";
 import type { ExtractedFacts, LlmFacts } from "../../src/guias/facts.js";
 import { runGuideRequest, type GuidePipelineDeps, type GuideStages } from "../../src/guias/pipeline.js";
-import { buildReport } from "../../src/guias/report.js";
+import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import type { FetchPage, SourceRef } from "../../src/guias/sources.js";
+import { steamAliasUrl } from "../../src/guias/steam-aliases.js";
 import { TralkedError } from "../../src/tralked-http.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
 
@@ -326,14 +327,14 @@ describe("runGuideRequest", () => {
   it("teto de gasto → failed", async () => {
     const { api, calls } = fakeApi();
     // Real createAi + guideSpend: every call costs US$ 2 (1M Sonnet input tokens), the cap is US$ 1.
-    const facts: LlmFacts = { chapters: [], achievements: [], platform: "steam", complete: true };
+    const facts: LlmFacts = { chapters: [], achievements: [], platform: "steam", claimsComplete: true, workInProgress: false };
     const parse = vi.fn(async () => ({
       model: "claude-sonnet-5-5",
       usage: { input_tokens: 1_000_000, output_tokens: 0 },
       stop_reason: "end_turn",
       parsed_output: facts,
     }));
-    const client = { messages: { parse, create: vi.fn() } } as unknown as Anthropic;
+    const client = { messages: { parse, create: vi.fn(), stream: (p: unknown) => ({ finalMessage: () => (parse as (x: unknown) => unknown)(p) }) } } as unknown as Anthropic;
     const second: SourceRef = { ...STEAM_GUIDE, name: "Steam: Outro", url: "https://steamcommunity.com/sharedfiles/filedetails/?id=2" };
     const stages = fakeStages({ discoverSources: async () => [STEAM_GUIDE, second], extractFacts: undefined });
     const pages: FetchPage = async (url) => ({ status: "ok", text: `${STEAM_GUIDE_TEXT} ${url}`, html: "", finalUrl: url });
@@ -353,6 +354,25 @@ describe("runGuideRequest", () => {
     expect(calls.reports[0]!.body.reason).toBe("teto de gasto");
     expect((calls.reports[0]!.body.report as { spendUsd: number }).spendUsd).toBe(2);
     expect(calls.created).toEqual([]);
+  });
+
+  it("toda extração falha por erro do robô → failed 'falha do robô' + alerta, não waiting_sources", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      extractFacts: async () => {
+        throw new Error("Streaming is required");
+      },
+    });
+    const deps = makeDeps({ api, stages });
+
+    const outcome = await runGuideRequest(deps);
+
+    expect(outcome).toBe("failed");
+    expect(statuses(calls)).toEqual(["failed"]);
+    expect(calls.reports[0]!.body.reason).toBe("falha do robô: Streaming is required");
+    const alerts = deps.db.alerts();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.message).toContain("falha do robô: Streaming is required");
   });
 
   it("erro no meio nunca deixa o pedido em researching", async () => {
@@ -462,6 +482,45 @@ describe("runGuideRequest", () => {
     await runGuideRequest(makeDeps({ db, stages: second }));
     expect(first.calls.extractFacts).toHaveLength(1);
     expect(second.calls.extractFacts).toBeUndefined();
+  });
+
+  it("guia russo cita as conquistas pelo nome russo: a lista da Steam em russo (do perfil configurado) faz casar", async () => {
+    const REF_ID = "76561197960287930";
+    const { api, calls } = fakeApi();
+    const ruText = "Конец: пройдите сюжет до финала. Золотое перо: заберитесь на старую башню в первой главе.".repeat(2);
+    const xml =
+      '<?xml version="1.0" encoding="UTF-8"?><playerstats><achievements>' +
+      "<achievement><name><![CDATA[Конец]]></name><apiname><![CDATA[ach_end]]></apiname></achievement>" +
+      "</achievements></playerstats>";
+    const asked: string[] = [];
+    const pages: FetchPage = async (url) => {
+      asked.push(url);
+      if (url === STEAM_GUIDE.url) return { status: "ok", text: ruText, html: STEAM_GUIDE_HTML, finalUrl: url, truncated: true };
+      if (url === steamAliasUrl(4115450, "russian", REF_ID)) return { status: "ok", text: "", html: xml, finalUrl: url };
+      return { status: "error", finalUrl: url, reason: "HTTP 404" };
+    };
+    const stages = fakeStages({
+      extractFacts: async (_page, source) => ({
+        ...fact("x", "roteiro_steam", { achievements: [ach("Конец")], chapters: [chapter("Глава 1", [item("Золотое перо")])] }),
+        source,
+      }),
+    });
+    const base = makeDeps();
+    const deps = makeDeps({ api, stages, fetchPage: pages, config: { ...base.config, GUIDE_STEAM_REFERENCE_ID: REF_ID } });
+
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(asked).toContain(steamAliasUrl(4115450, "russian", REF_ID));
+    const dossier = deps.db.getDossier(REQUEST.id) as GuideDossier;
+    expect(dossier.achievements[0]).toMatchObject({ apiName: "ACH_END", sources: [STEAM_GUIDE.name], steamSourced: true });
+    const report = calls.reports.at(-1)!.body.report as RobotReport;
+    expect(report.sourcesRead).toContainEqual({ name: "Steam: nomes das conquistas (russian)", url: steamAliasUrl(4115450, "russian", REF_ID), ok: true });
+    // A page over the text limit is read, and the report says only its start was.
+    expect(report.sourcesRead).toContainEqual({
+      name: STEAM_GUIDE.name,
+      url: STEAM_GUIDE.url,
+      ok: true,
+      reason: expect.stringContaining("400.000"),
+    });
   });
 });
 

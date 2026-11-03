@@ -90,7 +90,7 @@ describe("gate", () => {
     expect(run(steam, [make(7)]).result.missing[0]).toContain("somam 1.75");
   });
 
-  it("perdível sem marco → gate falha", () => {
+  it("conquista perdível sem marco que case e sem item no roteiro → gate falha (não dá para ligar a capítulo nenhum)", () => {
     const f = powerpyx({
       achievements: [
         ach("With Heart and Blood"),
@@ -100,7 +100,30 @@ describe("gate", () => {
     });
     const { result } = run(baseSteam(), [f]);
     expect(result.ok).toBe(false);
-    expect(result.missing).toEqual(['O perdível "Shadow Blade" (ACH_HID) não tem um marco "até quando" ligado a um capítulo.']);
+    expect(result.missing).toEqual([
+      'O perdível "Shadow Blade" (ACH_HID) não está ligado a nenhum capítulo: o "até quando" das fontes não aponta para um capítulo e nenhum item do roteiro é ele.',
+    ]);
+  });
+
+  it("R20: item ou conquista perdível sem prazo nas fontes usa o próprio capítulo e passa", () => {
+    const f = powerpyx({
+      achievements: [
+        ach("With Heart and Blood"),
+        ach("Shadow Blade", { missable: true }),
+        ach("Leave No Stone Unturned"),
+      ],
+      chapters: [
+        chapter("Weeping Creek", [
+          ...blackstones(10),
+          item("Selo", { missable: true }),
+          item("Feather Bow", { missable: true, missableUntil: "defeating the main boss at the end of this region" }),
+          item("Shadow Shrine", { kind: "other", achievementNameEn: "Shadow Blade" }),
+        ]),
+      ],
+    });
+    const { d, result } = run(baseSteam(), [f]);
+    expect(result).toEqual({ ok: true, missing: [] });
+    expect(d.achievements.find((a) => a.apiName === "ACH_HID")).toMatchObject({ deadlineChapter: "Weeping Creek", deadlineAssumed: true });
   });
 
   it("perdível cujo marco é um item de um capítulo passa", () => {

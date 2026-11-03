@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Ai, StructuredOpts } from "../../src/ai/client.js";
-import { extractFacts, splitText } from "../../src/guias/extract.js";
+import { extractFacts, extractionPrompt, splitText } from "../../src/guias/extract.js";
 import { extractedFactsSchema, llmFactsSchema, type LlmFacts } from "../../src/guias/facts.js";
 import type { SourceRef } from "../../src/guias/sources.js";
 
 const source: SourceRef = { name: "PowerPyx", url: "https://www.powerpyx.com/x/", role: "roteiro_psn", language: "en" };
 
-const base: LlmFacts = { chapters: [], achievements: [], platform: "unknown", complete: true };
+const base: LlmFacts = { chapters: [], achievements: [], platform: "unknown", claimsComplete: true, workInProgress: false };
 
 function fakeAi(responder: (opts: StructuredOpts<unknown>, call: number) => unknown) {
   const calls: StructuredOpts<unknown>[] = [];
@@ -80,5 +80,43 @@ ${"b".repeat(5000)}`;
     expect(facts.chapters.map((c) => c.title)).toEqual(["Intro", "Crimson Forest", "Meigu Lake"]);
     expect(facts.chapters[1]!.items.map((i) => i.name)).toEqual(["A", "B", "C"]);
     expect(facts.chapters.map((c) => c.order)).toEqual([1, 2, 3]);
+  });
+
+  describe("complete: juntando as partes de uma página longa", () => {
+    const longText = `${"a".repeat(59_000)}
+${"b".repeat(59_000)}
+${"c".repeat(5000)}`;
+    const run = async (flags: { claimsComplete: boolean; workInProgress: boolean }[]) => {
+      const { ai } = fakeAi((_o, i) => ({ ...base, ...flags[i]! }));
+      return extractFacts({ url: source.url, text: longText }, source, { ai, model: "claude-sonnet-5-5" });
+    };
+    const claim = { claimsComplete: true, workInProgress: false };
+    const silent = { claimsComplete: false, workInProgress: false };
+    const wip = { claimsComplete: false, workInProgress: true };
+
+    it("o autor diz 100% numa parte e nenhuma parte diz WIP → completa", async () => {
+      expect((await run([claim, silent, silent])).complete).toBe(true);
+      // The full trophy table can sit at the end of the page.
+      expect((await run([silent, silent, claim])).complete).toBe(true);
+    });
+
+    it("uma parte diz que o guia não está pronto → incompleta, mesmo com a promessa de 100% no topo", async () => {
+      expect((await run([claim, silent, wip])).complete).toBe(false);
+    });
+
+    it("ninguém diz 100% → incompleta", async () => {
+      expect((await run([silent, silent, silent])).complete).toBe(false);
+    });
+  });
+
+  it("o prompt separa a promessa de 100% do aviso de WIP: 'sendo atualizado' e 'falta confirmar' são WIP, 'aceito correções' não", () => {
+    const prompt = extractionPrompt();
+    expect(prompt).toMatch(/`claimsComplete`/);
+    expect(prompt).toMatch(/全成就/);
+    const wip = prompt.slice(prompt.indexOf("`workInProgress`"));
+    expect(wip).toMatch(/being updated/);
+    expect(wip).toMatch(/дополняется/);
+    expect(wip).toMatch(/not yet confirmed/);
+    expect(wip).toMatch(/NOT work in progress[^.]*corrections are welcome/);
   });
 });

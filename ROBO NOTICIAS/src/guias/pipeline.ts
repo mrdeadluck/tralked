@@ -8,16 +8,18 @@ import type { GuidePayloadV2 } from "./contract.js";
 import { independentGroups } from "./crossref.js";
 import type { GuideDb } from "./db.js";
 import { discoverSources } from "./discover.js";
-import { buildDossier, type GuideDossier, type GuideDossierSource } from "./dossier.js";
+import { buildDossier, type AchievementAliases, type GuideDossier, type GuideDossierSource } from "./dossier.js";
 import { extractFacts, extractionPrompt } from "./extract.js";
 import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate } from "./gate.js";
 import { composeImage, pickItemImage, type PagesInput } from "./images.js";
 import { locateTarget } from "./locate.js";
+import { PAGE_TEXT_MAX } from "./page-text.js";
 import { buildReport, spendByPurpose, type RobotReport, type SourceRead } from "./report.js";
 import { findSoundtrack } from "./soundtrack.js";
 import type { FetchPage, SourceRef } from "./sources.js";
 import { guideAiConfig, guideSpend } from "./spend.js";
+import { readSteamAliases, steamAliasUrl, steamLanguagesIn, type AliasLanguage } from "./steam-aliases.js";
 import { createWebSearch, type SearchHit } from "./websearch.js";
 import { writeAndCheckGuide } from "./writer.js";
 
@@ -55,7 +57,8 @@ export type GuidePipelineDeps = {
   db: GuideDb;
   /** Anthropic client: the AI calls go through `createAi` with the request's spend cap. */
   client: Anthropic;
-  config: Pick<GuideConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "GUIDE_BUDGET_USD">;
+  config: Pick<GuideConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "GUIDE_BUDGET_USD"> &
+    Partial<Pick<GuideConfig, "GUIDE_STEAM_REFERENCE_ID">>;
   /** `politeFetch` bound to the GuideDb (robots.txt, host intervals, challenge pages as unread). */
   fetchPage: FetchPage;
   /** Bytes of an image, or null when it cannot be read. */
@@ -234,6 +237,7 @@ async function processRequest(run: Run): Promise<Final> {
     progress.sourcesRead.push({ name: s.name, url: s.url, ok: false, reason });
   };
   const facts: ExtractedFacts[] = [];
+  const robotErrors: string[] = [];
   for (const s of sources) {
     const page = await deps.fetchPage(s.url);
     if (page.status !== "ok" || !page.text?.trim()) {
@@ -244,16 +248,25 @@ async function processRequest(run: Run): Promise<Final> {
       facts.push(await extractCached(run, s, { url: s.url, text: page.text, html: page.html }));
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
+      robotErrors.push(messageOf(error));
       notRead(s, `extração falhou: ${messageOf(error)}`);
       continue;
     }
     read.push({ source: s, text: page.text, html: page.html });
-    progress.sourcesRead.push({ name: s.name, url: s.url, ok: true });
+    progress.sourcesRead.push({ name: s.name, url: s.url, ok: true, ...(page.truncated ? { reason: TRUNCATED } : {}) });
   }
 
-  // Step 6: one vote per independent source, then the dossier.
+  // Every page that could be read failed in the robot itself (AI / extraction): a systemic fault, not a gap in the sources.
+  if (facts.length === 0 && robotErrors.length > 0) {
+    const reason = clip(`falha do robô: ${robotErrors[0]}`, REASON_MAX);
+    db.addAlert("guia-falha-robo", `pedido ${request.id}: ${reason} (${robotErrors.length} fonte(s) com erro do robô)`, deps.now());
+    return { status: "failed", reason, report: run.report() };
+  }
+
+  // Step 6: one vote per independent source, then the dossier (localized achievement names included).
+  const aliases = await localizedNames(run, read, source.achievements);
   const groups = independentGroups(read.map((r) => ({ url: r.source.url, text: r.text })));
-  const dossier = buildDossier(source.achievements, facts, groups, unread);
+  const dossier = buildDossier(source.achievements, facts, groups, unread, aliases);
   progress.dossier = dossier;
   db.saveDossier(request.id, dossier, deps.now());
 
@@ -311,6 +324,32 @@ async function processRequest(run: Run): Promise<Final> {
 
   // Step 12 (the final report) happens in runGuideRequest.
   return { status: "review", report, guideId };
+}
+
+const TRUNCATED = `a página passa de ${PAGE_TEXT_MAX.toLocaleString("pt-BR")} caracteres; só o começo foi lido`;
+
+/**
+ * The Steam names of the achievements in the languages of the pages read: Chinese and Russian guides cite them by
+ * their localized names. A list that cannot be read is reported and skipped (those guides just match less).
+ */
+async function localizedNames(
+  run: Run,
+  read: { source: SourceRef; text: string }[],
+  steamList: GuideDossierSource["achievements"],
+): Promise<AchievementAliases> {
+  const languages = steamLanguagesIn(read.map((r) => ({ text: r.text, language: r.source.language })));
+  if (languages.length === 0) return {};
+  const appId = run.request.steamAppId;
+  const steam = steamList.filter((a) => a.platform === "steam");
+  const profile = run.deps.config.GUIDE_STEAM_REFERENCE_ID;
+  const result = await readSteamAliases(appId, languages, steam, run.deps.fetchPage, profile);
+  const entry = (language: AliasLanguage) => ({
+    name: `Steam: nomes das conquistas (${language})`,
+    url: steamAliasUrl(appId, language, profile),
+  });
+  for (const language of result.read) run.progress.sourcesRead.push({ ...entry(language), ok: true });
+  for (const { language, reason } of result.failed) run.progress.sourcesRead.push({ ...entry(language), ok: false, reason });
+  return result.aliases;
 }
 
 function unreadReason(page: Awaited<ReturnType<FetchPage>>): string {

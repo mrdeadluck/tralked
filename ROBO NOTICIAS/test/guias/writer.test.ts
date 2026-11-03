@@ -294,6 +294,18 @@ describe("writeGuide", () => {
     expect(first.collectibleType).toBe("Bell");
     expect(first.review).toBe(true);
   });
+
+  it("perdível com o prazo assumido (o próprio capítulo) sai com review true e o aviso de pegar agora", async () => {
+    const dossier = makeDossier();
+    // A bell is listed by both sources (no review on its own); here no source says until when it can be lost.
+    Object.assign(dossier.chapters[0]!.items[0]!, { missable: true, deadlineChapter: dossier.chapters[0]!.title, deadlineAssumed: true });
+    const payload = await writeGuide(fakeAi().ai, dossier, GAME, "live");
+    const step = payload.walkthrough.chapters[0]!.steps[0]!;
+    const first = step.items[0]!;
+    expect(first.collectibleType).toBe("Bell");
+    expect(first.review).toBe(true);
+    expect(step.body.some((b) => b.type === "callout" && b.tone === "aviso" && /pegue .* agora/.test(b.text))).toBe(true);
+  });
 });
 
 describe("números só do dossiê, do catálogo ou do código", () => {

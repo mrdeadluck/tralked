@@ -304,6 +304,8 @@ Whatever happens after the claim, the request ends in one of these three: it is 
 
 The **report** goes with the request and with the guide (`Guide.report`, staff only): `sourcesRead` (`{ name, url, ok, reason? }`, failed searches included), `divergences`, `singleSource`, `coverage` (`{ steam, covered, steamOnly }`, which the page's compat seal also reads), `spendUsd` (the request's total, every attempt) and `spendByPurpose`.
 
+Read `sourcesRead` before trusting a `waiting_sources`. If most sources say `extração falhou: …` with the same message, the robot is broken, not the sources, and waiting 3 days will not help: fix the cause, then press "Tentar agora" on the request in `/admin/guias/pedidos`. A `página de desafio` reason is normal (that site blocks robots). The first Phantom Blade Zero run (2026-11-03) hit this: every extraction failed with `Streaming is required for operations that may take longer than 10 minutes`, which the Anthropic SDK throws, before sending anything, for a non-streaming request whose `max_tokens` is above about 21,000.
+
 Images: picked from the block of each item in the pages read (wikis and Steam guides first, PowerPyx last), uploaded as WebP with a lime ring and arrow on the spot and the TRALKED mark. A third-party image is never cropped and keeps its own watermark; the item shows `Imagem: <fonte>` and links to the page. Soundtrack: only a YouTube video or playlist from the developer's or publisher's own channel; otherwise the guide has no music.
 
 ### Task Scheduler (Windows)

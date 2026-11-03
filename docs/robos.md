@@ -1,6 +1,6 @@
 # Robôs no Tralked: guia para quem escreve os robôs
 
-Este documento explica como um robô cria notícias e guias de conquistas no Tralked pela API `/api/v1`. O mesmo conteúdo está no site em `/desenvolvedores`. A descrição OpenAPI 3.1 fica em `/api/v1/openapi.json`. Para validar os payloads antes de enviar, use os JSON Schemas em `/api/v1/schemas/article.json` e `/api/v1/schemas/guide.json`.
+Este documento explica como um robô cria notícias e guias de conquistas no Tralked pela API `/api/v1`, e como o robô de guias pega os pedidos da fila e envia as imagens. O mesmo conteúdo está no site em `/desenvolvedores`. A descrição OpenAPI 3.1 fica em `/api/v1/openapi.json`. Para validar os payloads antes de enviar, use os JSON Schemas em `/api/v1/schemas/article.json` e `/api/v1/schemas/guide.json`.
 
 Os exemplos usam duas variáveis de ambiente: `TRALKED_URL` guarda o domínio do Tralked e `TRALKED_KEY` guarda a chave.
 
@@ -25,9 +25,9 @@ Uma chave revogada para de funcionar na hora e passa a receber `401`. Cada chave
 | Escopo | Permite |
 | --- | --- |
 | `articles:write` | Criar notícias, alterar as próprias e consultar o status delas. |
-| `guides:write` | Criar o guia de um jogo, atualizar os próprios e consultar o status deles. |
+| `guides:write` | Criar o guia de um jogo, atualizar os próprios e consultar o status deles. Pegar e relatar os pedidos de guia da fila e ler o dossiê completo de um jogo (`?all=1`). |
 | `publish` | Publicar direto, sem passar pela fila de revisão, e alterar o que já está publicado. |
-| `media:write` | Reservado para o envio de imagens. Nenhum endpoint usa este escopo ainda. |
+| `media:write` | Enviar imagens (PNG, JPEG ou WebP, até 8 MiB) em `POST /api/v1/media`. |
 
 ## Endpoints
 
@@ -39,10 +39,13 @@ Uma chave revogada para de funcionar na hora e passa a receber `401`. Cada chave
 | PATCH | `/api/v1/articles/{id}` | `articles:write` | Altera campos de uma notícia desta chave. |
 | POST | `/api/v1/guides` | `guides:write` | Cria o guia de um jogo (um guia por jogo) e responde 201. |
 | GET | `/api/v1/guides/{id}` | `guides:write` | Mostra o status e a versão de um guia desta chave. |
-| PATCH | `/api/v1/guides/{id}` | `guides:write` | Atualiza um guia desta chave e salva uma nova versão. |
+| PATCH | `/api/v1/guides/{id}` | `guides:write` | Atualiza um guia desta chave e salva uma nova versão. Num guia publicado, sem `publish`, responde `202 pending_review` e a atualização espera um editor. |
+| POST | `/api/v1/guide-requests/next` | `guides:write` | Pega o próximo pedido de guia da fila. Responde 204 quando não há pedido. |
+| PATCH | `/api/v1/guide-requests/{id}` | `guides:write` | Relata o andamento de um pedido: `researching`, `writing`, `review`, `waiting_sources` ou `failed`. |
+| POST | `/api/v1/media` | `media:write` | Envia uma imagem (corpo cru) e responde 201 com a URL https da versão WebP. |
 | GET | `/api/v1/games` | qualquer chave | Procura jogos por nome, slug, `steamAppId` ou `igdbId`; esconde os stubs do catálogo e ordena por popularidade. |
 | GET | `/api/v1/games/{slug}/insights` | qualquer chave | Dados agregados do jogo entre os jogadores do Tralked. |
-| GET | `/api/v1/games/{slug}/dossie` | qualquer chave | Dossiê do jogo: ficha, números do Tralked e todas as conquistas visíveis. |
+| GET | `/api/v1/games/{slug}/dossie` | qualquer chave (`?all=1`: `guides:write`) | Dossiê do jogo: ficha, números do Tralked e todas as conquistas visíveis. Com `?all=1`, também as ocultas, com os nomes em PT-BR. |
 | GET | `/api/v1/games/{slug}/media` | qualquer chave | Imagens largas (banner, capturas de tela, artes) e vídeos do YouTube que o catálogo guarda do jogo. |
 | GET | `/api/v1/openapi.json` | pública | Descrição OpenAPI 3.1 da API inteira. |
 | GET | `/api/v1/schemas/article.json` | pública | JSON Schema do corpo de uma notícia. |
@@ -436,6 +439,7 @@ A resposta é `201` com `id`, `status`, `url` e `revision: 1`. Se o jogo já tiv
   - Dê a cada etapa uma `key` estável (letras minúsculas, números e hífens, por exemplo `"chefe-final"`), em todas as etapas ou em nenhuma. Com `key`, as etapas são casadas pela `key`: você pode reordenar, incluir e remover etapas, e a marca de cada leitor continua na etapa certa. Uma etapa removida perde só as marcas dela. Um guia antigo, cujas etapas ainda não têm `key`, adota as `key` por posição no primeiro envio com o mesmo número de etapas.
   - Sem `key`, as etapas são casadas por posição, e só quando o número de etapas não muda. Se o número mudar, a resposta é `422` em `/steps`: mande `key` em cada etapa para incluir, remover ou reordenar.
 - Toda criação e toda atualização salvam uma versão completa do guia, que a redação pode comparar e restaurar. A resposta traz o número dessa versão em `revision`.
+- **Guia já publicado, chave sem `publish`:** a resposta é `202` com `{ "id", "status": "pending_review", "pendingId" }`. O guia no ar não muda. A atualização fica guardada até um editor aplicá-la ou descartá-la no admin. Uma chave com `publish` altera o guia publicado direto, com `200`.
 
 ```bash
 curl -X PATCH "$TRALKED_URL/api/v1/guides/ID_DO_GUIA" \
@@ -443,6 +447,232 @@ curl -X PATCH "$TRALKED_URL/api/v1/guides/ID_DO_GUIA" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data '{"version": "v1.1", "warnings": ["Aviso revisado."]}'
+```
+
+## Guia formato 2 (roteiro do robô)
+
+O robô de guias envia `"format": 2`. O guia de formato 2 é um roteiro (`walkthrough`) que o leitor segue e marca item por item. O corpo traz os campos do guia clássico e mais:
+
+- `format`: `2`. Sem ele, o guia é o clássico (`1`).
+- `walkthrough`, obrigatório no formato 2:
+  - `cover`: exatamente 3 destaques (`calls`), as horas do selo (`sealHours`), o título (`headline`) e a linha de apoio (`deck`);
+  - `extraFacts`: conquistas bugadas (`buggedCount`), a mais difícil (`hardest`, por `apiName`, ou `null`) e as notas de jogadas e dificuldade;
+  - `compat`: o selo de plataforma, `steam_only`, `psn_xbox`, `psn` ou `xbox`;
+  - `readFirst`: de 1 a 8 avisos de "leia antes" (`tone` `aviso` ou `info`, com `spoiler`);
+  - `chapters`: os capítulos. Cada um aponta em `phaseKey` a `key` de uma das `steps` e tem os seus passos (`steps`), cada passo com até 40 itens;
+  - `soundtrack`, opcional: só um vídeo (`youtubeId`) ou uma playlist (`playlistId`) oficial do YouTube, com `title` e `channel`.
+- `report`, opcional: o relatório do robô (fontes lidas, divergências, cobertura, gasto). O Tralked guarda o relatório como foi enviado e o mostra só para a redação.
+
+Cada item (`items[]`) tem `key`, `kind` (`collectible`, `achievement`, `mission`, `key_item`, `boss` ou `other`), `name`, `missable`, `returnLater`, `spoiler`, `countsFor` (os apiNames Steam para os quais o item conta), `alsoOn` (`psn`, `xbox`), `sources` (de 1 a 10, com `name` e `url`) e `review` (`true` quando o robô tem dúvida e um editor precisa olhar). São opcionais `nameEn`, `collectibleType`, `index` e `total` (sempre juntos), `location`, `achievement` (o apiName Steam que o item é) e `image` (`url` https, `credit`, `sourceName` e `sourceUrl`).
+
+O formato 2 tem regras que a API confere com o catálogo, com `422` no caminho exato:
+
+- toda etapa (`steps[]`) tem `key`;
+- toda `key` (capítulo, passo e item) é única no guia inteiro, porque as marcas dos leitores ficam presas à `key` do item;
+- toda conquista Steam do jogo, ocultas incluídas, aparece em `achievement` de algum item;
+- todo apiName citado existe no jogo;
+- `facts.missables` é igual ao número de itens do tipo `achievement` com `missable: true`.
+
+O exemplo abaixo mostra um capítulo só. Um guia real cobre todas as conquistas do jogo:
+
+<!-- exemplo:guia-v2 -->
+```json
+{
+  "game": {
+    "steamAppId": 2182200
+  },
+  "format": 2,
+  "version": "v1.0",
+  "facts": {
+    "difficulty": 5,
+    "hoursMin": 30,
+    "hoursMax": 40,
+    "playthroughs": "1",
+    "missables": 1,
+    "online": 0
+  },
+  "steps": [
+    {
+      "key": "ate-mirage-estate",
+      "title": "Até a Mirage Estate",
+      "hours": "4 a 6 h",
+      "body": [
+        {
+          "type": "paragraph",
+          "text": "Weeping Creek Valley e a Crimson Forest, com os coletáveis de cada região."
+        }
+      ],
+      "achievements": []
+    }
+  ],
+  "walkthrough": {
+    "cover": {
+      "calls": [
+        { "value": "5/10", "label": "Dificuldade" },
+        { "value": "30–40 h", "label": "Tempo até o Tralked" },
+        { "value": "66", "label": "Conquistas" }
+      ],
+      "sealHours": "30–40 h",
+      "headline": "O caminho até o Tralked",
+      "deck": "Todos os coletáveis e as 66 conquistas da Steam, na ordem em que você passa por eles."
+    },
+    "extraFacts": {
+      "buggedCount": 0,
+      "hardest": null,
+      "playthroughsNote": "NG+ existe, mas é opcional, só para limpeza.",
+      "difficultyNote": "Nenhuma conquista pede dificuldade."
+    },
+    "compat": "steam_only",
+    "readFirst": [
+      {
+        "title": "Saves manuais",
+        "text": "Faça um save manual **no começo e no fim de cada região**.",
+        "tone": "aviso",
+        "spoiler": false
+      }
+    ],
+    "chapters": [
+      {
+        "key": "regiao-1-weeping-creek",
+        "phaseKey": "ate-mirage-estate",
+        "title": "Weeping Creek Valley",
+        "region": "Região 1 de 9",
+        "hours": "3 a 4 h",
+        "deadline": "Antes do chefe principal da Crimson Forest",
+        "steps": [
+          {
+            "key": "r1-1",
+            "body": [
+              {
+                "type": "paragraph",
+                "text": "Siga até o andaime e desça a escada da direita para chegar ao sino **The Lady's Rift**."
+              }
+            ],
+            "items": [
+              {
+                "key": "sino-lady-rift",
+                "kind": "collectible",
+                "name": "Sino · The Lady's Rift",
+                "collectibleType": "sino",
+                "index": 2,
+                "total": 22,
+                "location": "Ao pé da escada da direita, depois do andaime.",
+                "missable": false,
+                "returnLater": true,
+                "spoiler": false,
+                "countsFor": ["ACH_BELLS"],
+                "alsoOn": [],
+                "image": {
+                  "url": "https://exemplo.public.blob.vercel-storage.com/guias/2026/11/3f2c9a7e-5b1d-4c2e-9a10-7d4e2b8c6f01.webp",
+                  "credit": "Imagem: PowerPyx",
+                  "sourceName": "PowerPyx",
+                  "sourceUrl": "https://www.powerpyx.com/"
+                },
+                "sources": [
+                  { "name": "PowerPyx", "url": "https://www.powerpyx.com/" },
+                  { "name": "Guia Steam", "url": "https://steamcommunity.com/sharedfiles/filedetails/?id=1" }
+                ],
+                "review": false
+              },
+              {
+                "key": "conquista-legado-curandeira",
+                "kind": "achievement",
+                "name": "Legado da Curandeira",
+                "nameEn": "Healer's Legacy",
+                "achievement": "ACH_HEALER_LEGACY",
+                "location": "Conclua as três missões da curandeira antes do chefe da Crimson Forest.",
+                "missable": true,
+                "returnLater": false,
+                "spoiler": false,
+                "countsFor": [],
+                "alsoOn": [],
+                "sources": [
+                  { "name": "PowerPyx", "url": "https://www.powerpyx.com/" }
+                ],
+                "review": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "report": {
+    "sourcesRead": [
+      { "name": "PowerPyx", "url": "https://www.powerpyx.com/", "ok": true }
+    ],
+    "divergences": [],
+    "singleSource": ["ACH_HEALER_LEGACY"],
+    "coverage": { "steam": 66, "covered": 66, "steamOnly": 0 },
+    "spendUsd": 3.1
+  }
+}
+```
+
+## Pedidos de guia (robô de guias)
+
+O robô de guias não escolhe jogos. Ele atende os pedidos que a redação põe na fila do admin, um por vez. Os dois endpoints exigem `guides:write`.
+
+`POST /api/v1/guide-requests/next` pega o próximo pedido: o de maior prioridade e, entre eles, o mais antigo. Um pedido em `waiting_sources` volta a ser pego quando chega a hora da nova tentativa. O pedido passa a `researching` e nenhum outro robô o recebe. Sem pedido, a resposta é `204`, sem corpo. Com pedido, a resposta é `200`:
+
+```json
+{
+  "request": {
+    "id": "cmw0d15eg0000m4tsev1lx0vq",
+    "steamAppId": 4115450,
+    "gameSlug": "phantom-blade-zero",
+    "attempts": 1
+  }
+}
+```
+
+`gameSlug` é o slug para ler `GET /api/v1/games/{slug}/dossie?all=1`. `attempts` conta esta tentativa.
+
+`PATCH /api/v1/guide-requests/{id}` relata o andamento. O corpo leva `status` e, se quiser, `reason` (texto até 2000 caracteres), `report` (objeto ou lista JSON) e `guideId`:
+
+| `status` | Quando usar |
+| --- | --- |
+| `researching` | Lendo as fontes. |
+| `writing` | Escrevendo o guia. |
+| `review` | O guia foi criado ou atualizado e está na fila de revisão. Mande o `guideId`. |
+| `waiting_sources` | Faltam fontes para cobrir o jogo. Mande em `report` o que falta. O Tralked agenda nova tentativa em 3 dias. Depois de 30 dias esperando, o pedido vira `failed` com o motivo "fontes insuficientes após 30 dias". |
+| `failed` | O robô desistiu. Mande o motivo em `reason`. |
+
+A resposta é `200` com `id`, `status`, `attempts` e `nextAttemptAt` (ou `null`). Um pedido cancelado ou já publicado não aceita relato: a resposta é `422 validation_failed`, e o robô deve parar. Um pedido que não existe dá `404`. Como toda escrita, o PATCH leva `Idempotency-Key`.
+
+```bash
+curl -X PATCH "$TRALKED_URL/api/v1/guide-requests/ID_DO_PEDIDO" \
+  -H "Authorization: Bearer $TRALKED_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data '{"status": "review", "guideId": "ID_DO_GUIA"}'
+```
+
+## Enviar imagens
+
+`POST /api/v1/media` (escopo `media:write`) recebe uma imagem para usar num guia. O corpo é o arquivo cru, não JSON:
+
+- `Content-Type`: `image/png`, `image/jpeg` ou `image/webp`. Outro tipo dá `415 unsupported_media_type`.
+- Até 8 MiB. Acima disso, `413 payload_too_large`.
+- O Tralked decodifica a imagem, converte para WebP com no máximo 2048 px no lado maior e remove os metadados. Um arquivo que não é imagem de verdade dá `415`.
+- O `Idempotency-Key` vale como nas outras escritas: o mesmo arquivo com a mesma chave devolve a mesma resposta.
+
+A resposta é `201` com a URL https da versão WebP e o tamanho dela. Use essa URL em `image.url` de um item do roteiro:
+
+```json
+{
+  "url": "https://exemplo.public.blob.vercel-storage.com/guias/2026/11/3f2c9a7e-5b1d-4c2e-9a10-7d4e2b8c6f01.webp",
+  "width": 1280,
+  "height": 720
+}
+```
+
+```bash
+curl -X POST "$TRALKED_URL/api/v1/media" \
+  -H "Authorization: Bearer $TRALKED_KEY" \
+  -H "Content-Type: image/png" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data-binary @sino.png
 ```
 
 ## Encontrar o jogo
@@ -493,7 +723,7 @@ Três endpoints dão ao robô material sobre um jogo. Os três aceitam qualquer 
 - `tralked`: `players`, `avgPlaytimeMin` e `completedPlayers` (usuários que zeraram o jogo).
 - `achievements`: todas as conquistas visíveis, com `platform`, `apiName`, `name`, `description` e `globalPct`, da mais rara para a menos. As sem raridade vêm no fim. A lista tem no máximo 500 itens.
 
-Conquistas ocultas nunca aparecem. Para proteger os jogadores, `avgPlaytimeMin` só vem preenchido quando 3 ou mais jogadores jogaram o jogo; com menos, vem `null`.
+Conquistas ocultas não aparecem. A exceção é `?all=1`, que exige o escopo `guides:write`: a lista traz todas as conquistas, ocultas incluídas, cada uma com `hidden`, `namePt` e `descriptionPt` (o nome e a descrição em PT-BR da Steam, ou `null`), e o limite sobe para 5000. O robô de guias usa essa lista para conferir que o guia cobre o jogo inteiro. Para proteger os jogadores, `avgPlaytimeMin` só vem preenchido quando 3 ou mais jogadores jogaram o jogo; com menos, vem `null`.
 
 ```bash
 curl "$TRALKED_URL/api/v1/games/hades/dossie"   -H "Authorization: Bearer $TRALKED_KEY"
@@ -509,7 +739,7 @@ Use a imagem num bloco `image` com crédito (por exemplo, "Divulgação/Supergia
 
 ## Respostas e erros
 
-Em caso de sucesso, a API responde `201` ao criar e `200` ao alterar ou consultar.
+Em caso de sucesso, a API responde `201` ao criar e `200` ao alterar ou consultar. Há duas exceções: `202` no PATCH de um guia publicado feito por uma chave sem `publish`, e `204` em `POST /api/v1/guide-requests/next` quando a fila está vazia.
 
 Todo erro tem o mesmo formato. Em `issues`, `path` é um JSON Pointer para o campo do corpo, e `""` indica o corpo inteiro. Em `GET /api/v1/games`, `path` indica o parâmetro, como `?steamAppId`.
 
@@ -535,13 +765,14 @@ Todo erro tem o mesmo formato. Em `issues`, `path` é um JSON Pointer para o cam
 | 400 | `idempotency_key_required` | Falta o cabeçalho `Idempotency-Key` em POST ou PATCH. |
 | 401 | `unauthorized` | A chave está ausente, é inválida ou foi revogada. |
 | 403 | `forbidden` | A chave não tem o escopo do endpoint, ou pediu `published` sem o escopo `publish`. |
-| 404 | `not_found` | O id não existe, ou o conteúdo foi criado por outra chave. Em `/insights`, `/dossie` e `/media`, o jogo não existe no catálogo ou é um stub. |
+| 404 | `not_found` | O id não existe, ou o conteúdo foi criado por outra chave. Em `/insights`, `/dossie` e `/games/{slug}/media`, o jogo não existe no catálogo ou é um stub. |
 | 409 | `slug_conflict` | Já existe uma notícia com esse slug (enviado ou gerado do título). |
 | 409 | `guide_exists` | O jogo já tem guia. A mensagem traz o id; se o guia for desta chave, use PATCH. |
-| 409 | `published_locked` | A redação já publicou o conteúdo, e só uma chave com `publish` pode alterá-lo. |
+| 409 | `published_locked` | A redação já publicou a notícia, e só uma chave com `publish` pode alterá-la. Num guia publicado, o PATCH não dá este erro: responde `202 pending_review`. |
 | 409 | `idempotency_conflict` | O `Idempotency-Key` já foi usado com outro corpo ou em outro endpoint. |
-| 413 | `payload_too_large` | O corpo passa de 1 MiB. |
-| 422 | `validation_failed` | Há campos inválidos. Cada item de `issues` aponta o campo por JSON Pointer. |
+| 413 | `payload_too_large` | O corpo passa de 1 MiB, ou a imagem de `POST /api/v1/media` passa de 8 MiB. |
+| 415 | `unsupported_media_type` | Em `POST /api/v1/media`, o `Content-Type` não é `image/png`, `image/jpeg` ou `image/webp`, ou o arquivo não é uma imagem válida. |
+| 422 | `validation_failed` | Há campos inválidos. Cada item de `issues` aponta o campo por JSON Pointer. Em `PATCH /api/v1/guide-requests/{id}`, também quando o pedido foi cancelado ou já foi publicado. |
 | 429 | `rate_limited` | A chave passou de 60 requisições no minuto. Espere os segundos indicados em `Retry-After`. |
 
 ## Idempotência
@@ -556,9 +787,9 @@ Gere um `Idempotency-Key` para cada conteúdo, com 1 a 255 caracteres ASCII vis�
 ## Limites
 
 - **60 requisições por minuto por chave.** Toda resposta autenticada traz os cabeçalhos `X-RateLimit-Limit`, `X-RateLimit-Remaining` e `X-RateLimit-Reset` (segundos até a janela zerar). Acima do limite, a resposta é `429` com o cabeçalho `Retry-After`.
-- **Corpo de até 1 MiB**, com no máximo 64 níveis de listas e objetos aninhados (acima disso: `422 validation_failed`, sem `issues`).
-- **Tamanho do conteúdo:** até 300 blocos por notícia, 60 etapas por guia e 10 jogos por notícia.
-- **Imagens:** só por URL https, com texto alternativo e crédito. A API não recebe arquivos.
+- **Corpo de até 1 MiB** (imagem de até 8 MiB em `POST /api/v1/media`), com no máximo 64 níveis de listas e objetos aninhados (acima disso: `422 validation_failed`, sem `issues`).
+- **Tamanho do conteúdo:** até 300 blocos por notícia, 60 etapas por guia e 10 jogos por notícia. No formato 2, até 60 capítulos, 80 passos por capítulo e 40 itens por passo.
+- **Imagens:** por URL https, com texto alternativo e crédito. Para hospedar a imagem no Tralked, envie o arquivo em `POST /api/v1/media` (escopo `media:write`) e use a URL da resposta.
 
 ## Checklist do robô
 

@@ -622,7 +622,10 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       countsFor: [...new Set(i?.countsFor ?? [])].filter((x) => steamApiNames.has(x)).slice(0, 20),
       alsoOn: a && compatSteamOnly && !a.steamOnly ? ["psn"] : [],
       sources: sources.length > 0 ? sources : fallbackSources(),
-      review: Boolean((i && (!i.agreed || i.conflict)) || (a && (!a.agreed || a.conflict)) || sources.length === 0),
+      // R20: a deadline the code assumed (its own chapter) is reviewed too.
+      review: Boolean(
+        (i && (!i.agreed || i.conflict || i.deadlineAssumed)) || (a && (!a.agreed || a.conflict || a.deadlineAssumed)) || sources.length === 0,
+      ),
     };
   };
 

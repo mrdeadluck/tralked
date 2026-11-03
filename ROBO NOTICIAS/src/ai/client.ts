@@ -19,6 +19,11 @@ const CACHE_WRITE_MULT = 1.25;
 const BATCH_MULT = 0.5;
 const DEFAULT_MAX_TOKENS = 16000;
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
+/**
+ * The SDK refuses non-streaming requests whose max_tokens implies more than 10 minutes
+ * (3600s * max_tokens / 128000 > 600s, i.e. max_tokens > 21333). Above this we stream.
+ */
+export const MAX_NONSTREAMING_TOKENS = 20000;
 
 export interface UsageLike {
   input_tokens: number;
@@ -86,6 +91,8 @@ export interface StructuredOpts<T> {
   images?: { mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: Buffer }[];
   schema: z.ZodType<T>;
   maxTokens?: number;
+  /** Force (true) or forbid (false) streaming; default: stream when maxTokens exceeds the SDK's non-streaming limit. */
+  stream?: boolean;
   /** Live writer calls: use the server-side fallback beta with `fallbacks: "default"`. */
   fallbacks?: boolean;
 }
@@ -167,9 +174,16 @@ export function createAi(deps: { client: Anthropic; db: SpendLedger; config: Pic
       output_config: { effort: opts.effort, format },
     };
 
+    const stream = opts.stream ?? common.max_tokens > MAX_NONSTREAMING_TOKENS;
     const res = opts.fallbacks
-      ? await client.beta.messages.parse({ ...common, betas: [FALLBACK_BETA], fallbacks: "default" })
-      : await client.messages.parse(common);
+      ? stream
+        ? await client.beta.messages
+            .stream({ ...common, betas: [FALLBACK_BETA], fallbacks: "default" })
+            .finalMessage()
+        : await client.beta.messages.parse({ ...common, betas: [FALLBACK_BETA], fallbacks: "default" })
+      : stream
+        ? await client.messages.stream(common).finalMessage()
+        : await client.messages.parse(common);
 
     // Price by the model that answered (it may be a server-side fallback) when we know its price.
     const pricedModel = priceFor(res.model) ? res.model : opts.model;

@@ -3,8 +3,10 @@ import type { GuideDossier, SteamAchievement } from "./dossier.js";
 /**
  * The completeness gate: the robot only sends a guide that passes. `missing` has one Portuguese sentence per gap.
  * Fails when (a) a Steam achievement (hidden ones included) has no source, (b) a Steam-only achievement has no
- * Steam source, (c) a "collect N" count does not add up, (d) a missable has no milestone tied to a chapter,
- * (e) no script source is complete. Divergences between sources never fail it on their own.
+ * Steam source, (c) a "collect N" count does not add up, (d) a missable cannot be tied to any chapter (R20: with no
+ * milestone that points to a chapter, its own chapter is the deadline, so (d) only catches a missable achievement
+ * that no item of the walkthrough is), (e) no script source is complete. Divergences between sources never fail it
+ * on their own.
  */
 export function gate(d: GuideDossier, fullList: SteamAchievement[]): { ok: boolean; missing: string[] } {
   const steamList = fullList.filter((s) => s.platform === "steam");
@@ -32,7 +34,9 @@ export function gate(d: GuideDossier, fullList: SteamAchievement[]): { ok: boole
       for (const problem of c.indexProblems) missing.push(`A contagem da conquista ${label} está errada: ${problem}.`);
     }
     if (a.missable && !a.deadlineChapter) {
-      missing.push(`O perdível ${label} não tem um marco "até quando" ligado a um capítulo.`);
+      missing.push(
+        `O perdível ${label} não está ligado a nenhum capítulo: o "até quando" das fontes não aponta para um capítulo e nenhum item do roteiro é ele.`,
+      );
     }
   }
 
@@ -40,7 +44,7 @@ export function gate(d: GuideDossier, fullList: SteamAchievement[]): { ok: boole
     for (const item of chapter.items) {
       // An item that is an achievement is judged through the achievement above.
       if (item.missable && !item.achievement && !item.deadlineChapter) {
-        missing.push(`O perdível "${item.name}" (capítulo ${chapter.title}) não tem um marco "até quando" ligado a um capítulo.`);
+        missing.push(`O perdível "${item.name}" (capítulo ${chapter.title}) não está ligado a nenhum capítulo.`);
       }
     }
   }

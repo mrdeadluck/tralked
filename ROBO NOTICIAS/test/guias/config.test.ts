@@ -13,6 +13,7 @@ describe("loadGuideConfig", () => {
       MODEL_FAST: "claude-haiku-5-5",
       GUIDE_BUDGET_USD: 25,
       DATA_DIR_GUIAS: "./data-guias",
+      GUIDE_STEAM_REFERENCE_ID: "76561198012210783",
     });
     expect(c.RESEND_API_KEY).toBeUndefined();
   });
@@ -23,7 +24,9 @@ describe("loadGuideConfig", () => {
   });
 
   it("reads overrides", () => {
-    const c = loadGuideConfig({ ...ENV, GUIDE_BUDGET_USD: "40", MODEL_FAST: "x", ALERT_EMAIL: "a@b.c" });
+    const c = loadGuideConfig({ ...ENV, GUIDE_BUDGET_USD: "40", MODEL_FAST: "x", ALERT_EMAIL: "a@b.c", GUIDE_STEAM_REFERENCE_ID: "76561197960287930" });
+    expect(c.GUIDE_STEAM_REFERENCE_ID).toBe("76561197960287930");
+    expect(() => loadGuideConfig({ ...ENV, GUIDE_STEAM_REFERENCE_ID: "nope" })).toThrow(/GUIDE_STEAM_REFERENCE_ID/);
     expect(c.GUIDE_BUDGET_USD).toBe(40);
     expect(c.MODEL_FAST).toBe("x");
     expect(c.ALERT_EMAIL).toBe("a@b.c");
