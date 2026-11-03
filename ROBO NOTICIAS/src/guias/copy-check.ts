@@ -198,14 +198,24 @@ export const DOUBT_PHRASES = [
   "não há certeza",
   "segundo as fontes",
   "em revisão",
+  // Fix round 1: no reader-facing text talks about sources at all.
+  "as fontes",
 ] as const;
 
 const DOUBT_WORDS = DOUBT_PHRASES.map((phrase) => ({ phrase, words: ` ${words(phrase).join(" ")} ` }));
+/** Longest first: an occurrence inside a longer phrase ("segundo as fontes") is not counted again ("as fontes"). */
+const LONGEST_FIRST = [...DOUBT_WORDS].sort((a, b) => b.words.length - a.words.length);
 
 /** The banned phrases in `text`, as whole words (case, accents, punctuation and markup ignored), in list order. */
 export function doubtPhrases(text: string): string[] {
-  const w = ` ${words(text).join(" ")} `;
-  return DOUBT_WORDS.filter((d) => w.includes(d.words)).map((d) => d.phrase);
+  let w = ` ${words(text).join(" ")} `;
+  const found = new Set<string>();
+  for (const d of LONGEST_FIRST) {
+    if (!w.includes(d.words)) continue;
+    found.add(d.phrase);
+    w = w.replaceAll(d.words, " | ");
+  }
+  return DOUBT_PHRASES.filter((p) => found.has(p));
 }
 
 /**

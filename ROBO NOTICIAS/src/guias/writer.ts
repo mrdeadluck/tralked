@@ -39,6 +39,8 @@ const WRITER_MAX_TOKENS = 16000;
 const CONCURRENCY = 3;
 const MAX_ITEMS_PER_STEP = 40;
 const HOURS_MAX = 5000;
+/** The site's limit for an item's `location` (walkthrough-schema.ts; voice v2: the way, what it is for, the risk). */
+const ITEM_LOCATION_MAX = 800;
 /** What the guide shows where there is no source for a number. */
 const NO_DATA = "—";
 
@@ -121,7 +123,7 @@ export const ChapterTextSchema = z.object({
       z.object({
         key: z.string().describe("Uma das keys de item ou de conquista dadas"),
         nome: z.string().describe("Até 80 caracteres"),
-        local: z.string().describe("O caminho desde o ponto anterior até o item, para que serve e, se perdível, o risco; até 400 caracteres"),
+        local: z.string().describe("O caminho desde o ponto anterior até o item, para que serve e, se perdível, o risco; até 800 caracteres"),
         spoiler: z.boolean(),
       }),
     )
@@ -183,8 +185,8 @@ function fichaOf(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierS
 export const NAMES_RULE =
   "## Nomes\n" +
   'Se `nome_pt` for nulo (vazio, `nome_pt=""`), use só o nome em inglês da conquista, sem tradução. ' +
-  "Não traduza nem nomeie lugares, chefes ou marcos que o dossiê só traz em outro idioma: cite o marco como " +
-  "'o ponto indicado pela fonte' ou use o nome em inglês que aparece no dossiê.";
+  "Não traduza nem nomeie lugares, chefes ou marcos que o dossiê só traz em outro idioma: cite o marco pelo " +
+  "que ele é no jogo ('o próximo sino', 'a ponte de pedra') ou use o nome em inglês que aparece no dossiê, sem falar de fontes.";
 
 function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource, scope?: PsnWriteScope): string {
   const ficha = fichaOf(skel, dossier, game, scope);
@@ -226,7 +228,7 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
     ficha.psn
       ? [
           "## Escopo: guia pela lista da PSN",
-          `Nenhuma fonte explica ainda as ${ficha.psn.steamOnly} conquistas que só existem na Steam, então este guia segue a lista de troféus da PSN (${ficha.psn.trophies} troféus). Diga isso com franqueza na capa ou no "leia antes": o roteiro cobre a lista da PSN, e as conquistas só da Steam ficam num bloco à parte, sem roteiro ainda. Nunca explique como fazer uma conquista que não está nesta lista.`,
+          `Ainda não há roteiro para as ${ficha.psn.steamOnly} conquistas que só existem na Steam, então este guia segue a lista de troféus da PSN (${ficha.psn.trophies} troféus). Diga isso com franqueza na capa ou no "leia antes", sem falar de fontes: o roteiro cobre a lista da PSN, e as conquistas só da Steam ficam num bloco à parte, sem roteiro ainda. Nunca explique como fazer uma conquista que não está nesta lista.`,
         ].join("\n")
       : "",
     [
@@ -253,21 +255,22 @@ const missableAttr = (missable: boolean, until?: string) => `perdivel="${missabl
 /** A number as the guide prints it (pt-BR decimal comma). */
 const numPt = (n: number) => String(n).replace(".", ",");
 
-/** R39: "as fontes localizam 38 de 40 Sha-Chi Amber Shards; 2 sem mapa", the dossier's numbers only. */
+/** R39: "o guia mapeia 38 de 40 Sha-Chi Amber Shards; 2 sem local conhecido", the dossier's numbers only. */
 const countFacts = (c: NonNullable<NonNullable<DossierAchievement["collect"]>["shortfallAccepted"]>) =>
-  `as fontes localizam ${numPt(c.located)} de ${numPt(c.stated)} ${c.label}; ${numPt(c.missing)} sem mapa`;
+  `o guia mapeia ${numPt(c.located)} de ${numPt(c.stated)} ${c.label}; ${numPt(c.missing)} sem local conhecido`;
 
 /**
- * R39: the code's note on a "collect N" the gate accepted short by less than one unit: how many the sources locate,
- * of the total a source states, and how many are not mapped yet. Named (a step may hold several items).
+ * R39: the code's note on a "collect N" the gate accepted short by less than one unit: how many the guide maps, of
+ * the total a source states, and how many have no known place yet. Named (a step may hold several items). Voice v2:
+ * it never talks about sources to the reader.
  */
 export function countNote(a: DossierAchievement): string | undefined {
   const c = a.collect?.shortfallAccepted;
   if (!c) return undefined;
   const name = plain(achName(a), 80);
   const shown = a.hidden ? `||${name}||` : `**${name}**`;
-  const rest = c.missing === 1 ? "ainda não foi mapeado" : "ainda não foram mapeados";
-  return inline(`${shown} — As fontes localizam ${numPt(c.located)} de ${numPt(c.stated)} ${c.label}; ${numPt(c.missing)} ${rest}.`, 2000);
+  const rest = c.missing === 1 ? "o que falta ainda não tem local conhecido" : `os outros ${numPt(c.missing)} ainda não têm local conhecido`;
+  return inline(`${shown} — Este guia mapeia ${numPt(c.located)} de ${numPt(c.stated)} ${c.label}; ${rest}.`, 2000);
 }
 
 /** An achievement with everything the writer needs to explain it (howTo included). */
@@ -329,11 +332,13 @@ function warnedName(name: string, spoiler: boolean, achievement: { hidden: boole
 
 /**
  * Task 18/21: the warning at a chapter's first step for the loose missables the sources link to it (`warnChapter`).
- * Only what the dossier says: the sources link them here; where each is done is the step that holds it.
+ * Only what the dossier says: they can be lost from here on; where each is done is the step that holds it. Voice v2:
+ * the window is stated plainly, never as what "the sources" say; every name is "a conquista …".
  */
 function anchorWarning(anchored: DossierAchievement[]): string {
-  const names = anchored.map((a) => (a.hidden ? warnedName(plain(achName(a), 80), true, a) : `**${plain(achName(a), 80)}**`));
-  return inline(`Perdível: as fontes ligam ${joinPt(names)} a este capítulo; fique atento a partir daqui.`, 2000);
+  const names = anchored.map((a) => warnedName(plain(achName(a), 80), a.hidden, a));
+  const todo = anchored.length === 1 ? "Faça no passo dela, sem deixar para depois." : "Faça cada uma no passo dela, sem deixar para depois.";
+  return inline(`Perdível: a partir deste capítulo dá para perder ${joinPt(names)}. ${todo}`, 2000);
 }
 
 /** A block whose text is exactly `text` (a writer's copy of a code warning). */
@@ -828,7 +833,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       name = plain(t?.nome, 80) || plain(en, 80) || "Item";
       nameEn = name.toLowerCase() !== en.toLowerCase() ? plain(en, 80) || undefined : undefined;
     }
-    const location = inline(t?.local, 400);
+    const location = inline(t?.local, ITEM_LOCATION_MAX);
     if (!location) {
       // Task 20: a loose achievement's text is the cleanup job's (a chapter that places it may write its own): that
       // job is asked for it. No fallback text: the sources' own sentences (location, how-to) would fail the copy check

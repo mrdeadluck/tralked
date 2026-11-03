@@ -47,7 +47,8 @@ O guia é da lista de conquistas da **Steam**. Fale em "conquistas", não em "tr
 - Seu conhecimento próprio do jogo **não é fonte**. Não complete lacunas, não deduza caminho que o dossiê não descreve, não acrescente coletável, chefe ou conquista que não está nele.
 - **A dúvida nunca vai para o leitor.** O guia é para ajudar o jogador, não para ele descobrir sozinho. Quando as fontes divergem (veja "Divergências" no dossiê), escreva **a instrução mais segura** que é certa nos dois casos, sem citar a divergência: o prazo mais cedo, a contagem maior a coletar, o caminho que funciona de qualquer jeito.
 - **Fato com uma fonte só** (o dossiê marca com `fontes="1"` ou "revisar"): escreva-o direto, sem ressalva, e nunca acrescente detalhe para "completar" esse fato. O sistema já sai com `review = true` em todo item com uma fonte só ou com fontes em conflito: essa marca é para um editor conferir, não para o leitor.
-- **Frases proibidas** em qualquer texto do guia: "confira no jogo", "confirme no jogo", "as fontes divergem", "só uma fonte", "uma fonte diz", "não há certeza", "segundo as fontes", "em revisão". Um verificador automático reprova o trecho que tiver qualquer uma delas.
+- **O leitor não ouve falar de fontes.** Nenhum texto do guia fala delas ("as fontes", "uma fonte", "segundo o PowerPyx"): o guia fala com a própria voz. As páginas consultadas aparecem só na lista de créditos, que o sistema monta.
+- **Frases proibidas** em qualquer texto do guia: "confira no jogo", "confirme no jogo", "as fontes divergem", "só uma fonte", "uma fonte diz", "não há certeza", "segundo as fontes", "em revisão", "as fontes". Um verificador automático reprova o trecho que tiver qualquer uma delas.
 - Personalidade fica no tom, nunca nos fatos.
 
 ## 6. Texto próprio, sem cópia
@@ -110,16 +111,16 @@ A capa é de revista: **3 chamadas** com o número em destaque, a manchete e a l
   - `aviso`: o risco de um perdível que vale para vários itens do passo, ponto de não retorno, armadilha (nunca um aviso que só repete "pegue X agora", seção 8);
   - `info`: dica útil, "dá para voltar depois";
   - `spoiler`: trecho que revela chefe, final ou reviravolta.
-- Cada item tem `nome` (veja a seção 4), `local` e `spoiler`. O `local` tem até 400 caracteres (o limite do site) e, nesta ordem:
+- Cada item tem `nome` (veja a seção 4), `local` e `spoiler`. O `local` tem até 800 caracteres (o limite do site) e, nesta ordem:
   1. o caminho a partir do ponto anterior até o item, com os marcos do dossiê, e onde ele está;
   2. **Para que serve:** quem pede e o que fazer com ele, quando o dossiê diz;
   3. **Não deixe para depois:** o risco como causa e consequência, quando é perdível e o risco não está num `aviso` do passo.
-  Para conquista, o `local` diz o que fazer neste ponto. Se não couber em 400 caracteres, corte palavras, nunca o caminho nem o risco.
-- **Modelo de item** (só a forma: nenhum fato dele vale para outro jogo). Item *Blood-Stopper Vine*, perdível, depois de uma Focus Pill num baú:
+  Para conquista, o `local` diz o que fazer neste ponto. Se não couber em 800 caracteres, corte palavras, nunca o caminho nem o risco.
+- **Modelo de item**, o texto que o Lucas aprovou (só a forma: nenhum fato dele vale para outro jogo). A página mostra o nome e a etiqueta (**Blood-Stopper Vine** · ⚠ PERDÍVEL); o `local` é este:
 
-  > Depois da Focus Pill do baú, volte à ponte de pedra e desça para o riacho embaixo dela. A **erva** está na água, no canto oeste da ponte. **Para que serve:** é uma das 3 ervas da missão *Apprentice Healer*; entregue as 3 para a Yu'er no sino Outpost. **Não deixe para depois:** se você derrotar ||Jing Ye, The Outlaw|| com a missão aberta, ela falha e você perde *The Healer's Legacy* nesta jogada.
+  > Logo depois de pegar a Focus Pill no baú, volte em direção à ponte de pedra e desça para o riacho que passa embaixo dela. A erva está na água, no canto oeste da ponte. **Para que serve:** é uma das 3 ervas que a Yu’er pede na missão *Apprentice Healer* (as outras duas, Congealeaf e Blemish Goldweed, aparecem nos próximos passos). Quando tiver as 3, entregue para ela no sino Outpost. **Não deixe para depois:** se você derrotar o chefe ||Jing Ye, The Outlaw||, na Crimson Forest com essa missão ainda aberta, ela falha e você perde a conquista *The Healer’s Legacy* nesta jogada.
 
-  O caminho sai de onde o jogador acabou de estar, a contagem vem do dossiê, o chefe fica entre `||`, e o passo não ganha outro aviso para essa erva.
+  O caminho sai de onde o jogador acabou de estar, diz para que a erva serve e o que vem depois, a contagem vem do dossiê, o risco é causa e consequência, o chefe fica entre `||`, nenhuma fonte é citada e o passo não ganha outro aviso para essa erva.
 - `conquistas` de um passo: apiNames das conquistas "sem lugar fixo" que destravam **nesse passo** (chefe derrotado, fim do capítulo, último item da coleção). Ponha cada conquista num passo só. Se ela não tem um ponto certo na história, deixe-a na limpeza, onde o sistema já a colocou.
 - Marcação permitida nos textos: só **negrito**, *itálico* e `||spoiler||` (seção 7). Nada de links, HTML, Markdown de título (#) ou imagens. Negrito com parcimônia: o que o jogador precisa achar, o nome ou número que ele procura rápido, e os rótulos **Para que serve:** e **Não deixe para depois:**.
 

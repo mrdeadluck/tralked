@@ -12,6 +12,7 @@ describe("voz v2: a dúvida nunca vai para o leitor (lista de frases proibidas)"
       "não há certeza",
       "segundo as fontes",
       "em revisão",
+      "as fontes",
     ]);
   });
 
@@ -24,8 +25,14 @@ describe("voz v2: a dúvida nunca vai para o leitor (lista de frases proibidas)"
     ["não há certeza", "Não há certeza sobre o prazo."],
     ["segundo as fontes", "Segundo as fontes, são 3 ervas."],
     ["em revisão", "Este trecho está em revisão."],
+    ["as fontes", "Todas as fontes concordam: são 3 ervas."],
   ])("pega \"%s\"", (phrase, text) => {
     expect(doubtPhrases(text)).toEqual([phrase]);
+  });
+
+  it("uma frase que contém outra da lista conta uma vez só (\"segundo as fontes\" não vira também \"as fontes\")", () => {
+    expect(doubtPhrases("As fontes divergem sobre o total.")).toEqual(["as fontes divergem"]);
+    expect(doubtPhrases("Segundo as fontes, são 3. As fontes não falam do baú.")).toEqual(["segundo as fontes", "as fontes"]);
   });
 
   it("sem caixa, sem acento e com marcação no meio também pega", () => {

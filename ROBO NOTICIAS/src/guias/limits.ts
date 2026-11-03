@@ -51,9 +51,13 @@ export function skeletonLimitProblems(skel: GuideSkeleton): string[] {
   return problems;
 }
 
-/** Text the model writes per step (1 to 3 short paragraphs, the warnings) and per item (`local`), in bytes. */
+/**
+ * Text the model writes per step (1 to 3 short paragraphs, the warnings) and per item (`local`), in bytes. Voice v2:
+ * an item's `local` holds the way from the previous point, what it is for and a missable's risk (site limit 800
+ * characters); most run 300 to 600.
+ */
 const STEP_TEXT_BYTES = 350;
-const ITEM_TEXT_BYTES = 220;
+const ITEM_TEXT_BYTES = 500;
 /** An item's image: url, credit, source name and url. */
 export const IMAGE_BYTES = 380;
 /** Cover, ficha, overview, "read first", soundtrack. */
