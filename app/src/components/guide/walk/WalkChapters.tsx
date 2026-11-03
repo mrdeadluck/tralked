@@ -1,4 +1,5 @@
 import { GreenTrail } from "./GreenTrail";
+import { walkPlain } from "./inline";
 import { ChapterScene, pluralKind } from "./ChapterScene";
 import { DoneCount } from "./ProgressBits";
 import { SpoilerItemName } from "./spoilers";
@@ -72,7 +73,7 @@ function ChapterBox({ chapter, items }: { chapter: ChapterView; items: ItemView[
         <div className="wk-card">
           <h4 className="wk-lbl">Prazo deste capítulo</h4>
           <p className="wk-deadline">
-            Tudo que é perdível aqui fecha: <b>{chapter.deadline}</b>.
+            Tudo que é perdível aqui fecha: <b>{walkPlain(chapter.deadline, chapter.deadlineScope)}</b>.
           </p>
         </div>
       ) : null}
@@ -95,7 +96,11 @@ export function WalkChapters({ chapters, screenshots }: WalkChaptersProps) {
               <div className="wk-col">
                 <GreenTrail>
                   {chapter.steps.map((step) => (
-                    <WalkStepView key={step.number} step={step} deadline={chapter.deadline} />
+                    <WalkStepView
+                      key={step.number}
+                      step={step}
+                      deadline={chapter.deadline ? walkPlain(chapter.deadline, chapter.deadlineScope) : null}
+                    />
                   ))}
                 </GreenTrail>
                 <ChapterLater items={items} />

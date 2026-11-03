@@ -66,6 +66,23 @@ describe("JSON-LD", () => {
   });
 });
 
+describe("HowTo of a walkthrough (R19)", () => {
+  it("search gets the boss name without the || markers", () => {
+    const howTo = howToJsonLd({
+      game: { slug: "pbz", name: "Phantom Blade Zero", summary: null },
+      facts: { timeTo100: null },
+      overview: ["Um soulslike com ||Hua, a Noiva Mortal|| no caminho."],
+      steps: [{ order: 1, title: "Até ||Hua, a Noiva Mortal||", body: "Derrote ||Hua, a Noiva Mortal|| na torre. ||O fim é um sonho.||" }],
+    });
+    const json = JSON.stringify(howTo);
+    expect(json).not.toContain("||");
+    expect(howTo).toMatchObject({
+      description: "Um soulslike com Hua, a Noiva Mortal no caminho.",
+      step: [{ name: "Até Hua, a Noiva Mortal", text: "Derrote Hua, a Noiva Mortal na torre. O fim é um sonho." }],
+    });
+  });
+});
+
 describe("sitemap and robots", () => {
   it("builds absolute entries for static pages, articles, games, guides and threads", () => {
     const at = new Date("2026-10-01T00:00:00Z");

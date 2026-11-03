@@ -335,16 +335,28 @@ function inline(text: string | null | undefined, max: number): string {
   return closeSpoilers(truncate(t, max));
 }
 
-/** Plain text: no markup at all (a name is gated by its item's `spoiler`, never by ||). */
+/** Text without **bold** / *italic* markers and line breaks. */
+const unmark = (text: string) =>
+  text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/\n+/g, " ");
+
+/**
+ * Plain text: no markup at all. A `||spoiler||` is unwrapped (its text stays, R19): names, chapter
+ * titles, region, overview and cover are shown as is and feed search, so the manual keeps bosses out
+ * of them instead.
+ */
 function plain(text: string | null | undefined, max: number): string {
-  return inline(
-    text
-      ?.replace(/\*\*([^*]+)\*\*/g, "$1")
-      .replace(/\*([^*]+)\*/g, "$1")
-      .replaceAll("||", "")
-      .replace(/\n+/g, " "),
-    max,
-  );
+  return text ? inline(unmark(text).replaceAll("||", ""), max) : "";
+}
+
+/**
+ * Plain text that keeps its closed `||spoiler||` spans: the roadmap phase titles and the chapter
+ * deadline, which the walkthrough page masks like step text (and search gets unwrapped).
+ */
+function plainWithSpoilers(text: string | null | undefined, max: number): string {
+  return text ? inline(unmark(text), max) : "";
 }
 
 function toBlocks(blocks: { tipo: string; texto: string }[]): ContentBlock[] {
@@ -625,7 +637,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     if (steps.length === 0) continue;
     const phaseKey = meta && phaseKeys.has(meta.fase) ? meta.fase : c.cleanup ? skel.phases[skel.phases.length - 1]!.key : lastPhase;
     lastPhase = phaseKey;
-    let deadline = c.deadlines.length > 0 ? plain(meta?.prazo, 200) : "";
+    let deadline = c.deadlines.length > 0 ? plainWithSpoilers(meta?.prazo, 200) : "";
     if (c.deadlines.length > 0 && !deadline) {
       repairs.push({ scope: FRAME_SCOPE, text: `O capítulo "${c.title}" (${c.key}) tem perdíveis, mas ficou sem o prazo (ponto de não retorno).` });
       deadline = plain(c.deadlines.join("; "), 200);
@@ -679,7 +691,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     const achievements = [
       ...new Set(chapters.filter((c) => c.phaseKey === p.key).flatMap((c) => c.steps.flatMap((s) => s.items.flatMap((i) => (i.achievement ? [i.achievement] : []))))),
     ].slice(0, 200);
-    return { key: p.key, title: plain(t?.titulo, 160) || plain(p.title, 160) || "Etapa", hours: NO_DATA, body: blocks.slice(0, 120), achievements };
+    return { key: p.key, title: plainWithSpoilers(t?.titulo, 160) || plain(p.title, 160) || "Etapa", hours: NO_DATA, body: blocks.slice(0, 120), achievements };
   });
 
   // --- ficha and cover ----------------------------------------------------------------------------------------

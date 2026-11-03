@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Blocks } from "@/lib/content/render";
 import { walkInline } from "./inline";
 import { SpoilerCallout, SpoilerItemName } from "./spoilers";
@@ -71,7 +72,7 @@ function StepBlock({ block, scope }: { block: BlockView; scope: string }) {
 }
 
 /** The warning before a step with missables: what is lost, and the chapter's deadline. */
-function MissableWarning({ items, deadline }: { items: ItemView[]; deadline: string | null }) {
+function MissableWarning({ items, deadline }: { items: ItemView[]; deadline: ReactNode }) {
   return (
     <aside className="wk-callout wk-warn" aria-label="Aviso de perdível">
       <p>
@@ -93,7 +94,8 @@ function MissableWarning({ items, deadline }: { items: ItemView[]; deadline: str
   );
 }
 
-export function WalkStepView({ step, deadline }: { step: StepView; deadline: string | null }) {
+/** `deadline`: the chapter's point of no return, already rendered (its spoiler spans gated). */
+export function WalkStepView({ step, deadline }: { step: StepView; deadline: ReactNode }) {
   const missables = step.items.filter((item) => item.missable);
   return (
     <>

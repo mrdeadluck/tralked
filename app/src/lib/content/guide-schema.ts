@@ -239,6 +239,7 @@ export type GuideNotePayload = z.output<typeof guideAchievementNoteSchema>;
 /**
  * Plain text of blocks, for the plain-text columns (GuideStep.body, GuideAchievementNote.tip)
  * that pages without a block renderer still read. Markup is stripped; media blocks are skipped.
+ * Inline `||spoiler||` spans are kept (whoever shows the text masks or unwraps them).
  */
 export function blocksToPlainText(blocks: ContentBlock[]): string {
   const parts: string[] = [];
@@ -248,8 +249,14 @@ export function blocksToPlainText(blocks: ContentBlock[]): string {
         parts.push(block.text);
         break;
       case "paragraph":
-      case "callout":
         parts.push(stripInline(block.text));
+        break;
+      case "callout":
+        // A spoiler callout stays a spoiler in plain text: one `||…||` span, which the walkthrough's
+        // roadmap masks and search surfaces unwrap.
+        parts.push(
+          block.tone === "spoiler" ? `||${stripInline(block.text).replaceAll("||", "").trim()}||` : stripInline(block.text),
+        );
         break;
       case "quote":
         parts.push(stripInline(block.text) + (block.author ? ` (${block.author})` : ""));

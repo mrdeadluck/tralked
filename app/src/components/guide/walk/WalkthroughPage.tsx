@@ -40,7 +40,7 @@ export function WalkthroughPage({ guide, user = null, report = null, preview = f
   const { walkthrough, walk } = guide;
   if (!walkthrough || !walk) return null;
   const returnTo = `/jogos/${guide.game.slug}/guia`;
-  const view = walkView(walkthrough, walk, guide.steps.map((s) => s.key));
+  const view = walkView(walkthrough, walk, guide.steps);
   const items = view.chapters.flatMap((c) => c.steps.flatMap((s) => s.items));
   const journey: JourneyChapter[] = view.chapters.map((c) => {
     const own = c.steps.flatMap((s) => s.items);
@@ -73,7 +73,7 @@ export function WalkthroughPage({ guide, user = null, report = null, preview = f
                 </section>
               ) : null}
               <ReadFirst notes={view.notes} missables={view.missables} />
-              <PhaseRoadmap steps={guide.steps} walkthrough={walkthrough} />
+              <PhaseRoadmap steps={guide.steps} texts={view.roadmap} walkthrough={walkthrough} />
             </div>
             <WalkSidebar
               guide={guide}

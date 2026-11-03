@@ -60,7 +60,9 @@ export type ChapterView = {
   region: string | null;
   hours: string;
   sceneImage: string | null;
+  /** Masked like step text: its spans are at `deadlineScope`. */
   deadline: string | null;
+  deadlineScope: string;
   steps: StepView[];
 };
 
@@ -68,7 +70,16 @@ export type NoteView = { title: string; tone: "aviso" | "info"; spoiler: boolean
 
 export type MissableView = { item: ItemView; chapter: string };
 
-export type WalkView = { notes: NoteView[]; chapters: ChapterView[]; missables: MissableView[] };
+/** A roadmap phase (the guide's GuideStep) as the page reads it: plain text, spans kept. */
+export type PhaseText = { title: string; body: string };
+
+export type WalkView = {
+  notes: NoteView[];
+  chapters: ChapterView[];
+  missables: MissableView[];
+  /** The roadmap phases, masked (their spans at phaseTitleScope / phaseBodyScope). */
+  roadmap: PhaseText[];
+};
 
 /** What revealWalkSpoilers sends once the reader asks for spoilers. */
 export type GatedItem = {
@@ -93,9 +104,15 @@ export type WalkSpoilers = {
 
 const calloutId = (c: number, s: number, b: number) => `${c}.${s}.${b}`;
 
-/** Span scopes: a read-first note, an item's location, a block's text (or list item / table cell). */
+/**
+ * Span scopes: a read-first note, an item's location, a chapter's deadline, a roadmap phase's title
+ * and body, a block's text (or list item / table cell).
+ */
 export const noteScope = (index: number) => `n${index}`;
 export const locationScope = (ref: string) => `l:${ref}`;
+export const deadlineScope = (chapter: number) => `d${chapter}`;
+export const phaseTitleScope = (phase: number) => `rt${phase}`;
+export const phaseBodyScope = (phase: number) => `rb${phase}`;
 /** Key of the `index`-th span of the text at `scope`. */
 export const spanKey = (scope: string, index: number | string) => `${scope}#${index}`;
 
@@ -169,7 +186,12 @@ function blockView(block: ContentBlock, id: string): BlockView {
 }
 
 /** The masked page: what every component of the walkthrough renders from. */
-export function walkView(walkthrough: Walkthrough, walk: WalkExtras, phaseKeys: (string | null)[]): WalkView {
+export function walkView(
+  walkthrough: Walkthrough,
+  walk: WalkExtras,
+  phases: (PhaseText & { key: string | null })[],
+): WalkView {
+  const phaseKeys = phases.map((p) => p.key);
   const chapters = walkthrough.chapters.map<ChapterView>((chapter, c) => ({
     key: chapter.key,
     phase: phaseKeys.indexOf(chapter.phaseKey) + 1,
@@ -177,7 +199,8 @@ export function walkView(walkthrough: Walkthrough, walk: WalkExtras, phaseKeys: 
     region: chapter.region ?? null,
     hours: chapter.hours,
     sceneImage: chapter.sceneImage ?? null,
-    deadline: chapter.deadline ?? null,
+    deadline: chapter.deadline ? maskSpans(chapter.deadline) : null,
+    deadlineScope: deadlineScope(c),
     steps: chapter.steps.map((step, s) => ({
       number: `${c + 1}.${s + 1}`,
       scope: `${c}.${s}`,
@@ -193,6 +216,7 @@ export function walkView(walkthrough: Walkthrough, walk: WalkExtras, phaseKeys: 
       text: note.spoiler ? null : maskSpans(note.text),
     })),
     chapters,
+    roadmap: phases.map((p) => ({ title: maskSpans(p.title), body: maskSpans(p.body) })),
     missables: chapters.flatMap((chapter) =>
       chapter.steps.flatMap((step) =>
         step.items.filter((item) => item.missable).map((item) => ({ item, chapter: chapter.title })),
@@ -223,6 +247,7 @@ export type HiddenText = { name: string; description: string | null; iconUrl: st
 export function walkSpoilers(
   walkthrough: Walkthrough,
   achievements: Record<string, HiddenText & { hidden: boolean }>,
+  phases: PhaseText[] = [],
 ): WalkSpoilers {
   const out: WalkSpoilers = { notes: {}, callouts: {}, items: {}, spans: {} };
   const spans = (scope: string, text: string) => {
@@ -233,7 +258,12 @@ export function walkSpoilers(
     if (note.spoiler) out.notes[String(i)] = note.text;
     else spans(noteScope(i), note.text);
   });
-  walkthrough.chapters.forEach((chapter, c) =>
+  phases.forEach((p, i) => {
+    spans(phaseTitleScope(i), p.title);
+    spans(phaseBodyScope(i), p.body);
+  });
+  walkthrough.chapters.forEach((chapter, c) => {
+    if (chapter.deadline) spans(deadlineScope(c), chapter.deadline);
     chapter.steps.forEach((step, s) => {
       step.body.forEach((block, b) => {
         const id = calloutId(c, s, b);
@@ -257,7 +287,7 @@ export function walkSpoilers(
             : null,
         };
       }
-    }),
-  );
+    });
+  });
   return out;
 }

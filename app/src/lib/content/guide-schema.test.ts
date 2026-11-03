@@ -75,4 +75,13 @@ describe("blocksToPlainText", () => {
       ]),
     ).toBe("Título Use o escudo e veja. um; dois Cuidado");
   });
+
+  it("keeps ||spoiler|| spans and turns a spoiler callout into one", () => {
+    expect(
+      blocksToPlainText([
+        { type: "paragraph", text: "Derrote ||**Hua**|| na torre." },
+        { type: "callout", tone: "spoiler", text: "O **Imperador** é ||o pai||." },
+      ]),
+    ).toBe("Derrote ||Hua|| na torre. ||O Imperador é o pai.||");
+  });
 });

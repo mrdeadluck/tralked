@@ -243,6 +243,38 @@ describe("writeGuide", () => {
     expect(texts).not.toContain("Nome ||");
   });
 
+  it("R19: roadmap e prazo guardam ||…|| para o site esconder; campos à vista só perdem as marcas", async () => {
+    const { ai } = fakeAi({
+      frame: (out) => {
+        out.etapas = out.etapas.map((e) => ({
+          ...e,
+          titulo: `Até ||o Guardião||`,
+          blocos: [{ tipo: "paragrafo" as const, texto: "Siga até ||**o Guardião**|| e volte." }],
+        }));
+        out.capitulos = out.capitulos.map((c) => ({ ...c, titulo: `${c.titulo} ||Guardião||`, prazo: "Antes de ||o Guardião||" }));
+        out.visaoGeral = ["Um jogo curto com ||o Guardião|| no fim."];
+      },
+    });
+    const payload = await writeGuide(ai, makeDossier(), GAME, "live");
+    expect(guidePayloadSchema.safeParse(payload).error?.issues).toBeUndefined();
+
+    // The roadmap and the deadline keep the span: the walkthrough page masks it there.
+    for (const step of payload.steps) {
+      expect(step.title).toBe("Até ||o Guardião||");
+      expect(step.body).toEqual([{ type: "paragraph", text: "Siga até ||**o Guardião**|| e volte." }]);
+    }
+    const withDeadline = payload.walkthrough.chapters.filter((c) => c.deadline);
+    expect(withDeadline.length).toBeGreaterThan(0);
+    for (const c of withDeadline) expect(c.deadline).toBe("Antes de ||o Guardião||");
+
+    // Fields shown as is lose the markers only (the name stays: search finds it, the manual keeps it out).
+    for (const c of payload.walkthrough.chapters) {
+      expect(c.title).not.toContain("||");
+      if (c.title.startsWith("Capítulo")) expect(c.title).toMatch(/ Guardião$/);
+    }
+    expect(payload.overview).toEqual(["Um jogo curto com o Guardião no fim."]);
+  });
+
   it("item com uma fonte sai com review true", async () => {
     const payload = await writeGuide(fakeAi().ai, makeDossier(), GAME, "live");
     const items = payload.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items));

@@ -11,3 +11,14 @@ import { spanKey } from "./view";
 export function walkInline(text: string, scope: string): ReactNode[] {
   return inlineMarkup(text, { spoiler: (index) => <SpoilerSpan id={spanKey(scope, index)} /> });
 }
+
+/**
+ * Plain text of the page (a roadmap phase, a chapter's deadline) with a gate for each masked
+ * `||spoiler||` span and no other markup.
+ */
+export function walkPlain(text: string, scope: string): ReactNode[] {
+  // split() with a capture group alternates text and span indexes: text, index, text, …
+  return text.split(/\|\|(\d+)\|\|/).map((part, i) =>
+    i % 2 === 0 ? part : <SpoilerSpan key={i} id={spanKey(scope, part)} />,
+  );
+}

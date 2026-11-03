@@ -1,3 +1,4 @@
+import { unwrapSpoilers } from "@/lib/content/schema";
 import { env } from "@/lib/env";
 
 /*
@@ -116,22 +117,27 @@ export type HowToInput = {
   steps: { order: number; title: string; body: string }[];
 };
 
-/** HowTo for /jogos/[slug]/guia: the route to 100% as ordered steps. */
+const unwrap = (text: string | undefined) => (text === undefined ? undefined : unwrapSpoilers(text));
+
+/**
+ * HowTo for /jogos/[slug]/guia: the route to 100% as ordered steps. Walkthrough spoilers (`||…||`)
+ * are unwrapped: search may index a boss name (R19); the page itself keeps it masked.
+ */
 export function howToJsonLd(guide: HowToInput): JsonLdObject {
   const url = absoluteUrl(`/jogos/${guide.game.slug}/guia`);
   return {
     "@context": "https://schema.org",
     "@type": "HowTo",
     name: `Guia de conquistas 100%: ${guide.game.name}`,
-    description: guide.overview[0] ?? guide.game.summary ?? undefined,
+    description: unwrap(guide.overview[0] ?? guide.game.summary ?? undefined),
     url,
     totalTime: guide.facts.timeTo100 ? `PT${Math.max(1, Math.round(guide.facts.timeTo100.minutes / 60))}H` : undefined,
     about: { "@type": "VideoGame", name: guide.game.name, url: absoluteUrl(`/jogos/${guide.game.slug}`) },
     step: guide.steps.map((step, i) => ({
       "@type": "HowToStep",
       position: i + 1,
-      name: step.title,
-      text: step.body || step.title,
+      name: unwrapSpoilers(step.title),
+      text: unwrapSpoilers(step.body || step.title),
       url: `${url}#g-rota`,
     })),
     inLanguage: "pt-BR",

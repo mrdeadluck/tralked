@@ -51,7 +51,7 @@ function guide() {
   };
 }
 
-const view = walkView(walkthrough, pbzGuide().walk!, ["ate-mirage-estate"]);
+const view = walkView(walkthrough, pbzGuide().walk!, pbzGuide().steps);
 const itemsOf = () => view.chapters.flatMap((c) => c.steps.flatMap((s) => s.items));
 const item = (ref: string): ItemView => itemsOf().find((i) => i.ref === ref)!;
 
@@ -265,6 +265,39 @@ describe("spoilers fora da página (R13, R16)", () => {
     expect(await within(text).findByText("Hua, a Noiva Mortal")).toBeInTheDocument();
     // Only this span: the boss item below stays closed.
     expect(screen.queryByText("Chefe opcional · Hua, a Noiva Mortal")).toBeNull();
+  });
+});
+
+describe("roadmap e prazo com spoiler (R19)", () => {
+  const HIDDEN = {
+    ACH_SCARLET_SPECTRAL_BLADE: { name: "Lâmina Espectral Escarlate", description: null, iconUrl: null, hidden: true },
+  };
+
+  /** The robot named the boss in a roadmap phase and in the chapter's deadline, inside ||…||. */
+  function withBossInRoadmap() {
+    const g = guide();
+    const walkthrough = structuredClone(g.walkthrough);
+    walkthrough.chapters[0].deadline = "Antes de ||Hua, a Noiva Mortal||";
+    const steps = [{ ...g.steps[0], title: "Até ||Hua, a Noiva Mortal||", body: "Derrote ||Hua, a Noiva Mortal|| na torre." }];
+    return { ...g, walkthrough, steps };
+  }
+
+  it("roadmap e prazo visíveis com spoilers desligados não mostram o nome nem ||", async () => {
+    const g = withBossInRoadmap();
+    vi.mocked(revealWalkSpoilers).mockImplementation(async () => walkSpoilers(g.walkthrough, HIDDEN, g.steps));
+    expect(shipped(<WalkthroughPage guide={g} />).join(" ")).not.toContain("Noiva Mortal");
+
+    const { container } = render(<WalkthroughPage guide={g} />);
+    const road = screen.getByRole("region", { name: "O caminho até o Tralked" });
+    expect(container.textContent).not.toContain("Noiva Mortal");
+    expect(container.textContent).not.toContain("||");
+    expect(road).toHaveTextContent("Derrote");
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Spoilers/ })[0]);
+    await waitFor(() => expect(road).toHaveTextContent("Até Hua, a Noiva Mortal"));
+    expect(road).toHaveTextContent("Derrote Hua, a Noiva Mortal na torre.");
+    expect(screen.getByText(/Tudo que é perdível aqui fecha/)).toHaveTextContent("Antes de Hua, a Noiva Mortal");
+    expect(container.textContent).not.toContain("||");
   });
 });
 

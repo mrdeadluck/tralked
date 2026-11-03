@@ -277,7 +277,7 @@ Parágrafos, itens de lista, citações, avisos e células de tabela aceitam uma
 - `**negrito**`
 - `*itálico*`
 - `[texto](https://…)`, com link http ou https
-- `||spoiler||`, só nos detonados (guia formato 2): um trecho escondido até o leitor ligar os spoilers, como o nome de um chefe, uma reviravolta ou o nome de uma conquista oculta no meio do texto. Vale também nos textos do "leia antes" e no `location` dos itens. Todo `||` precisa fechar; fora dos detonados, `||` é texto comum.
+- `||spoiler||`, só nos detonados (guia formato 2): um trecho escondido até o leitor ligar os spoilers, como o nome de um chefe, uma reviravolta ou o nome de uma conquista oculta no meio do texto. Vale também nos textos do "leia antes", no `location` dos itens, no `deadline` dos capítulos e nas etapas do roadmap (título e texto), que a página também esconde. Nos dados para buscadores (JSON-LD) o trecho sai sem as marcas, com o texto. Nos outros campos de texto puro (nomes, títulos de capítulo, capa, visão geral) `||` não esconde nada: não ponha spoiler ali. Todo `||` precisa fechar; fora dos detonados, `||` é texto comum.
 
 Títulos, legendas e créditos são texto puro.
 

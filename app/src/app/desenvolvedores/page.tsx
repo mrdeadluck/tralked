@@ -342,8 +342,9 @@ export default function DesenvolvedoresPage() {
             Parágrafos, itens de lista, citações, avisos e células de tabela aceitam marcação inline restrita:{" "}
             <C>**negrito**</C>, <C>*itálico*</C> e <C>[texto](https://…)</C>, com link http ou https. Nos
             detonados (guia formato 2), <C>||spoiler||</C> esconde um trecho até o leitor ligar os spoilers (nome de
-            chefe, reviravolta, conquista oculta), também no &quot;leia antes&quot; e no <C>location</C> dos itens;
-            todo <C>||</C> precisa fechar. Títulos,
+            chefe, reviravolta, conquista oculta), também no &quot;leia antes&quot;, no <C>location</C> dos itens, no{" "}
+            <C>deadline</C> dos capítulos e nas etapas do roadmap; no JSON-LD para buscadores o trecho sai sem as
+            marcas. Todo <C>||</C> precisa fechar. Títulos,
             legendas e créditos são texto puro. Quebras de linha <C>\r\n</C> e <C>\r</C> são convertidas em{" "}
             <C>\n</C> antes da validação; outros caracteres de controle, exceto tabulação, são recusados.
           </p>

@@ -18,6 +18,14 @@ import { isSafeHttpUrl } from "./url";
  */
 export const INLINE_SPOILER = /\|\|(?=\S)(.+?)\|\|/g;
 
+/**
+ * Text with its `||spoiler||` markers taken out and the spoiler's text kept: for search surfaces
+ * (JSON-LD), which the reader does not see on screen (R19: a boss name may be found by search).
+ */
+export function unwrapSpoilers(text: string): string {
+  return text.includes("||") ? text.replace(INLINE_SPOILER, "$1").replaceAll("||", "") : text;
+}
+
 /** `[label](target)`: the only link syntax. Shared with the renderer so both read links alike. */
 export const INLINE_LINK = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 

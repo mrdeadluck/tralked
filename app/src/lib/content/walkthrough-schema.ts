@@ -11,8 +11,9 @@ import { contentBlocksSchema, INLINE_SPOILER, inlineText, plainText, STEP_KEY_PA
  * so a repeated key anywhere would tick two things at once.
  *
  * Inline text (step paragraphs, lists, quotes, callouts and table cells, read-first notes, item
- * locations) may wrap a spoiler in `||…||` (a boss name, a twist, a hidden achievement's name):
- * the page leaves it out until the reader turns spoilers on. Every `||` must close.
+ * locations) and a chapter's `deadline` may wrap a spoiler in `||…||` (a boss name, a twist, a
+ * hidden achievement's name): the page leaves it out until the reader turns spoilers on (the
+ * guide's roadmap steps too). Every `||` must close.
  */
 
 export const WALK_ITEM_KINDS = ["collectible", "achievement", "mission", "key_item", "boss", "other"] as const;
@@ -158,6 +159,7 @@ export const walkthroughSchema = z
     w.readFirst.forEach((note, n) => spoilers(note.text, ["readFirst", n, "text"]));
     w.chapters.forEach((chapter, c) => {
       claim(chapter.key, ["chapters", c, "key"]);
+      spoilers(chapter.deadline, ["chapters", c, "deadline"]);
       chapter.steps.forEach((step, s) => {
         claim(step.key, ["chapters", c, "steps", s, "key"]);
         step.body.forEach((block, b) =>
