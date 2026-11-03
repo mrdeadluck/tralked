@@ -250,6 +250,22 @@ describe("PATCH of a published format-2 guide", () => {
     expect(await prisma.guidePendingUpdate.count({ where: { guideId: id } })).toBe(0);
   });
 
+  it("a steps patch that cannot apply is refused with 422 /steps, not queued", async () => {
+    // A published format-1 guide with one keyless step.
+    const game = await makeGame();
+    const classic = { game: { slug: game.slug }, version: "v1.0", facts: payload(game.slug, {}).facts, steps: [{ title: "T", hours: "1 h", body: [{ type: "paragraph", text: "x" }], achievements: [] }] };
+    const created = await json(await guides.POST(call("POST", "/api/v1/guides", { key: keys.robot, body: classic })));
+    await setGuideStatus({ id: created.id, status: "published" }, editorId);
+    const id = created.id as string;
+    const step = (key: string) => ({ key, title: "T", hours: "1 h", body: [{ type: "paragraph", text: "x" }], achievements: [] });
+    // Stored: one step "fase-1". Two keyless steps change the count.
+    const keyless = [{ ...step("a"), key: undefined }, { ...step("b"), key: undefined }];
+    const response = await guideById.PATCH(call("PATCH", `/api/v1/guides/${id}`, { key: keys.robot, body: { steps: keyless } }), params(id));
+    expect(response.status).toBe(422);
+    expect(((await json(response)).error.issues as { path: string }[]).map((i) => i.path)).toEqual(["/steps"]);
+    expect(await prisma.guidePendingUpdate.count({ where: { guideId: id } })).toBe(0);
+  });
+
   it("applyPendingUpdate aplica e salva GuideVersion", async () => {
     const { id, game } = await publishedGuide();
     const [s0, s1] = FULL();

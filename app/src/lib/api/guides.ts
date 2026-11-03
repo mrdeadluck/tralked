@@ -543,6 +543,11 @@ export async function updateGuide(ctx: WriteContext, id: string): Promise<WriteS
   try {
     if (pending) {
       return await prisma.$transaction(async (tx): Promise<WriteSuccess | WriteFailure> => {
+        if (patch.steps) {
+          // Read-only: a patch whose steps cannot apply is refused now, not when the editor approves.
+          const planned = await planBotSteps(tx, id, patch.steps);
+          if (!planned.ok) return fail("validation_failed", "As etapas não batem com as do guia.", [planned.issue], id);
+        }
         const { pendingId } = await queuePendingUpdate(tx, id, ctx.key.id, ctx.body as Prisma.InputJsonValue);
         const success: WriteSuccess = {
           ok: true,
