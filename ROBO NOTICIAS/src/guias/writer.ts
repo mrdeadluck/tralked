@@ -839,8 +839,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   const cleanupStepOf = new Map(skel.chapters.filter((c) => c.cleanup).flatMap((c) => c.steps.flatMap((s) => s.items.map((i) => [i.key, s.key] as const))));
   const fallbackSources = (): WalkSource[] =>
     game.game.steamAppId ? [{ name: "Steam", url: `https://steamcommunity.com/stats/${game.game.steamAppId}/achievements` }] : [];
-  const compatSteamOnly = dossier.facts.compat === "steam_only";
-  const notOnPsn = steamOnlyApiNames(dossier);
+  const alsoOnOf = alsoOnFor(dossier);
 
   const buildItem = (s: SkelItem, stepKey: string): WalkItem => {
     const t = itemText.get(s.key);
@@ -882,7 +881,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       spoiler: Boolean(t?.spoiler || a?.hidden || i?.kind.toLowerCase() === "boss"),
       ...(a && steamApiNames.has(a.apiName) ? { achievement: a.apiName } : {}),
       countsFor: [...new Set(i?.countsFor ?? [])].filter((x) => steamApiNames.has(x)).slice(0, 20),
-      alsoOn: a && compatSteamOnly && !notOnPsn.has(a.apiName) ? ["psn"] : [],
+      alsoOn: alsoOnOf(a?.apiName),
       sources: sources.length > 0 ? sources : fallbackSources(),
       // R20: a deadline the code assumed (its own chapter) is reviewed too, and so are a revisit placed by the code,
       // a number the code gave (R28), a "collect N" link by a type that only loosely is the thing (Task 18) and a
@@ -1366,4 +1365,23 @@ export async function writeAndCheckGuide(
   const internal = done.internalErrors.length > 0 ? { internalErrors: done.internalErrors } : {};
   if (done.ok) return { ok: true, payload: done.payload, ...internal, draft: done };
   return { ok: false, problems: [...new Set(done.problems.map((p) => p.text))], payload: done.payload, ...internal, draft: done };
+}
+
+/**
+ * The platforms besides Steam an achievement item also counts on: PlayStation when the guide is Steam-only and the
+ * achievement is on the PSN list (`steamOnlyApiNames`). A cached writing gets it again (`refreshAlsoOn`).
+ */
+export function alsoOnFor(dossier: Pick<GuideDossier, "achievements" | "facts">): (apiName: string | undefined) => "psn"[] {
+  const compatSteamOnly = dossier.facts.compat === "steam_only";
+  const notOnPsn = steamOnlyApiNames(dossier);
+  return (apiName) => (apiName && compatSteamOnly && !notOnPsn.has(apiName) ? ["psn"] : []);
+}
+
+/**
+ * A writing from the cache keeps the `alsoOn` its assembly gave, and the cache key hashes the dossier, not this code:
+ * set it again from the dossier (PBZ, 2026-11-03: 63 achievements were tagged as on PlayStation, the list has 35).
+ */
+export function refreshAlsoOn(payload: GuidePayloadV2, dossier: Pick<GuideDossier, "achievements" | "facts">): void {
+  const alsoOnOf = alsoOnFor(dossier);
+  for (const c of payload.walkthrough.chapters) for (const st of c.steps) for (const i of st.items) i.alsoOn = alsoOnOf(i.achievement);
 }

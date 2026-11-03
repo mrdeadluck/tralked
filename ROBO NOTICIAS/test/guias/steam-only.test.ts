@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDossier, psnListSize, steamOnlyApiNames, type GuideDossierSource, type SteamAchievement } from "../../src/guias/dossier.js";
 import { gate } from "../../src/guias/gate.js";
 import { buildReport } from "../../src/guias/report.js";
-import { writeGuide } from "../../src/guias/writer.js";
+import { refreshAlsoOn, writeGuide } from "../../src/guias/writer.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
 import { fakeAi } from "./helpers-writer.js";
 
@@ -101,5 +101,12 @@ describe("conquistas fora da lista da PSN", () => {
     const alsoOn = (apiName: string) => items.find((i) => i.achievement === apiName)?.alsoOn;
     expect(alsoOn("ACH_BELLS")).toEqual(["psn"]);
     expect(alsoOn("ACH_ARENA")).toEqual([]);
+
+    // A writing reused from the cache gets its tags again from the dossier (its key does not see this code).
+    for (const i of items) i.alsoOn = i.achievement ? ["psn"] : [];
+    refreshAlsoOn(payload, d);
+    expect(alsoOn("ACH_BELLS")).toEqual(["psn"]);
+    expect(alsoOn("ACH_ARENA")).toEqual([]);
+    expect(items.filter((i) => !i.achievement).every((i) => i.alsoOn.length === 0)).toBe(true);
   });
 });

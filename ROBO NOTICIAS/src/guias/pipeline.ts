@@ -55,7 +55,7 @@ import { readSteamAliases, steamAliasUrl, steamLanguagesIn, type AliasLanguage }
 import { createWebSearch, type SearchHit } from "./websearch.js";
 import type { GuideProblem } from "./checker.js";
 import { carriedDraft, groupProblems, problemHistory, resumableDraft, saveDraft, writeReportFile } from "./drafts.js";
-import { plain, writeAndCheckGuide, type GuideWriteResult } from "./writer.js";
+import { plain, refreshAlsoOn, writeAndCheckGuide, type GuideWriteResult } from "./writer.js";
 import { earlierBaseKeys, earlierDraftKeys, readWriting, saveWriting, writingBaseKey, writingKey } from "./writing-cache.js";
 
 /**
@@ -552,6 +552,7 @@ async function processRequest(run: Run): Promise<Final> {
   await run.send({ status: "writing" });
   let written: GuideWriteResult;
   if (reused) {
+    refreshAlsoOn(reused.payload, toWrite);
     written = { ok: true, payload: reused.payload, ...(reused.internalErrors.length > 0 ? { internalErrors: reused.internalErrors } : {}) };
     progress.notes.push("escrita reaproveitada do cache");
     deps.log(`guia: escrita reaproveitada do cache (salva em ${reused.savedAt}); sem chamar a IA`);
