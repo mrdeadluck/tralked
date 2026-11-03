@@ -9,6 +9,7 @@ import { formatHours } from "@/components/profile/format";
 import { PrivateProfile, SectionSkeleton } from "@/components/profile/PrivateProfile";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
+import { YearChart } from "@/components/profile/YearChart";
 import type { PlatformId } from "@/lib/engine/trophies";
 import { profileAccess, sectionMetadata } from "@/lib/profile/access";
 import { getProfileStats, getProfileSummary, RARITY_TIERS } from "@/lib/profile/queries";
@@ -60,34 +61,41 @@ async function ProfileStats({ header }: { header: PlayerHeader }) {
     ["Conquistas", nf(stats.achievements)],
   ];
 
-  return (
-    <div className="flex flex-col gap-6">
-      <ProfileHeader summary={summary} section="Estatísticas" />
-      <ProfileTabs handle={header.handle} active="estatisticas" />
+  const peakYear = stats.achievementsByYear.reduce<{ year: number; count: number } | null>(
+    (best, r) => (!best || r.count > best.count ? r : best),
+    null,
+  );
 
-      <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-[4px] border border-line bg-line min-[641px]:grid-cols-3 min-[1000px]:grid-cols-6">
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col">
+        <ProfileHeader summary={summary} section="Estatísticas" />
+        <ProfileTabs handle={header.handle} active="estatisticas" summary={summary} />
+      </div>
+
+      <dl className="m-0 grid grid-cols-2 gap-0.5 min-[641px]:grid-cols-3 min-[1000px]:grid-cols-6">
         {tiles.map(([label, value, note]) => (
-          <div key={label} className="bg-surface px-4 py-3.5">
-            <dt className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">{label}</dt>
-            <dd className="m-0 mt-1 text-[26px] leading-none font-extrabold font-stretch-[112%] tabular-nums">
+          <div key={label} className="bg-surface p-4">
+            <dt className="tk-lbl">{label}</dt>
+            <dd className="m-0 mt-1 text-[30px] leading-none font-black font-stretch-[112%] tabular-nums">
               {value}
-              {note ? <small className="mt-1.5 block font-mono text-xs font-normal text-dim">{note}</small> : null}
+              {note ? <small className="mt-1.5 block text-[13px] font-normal text-muted">{note}</small> : null}
             </dd>
           </div>
         ))}
       </dl>
 
       {playtime.mostPlayed ? (
-        <p className="rounded-[4px] border border-line bg-surface px-5 py-4 text-[15px] text-text-2">
+        <p className="bg-surface px-[18px] py-3.5 text-[15px] text-text-2">
           Jogo mais jogado:{" "}
           <Link href={`/jogos/${playtime.mostPlayed.slug}`} className="font-extrabold text-text hover:text-acc">
             {playtime.mostPlayed.name}
           </Link>{" "}
-          <span className="font-mono text-sm text-acc">{formatHours(playtime.mostPlayed.playtimeMin)}</span>
+          <b className="font-extrabold text-acc tabular-nums">{formatHours(playtime.mostPlayed.playtimeMin)}</b>
         </p>
       ) : null}
 
-      <div className="grid gap-4 min-[901px]:grid-cols-2">
+      <div className="grid gap-4 min-[901px]:grid-cols-2 min-[1101px]:grid-cols-3">
         <BarList
           title="Horas por plataforma"
           empty="Nenhuma hora registrada pelas plataformas ainda."
@@ -109,11 +117,6 @@ async function ProfileStats({ header }: { header: PlayerHeader }) {
           }))}
         />
         <BarList
-          title="Conquistas por ano"
-          empty="Nenhuma conquista ainda."
-          bars={stats.achievementsByYear.map((r) => ({ label: String(r.year), value: r.count, display: nf(r.count) }))}
-        />
-        <BarList
           title="Conquistas por raridade"
           empty="Nenhuma conquista ainda."
           bars={RARITY_TIERS.map((r) => ({
@@ -124,6 +127,18 @@ async function ProfileStats({ header }: { header: PlayerHeader }) {
           }))}
         />
       </div>
+
+      <section className="relative bg-surface p-[18px] tk-cut before:absolute before:top-0 before:right-[10px] before:left-0 before:h-[2px] before:bg-line-2 before:content-['']">
+        <div className="mb-3.5 flex flex-wrap items-baseline justify-between gap-x-3.5 gap-y-1.5">
+          <h3 className="text-[17px] leading-tight font-extrabold font-stretch-[80%] tracking-[0.06em] uppercase">Conquistas por ano</h3>
+          {peakYear ? (
+            <span className="text-[13.5px] text-muted">
+              Pico em {peakYear.year}: {nf(peakYear.count)}
+            </span>
+          ) : null}
+        </div>
+        <YearChart rows={stats.achievementsByYear} />
+      </section>
     </div>
   );
 }

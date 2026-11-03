@@ -2,55 +2,65 @@ import Link from "next/link";
 import { formatAgo } from "@/components/character/format";
 import { formatHours } from "@/components/profile/format";
 import { GameCover } from "@/components/games/GameCover";
-import { SectionHead } from "@/components/ui/SectionHead";
 import type { RecentlyPlayedGame } from "@/lib/library/queries";
-import { PLATFORM_LABEL, PLATFORM_TOKEN } from "./platforms";
+import { Panel, PANEL_LINK } from "./Panel";
+import { PLATFORM_LABEL } from "./platforms";
 
 type RecentlyPlayedProps = { games: RecentlyPlayedGame[]; now: Date; libraryHref: string };
 
 /** "Jogou recentemente": os últimos jogos jogados, do mais recente para o mais antigo. */
 export function RecentlyPlayed({ games, now, libraryHref }: RecentlyPlayedProps) {
   return (
-    <section className="@container flex min-w-0 flex-col">
-      <SectionHead title="Jogou recentemente" aside={<Link href={libraryHref}>Ver biblioteca →</Link>} />
+    <Panel
+      title="Jogou recentemente"
+      aside={
+        <Link href={libraryHref} className={PANEL_LINK}>
+          Ver biblioteca
+        </Link>
+      }
+    >
       {games.length === 0 ? (
-        <p className="pt-5 text-sm text-muted">
+        <p className="text-sm text-muted">
           Nenhuma partida recente ainda. Os jogos aparecem aqui depois da próxima sincronização.
         </p>
       ) : (
-        // Six games fill whole rows at every width: 2, 3 or 6 per row (by the column, not the screen).
-        <ul className="m-0 grid list-none grid-cols-2 gap-4 p-0 pt-5 @min-[440px]:grid-cols-3 @min-[820px]:grid-cols-6">
+        <ul className="m-0 grid list-none gap-0.5 p-0">
           {games.map((game) => (
             <li key={game.slug}>
               <Link
                 href={`/jogos/${game.slug}`}
-                className="flex h-full flex-col overflow-hidden rounded-[4px] border border-line bg-surface hover:border-line-2"
+                className="group grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 bg-surface-2 p-2 transition-colors duration-150 hover:bg-hover-2"
               >
                 <GameCover
                   name={game.name}
                   coverUrl={game.coverUrl}
                   steamAppId={game.steamAppId}
                   wideUrl={game.heroUrl}
-                  ratio="3 / 4"
+                  ratio="2 / 3"
                   alt=""
                   className="rounded-none"
-                  width={200}
-                  sizes="200px"
+                  width={44}
+                  sizes="44px"
                 />
-                <div className="flex flex-1 flex-col gap-1 px-3 pt-2.5 pb-3">
-                  <h3 className="line-clamp-2 text-[14px] leading-[1.2] font-bold">{game.name}</h3>
-                  <p className="mt-auto font-mono text-xs text-dim">
-                    <span style={{ color: PLATFORM_TOKEN[game.platform] }}>{PLATFORM_LABEL[game.platform]}</span>
-                    {" · "}
-                    {formatAgo(game.lastPlayedAt, now)}
-                    {game.playtimeMin > 0 ? ` · ${formatHours(game.playtimeMin)}` : null}
-                  </p>
-                </div>
+                <span className="min-w-0">
+                  <strong className="line-clamp-2 text-sm leading-tight font-bold group-hover:text-acc">{game.name}</strong>
+                  <small className="text-[12.5px] text-muted">
+                    {PLATFORM_LABEL[game.platform]} · {formatAgo(game.lastPlayedAt, now)}
+                  </small>
+                </span>
+                {game.playtimeMin > 0 ? (
+                  <span className="text-right text-sm font-extrabold whitespace-nowrap tabular-nums">
+                    {formatHours(game.playtimeMin)}
+                    <small className="block text-[12.5px] font-medium text-muted">jogadas</small>
+                  </span>
+                ) : (
+                  <span />
+                )}
               </Link>
             </li>
           ))}
         </ul>
       )}
-    </section>
+    </Panel>
   );
 }

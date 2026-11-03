@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TralkedStamp } from "@/components/character/Panel";
 import type { CSSProperties } from "react";
 import { PLATFORM_LABEL, PLATFORM_TOKEN } from "@/components/character/platforms";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -66,10 +67,10 @@ export function PlatformProgressStrip({
 
   return (
     <section aria-labelledby="progresso-jogo" className="flex flex-col gap-3">
-      <h2 id="progresso-jogo" className="text-[22px] leading-none font-black font-stretch-[125%] tracking-[-0.03em] uppercase">
+      <h2 id="progresso-jogo" className="text-[17px] leading-tight font-extrabold font-stretch-[80%] tracking-[0.06em] uppercase">
         Progresso em {game.name}
       </h2>
-      <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 p-0">
+      <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-0.5 p-0">
         {cards.map((card) => {
           const on = card.id === active;
           return (
@@ -79,29 +80,33 @@ export function PlatformProgressStrip({
                 scroll={false}
                 aria-current={on ? "true" : undefined}
                 style={card.color ? ({ "--c": card.color } as CSSProperties) : undefined}
-                className={`flex h-full flex-col gap-2.5 rounded-[4px] border bg-surface p-4 hover:border-text ${on ? "border-text" : "border-line"}`}
+                className={`flex h-full flex-col gap-2.5 p-4 transition-colors duration-150 ${on ? "bg-surface-2 shadow-[inset_0_-3px_0_var(--acc)]" : "bg-surface hover:bg-surface-2"}`}
               >
-                <span className="flex items-center justify-between gap-2 font-mono text-xs tracking-[0.1em] uppercase">
+                <span className="flex items-center justify-between gap-2 text-[12.5px] font-bold font-stretch-[80%] tracking-[0.06em] uppercase">
                   <span className="flex items-center gap-2 text-text-2">
                     {card.color ? <span aria-hidden="true" className="size-[7px] bg-(--c)" /> : null}
                     {card.label}
                   </span>
                   {card.badge ? (
-                    <span className="border border-(--gold) px-1.5 py-0.5 text-(--gold)">{card.badge}</span>
+                    card.badge === "100%" ? (
+                      <TralkedStamp unlocked={card.unlocked} total={card.total} />
+                    ) : (
+                      <span className="bg-track px-1.5 py-0.5 text-text">{card.badge}</span>
+                    )
                   ) : card.best ? (
-                    <span className="text-dim">Maior progresso</span>
+                    <span className="text-muted">Maior progresso</span>
                   ) : null}
                 </span>
                 <span className="flex items-baseline justify-between gap-2">
-                  <b className="text-[26px] leading-none font-black font-stretch-[125%] tracking-[-0.03em] tabular-nums">
+                  <b className="text-[26px] leading-none font-black font-stretch-[112%] tracking-[-0.02em] tabular-nums">
                     {fmt(card.unlocked)}
-                    <span className="text-acc">/</span>
+                    <span className="text-muted">/</span>
                     {fmt(card.total)}
                   </b>
-                  <b className="font-mono text-sm text-text tabular-nums">{card.pct}%</b>
+                  <b className="text-sm font-extrabold text-text tabular-nums">{card.pct}%</b>
                 </span>
                 <ProgressBar value={card.pct} label={`Conquistas de ${game.name}: ${card.label}`} />
-                <span className="font-mono text-xs text-dim tabular-nums">
+                <span className="text-xs text-muted tabular-nums">
                   <span className="sr-only">Troféus: </span>
                   Platina {card.trophies.platinum}/{card.trophies.platinumOf} · Ouro {fmt(card.trophies.gold)} · Prata{" "}
                   {fmt(card.trophies.silver)} · Bronze {fmt(card.trophies.bronze)}

@@ -6,6 +6,8 @@ import type { RarityTier } from "@/lib/engine/types";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { getPlaytimeTotals, getUserLibrary, type PlaytimeTotals } from "@/lib/library/queries";
 import { validCompletions } from "@/lib/progression/completions";
+import { GAME_ART_SELECT, gameArtUrls } from "@/lib/queries/game-art";
+import { PLATFORM_ORDER, type CharacterPlatform } from "@/lib/character/sheet";
 
 /**
  * Reads of the full profile (Plano 4, F3): header, achievements (paginated in the database),
@@ -27,9 +29,19 @@ export type ProfileSummary = {
   avatarUrl: string | null;
   level: number;
   vocation: string;
+  /** Total XP (the level box of the header). */
+  totalXp: number;
   /** Playtime over every platform (minutes). */
   playtimeMin: number;
   gamesOwned: number;
+  /** Valid unlocks over every platform (the Conquistas tab count). */
+  achievements: number;
+  /** Games on the wishlist (the Lista de desejos tab count). */
+  wishlist: number;
+  /** Active connections, in the order Steam, PSN, Xbox, RetroAchievements. */
+  platforms: CharacterPlatform[];
+  /** Wide art of the most played game, behind the header; null when there is none. */
+  backdropUrl: string | null;
 };
 
 /** Playtime over every platform (minutes): the "Horas jogadas" of the profile header. */
@@ -38,17 +50,36 @@ export async function getTotalPlaytimeMin(userId: string): Promise<number> {
   return playtime._sum.playtimeMin ?? 0;
 }
 
-/** The compact header of the profile tabs (avatar, level, hours). */
+/** The header of every profile tab (avatar, level, XP, platforms, hours, tab counts). */
 export async function getProfileSummary(userId: string): Promise<ProfileSummary | null> {
-  const [user, playtimeMin, owned] = await Promise.all([
+  const [user, playtimeMin, owned, achievements, wishlist, accounts, top] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
-      select: { handle: true, displayName: true, avatarUrl: true, stats: { select: { level: true, vocation: true } } },
+      select: {
+        handle: true,
+        displayName: true,
+        avatarUrl: true,
+        stats: { select: { level: true, vocation: true, totalXp: true } },
+      },
     }),
     getTotalPlaytimeMin(userId),
     prisma.userGame.groupBy({ by: ["gameId"], where: { userId } }),
+    prisma.userAchievement.count({ where: { userId, suspicious: false } }),
+    prisma.wishlistItem.count({ where: { userId } }),
+    prisma.linkedAccount.findMany({
+      where: { userId, linkedAt: { not: null } },
+      select: { platform: true, handle: true, verifiedAt: true },
+    }),
+    // The most played game (its biggest platform copy), else the one with most unlocks.
+    prisma.userGame.findFirst({
+      where: { userId, OR: [{ playtimeMin: { gt: 0 } }, { unlockedCount: { gt: 0 } }] },
+      orderBy: [{ playtimeMin: "desc" }, { unlockedCount: "desc" }],
+      select: { game: { select: GAME_ART_SELECT } },
+    }),
   ]);
   if (!user) return null;
+  const byPlatform = new Map(accounts.map((a) => [a.platform, a]));
+  const art = top ? gameArtUrls(top.game) : null;
   return {
     userId,
     handle: user.handle,
@@ -56,8 +87,16 @@ export async function getProfileSummary(userId: string): Promise<ProfileSummary 
     avatarUrl: user.avatarUrl,
     level: user.stats?.level ?? 1,
     vocation: user.stats?.vocation ?? "Recruta",
+    totalXp: user.stats?.totalXp ?? 0,
     playtimeMin,
     gamesOwned: owned.length,
+    achievements,
+    wishlist,
+    platforms: PLATFORM_ORDER.flatMap((platform) => {
+      const account = byPlatform.get(platform);
+      return account ? [{ platform, handle: account.handle, verified: account.verifiedAt !== null }] : [];
+    }),
+    backdropUrl: art ? (art.heroUrl ?? art.coverUrl) : null,
   };
 }
 

@@ -5,29 +5,34 @@ import { Suspense } from "react";
 import { ActivityFeed } from "@/components/character/ActivityFeed";
 import { AlmostThere } from "@/components/character/AlmostThere";
 import { AttributesWindow } from "@/components/character/AttributesWindow";
-import { CharacterCard } from "@/components/character/CharacterCard";
+import { CharacterStats } from "@/components/character/CharacterCard";
 import { formatAgo } from "@/components/character/format";
 import { MissionsCard } from "@/components/character/MissionsCard";
 import { PlayerSetupSection } from "@/components/character/PlayerSetup";
 import { PlayerGallery } from "@/components/character/PlayerGallery";
 import { ReactionStatsCard } from "@/components/character/ReactionStatsCard";
 import { RecentlyPlayed } from "@/components/character/RecentlyPlayed";
+import { Shelf } from "@/components/character/Shelf";
 import { SkillsWindow } from "@/components/character/SkillsWindow";
 import { StreakCard } from "@/components/character/StreakCard";
 import { SyncActions } from "@/components/character/SyncActions";
 import { TrophyTiers } from "@/components/character/TrophyTiers";
 import { Card } from "@/components/ui/Card";
+import { SectionHead } from "@/components/ui/SectionHead";
+import { Panel, PANEL_LINK } from "@/components/character/Panel";
+import { RareShowcase } from "@/components/profile/RareShowcase";
+import { getShelfGames } from "@/lib/library/shelf";
 import { getSessionUser } from "@/lib/auth/session";
 import { ProfileModeration } from "@/components/moderation/ProfileModeration";
 import { canModerate } from "@/lib/moderation/permissions";
 import { pendingDespertar } from "@/lib/character/despertar";
 import { reactionStats } from "@/lib/community/reactions";
-import { ProfileTabs } from "@/components/profile/ProfileTabs";
+import { profilePath, ProfileTabs } from "@/components/profile/ProfileTabs";
 import { getCharacterSheetExtras } from "@/lib/character/sheet";
 import { getRecentlyPlayed } from "@/lib/library/queries";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { weeklyXpSplit } from "@/lib/highscores/queries";
-import { getProfileSummary } from "@/lib/profile/queries";
+import { getProfileSummary, getRarestAchievements } from "@/lib/profile/queries";
 import { getPlayerSetup } from "@/lib/setup/queries";
 import { getCharacter, hoursUntilDailyReset, type PlayerHeader } from "@/lib/queries/players";
 import { getPlayerHeaderCached } from "@/lib/queries/players-cached";
@@ -71,12 +76,12 @@ function SheetSkeleton() {
   return (
     <div aria-busy="true" aria-label="Carregando personagem" className="flex flex-col gap-10">
       {/* Header and tab bar, as on every profile tab. */}
-      <div className="flex flex-col gap-6">
-        <div className="h-[88px] animate-pulse rounded-[4px] border border-line bg-surface" />
-        <div className="h-11 border-b border-line" />
+      <div className="flex flex-col">
+        <div className="h-[230px] animate-pulse bg-surface tk-cut" />
+        <div className="h-12 border-t border-line bg-surface" />
       </div>
-      <div className="h-[420px] animate-pulse rounded-[4px] border border-line bg-surface" />
-      <div className="h-[260px] animate-pulse rounded-[4px] border border-line bg-surface" />
+      <div className="h-[420px] animate-pulse bg-surface tk-cut" />
+      <div className="h-[260px] animate-pulse bg-surface tk-cut" />
     </div>
   );
 }
@@ -88,9 +93,7 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
   if (!header.profilePublic && !isOwner) {
     return (
       <Card className="mx-auto max-w-xl text-center">
-        <span className="font-mono text-xs tracking-[0.14em] text-dim-2 uppercase">
-          Personagem
-        </span>
+        <span className="tk-lbl">Personagem</span>
         <h1 className="mt-1.5 text-3xl leading-none font-black font-stretch-[125%] tracking-[-0.035em] break-words uppercase">
           {header.displayName}
         </h1>
@@ -101,7 +104,7 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
 
   const character = await getCharacter(header.handle);
   if (!character) notFound();
-  const [extras, despertar, summary, recentlyPlayed, setup, reactions, week] = await Promise.all([
+  const [extras, despertar, summary, recentlyPlayed, setup, reactions, week, rarest, shelf] = await Promise.all([
     getCharacterSheetExtras(character.userId),
     isOwner ? pendingDespertar(character.userId) : Promise.resolve(null),
     getProfileSummary(character.userId),
@@ -109,6 +112,8 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
     getPlayerSetup(character.userId),
     reactionStats(character.userId),
     weeklyXpSplit(character.userId),
+    getRarestAchievements(character.userId, 6),
+    getShelfGames(character.userId, 20),
   ]);
   if (!summary) notFound();
 
@@ -116,19 +121,40 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
   const daily = character.missions.filter((m) => m.kind === "daily");
   const weekly = character.missions.filter((m) => m.kind === "weekly");
 
+  const calendarHref = isOwner ? "/calendario" : `/calendario?jogador=${encodeURIComponent(character.handle)}`;
+  const note = "font-normal font-stretch-100% tracking-normal text-muted normal-case";
+
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col">
       {/* The same identity header and tab bar as every profile tab: switching tabs moves nothing. */}
-      <div className="flex flex-col gap-6">
-        <ProfileHeader summary={summary} section="Ficha" />
-        <ProfileTabs handle={character.handle} active="ficha" />
-      </div>
+      <ProfileHeader
+        summary={summary}
+        section="Ficha"
+        rank={character.stats.rank}
+        week={week}
+        bio={extras.bio}
+        isOwner={isOwner}
+        actions={
+          isOwner ? (
+            <SyncActions
+              lastSyncedLabel={character.lastSyncedAt ? formatAgo(character.lastSyncedAt, now) : null}
+              despertarSteps={despertar}
+            />
+          ) : (
+            <ProfileModeration
+              userId={character.userId}
+              handle={character.handle}
+              loggedIn={viewer !== null}
+              moderator={canModerate(viewer?.role)}
+            />
+          )
+        }
+        strip={<CharacterStats stats={character.stats} week={week} />}
+      />
+      <ProfileTabs handle={character.handle} active="ficha" summary={summary} />
 
       {isOwner && !character.profilePublic && extras.steamSyncFailing ? (
-        <div
-          role="alert"
-          className="rounded-[2px] border border-rarity-lendario bg-surface px-[18px] py-4 text-sm text-text-2"
-        >
+        <div role="alert" className="mt-4 border border-rarity-lendario bg-surface px-[18px] py-4 text-sm text-text-2">
           Seu perfil Steam está privado. Deixe-o público para importar suas conquistas e depois
           ative o perfil público em{" "}
           <Link href="/conta" className="font-semibold text-acc underline underline-offset-2">
@@ -145,7 +171,7 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
           </a>
         </div>
       ) : isOwner && !character.profilePublic ? (
-        <p className="rounded-[2px] border border-line-2 bg-surface px-[18px] py-4 text-sm text-text-2">
+        <p className="mt-4 border border-line-2 bg-surface px-[18px] py-4 text-sm text-text-2">
           Seu perfil está privado: só você vê esta ficha, e ela fica fora do ranking.{" "}
           <Link href="/conta" className="font-semibold text-acc underline underline-offset-2">
             Mudar em Conta
@@ -153,76 +179,66 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
         </p>
       ) : null}
 
-      <div className="grid gap-5 min-[901px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <CharacterCard
-          character={character}
-          identity={false}
-          week={week}
-          platforms={extras.platforms}
-          bio={extras.bio}
-          isOwner={isOwner}
-          actions={
-            isOwner ? (
-              <SyncActions
-                lastSyncedLabel={
-                  character.lastSyncedAt ? formatAgo(character.lastSyncedAt, now) : null
-                }
-                despertarSteps={despertar}
-              />
-            ) : (
-              <ProfileModeration
-                userId={character.userId}
-                handle={character.handle}
-                loggedIn={viewer !== null}
-                moderator={canModerate(viewer?.role)}
-              />
-            )
-          }
+      <div className="mt-7 mb-4">
+        <SectionHead
+          title="Build do personagem"
+          aside={<span className={note}>Atributos e skills somam todas as plataformas</span>}
         />
-        <div className="flex flex-col gap-5">
-          <StreakCard streak={character.streak} />
-          <MissionsCard
-            missions={[...daily, ...weekly]}
-            resetLabel={`Renovam em ${hoursUntilDailyReset(now)} h`}
-          />
-        </div>
+      </div>
+      <div className="grid gap-0.5">
+        <AttributesWindow attributes={extras.attributes} />
+        <SkillsWindow skills={character.skills} />
       </div>
 
-      <AttributesWindow attributes={extras.attributes} />
-
-      <SkillsWindow skills={character.skills} />
-
-      <PlayerSetupSection setup={setup} displayName={character.displayName} isOwner={isOwner} />
-
-      <div className="flex flex-wrap gap-x-5 gap-y-10">
-        <div className="flex min-w-0 flex-[1_1_600px] flex-col gap-10">
-          <RecentlyPlayed
-            games={recentlyPlayed}
-            now={now}
-            libraryHref={`/jogador/${encodeURIComponent(character.handle)}/jogos`}
-          />
-          <AlmostThere games={character.almostThere} />
-        </div>
-        <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-5">
+      <div className="mt-9 mb-4">
+        <SectionHead
+          title="Progresso"
+          aside={<span className={note}>O que está perto de fechar e o que já brilha</span>}
+        />
+      </div>
+      <div className="grid items-start gap-4 min-[1101px]:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid min-w-0 gap-4">
+          {rarest.length > 0 ? (
+            <Panel
+              title="Vitrine · mais raras"
+              aside={
+                <Link href={`${profilePath(character.handle, "conquistas")}?ordem=raras`} className={PANEL_LINK}>
+                  Ver todas por raridade
+                </Link>
+              }
+            >
+              <RareShowcase achievements={rarest} />
+            </Panel>
+          ) : null}
           <TrophyTiers trophies={extras.trophies} />
-          <ActivityFeed items={character.recent} now={now} />
+          <AlmostThere games={character.almostThere} />
+          <ActivityFeed
+            items={character.recent}
+            now={now}
+            calendar={{ href: calendarHref, label: isOwner ? "Meu calendário" : `Calendário de @${character.handle}` }}
+          />
+        </div>
+        <aside aria-label="Setup, sequência e missões" className="grid min-w-0 gap-4">
+          <PlayerSetupSection setup={setup} displayName={character.displayName} isOwner={isOwner} />
+          <StreakCard streak={character.streak} />
+          <MissionsCard missions={[...daily, ...weekly]} resetLabel={`Renovam em ${hoursUntilDailyReset(now)} h`} />
+          <RecentlyPlayed games={recentlyPlayed} now={now} libraryHref={profilePath(character.handle, "jogos")} />
           <ReactionStatsCard stats={reactions} />
-          {/* Plano 4, F8: the same achievements, hours milestones and missions, day by day. */}
-          <Link
-            href={isOwner ? "/calendario" : `/calendario?jogador=${encodeURIComponent(character.handle)}`}
-            className="self-start font-mono text-xs tracking-[0.08em] text-acc uppercase hover:underline hover:underline-offset-4"
-          >
-            {isOwner ? "Meu calendário →" : `Calendário de @${character.handle} →`}
-          </Link>
         </aside>
       </div>
 
-      <PlayerGallery
-        photos={extras.photos.items}
-        total={extras.photos.total}
-        displayName={character.displayName}
-        isOwner={isOwner}
-      />
+      <div className="mt-10">
+        <Shelf games={shelf} libraryHref={profilePath(character.handle, "jogos")} />
+      </div>
+
+      <div className="mt-10">
+        <PlayerGallery
+          photos={extras.photos.items}
+          total={extras.photos.total}
+          displayName={character.displayName}
+          isOwner={isOwner}
+        />
+      </div>
     </div>
   );
 }

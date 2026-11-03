@@ -53,7 +53,7 @@ export const SAMPLE_SKILLS: CharacterSkill[] = [
 export function ExampleTag({ className = "" }: { className?: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-[2px] border border-acc/60 px-2 py-0.5 font-mono text-xs font-bold tracking-[0.12em] text-acc uppercase ${className}`}
+      className={`inline-flex items-center gap-1.5 border border-acc/60 px-2 py-0.5 text-xs font-extrabold font-stretch-[80%] tracking-[0.08em] text-acc uppercase ${className}`}
     >
       Exemplo
     </span>
@@ -95,8 +95,29 @@ export function LevelRing({ level, progress, size = 120 }: { level: number; prog
         <b className="font-black font-stretch-[125%] tracking-[-0.05em] text-acc tabular-nums" style={{ fontSize: size * 0.36 }}>
           {level}
         </b>
-        <small className="mt-1 font-mono text-xs tracking-[0.14em] text-dim uppercase">Nível</small>
+        <small className="mt-1 tk-lbl">Nível</small>
       </span>
+    </div>
+  );
+}
+
+/** The example's level as on a real header: the number, a segmented bar and the share of the level. */
+function SampleLevelPlate() {
+  const pct = Math.floor(SAMPLE.levelProgress * 100);
+  return (
+    <div
+      role="img"
+      aria-label={`Nível ${SAMPLE.level}, ${pct}% do caminho para o nível ${SAMPLE.level + 1}`}
+      className="flex w-[118px] flex-none flex-col gap-2 bg-bg p-3 shadow-[inset_0_0_0_1px_var(--border)]"
+    >
+      <span className="tk-lbl">Nível</span>
+      <b className="text-[44px] leading-[0.85] font-black font-stretch-[125%] tracking-[-0.04em] tabular-nums">{SAMPLE.level}</b>
+      <span className="flex gap-0.5">
+        {Array.from({ length: 10 }, (_, i) => (
+          <i key={i} className={`h-1.5 flex-1 ${i < Math.floor(SAMPLE.levelProgress * 10) ? "bg-acc" : "bg-track"}`} />
+        ))}
+      </span>
+      <small className="text-xs text-muted tabular-nums">{pct}% do {SAMPLE.level + 1}</small>
     </div>
   );
 }
@@ -115,17 +136,18 @@ function SkillLine({ skill, top }: { skill: CharacterSkill; top: boolean }) {
   return (
     <li className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2.5">
-        <SkillIcon name={skill.id} className={`size-4 flex-none ${top ? "text-acc" : "text-dim"}`} />
-        <span className="text-[14px] font-semibold">{skill.name}</span>
-        <span aria-hidden="true" className="min-w-3 flex-1 -translate-y-1 border-b-2 border-dotted border-[#34363f]" />
+        <span aria-hidden="true" className={`grid size-7 flex-none place-items-center tk-cut-sm ${top ? "bg-moss text-acc" : "bg-track text-text-2"}`}>
+          <SkillIcon name={skill.id} className="size-[18px]" />
+        </span>
+        <span className="flex-1 text-[14px] font-bold">{skill.name}</span>
         <b className={`text-lg leading-none font-black font-stretch-[125%] tabular-nums ${top ? "text-acc" : ""}`}>
           <span className="sr-only">Nível </span>
           {skill.level}
         </b>
       </div>
-      <div aria-hidden="true" className="ml-[26px] h-[3px] overflow-hidden rounded-[2px] bg-track">
+      <div aria-hidden="true" className="ml-[38px] h-1 overflow-hidden bg-track">
         <i
-          className="block h-full bg-acc transition-[width] duration-700 ease-[cubic-bezier(.2,.8,.2,1)] starting:w-0"
+          className={`block h-full ${top ? "bg-acc" : "bg-acc-dim"} transition-[width] duration-700 ease-[cubic-bezier(.2,.8,.2,1)] starting:w-0`}
           style={{ width: `${(fraction * 100).toFixed(1)}%` }}
         />
       </div>
@@ -141,13 +163,8 @@ export function SampleCharacterCard({ caption = true }: { caption?: boolean }) {
   return (
     <figure
       aria-label="Exemplo de ficha de personagem"
-      className="relative m-0 flex flex-col gap-5 overflow-hidden rounded-[4px] border border-line-2 bg-surface p-5 shadow-[0_30px_60px_-30px_rgba(0,0,0,.9)] sm:p-6"
+      className="relative m-0 flex flex-col gap-5 overflow-hidden bg-surface p-5 tk-cut shadow-[0_30px_60px_-30px_rgba(0,0,0,.9)] before:absolute before:top-0 before:right-[10px] before:left-0 before:h-[2px] before:bg-acc before:content-[''] sm:p-6"
     >
-      {/* A faint lime wash behind the ring: the card's one light source. */}
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute -top-24 -left-20 size-72 rounded-full bg-[radial-gradient(closest-side,rgba(198,244,50,.10),transparent)]"
-      />
       <div className="relative flex items-center justify-between gap-3">
         <ExampleTag />
         <ul aria-label="Plataformas do exemplo" className="m-0 flex list-none gap-1.5 p-0">
@@ -155,10 +172,10 @@ export function SampleCharacterCard({ caption = true }: { caption?: boolean }) {
             <li
               key={p}
               title={PLATFORM_LABEL[p]}
-              className="inline-flex items-center gap-1.5 border border-line-2 px-1.5 py-0.5 font-mono text-xs tracking-[0.08em] text-(--c) uppercase"
+              className="inline-flex min-h-6 items-center gap-1.5 bg-track px-2 text-xs font-bold font-stretch-[80%] tracking-[0.06em] text-text-2 uppercase"
               style={{ "--c": PLATFORM_TOKEN[p] } as CSSProperties}
             >
-              <span aria-hidden="true" className="size-[5px] bg-(--c)" />
+              <span aria-hidden="true" className="size-1.5 bg-(--c)" />
               {p === "steam" ? "Steam" : p === "psn" ? "PSN" : "Xbox"}
             </li>
           ))}
@@ -166,32 +183,32 @@ export function SampleCharacterCard({ caption = true }: { caption?: boolean }) {
       </div>
 
       <div className="relative flex items-center gap-5">
-        <LevelRing level={SAMPLE.level} progress={SAMPLE.levelProgress} />
+        <SampleLevelPlate />
         <div className="flex min-w-0 flex-col gap-2">
           <div>
-            <b className="block text-[24px] leading-none font-black font-stretch-[125%] tracking-[-0.03em] uppercase">
+            <b className="block text-[24px] leading-none font-black font-stretch-[118%] tracking-[-0.03em]">
               {SAMPLE.name}
             </b>
-            <span className="mt-1.5 block font-mono text-xs tracking-[0.1em] text-acc uppercase">{SAMPLE.vocation}</span>
+            <span className="mt-1.5 block text-sm font-bold text-acc">{SAMPLE.vocation}</span>
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-2">
             <p className="flex items-center gap-2">
               <TrophyGlyph color="var(--plat)" className="size-5 flex-none" />
               <b className="text-[22px] leading-none font-black font-stretch-[112%] tabular-nums">{SAMPLE.platinums}</b>
-              <span className="font-mono text-xs text-dim">platinas</span>
+              <span className="text-[13px] text-muted">platinas</span>
             </p>
             <p className="flex items-center gap-2">
               <b className="text-[22px] leading-none font-black font-stretch-[112%] tabular-nums">
                 {formatNumber(SAMPLE.achievements)}
               </b>
-              <span className="font-mono text-xs text-dim">conquistas</span>
+              <span className="text-[13px] text-muted">conquistas</span>
             </p>
           </div>
         </div>
       </div>
 
       <div className="relative flex flex-col gap-3 border-t border-divider pt-4">
-        <span className="font-mono text-xs tracking-[0.12em] text-dim uppercase">Skills por gênero</span>
+        <span className="tk-lbl">Skills por gênero</span>
         <ul className="m-0 flex list-none flex-col gap-3 p-0">
           {SAMPLE_SKILLS.slice(0, 3).map((skill, i) => (
             <SkillLine key={skill.id} skill={skill} top={i === 0} />
@@ -217,7 +234,7 @@ const STEPS = [
 /** The three-step promise, as an ordered list (the sequence is the information). */
 export function OnboardingSteps({ current }: { current?: 1 | 2 | 3 }) {
   return (
-    <ol className="m-0 grid list-none gap-px overflow-hidden rounded-[3px] border border-line bg-line p-0">
+    <ol className="m-0 grid list-none gap-0.5 p-0">
       {STEPS.map((step, i) => {
         const n = i + 1;
         const active = current === n;
@@ -229,8 +246,8 @@ export function OnboardingSteps({ current }: { current?: 1 | 2 | 3 }) {
           >
             <span
               aria-hidden="true"
-              className={`grid size-7 flex-none place-items-center rounded-[2px] font-mono text-xs font-bold ${
-                active ? "bg-acc text-bg" : "border border-line-2 text-text-3"
+              className={`grid size-7 flex-none place-items-center text-sm font-black font-stretch-[112%] tk-cut-sm ${
+                active ? "bg-acc text-acc-ink" : "bg-track text-text-2"
               }`}
             >
               {n}

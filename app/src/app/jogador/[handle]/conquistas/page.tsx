@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { RARITY_COLOR, RARITY_LABEL } from "@/components/character/format";
 import { PLATFORM_LABEL, PLATFORM_TOKEN } from "@/components/character/platforms";
+import { Panel, PANEL_LINK } from "@/components/character/Panel";
 import { AchievementRow } from "@/components/profile/AchievementRow";
 import { RareShowcase } from "@/components/profile/RareShowcase";
 import { PlatformProgressStrip } from "@/components/profile/PlatformProgressStrip";
@@ -100,25 +101,28 @@ async function ProfileAchievements({
   const hidden = Object.entries(kept).filter((e): e is [string, string] => e[0] !== "jogo" && Boolean(e[1]));
 
   return (
-    <div className="flex flex-col gap-6">
-      <ProfileHeader summary={summary} section="Conquistas" />
-      <ProfileTabs handle={header.handle} active="conquistas" />
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col">
+        <ProfileHeader summary={summary} section="Conquistas" />
+        <ProfileTabs handle={header.handle} active="conquistas" summary={summary} />
+      </div>
 
       {rarest.length > 0 ? (
-        <section aria-labelledby="mais-raras" className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <h2 id="mais-raras" className="text-[22px] leading-none font-black font-stretch-[125%] tracking-[-0.03em] uppercase">
-              Mais raras
-            </h2>
+        <Panel
+          title="Mais raras"
+          accent
+          aside={
             <Link
               href={link({ ordem: "raras", raridade: undefined, jogo: undefined, plataforma: undefined })}
-              className="font-mono text-xs tracking-[0.08em] text-acc uppercase hover:underline"
+              className={PANEL_LINK}
             >
-              Ver todas por raridade →
+              Ver todas por raridade
             </Link>
-          </div>
+          }
+        >
+          <p className="-mt-2 mb-3 text-[13.5px] text-muted">Porcentagem de jogadores que desbloquearam.</p>
           <RareShowcase achievements={rarest} backdrop={backdrop} />
-        </section>
+        </Panel>
       ) : null}
 
       {gamePlatforms ? (
@@ -129,10 +133,11 @@ async function ProfileAchievements({
         />
       ) : null}
 
-      <section aria-labelledby="todas-conquistas" className="flex flex-col gap-4">
-        <h2 id="todas-conquistas" className="text-[22px] leading-none font-black font-stretch-[125%] tracking-[-0.03em] uppercase">
+      <section aria-labelledby="todas-conquistas" className="flex flex-col gap-3">
+        <h2 id="todas-conquistas" className="mt-2 text-[17px] leading-tight font-extrabold font-stretch-[80%] tracking-[0.06em] uppercase">
           Todas as conquistas
         </h2>
+        <div className="flex flex-wrap items-end gap-2 bg-surface p-3 tk-cut">
         <LinkChips
           label="Filtrar por plataforma"
           caption="Plataforma"
@@ -163,13 +168,13 @@ async function ProfileAchievements({
               <input key={key} type="hidden" name={key} value={value} />
             ))}
             <label className="flex flex-col gap-1.5">
-              <span className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">Jogo</span>
+              <span className="tk-lbl">Jogo</span>
               <select
                 // Uncontrolled: remount when the URL's game changes (client navigation keeps the DOM).
                 key={game ?? ""}
                 name="jogo"
                 defaultValue={game ?? ""}
-                className="h-[38px] max-w-[min(420px,80vw)] rounded-[2px] border border-line-2 bg-surface-2 px-2.5 text-sm text-text"
+                className="h-[38px] max-w-[min(420px,80vw)] border-0 bg-bg px-2.5 text-sm text-text shadow-[inset_0_0_0_1px_var(--border)]"
               >
                 <option value="">Todos os jogos ({games.length.toLocaleString("pt-BR")})</option>
                 {games.map((g) => (
@@ -181,18 +186,19 @@ async function ProfileAchievements({
             </label>
             <button
               type="submit"
-              className="h-[38px] cursor-pointer rounded-[2px] border border-acc px-4 font-mono text-xs font-bold tracking-[0.1em] text-acc uppercase hover:bg-acc hover:text-bg"
+              className="h-[38px] cursor-pointer bg-acc px-4 text-[13px] font-extrabold font-stretch-[80%] tracking-[0.06em] text-acc-ink uppercase tk-cut-b hover:brightness-[1.08]"
             >
               Filtrar
             </button>
           </form>
         ) : null}
+        </div>
 
-        <p className="font-mono text-xs tracking-[0.08em] text-dim uppercase" aria-live="polite">
+        <p className="tk-lbl text-text-2" aria-live="polite">
           {result.total.toLocaleString("pt-BR")} {result.total === 1 ? "conquista" : "conquistas"}
         </p>
         {result.items.length > 0 ? (
-          <ul className="m-0 list-none p-0">
+          <ul className="m-0 grid list-none gap-0.5 p-0">
             {result.items.map((a) => (
               <AchievementRow key={a.id} achievement={a} />
             ))}

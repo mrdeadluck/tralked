@@ -93,9 +93,11 @@ async function ProfileGames({
   const list = paginate(sortLibrary(sections[section], sort), page, perPage);
 
   return (
-    <div className="flex flex-col gap-6">
-      <ProfileHeader summary={summary} section="Jogos" />
-      <ProfileTabs handle={header.handle} active="jogos" />
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col">
+        <ProfileHeader summary={summary} section="Jogos" />
+        <ProfileTabs handle={header.handle} active="jogos" summary={summary} />
+      </div>
 
       {library.length === 0 ? (
         <p className="py-6 text-muted">
@@ -103,7 +105,7 @@ async function ProfileGames({
         </p>
       ) : (
         <>
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-end gap-2 bg-surface p-3 tk-cut [&>form]:basis-full">
             <ListSearch
               basePath={base}
               params={kept}
@@ -148,13 +150,13 @@ async function ProfileGames({
           </div>
 
           <section aria-labelledby="lista-jogos">
-            <h2 id="lista-jogos" className="font-mono text-xs tracking-[0.08em] text-dim uppercase" aria-live="polite">
+            <h2 id="lista-jogos" className="mb-2 tk-lbl text-text-2" aria-live="polite">
               {section === "nunca" ? "Nunca jogados" : "Jogados"}: {list.total.toLocaleString("pt-BR")}{" "}
               {list.total === 1 ? "jogo" : "jogos"}
               {q ? ` para “${q}”` : ""}
             </h2>
             {list.items.length > 0 ? (
-              <ul className="m-0 mt-2 list-none p-0">
+              <ul className="m-0 grid list-none gap-0.5 p-0">
                 {list.items.map((game) => (
                   <LibraryGameRow key={game.gameId} game={game} />
                 ))}

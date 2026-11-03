@@ -1,6 +1,5 @@
-import { Card } from "@/components/ui/Card";
 import type { ReactionStats } from "@/lib/community/reactions";
-import { CardHead } from "./CardHead";
+import { Panel } from "./Panel";
 
 /**
  * "Reações" on the character sheet: likes received, likes and dislikes given. Only the counters
@@ -14,13 +13,12 @@ export function ReactionStatsCard({ stats }: { stats: ReactionStats }) {
   ].filter((r) => r.n > 0);
   if (rows.length === 0) return null;
   return (
-    <Card>
-      <CardHead title="Reações" />
-      <ul className="m-0 flex list-none flex-col gap-2.5 p-0 pt-3.5">
+    <Panel title="Reações">
+      <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
         {rows.map((r) => (
           <li key={r.one} className="flex items-baseline gap-3">
             <b
-              className={`min-w-[3ch] text-[22px] leading-none font-black font-stretch-[125%] tabular-nums ${
+              className={`min-w-[3ch] text-[22px] leading-none font-black font-stretch-[112%] tabular-nums ${
                 r.accent ? "text-acc" : "text-text"
               }`}
             >
@@ -30,6 +28,6 @@ export function ReactionStatsCard({ stats }: { stats: ReactionStats }) {
           </li>
         ))}
       </ul>
-    </Card>
+    </Panel>
   );
 }

@@ -1,72 +1,54 @@
-import { SectionHead } from "@/components/ui/SectionHead";
 import type { CharacterSkill } from "@/lib/queries/players";
+import { BuildRadar } from "./BuildRadar";
 import { formatNumber } from "./format";
 import { SkillIcon } from "./SkillIcon";
 
 type SkillsWindowProps = { skills: CharacterSkill[] };
 
-/** Janela de skills estilo Tibia: nome, linha pontilhada, nível e barra para o próximo. */
+/**
+ * Skills by genre with the same treatment as the attributes: a radar of every skill and the list
+ * beside it (level, bar and the way to the next level). The strongest skill is in lime.
+ */
 export function SkillsWindow({ skills }: SkillsWindowProps) {
-  const top = skills[0] && skills[0].level > 1 ? skills[0].id : null;
+  const top = skills[0] && skills[0].level > 1 ? skills[0] : null;
+  const fraction = (s: CharacterSkill) => (s.need > 0 ? Math.min(1, s.points / s.need) : 0);
+  // The skill closest to its next level (other than the strongest one).
+  const rising = skills
+    .filter((s) => s.id !== top?.id && s.points > 0)
+    .reduce<CharacterSkill | null>((best, s) => (!best || fraction(s) > fraction(best) ? s : best), null);
   return (
-    <section>
-      <SectionHead
-        title="Skills por gênero"
-        aside={
-          <span className="text-dim normal-case tracking-normal">
-            Conquista rara treina mais. A XP vai para os gêneros do jogo.
-          </span>
-        }
-      />
-      <ul className="m-0 grid list-none grid-cols-1 gap-x-12 p-0 pt-2 min-[641px]:grid-cols-2">
-        {skills.map((skill) => {
-          const isTop = skill.id === top;
-          const fraction = Math.min(1, skill.points / skill.need);
-          const percent = Math.floor(fraction * 100);
-          return (
-            <li key={skill.id} className="border-b border-divider py-3.5">
-              <div className="flex items-center gap-3">
-                <SkillIcon
-                  name={skill.id}
-                  className={`size-5 flex-none ${isTop ? "text-acc" : "text-dim"}`}
-                />
-                <span className="text-base font-semibold whitespace-nowrap">{skill.name}</span>
-                <span
-                  aria-hidden="true"
-                  className="min-w-3 flex-1 -translate-y-1 border-b-2 border-dotted border-[#34363f]"
-                />
-                <span
-                  className={`min-w-[2ch] text-right text-2xl leading-none font-black font-stretch-[125%] tabular-nums ${
-                    isTop ? "text-acc" : ""
-                  }`}
-                >
-                  <span className="sr-only">Nível </span>
-                  {skill.level}
-                </span>
-              </div>
-              <div
-                role="progressbar"
-                aria-label={`Progresso de ${skill.name} para o nível ${skill.level + 1}`}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={percent}
-                className="mt-2.5 ml-8 h-[3px] overflow-hidden rounded-[2px] bg-track"
-              >
-                <i
-                  className="block h-full bg-acc transition-[width] duration-700 ease-[cubic-bezier(.2,.8,.2,1)] starting:w-0"
-                  style={{ width: `${(fraction * 100).toFixed(1)}%` }}
-                />
-              </div>
-              <div className="mt-1.5 ml-8 flex justify-between font-mono text-xs text-dim-2">
-                <span>
-                  {percent}% para o {skill.level + 1}
-                </span>
-                <span>faltam {formatNumber(Math.max(0, skill.need - skill.points))}</span>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+    <BuildRadar
+      title="Skills por gênero"
+      aside="Conquista rara treina mais. A XP vai para os gêneros de cada jogo. Passe o mouse para achar no gráfico."
+      chartLabel={`Radar das ${skills.length} skills por gênero`}
+      topId={top?.id ?? null}
+      icon={(id, props) => <SkillIcon {...props} name={id} />}
+      rows={skills.map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        value: skill.level,
+        fraction: fraction(skill),
+        left: `${Math.floor(fraction(skill) * 100)}% para o ${skill.level + 1}`,
+        right: `faltam ${formatNumber(Math.max(0, skill.need - skill.points))}`,
+      }))}
+      legend={
+        <>
+          {top ? (
+            <span>
+              Mais forte:{" "}
+              <b className="font-bold text-text">
+                {top.name} {top.level}
+              </b>
+            </span>
+          ) : null}
+          {rising ? (
+            <span>
+              Quase subindo: <b className="font-bold text-text">{rising.name}</b>,{" "}
+              {Math.floor(fraction(rising) * 100)}% para o nível {rising.level + 1}
+            </span>
+          ) : null}
+        </>
+      }
+    />
   );
 }

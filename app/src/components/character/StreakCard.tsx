@@ -1,6 +1,5 @@
-import { Card } from "@/components/ui/Card";
 import type { Character } from "@/lib/queries/players";
-import { CardHead } from "./CardHead";
+import { Panel } from "./Panel";
 
 type StreakCardProps = { streak: Character["streak"] };
 
@@ -10,41 +9,36 @@ export function StreakCard({ streak }: StreakCardProps) {
       ? "Sem escudo"
       : `${streak.shields} ${streak.shields === 1 ? "escudo" : "escudos"}`;
   return (
-    <Card>
-      <CardHead title="Sequência" aside={shields} />
-      <div className="flex items-center gap-4 pt-3.5">
-        <b className="text-[40px] leading-none font-black font-stretch-[125%] text-acc tabular-nums">
+    <Panel title="Sequência" aside={shields}>
+      <div className="flex items-baseline gap-2.5">
+        <b className="text-[34px] leading-none font-black font-stretch-[112%] text-acc tabular-nums">
           {streak.current}
         </b>
-        <p className="text-sm text-muted">
+        <p className="text-[13.5px] text-text-2">
           {streak.current === 1 ? "dia seguido" : "dias seguidos"} com conquista. O escudo salva
           1 dia perdido sem quebrar a corrente.
+          {streak.best > streak.current ? ` Melhor sequência: ${streak.best}.` : ""}
         </p>
       </div>
-      <ol
-        aria-label="Últimos 7 dias"
-        className="m-0 mt-4 grid list-none grid-cols-7 gap-1 p-0"
-      >
+      <ol aria-label="Últimos 7 dias" className="m-0 mt-2.5 grid list-none grid-cols-7 gap-[3px] p-0">
         {streak.week.map((day) => (
           <li
             key={day.day}
             aria-label={`${day.day.split("-").reverse().slice(0, 2).join("/")}: ${
               day.active ? "com conquista" : "sem conquista"
             }${day.today ? " (hoje)" : ""}`}
-            className={`grid h-[30px] place-items-center rounded-[2px] border font-mono text-xs ${
-              day.today && day.active
-                ? "border-acc bg-acc font-bold text-bg"
+            className={`grid h-[34px] place-items-center text-[12.5px] font-bold font-stretch-[80%] ${
+              day.active
+                ? "bg-acc text-acc-ink"
                 : day.today
-                  ? "border-acc font-bold text-acc"
-                  : day.active
-                    ? "border-acc/40 bg-acc/12 text-acc"
-                    : "border-line-2 text-dim-2"
+                  ? "bg-surface-2 text-text shadow-[inset_0_-2px_0_var(--acc)]"
+                  : "bg-surface-2 text-muted"
             }`}
           >
             <span aria-hidden="true">{day.letter}</span>
           </li>
         ))}
       </ol>
-    </Card>
+    </Panel>
   );
 }

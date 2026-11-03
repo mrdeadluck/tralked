@@ -34,7 +34,7 @@ export function PlayerGallery({ photos, total, displayName, isOwner }: PlayerGal
         }
       />
       {total > photos.length ? (
-        <p className="font-mono text-xs text-dim">
+        <p className="text-[13px] text-muted">
           Mostrando as {photos.length} mais recentes de {formatNumber(total)}.
         </p>
       ) : null}

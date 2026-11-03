@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import { PLATFORM_LABEL } from "@/components/character/platforms";
 import { GameCover } from "@/components/games/GameCover";
 import { formatDate } from "@/components/profile/format";
 import { PrivateProfile, SectionSkeleton } from "@/components/profile/PrivateProfile";
@@ -54,43 +55,50 @@ async function ProfileWishlist({
   const kept = { por: perPageParam(perPage) };
 
   return (
-    <div className="flex flex-col gap-6">
-      <ProfileHeader summary={summary} section="Lista de desejos" />
-      <ProfileTabs handle={header.handle} active="desejos" />
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col">
+        <ProfileHeader summary={summary} section="Lista de desejos" />
+        <ProfileTabs handle={header.handle} active="desejos" summary={summary} />
+      </div>
 
-      <p className="font-mono text-xs tracking-[0.08em] text-dim uppercase">
+      <p className="bg-surface px-3.5 py-3 tk-lbl text-text-2">
         {wishlist.length.toLocaleString("pt-BR")} {wishlist.length === 1 ? "jogo" : "jogos"} · lista de desejos da Steam
       </p>
       {list.items.length > 0 ? (
-        <ol className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4 p-0">
+        <ol className="m-0 grid list-none gap-0.5 p-0">
           {list.items.map((item, index) => (
-            <li key={item.gameId} className="flex flex-col overflow-hidden rounded-[4px] border border-line bg-surface">
-              <div className="relative [&>*]:rounded-none">
-                <GameCover
-                  name={item.name}
-                  coverUrl={item.coverUrl}
-                  steamAppId={item.steamAppId}
-                  wideUrl={item.heroUrl}
-                  art={item.art}
-                  portraitChecked={!item.stub}
-                  alt=""
-                  width={360}
-                  sizes="(max-width: 520px) calc(100vw - 40px), 360px"
-                />
-                <span className="absolute top-2 left-2 bg-bg px-1.5 py-0.5 font-mono text-xs font-bold text-text">
-                  #{list.offset + index + 1}
-                </span>
-              </div>
-              <div className="flex flex-1 flex-col gap-2 px-4 pt-3 pb-4">
-                <h3 className="text-[17px] leading-tight font-extrabold font-stretch-[105%]">
+            <li
+              key={item.gameId}
+              className="grid grid-cols-[30px_90px_minmax(0,1fr)] items-center gap-3.5 bg-surface py-2 pr-3.5 pl-2 transition-colors duration-150 hover:bg-surface-2 min-[761px]:grid-cols-[40px_120px_minmax(0,1fr)_auto]"
+            >
+              <span className="text-center font-black font-stretch-[112%] text-muted tabular-nums">
+                <span className="sr-only">Posição </span>
+                {list.offset + index + 1}
+              </span>
+              <GameCover
+                name={item.name}
+                coverUrl={item.coverUrl}
+                steamAppId={item.steamAppId}
+                wideUrl={item.heroUrl}
+                art={item.art}
+                portraitChecked={!item.stub}
+                ratio="16 / 9"
+                alt=""
+                className="rounded-none"
+                width={120}
+                sizes="120px"
+              />
+              <div className="min-w-0">
+                <h3 className="text-[15px] leading-tight font-bold">
                   <Link href={`/jogos/${item.slug}`} className="hover:text-acc">
                     {item.name}
                   </Link>
                 </h3>
                 {item.addedAt ? (
-                  <p className="mt-auto font-mono text-xs text-dim">Adicionado em {formatDate(item.addedAt)}</p>
+                  <p className="mt-0.5 text-[12.5px] text-muted">Adicionado em {formatDate(item.addedAt)}</p>
                 ) : null}
               </div>
+              <span className="col-start-3 tk-lbl min-[761px]:col-start-auto">{PLATFORM_LABEL[item.platform]}</span>
             </li>
           ))}
         </ol>
