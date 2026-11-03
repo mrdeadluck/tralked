@@ -34,6 +34,24 @@ parou. Quem não tá precisa fazer manual."
 4. **Quick back-to-top, for everyone.** A small floating button appears once the visitor has scrolled well down the
    page and returns to the top (the cover) at once.
 
+5. **"Qual versão você joga?": Steam or PlayStation, for everyone.** Lucas: the PlayStation player should not see
+   the Steam-only achievements, and should see the roadmap for their own trophies. The page should say the guide works
+   for both. "Na PSN o usuário não recebe troféus que não fazem parte do roadmap dele."
+   - The robot writes one guide; it is not written twice. The Steam guide covers all 66 achievements. Each item knows
+     whether its achievement is also on the PlayStation list (`alsoOn: ["psn"]`, correct since 7fa4659), and the report
+     carries the PSN list's size (`coverage.psn`).
+   - A switch near the top, "Steam | PlayStation", filters the page. PlayStation hides:
+     - items whose achievement is not on the PlayStation list;
+     - items that only count toward such achievements (`countsFor` entirely Steam-only);
+     - steps and chapters left empty by that.
+
+     Everything else stays, including the walkthrough steps that are not achievements. The ficha numbers, chapter
+     counts, journey row, missable counts and the resume point follow the chosen version.
+   - The seal says the guide covers both, for example "STEAM E PLAYSTATION · 66 conquistas / 36 troféus", instead of
+     "APENAS STEAM".
+   - Only for a guide that has both lists: a Steam-only guide with no PSN list, or a guide written from the PSN list
+     (scope psn), shows no switch.
+
 ## Non-goals
 
 - No login wall: the whole guide stays public and indexable, as today.
@@ -64,6 +82,8 @@ parou. Quem não tá precisa fazer manual."
 - The button sits on the cover and scrolls down to the spot.
 - Passed chapter diamonds light up in light green, glowing.
 - A back-to-top button.
+- A Steam / PlayStation switch on one guide (not two written guides). PlayStation hides what does not exist there. The
+  page says the guide works for both.
 
 ## My calls (Lucas can overrule)
 
@@ -83,6 +103,12 @@ parou. Quem não tá precisa fazer manual."
 
   When an apiName appears on several items, its first item counts. The resume point is the next undone item overall
   after that position, across steps and chapters. It is computed on the client from the seed.
+- **Which version shows first.** Steam is the default. The visitor's choice is remembered in their browser and also
+  goes in the URL (`?versao=playstation`), so a shared link opens the same version. The cached page stays the same for
+  everyone, and the filter runs on the client.
+- **Robot prose that cites Steam numbers.** For example, a cover line that says "66 conquistas" stays as written in
+  both versions. The numbers the code owns (ficha, seal, counts) switch. The builder lists those prose spots for PBZ
+  in the report, so Lucas can decide whether they bother him.
 - **Format-1 (classic) guides** get only the back-to-top button. Their steps already have their own ticks.
 
 ## Left to the builder
