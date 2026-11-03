@@ -40,6 +40,10 @@ const schema = z.object({
   // Transactional e-mail (Resend HTTP API). Without the key: dev logs the e-mails, production
   // says in the UI that e-mail is unavailable.
   RESEND_API_KEY: optional(),
+  // GitHub fine-grained token (this repository only, Actions: read and write): the hourly `workers`
+  // cron starts the GitHub Actions workers with it (lib/cron/workers.ts). Without it nothing is
+  // started and the workflows' own (best-effort) schedules run them.
+  GITHUB_DISPATCH_TOKEN: optional(),
   MAIL_FROM: required(z.string().min(3), "Tralked <no-reply@tralked.com>"),
 });
 

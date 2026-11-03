@@ -22,6 +22,9 @@ concurrency:
 
 jobs:
   enrich:
+    # The hourly Vercel Cron `workers` starts this job (app/src/lib/cron/workers.ts). The schedule
+    # above is a fallback, skipped once the repository variable DISPATCH_FROM_VERCEL is "true".
+    if: github.event_name != 'schedule' || vars.DISPATCH_FROM_VERCEL != 'true'
     runs-on: ubuntu-latest
     # Scheduled runs: the window plus setup. By hand: up to 5.5 h.
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 350 || 60 }}

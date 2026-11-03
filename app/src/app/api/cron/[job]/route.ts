@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { revalidateTag } from "next/cache";
 import { NextResponse, type NextRequest } from "next/server";
 import type { CronJob } from "@/lib/cron/schedules";
+import { dispatchWorkers } from "@/lib/cron/workers";
 import { env } from "@/lib/env";
 import { runHighscoresJob } from "@/lib/highscores/job";
 import { pruneViewBuckets } from "@/lib/news/views";
@@ -30,7 +31,8 @@ import { syncStaleUsers } from "@/lib/sync/user";
  * - steam-catalog: 50 s in all (app list ≤ 40%, one SteamSpy page, store details with the rest);
  * - releases: 50 s in all (4 Steam store pages, ≤ 12 IGDB pages of console release dates);
  * - igdb-catalog: 50 s in all (import pages ≤ 60%, details batches of 500 with the rest);
- * - highscores: one indexed top-200 read and one insert per board (about 40 boards).
+ * - highscores: one indexed top-200 read and one insert per board (about 40 boards);
+ * - workers: one GitHub API request per worker due (lib/cron/workers.ts), no database.
  * Work left over goes first in the next run. Schedules: CRON_SCHEDULES in @/lib/cron/schedules
  * (and the README).
  */
@@ -69,6 +71,8 @@ const JOBS: Record<CronJob, () => Promise<{ processed: number; failed?: number }
   "igdb-catalog": () => runIgdbCatalogJob(),
   // Daily, just after midnight in Sao Paulo: rank snapshot of every board (the highscores arrows).
   highscores: () => runHighscoresJob(),
+  // Hourly: starts the GitHub Actions workers due this hour (their own schedules are unreliable).
+  workers: () => dispatchWorkers(),
 };
 
 function isAuthorized(request: NextRequest): boolean {

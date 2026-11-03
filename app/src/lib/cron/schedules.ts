@@ -11,6 +11,7 @@ export const CRON_JOBS = [
   "releases",
   "igdb-catalog",
   "highscores",
+  "workers",
 ] as const;
 export type CronJob = (typeof CRON_JOBS)[number];
 
@@ -37,4 +38,6 @@ export const CRON_SCHEDULES: { path: `/api/cron/${CronJob}`; schedule: string }[
   { path: "/api/cron/rarity", schedule: "20 3 * * *" },
   { path: "/api/cron/highscores", schedule: "21 3 * * *" },
   { path: "/api/cron/notifications", schedule: "22 3 * * *" },
+  // Hourly at :28: starts the GitHub Actions workers due that hour (lib/cron/workers.ts).
+  { path: "/api/cron/workers", schedule: "28 * * * *" },
 ];

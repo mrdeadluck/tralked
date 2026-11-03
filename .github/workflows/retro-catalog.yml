@@ -25,6 +25,9 @@ concurrency:
 
 jobs:
   import:
+    # The hourly Vercel Cron `workers` starts this job (app/src/lib/cron/workers.ts). The schedule
+    # above is a fallback, skipped once the repository variable DISPATCH_FROM_VERCEL is "true".
+    if: github.event_name != 'schedule' || vars.DISPATCH_FROM_VERCEL != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:

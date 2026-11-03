@@ -44,6 +44,10 @@
     {
       "path": "/api/cron/notifications",
       "schedule": "22 3 * * *"
+    },
+    {
+      "path": "/api/cron/workers",
+      "schedule": "28 * * * *"
     }
   ]
 }
