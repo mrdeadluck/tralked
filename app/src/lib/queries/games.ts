@@ -14,6 +14,8 @@ import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
 import { foldQueryInDb } from "@/lib/search/normalize";
 import { achievementTotal } from "@/lib/games/achievement-total";
+import { parseReport, type GuideReport } from "@/lib/admin/guide-report";
+import { GUIDE_COMPAT, walkthroughSchema, type GuideCompat, type Walkthrough } from "@/lib/content/walkthrough-schema";
 import { loadTimeTo100, type TimeTo100 } from "./time-to-100";
 
 const SKILL_IDS = new Set<string>(SKILLS.map((s) => s.id));
@@ -375,6 +377,8 @@ export type GuideFacts = {
 
 export type GuideStepView = {
   id: string;
+  /** Stable key a bot gives the step (format-2 chapters point at it with `phaseKey`). */
+  key: string | null;
   order: number;
   title: string;
   hours: string;
@@ -459,8 +463,55 @@ export type GuideRevisionView = {
   createdAt: Date;
 };
 
+/**
+ * A Steam achievement of a format-2 guide. A hidden one (Steam `hidden`) carries no name,
+ * description or icon: they are fetched only when the reader reveals it (reveal-achievement).
+ */
+export type WalkAchievementView = {
+  id: string;
+  apiName: string;
+  /** PT-BR name (Steam l=brazilian), else the English one; null when hidden. */
+  name: string | null;
+  description: string | null;
+  iconUrl: string | null;
+  globalPct: number | null;
+  hidden: boolean;
+  xp: number;
+  done: boolean;
+};
+
+/** What a format-2 page needs besides the walkthrough itself. */
+export type WalkExtras = {
+  guideId: string;
+  steamAppId: number | null;
+  /** Official logo of the game, when the catalog has one. */
+  logoUrl: string | null;
+  /** The guide's own estimate (Guide.hoursMin/hoursMax). */
+  hours: { min: number; max: number };
+  hiddenCount: number;
+  /** The game's Steam achievements by apiName. */
+  achievements: Record<string, WalkAchievementView>;
+  /** The rarest achievement the robot named (`extraFacts.hardest`). */
+  hardest: WalkAchievementView | null;
+  /** Steam vs PS5 list sizes, from the robot report, for the "APENAS STEAM" seal. */
+  compatCounts: { steam: number; ps5: number } | null;
+};
+
 export type GuideDetail = {
   game: GameDetail & { guide: GuideMeta };
+  /** 1 = classic guide (steps + notes); 2 = walkthrough (the guide robot). */
+  format: number;
+  /** Format 2: the validated walkthrough; null for format 1 or when the stored one is invalid. */
+  walkthrough: Walkthrough | null;
+  /** Format 2: edition number of the magazine cover (assigned on first publication). */
+  edition: number | null;
+  compat: GuideCompat | null;
+  /** The robot report. Staff only: always null in the public guide (see loadGuideReport). */
+  report: GuideReport | null;
+  /** Format 2 only. */
+  walk: WalkExtras | null;
+  /** Keys of the walkthrough items the visitor ticked (empty in the public guide). */
+  itemsDone: Set<string>;
   facts: GuideFacts;
   overview: string[];
   warnings: string[];
@@ -555,6 +606,7 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
 
   const steps = guide.steps.map<GuideStepView>((step) => ({
     id: step.id,
+    key: step.key,
     order: step.order,
     title: step.title,
     hours: step.hours,
@@ -568,10 +620,22 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
     done: false,
   }));
 
-  const totalXp = achievements.reduce((sum, a) => sum + a.xp, 0);
+  const parsedWalk = guide.format === 2 ? walkthroughSchema.safeParse(guide.walkthrough) : null;
+  const walkthrough = parsedWalk?.success ? parsedWalk.data : null;
+  const walk = walkthrough ? await loadWalkExtras(game.id, guide, walkthrough) : null;
+  // A walkthrough covers the whole Steam list; a classic guide, the achievements it explains.
+  const xpOf = walk ? Object.values(walk.achievements) : achievements;
+  const totalXp = xpOf.reduce((sum, a) => sum + a.xp, 0);
 
   return {
     game: { ...game, guide: game.guide },
+    format: guide.format,
+    walkthrough,
+    edition: guide.edition,
+    compat: (GUIDE_COMPAT as readonly string[]).includes(guide.compat ?? "") ? (guide.compat as GuideCompat) : null,
+    report: null,
+    walk,
+    itemsDone: new Set<string>(),
     facts: {
       difficulty: guide.difficulty,
       timeTo100: await loadTimeTo100(game.id, game.timeToBeatCompleteMin),
@@ -601,9 +665,68 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
       createdAt: r.createdAt,
     })),
     sources: parseGuideSources(guide.sources),
-    totals: { xp: totalXp, pendingCount: achievements.length, pendingXp: totalXp },
+    totals: { xp: totalXp, pendingCount: xpOf.length, pendingXp: totalXp },
     skillLevels: game.skills.map((skill) => ({ skill, level: null })),
   };
+}
+
+/** Steam achievements, hardest and seal counts of a format-2 guide. */
+async function loadWalkExtras(
+  gameId: string,
+  guide: { id: string; hoursMin: number; hoursMax: number; report: unknown },
+  walkthrough: Walkthrough,
+): Promise<WalkExtras> {
+  const [game, rows] = await Promise.all([
+    prisma.game.findUniqueOrThrow({ where: { id: gameId }, select: { steamAppId: true, logoUrl: true } }),
+    prisma.achievement.findMany({
+      where: { gameId, platform: "steam" },
+      select: {
+        id: true,
+        apiName: true,
+        name: true,
+        namePt: true,
+        description: true,
+        descriptionPt: true,
+        iconUrl: true,
+        globalPct: true,
+        hidden: true,
+      },
+    }),
+  ]);
+  const achievements: Record<string, WalkAchievementView> = {};
+  for (const a of rows) {
+    achievements[a.apiName] = {
+      id: a.id,
+      apiName: a.apiName,
+      name: a.hidden ? null : (a.namePt ?? a.name),
+      description: a.hidden ? null : (a.descriptionPt ?? a.description),
+      iconUrl: a.hidden ? null : safeImageUrl(a.iconUrl),
+      globalPct: a.globalPct,
+      hidden: a.hidden,
+      xp: xpForAchievement(a.globalPct),
+      done: false,
+    };
+  }
+  // Only the two list sizes leave the report: the report itself is staff only.
+  const coverage = parseReport(guide.report)?.coverage;
+  const hardest = walkthrough.extraFacts.hardest;
+  return {
+    guideId: guide.id,
+    steamAppId: game.steamAppId,
+    logoUrl: safeImageUrl(game.logoUrl),
+    hours: { min: guide.hoursMin, max: guide.hoursMax },
+    hiddenCount: rows.filter((a) => a.hidden).length,
+    achievements,
+    hardest: hardest ? (achievements[hardest.apiName] ?? null) : null,
+    compatCounts:
+      coverage && coverage.steamOnly > 0 ? { steam: coverage.steam, ps5: coverage.steam - coverage.steamOnly } : null,
+  };
+}
+
+/** The robot report of a guide. Staff only: callers check the role first. */
+export async function loadGuideReport(guideId: string): Promise<GuideReport | null> {
+  const guide = await prisma.guide.findUnique({ where: { id: guideId }, select: { report: true } });
+  return parseReport(guide?.report);
 }
 
 // ---------- Per-user overlay of the guide ----------
@@ -613,6 +736,8 @@ export type GuideUserState = {
   progress: GameDetail["progress"];
   unlockedAchievementIds: string[];
   doneStepIds: string[];
+  /** Walkthrough items (format 2) the visitor ticked, by item key. */
+  doneItemKeys: string[];
   votedTipIds: string[];
   ownTipIds: string[];
   skillLevels: Record<string, number>;
@@ -626,9 +751,10 @@ export async function loadGuideUserState(
     ...new Set([
       ...guide.achievements.map((a) => a.id),
       ...guide.steps.flatMap((s) => s.achievements.map((a) => a.id)),
+      ...Object.values(guide.walk?.achievements ?? {}).map((a) => a.id),
     ]),
   ];
-  const [owned, unlocks, stepProgress, votes, ownTips, skillRows] = await Promise.all([
+  const [owned, unlocks, stepProgress, itemProgress, votes, ownTips, skillRows] = await Promise.all([
     prisma.userGame.findUnique({
       where: { userId_gameId_platform: { userId, gameId: guide.game.id, platform: "steam" } },
     }),
@@ -640,6 +766,12 @@ export async function loadGuideUserState(
       where: { userId, stepId: { in: guide.steps.map((s) => s.id) } },
       select: { stepId: true },
     }),
+    guide.walk
+      ? prisma.guideItemProgress.findMany({
+          where: { userId, guideId: guide.walk.guideId },
+          select: { itemKey: true },
+        })
+      : Promise.resolve([]),
     prisma.guideVote.findMany({
       where: { userId, tipId: { in: guide.tips.map((t) => t.id) } },
       select: { tipId: true },
@@ -657,6 +789,7 @@ export async function loadGuideUserState(
     progress: owned ? { unlockedCount: owned.unlockedCount, playtimeMin: owned.playtimeMin } : null,
     unlockedAchievementIds: unlocks.map((u) => u.achievementId),
     doneStepIds: stepProgress.map((s) => s.stepId),
+    doneItemKeys: itemProgress.map((i) => i.itemKey),
     votedTipIds: votes.map((v) => v.tipId),
     ownTipIds: ownTips.map((t) => t.id),
     skillLevels: Object.fromEntries(skillRows.map((s) => [s.skill, s.level])),
@@ -671,11 +804,22 @@ export function applyGuideUserState(guide: GuideDetail, state: GuideUserState): 
   const own = new Set(state.ownTipIds);
 
   const achievements = guide.achievements.map((a) => ({ ...a, done: unlocked.has(a.id) }));
-  const pending = achievements.filter((a) => !a.done);
+  const walk = guide.walk
+    ? {
+        ...guide.walk,
+        achievements: Object.fromEntries(
+          Object.entries(guide.walk.achievements).map(([apiName, a]) => [apiName, { ...a, done: unlocked.has(a.id) }]),
+        ),
+        hardest: guide.walk.hardest ? { ...guide.walk.hardest, done: unlocked.has(guide.walk.hardest.id) } : null,
+      }
+    : null;
+  const pending = (walk ? Object.values(walk.achievements) : achievements).filter((a) => !a.done);
 
   return {
     ...guide,
     game: { ...guide.game, progress: state.progress },
+    walk,
+    itemsDone: new Set(state.doneItemKeys),
     steps: guide.steps.map((step) => ({
       ...step,
       done: doneSteps.has(step.id),
