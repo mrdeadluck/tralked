@@ -1,15 +1,18 @@
+import { ChapterScene } from "./ChapterScene";
+import { ChapterTimeline } from "./ChapterTimeline";
 import { GreenTrail } from "./GreenTrail";
 import { walkPlain } from "./inline";
-import { ChapterScene, pluralKind } from "./ChapterScene";
+import { kindLabel } from "./kinds";
 import { DoneCount } from "./ProgressBits";
 import { SpoilerItemName } from "./spoilers";
 import type { ChapterView, ItemView } from "./view";
 import { WalkStepView } from "./WalkStepView";
 
 /*
- * The walkthrough itself: each chapter opens with its scene, then its steps along the green line
- * beside a sticky box (ticks, collectibles by kind, missables, the deadline). It closes with what
- * can still be picked up later and what cannot (Lucas: always say what can be collected later).
+ * The walkthrough itself: each chapter opens with its scene (from the second chapter on, the
+ * journey's timeline comes back in the gap before it), then its steps along the green line beside
+ * a sticky box (ticks, collectibles by kind, missables, the deadline). It closes with what can
+ * still be picked up later and what cannot (Lucas: always say what can be collected later).
  */
 
 function names(items: ItemView[], prefix: string) {
@@ -58,7 +61,7 @@ function ChapterBox({ chapter, items }: { chapter: ChapterView; items: ItemView[
         </p>
         {[...kinds].map(([kind, n]) => (
           <p key={kind} className="wk-cnt">
-            <span>{pluralKind(kind).replace(/^./, (c) => c.toUpperCase())}</span>
+            <span>{kindLabel(kind, n).replace(/^./, (c) => c.toUpperCase())}</span>
             <b>{n}</b>
           </p>
         ))}
@@ -91,6 +94,7 @@ export function WalkChapters({ chapters, screenshots }: WalkChaptersProps) {
         const image = chapter.sceneImage ?? (screenshots.length > 0 ? screenshots[i % screenshots.length] : null);
         return (
           <section key={chapter.key} id={`cap-${chapter.key}`} className="wk-chap" aria-labelledby={`cap-${chapter.key}-h`}>
+            {i > 0 ? <ChapterTimeline at={i} /> : null}
             <ChapterScene chapter={chapter} index={i} count={chapters.length} image={image} />
             <div className="wk-cols">
               <div className="wk-col">

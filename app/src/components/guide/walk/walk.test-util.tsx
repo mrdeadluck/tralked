@@ -6,7 +6,9 @@ import type { GuideDetail, WalkAchievementView } from "@/lib/queries/games";
 import { CoverArt } from "@/components/art/CoverArt";
 import { Toc } from "@/components/guide/Toc";
 import { BackdropFader } from "./BackdropFader";
+import { ChapterTimeline } from "./ChapterTimeline";
 import { GreenTrail } from "./GreenTrail";
+import { JourneyProvider } from "./journey";
 import { WalkProgressProvider, WalkUserSeed } from "./progress";
 import { DoneCount, ProgressCard, ProgressRing } from "./ProgressBits";
 import { SoundtrackPlayer } from "./SoundtrackPlayer";
@@ -129,6 +131,8 @@ export const CLIENT = new Set<unknown>([
   ProgressCard,
   DoneCount,
   WalkJourney,
+  JourneyProvider,
+  ChapterTimeline,
   WalkItemRow,
   GreenTrail,
   BackdropFader,
