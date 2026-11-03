@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { openGuideDb } from "../../src/guias/db.js";
-import { createPoliteState, politeFetch } from "../../src/guias/polite-fetch.js";
+import { createPoliteState, politeFetch, politeFetchImage } from "../../src/guias/polite-fetch.js";
 
 const html = (body: string, title = "Guide") =>
   `<html><head><title>${title}</title></head><body><article><h1>${title}</h1><p>${body}</p></article></body></html>`;
@@ -133,5 +133,29 @@ describe("politeFetch", () => {
       status: "error",
       reason: expect.stringContaining("ECONNRESET"),
     });
+  });
+});
+
+describe("politeFetchImage", () => {
+  const image = (bytes = "jpeg") => new Response(bytes, { status: 200, headers: { "Content-Type": "image/jpeg" } });
+
+  it("devolve os bytes da imagem respeitando o intervalo do host", async () => {
+    const s = setup({ "https://a.test/a.jpg": [image("one")], "https://a.test/b.jpg": [image("two")] });
+    expect((await politeFetchImage("https://a.test/a.jpg", s.opts))?.toString()).toBe("one");
+    expect((await politeFetchImage("https://a.test/b.jpg", s.opts))?.toString()).toBe("two");
+    expect(s.sleeps).toContain(2_000);
+  });
+
+  it("robots.txt proibindo, página de desafio ou erro → null", async () => {
+    const s = setup({
+      "https://a.test/robots.txt": [robots("User-agent: *\nDisallow: /private")],
+      "https://a.test/c.jpg": [new Response("<html>Just a moment...</html>", { status: 403, headers: { "Content-Type": "text/html" } })],
+      "https://a.test/d.jpg": [new Response("x", { status: 500, headers: { "Content-Type": "image/jpeg" } })],
+    });
+    expect(await politeFetchImage("https://a.test/private/x.jpg", s.opts)).toBeNull();
+    expect(s.calls).not.toContain("https://a.test/private/x.jpg");
+    expect(await politeFetchImage("https://a.test/c.jpg", s.opts)).toBeNull();
+    expect(await politeFetchImage("https://a.test/d.jpg", s.opts)).toBeNull();
+    expect(await politeFetchImage("data:image/png;base64,AAAA", s.opts)).toBeNull();
   });
 });
