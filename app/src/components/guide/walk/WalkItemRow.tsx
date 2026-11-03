@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { toggleItem } from "@/app/jogos/[slug]/guia/actions";
 import { loginHref, pctText } from "@/components/guide/format";
-import { inlineMarkup } from "@/lib/content/render";
 import { useWalkProgress } from "./progress";
-import { SpoilerGate, useGatedItem } from "./spoilers";
-import type { ItemImage, ItemSource, ItemView } from "./view";
+import { walkInline } from "./inline";
+import { revealedInline, SpoilerGate, useGatedItem } from "./spoilers";
+import { locationScope, type ItemImage, type ItemSource, type ItemView } from "./view";
 
 /*
  * One item of a step (collectible, achievement, mission...): its seals, location, image with credit
@@ -109,7 +109,6 @@ export function WalkItemRow({ item }: { item: ItemView }) {
   const confirmed = achievement ? progress.isUnlocked(achievement.id) : false;
 
   const name = item.name ?? revealed?.name ?? null;
-  const location = item.location ?? revealed?.location ?? null;
   const image = item.image ?? revealed?.image ?? null;
   const sources = revealed?.sources ?? item.sources;
   const achName = achievement?.name ?? revealed?.achievement?.name ?? null;
@@ -227,7 +226,11 @@ export function WalkItemRow({ item }: { item: ItemView }) {
         ) : (
           title
         )}
-        {location ? <p className="d">{inlineMarkup(location)}</p> : null}
+        {item.location ? (
+          <p className="d">{walkInline(item.location, locationScope(item.ref))}</p>
+        ) : revealed?.location ? (
+          <p className="d">{revealedInline(revealed.location)}</p>
+        ) : null}
         {image && name ? <Shot image={image} name={name} /> : null}
         <Sources sources={sources} review={item.review} />
         {achievement && confirmed && done ? <p className="wk-steam ok">✓ Confirmada pela Steam</p> : null}

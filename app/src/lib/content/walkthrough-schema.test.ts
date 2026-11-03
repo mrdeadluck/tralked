@@ -28,6 +28,27 @@ describe("walkthroughSchema", () => {
     expect(pointers(result)).toContain("/chapters/0/steps/0/items/0/key");
   });
 
+  it("aceita ||spoiler|| fechado e recusa || sem par no texto, no leia antes e no local", () => {
+    const w = fixture();
+    expect(w.chapters[0].steps[8].body[0].text).toContain("||**Hua, a Noiva Mortal**||");
+    w.readFirst[0].text = "Salve antes de ||o chefe final||.";
+    w.chapters[0].steps[0].items[0].location = "Atrás de ||Hua||.";
+    expect(walkthroughSchema.safeParse(w).error?.issues).toBeUndefined();
+
+    w.readFirst[0].text = "Salve antes de ||o chefe final.";
+    w.chapters[0].steps[0].items[0].location = "Atrás de Hua||.";
+    w.chapters[0].steps[6].body[2].items[1] = "Fale com || o ferreiro||";
+    const result = walkthroughSchema.safeParse(w);
+    expect(pointers(result)).toEqual(
+      expect.arrayContaining([
+        "/readFirst/0/text",
+        "/chapters/0/steps/0/items/0/location",
+        "/chapters/0/steps/6/body/2/items/1",
+      ]),
+    );
+    expect(result.error?.issues[0].message).toBe("Spoiler sem fechamento: use ||texto||");
+  });
+
   it("recusa cover.calls com 2 itens", () => {
     const w = fixture();
     w.cover.calls = w.cover.calls.slice(0, 2);

@@ -7,8 +7,16 @@ import { isSafeHttpUrl } from "./url";
  * so every object is strict (unknown keys are errors) and no field accepts raw HTML.
  *
  * Text that allows inline markup (paragraph, list items, quote, callout, table cells) supports
- * only **bold**, *italic* and [links](https://…) with an http(s) target.
+ * only **bold**, *italic* and [links](https://…) with an http(s) target. Walkthroughs (guide
+ * format 2) add `||spoiler||`: an inline span hidden until the reader turns spoilers on (see
+ * INLINE_SPOILER and walkthrough-schema.ts); elsewhere `||` is plain text.
  */
+
+/**
+ * `||text||`: an inline spoiler of a walkthrough (a boss name, a twist, a hidden achievement's name
+ * inside prose). Shared with the renderer and the page's masking so all three read spans alike.
+ */
+export const INLINE_SPOILER = /\|\|(?=\S)(.+?)\|\|/g;
 
 /** `[label](target)`: the only link syntax. Shared with the renderer so both read links alike. */
 export const INLINE_LINK = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;

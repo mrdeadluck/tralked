@@ -308,7 +308,22 @@ function truncate(text: string, max: number): string {
   return `${(space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
-/** Inline text: **bold** and *italic* only, no HTML, no script schemes, no links. */
+/** A closed `||spoiler||` span (the site's INLINE_SPOILER). */
+const SPOILER_SPAN = /\|\|(?=\S)(.+?)\|\|/g;
+const SPAN_MARK = "\u0001";
+
+/**
+ * Keeps the closed `||spoiler||` spans and drops any `||` that closes nothing (a cut by the length
+ * limit, a slip of the model): the site refuses an unclosed spoiler.
+ */
+function closeSpoilers(text: string): string {
+  return text
+    .replace(SPOILER_SPAN, (span) => span.replaceAll("||", SPAN_MARK))
+    .replaceAll("||", "")
+    .replaceAll(SPAN_MARK, "||");
+}
+
+/** Inline text: **bold**, *italic* and ||spoiler|| only, no HTML, no script schemes, no links. */
 function inline(text: string | null | undefined, max: number): string {
   if (!text) return "";
   const t = text
@@ -317,12 +332,19 @@ function inline(text: string | null | undefined, max: number): string {
     .replace(/<(?=[a-zA-Z!/?])/g, "< ")
     .replace(/(javascript|vbscript)\s*:/gi, "$1 ")
     .trim();
-  return truncate(t, max);
+  return closeSpoilers(truncate(t, max));
 }
 
-/** Plain text: no markup at all. */
+/** Plain text: no markup at all (a name is gated by its item's `spoiler`, never by ||). */
 function plain(text: string | null | undefined, max: number): string {
-  return inline(text?.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1").replace(/\n+/g, " "), max);
+  return inline(
+    text
+      ?.replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replaceAll("||", "")
+      .replace(/\n+/g, " "),
+    max,
+  );
 }
 
 function toBlocks(blocks: { tipo: string; texto: string }[]): ContentBlock[] {

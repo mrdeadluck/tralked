@@ -10,7 +10,15 @@ import { GreenTrail } from "./GreenTrail";
 import { WalkProgressProvider, WalkUserSeed } from "./progress";
 import { DoneCount, ProgressCard, ProgressRing } from "./ProgressBits";
 import { SoundtrackPlayer } from "./SoundtrackPlayer";
-import { SpoilerAchievement, SpoilerCallout, SpoilerGate, SpoilerItemName, SpoilerNote, SpoilerProvider } from "./spoilers";
+import {
+  SpoilerAchievement,
+  SpoilerCallout,
+  SpoilerGate,
+  SpoilerItemName,
+  SpoilerNote,
+  SpoilerProvider,
+  SpoilerSpan,
+} from "./spoilers";
 import { SpoilerToggle } from "./SpoilerToggle";
 import { WalkItemRow } from "./WalkItemRow";
 import { WalkJourney } from "./WalkJourney";
@@ -113,6 +121,7 @@ export const CLIENT = new Set<unknown>([
   SpoilerNote,
   SpoilerItemName,
   SpoilerCallout,
+  SpoilerSpan,
   SpoilerToggle,
   WalkProgressProvider,
   WalkUserSeed,

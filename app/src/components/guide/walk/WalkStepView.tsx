@@ -1,4 +1,5 @@
-import { Blocks, inlineMarkup } from "@/lib/content/render";
+import { Blocks } from "@/lib/content/render";
+import { walkInline } from "./inline";
 import { SpoilerCallout, SpoilerItemName } from "./spoilers";
 import type { BlockView, ItemView, StepView } from "./view";
 import { WalkItemRow } from "./WalkItemRow";
@@ -9,14 +10,15 @@ import { WalkItemRow } from "./WalkItemRow";
  * followed: the reader learns what is lost before reaching the point of no return.
  */
 
-function StepBlock({ block }: { block: BlockView }) {
+/** One body block; `scope` names its inline spoiler spans (view.ts). */
+function StepBlock({ block, scope }: { block: BlockView; scope: string }) {
   switch (block.type) {
     case "spoiler":
       return <SpoilerCallout id={block.id} />;
     case "paragraph":
-      return <p className="wk-txt">{inlineMarkup(block.text)}</p>;
+      return <p className="wk-txt">{walkInline(block.text, scope)}</p>;
     case "list": {
-      const items = block.items.map((text, i) => <li key={i}>{inlineMarkup(text)}</li>);
+      const items = block.items.map((text, i) => <li key={i}>{walkInline(text, `${scope}.${i}`)}</li>);
       return block.ordered ? <ol className="wk-txt">{items}</ol> : <ul className="wk-txt">{items}</ul>;
     }
     case "heading":
@@ -24,13 +26,46 @@ function StepBlock({ block }: { block: BlockView }) {
     case "callout":
       return (
         <aside className={block.tone === "aviso" ? "wk-callout" : "wk-callout i"} aria-label={block.tone === "aviso" ? "Atenção" : "Dica"}>
-          <p>{inlineMarkup(block.text)}</p>
+          <p>{walkInline(block.text, scope)}</p>
         </aside>
+      );
+    case "quote":
+      return (
+        <figure className="wk-quote">
+          <blockquote>{walkInline(block.text, scope)}</blockquote>
+          {block.author ? <figcaption>{block.author}</figcaption> : null}
+        </figure>
+      );
+    case "table":
+      return (
+        <div className="wk-table" role="region" aria-label="Tabela" tabIndex={0}>
+          <table>
+            <thead>
+              <tr>
+                {block.header.map((cell, i) => (
+                  <th key={i} scope="col">
+                    {cell}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => (
+                    <td key={c}>{walkInline(cell, `${scope}.${r}.${c}`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       );
     case "achievement":
       // The step's achievements are its items (with icon, rarity and the Steam check).
       return null;
     default:
+      // Image, video and divider: no inline text.
       return <Blocks blocks={[block]} />;
   }
 }
@@ -69,7 +104,7 @@ export function WalkStepView({ step, deadline }: { step: StepView; deadline: str
         </span>
         <div className="wk-step-b">
           {step.body.map((block, i) => (
-            <StepBlock key={i} block={block} />
+            <StepBlock key={i} block={block} scope={`${step.scope}.${i}`} />
           ))}
           {step.items.map((item) => (
             <WalkItemRow key={item.ref} item={item} />

@@ -1,9 +1,10 @@
-import type { CSSProperties, ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { RARITY_COLOR, RARITY_LABEL } from "@/components/character/format";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { sizedImage } from "@/lib/images/sized";
 import {
   achievementKey,
+  INLINE_SPOILER,
   isSafeHttpUrl,
   type AchievementCardData,
   type CalloutTone,
@@ -20,16 +21,27 @@ export { achievementKey, type AchievementCardData };
 const LINK_AT = /\[([^\]\n]+)\]\(([^)\s]+)\)/y;
 const BOLD_AT = /\*\*(?=\S)(.+?)\*\*/y;
 const ITALIC_AT = /\*(?=[^\s*])([^*\n]+?)\*/y;
+/** `||spoiler||` (walkthroughs only). */
+const SPOILER_AT = new RegExp(INLINE_SPOILER.source, "y");
+
+type InlineOptions = {
+  /**
+   * Renders an inline `||spoiler||` span from its inner text. Only walkthrough pages pass it;
+   * without it `||` stays literal text, as it always was for news and classic guides.
+   */
+  spoiler?: (inner: string) => ReactNode;
+};
 
 /**
- * Restricted inline markup to React nodes: **bold**, *italic* and [label](http(s) url).
- * Anything else, including a link with an unsafe target, stays literal text.
+ * Restricted inline markup to React nodes: **bold**, *italic* and [label](http(s) url), plus
+ * `||spoiler||` spans when `options.spoiler` is given. Anything else, including a link with an
+ * unsafe target, stays literal text.
  */
-export function inlineMarkup(text: string): ReactNode[] {
-  return parseInline(text, "i");
+export function inlineMarkup(text: string, options: InlineOptions = {}): ReactNode[] {
+  return parseInline(text, "i", options);
 }
 
-function parseInline(text: string, keyPrefix: string): ReactNode[] {
+function parseInline(text: string, keyPrefix: string, options: InlineOptions): ReactNode[] {
   const out: ReactNode[] = [];
   let buffer = "";
   let i = 0;
@@ -45,6 +57,15 @@ function parseInline(text: string, keyPrefix: string): ReactNode[] {
   while (i < text.length) {
     const ch = text[i];
     const key = `${keyPrefix}.${out.length}`;
+    if (ch === "|" && options.spoiler) {
+      const m = at(SPOILER_AT);
+      if (m) {
+        flush();
+        out.push(<Fragment key={key}>{options.spoiler(m[1])}</Fragment>);
+        i += m[0].length;
+        continue;
+      }
+    }
     if (ch === "[") {
       const m = at(LINK_AT);
       if (m) {
@@ -59,7 +80,7 @@ function parseInline(text: string, keyPrefix: string): ReactNode[] {
               rel="noopener noreferrer"
               className="text-acc underline decoration-1 underline-offset-[3px] hover:decoration-2"
             >
-              {parseInline(label, key)}
+              {parseInline(label, key, options)}
             </a>
           ) : (
             label
@@ -74,7 +95,7 @@ function parseInline(text: string, keyPrefix: string): ReactNode[] {
         flush();
         out.push(
           <strong key={key} className="font-bold text-text">
-            {parseInline(bold[1], key)}
+            {parseInline(bold[1], key, options)}
           </strong>,
         );
         i += bold[0].length;
@@ -83,7 +104,7 @@ function parseInline(text: string, keyPrefix: string): ReactNode[] {
       const italic = at(ITALIC_AT);
       if (italic) {
         flush();
-        out.push(<em key={key}>{parseInline(italic[1], key)}</em>);
+        out.push(<em key={key}>{parseInline(italic[1], key, options)}</em>);
         i += italic[0].length;
         continue;
       }

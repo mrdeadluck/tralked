@@ -32,6 +32,15 @@ describe("inlineMarkup", () => {
     expect(container.textContent).toBe('<img src=x onerror="alert(1)"> clique)');
   });
 
+  it("||spoiler|| is literal text unless the caller handles spoilers", () => {
+    expect(html(inlineMarkup("a ||b|| c"))).toBe("a ||b|| c");
+    expect(html(inlineMarkup("a ||**b**|| c", { spoiler: (inner) => <mark>{inner}</mark> }))).toBe("a <mark>**b**</mark> c");
+    // Inside bold too; an unclosed || stays literal.
+    expect(html(inlineMarkup("**x ||y||** ||z", { spoiler: () => <i>?</i> }))).toBe(
+      '<strong class="font-bold text-text">x <i>?</i></strong> ||z',
+    );
+  });
+
   it("leaves unmatched asterisks alone", () => {
     expect(html(inlineMarkup("2 * 3 = 6 e **sem fim"))).toBe("2 * 3 = 6 e **sem fim");
   });

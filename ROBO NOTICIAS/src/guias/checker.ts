@@ -40,7 +40,7 @@ Verifique só isto:
 - perdíveis: o aviso de perdível vem antes do ponto de não retorno (nunca depois), e nada que o dossiê não marca como perdível é chamado de perdível;
 - "dá para voltar depois" só onde o dossiê diz que volta depois;
 - nomes: nomes de conquistas, itens, lugares e chefes iguais aos do dossiê (o PT-BR oficial da conquista vem de nome_pt);
-- spoilers: nome de chefe, final ou reviravolta fora de um trecho marcado como spoiler;
+- spoilers: nome de chefe, final, reviravolta ou nome de conquista oculta fora de um trecho marcado como spoiler (item ou bloco com spoiler, ou um trecho entre ||…|| no texto);
 - a palavra "platina" (o guia usa "Tralked");
 - qualquer afirmação que não aparece no dossiê.
 

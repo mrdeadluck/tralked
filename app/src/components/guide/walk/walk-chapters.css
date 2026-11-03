@@ -845,14 +845,26 @@ ol.wk-txt {
 .wk-ost .x:hover {
   color: var(--text);
 }
-/* The YouTube player itself plays the sound only. */
-.wk-ost .frame {
+/* YouTube's player, on screen while the music plays (356 × 200: never under 200 × 200 px). The
+   chamfer is on the frame's padding, so it never covers the video. */
+.wk-ost-video {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
+  left: -1px;
+  bottom: calc(100% + 8px);
+  box-sizing: content-box;
+  padding: 8px;
+  background: oklch(0.17 0.006 250 / 0.94);
+  border: 1px solid var(--border-2);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.5);
+}
+.wk-ost-video[hidden] {
+  display: none;
+}
+.wk-ost-video iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
 }
 
 @media (max-width: 900px) {
@@ -909,4 +921,49 @@ ol.wk-txt {
   .wk-ost .eq i {
     animation: none;
   }
+}
+
+/* ---------- quotes and tables inside steps ---------- */
+.wk-quote {
+  padding-left: 16px;
+  border-left: 2px solid var(--border-2);
+}
+.wk-quote blockquote {
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.wk-quote figcaption {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.wk-table {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+.wk-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.wk-table th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-2);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wk-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+}
+.wk-table tr:last-child td {
+  border-bottom: 0;
 }

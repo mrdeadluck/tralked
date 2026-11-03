@@ -163,7 +163,7 @@ const itemsOf = (p: GuidePayloadV2) =>
 describe("guia-estilo.md", () => {
   it("carries the guide rules", () => {
     const style = loadGuideStyle();
-    for (const phrase of ["Tralked", "platina", "(inglês)", "namePt", "8 palavras", "spoiler", "antes", "dá para voltar depois", "3 chamadas", "review", "1 a 10", "calculados pelo sistema"]) {
+    for (const phrase of ["Tralked", "platina", "(inglês)", "namePt", "8 palavras", "spoiler", "antes", "dá para voltar depois", "3 chamadas", "review", "1 a 10", "calculados pelo sistema", "||…||", "||spoiler||"]) {
       expect(style).toContain(phrase);
     }
   });
@@ -217,6 +217,30 @@ describe("writeGuide", () => {
     const writes = of("guide-write");
     expect(writes.length).toBeGreaterThanOrEqual(2);
     for (const w of writes) expect(w).toMatchObject({ model: "claude-opus-5-5", effort: "high", bucket: "live" });
+  });
+
+  it("spoiler ||…|| no texto passa no schema do site; || sem par cai e nomes saem sem ||", async () => {
+    const { ai } = fakeAi({
+      chapter: (out, _prompt, n) => {
+        if (n > 0) return;
+        const step = out.passos[0]! as { blocos: { tipo: string; texto: string }[] };
+        step.blocos = [
+          { tipo: "paragrafo", texto: "Ali você enfrenta ||**o Guardião**||." },
+          { tipo: "aviso", texto: "Corte no meio ||sem fechar" },
+        ];
+        const item = out.itens[0]!;
+        item.local = "Atrás do trono de ||Hua||.";
+        item.nome = "Nome ||com marcador||";
+      },
+    });
+    const payload = await writeGuide(ai, makeDossier(), GAME, "live");
+    expect(walkthroughSchema.safeParse(payload.walkthrough).error?.issues).toBeUndefined();
+    const texts = JSON.stringify(payload.walkthrough);
+    expect(texts).toContain("Ali você enfrenta ||**o Guardião**||.");
+    expect(texts).toContain("Corte no meio sem fechar");
+    expect(texts).toContain("Atrás do trono de ||Hua||.");
+    expect(texts).toContain("Nome com marcador");
+    expect(texts).not.toContain("Nome ||");
   });
 
   it("item com uma fonte sai com review true", async () => {

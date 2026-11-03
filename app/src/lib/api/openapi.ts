@@ -15,7 +15,7 @@ import { RATE_LIMIT } from "./rate-limit";
 type JsonSchema = Record<string, unknown>;
 
 const TEXT_RULES =
-  "Textos não aceitam HTML nem URLs javascript:/data:. Parágrafos, listas, citações, avisos e células de tabela aceitam só **negrito**, *itálico* e [links](https://…).";
+  "Textos não aceitam HTML nem URLs javascript:/data:. Parágrafos, listas, citações, avisos e células de tabela aceitam só **negrito**, *itálico* e [links](https://…); nos detonados (formato 2), ||spoiler|| esconde um trecho até o leitor ligar os spoilers.";
 
 /**
  * zod renders `z.url({ protocol })` as a bare `format: uri`; add the protocol as a pattern so

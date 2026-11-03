@@ -2,7 +2,7 @@ import "../../../../vitest.db-guard";
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { checkGameAchievements, toggleItem } from "@/app/jogos/[slug]/guia/actions";
 import { announceReward } from "@/components/fx/reward-bus";
 import type { GuideReport } from "@/lib/admin/guide-report";
@@ -203,12 +203,16 @@ describe("WalkthroughPage (detonado)", () => {
   });
 });
 
-describe("spoilers fora da página (R13)", () => {
+describe("spoilers fora da página (R13, R16)", () => {
   it("boss com spoiler e aviso do leia-antes não chegam ao navegador com spoilers desligados", () => {
     const g = guide();
     const secret = { ...ach("ACH_SCARLET_SPECTRAL_BLADE", null, 67.1, true), id: "cm-hidden-1" };
     const withCallout = structuredClone(g.walkthrough);
     withCallout.chapters[0].steps[6].body.push({ type: "callout", tone: "spoiler", text: "O Posto Avançado é atacado no fim da região." });
+    // Inline spoilers in a read-first note, a list item and a visible item's location.
+    withCallout.readFirst[0].text = "Salve antes de ||o Imperador Caído|| aparecer.";
+    (withCallout.chapters[0].steps[6].body[2] as { items: string[] }).items[0] = "Fale com ||o traidor Wen||.";
+    withCallout.chapters[0].steps[6].items[0].location = "Atrás do túmulo de ||Mestre Lan||.";
     const out = shipped(
       <WalkthroughPage
         guide={{
@@ -218,6 +222,12 @@ describe("spoilers fora da página (R13)", () => {
         }}
       />,
     ).join(" ");
+    // The boss, also where the step's text names it inline (||…||).
+    expect(out).not.toContain("Hua, a Noiva Mortal");
+    expect(out).not.toContain("Noiva Mortal");
+    expect(out).not.toContain("Imperador Caído");
+    expect(out).not.toContain("traidor Wen");
+    expect(out).not.toContain("Mestre Lan");
     // The spoiler boss item: name, key, location and its hidden achievement.
     expect(out).not.toContain("Chefe opcional · Hua");
     expect(out).not.toContain("boss-hua-noiva-mortal");
@@ -240,19 +250,46 @@ describe("spoilers fora da página (R13)", () => {
     expect(boss.closest(".wk-item")).toHaveTextContent("A vitória também dá a arma");
     fireEvent.click(boss);
     await waitFor(() => expect(toggleItem).toHaveBeenCalledWith("guide-pbz", gatedRef("boss-hua-noiva-mortal")));
+    // The boss named inline in the step's text shows too.
+    expect(screen.getByRole("article", { name: "Passo 1.9" }).querySelector(".wk-txt")).toHaveTextContent(
+      "Ali você enfrenta Hua, a Noiva Mortal.",
+    );
+  });
+
+  it("spoiler no meio do texto abre sozinho com mostrar", async () => {
+    render(<WalkthroughPage guide={guide()} />);
+    const text = screen.getByRole("article", { name: "Passo 1.9" }).querySelector(".wk-txt") as HTMLElement;
+    expect(text).toHaveTextContent("Ali você enfrenta");
+    expect(text).not.toHaveTextContent("Noiva Mortal");
+    fireEvent.click(within(text).getByRole("button", { name: "Mostrar o trecho com spoiler" }));
+    expect(await within(text).findByText("Hua, a Noiva Mortal")).toBeInTheDocument();
+    // Only this span: the boss item below stays closed.
+    expect(screen.queryByText("Chefe opcional · Hua, a Noiva Mortal")).toBeNull();
   });
 });
 
 describe("SoundtrackPlayer", () => {
+  type FakeOptions = {
+    width: number;
+    height: number;
+    events: { onReady: (e: { target: FakePlayer }) => void; onStateChange: (e: { data: number }) => void };
+  };
+  type FakePlayer = { setVolume: Mock; playVideo: Mock; pauseVideo: Mock; destroy: Mock };
+
+  /** The IFrame API: the player gets ready and starts playing at once, like a fast connection. */
   function fakeYouTube() {
-    const player = { setVolume: vi.fn(), playVideo: vi.fn(), pauseVideo: vi.fn(), destroy: vi.fn() };
-    const Player = vi.fn(function (this: unknown, el: HTMLElement, options: { events: { onReady: (e: { target: typeof player }) => void } }) {
+    const player: FakePlayer = { setVolume: vi.fn(), playVideo: vi.fn(), pauseVideo: vi.fn(), destroy: vi.fn() };
+    let options: FakeOptions | null = null;
+    const Player = vi.fn(function (this: unknown, el: HTMLElement, opts: FakeOptions) {
+      options = opts;
       el.replaceWith(document.createElement("iframe"));
-      options.events.onReady({ target: player });
+      opts.events.onReady({ target: player });
+      opts.events.onStateChange({ data: 1 });
       return player;
     });
     (window as unknown as { YT: unknown }).YT = { Player };
-    return { Player, player };
+    const state = (data: number) => act(() => options!.events.onStateChange({ data }));
+    return { Player, player, state };
   }
 
   afterEach(() => {
@@ -261,6 +298,7 @@ describe("SoundtrackPlayer", () => {
   });
 
   const OST = { youtubeId: "abcdefghijk", title: "Phantom Blade Zero OST", channel: "S-GAME" };
+  const video = () => document.querySelector<HTMLElement>(".wk-ost-video");
 
   it("player não cria iframe antes do primeiro clique e usa volume 8", async () => {
     const { Player, player } = fakeYouTube();
@@ -268,12 +306,44 @@ describe("SoundtrackPlayer", () => {
     expect(await screen.findByRole("region", { name: "Trilha sonora do jogo" })).toHaveTextContent("Phantom Blade Zero OST");
     expect(Player).not.toHaveBeenCalled();
     expect(document.querySelector("iframe")).toBeNull();
+    expect(video()).not.toBeVisible();
 
     fireEvent.click(document.body);
     await waitFor(() => expect(Player).toHaveBeenCalledTimes(1));
     expect(Player.mock.calls[0][1]).toMatchObject({ host: "https://www.youtube-nocookie.com", videoId: "abcdefghijk" });
     expect(player.setVolume).toHaveBeenCalledWith(8);
     expect(document.querySelector("iframe")).not.toBeNull();
+  });
+
+  it("tocando, o player do YouTube fica visível com pelo menos 200 × 200; pausar recolhe, fechar tira", async () => {
+    const { Player, player, state } = fakeYouTube();
+    render(<SoundtrackPlayer soundtrack={OST} />);
+    await screen.findByRole("region", { name: "Trilha sonora do jogo" });
+    fireEvent.click(document.body);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pausar a trilha" })).toBeInTheDocument());
+
+    const frame = video()!;
+    expect(frame).toBeVisible();
+    expect(frame.querySelector("iframe")).toBeVisible();
+    expect(parseFloat(frame.style.width)).toBeGreaterThanOrEqual(200);
+    expect(parseFloat(frame.style.height)).toBeGreaterThanOrEqual(200);
+    const { width, height } = Player.mock.calls[0][1] as FakeOptions;
+    expect(Math.min(width, height)).toBeGreaterThanOrEqual(200);
+
+    fireEvent.click(screen.getByRole("button", { name: "Pausar a trilha" }));
+    expect(player.pauseVideo).toHaveBeenCalled();
+    await state(2);
+    expect(frame).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "Tocar a trilha" })).toBeInTheDocument();
+
+    // Playing again shows the video before the sound comes back.
+    fireEvent.click(screen.getByRole("button", { name: "Tocar a trilha" }));
+    expect(frame).toBeVisible();
+    expect(player.playVideo).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Fechar a trilha" }));
+    expect(player.destroy).toHaveBeenCalled();
+    expect(video()).toBeNull();
   });
 
   it("no celular só toca pelo botão ▶; fechar fica salvo", async () => {
@@ -292,6 +362,19 @@ describe("SoundtrackPlayer", () => {
     render(<SoundtrackPlayer soundtrack={OST} />);
     await act(async () => {});
     expect(screen.queryByRole("region", { name: "Trilha sonora do jogo" })).toBeNull();
+  });
+
+  // Last: it leaves the module's API loader waiting on the (fake) script.
+  it("fechar enquanto a API do YouTube carrega não cria o player", async () => {
+    render(<SoundtrackPlayer soundtrack={OST} />);
+    await screen.findByRole("region", { name: "Trilha sonora do jogo" });
+    fireEvent.click(document.body);
+    expect(document.head.querySelector('script[src="https://www.youtube.com/iframe_api"]')).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Fechar a trilha" }));
+
+    const { Player } = fakeYouTube();
+    await act(async () => (window as unknown as { onYouTubeIframeAPIReady: () => void }).onYouTubeIframeAPIReady());
+    expect(Player).not.toHaveBeenCalled();
   });
 });
 

@@ -80,7 +80,8 @@ type SpoilerGateProps = {
   /**
    * Shown once revealed. Only client code may pass children here: whatever a server component
    * passes is serialized into the page, shown or not. Server components use the gates below
-   * (SpoilerNote, SpoilerItemName, SpoilerCallout, SpoilerAchievement), which fetch their text.
+   * (SpoilerNote, SpoilerItemName, SpoilerCallout, SpoilerSpan, SpoilerAchievement), which fetch
+   * their text.
    */
   children: ReactNode;
 };
@@ -97,6 +98,11 @@ export function SpoilerGate({ id, what, size = 14, children }: SpoilerGateProps)
       </button>
     </span>
   );
+}
+
+/** A revealed text: its own `||spoiler||` spans are already shown, as plain text. */
+export function revealedInline(text: string): ReactNode[] {
+  return inlineMarkup(text, { spoiler: (inner) => inlineMarkup(inner) });
 }
 
 /** While the spoilers are on their way: "…", or a neutral word when the server refused. */
@@ -116,7 +122,7 @@ export function SpoilerNote({ id, index, what }: { id: string; index: number; wh
   const { text, failed } = useSpoilerText((t) => t.notes[String(index)]);
   return (
     <SpoilerGate id={id} what={what} size={24}>
-      <p>{text ? inlineMarkup(text) : <Pending failed={failed} fallback="Spoiler" />}</p>
+      <p>{text ? revealedInline(text) : <Pending failed={failed} fallback="Spoiler" />}</p>
     </SpoilerGate>
   );
 }
@@ -138,9 +144,22 @@ export function SpoilerCallout({ id }: { id: string }) {
     <aside className="wk-callout s" aria-label="Spoiler">
       <b>Spoiler.</b>{" "}
       <SpoilerGate id={`callout-${id}`} what="o trecho com spoiler" size={30}>
-        {text ? inlineMarkup(text) : <Pending failed={failed} fallback="Trecho com spoiler" />}
+        {text ? revealedInline(text) : <Pending failed={failed} fallback="Trecho com spoiler" />}
       </SpoilerGate>
     </aside>
+  );
+}
+
+/**
+ * An inline `||spoiler||` span inside visible text (a boss name in a step): a short blurred bar
+ * and "mostrar" until shown, then its text, fetched with the guide's spoilers. `id` is its spanKey.
+ */
+export function SpoilerSpan({ id }: { id: string }) {
+  const { text, failed } = useSpoilerText((t) => t.spans[id]);
+  return (
+    <SpoilerGate id={`span-${id}`} what="o trecho com spoiler" size={10}>
+      {text ? inlineMarkup(text) : <Pending failed={failed} fallback="spoiler" />}
+    </SpoilerGate>
   );
 }
 

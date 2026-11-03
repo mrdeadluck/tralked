@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { contentBlocksSchema, inlineText, plainText, STEP_KEY_PATTERN } from "./schema";
+import { contentBlocksSchema, INLINE_SPOILER, inlineText, plainText, STEP_KEY_PATTERN, type ContentBlock } from "./schema";
 
 /**
  * Walkthrough of guide format 2 (the guide robot): a cover, "read first" notes and chapters of
@@ -9,6 +9,10 @@ import { contentBlocksSchema, inlineText, plainText, STEP_KEY_PATTERN } from "./
  *
  * Every `key` (chapter, step, item) lives in ONE namespace: readers' checkmarks hang on item keys,
  * so a repeated key anywhere would tick two things at once.
+ *
+ * Inline text (step paragraphs, lists, quotes, callouts and table cells, read-first notes, item
+ * locations) may wrap a spoiler in `||…||` (a boss name, a twist, a hidden achievement's name):
+ * the page leaves it out until the reader turns spoilers on. Every `||` must close.
  */
 
 export const WALK_ITEM_KINDS = ["collectible", "achievement", "mission", "key_item", "boss", "other"] as const;
@@ -93,6 +97,27 @@ export const walkReadFirstSchema = z.strictObject({
   spoiler: z.boolean(),
 });
 
+/** Whether `text` has a `||` that opens no closed spoiler span. */
+export const unclosedSpoiler = (text: string) => text.replace(INLINE_SPOILER, "").includes("||");
+
+/** Inline texts of a step block, with their path inside the block. */
+function blockTexts(block: ContentBlock): { text: string; path: (string | number)[] }[] {
+  switch (block.type) {
+    case "paragraph":
+    case "quote":
+    case "callout":
+      return [{ text: block.text, path: ["text"] }];
+    case "list":
+      return block.items.map((text, i) => ({ text, path: ["items", i] }));
+    case "table":
+      return block.rows.flatMap((row, r) => row.map((text, c) => ({ text, path: ["rows", r, c] })));
+    default:
+      return [];
+  }
+}
+
+const SPOILER_UNCLOSED = "Spoiler sem fechamento: use ||texto||";
+
 export const walkthroughSchema = z
   .strictObject({
     cover: z.strictObject({
@@ -127,11 +152,21 @@ export const walkthroughSchema = z
       if (seen.has(key)) ctx.addIssue({ code: "custom", path, message: `key repetida: ${key}` });
       seen.add(key);
     };
+    const spoilers = (text: string | undefined, path: (string | number)[]) => {
+      if (text && unclosedSpoiler(text)) ctx.addIssue({ code: "custom", path, message: SPOILER_UNCLOSED });
+    };
+    w.readFirst.forEach((note, n) => spoilers(note.text, ["readFirst", n, "text"]));
     w.chapters.forEach((chapter, c) => {
       claim(chapter.key, ["chapters", c, "key"]);
       chapter.steps.forEach((step, s) => {
         claim(step.key, ["chapters", c, "steps", s, "key"]);
-        step.items.forEach((item, i) => claim(item.key, ["chapters", c, "steps", s, "items", i, "key"]));
+        step.body.forEach((block, b) =>
+          blockTexts(block).forEach(({ text, path }) => spoilers(text, ["chapters", c, "steps", s, "body", b, ...path])),
+        );
+        step.items.forEach((item, i) => {
+          claim(item.key, ["chapters", c, "steps", s, "items", i, "key"]);
+          spoilers(item.location, ["chapters", c, "steps", s, "items", i, "location"]);
+        });
       });
     });
   });

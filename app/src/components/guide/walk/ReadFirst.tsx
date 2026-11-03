@@ -1,6 +1,6 @@
-import { inlineMarkup } from "@/lib/content/render";
+import { walkInline } from "./inline";
 import { SpoilerItemName, SpoilerNote } from "./spoilers";
-import type { MissableView, NoteView } from "./view";
+import { noteScope, type MissableView, type NoteView } from "./view";
 
 /*
  * "Leia isto para não perder nada": the walkthrough's read-first notes (amber for warnings, lime
@@ -41,7 +41,7 @@ export function ReadFirst({ notes, missables }: ReadFirstProps) {
             {note.text === null ? (
               <SpoilerNote id={`leia-${i}`} index={i} what={`o aviso ${note.title}`} />
             ) : (
-              <p>{inlineMarkup(note.text)}</p>
+              <p>{walkInline(note.text, noteScope(i))}</p>
             )}
           </li>
         ))}

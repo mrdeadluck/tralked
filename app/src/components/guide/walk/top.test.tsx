@@ -16,6 +16,7 @@ vi.mock("./reveal-spoilers", () => ({
     notes: { "1": "Antes de entrar na **região 9**, conclua **todas as missões com ícone roxo** no Diário." },
     callouts: {},
     items: {},
+    spans: {},
   })),
 }));
 

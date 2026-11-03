@@ -53,8 +53,9 @@ O guia é da lista de conquistas da **Steam**. Fale em "conquistas", não em "tr
 O botão "Spoilers" do guia começa desligado. O que você marca como spoiler fica borrado até o leitor pedir.
 
 - Marque `spoiler: true` em: **nome de chefe**, **reviravolta da história**, **conquista oculta** da Steam (`oculta="sim"` no dossiê), final, personagem que aparece de surpresa. Na dúvida, marque.
-- Nos textos que **não** são spoiler (títulos, chamadas da capa, visão geral, "leia antes" sem spoiler), não diga o nome de chefe, final ou reviravolta: escreva "o chefe da região", "o chefe final", "o fim da história".
+- Nos textos que **não** são spoiler (títulos, chamadas da capa, visão geral), não diga o nome de chefe, final ou reviravolta: escreva "o chefe da região", "o chefe final", "o fim da história".
 - Um bloco de texto com spoiler vai no tipo `spoiler`, nunca num parágrafo comum.
+- **Spoiler no meio da frase: `||…||`.** Nos parágrafos, avisos, dicas, no "leia antes" e no `local` dos itens, todo **nome de chefe**, **reviravolta** e **nome de conquista oculta** que precisar aparecer vai entre `||` e `||`: "Ali você enfrenta ||**Hua, a Noiva Mortal**||." O site esconde o trecho até o leitor ligar os spoilers. Todo `||` abre e fecha na mesma frase; não use `||` em `nome`, títulos nem na capa (o nome de um item spoiler já fica escondido pelo `spoiler: true`).
 
 ## 8. Perdíveis e o que dá para pegar depois
 
@@ -99,7 +100,7 @@ A capa é de revista: **3 chamadas** com o número em destaque, a manchete e a l
   - `spoiler`: trecho que revela chefe, final ou reviravolta.
 - Cada item tem `nome` (veja a seção 4), `local` (onde fica e como pegar, em uma ou duas frases, até 400 caracteres; para conquista, o que fazer neste ponto) e `spoiler`.
 - `conquistas` de um passo: apiNames das conquistas "sem lugar fixo" que destravam **nesse passo** (chefe derrotado, fim do capítulo, último item da coleção). Ponha cada conquista num passo só. Se ela não tem um ponto certo na história, deixe-a na limpeza, onde o sistema já a colocou.
-- Marcação permitida nos textos: só **negrito** e *itálico*. Nada de links, HTML, Markdown de título (#) ou imagens. Negrito com parcimônia, para o nome ou número que o jogador precisa achar rápido.
+- Marcação permitida nos textos: só **negrito**, *itálico* e `||spoiler||` (seção 7). Nada de links, HTML, Markdown de título (#) ou imagens. Negrito com parcimônia, para o nome ou número que o jogador precisa achar rápido.
 
 ## 12. Segurança das fontes
 

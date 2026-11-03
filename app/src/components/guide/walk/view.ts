@@ -1,12 +1,14 @@
 import { itemRef } from "@/lib/content/walk-refs";
-import type { ContentBlock } from "@/lib/content/schema";
+import { INLINE_SPOILER, type ContentBlock } from "@/lib/content/schema";
 import type { Walkthrough, WalkItem, WalkItemKind } from "@/lib/content/walkthrough-schema";
 import type { WalkAchievementView, WalkExtras } from "@/lib/queries/games";
 
 /*
- * What the walkthrough page renders, with every spoiler taken out (R13): notes, step callouts and
- * items marked `spoiler`, and items of hidden Steam achievements, become placeholders, and gated
- * items travel under an opaque ref. Their text comes back only through revealWalkSpoilers, built
+ * What the walkthrough page renders, with every spoiler taken out (R13, R16): notes, step callouts
+ * and items marked `spoiler`, and items of hidden Steam achievements, become placeholders, and gated
+ * items travel under an opaque ref. Inline `||spoiler||` spans of the remaining text become their
+ * index (`||0||`, `||1||`…): the page draws a gate there (inline.tsx) whose text arrives on reveal,
+ * keyed `<scope>#<index>` (spanKey). Their text comes back only through revealWalkSpoilers, built
  * from the same walkthrough by `walkSpoilers` below, so masking and revealing stay symmetric.
  * Server only in practice: it reads the full walkthrough.
  */
@@ -42,7 +44,13 @@ export type ItemView = {
 /** A body block, or a spoiler callout reduced to its id (the text comes on reveal). */
 export type BlockView = ContentBlock | { type: "spoiler"; id: string };
 
-export type StepView = { number: string; body: BlockView[]; items: ItemView[] };
+export type StepView = {
+  number: string;
+  /** Prefix of the span scopes of the step's blocks (`chapter.step`): block `b` is `${scope}.${b}`. */
+  scope: string;
+  body: BlockView[];
+  items: ItemView[];
+};
 
 export type ChapterView = {
   key: string;
@@ -79,9 +87,39 @@ export type WalkSpoilers = {
   callouts: Record<string, string>;
   /** By item ref. */
   items: Record<string, GatedItem>;
+  /** Inline `||spoiler||` spans, by spanKey. */
+  spans: Record<string, string>;
 };
 
 const calloutId = (c: number, s: number, b: number) => `${c}.${s}.${b}`;
+
+/** Span scopes: a read-first note, an item's location, a block's text (or list item / table cell). */
+export const noteScope = (index: number) => `n${index}`;
+export const locationScope = (ref: string) => `l:${ref}`;
+/** Key of the `index`-th span of the text at `scope`. */
+export const spanKey = (scope: string, index: number | string) => `${scope}#${index}`;
+
+/** The text with each `||spoiler||` span replaced by its index. */
+function maskSpans(text: string): string {
+  let k = 0;
+  return text.replace(INLINE_SPOILER, () => `||${k++}||`);
+}
+
+/** The inline texts of a block mapped through `f`, with their scope suffix (list item, table cell). */
+function mapBlockTexts(block: ContentBlock, f: (text: string, sub: string) => string): ContentBlock {
+  switch (block.type) {
+    case "paragraph":
+    case "quote":
+    case "callout":
+      return { ...block, text: f(block.text, "") };
+    case "list":
+      return { ...block, items: block.items.map((text, i) => f(text, `.${i}`)) };
+    case "table":
+      return { ...block, rows: block.rows.map((row, r) => row.map((text, col) => f(text, `.${r}.${col}`))) };
+    default:
+      return block;
+  }
+}
 
 /** Behind the gate: a spoiler item, or the item of a hidden Steam achievement. */
 const isGated = (item: WalkItem, hiddenAchievement: boolean) => item.spoiler || hiddenAchievement;
@@ -114,7 +152,7 @@ function itemView(item: WalkItem, achievements: WalkExtras["achievements"]): Ite
     collectibleType: item.collectibleType ?? null,
     index: item.index ?? null,
     total: item.total ?? null,
-    location: gated ? null : (item.location ?? null),
+    location: gated || !item.location ? null : maskSpans(item.location),
     missable: item.missable,
     returnLater: item.returnLater,
     alsoOn: item.alsoOn,
@@ -126,7 +164,8 @@ function itemView(item: WalkItem, achievements: WalkExtras["achievements"]): Ite
 }
 
 function blockView(block: ContentBlock, id: string): BlockView {
-  return block.type === "callout" && block.tone === "spoiler" ? { type: "spoiler", id } : block;
+  if (block.type === "callout" && block.tone === "spoiler") return { type: "spoiler", id };
+  return mapBlockTexts(block, maskSpans);
 }
 
 /** The masked page: what every component of the walkthrough renders from. */
@@ -141,6 +180,7 @@ export function walkView(walkthrough: Walkthrough, walk: WalkExtras, phaseKeys: 
     deadline: chapter.deadline ?? null,
     steps: chapter.steps.map((step, s) => ({
       number: `${c + 1}.${s + 1}`,
+      scope: `${c}.${s}`,
       body: step.body.map((block, b) => blockView(block, calloutId(c, s, b))),
       items: step.items.map((item) => itemView(item, walk.achievements)),
     })),
@@ -150,7 +190,7 @@ export function walkView(walkthrough: Walkthrough, walk: WalkExtras, phaseKeys: 
       title: note.title,
       tone: note.tone,
       spoiler: note.spoiler,
-      text: note.spoiler ? null : note.text,
+      text: note.spoiler ? null : maskSpans(note.text),
     })),
     chapters,
     missables: chapters.flatMap((chapter) =>
@@ -184,18 +224,28 @@ export function walkSpoilers(
   walkthrough: Walkthrough,
   achievements: Record<string, HiddenText & { hidden: boolean }>,
 ): WalkSpoilers {
-  const out: WalkSpoilers = { notes: {}, callouts: {}, items: {} };
+  const out: WalkSpoilers = { notes: {}, callouts: {}, items: {}, spans: {} };
+  const spans = (scope: string, text: string) => {
+    [...text.matchAll(INLINE_SPOILER)].forEach((m, k) => (out.spans[spanKey(scope, k)] = m[1]));
+    return text;
+  };
   walkthrough.readFirst.forEach((note, i) => {
     if (note.spoiler) out.notes[String(i)] = note.text;
+    else spans(noteScope(i), note.text);
   });
   walkthrough.chapters.forEach((chapter, c) =>
     chapter.steps.forEach((step, s) => {
       step.body.forEach((block, b) => {
-        if (block.type === "callout" && block.tone === "spoiler") out.callouts[calloutId(c, s, b)] = block.text;
+        const id = calloutId(c, s, b);
+        if (block.type === "callout" && block.tone === "spoiler") out.callouts[id] = block.text;
+        else mapBlockTexts(block, (text, sub) => spans(`${id}${sub}`, text));
       });
       for (const item of step.items) {
         const achievement = item.achievement ? achievements[item.achievement] : undefined;
-        if (!isGated(item, Boolean(achievement?.hidden))) continue;
+        if (!isGated(item, Boolean(achievement?.hidden))) {
+          if (item.location) spans(locationScope(itemRef(item.key, false)), item.location);
+          continue;
+        }
         out.items[itemRef(item.key, true)] = {
           name: item.name,
           nameEn: item.nameEn ?? null,
