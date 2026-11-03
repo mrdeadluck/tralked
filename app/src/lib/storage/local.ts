@@ -10,7 +10,7 @@ const SAFE_KEY = /^[a-z0-9][a-z0-9/_-]*\.webp$/i;
  * `next dev` serves new files in `public/` right away; a production build only serves files that
  * existed at build time, so production uses the Blob adapter.
  */
-export function localStorage(root: string = process.cwd()): Storage {
+export function localStorage(root: string = process.cwd(), prefix?: string): Storage {
   const uploadsDir = path.join(root, "public", "uploads");
 
   function fileFor(key: string): string {
@@ -21,10 +21,11 @@ export function localStorage(root: string = process.cwd()): Storage {
   return {
     name: "local",
     async put(key, data) {
-      const file = fileFor(key);
+      const relative = prefix ? `${prefix}/${key}` : key;
+      const file = fileFor(relative);
       await mkdir(path.dirname(file), { recursive: true });
       await writeFile(file, data, { flag: "wx" });
-      return { url: `${PUBLIC_PREFIX}${key}` };
+      return { url: `${PUBLIC_PREFIX}${relative}` };
     },
     async remove(url) {
       if (!url.startsWith(PUBLIC_PREFIX)) return;

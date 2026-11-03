@@ -105,7 +105,7 @@ const SCOPES: { scope: string; allows: string }[] = [
   { scope: "articles:write", allows: "Criar notícias, alterar as próprias e consultar o status delas." },
   { scope: "guides:write", allows: "Criar o guia de um jogo, atualizar os próprios e consultar o status." },
   { scope: "publish", allows: "Publicar direto, sem passar pela fila de revisão, e alterar o que já está publicado." },
-  { scope: "media:write", allows: "Reservado para envio de imagens; nenhum endpoint usa ainda." },
+  { scope: "media:write", allows: "Enviar imagens (PNG, JPEG ou WebP, até 8 MiB) para as páginas do robô, em POST /api/v1/media." },
 ];
 
 const ENDPOINTS: { method: string; path: string; scope: string; does: string }[] = [

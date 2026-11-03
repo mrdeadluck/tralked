@@ -37,6 +37,8 @@ const nextConfig: NextConfig = {
   // and avatars. Query strings stay allowed because Steam versions its files with `?t=`.
   images: {
     remotePatterns: [
+      // Vercel Blob: gallery photos and the images bots upload for guides.
+      { protocol: "https", hostname: "*.public.blob.vercel-storage.com", pathname: "/**" },
       { protocol: "https", hostname: "shared.akamai.steamstatic.com", pathname: "/store_item_assets/**" },
       { protocol: "https", hostname: "shared.fastly.steamstatic.com", pathname: "/store_item_assets/**" },
       { protocol: "https", hostname: "shared.fastly.steamstatic.com", pathname: "/community_assets/**" },

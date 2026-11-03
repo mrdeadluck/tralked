@@ -1,4 +1,4 @@
-import { blobStorage } from "./blob";
+import { blobStorage, GALLERY_PREFIX } from "./blob";
 import { localStorage } from "./local";
 
 /** Where gallery images live. `key` is a relative path such as `2026/10/<id>.webp`. */
@@ -30,9 +30,9 @@ export class StorageNotConfiguredError extends Error {
  * required: a production server does not serve new files from `public/` (and Vercel's disk is
  * read-only), so it throws StorageNotConfiguredError instead of writing to local disk.
  */
-export function getStorage(): Storage {
+export function getStorage(prefix: string = GALLERY_PREFIX): Storage {
   const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
-  if (token) return blobStorage(token);
+  if (token) return blobStorage(token, prefix);
   if (process.env.NODE_ENV === "production") throw new StorageNotConfiguredError();
-  return localStorage();
+  return localStorage(process.cwd(), prefix === GALLERY_PREFIX ? undefined : prefix);
 }
