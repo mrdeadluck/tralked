@@ -550,6 +550,7 @@ async function processRequest(run: Run): Promise<Final> {
         problems: written.ok ? [] : written.problems.map((text) => ({ text, scope: "?" })),
         repairs: [],
         internalErrors: written.internalErrors ?? [],
+        pending: [],
       });
     }
     progress.problems = written.draft?.problems ?? (written.ok ? [] : written.problems.map((text) => ({ text, scope: "?" })));

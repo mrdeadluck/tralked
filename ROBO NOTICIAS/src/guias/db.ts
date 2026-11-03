@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS drafts (
   problems_json TEXT NOT NULL,
   repairs_json TEXT NOT NULL,
   internal_errors_json TEXT NOT NULL,
-  texts_json TEXT
+  texts_json TEXT,
+  pending_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_drafts_request ON drafts(request_id);
 CREATE INDEX IF NOT EXISTS idx_drafts_key ON drafts(writing_key);
@@ -137,6 +138,9 @@ export function openGuideDb(dir: string): GuideDb {
   // Databases created before `text_version` existed.
   const pageColumns = raw.prepare("PRAGMA table_info(pages)").all() as unknown as { name: string }[];
   if (!pageColumns.some((c) => c.name === "text_version")) raw.exec("ALTER TABLE pages ADD COLUMN text_version INTEGER");
+  // Drafts saved before a probe kept the failures outside its chapters (`pending_json`).
+  const draftColumns = raw.prepare("PRAGMA table_info(drafts)").all() as unknown as { name: string }[];
+  if (!draftColumns.some((c) => c.name === "pending_json")) raw.exec("ALTER TABLE drafts ADD COLUMN pending_json TEXT");
 
   const one = <T>(sql: string, ...args: (string | number | null)[]) =>
     raw.prepare(sql).get(...args) as unknown as T | undefined;

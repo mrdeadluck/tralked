@@ -723,8 +723,8 @@ describe("guia pela lista da PSN (scope psn)", () => {
 // Task 20: what the checker judges, and with which facts (systematic first-check failures)
 // ---------------------------------------------------------------------------------------------
 
-const section = (user: string, tag: "dossie" | "guia") => user.split(`<${tag}>`)[1]!.split(`</${tag}>`)[0]!;
-const jobCheck = (calls: { purpose: string; user: string }[], stepKey: string) =>
+const section = (user: string, tag: "dossie" | "guia" | "moldura") => user.split(`<${tag}>`)[1]!.split(`</${tag}>`)[0]!;
+const jobCheck = (calls: { purpose: string; user: string; system: string }[], stepKey: string) =>
   calls.find((c) => c.purpose === "guide-check" && section(c.user, "guia").includes(`"key":"${stepKey}"`))!;
 
 describe("checador: julga cada parte só pelo que o escritor dela recebeu", () => {
@@ -735,8 +735,11 @@ describe("checador: julga cada parte só pelo que o escritor dela recebeu", () =
     // The frame wrote "Antes da floresta" as the chapter's deadline and "Capítulo weeping-creek" as its title.
     expect(section(weeping.user, "guia")).not.toContain("Antes da floresta");
     expect(section(weeping.user, "guia")).not.toContain("Capítulo weeping-creek");
-    // They are context for the step texts, on the dossier side.
-    expect(section(weeping.user, "dossie")).toContain('"tituloNoGuia":"Capítulo weeping-creek"');
+    // They are context for the step texts, in a block of their own: model text, never a dossier fact.
+    expect(section(weeping.user, "dossie")).not.toContain("Capítulo weeping-creek");
+    expect(section(weeping.user, "moldura")).toContain('"titulo":"Capítulo weeping-creek"');
+    expect(section(weeping.user, "moldura")).toContain('"prazo":"Antes da floresta"');
+    expect(weeping.system).toMatch(/<moldura>/);
   });
 
   it("o trecho recebe o jogo, os capítulos vizinhos e as conquistas sem lugar fixo que o escritor recebeu", async () => {
@@ -916,5 +919,111 @@ describe("texto de conquista sem lugar fixo posta pelo código (Task 20)", () =>
     const result = await writeAndCheckGuide(fakeAi().ai, missableSecret(), GAME, "live", { probe: { chapters: 1 } });
     expect(result.draft!.problems).toEqual([]);
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("Task 20, revisão 1: sonda → rodada completa e checagem do que mudou", () => {
+  const missableSecret = () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_SECRET")!, {
+      missable: true,
+      missableUntil: "Crimson Forest",
+      deadlineChapter: "Crimson Forest",
+    });
+    return dossier;
+  };
+  const inGuia = (user: string, key: string) => section(user, "guia").includes(`"key":"${key}"`);
+  /** The cleanup job writes new item texts when it is rewritten. */
+  const newCleanupText = (out: { itens: { local: string }[] }, prompt: string) => {
+    if (prompt.includes("capítulo de limpeza") && prompt.includes("Correções obrigatórias")) out.itens.forEach((i) => (i.local = "Texto novo da limpeza."));
+  };
+
+  it("rodada completa reprovada → sonda → rodada completa: o trecho reprovado fora da sonda é reescrito", async () => {
+    const crimsonProblem = "O passo crimson-forest-1 inventa um chefe.";
+    const full = await writeAndCheckGuide(
+      fakeAi({ verdict: (user) => (inGuia(user, "crimson-forest-1") ? { ok: false, problems: [crimsonProblem] } : OK) }).ai,
+      makeDossier(),
+      GAME,
+      "live",
+    );
+    expect(full.ok).toBe(false);
+    const probe = await writeAndCheckGuide(fakeAi().ai, makeDossier(), GAME, "live", {
+      probe: { chapters: 1 },
+      resume: { texts: full.draft!.texts, problems: full.draft!.problems },
+    });
+    // The probe's own verdict is clean, but the failure outside its scope is still owed.
+    expect(probe.draft!.problems).toEqual([]);
+    expect(probe.draft!.pending).toEqual([{ text: crimsonProblem, scope: "crimson-forest-1", kind: "checador" }]);
+    const { ai, of } = fakeAi();
+    const again = await writeAndCheckGuide(ai, makeDossier(), GAME, "live", {
+      resume: { texts: probe.draft!.texts, problems: [...probe.draft!.problems, ...probe.draft!.pending] },
+    });
+    expect(again.ok).toBe(true);
+    const rewritten = of("guide-write").find((w) => w.user.includes('<passo key="crimson-forest-1">'))!;
+    expect(rewritten.purpose).toBe("guide-write-chapter-retry");
+    expect(rewritten.user).toContain(crimsonProblem);
+    expect(again.draft!.pending).toEqual([]);
+  });
+
+  it("a limpeza reescreve o texto de um perdível posto pelo código: o trecho que mostra o item é checado de novo", async () => {
+    let round1 = true;
+    const { ai, calls } = fakeAi({
+      chapter: (out, prompt) => newCleanupText(out, prompt),
+      verdict: (user) => {
+        if (round1 && inGuia(user, "limpeza-1")) {
+          round1 = false;
+          return { ok: false, problems: ["A limpeza erra o requisito."] };
+        }
+        return OK;
+      },
+    });
+    const result = await writeAndCheckGuide(ai, missableSecret(), GAME, "live");
+    expect(result.ok).toBe(true);
+    const checks = calls.filter((c) => c.purpose === "guide-check");
+    // Round 1: frame + 4 jobs. Round 2: the cleanup job and Weeping Creek, whose step shows ACH_SECRET's new text.
+    const second = checks.slice(5);
+    expect(second.some((c) => inGuia(c.user, "weeping-creek-3") && c.user.includes("Texto novo da limpeza."))).toBe(true);
+  });
+
+  it("moldura salva inválida: o rascunho ainda serve para ver o que mudou, e o trecho afetado é checado de novo", async () => {
+    const failing = await writeAndCheckGuide(
+      fakeAi({ verdict: (user) => (inGuia(user, "limpeza-1") ? { ok: false, problems: ["A limpeza erra o requisito."] } : OK) }).ai,
+      missableSecret(),
+      GAME,
+      "live",
+    );
+    const { ai, calls, of } = fakeAi({ chapter: (out, prompt) => newCleanupText(out, prompt) });
+    const result = await writeAndCheckGuide(ai, missableSecret(), GAME, "live", {
+      resume: { texts: { ...failing.draft!.texts, frame: null }, problems: failing.draft!.problems },
+    });
+    expect(result.ok).toBe(true);
+    expect(of("guide-write").map((w) => w.purpose).sort()).toEqual(["guide-write-chapter-retry", "guide-write-frame"]);
+    const checks = calls.filter((c) => c.purpose === "guide-check");
+    expect(checks.some((c) => inGuia(c.user, "weeping-creek-3"))).toBe(true);
+  });
+
+  it("o aviso do perdível sai mesmo quando o passo já tem outro aviso que não o cita", async () => {
+    const { ai } = fakeAi({
+      chapter: (out, prompt) => {
+        if (!prompt.includes('<passo key="weeping-creek-3">')) return;
+        out.passos.find((p) => p.key === "weeping-creek-3")!.blocos.unshift({ tipo: "aviso", texto: "Cuidado com a queda." } as never);
+      },
+    });
+    const payload = await writeGuide(ai, makeDossier(), GAME, "live");
+    const step = payload.walkthrough.chapters.flatMap((c) => c.steps).find((s) => s.key === "weeping-creek-3")!;
+    const avisos = step.body.filter((b) => b.type === "callout" && b.tone === "aviso").map((b) => (b as { text: string }).text);
+    expect(avisos).toEqual(["Perdível: pegue **Nome weeping-creek-old-lantern** agora, antes de seguir.", "Cuidado com a queda."]);
+  });
+
+  it("um aviso do escritor que já cita o perdível não ganha um segundo aviso", async () => {
+    const { ai } = fakeAi({
+      chapter: (out, prompt) => {
+        if (!prompt.includes('<passo key="weeping-creek-3">')) return;
+        out.passos.find((p) => p.key === "weeping-creek-3")!.blocos.unshift({ tipo: "aviso", texto: "Perdível: pegue a Old Lantern antes da floresta." } as never);
+      },
+    });
+    const payload = await writeGuide(ai, makeDossier(), GAME, "live");
+    const step = payload.walkthrough.chapters.flatMap((c) => c.steps).find((s) => s.key === "weeping-creek-3")!;
+    expect(step.body.filter((b) => b.type === "callout" && b.tone === "aviso")).toHaveLength(1);
   });
 });

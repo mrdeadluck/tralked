@@ -1135,6 +1135,7 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
         problems,
         repairs: [{ text: "O sistema pôs a conquista X.", scope: "cap-1", kind: "nota" }],
         internalErrors: [],
+        pending: [],
       };
       opts?.onRound?.(draft);
       return { ok: false as const, problems: problems.map((p) => p.text), payload: writtenPayload(), draft };

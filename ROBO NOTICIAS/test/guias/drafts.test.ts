@@ -28,6 +28,7 @@ const round = (over: Partial<DraftRound> = {}): DraftRound => ({
   ],
   repairs: [{ text: "O sistema pôs a conquista X no passo cap-1-3.", scope: "cap-1", kind: "nota" }],
   internalErrors: [],
+  pending: [],
   ...over,
 });
 
@@ -53,6 +54,12 @@ describe("rascunhos no GuideDb", () => {
     expect(resume.texts.frame?.capa.manchete).toBe("M");
     expect(resume.problems.map((p) => p.scope)).toEqual(["cap-1", "cap-1", "frame"]);
     expect(resumableDraft(db, "escrita:nenhuma")).toBeUndefined();
+    // A probe's draft also carries the failures it did not judge (outside its chapters): the resume rewrites them.
+    const owed = { text: "O passo cap-9 inventa um chefe.", scope: "cap-9", kind: "checador" as const };
+    saveDraft(db, { requestId: "req-a", attempt: 2, writingKey: "escrita:a", draft: round({ probe: true, problems: [], pending: [owed] }), at: new Date() });
+    expect(resumableDraft(db, "escrita:a")!.problems).toEqual([owed]);
+    expect(latestDraft(db, "req-a")!.pending).toEqual([owed]);
+    expect(describeDraft(latestDraft(db, "req-a")!)).toContain("pendentes de antes, fora da sonda (1):");
     // A draft without texts (a fake stage, a corrupt row) is not a starting point.
     saveDraft(db, { requestId: "req-c", attempt: 1, writingKey: "escrita:c", draft: { ...round(), texts: null }, at: new Date() });
     expect(resumableDraft(db, "escrita:c")).toBeUndefined();

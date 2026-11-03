@@ -349,6 +349,16 @@ function inline(text: string | null | undefined, max: number): string {
   return closeSpoilers(truncate(t, max));
 }
 
+/** Text compared for a mention: no markup, lowercase, no accents. */
+const comparable = (text: string) =>
+  text
+    .replace(/[*|]/g, "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
 /** Text without **bold** / *italic* markers and line breaks. */
 const unmark = (text: string) =>
   text
@@ -757,12 +767,14 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
         blocks = [{ type: "paragraph", text: walkItems.length > 0 ? `Neste ponto: ${walkItems.map((i) => i.name).join(", ")}.` : "Siga em frente pela história." }];
       }
       // The missable warning comes first in the step, before the text that leads past the point of no return.
+      // Task 20 review: a writer's "aviso" about something else does not replace it; an item the writer's warnings
+      // already cite (by its name or its English name) needs no second one.
+      const warnings = blocks.filter((b) => b.type === "callout" && b.tone === "aviso").map((b) => comparable((b as { text: string }).text));
+      const cited = (i: WalkItem) => [i.name, i.nameEn].some((n) => n && warnings.some((w) => w.includes(comparable(n))));
       const warn = items.filter((x) => isMissable(x) && !x.item?.returnLater);
-      if (warn.length > 0 && !blocks.some((b) => b.type === "callout" && b.tone === "aviso")) {
-        const names = walkItems
-          .filter((i) => warn.some((x) => x.key === i.key))
-          .map((i) => (i.spoiler ? "o item deste passo" : `**${i.name}**`))
-          .join(", ");
+      const unwarned = walkItems.filter((i) => warn.some((x) => x.key === i.key) && !cited(i));
+      if (unwarned.length > 0) {
+        const names = unwarned.map((i) => (i.spoiler ? "o item deste passo" : `**${i.name}**`)).join(", ");
         // No milestone here: it often names a boss (spoiler). The chapter's `deadline` carries it.
         blocks = [{ type: "callout", tone: "aviso", text: inline(`Perdível: pegue ${names} agora, antes de seguir.`, 2000) }, ...blocks];
       }
@@ -981,6 +993,11 @@ export type DraftRound = {
   problems: GuideProblem[];
   repairs: GuideProblem[];
   internalErrors: string[];
+  /**
+   * A probe resumed from a failed draft: the earlier problems outside its chapters, still owed (their texts are kept
+   * as they were). Not the probe's verdict; the next run rewrites them. Always empty outside a probe.
+   */
+  pending: GuideProblem[];
 };
 
 /**
@@ -1007,12 +1024,23 @@ export type WriteAndCheckOpts = WriteGuideOpts & {
   onRound?: (round: DraftRound) => void;
 };
 
-/** Item keys per job, as they ended up in the payload: a job whose items changed must be checked again. */
+/**
+ * The job's steps as rendered in the payload (texts, items and their texts): a job whose rendering changed must be
+ * checked again, even when another job wrote the change (a loose achievement's text comes from the cleanup job).
+ */
 function jobSignature(payload: GuidePayloadV2, job: WriteJob): string {
-  return jobSteps(payload, job)
-    .map((s) => `${s.key}:${s.items.map((i) => i.key).join(",")}`)
-    .join("|");
+  return JSON.stringify(jobSteps(payload, job));
 }
+
+/** A frame with no text: only to render a saved draft whose frame is unusable, to compare its jobs. */
+const BLANK_FRAME: Frame = {
+  capa: { chamadas: [], manchete: "", linhaFina: "" },
+  ficha: { dificuldade: 5, justificativaDificuldade: "", notaZeradas: "", maisDificil: null },
+  visaoGeral: [],
+  leiaAntes: [],
+  etapas: [],
+  capitulos: [],
+};
 
 /**
  * Writes and checks: the code's repairs, the deterministic checks (copy, vocabulary, the model's chronology slips),
@@ -1071,8 +1099,12 @@ export async function writeAndCheckGuide(
 
   let texts: PartialTexts | undefined = opts.resume ? fromSaved(opts.resume.texts) : undefined;
   let problems: GuideProblem[] = opts.resume ? opts.resume.problems.filter((p) => inScope(p.scope)) : [];
-  // What the previous texts assemble to: an accepted job whose items moved must be checked again.
-  let before: WrittenGuide | undefined = texts?.frame ? assemble(ctx, { frame: texts.frame, jobs: texts.jobs }) : undefined;
+  // Task 20 review: a probe resumed from a failed draft keeps the failures outside its chapters (its texts keep those
+  // parts): they never trigger a rewrite in the probe nor count in its verdict, but the next full run rewrites them.
+  const pending = opts.resume ? opts.resume.problems.filter((p) => !inScope(p.scope)) : [];
+  // What the previous texts render to (a blank frame when the saved one is unusable): a job whose rendering changed
+  // is checked again.
+  let before: WrittenGuide | undefined = texts ? assemble(ctx, { frame: texts.frame ?? BLANK_FRAME, jobs: texts.jobs }) : undefined;
   let last: DraftRound | undefined;
   for (let round = 1; round <= (opts.probe ? 1 : 2); round++) {
     const next = await draft(ctx, texts, problems, only);
@@ -1095,6 +1127,7 @@ export async function writeAndCheckGuide(
       problems: found,
       repairs: written.repairs.filter((r) => inScope(r.scope)),
       internalErrors: internalOf(written),
+      pending,
     };
     opts.onRound?.(last);
     texts = next.texts;

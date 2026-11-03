@@ -43,6 +43,7 @@ describe("pnpm guia: rascunho e sonda (Task 20)", () => {
         problems: [{ text: "O passo cap-1 inventa um chefe.", scope: "cap-1", kind: "checador" }],
         repairs: [],
         internalErrors: [],
+        pending: [],
       },
     });
     db.close();

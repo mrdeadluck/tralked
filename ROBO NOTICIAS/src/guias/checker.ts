@@ -62,7 +62,7 @@ Verifique só isto:
 
 <numeros_do_codigo> traz números que o sistema calculou a partir do dossiê e dos dados oficiais (inclusive o tempo de jogo do catálogo): estão certos por definição. Quando ele traz listaDaPsn, o guia segue a lista de troféus da PSN: as conquistas que só existem na Steam ficam fora do roteiro de propósito (não é falta), e o texto pode citar esses números. Não julgue a ficha (facts), as chamadas da capa, o selo de horas, a contagem de conquistas com bug nem as marcas de perdível, spoiler, review e fontes dos itens: use-os só para conferir o texto. Horas "—" quer dizer "sem dado", e está certo.
 
-No trecho de um capítulo, \`capitulo.tituloNoGuia\` e \`capitulo.prazoNoGuia\` são textos da moldura, checados à parte: use-os só como contexto. \`conquistasAvisadasAqui\` são as conquistas perdíveis cujo aviso o sistema põe no início do capítulo, e \`conquistasSemLugarFixo\` são as conquistas que o escritor recebeu para citar ou pôr num passo: confira o que o texto diz delas por esses fatos. \`anterior\` e \`proximo\` são os capítulos vizinhos.
+No trecho de um capítulo, <moldura> traz o título e o prazo do capítulo como a moldura do guia os escreveu: é texto do guia, checado à parte, não fato do dossiê nem trecho a julgar aqui; use-o só como contexto. \`conquistasAvisadasAqui\` são as conquistas perdíveis cujo aviso o sistema põe no início do capítulo, e \`conquistasSemLugarFixo\` são as conquistas que o escritor recebeu para citar ou pôr num passo: confira o que o texto diz delas por esses fatos. \`anterior\` e \`proximo\` são os capítulos vizinhos.
 
 Não avalie estilo, tom, tamanho nem gramática. Tradução, paráfrase e resumo fiéis estão certos. A dificuldade de 1 a 10 é uma nota do Tralked: só é problema se a justificativa contradizer o dossiê.
 
@@ -208,12 +208,10 @@ function jobPrompt(p: GuidePayloadV2, skel: GuideSkeleton, job: WriteJob, steps:
   // The code warns the chapter's anchored missables at its first step: only the job holding that step shows it.
   const anchored = job.steps[0] === job.chapter.steps[0] ? anchoredIn(skel, job.chapter) : [];
   const loose = placeableIn(skel, job.chapter).filter((l) => !inSteps.has(l.key) && !anchored.includes(l));
-  // The chapter's title and deadline in the guide are the frame's texts (checked with the frame): context here.
   const dossier = {
     ...(context ? { jogo: context.game.name } : {}),
     capitulo: {
       titulo: job.chapter.title,
-      ...(chapter ? { tituloNoGuia: chapter.title, ...(chapter.deadline ? { prazoNoGuia: chapter.deadline } : {}) } : {}),
       regiao: job.chapter.region,
       prazos: job.chapter.deadlines,
       limpeza: job.chapter.cleanup,
@@ -227,13 +225,16 @@ function jobPrompt(p: GuidePayloadV2, skel: GuideSkeleton, job: WriteJob, steps:
   const guide = {
     passos: steps.map((s) => ({ key: s.key, texto: s.body, itens: s.items.map(({ sources: _s, image: _i, ...item }) => item) })),
   };
-  return wrap(codeNumbers(p, context), dossier, guide);
+  // The chapter's title and deadline as the frame wrote them: model text, context only (checked with the frame).
+  const frame = chapter ? { titulo: chapter.title, ...(chapter.deadline ? { prazo: chapter.deadline } : {}) } : undefined;
+  return wrap(codeNumbers(p, context), dossier, guide, frame);
 }
 
-function wrap(numbers: unknown, dossier: unknown, guide: unknown): string {
+function wrap(numbers: unknown, dossier: unknown, guide: unknown, frame?: unknown): string {
   return [
     `<numeros_do_codigo>\n${escapeText(JSON.stringify(numbers))}\n</numeros_do_codigo>`,
     `<dossie>\n${escapeText(JSON.stringify(dossier))}\n</dossie>`,
+    ...(frame !== undefined ? [`<moldura>\n${escapeText(JSON.stringify(frame))}\n</moldura>`] : []),
     `<guia>\n${escapeText(JSON.stringify(guide))}\n</guia>`,
   ].join("\n\n");
 }

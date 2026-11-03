@@ -27,6 +27,8 @@ export type SavedDraft = {
   problems: GuideProblem[];
   repairs: GuideProblem[];
   internalErrors: string[];
+  /** A probe's: the earlier failures outside its chapters, still owed (see `DraftRound.pending`). */
+  pending: GuideProblem[];
   texts: SavedTexts | null;
 };
 
@@ -44,6 +46,7 @@ type DraftRow = {
   repairs_json: string;
   internal_errors_json: string;
   texts_json: string | null;
+  pending_json: string | null;
 };
 
 export function saveDraft(db: GuideDb, input: { requestId: string; attempt: number; writingKey: string; draft: DraftInput; at: Date }): void {
@@ -51,7 +54,7 @@ export function saveDraft(db: GuideDb, input: { requestId: string; attempt: numb
   db.raw
     .prepare(
       `INSERT INTO drafts (request_id, attempt, writing_key, created_at, round, ok, probe, payload_json, problems_json, repairs_json,
-         internal_errors_json, texts_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         internal_errors_json, texts_json, pending_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.requestId,
@@ -66,6 +69,7 @@ export function saveDraft(db: GuideDb, input: { requestId: string; attempt: numb
       JSON.stringify(d.repairs),
       JSON.stringify(d.internalErrors),
       d.texts ? JSON.stringify(d.texts) : null,
+      JSON.stringify(d.pending),
     );
 }
 
@@ -92,6 +96,7 @@ function fromRow(row: DraftRow): SavedDraft {
     problems: parse<GuideProblem[]>(row.problems_json, []),
     repairs: parse<GuideProblem[]>(row.repairs_json, []),
     internalErrors: parse<string[]>(row.internal_errors_json, []),
+    pending: parse<GuideProblem[]>(row.pending_json, []),
     texts: parseSavedTexts(parse<unknown>(row.texts_json, null)) ?? null,
   };
 }
@@ -104,7 +109,8 @@ export function latestDraft(db: GuideDb, requestId: string): SavedDraft | undefi
 
 /**
  * The last draft written from the same inputs (the writing key: dossier, scope, skeleton, style, models, version), of
- * any request of the game, with texts to resume from; undefined when there is none.
+ * any request of the game, with texts to resume from; undefined when there is none. Its `problems` include a probe's
+ * `pending` ones: everything the resumed run must still rewrite.
  */
 export function resumableDraft(db: GuideDb, writingKey: string): (SavedDraft & { texts: SavedTexts }) | undefined {
   const row = db.raw.prepare("SELECT * FROM drafts WHERE writing_key = ? ORDER BY id DESC LIMIT 1").get(writingKey) as unknown as
@@ -112,7 +118,7 @@ export function resumableDraft(db: GuideDb, writingKey: string): (SavedDraft & {
     | undefined;
   if (!row) return undefined;
   const draft = fromRow(row);
-  return draft.texts ? { ...draft, texts: draft.texts } : undefined;
+  return draft.texts ? { ...draft, texts: draft.texts, problems: [...draft.problems, ...draft.pending] } : undefined;
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -143,6 +149,7 @@ export function describeDraft(d: SavedDraft): string[] {
     `rascunho de ${d.requestId}, tentativa ${d.attempt}, rodada ${d.round}${d.probe ? " (sonda)" : ""}, ${d.createdAt}: ${d.ok ? "aprovado" : "reprovado"}`,
     `textos salvos: ${d.texts ? `moldura ${d.texts.frame ? "sim" : "não"}, ${plural(jobs, "trecho", "trechos")}` : "nenhum"}; chave ${d.writingKey}`,
     ...groupProblems(d.problems),
+    ...(d.pending.length > 0 ? [`pendentes de antes, fora da sonda (${d.pending.length}):`, ...groupProblems(d.pending).slice(1).map((l) => `  ${l}`)] : []),
     ...(d.repairs.length > 0 ? [`notas e reparos do código (${d.repairs.length}):`, ...groupProblems(d.repairs).slice(1).map((l) => `  ${l}`)] : []),
     ...(d.internalErrors.length > 0 ? [`erros internos do escritor (${d.internalErrors.length}):`, ...d.internalErrors.map((e) => `  - ${e}`)] : []),
   ];
