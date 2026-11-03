@@ -135,15 +135,19 @@ async function progressOf(lane: ImportLane, userId: string): Promise<string> {
 }
 
 /** One sync call: `done` when it reached the end, `closed` when the account cannot be read now. */
-async function importSlice(lane: ImportLane, userId: string, deadline: number): Promise<"done" | "partial" | "closed"> {
+type SliceOutcome = { outcome: "done" | "partial" | "closed"; detail?: string };
+
+async function importSlice(lane: ImportLane, userId: string, deadline: number): Promise<SliceOutcome> {
   if (lane === "steam") {
     const result = await syncUser(userId, { probeBudgetMs: Math.max(0, deadline - Date.now()) });
-    if (result.status !== "ok") return "closed";
-    return result.partial ? "partial" : "done";
+    if (result.status !== "ok") return { outcome: "closed" };
+    return { outcome: result.partial ? "partial" : "done" };
   }
   const result = await syncPlatformAccount(userId, lane, { deadline });
-  if (result.status !== "ok") return "closed";
-  return result.partial ? "partial" : "done";
+  if (result.status !== "ok") return { outcome: "closed" };
+  // In the log: a slice that keeps reading the same titles shows here, not just "continues".
+  const detail = result.titles && `${result.titles.read} titles read, ${result.titles.upToDate} up to date`;
+  return { outcome: result.partial ? "partial" : "done", detail };
 }
 
 const LANE_NAMES: Record<ImportLane, string> = { steam: "Steam", psn: "PSN", xbox: "Xbox", retro: "RA" };
@@ -214,12 +218,12 @@ export async function runFirstImports(options: FirstImportOptions): Promise<Part
       try {
         const before = await progressOf(lane, userId);
         const started = now();
-        const outcome = await importSlice(lane, userId, Math.min(stopAt, started + sliceMs));
+        const { outcome, detail } = await importSlice(lane, userId, Math.min(stopAt, started + sliceMs));
         stats.slices++;
-        const took = Math.round((now() - started) / 1000);
+        const took = `${Math.round((now() - started) / 1000)} s${detail ? `; ${detail}` : ""}`;
         if (outcome === "done") {
           stats.finished++;
-          log.info(`${label}: import finished (${took} s)`);
+          log.info(`${label}: import finished (${took})`);
           await settle(key, userId);
         } else if (outcome === "closed") {
           stats.stopped++;
@@ -227,10 +231,10 @@ export async function runFirstImports(options: FirstImportOptions): Promise<Part
           await settle(key, userId);
         } else if ((await progressOf(lane, userId)) === before) {
           stats.stopped++;
-          log.warn(`${label}: a ${took} s slice changed nothing, left for the next run`);
+          log.warn(`${label}: a slice changed nothing (${took}), left for the next run`);
           await settle(key, userId);
         } else {
-          log.info(`${label}: imported a part in ${took} s, continues`);
+          log.info(`${label}: imported a part (${took}), continues`);
         }
       } catch (error) {
         // The database went away: not the account's fault. It stays reserved in the lease and the

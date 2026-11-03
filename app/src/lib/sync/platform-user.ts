@@ -26,6 +26,8 @@ export type SyncPlatformResult = {
   levelAfter: number;
   /** Titles were left for the next run (time or title budget); the account is not marked synced. */
   partial: boolean;
+  /** Titles read from the platform this run, and those skipped as already up to date. */
+  titles?: { read: number; upToDate: number };
 };
 
 export type SyncPlatformOptions = {
@@ -198,6 +200,15 @@ async function recordTitle(
         })),
       skipDuplicates: true,
     });
+    // A game with several lists (PS4 and PS5) shares this row: it counts what was unlocked in any
+    // of them, not just this list.
+    const owned = await tx.userAchievement.count({ where: { userId, achievement: { gameId, platform } } });
+    if (owned > unlocked.length) {
+      await tx.userGame.update({
+        where: { userId_gameId_platform: { userId, gameId, platform } },
+        data: { unlockedCount: owned },
+      });
+    }
     for (const v of verdicts) {
       const before = known.get(v.achievementId);
       if (before && (before.suspicious !== v.suspicious || before.hardcore !== v.hardcore)) {
@@ -345,14 +356,76 @@ async function rememberCheckedTitles(
   }, TRANSACTION_OPTIONS);
 }
 
+/** Listed counts of one title as last recorded: [unlocked, hardcore?]. */
+type RememberedCounts = { unlocked: number; hardcore?: number };
+
+/** SyncCursor holding a connection's remembered title counts (see rememberTitles). */
+export const titleMemoryKey = (accountId: string) => `platform-titles:${accountId}`;
+
+/**
+ * Title counts remembered for this connection: empty for another account or link on the same
+ * row (a relink starts over).
+ */
+async function rememberedTitles(account: AccountSnapshot, accountId: string): Promise<Map<string, RememberedCounts>> {
+  const row = await prisma.syncCursor.findUnique({ where: { key: titleMemoryKey(accountId) } });
+  const value = row?.value as { externalId?: unknown; linkedAt?: unknown; titles?: unknown } | undefined;
+  if (
+    !value ||
+    value.externalId !== account.externalId ||
+    value.linkedAt !== account.linkedAt.toISOString() ||
+    !value.titles ||
+    typeof value.titles !== "object"
+  ) {
+    return new Map();
+  }
+  return new Map(
+    Object.entries(value.titles as Record<string, unknown>).flatMap(([id, counts]) => {
+      if (!Array.isArray(counts) || typeof counts[0] !== "number") return [];
+      return [[id, { unlocked: counts[0], ...(typeof counts[1] === "number" && { hardcore: counts[1] }) }]];
+    }),
+  );
+}
+
+/**
+ * Remembers (merging) the counts the platform listed for each title recorded this run. A game with
+ * several lists (PS4 and PS5) has one UserGame row whose count matches at most one list: without
+ * this, the other list was read again on every sync, and a big library never finished importing.
+ * Guarded like the titles: nothing is written on a connection unlinked (or replaced) meanwhile.
+ */
+async function rememberTitles(
+  account: AccountSnapshot,
+  accountId: string,
+  titles: readonly LibraryTitle[],
+): Promise<void> {
+  const counts = titles.flatMap((t) => (t.listed ? [[t.externalId, t.listed] as const] : []));
+  if (counts.length === 0) return;
+  await prisma.$transaction(async (tx) => {
+    const linked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "LinkedAccount"
+      WHERE id = ${accountId} AND "externalId" = ${account.externalId} AND "linkedAt" = ${account.linkedAt}
+      FOR UPDATE`;
+    if (linked.length === 0) return;
+    const key = titleMemoryKey(accountId);
+    const row = await tx.syncCursor.findUnique({ where: { key } });
+    const before = row?.value as { externalId?: unknown; linkedAt?: unknown; titles?: Record<string, unknown> } | undefined;
+    const same = before?.externalId === account.externalId && before?.linkedAt === account.linkedAt.toISOString();
+    const merged = { ...(same && before?.titles ? before.titles : {}) } as Prisma.InputJsonObject & Record<string, Prisma.InputJsonValue>;
+    for (const [id, c] of counts) merged[id] = c.hardcore === undefined ? [c.unlocked] : [c.unlocked, c.hardcore];
+    const value = { externalId: account.externalId, linkedAt: account.linkedAt.toISOString(), titles: merged };
+    await tx.syncCursor.upsert({ where: { key }, create: { key, value }, update: { value } });
+  }, TRANSACTION_OPTIONS);
+}
+
 /**
  * Per-title progress already in the database, keyed by the platform's title id: the UserGame
- * unlock count (and, for RetroAchievements, the hardcore unlock count). Persistent, so a run
- * cut short by the budget resumes where it stopped.
+ * unlock count (and, for RetroAchievements, the hardcore unlock count), or the counts remembered
+ * for that title when it was last recorded (a game with several lists). Persistent, so a run cut
+ * short by the budget resumes where it stopped.
  */
 async function storedProgress(
   userId: string,
   platform: CodePlatform,
+  remembered: Map<string, RememberedCounts> = new Map(),
 ): Promise<Map<string, StoredProgress>> {
   const games = await prisma.userGame.findMany({
     where: { userId, platform },
@@ -379,11 +452,12 @@ async function storedProgress(
   return new Map(
     links.map((l) => {
       const game = byGame.get(l.gameId);
+      const counts = remembered.get(l.externalId);
       return [
         l.externalId,
         {
-          unlocked: game?.unlockedCount ?? 0,
-          hardcore: hardcoreByGame.get(l.gameId) ?? 0,
+          unlocked: counts?.unlocked ?? game?.unlockedCount ?? 0,
+          hardcore: counts?.hardcore ?? hardcoreByGame.get(l.gameId) ?? 0,
           playtimeSynced: game?.playtimeUpdatedAt != null,
           lastPlayedAt: game?.lastPlayedAt ?? null,
         },
@@ -436,11 +510,12 @@ export async function syncPlatformAccount(
   // read is written and the next run starts after it.
   const readDeadline =
     options.deadline === undefined ? undefined : Date.now() + Math.max(0, options.deadline - Date.now()) * READ_SHARE;
+  const snapshot: AccountSnapshot = { userId, platform, externalId: account.externalId, linkedAt: account.linkedAt };
   const library = await readLibrary(
     platform,
     { externalId: account.externalId, handle: account.handle },
     {
-      stored: options.full ? undefined : await storedProgress(userId, platform),
+      stored: options.full ? undefined : await storedProgress(userId, platform, await rememberedTitles(snapshot, account.id)),
       checkedTitles: options.full || platform !== "xbox" ? undefined : checkedTitlesOf(account.minutesChecked),
       deadline: readDeadline,
       maxTitles: options.maxTitles,
@@ -505,7 +580,6 @@ export async function syncPlatformAccount(
   }
   const bursts = findBursts([...everyUnlock.values()]);
 
-  const snapshot: AccountSnapshot = { userId, platform, externalId: account.externalId, linkedAt: account.linkedAt };
   let newUnlocks = 0;
   for (const { gameId, title } of resolved) {
     try {
@@ -517,6 +591,7 @@ export async function syncPlatformAccount(
       throw error;
     }
   }
+  await rememberTitles(snapshot, account.id, resolved.map((r) => r.title));
   let playtime: { partial: boolean; written: Set<string> };
   try {
     playtime = await recordPlaytime(snapshot, library.playtime, names, startedAt, options.deadline);
@@ -554,6 +629,7 @@ export async function syncPlatformAccount(
     levelBefore,
     levelAfter: await currentLevel(userId),
     partial,
+    titles: { read: library.titles.length + library.failures.length, upToDate: library.upToDate },
   };
 }
 

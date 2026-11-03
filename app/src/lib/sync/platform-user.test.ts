@@ -627,6 +627,62 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     }
   });
 
+  it("a game with a PS4 and a PS5 trophy list is not read again on every sync", async () => {
+    // One catalog game, two PSN lists (cross-gen): the UserGame row holds one count for both, which
+    // matched only one list, so the other was read again every sync (a big library never finished).
+    const { prisma } = await import("@/lib/db");
+    const { getPsn } = await import("@/lib/integrations");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const psn = getPsn();
+    const at = new Date(Date.UTC(2026, 0, 5, 20));
+    const list = (npTitleId: string, platform: string, earned: number) => ({
+      npTitleId,
+      serviceName: "trophy2" as const,
+      name: "Jogo Duplo Teste",
+      platform,
+      progress: 50,
+      trophyCounts: { bronze: 3, silver: 0, gold: 0, platinum: 0 },
+      earnedCounts: { bronze: earned, silver: 0, gold: 0, platinum: 0 },
+      lastPlayed: at,
+    });
+    const ps4 = `${FAKE_TITLE_PREFIX}PS4`;
+    const ps5 = `${FAKE_TITLE_PREFIX}PS5`;
+    const titles = vi.spyOn(psn, "getTitles").mockResolvedValue([list(ps4, "PS4", 1), list(ps5, "PS5", 2)]);
+    const trophies = vi.spyOn(psn, "getTrophies").mockImplementation(async (_account, npTitleId) =>
+      ["1", "2", "3"].map((id, i) => ({
+        trophyId: id,
+        name: `Troféu ${id}`,
+        description: null,
+        iconUrl: null,
+        hidden: false,
+        tier: "bronze" as const,
+        earned: i < (npTitleId === ps4 ? 1 : 2),
+        earnedAt: i < (npTitleId === ps4 ? 1 : 2) ? at : null,
+        rarityPct: 40,
+      })),
+    );
+    try {
+      const user = await userWith("psn", "test-dual-list-account", "Duplo-Teste");
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ status: "ok", partial: false });
+      const games = await prisma.userGame.findMany({ where: { userId: user.id, platform: "psn" } });
+      expect(games).toHaveLength(1);
+      // The game's count is every trophy unlocked in either list.
+      expect(games[0].unlockedCount).toBe(2);
+
+      trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn");
+      expect(trophies).not.toHaveBeenCalled();
+
+      // A new unlock in one list is still read.
+      titles.mockResolvedValue([list(ps4, "PS4", 2), list(ps5, "PS5", 2)]);
+      await syncPlatformAccount(user.id, "psn");
+      expect(trophies.mock.calls.map((c) => c[1])).toEqual([ps4]);
+    } finally {
+      titles.mockRestore();
+      trophies.mockRestore();
+    }
+  });
+
   it("unlinking during a running sync: titles after the unlink are not recorded, nothing is paid", async () => {
     const { prisma } = await import("@/lib/db");
     const { unlink } = await import("@/lib/accounts/link");

@@ -34,6 +34,11 @@ export type LibraryTitle = {
   /** Null when the platform does not report playtime. */
   playtimeMin: number | null;
   achievements: LibraryAchievement[];
+  /**
+   * The counts the platform's title list showed when the title was read: the sync remembers them
+   * per title, since one game can have several lists (PS4 and PS5) sharing one UserGame row.
+   */
+  listed?: { unlocked: number; hardcore?: number };
 };
 
 export type LibraryAccount = { externalId: string; handle: string };
@@ -135,7 +140,7 @@ async function collect<T>(
     playtime: [],
   };
   // Sequential on purpose: the unofficial APIs rate-limit aggressively.
-  for (const [index, { item, id }] of pending.entries()) {
+  for (const [index, { item, id, unlocked, hardcore }] of pending.entries()) {
     const outOfTime = options.deadline !== undefined && now() >= options.deadline;
     const outOfTitles = options.maxTitles !== undefined && index >= options.maxTitles;
     if (outOfTime || outOfTitles) {
@@ -145,7 +150,7 @@ async function collect<T>(
     try {
       const title = await read(item);
       if (title === "private") return "private";
-      if (title && title.achievements.length > 0) result.titles.push(title);
+      if (title && title.achievements.length > 0) result.titles.push({ ...title, listed: { unlocked, hardcore } });
     } catch (error) {
       result.failures.push({ externalId: id, error });
     }
