@@ -14,6 +14,13 @@ import {
 } from "@/lib/admin/guides";
 import { applyPendingUpdate, discardPendingUpdate, PendingUpdateError } from "@/lib/api/guide-pending";
 import { gameTag } from "@/lib/queries/games-cached";
+import { GUIDES_TAG } from "@/lib/queries/home-guides";
+
+/** The game's pages and the home's list of guides, read fresh by the editor's next request. */
+function refreshGuide(gameSlug: string) {
+  updateTag(gameTag(gameSlug));
+  updateTag(GUIDES_TAG);
+}
 
 /** Saves a guide from the editor; every save writes a GuideVersion (editor or admin). */
 export async function saveGuideAction(raw: unknown): Promise<AdminResult<{ revision: number; stepIds: string[] }>> {
@@ -21,7 +28,7 @@ export async function saveGuideAction(raw: unknown): Promise<AdminResult<{ revis
   if (!ready.ok) return ready;
   const result = await saveGuide(ready.data, ready.user.id);
   if (!result.ok) return result;
-  updateTag(gameTag(result.gameSlug));
+  refreshGuide(result.gameSlug);
   return { ok: true, revision: result.revision, stepIds: result.stepIds };
 }
 
@@ -31,7 +38,7 @@ export async function setGuideStatusAction(raw: unknown): Promise<AdminResult> {
   if (!ready.ok) return ready;
   const result = await setGuideStatus(ready.data, ready.user.id);
   if (!result.ok) return result;
-  updateTag(gameTag(result.gameSlug));
+  refreshGuide(result.gameSlug);
   return { ok: true };
 }
 
@@ -50,7 +57,7 @@ export async function applyPendingUpdateAction(raw: unknown): Promise<AdminResul
   if (!ready.ok) return ready;
   try {
     const { gameSlug } = await applyPendingUpdate(ready.data.id, ready.user.id);
-    updateTag(gameTag(gameSlug));
+    refreshGuide(gameSlug);
     return { ok: true };
   } catch (error) {
     if (error instanceof PendingUpdateError) return { ok: false, error: error.message };

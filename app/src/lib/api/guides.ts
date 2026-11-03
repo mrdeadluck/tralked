@@ -11,6 +11,7 @@ import {
 import { walkAchievementRefs, walkItemKeys, walkthroughSchema, type Walkthrough } from "@/lib/content/walkthrough-schema";
 import { prisma } from "@/lib/db";
 import { gameTag } from "@/lib/queries/games-cached";
+import { GUIDES_TAG } from "@/lib/queries/home-guides";
 import { toPointer, type ApiIssue } from "./errors";
 import { queuePendingUpdate } from "./guide-pending";
 import { findGame, guideUrl } from "./games";
@@ -41,11 +42,15 @@ const concurrentWrite = (id?: string): WriteFailure =>
 export const normalizeVersion = (version: string) => (version.startsWith("v") ? version : `v${version}`);
 
 /**
- * Expires the game's cached pages (game, guide, metadata). Published guides change what everyone
- * sees; a format-2 guide in review changes the staff preview, whose branch the cached
- * hasGuidePreviewCached decides. Shared by every guide write (API, pending updates, admin status).
+ * Expires the game's cached pages (game, guide, metadata) and the home's list of guides. Published
+ * guides change what everyone sees; a format-2 guide in review changes the staff preview, whose
+ * branch the cached hasGuidePreviewCached decides. Shared by every guide write (API, pending
+ * updates, admin status).
  */
-export const invalidateGuide = (gameSlug: string) => revalidateTag(gameTag(gameSlug), { expire: 0 });
+export const invalidateGuide = (gameSlug: string) => {
+  revalidateTag(gameTag(gameSlug), { expire: 0 });
+  revalidateTag(GUIDES_TAG, { expire: 0 });
+};
 
 /**
  * Maps the achievements a guide refers to onto the game's Achievement rows: step achievements are

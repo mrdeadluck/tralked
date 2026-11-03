@@ -1,6 +1,7 @@
 import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { Suspense } from "react";
+import { NewGuidesCard } from "@/components/home/NewGuidesCard";
 import { InviteStrip, PlayerStrip } from "@/components/home/PlayerStrip";
 import { Newsletter } from "@/components/layout/Newsletter";
 import { CommunityRanking } from "@/components/news/CommunityRanking";
@@ -14,6 +15,7 @@ import type { ArticleView } from "@/components/news/ArticleTags";
 import { SectionHead } from "@/components/ui/SectionHead";
 import { getSessionUser } from "@/lib/auth/session";
 import { dailyPeriodKey } from "@/lib/progression/periods";
+import { getHomeGuides, GUIDES_TAG } from "@/lib/queries/home-guides";
 import { getHomePlayerCached } from "@/lib/queries/home-player";
 import {
   articleStory,
@@ -117,6 +119,17 @@ async function WireSection() {
   );
 }
 
+/** "Novos guias": the newest published walkthroughs, then 100% guides, cached. */
+async function GuidesSection() {
+  "use cache";
+  cacheLife("feed");
+  cacheTag(GUIDES_TAG);
+
+  const guides = await getHomeGuides();
+  if (guides.length === 0) return null;
+  return <NewGuidesCard key="guides" guides={guides} now={new Date()} />;
+}
+
 /** "Lançamentos" (Plano 4, F10): latest and upcoming releases, PC first, cached. */
 async function ReleasesSection() {
   "use cache";
@@ -183,9 +196,10 @@ export default function Home() {
         <PlayerSection />
       </Suspense>
       <div className="flex flex-wrap items-start gap-12">
-        {/* One headline and the news on the left; releases and the ranking on the right. */}
+        {/* One headline and the news on the left; new guides, releases and the ranking on the right. */}
         <NewsSection />
         <aside className="flex max-w-[440px] flex-[1_1_340px] flex-col gap-8">
+          <GuidesSection />
           <ReleasesSection />
           <RankingSection />
         </aside>

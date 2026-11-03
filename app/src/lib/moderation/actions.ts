@@ -4,6 +4,7 @@ import { updateTag } from "next/cache";
 import { authorizeAction, type AdminResult } from "@/lib/admin/guard";
 import { recomputeQuietly } from "@/lib/community/xp";
 import { gameTag } from "@/lib/queries/games-cached";
+import { GUIDES_TAG } from "@/lib/queries/home-guides";
 import { articleTag, NEWS_TAG } from "@/lib/queries/news";
 import { commentModerationSchema, discussionLockSchema, moderateComment, setDiscussionLock } from "./comments";
 import { articleModerationSchema, guideRemovalSchema, moderateArticle, removeGuide } from "./content";
@@ -51,6 +52,7 @@ export async function removeGuideAction(raw: unknown): Promise<AdminResult> {
   const result = await removeGuide(ready.data, ready.user.id);
   if (!result.ok) return result;
   updateTag(gameTag(result.gameSlug));
+  updateTag(GUIDES_TAG);
   return { ok: true };
 }
 

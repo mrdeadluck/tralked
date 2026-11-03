@@ -437,6 +437,19 @@ describe("cache refresh of the guide page (staff preview and publication)", () =
     await applyPendingUpdate(second.pendingId, editorId);
     expect(tagged(game.slug)).toBe(5);
   });
+
+  it("publishing and applying a pending also expire the home's list of guides", async () => {
+    const { body } = await createV2();
+    revalidateTag.mockClear();
+    await setGuideStatus({ id: body.id, status: "published" }, editorId);
+    expect(revalidateTag).toHaveBeenCalledWith("guides", { expire: 0 });
+    const pending = await json(
+      await guideById.PATCH(call("PATCH", `/api/v1/guides/${body.id}`, { key: keys.robot, body: { version: "v1.3" } }), params(body.id)),
+    );
+    revalidateTag.mockClear();
+    await applyPendingUpdate(pending.pendingId, editorId);
+    expect(revalidateTag).toHaveBeenCalledWith("guides", { expire: 0 });
+  });
 });
 
 describe("pending updates of a published guide", () => {

@@ -74,6 +74,13 @@ describe("moderation Server Actions", () => {
     expect(updateTag).not.toHaveBeenCalled();
   });
 
+  it("taking a guide off refreshes its game and the home's list of guides", async () => {
+    as("moderator");
+    expect(await actions.removeGuideAction(inputs.guide)).toEqual({ ok: true });
+    expect(updateTag).toHaveBeenCalledWith("game:hades");
+    expect(updateTag).toHaveBeenCalledWith("guides");
+  });
+
   it("let a moderator moderate the community but not re-file articles", async () => {
     as("moderator");
     const [comment, lock, article, guide, sanction, lift] = await all();
