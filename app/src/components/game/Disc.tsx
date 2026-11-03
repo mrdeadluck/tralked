@@ -5,7 +5,7 @@ import { paint, type Hues } from "@/components/art/GameArt";
 import type { DiscLabelArt } from "@/lib/queries/game-profile";
 
 /*
- * The game disc of preview/tralked-jogo.html: printed label, clear hub, iridescent rings, glare.
+ * The game disc: printed label, clear hub, a subtle white sheen, glare.
  * The label never repeats the cover or the page's hero (`DiscLabelArt`): a screenshot of the game,
  * else its logo printed over a colour taken from the art, else the generated art. `plat` turns it
  * into the gold "platinado" disc. Spin speed comes from the `gpd-slow` / `gpd-spinning` classes.
@@ -18,12 +18,13 @@ export const DISC_CSS = `
 .gpd.gpd-spinning .gpd-spin { animation: gpd-spin 1.1s linear infinite; }
 .gpd.gpd-slow .gpd-spin { animation: gpd-spin 14s linear infinite; }
 @keyframes gpd-spin { to { rotate: 360deg; } }
-.gpd-iris { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; mix-blend-mode: screen; opacity: .55;
-  background: conic-gradient(from 20deg, rgba(255,60,160,0), rgba(255,60,160,.35), rgba(60,220,255,.35), rgba(200,255,90,.3), rgba(255,200,60,.3), rgba(160,90,255,.35), rgba(255,60,160,0));
-  -webkit-mask: radial-gradient(circle, transparent 0 17%, #000 18% 34%, transparent 36% 62%, #000 64% 100%);
-  mask: radial-gradient(circle, transparent 0 17%, #000 18% 34%, transparent 36% 62%, #000 64% 100%); transition: opacity .4s; }
+/* A subtle white sheen on the data ring (no rainbow): two soft highlights that turn with the disc. */
+.gpd-sheen { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; mix-blend-mode: screen; opacity: .5;
+  background: conic-gradient(from 40deg, transparent, rgba(255,255,255,.18), transparent 25%, transparent 50%, rgba(255,255,255,.14), transparent 75%);
+  -webkit-mask: radial-gradient(circle, transparent 0 17%, #000 18% 33%, transparent 35%);
+  mask: radial-gradient(circle, transparent 0 17%, #000 18% 33%, transparent 35%); }
 .gpd-glare { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; background: linear-gradient(135deg, rgba(255,255,255,.22), transparent 40%, transparent 60%, rgba(255,255,255,.08)); }
-.gpd.gpd-plat .gpd-iris { opacity: .9; background: conic-gradient(from 0deg, rgba(255,215,120,0), rgba(255,215,120,.6), rgba(255,255,255,.5), rgba(255,190,90,.6), rgba(255,240,200,.5), rgba(255,215,120,0)); -webkit-mask: none; mask: none; }
+.gpd.gpd-plat .gpd-sheen { opacity: .7; background: conic-gradient(from 0deg, rgba(255,215,120,0), rgba(255,215,120,.45), rgba(255,240,200,.35), rgba(255,200,100,.45), rgba(255,215,120,0)); -webkit-mask: none; mask: none; }
 @media (prefers-reduced-motion: reduce) { .gpd .gpd-spin { animation: none !important; } }
 `;
 
@@ -156,7 +157,6 @@ function paintDisc(cv: HTMLCanvasElement, art: DiscArt, image: HTMLImageElement 
 
   // Label text: the name shrinks until it fits the upper band.
   const sans = cssVar("--font-archivo", "Archivo");
-  const mono = cssVar("--font-jetbrains-mono", "monospace");
   ctx.save();
   ctx.translate(c, c);
   ctx.textAlign = "center";
@@ -172,7 +172,11 @@ function paintDisc(cv: HTMLCanvasElement, art: DiscArt, image: HTMLImageElement 
   }
   // A printed logo already names the game; a screenshot or the generated art get the name.
   if (kind !== "logo" || !image) ctx.fillText(title, 0, -R * 0.52);
-  ctx.font = `500 ${w * 0.025}px ${mono}, monospace`;
+  // The print line: Archivo condensed, spaced out (no monospace as decoration).
+  const c2 = ctx as CanvasRenderingContext2D & { fontStretch?: string; letterSpacing?: string };
+  c2.fontStretch = "condensed";
+  c2.letterSpacing = `${Math.round(w * 0.004)}px`;
+  ctx.font = `800 ${w * 0.03}px ${sans}, sans-serif`;
   ctx.fillStyle = art.plat ? "rgba(255,215,140,.95)" : "rgba(198,244,50,.95)";
   ctx.fillText(art.label, 0, R * 0.58);
   ctx.restore();
@@ -227,7 +231,7 @@ export function Disc({
       };
       source.src = tintUrl;
     }
-    // Repaint once the fonts are in, so the label uses Archivo and JetBrains Mono.
+    // Repaint once the fonts are in, so the label uses Archivo.
     void document.fonts?.ready.then(draw);
     return () => {
       alive = false;
@@ -241,7 +245,7 @@ export function Disc({
       </style>
       <div className="gpd-spin">
         <canvas ref={ref} width={600} height={600} aria-hidden="true" />
-        <div className="gpd-iris" />
+        <div className="gpd-sheen" />
       </div>
       <div className="gpd-glare" />
     </div>

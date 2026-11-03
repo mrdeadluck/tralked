@@ -12,27 +12,27 @@ import type { GameVideo } from "@/lib/queries/game-profile";
  */
 
 const CSS = `
-.gpr-rail { display: grid; grid-auto-flow: column; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 10px; scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; overscroll-behavior-x: contain; }
+.gpr-rail { display: grid; grid-auto-flow: column; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 8px; scrollbar-width: thin; scrollbar-color: var(--hover-2) transparent; overscroll-behavior-x: contain; }
 .gpr-rail > * { scroll-snap-align: start; }
 .gpr-rail:focus-visible { outline-offset: 4px; }
-.gpr-videos { grid-auto-columns: minmax(300px, 30%); }
-.gpr-shots { grid-auto-columns: minmax(260px, 24%); }
-.gpr-tools { display: flex; gap: 6px; }
-.gpr-btn { width: 36px; height: 36px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); border-radius: 2px; display: grid; place-items: center; cursor: pointer; }
-.gpr-btn:hover { border-color: var(--text); }
-.gpr-btn svg { width: 16px; height: 16px; }
-.gpr-tile { position: relative; display: block; width: 100%; border: 0; padding: 0; border-radius: 3px; overflow: hidden; background: var(--surface); color: var(--text); text-align: left; }
+.gpr-videos, .gpr-shots { grid-auto-columns: minmax(250px, calc((100% - 24px) / 4)); }
+.gpr-tools { display: flex; gap: 4px; }
+.gpr-btn { width: 34px; height: 34px; border: 0; background: var(--surface-2); color: var(--text); display: grid; place-items: center; cursor: pointer; }
+.gpr-btn:hover { background: var(--hover-2); }
+.gpr-btn svg { width: 14px; height: 14px; }
+.gpr-tile { position: relative; display: block; width: 100%; border: 0; padding: 0; overflow: hidden; background: var(--surface); color: var(--text); text-align: left; }
 .gpr-tile img, .gpr-tile canvas, .gpr-tile video, .gpr-tile iframe { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; border: 0; }
 .gpr-v { aspect-ratio: 16 / 9; }
 .gpr-s { aspect-ratio: 16 / 10; }
 button.gpr-tile { cursor: pointer; }
-.gpr-over { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 14px; background: linear-gradient(180deg, transparent 40%, rgba(6,6,8,.9)); }
-.gpr-over b { font-weight: 800; font-size: 16px; line-height: 1.2; }
-.gpr-over small { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--muted); }
-.gpr-play { position: absolute; left: 50%; top: 42%; translate: -50% -50%; width: 52px; height: 52px; border-radius: 50%; background: rgba(11,12,15,.6); border: 1px solid rgba(236,236,230,.3); display: grid; place-items: center; transition: transform .2s, background .2s, color .2s; }
-.gpr-play svg { width: 18px; height: 18px; margin-left: 3px; }
-button.gpr-tile:hover .gpr-play, button.gpr-tile:focus-visible .gpr-play { transform: scale(1.1); background: var(--acc); color: var(--bg); }
-button.gpr-tile:hover { box-shadow: 0 0 0 1px var(--acc); }
+.gpr-over { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 10px; background: linear-gradient(0deg, rgba(8,10,14,.85), transparent 55%); }
+.gpr-over b { font-weight: 800; font-size: 15px; line-height: 1.2; }
+.gpr-over small { font-size: 12px; color: var(--text-2); }
+.gpr-play { position: absolute; left: 50%; top: 44%; translate: -50% -50%; width: 46px; height: 46px; background: rgba(10,12,16,.7); box-shadow: inset 0 0 0 1px rgba(255,255,255,.4); display: grid; place-items: center; transition: background .15s, color .15s; }
+.gpr-play svg { width: 16px; height: 16px; margin-left: 2px; }
+button.gpr-tile:hover .gpr-play, button.gpr-tile:focus-visible .gpr-play { background: var(--acc); color: var(--acc-ink); box-shadow: none; }
+a.gpr-tile:hover, button.gpr-tile:hover { box-shadow: 0 0 0 1px var(--acc); }
+@media (max-width: 1100px) { .gpr-videos, .gpr-shots { grid-auto-columns: minmax(250px, calc((100% - 16px) / 3)); } }
 @media (max-width: 600px) { .gpr-videos { grid-auto-columns: 82%; } .gpr-shots { grid-auto-columns: 70%; } }
 `;
 

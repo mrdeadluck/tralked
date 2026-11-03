@@ -10,23 +10,24 @@ import { formatCompact } from "@/lib/xp-format";
  */
 
 const CSS = `
-.gpa-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); }
-.gpa { background: var(--surface); padding: 18px 16px; display: flex; flex-direction: column; gap: 8px; }
-.gpa-k { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
-.gpa-v { display: flex; align-items: center; gap: 6px; font-weight: 900; font-stretch: 125%; font-size: 30px; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.gpa-v svg { width: 12px; height: 12px; color: var(--acc); }
-.gpa p { font-size: 13.5px; color: var(--muted); }
-.gpa-src { margin-top: auto; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--dim); }
+.gpa-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; }
+.gpa { background: var(--surface); padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+.gpa-k { font-stretch: 75%; font-weight: 700; font-size: 12.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.gpa-v { display: flex; align-items: center; gap: 6px; font-weight: 900; font-stretch: 112%; font-size: 24px; line-height: 1.05; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: var(--acc); }
+.gpa[data-k="skill"] .gpa-v { color: var(--text); }
+.gpa-v svg { width: 10px; height: 10px; color: var(--acc); }
+.gpa p { font-size: 12.5px; color: var(--text-2); }
+.gpa-src { margin-top: auto; font-size: 12px; color: var(--muted); }
 .gpa-sample { position: relative; }
 .gpa-sample .gpa-grid { filter: blur(5px); opacity: .55; user-select: none; pointer-events: none; }
-.gpa-gate { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: linear-gradient(180deg, transparent, color-mix(in oklab, var(--surface) 88%, transparent) 45%); }
-.gpa-gate strong { display: block; font-size: 19px; font-weight: 800; }
-.gpa-gate p { max-width: 44ch; margin: 6px auto 16px; font-size: 14px; color: var(--muted); }
-.gpa-none { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 22px 24px; border: 1px solid var(--border); background: var(--surface); }
-.gpa-none strong { font-size: 19px; font-weight: 800; }
-.gpa-none p { max-width: 60ch; font-size: 14.5px; color: var(--muted); margin-bottom: 8px; }
-@media (max-width: 1000px) { .gpa-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 600px) { .gpa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.gpa-gate { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: linear-gradient(180deg, transparent, color-mix(in oklch, var(--surface) 88%, transparent) 45%); }
+.gpa-gate strong { display: block; font-weight: 900; font-stretch: 105%; font-size: 19px; text-transform: uppercase; }
+.gpa-gate p { max-width: 44ch; margin: 6px auto 16px; font-size: 14px; color: var(--text-2); }
+.gpa-none { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 18px; background: var(--surface); }
+.gpa-none strong { font-weight: 900; font-stretch: 105%; font-size: 19px; text-transform: uppercase; }
+.gpa-none p { max-width: 60ch; font-size: 14.5px; color: var(--text-2); margin-bottom: 8px; }
+@media (max-width: 1100px) { .gpa-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .gpa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 `;
 
 const fmt = (n: number) => n.toLocaleString("pt-BR");
@@ -182,7 +183,7 @@ export function AttributesGained({
             {gameName} não tem conquistas. Cada hora jogada vira Vigor e Resistência no seu personagem.
           </p>
           {loggedIn ? null : (
-            <a className="gp-btn gp-btn-acc" href={loginHref}>
+            <a className="gp-btn gp-btn-acc tk-cut-b" href={loginHref}>
               Entrar e conectar
             </a>
           )}
@@ -201,7 +202,7 @@ export function AttributesGained({
                 Conecte Steam, PSN ou Xbox e o Tralked calcula o que este jogo já deu a você. Ao fundo, o
                 que um 100% nele dá a um personagem novo.
               </p>
-              <a className="gp-btn gp-btn-acc" href={loginHref}>
+              <a className="gp-btn gp-btn-acc tk-cut-b" href={loginHref}>
                 Entrar e conectar
               </a>
             </div>
@@ -216,7 +217,7 @@ function Grid({ list }: { list: Cell[] }) {
   return (
     <div className="gpa-grid">
       {list.map((c) => (
-        <div key={c.key} className="gpa">
+        <div key={c.key} className="gpa" data-k={c.key}>
           <span className="gpa-k">{c.label}</span>
           <span className="gpa-v">
             {c.value ?? "—"}

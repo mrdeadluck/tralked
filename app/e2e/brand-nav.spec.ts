@@ -4,7 +4,7 @@ import { loginAs, sql } from "./helpers";
 
 /*
  * Plano 4, F5: the slogan, the "Jogos" menu (hover, keyboard, mobile drawer), the endless
- * "Em circulação" wire, "Não mostrar a animação nos próximos jogos" and its switch in /conta.
+ * "Em circulação" wire, "Não mostrar a abertura nos próximos jogos" and its switch in /conta.
  */
 
 const BLOCKING = ["serious", "critical"];
@@ -15,7 +15,7 @@ async function expectNoBlockingAxe(page: Page) {
 }
 
 const intro = (page: Page) => page.getByRole("dialog", { name: /pela primeira vez/ });
-const SKIP_LABEL = "Não mostrar a animação nos próximos jogos";
+const SKIP_LABEL = "Não mostrar a abertura nos próximos jogos";
 
 test.describe("brand and navigation", () => {
   test("the slogan is in the header, the footer and the page title", async ({ page }) => {
@@ -140,11 +140,11 @@ test.describe("Em circulação", () => {
   });
 });
 
-test.describe("Não mostrar a animação nos próximos jogos", () => {
+test.describe("Não mostrar a abertura nos próximos jogos", () => {
   test("logged out: checked during the opening, the next game opens without the case", async ({ page }) => {
     await page.goto("/jogos/hades");
     await expect(intro(page)).toBeVisible();
-    await page.getByRole("button", { name: "Abrir o lacre" }).click();
+    await intro(page).getByRole("button", { name: "Abrir", exact: true }).click();
     // Still there while the seal is being opened.
     const choice = page.getByRole("checkbox", { name: SKIP_LABEL });
     await expect(choice).toBeVisible();
@@ -158,7 +158,7 @@ test.describe("Não mostrar a animação nos próximos jogos", () => {
     await expect(page.locator("#gp-root")).not.toHaveAttribute("data-intro", /.*/);
     await expect(page.getByRole("heading", { level: 1, name: "Celeste" })).toBeVisible();
     // The replay button still works on purpose, with the choice shown as made.
-    await page.getByRole("button", { name: "Abrir a capinha de novo" }).click();
+    await page.getByRole("button", { name: "Ver a abertura de novo" }).click();
     await expect(page.getByRole("checkbox", { name: SKIP_LABEL })).toBeChecked();
     await page.keyboard.press("Escape");
   });

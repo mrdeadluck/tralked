@@ -52,7 +52,7 @@ export function CaseIntroSetting({ off: initialOff }: { off: boolean }) {
           <b className="text-[15px] font-semibold">Mostrar a animação da capinha</b>
           <span id={`${id}-intro-hint`} className="text-[13.5px] text-muted">
             Na primeira vez que você abre um jogo, a capinha lacrada se abre e o disco voa para a página. O botão
-            &ldquo;Abrir a capinha de novo&rdquo; continua na página de cada jogo.
+            &ldquo;Ver a abertura de novo&rdquo; continua na página de cada jogo.
           </span>
         </span>
       </label>

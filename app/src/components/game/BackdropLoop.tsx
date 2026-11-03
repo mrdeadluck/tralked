@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { BackdropVideo } from "@/lib/queries/game-profile";
 
 /*
- * Netflix-style background of the game page's banner (the open booklet): a muted gameplay loop
+ * Netflix-style background of the game page's hero: a muted gameplay loop
  * from the game's own trailer, faded into the hero art with a vignette, very low contrast so the
  * text on the booklet stays the thing you read. It is decoration only, and costs little unless it
  * can play:
@@ -35,16 +35,16 @@ const YT_SETTLE_MS = 3000;
 
 const CSS = `
 .gpb { position: absolute; inset: 0; overflow: hidden; pointer-events: none; container-type: size; opacity: 0; transition: opacity .2s ease;
-  -webkit-mask: linear-gradient(90deg, transparent 22%, #000 70%); mask: linear-gradient(90deg, transparent 22%, #000 70%); }
+  -webkit-mask: linear-gradient(90deg, transparent 25%, #000 70%); mask: linear-gradient(90deg, transparent 25%, #000 70%); }
 /* Slow fade in once it really plays; out at once when it stops (before any player chrome shows). */
-.gpb[data-on] { opacity: .3; transition-duration: 1.6s; }
+.gpb[data-on] { opacity: .4; transition-duration: 1.6s; }
 .gpb video, .gpb iframe { position: absolute; left: 50%; top: 50%; translate: -50% -50%; border: 0; object-fit: cover;
   width: max(100cqw, 177.78cqh); height: max(100cqh, 56.25cqw); }
 /* The embed's own edges (title bar, watermark, "Mais vídeos") are cropped out of the box. */
 .gpb iframe { scale: 1.36; }
-.gpb::after { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse 75% 70% at 70% 45%, transparent 35%, var(--paper) 100%), linear-gradient(180deg, rgba(11,12,15,.35), transparent 30%, transparent 70%, rgba(11,12,15,.5)); }
-.gpb-pause { position: absolute; top: 12px; right: 12px; z-index: 3; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--border-2); border-radius: 2px; background: rgba(11,12,15,.6); color: var(--text-2); cursor: pointer; }
-.gpb-pause:hover { border-color: var(--text); color: var(--text); }
+.gpb::after { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse 75% 70% at 70% 45%, transparent 35%, var(--bg) 100%), linear-gradient(180deg, color-mix(in oklch, var(--bg) 35%, transparent), transparent 30%, transparent 70%, color-mix(in oklch, var(--bg) 60%, transparent)); }
+.gpb-pause { position: absolute; right: 14px; top: 14px; z-index: 3; display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px; border: 0; background: color-mix(in oklch, var(--bg) 78%, transparent); box-shadow: inset 0 0 0 1px var(--border-2); color: var(--text-2); font: inherit; font-stretch: 80%; font-weight: 750; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.gpb-pause:hover { box-shadow: inset 0 0 0 1px var(--text); color: var(--text); }
 .gpb-pause svg { width: 12px; height: 12px; }
 @media (prefers-reduced-motion: reduce), (max-width: 999px) { .gpb, .gpb-pause { display: none; } }
 `;
@@ -271,6 +271,7 @@ function Loop({ video, gameName }: { video: NonNullable<BackdropVideo>; gameName
               </>
             )}
           </svg>
+          <span aria-hidden="true">{paused ? "Retomar vídeo de fundo" : "Pausar vídeo de fundo"}</span>
         </button>
       ) : null}
     </>

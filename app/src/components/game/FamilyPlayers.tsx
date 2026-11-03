@@ -6,15 +6,14 @@ import { PLATFORM_NAME, type FamilyPlayer } from "@/lib/queries/game-profile";
  */
 
 const CSS = `
-.gpf { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
-.gpf li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--divider); }
-.gpf li:last-child { border-bottom: 0; }
-.gpf-av { width: 34px; height: 34px; border-radius: 50%; background: repeating-linear-gradient(135deg, #1c1e24 0 4px, #24262d 4px 8px); }
-.gpf-me .gpf-av { border: 2px solid var(--acc); }
-.gpf a { font-weight: 700; font-size: 14.5px; overflow-wrap: anywhere; }
+.gpf { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.gpf li { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px 8px 8px; background: var(--surface-2); }
+.gpf-av { width: 30px; height: 30px; background: repeating-linear-gradient(135deg, var(--hover) 0 4px, var(--hover-2) 4px 8px); }
+.gpf-me .gpf-av { box-shadow: inset 0 0 0 2px var(--acc); }
+.gpf a { font-weight: 750; font-size: 14px; overflow-wrap: anywhere; }
 .gpf a:hover { color: var(--acc); }
-.gpf small { display: block; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: var(--dim); }
-.gpf-pc { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.gpf small { display: block; font-size: 12px; color: var(--muted); }
+.gpf-pc { font-weight: 850; font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .gpf-me .gpf-pc { color: var(--acc); }
 `;
 
@@ -32,7 +31,7 @@ export function FamilyPlayers({ players, loggedIn, gameName }: { players: Family
               ? "Monte uma família de até 6 pessoas para comparar o progresso em cada jogo."
               : "No modo família, até 6 pessoas comparam o progresso em cada jogo."}
           </p>
-          <a className="gp-btn" href="/familia">
+          <a className="gp-btn gp-btn-s" href="/familia">
             {loggedIn ? "Criar uma família" : "Conhecer o modo família"}
           </a>
         </>

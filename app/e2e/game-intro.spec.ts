@@ -26,7 +26,7 @@ test.describe("game page case intro", () => {
   test("first visit shows the case; Pular reveals the page", async ({ page }) => {
     await openGame(page);
     await expect(intro(page)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Abrir o lacre" })).toBeFocused();
+    await expect(intro(page).getByRole("button", { name: "Abrir", exact: true })).toBeFocused();
 
     await page.getByRole("button", { name: "Pular" }).click();
     await expect(intro(page)).toBeHidden();
@@ -96,7 +96,7 @@ test.describe("game page case intro", () => {
     await expect(intro(page)).toBeHidden();
     await expect(page.getByRole("heading", { level: 1, name: "Hollow Knight" })).toBeVisible();
     // Replaying is still possible on purpose.
-    await page.getByRole("button", { name: "Abrir a capinha de novo" }).click();
+    await page.getByRole("button", { name: "Ver a abertura de novo" }).click();
     await expect(intro(page)).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(intro(page)).toBeHidden();
@@ -104,7 +104,7 @@ test.describe("game page case intro", () => {
 
   test("opening the seal plays the sequence and lands the disc on the page", async ({ page }) => {
     await openGame(page);
-    await page.getByRole("button", { name: "Abrir o lacre" }).click();
+    await intro(page).getByRole("button", { name: "Abrir", exact: true }).click();
     await expect(intro(page)).toBeHidden({ timeout: 8_000 });
     await expect(page.locator("#gp-disc-hold .gpd")).toBeVisible();
     await expect(page.locator(".gpc-fly")).toHaveCount(0);
@@ -118,7 +118,7 @@ test.describe("game page case intro", () => {
       await page.waitForTimeout(800);
       await expect(intro(page)).toBeHidden();
       await expect(page.getByRole("heading", { level: 1, name: "Hollow Knight" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Abrir a capinha de novo" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Ver a abertura de novo" })).toHaveCount(0);
     });
   });
 
@@ -195,7 +195,7 @@ for (const viewport of VIEWPORTS) {
     await openGame(page);
     await page.waitForTimeout(1200);
     await shot("1-capa");
-    await page.getByRole("button", { name: "Abrir o lacre" }).click();
+    await intro(page).getByRole("button", { name: "Abrir", exact: true }).click();
     await page.waitForTimeout(1750);
     await shot("2-aberta");
     await page.waitForTimeout(1300);

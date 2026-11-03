@@ -6,8 +6,8 @@ import type { DiscLabelArt } from "@/lib/queries/game-profile";
 import { Disc } from "./Disc";
 
 /*
- * Right page of the booklet: the disc in its slot with the progress ring around it. At 100% the
- * disc is the gold "platinado" one on its own; below that, "Ver o disco platinado" previews it.
+ * The hero's progress disc: the disc in its slot with a lime progress ring around it. At 100% the
+ * disc is the gold one with the "TRALKED!" stamp; below that, "Ver o disco Tralked!" previews it.
  * The toggle needs JS, so it only appears after hydration. While the case intro runs, page CSS
  * hides this disc (the flying one lands here) and holds the ring at zero.
  */
@@ -15,19 +15,25 @@ import { Disc } from "./Disc";
 const C = 2 * Math.PI * 48;
 
 const CSS = `
-.gpp-hold { position: relative; width: min(340px, 100%); aspect-ratio: 1; }
+.gpp-hold { position: relative; width: min(240px, calc(100% - 28px)); aspect-ratio: 1; margin: 14px; }
 .gpp-hold .gpd { transition: opacity .3s; }
+.gp[data-landed] .gpp-hold .gpd { transition: none; }
 .gpp-ring { position: absolute; inset: -14px; pointer-events: none; }
-.gpp-ring circle { fill: none; stroke-width: 3; }
-.gpp-trk { stroke: var(--border-2); }
-.gpp-val { stroke-dasharray: var(--ring); stroke: var(--acc); stroke-linecap: butt; transition: stroke-dasharray 1.4s cubic-bezier(.2,.8,.2,1) .4s, stroke .4s; }
+.gpp-ring circle { fill: none; stroke-width: 2.2; }
+.gpp-trk { stroke: color-mix(in oklch, var(--hover-2) 85%, transparent); }
+.gpp-val { stroke-dasharray: var(--ring); stroke: var(--acc); stroke-linecap: butt; transition: stroke-dasharray 1.4s cubic-bezier(.16,1,.3,1) .4s, stroke .4s; }
 .gpp-hold.gpp-plat .gpp-val { stroke: var(--gold); }
-.gpp-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
-.gpp-toggle input { appearance: none; width: 30px; height: 16px; border-radius: 999px; background: var(--border-2); position: relative; cursor: pointer; margin: 0; transition: background .2s; }
-.gpp-toggle input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text); transition: transform .2s; }
+/* The 100% stamp: lime, slightly turned, as on the profile. */
+.gpp-stamp { position: absolute; right: -18px; top: 8px; z-index: 2; display: inline-flex; align-items: center; height: 24px; padding: 0 8px; background: var(--acc); color: var(--acc-ink); font-weight: 900; font-stretch: 112%; font-size: 12.5px; letter-spacing: .02em; rotate: -3deg; box-shadow: 2px 2px 0 rgba(0,0,0,.35); animation: gpp-stamp .45s cubic-bezier(.16,1,.3,1); }
+@keyframes gpp-stamp { from { scale: 2.2; opacity: 0; } }
+.gpp-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; font-stretch: 80%; font-weight: 750; font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
+.gpp-toggle input { appearance: none; width: 30px; height: 16px; background: var(--border-2); position: relative; cursor: pointer; margin: 0; transition: background .2s; }
+.gpp-toggle input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; background: var(--text); transition: transform .2s; }
 .gpp-toggle input:checked { background: var(--gold); }
 .gpp-toggle input:checked::after { transform: translateX(14px); background: var(--bg); }
+.gpp-toggle input:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 .gpp-toggle:hover { color: var(--text); }
+@media (prefers-reduced-motion: reduce) { .gpp-stamp { animation: none; } }
 `;
 
 const subscribeNothing = () => () => undefined;
@@ -91,6 +97,11 @@ export function DiscProgress({
           plat={plat}
           className="gpd-slow"
         />
+        {plat ? (
+          <span className="gpp-stamp" aria-hidden="true">
+            TRALKED!
+          </span>
+        ) : null}
       </div>
       {children}
       {hydrated && !platinum && canPreview ? (

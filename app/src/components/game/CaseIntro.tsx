@@ -5,8 +5,8 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type SyntheticEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -24,119 +24,146 @@ import { openedKey } from "./opened-key";
 import { titleFitStyle } from "./title-fit";
 
 /*
- * First visit to a game: the sealed case of preview/tralked-jogo.html. Seal peel with an edge
- * glint, the front cover hinging open, the disc lifting and spinning, then the disc flies to its
- * slot on the page while the booklet grows into the page background and the page reveals.
+ * First visit to a game: the sealed case, in one motion. One click on "Abrir" (or on the case)
+ * peels the seal, hinges the front cover open (the booklet is printed on its inner face), lifts and
+ * spins the disc, flies the disc to its slot in the page hero, and fades the stage away (about
+ * 3 s). Before opening, "Ver contracapa" turns the case around and dragging rotates it.
  *
  * It is only a layer over a page that is complete without it: nothing is in the server HTML. The
  * stage is mounted (portalled into <body>) only after hydration, when this visitor has not opened
  * the game yet (account: GameOpen; logged out: localStorage) and motion is allowed, so returning
  * visitors never paint its canvases or fetch its cover. "Pular" and Esc finish at once. The stage
  * is a native <dialog> opened with showModal(): the browser makes the rest of the document inert
- * without touching its elements (setting `inert` on <header>/<main> while the layout may still be
- * hydrating caused hydration mismatches), and Tab cycles inside the dialog. Sound only plays
- * after the visitor's own click (never on the 6 s auto-open), and the AudioContext is closed on
- * unmount.
+ * without touching its elements, and Tab cycles inside the dialog. Sound only plays after the
+ * visitor's own click (never on the 6 s auto-open), and the AudioContext is closed on unmount.
  *
- * The page root (#gp-root) carries `data-intro`: "pending" (set before paint by IntroVeil, so the
- * page does not flash before the case drops in), "stage" while the case is up, "flight" while the
- * disc flies. Page CSS veils sections and hides the hero disc while it is set. Visibility and
- * animation classes are driven imperatively on purpose: the timings are the preview's, step by
- * step, and React never renders those class names.
+ * The disc's flight is a FLIP on a fixed clone placed at the target box and animated with
+ * transforms only, so nothing on the page moves (no layout shift).
+ *
+ * The page root (#gp-root) carries `data-intro`: "pending" (set before paint by IntroVeil),
+ * "stage" while the case is up, "flight" while the disc flies. Page CSS veils sections and hides
+ * the hero disc while it is set. Animation classes are driven imperatively on purpose: React never
+ * renders those class names.
  */
 
 const ROOT_ID = "gp-root";
 const HOLD_ID = "gp-disc-hold";
 const TITLE_ID = "gp-title";
 const AUTO_OPEN_MS = 6000;
+/** The one motion, step by step (ms from the click). */
+const OPEN_AT = 380;
+const SPIN_AT = 1300;
+const FLY_AT = 2200;
+const FLY_MS = 750;
 
 const CSS = `
-.gpc { --cw: min(280px, 34vw); --band: calc(var(--cw) * .18); --ch: calc(var(--cw) * 1.38); --case: #191b21; --case-2: #0e0f13; --case-rim: #24262e; --case-in: #121318;  position: fixed; inset: 0; z-index: 60; display: none; place-items: center; perspective: 1700px;
-  margin: 0; padding: 0; border: 0; width: 100%; height: 100%; max-width: none; max-height: none; overflow: hidden; color: inherit;
-  background: radial-gradient(ellipse 70% 60% at 50% 42%, #1a1c23 0%, var(--bg) 55%, #050507 100%); transition: opacity .9s ease; }
+.gpc { --cw: clamp(240px, 21vw, 330px); --ch: calc(var(--cw) * 1.377); --d: 16px; --band: calc(var(--cw) * .1);
+  position: fixed; inset: 0; z-index: 60; display: none; margin: 0; padding: 0; border: 0; width: 100%; height: 100%; max-width: none; max-height: none; overflow: hidden; color: var(--text);
+  background: radial-gradient(60% 65% at 50% 45%, oklch(0.27 0.03 245), var(--bg) 75%); transition: opacity .6s ease; }
 .gpc::backdrop { background: transparent; }
-.gpc.gpc-on { display: grid; }
-.gpc::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 40% 12% at 50% 84%, rgba(0,0,0,.6), transparent 70%); }
+.gpc.gpc-on { display: block; }
 .gpc.gpc-fade { opacity: 0; pointer-events: none; }
-.gpc-ui { position: absolute; left: 0; right: 0; bottom: 6vh; display: flex; flex-direction: column; align-items: center; gap: 14px; z-index: 3; transition: opacity .4s; }
-.gpc-ui.gpc-gone { opacity: 0; pointer-events: none; }
-.gpc-ui p { font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
-.gpc-open { height: 48px; padding: 0 22px; border: 0; border-radius: 2px; background: var(--acc); color: var(--bg); font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; cursor: pointer; animation: gpc-pulse 2s ease-in-out infinite; }
-.gpc-open:hover { filter: brightness(1.08); }
-@keyframes gpc-pulse { 50% { box-shadow: 0 0 0 10px rgba(198,244,50,0); } 0%, 100% { box-shadow: 0 0 0 0 rgba(198,244,50,.35); } }
-.gpc-skip, .gpc-mute { position: absolute; top: 18px; z-index: 4; height: 36px; border: 1px solid var(--border-2); background: rgba(11,12,15,.6); border-radius: 2px; color: var(--text-2); cursor: pointer; }
-.gpc-skip { right: 18px; padding: 0 14px; font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
-.gpc-mute { left: 18px; width: 36px; display: grid; place-items: center; }
+.gpc::after { content: ""; position: absolute; left: 30%; right: 30%; bottom: 82px; height: 36px; background: radial-gradient(closest-side, rgba(0,0,0,.7), transparent); pointer-events: none; }
+.gpc-lbl { font-stretch: 75%; font-weight: 700; font-size: 12.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.gpc-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 18px; border: 0; font: inherit; font-stretch: 80%; font-weight: 800; font-size: 14px; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; transition: filter .15s, background .15s; }
+.gpc-btn:active { translate: 0 1px; }
+.gpc-btn-p { background: var(--acc); color: var(--acc-ink); }
+.gpc-btn-p:hover { filter: brightness(1.08); }
+.gpc-btn-s { background: var(--hover-2); color: var(--text); }
+.gpc-btn-s:hover { background: var(--border-2); }
+.gpc-btn-sm { min-height: 36px; padding: 0 14px; font-size: 12.5px; }
+
+.gpc-top { position: absolute; top: 14px; left: 14px; right: 14px; z-index: 6; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.gpc-top > svg { height: 17px; width: auto; color: var(--text); }
+.gpc-top-r { display: flex; gap: 6px; }
+.gpc-mute { width: 36px; padding: 0; }
 .gpc-mute svg { width: 16px; height: 16px; }
 .gpc-mute[aria-pressed="true"] .gpc-wave { opacity: .15; }
-.gpc-skip:hover, .gpc-mute:hover { border-color: var(--text); color: var(--text); }
-/* "Não mostrar a animação nos próximos jogos": stays on screen for the whole intro, between mute and skip. */
-.gpc-pref { position: absolute; top: 18px; left: 66px; z-index: 4; max-width: calc(100% - 66px - 112px); min-height: 36px; display: flex; align-items: center; gap: 9px; padding: 6px 12px 6px 10px; border: 1px solid var(--border-2); border-radius: 2px; background: rgba(11,12,15,.6); font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; line-height: 1.35; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); cursor: pointer; }
-.gpc-pref:hover { border-color: var(--text); color: var(--text); }
-.gpc-pref:has(:focus-visible) { outline: 2px solid var(--acc); outline-offset: 2px; }
-.gpc-pref input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--acc); cursor: pointer; }
+.gpc-head { position: absolute; left: 16px; right: 16px; top: 11vh; z-index: 6; display: grid; justify-items: center; gap: 4px; text-align: center; transition: opacity .3s; }
+.gpc-head b { font-weight: 900; font-stretch: 118%; font-size: min(clamp(22px, 3vw, 32px), calc((100vw - 32px) / var(--longest, 1))); line-height: 1.05; letter-spacing: -0.02em; text-transform: uppercase; overflow-wrap: normal; word-break: normal; hyphens: manual; }
+.gpc-ui { position: absolute; left: 0; right: 0; bottom: 24px; z-index: 6; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; transition: opacity .3s; }
+.gpc-ui.gpc-gone, .gpc.gpc-run .gpc-head { opacity: 0; pointer-events: none; }
+.gpc-pref { position: absolute; left: 18px; bottom: 18px; z-index: 6; display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+.gpc-pref:hover { color: var(--text-2); }
+.gpc-pref input { flex: none; width: 15px; height: 15px; margin: 0; accent-color: var(--acc); cursor: pointer; }
 
-.gpc-wrap { position: relative; transform-style: preserve-3d; transform: rotateX(14deg) rotateY(-24deg) rotateZ(1.5deg) translateY(-3vh); transition: transform 1.2s cubic-bezier(.55,.05,.2,1); animation: gpc-drop .9s cubic-bezier(.2,.9,.25,1.05) backwards; }
-@keyframes gpc-drop { from { transform: rotateX(30deg) rotateY(-40deg) translateY(-30vh) scale(.8); opacity: 0; } }
-.gpc-wrap.gpc-opening { transform: rotateX(8deg) rotateY(0deg) rotateZ(0) translateX(calc(var(--cw) / 2)) translateY(-3vh); }
-.gpc-case { position: relative; width: var(--cw); height: var(--ch); transform-style: preserve-3d; }
-.gpc-tray { position: absolute; inset: 0; border-radius: 3px 10px 10px 3px; background: linear-gradient(160deg, var(--case), var(--case-2) 70%); box-shadow: 0 50px 90px -20px rgba(0,0,0,.85), inset 0 0 0 2px var(--case-rim), inset 0 0 0 6px var(--case-in); }
-.gpc-tray::before { content: ""; position: absolute; left: 50%; top: 50%; width: 22%; aspect-ratio: 1; translate: -50% -50%; border-radius: 50%; background: repeating-conic-gradient(#2a2d36 0 10deg, #1a1c22 10deg 20deg); box-shadow: 0 0 0 3px #0d0e12, 0 0 0 5px #2a2d36; }
-.gpc-tray::after { content: "TRALKED"; position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; font-family: var(--font-jetbrains-mono), monospace; font-size: 9px; letter-spacing: .4em; color: #2e3139; }
-.gpc-spine { position: absolute; left: 0; top: 0; width: 15px; height: 100%; transform-origin: left center; transform: rotateY(-90deg); background: linear-gradient(90deg, #0c0d10, #1b1d23 60%, #101114); display: grid; place-items: center; overflow: hidden; }
-.gpc-spine span { writing-mode: vertical-rl; transform: rotate(180deg); font-weight: 900; font-stretch: 125%; font-size: 8px; letter-spacing: .1em; color: var(--text-2); white-space: nowrap; }
-.gpc-edge { position: absolute; right: 0; top: 0; width: 15px; height: 100%; transform-origin: right center; transform: rotateY(-90deg); background: linear-gradient(90deg, #0f1014, #1c1e24); }
-.gpc-front { position: absolute; inset: 0; transform-origin: left center; transform-style: preserve-3d; transform: translateZ(15px); transition: transform 1.25s cubic-bezier(.62,.02,.22,1); }
-.gpc-case.gpc-open-case .gpc-front { transform: translateZ(15px) rotateY(-176deg); }
-.gpc-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 3px 10px 10px 3px; overflow: hidden; }
-.gpc-out { background: #0d0e12; box-shadow: inset 0 0 0 2px rgba(255,255,255,.04); }
-.gpc-out > img, .gpc-out > canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-/* A real cover fills the whole front below the band: the case grows to the cover's own proportion
-   (--cover-r, set from the loaded image), so the band never hides the game's name and nothing is cropped or letterboxed. */
-.gpc.gpc-has-cover { --ch: calc(var(--band) + var(--cw) * var(--cover-r, 1.5)); }
-.gpc-out > img.gpc-cover { top: var(--band); height: calc(100% - var(--band)); object-fit: cover; }
-/* Without a portrait cover, wide art is printed on the case as the shelves' covers do (CoverArt):
-   a body in the art's own colours, the art as a band across the front, the title below it. */
-.gpc-out > img.gpc-wblur { filter: blur(24px) saturate(1.6) brightness(.55); transform: scale(1.6); }
-.gpc-out > img.gpc-wide { inset: auto 0; top: calc(var(--band) + 7%); height: auto; max-height: calc(var(--cw) * .5625); object-fit: cover; box-shadow: 0 12px 24px -8px rgba(0,0,0,.8), 0 -1px 0 rgba(255,255,255,.08), 0 1px 0 rgba(255,255,255,.08); }
-.gpc-top { position: absolute; left: 0; right: 0; top: 0; height: var(--band); background: linear-gradient(180deg, var(--bg), #121318); display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; border-bottom: 2px solid var(--acc); }
-.gpc-top svg { height: calc(var(--cw) * .055); width: auto; color: var(--text); }
-.gpc-top span { font-family: var(--font-jetbrains-mono), monospace; font-size: calc(var(--cw) * .032); letter-spacing: .14em; color: var(--text-2); border: 1px solid var(--border-2); padding: 2px 5px; white-space: nowrap; }
-.gpc-title { position: absolute; left: 0; right: 0; bottom: 9%; text-align: center; padding: 0 8%; }
-.gpc-title b { display: block; font-weight: 900; font-stretch: 125%; font-size: min(calc(var(--cw) * .115), calc(var(--cw) * .84 / var(--longest, 1))); line-height: .9; letter-spacing: -0.03em; text-transform: uppercase; color: #f3f1ea; text-shadow: 0 4px 24px rgba(0,0,0,.7); overflow-wrap: normal; word-break: normal; hyphens: manual; }
-.gpc-title span { display: block; margin-top: 6px; font-family: var(--font-jetbrains-mono), monospace; font-size: calc(var(--cw) * .03); letter-spacing: .2em; text-transform: uppercase; color: #b9c3d8; }
-.gpc-sleeve { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(115deg, rgba(255,255,255,.12) 0%, rgba(255,255,255,0) 22%, rgba(255,255,255,0) 60%, rgba(255,255,255,.06) 75%, rgba(255,255,255,0) 90%); mix-blend-mode: screen; }
-.gpc-in { transform: rotateY(180deg); background: linear-gradient(200deg, #17191f, var(--case-2)); box-shadow: inset 0 0 0 2px var(--case-rim), inset 0 0 0 6px var(--case-in); display: grid; place-items: center; }
-.gpc-clip { position: absolute; width: 18px; height: 8px; background: #2a2d36; border-radius: 2px; }
-.gpc-booklet { position: relative; width: 82%; height: 86%; border-radius: 2px; background: var(--paper-2); box-shadow: 0 2px 0 #0a0b0e, 0 10px 30px rgba(0,0,0,.5); overflow: hidden; }
-.gpc-booklet > img, .gpc-booklet > canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .55; }
-.gpc-b-in { position: absolute; inset: 0; padding: 14% 10%; display: flex; flex-direction: column; justify-content: space-between; background: linear-gradient(180deg, rgba(21,22,27,.2), rgba(21,22,27,.95) 70%); }
-.gpc-b-in b { display: block; font-weight: 900; font-stretch: 125%; font-size: min(calc(var(--cw) * .07), calc(var(--cw) * .656 / var(--longest, 1))); line-height: .95; text-transform: uppercase; overflow-wrap: normal; word-break: normal; hyphens: manual; }
-.gpc-b-in span { font-family: var(--font-jetbrains-mono), monospace; font-size: calc(var(--cw) * .03); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
-.gpc-seal { position: absolute; inset: -2px; transform: translateZ(17px); border-radius: 4px 11px 11px 4px; pointer-events: none; overflow: hidden;
-  background: linear-gradient(125deg, rgba(255,255,255,.16), rgba(255,255,255,.02) 30%, rgba(255,255,255,.1) 48%, rgba(255,255,255,0) 60%, rgba(255,255,255,.08));
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); clip-path: inset(0 0 0 0); transition: clip-path .75s cubic-bezier(.5,0,.3,1), opacity .3s .7s; }
-.gpc-seal::before { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,.35) 48%, transparent 60%); transform: translateX(-120%); animation: gpc-glint 3.2s ease-in-out 1s infinite; }
-@keyframes gpc-glint { 40%, 100% { transform: translateX(120%); } }
-.gpc-tab { position: absolute; top: 34%; right: -1px; width: 30px; height: 46px; background: var(--acc); border-radius: 3px 0 0 3px; display: grid; place-items: center; }
-.gpc-tab span { writing-mode: vertical-rl; font-family: var(--font-jetbrains-mono), monospace; font-size: 8px; font-weight: 700; letter-spacing: .2em; color: var(--bg); }
-.gpc-seal.gpc-peel { clip-path: inset(0 0 0 100%); opacity: 0; }
-.gpc-seal-edge { position: absolute; top: -2px; bottom: -2px; width: 3px; left: 0; transform: translateZ(18px); background: linear-gradient(180deg, transparent, rgba(255,255,255,.8), transparent); opacity: 0; pointer-events: none; }
-.gpc-seal-edge.gpc-run { animation: gpc-edge .75s cubic-bezier(.5,0,.3,1) forwards; }
-@keyframes gpc-edge { 0% { opacity: 1; left: 0; } 90% { opacity: 1; } 100% { opacity: 0; left: 100%; } }
-.gpc-slot { position: absolute; left: 50%; top: 50%; width: 88%; aspect-ratio: 1; translate: -50% -50%; transform: translateZ(4px); transform-style: preserve-3d; }
-.gpc-slot.gpc-lift { animation: gpc-lift 1s cubic-bezier(.3,.9,.3,1) forwards; }
-@keyframes gpc-lift { to { transform: translateZ(150px) translateY(-8%) scale(1.06); } }
+.gpc-scene { position: absolute; inset: 0; display: grid; place-items: center; perspective: 1600px; animation: gpc-in .7s cubic-bezier(.2,.9,.25,1) backwards; }
+@keyframes gpc-in { from { opacity: 0; transform: translateY(-4vh); } }
+.gpc-case { --turn: 0deg; position: relative; width: var(--cw); height: var(--ch); margin-bottom: 70px; transform-style: preserve-3d; touch-action: none; cursor: grab;
+  transform: rotateX(9deg) rotateY(calc(-24deg + var(--turn))); transition: transform .9s cubic-bezier(.6,.05,.2,1); }
+.gpc-case.gpc-drag { transition: none; cursor: grabbing; }
+.gpc-case.gpc-opened { transform: rotateX(5deg) rotateY(0deg) translateX(calc(var(--cw) / 2)); transition-duration: .8s; cursor: default; }
+.gpc-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; overflow: hidden; }
+.gpc-tray { transform: translateZ(calc(var(--d) / -2 + 1px)); background: linear-gradient(160deg, oklch(0.24 0.008 250), oklch(0.17 0.006 250)); box-shadow: inset 0 0 0 2px oklch(0.3 0.008 250), inset 0 0 0 6px oklch(0.2 0.006 250); }
+.gpc-tray::after { content: "TRALKED"; position: absolute; left: 0; right: 0; bottom: 12px; text-align: center; font-stretch: 75%; font-weight: 800; font-size: 9px; letter-spacing: .4em; color: oklch(0.42 0.01 250); }
+.gpc-slot { position: absolute; left: 50%; top: 50%; width: calc(var(--cw) * .82); aspect-ratio: 1; translate: -50% -50%; transform: translateZ(0) scale(.95); transition: transform .8s cubic-bezier(.2,.8,.2,1); }
+.gpc-case.gpc-opened .gpc-slot { transform: translateZ(50px) translateY(-4px) scale(1.03); }
+.gpc-front { position: absolute; inset: 0; transform-style: preserve-3d; transform: translateZ(calc(var(--d) / 2)); transform-origin: left center; transition: transform 1s cubic-bezier(.62,.02,.22,1); }
+.gpc-case.gpc-opened .gpc-front { transform: translateZ(calc(var(--d) / 2)) rotateY(-174deg); }
+.gpc-out { background: var(--bg-deep); }
+.gpc-out > img, .gpc-out > canvas { position: absolute; left: 0; top: var(--band); width: 100%; height: calc(100% - var(--band)); object-fit: cover; object-position: center 20%; }
+.gpc-out > img.gpc-wblur { top: 0; height: 100%; filter: blur(24px) saturate(1.2) brightness(.5); transform: scale(1.6); }
+.gpc-out > img.gpc-wide { top: calc(var(--band) + 8%); height: auto; aspect-ratio: 16 / 9; box-shadow: 0 12px 24px -8px rgba(0,0,0,.8); }
+.gpc-band { position: absolute; top: 0; left: 0; right: 0; height: var(--band); z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; background: linear-gradient(180deg, oklch(0.2 0.006 250), oklch(0.15 0.006 250)); border-bottom: 2px solid var(--acc); }
+.gpc-band svg { height: calc(var(--cw) * .045); width: auto; color: var(--text); }
+.gpc-band span { font-stretch: 75%; font-weight: 750; font-size: calc(var(--cw) * .032); letter-spacing: .1em; text-transform: uppercase; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gpc-title { position: absolute; left: 0; right: 0; bottom: 9%; z-index: 1; padding: 0 8%; text-align: center; }
+.gpc-title b { display: block; font-weight: 900; font-stretch: 125%; font-size: min(calc(var(--cw) * .115), calc(var(--cw) * .84 / var(--longest, 1))); line-height: .9; letter-spacing: -0.03em; text-transform: uppercase; color: var(--text); text-shadow: 0 4px 24px rgba(0,0,0,.7); overflow-wrap: normal; word-break: normal; hyphens: manual; }
+.gpc-glass { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(120deg, rgba(255,255,255,.16), transparent 35%, transparent 65%, rgba(255,255,255,.05)); }
+/* The seal: a graphite strip with a lime outline across the opening edge, a white glint running down it. */
+.gpc-seal { position: absolute; right: 0; top: 40%; z-index: 2; width: calc(var(--cw) * .08); min-width: 22px; height: calc(var(--cw) * .24); min-height: 74px; display: grid; place-items: center; overflow: hidden; background: linear-gradient(180deg, oklch(0.3 0.01 250), oklch(0.22 0.008 250)); box-shadow: inset 0 0 0 1px var(--acc), -2px 0 6px rgba(0,0,0,.5); transform-origin: right center; transition: transform .35s cubic-bezier(.6,0,.4,1), opacity .35s; }
+.gpc-seal span { writing-mode: vertical-rl; font-stretch: 85%; font-weight: 850; font-size: 10px; letter-spacing: .16em; color: var(--acc); }
+.gpc-seal::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 40%; background: linear-gradient(180deg, transparent, rgba(255,255,255,.45), transparent); transform: translateY(-100%); animation: gpc-glint 2.6s ease-in-out infinite; }
+@keyframes gpc-glint { 60%, 100% { transform: translateY(260%); } }
+.gpc-case.gpc-unsealed .gpc-seal { transform: scaleX(0); opacity: 0; }
+/* Inner face of the front cover: the booklet. */
+.gpc-in { transform: rotateY(180deg); background: linear-gradient(180deg, oklch(0.2 0.006 250), oklch(0.16 0.006 250)); }
+.gpc-booklet { position: absolute; inset: calc(var(--cw) * .04); overflow: hidden; box-shadow: 4px 0 12px rgba(0,0,0,.5); }
+.gpc-booklet > img, .gpc-booklet > canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.gpc-b-in { position: absolute; inset: 0; display: grid; align-content: space-between; padding: 8%; background: linear-gradient(180deg, rgba(10,12,16,.6), rgba(10,12,16,.3) 40%, rgba(10,12,16,.92)); }
+.gpc-b-in .gpc-lbl { font-size: calc(var(--cw) * .034); color: var(--text-2); }
+.gpc-b-in img { display: block; width: 80%; max-height: calc(var(--cw) * .3); object-fit: contain; object-position: left center; filter: drop-shadow(0 2px 6px rgba(0,0,0,.8)); }
+.gpc-b-in .gpc-b-title { display: block; font-weight: 900; font-stretch: 125%; font-size: min(calc(var(--cw) * .07), calc(var(--cw) * .656 / var(--longest, 1))); line-height: .95; text-transform: uppercase; overflow-wrap: normal; word-break: normal; hyphens: manual; }
+.gpc-b-in p { margin-top: 6px; font-size: calc(var(--cw) * .036); color: var(--text-2); }
+.gpc-rows { display: grid; gap: 3px; margin-top: 8px; }
+.gpc-rows div { display: flex; justify-content: space-between; gap: 8px; padding-bottom: 2px; border-bottom: 1px solid rgba(255,255,255,.12); font-size: calc(var(--cw) * .036); }
+.gpc-rows b { font-size: inherit; font-stretch: 100%; font-weight: 800; color: var(--acc); }
+/* Back cover. */
+.gpc-back { transform: rotateY(180deg) translateZ(calc(var(--d) / 2)); background: linear-gradient(180deg, oklch(0.2 0.012 250), oklch(0.15 0.008 250)); padding: calc(var(--cw) * .04); display: grid; gap: calc(var(--cw) * .027); align-content: start; }
+.gpc-back-band { display: flex; justify-content: space-between; gap: 8px; padding-bottom: 5px; border-bottom: 2px solid var(--acc); font-stretch: 75%; font-weight: 800; font-size: calc(var(--cw) * .032); letter-spacing: .12em; text-transform: uppercase; color: var(--text-2); }
+.gpc-back-band span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gpc-shots { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.gpc-shots img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--surface); }
+.gpc-shots img:first-child { grid-column: 1 / -1; }
+.gpc-back p { font-size: calc(var(--cw) * .032); line-height: 1.4; color: var(--text-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.gpc-facts { display: flex; flex-wrap: wrap; gap: 4px; }
+.gpc-facts span { padding: 3px 5px; box-shadow: inset 0 0 0 1px var(--border-2); font-size: calc(var(--cw) * .029); font-weight: 700; color: var(--text-2); }
+.gpc-barcode { justify-self: end; width: calc(var(--cw) * .28); height: calc(var(--cw) * .09); padding: 3px 4px; background: #fff; }
+.gpc-barcode i { display: block; height: 100%; background: repeating-linear-gradient(90deg, #111 0 1px, transparent 1px 3px, #111 3px 5px, transparent 5px 6px, #111 6px 7px, transparent 7px 10px); }
+.gpc-spine { width: var(--d); transform-origin: left center; transform: rotateY(-90deg) translateX(calc(var(--d) / -2)); background: linear-gradient(90deg, oklch(0.15 0.006 250), oklch(0.22 0.008 250)); display: grid; place-items: center; backface-visibility: visible; }
+.gpc-spine span { writing-mode: vertical-rl; transform: rotate(180deg); font-weight: 900; font-stretch: 112%; font-size: 8.5px; letter-spacing: .08em; color: var(--acc); white-space: nowrap; }
+.gpc-edge { width: var(--d); left: auto; right: 0; transform-origin: right center; transform: rotateY(90deg) translateX(calc(var(--d) / 2)); background: repeating-linear-gradient(0deg, oklch(0.28 0.008 250) 0 2px, oklch(0.21 0.006 250) 2px 4px); }
 
-.gpc-fly { position: fixed; z-index: 70; pointer-events: none; margin: 0; transition: left .95s cubic-bezier(.6,0,.2,1), top .95s cubic-bezier(.6,0,.2,1), width .95s cubic-bezier(.6,0,.2,1), height .95s cubic-bezier(.6,0,.2,1), opacity .5s, border-radius .95s; }
-.gpc-fly.gpc-paper { background: var(--paper-2); border-radius: 2px; overflow: hidden; }
-.gpc-fly.gpc-paper::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.015) 0 1px, transparent 1px 3px); }
+.gpc-fly { position: fixed; z-index: 70; margin: 0; pointer-events: none; transform-origin: 0 0; will-change: transform; }
 
-@media (max-width: 600px) {
-  .gpc { --cw: 52vw; }
-  .gpc-wrap.gpc-opening { transform: rotateX(8deg) translateX(calc(var(--cw) / 2)) scale(.82); }
+@media (max-width: 700px) {
+  .gpc { --cw: 200px; }
+  .gpc-case.gpc-opened { transform: rotateX(5deg) rotateY(0deg) translateX(calc(var(--cw) / 2)) scale(.88); }
+  .gpc-ui { bottom: 62px; }
+  .gpc-pref { left: 0; right: 0; bottom: 16px; justify-content: center; }
 }
+@media (max-height: 640px) { .gpc-head { top: 64px; } .gpc-case { margin-bottom: 40px; } }
 `;
+
+type BackCover = {
+  /** Up to three screenshots (real files only). */
+  shots: string[];
+  summary: string | null;
+  /** Short facts, already formatted ("63 conquistas", "16–36 h", "Nota 87"). */
+  facts: string[];
+  studio: string | null;
+  year: number | null;
+};
 
 type CaseIntroProps = {
   gameId: string;
@@ -148,8 +175,14 @@ type CaseIntroProps = {
   coverUrl: string | null;
   /** Wide art for a case without a portrait cover (hero, else a screenshot): shown whole. */
   wideArt?: string | null;
-  /** Real art for the booklet inside the case (hero, else cover). */
+  /** Real art for the booklet inside the case (a screenshot, else the hero or cover). */
   bookletArt: string | null;
+  /** The game's official logo, printed on the booklet (its name otherwise). */
+  logoUrl?: string | null;
+  /** The booklet's rows ("Conquistas 63", "Para os 100% 50 h", "Perdíveis 0"), real data only. */
+  bookletRows?: { label: string; value: string }[];
+  /** The back cover; null leaves it plain (the flip button still turns the case). */
+  back?: BackCover | null;
   /** The disc's label: never the cover nor the hero (see `DiscLabelArt`). */
   disc: DiscLabelArt;
   platformLabel: string;
@@ -158,7 +191,7 @@ type CaseIntroProps = {
   bookletNote: string;
   /**
    * Logged in: whether the account already opened the game, and whether it turned the intro off
-   * ("Não mostrar a animação nos próximos jogos"). Null: logged out (localStorage only).
+   * ("Não mostrar a abertura nos próximos jogos"). Null: logged out (localStorage only).
    */
   account: { opened: boolean; introOff: boolean } | null;
 };
@@ -166,17 +199,6 @@ type CaseIntroProps = {
 const root = () => document.getElementById(ROOT_ID);
 const lockScroll = (on: boolean) => {
   document.body.style.overflow = on ? "hidden" : "";
-};
-/**
- * Modal (true): the dialog goes to the top layer and the rest of the document is inert, natively.
- * Modeless (false, during the disc flight): it stays on screen at its z-index, under the flying
- * clones, and the page is interactive again. `null`: closed.
- */
-const setDialog = (dialog: HTMLDialogElement | null, mode: "modal" | "modeless" | null) => {
-  if (!dialog) return;
-  if (dialog.open) dialog.close();
-  if (mode === "modal") dialog.showModal();
-  else if (mode === "modeless") dialog.show();
 };
 /** Shows the veiled page at once (skip, returning visitor): page CSS drops the transitions meanwhile. */
 const revealNow = () => {
@@ -189,34 +211,53 @@ const revealNow = () => {
 
 type Noise = { dur: number; from: number; to: number; gain: number; type: BiquadFilterType };
 
+/** A screenshot at the back cover's size (CDN thumbnail when there is one). */
+function BackShot({ url }: { url: string }) {
+  const sized = useSizedSrc(url, 320, "wide");
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img key={sized?.src} src={sized?.src} alt="" decoding="async" draggable={false} onError={sized?.onError} />;
+}
+
 export function CaseIntro(props: CaseIntroProps) {
-  const { gameId, slug, name, hues, seed, coverUrl, wideArt = null, bookletArt, disc, platformLabel, discLabel, plat, bookletNote, account } = props;
+  const { gameId, slug, name, hues, seed, coverUrl, wideArt = null, bookletArt, logoUrl = null, bookletRows = [], back = null } = props;
+  const { disc, platformLabel, discLabel, plat, bookletNote, account } = props;
   const { muted, toggleMuted } = useSound();
   const mutedRef = useRef(muted);
   const audio = useRef<AudioContext | null>(null);
 
   const stage = useRef<HTMLDialogElement>(null);
-  const wrap = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const slot = useRef<HTMLDivElement>(null);
-  const booklet = useRef<HTMLDivElement>(null);
-  const seal = useRef<HTMLDivElement>(null);
-  const edge = useRef<HTMLDivElement>(null);
   const ui = useRef<HTMLDivElement>(null);
   const openBtn = useRef<HTMLButtonElement>(null);
   const run = useRef({ id: 0, running: false, timers: [] as number[], auto: 0, flies: [] as HTMLElement[] });
   const openSequenceRef = useRef<(withSound: boolean) => Promise<void>>(async () => undefined);
   /** Sound is allowed only for a sequence the visitor started with a click. */
   const soundOn = useRef(false);
+  /** How many `close` events of our own close() calls are still to come (not the visitor's). */
+  const ownCloses = useRef(0);
+  const drag = useRef<{ x: number; base: number; moved: number } | null>(null);
   /** Null: stage not mounted. Each request to show it (first visit, replay) gets a new `n`. */
   const [staged, setStaged] = useState<{ auto: boolean; n: number } | null>(null);
-  /** Height / width of the real cover, so the case takes its proportion (clamped to a plausible box). */
-  const [coverRatio, setCoverRatio] = useState(1.5);
-  // The case is at most 280 px wide: the CDN copy of that size, not a 1 MB PNG original.
-  const cover = useSizedSrc(coverUrl, 280, "fit");
-  const wide = useSizedSrc(wideArt, 280, "wide");
-  /** "Não mostrar a animação nos próximos jogos" (checked on a replay when it is already off). */
+  /** The case shows its back cover. */
+  const [turned, setTurned] = useState(false);
+  const cover = useSizedSrc(coverUrl, 330, "fit");
+  const wide = useSizedSrc(wideArt, 330, "wide");
+  const logo = useSizedSrc(logoUrl, 330, "fit");
+  /** "Não mostrar a abertura nos próximos jogos" (checked on a replay when it is already off). */
   const [introOff, setIntroOff] = useState(false);
+
+  const setDialog = useCallback((mode: "modal" | "modeless" | null) => {
+    const dialog = stage.current;
+    if (!dialog) return;
+    if (dialog.open) {
+      // Its `close` event (dispatched now or queued) is ours, not the visitor's: onClose skips it.
+      ownCloses.current++;
+      dialog.close();
+    }
+    if (mode === "modal") dialog.showModal();
+    else if (mode === "modeless") dialog.show();
+  }, []);
 
   const toggleIntroOff = (off: boolean) => {
     setIntroOff(off);
@@ -331,22 +372,19 @@ export function CaseIntro(props: CaseIntroProps) {
   const resetStage = useCallback(() => {
     const introDisc = slot.current?.querySelector<HTMLElement>(".gpd");
     ui.current?.classList.remove("gpc-gone");
-    seal.current?.classList.remove("gpc-peel");
-    edge.current?.classList.remove("gpc-run");
-    wrap.current?.classList.remove("gpc-opening");
-    box.current?.classList.remove("gpc-open-case");
-    slot.current?.classList.remove("gpc-lift");
+    stage.current?.classList.remove("gpc-fade", "gpc-run");
+    box.current?.classList.remove("gpc-unsealed", "gpc-opened", "gpc-drag");
+    box.current?.style.setProperty("--turn", "0deg");
     introDisc?.classList.remove("gpd-spinning");
     if (introDisc) introDisc.style.visibility = "";
-    if (booklet.current) booklet.current.style.visibility = "";
-    stage.current?.classList.remove("gpc-fade");
+    drag.current = null;
   }, []);
 
   const hideStage = useCallback(() => {
     stage.current?.classList.remove("gpc-on", "gpc-fade");
-    setDialog(stage.current, null);
+    setDialog(null);
     lockScroll(false);
-  }, []);
+  }, [setDialog]);
 
   /** Skip / Esc / reduced motion: the page as it is, at once. */
   const finishInstant = useCallback(() => {
@@ -354,6 +392,7 @@ export function CaseIntro(props: CaseIntroProps) {
     clearRun();
     hideStage();
     resetStage();
+    setTurned(false);
     revealNow();
     remember();
     if (wasOpen) document.getElementById(TITLE_ID)?.focus({ preventScroll: true });
@@ -364,46 +403,45 @@ export function CaseIntro(props: CaseIntroProps) {
       clearRun();
       resetStage();
       window.scrollTo(0, 0);
-      const w = wrap.current;
-      if (w) {
-        // Restart the drop-in.
-        w.style.animation = "none";
-        void w.offsetWidth;
-        w.style.animation = "";
-      }
       root()?.setAttribute("data-intro", "stage");
       stage.current?.classList.add("gpc-on");
-      setDialog(stage.current, "modal");
+      setDialog("modal");
       lockScroll(true);
       openBtn.current?.focus({ preventScroll: true });
       // The auto-open is not a gesture of the visitor: it plays silently.
       if (autoOpen) run.current.auto = window.setTimeout(() => void openSequenceRef.current(false), AUTO_OPEN_MS);
     },
-    [clearRun, resetStage],
+    [clearRun, resetStage, setDialog],
   );
 
-  /** Clone of an element, fixed at its current box, for the FLIP flights (canvas pixels copied). */
-  const flyFrom = (src: HTMLElement, extra?: string) => {
-    const r = src.getBoundingClientRect();
-    const f = src.cloneNode(true) as HTMLElement;
-    f.classList.add("gpc-fly");
-    if (extra) f.classList.add(extra);
-    Object.assign(f.style, {
-      position: "fixed",
-      left: `${r.left}px`,
-      top: `${r.top}px`,
-      width: `${r.width}px`,
-      height: `${r.height}px`,
+  /**
+   * FLIP: a clone of the case's disc, fixed at the hero slot's box, starts transformed onto the
+   * disc in the case and animates to no transform. Only `transform` moves: nothing shifts.
+   */
+  const flyDisc = (src: HTMLElement, target: DOMRect) => {
+    const from = src.getBoundingClientRect();
+    const clone = src.cloneNode(true) as HTMLElement;
+    const canvases = src.querySelectorAll("canvas");
+    clone.querySelectorAll("canvas").forEach((c, i) => c.getContext("2d")?.drawImage(canvases[i], 0, 0));
+    clone.classList.add("gpc-fly", "gpd-spinning");
+    Object.assign(clone.style, {
+      left: `${target.left}px`,
+      top: `${target.top}px`,
+      width: `${target.width}px`,
+      height: `${target.height}px`,
       visibility: "",
     });
-    const from = src.querySelectorAll("canvas");
-    f.querySelectorAll("canvas").forEach((c, i) => c.getContext("2d")?.drawImage(from[i], 0, 0));
-    // The clone lives outside the stage: carry the case size its type scales from.
-    if (stage.current) f.style.setProperty("--cw", getComputedStyle(stage.current).getPropertyValue("--cw"));
-    f.setAttribute("aria-hidden", "true");
-    document.body.append(f);
-    run.current.flies.push(f);
-    return f;
+    clone.setAttribute("aria-hidden", "true");
+    const s = target.width > 0 ? from.width / target.width : 1;
+    const start = `translate(${from.left - target.left}px, ${from.top - target.top}px) scale(${s})`;
+    clone.style.transform = start;
+    document.body.append(clone);
+    run.current.flies.push(clone);
+    clone.animate?.([{ transform: start }, { transform: "none" }], {
+      duration: FLY_MS,
+      easing: "cubic-bezier(.6,0,.25,1)",
+      fill: "forwards",
+    });
   };
 
   const openSequence = async (withSound: boolean) => {
@@ -413,55 +451,55 @@ export function CaseIntro(props: CaseIntroProps) {
     soundOn.current = withSound;
     window.clearTimeout(r.auto);
     const id = r.id;
-    const wait = (ms: number) =>
+    const at = (ms: number) =>
       new Promise<boolean>((resolve) => {
         r.timers.push(window.setTimeout(() => resolve(r.id === id), ms));
       });
 
+    // 0: the seal peels, the case turns to face the visitor.
+    stage.current?.classList.add("gpc-run");
     ui.current?.classList.add("gpc-gone");
-    noise({ dur: 0.55, from: 5000, to: 1800, gain: 0.18, type: "highpass" }); // lacre rasgando
-    seal.current?.classList.add("gpc-peel");
-    edge.current?.classList.add("gpc-run");
-    if (!(await wait(650))) return;
-    wrap.current?.classList.add("gpc-opening");
-    box.current?.classList.add("gpc-open-case");
-    if (!(await wait(900))) return;
-    noise({ dur: 0.07, from: 2600, to: 900, gain: 0.5, type: "bandpass" }); // clack da capa
-    tone(140, 60, 0.12, 0.18, "triangle");
-    if (!(await wait(350))) return;
+    setTurned(false);
+    box.current?.classList.remove("gpc-drag");
+    box.current?.style.setProperty("--turn", "0deg");
+    box.current?.classList.add("gpc-unsealed");
+    noise({ dur: 0.4, from: 5000, to: 1800, gain: 0.16, type: "highpass" }); // lacre rasgando
+    // The front cover hinges open: the booklet on its inner face, the disc lifting.
+    if (!(await at(OPEN_AT))) return;
+    box.current?.classList.add("gpc-opened");
+    noise({ dur: 0.07, from: 2600, to: 900, gain: 0.45, type: "bandpass" }); // clack da capa
+    tone(140, 60, 0.12, 0.16, "triangle");
+    // The disc spins.
+    if (!(await at(SPIN_AT - OPEN_AT))) return;
     const introDisc = slot.current?.querySelector<HTMLElement>(".gpd");
     introDisc?.classList.add("gpd-spinning");
-    slot.current?.classList.add("gpc-lift");
-    tone(180, 900, 1.1, 0.05, "sine"); // disco girando
-    if (!(await wait(1000))) return;
-
+    tone(180, 900, 0.9, 0.05, "sine"); // disco girando
+    // The disc flies to its slot in the hero; the stage fades over the page.
+    if (!(await at(FLY_AT - SPIN_AT))) return;
     window.scrollTo(0, 0);
-    const book = booklet.current ? flyFrom(booklet.current, "gpc-paper") : null;
-    const disc = introDisc ? flyFrom(introDisc) : null;
-    disc?.classList.add("gpd-spinning");
-    if (introDisc) introDisc.style.visibility = "hidden";
-    if (booklet.current) booklet.current.style.visibility = "hidden";
+    const target = document.getElementById(HOLD_ID)?.getBoundingClientRect();
+    if (introDisc && target && target.width > 0) {
+      flyDisc(introDisc, target);
+      introDisc.style.visibility = "hidden";
+    }
+    tone(260, 520, 0.5, 0.05, "sine");
     stage.current?.classList.add("gpc-fade");
     root()?.setAttribute("data-intro", "flight");
-    // Out of the top layer for the flight: the clones fly above the fading stage, the page is live.
-    setDialog(stage.current, "modeless");
+    // Out of the top layer for the flight: the clone flies above the fading stage, the page is live.
+    setDialog("modeless");
     lockScroll(false);
-    const target = document.getElementById(HOLD_ID)?.getBoundingClientRect();
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        if (book) Object.assign(book.style, { left: "0px", top: "0px", width: `${innerWidth}px`, height: `${innerHeight}px`, opacity: "0" });
-        if (disc && target) {
-          Object.assign(disc.style, { left: `${target.left}px`, top: `${target.top}px`, width: `${target.width}px`, height: `${target.height}px` });
-        } else if (disc) disc.style.opacity = "0";
-      }),
-    );
-    if (!(await wait(980))) return;
-    root()?.removeAttribute("data-intro");
+    if (!(await at(FLY_MS + 20))) return;
+    // Landed: the hero disc shows at once under the clone (no fade), then the clone goes.
+    const page = root();
+    page?.setAttribute("data-landed", "");
+    page?.removeAttribute("data-intro");
     r.flies.forEach((f) => f.remove());
     r.flies = [];
+    requestAnimationFrame(() => requestAnimationFrame(() => page?.removeAttribute("data-landed")));
     [523, 659, 784, 1047].forEach((f, i) => r.timers.push(window.setTimeout(() => tone(f, f, 0.5, 0.05, "triangle"), i * 90)));
     hideStage();
     resetStage();
+    setTurned(false);
     r.running = false;
     remember();
     document.getElementById(TITLE_ID)?.focus({ preventScroll: true });
@@ -469,6 +507,44 @@ export function CaseIntro(props: CaseIntroProps) {
   useEffect(() => {
     openSequenceRef.current = openSequence;
   });
+
+  // ---------- Back cover: the button turns the case, dragging rotates it ----------
+  const turnTo = (back: boolean) => {
+    window.clearTimeout(run.current.auto); // exploring the case: no auto-open under the visitor
+    setTurned(back);
+    box.current?.style.setProperty("--turn", back ? "180deg" : "0deg");
+    soundOn.current = true;
+    tone(300, 380, 0.1, 0.04, "sine");
+  };
+
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (run.current.running || e.button !== 0) return;
+    window.clearTimeout(run.current.auto);
+    drag.current = { x: e.clientX, base: turned ? 180 : 0, moved: 0 };
+    box.current?.classList.add("gpc-drag");
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    d.moved = Math.max(d.moved, Math.abs(e.clientX - d.x));
+    box.current?.style.setProperty("--turn", `${d.base + (e.clientX - d.x) * 0.8}deg`);
+  };
+  const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    drag.current = null;
+    box.current?.classList.remove("gpc-drag");
+    // A click (no real drag) opens the case.
+    if (d.moved < 4) {
+      box.current?.style.setProperty("--turn", `${d.base}deg`);
+      void openSequence(true);
+      return;
+    }
+    const k = Math.round((d.base + (e.clientX - d.x) * 0.8) / 180);
+    box.current?.style.setProperty("--turn", `${k * 180}deg`);
+    setTurned(((k % 2) + 2) % 2 === 1);
+  };
 
   // ---------- First visit decision (after hydration only) ----------
   useEffect(() => {
@@ -492,7 +568,7 @@ export function CaseIntro(props: CaseIntroProps) {
       if (!local || (account && !account.opened)) remember();
     } else if (readIntroPlayedThisSession()) {
       // The intro already played once in this visit: this new game opens at once. It is not marked
-      // as opened, so a later visit still unseals it ("Abrir a capinha de novo" plays it now).
+      // as opened, so a later visit still unseals it ("Ver a abertura de novo" plays it now).
       revealNow();
     } else {
       markIntroPlayedThisSession();
@@ -503,9 +579,13 @@ export function CaseIntro(props: CaseIntroProps) {
     }
     const unregister = reduce
       ? () => undefined
-      : registerCaseReplay(() => setStaged((s) => ({ auto: false, n: (s?.n ?? 0) + 1 })));
+      : registerCaseReplay(() => {
+          setTurned(false);
+          setStaged((s) => ({ auto: false, n: (s?.n ?? 0) + 1 }));
+        });
     const r = run.current;
     const stageEl = stage;
+    const closes = ownCloses;
     return () => {
       unregister();
       r.id++;
@@ -513,7 +593,10 @@ export function CaseIntro(props: CaseIntroProps) {
       window.clearTimeout(r.auto);
       r.flies.forEach((f) => f.remove());
       stageEl.current?.classList.remove("gpc-on");
-      setDialog(stageEl.current, null);
+      if (stageEl.current?.open) {
+        closes.current++;
+        stageEl.current.close();
+      }
       lockScroll(false);
       void audio.current?.close().catch(() => undefined);
       audio.current = null;
@@ -536,6 +619,10 @@ export function CaseIntro(props: CaseIntroProps) {
   const onClose = () => {
     const dialog = stage.current;
     // Our own close (finish, flight hand-off to modeless) leaves nothing to do.
+    if (ownCloses.current > 0) {
+      ownCloses.current--;
+      return;
+    }
     if (!dialog || dialog.open || !dialog.classList.contains("gpc-on")) return;
     finishInstant();
   };
@@ -565,8 +652,7 @@ export function CaseIntro(props: CaseIntroProps) {
   return createPortal(
     <dialog
       ref={stage}
-      className={coverUrl ? "gpc gpc-has-cover" : "gpc"}
-      style={coverUrl ? ({ "--cover-r": coverRatio } as CSSProperties) : undefined}
+      className="gpc"
       aria-label={`Abrindo ${name} pela primeira vez`}
       onKeyDown={trapFocus}
       onCancel={onCancel}
@@ -576,33 +662,44 @@ export function CaseIntro(props: CaseIntroProps) {
       <style href="tralked-game-case" precedence="default">
         {CSS}
       </style>
-      <button
-        type="button"
-        className="gpc-mute"
-        aria-pressed={muted}
-        aria-label={muted ? "Ligar som" : "Desligar som"}
-        onClick={toggleMuted}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-          <path d="M4 9h4l5-4v14l-5-4H4z" />
-          <path className="gpc-wave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />
-        </svg>
-      </button>
-      <label className="gpc-pref">
-        <input type="checkbox" checked={introOff} onChange={(e) => toggleIntroOff(e.target.checked)} />
-        Não mostrar a animação nos próximos jogos
-      </label>
-      <button type="button" className="gpc-skip" onClick={finishInstant}>
-        Pular
-      </button>
-      <div ref={wrap} className="gpc-wrap">
-        {/* The case is a picture (its printed labels are 8-9 px decoration): the dialog's name says what opens. */}
-        <div ref={box} className="gpc-case" aria-hidden="true">
-          <div className="gpc-tray" />
-          <div className="gpc-spine">
-            <span>{upper} · TRALKED</span>
-          </div>
-          <div className="gpc-edge" />
+      <div className="gpc-top">
+        <Wordmark height={17} />
+        <div className="gpc-top-r">
+          <button
+            type="button"
+            className="gpc-btn gpc-btn-s gpc-btn-sm gpc-mute"
+            aria-pressed={muted}
+            aria-label={muted ? "Ligar som" : "Desligar som"}
+            onClick={toggleMuted}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M4 9h4l5-4v14l-5-4H4z" />
+              <path className="gpc-wave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />
+            </svg>
+          </button>
+          <button type="button" className="gpc-btn gpc-btn-s gpc-btn-sm" onClick={finishInstant}>
+            Pular
+          </button>
+        </div>
+      </div>
+      <div className="gpc-head">
+        <span className="gpc-lbl">Primeira vez com este jogo</span>
+        <b style={fit}>{name}</b>
+      </div>
+
+      <div className="gpc-scene">
+        {/* The case is a picture (its printed labels are decoration): the buttons below do what a
+            click or a drag on it does, and the dialog's name says what opens. */}
+        <div
+          ref={box}
+          className="gpc-case"
+          aria-hidden="true"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+        >
+          <div className="gpc-face gpc-tray" />
           <div ref={slot} className="gpc-slot">
             <Disc hues={hues} seed={seed} art={disc} name={name} label={discLabel} plat={plat} />
           </div>
@@ -610,21 +707,9 @@ export function CaseIntro(props: CaseIntroProps) {
             <div className="gpc-face gpc-out">
               {coverUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={cover?.src}
-                  className="gpc-cover"
-                  src={cover?.src}
-                  alt=""
-                  decoding="async"
-                  draggable={false}
-                  onError={cover?.onError}
-                  onLoad={(e) => {
-                    const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
-                    if (w > 0 && h > 0) setCoverRatio(Math.min(1.6, Math.max(1.2, h / w)));
-                  }}
-                />
+                <img key={cover?.src} src={cover?.src} alt="" decoding="async" draggable={false} onError={cover?.onError} />
               ) : wideArt ? (
-                // No portrait cover: the game's wide art, whole over its own blur, under the title.
+                // No portrait cover: the game's wide art, whole over its own blur, above the title.
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img className="gpc-wblur" src={wide?.src} alt="" decoding="async" draggable={false} />
@@ -634,49 +719,91 @@ export function CaseIntro(props: CaseIntroProps) {
               ) : (
                 <GameArt seed={seed + 7} hues={hues} figure light width={560} height={772} />
               )}
-              <div className="gpc-top">
-                <Wordmark height={16} />
+              <div className="gpc-band">
+                <Wordmark height={14} />
                 <span>{platformLabel}</span>
               </div>
               {coverUrl ? null : (
                 <div className="gpc-title">
                   <b style={fit}>{name}</b>
-                  <span>Edição de colecionador</span>
                 </div>
               )}
-              <div className="gpc-sleeve" />
+              <div className="gpc-glass" />
+              <div className="gpc-seal">
+                <span>LACRADO</span>
+              </div>
             </div>
             <div className="gpc-face gpc-in">
-              <i className="gpc-clip" style={{ top: "6%", left: "20%" }} />
-              <i className="gpc-clip" style={{ top: "6%", right: "20%" }} />
-              <i className="gpc-clip" style={{ bottom: "6%", left: "20%" }} />
-              <i className="gpc-clip" style={{ bottom: "6%", right: "20%" }} />
-              <div ref={booklet} className="gpc-booklet">
+              <div className="gpc-booklet">
                 <GameArt seed={seed + 8} hues={hues} imageUrl={bookletArt} figure width={420} height={560} />
                 <div className="gpc-b-in">
-                  <span>Manual</span>
+                  <span className="gpc-lbl">Encarte · manual</span>
                   <div>
-                    <b style={fit}>{name}</b>
-                    <span>{bookletNote}</span>
+                    {logo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={logo.src} src={logo.src} alt="" decoding="async" draggable={false} onError={logo.onError} />
+                    ) : (
+                      <b className="gpc-b-title" style={fit}>{name}</b>
+                    )}
+                    <p>{bookletNote}</p>
+                    {bookletRows.length > 0 ? (
+                      <div className="gpc-rows">
+                        {bookletRows.map((row) => (
+                          <div key={row.label}>
+                            <span>{row.label}</span>
+                            <b>{row.value}</b>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          <div ref={seal} className="gpc-seal">
-            <div className="gpc-tab">
-              <span>ABRIR</span>
+          <div className="gpc-face gpc-back">
+            <div className="gpc-back-band">
+              <span>{upper}</span>
+              <span>{[back?.studio, back?.year].filter(Boolean).join(" · ")}</span>
+            </div>
+            {back && back.shots.length > 0 ? (
+              <div className="gpc-shots">
+                {back.shots.slice(0, 3).map((url) => (
+                  <BackShot key={url} url={url} />
+                ))}
+              </div>
+            ) : null}
+            {back?.summary ? <p>{back.summary}</p> : null}
+            {back && back.facts.length > 0 ? (
+              <div className="gpc-facts">
+                {back.facts.map((f) => (
+                  <span key={f}>{f}</span>
+                ))}
+              </div>
+            ) : null}
+            <div className="gpc-barcode">
+              <i />
             </div>
           </div>
-          <div ref={edge} className="gpc-seal-edge" />
+          <div className="gpc-face gpc-spine">
+            <span>{upper} · TRALKED</span>
+          </div>
+          <div className="gpc-face gpc-edge" />
         </div>
       </div>
+
       <div ref={ui} className="gpc-ui">
-        <p>Primeira vez com este jogo</p>
-        <button ref={openBtn} type="button" className="gpc-open" onClick={() => void openSequence(true)}>
-          Abrir o lacre
+        <button type="button" className="gpc-btn gpc-btn-s" onClick={() => turnTo(!turned)}>
+          {turned ? "Ver a capa" : "Ver contracapa"}
+        </button>
+        <button ref={openBtn} type="button" className="gpc-btn gpc-btn-p tk-cut-b" onClick={() => void openSequence(true)}>
+          Abrir
         </button>
       </div>
+      <label className="gpc-pref">
+        <input type="checkbox" checked={introOff} onChange={(e) => toggleIntroOff(e.target.checked)} />
+        Não mostrar a abertura nos próximos jogos
+      </label>
     </dialog>,
     document.body,
   );

@@ -1,5 +1,5 @@
 /**
- * "Não mostrar a animação nos próximos jogos": this browser's copy of the choice (logged out, or
+ * "Não mostrar a abertura nos próximos jogos": this browser's copy of the choice (logged out, or
  * before the account's answer arrives). Logged in, the account (`User.caseIntroOff`) is the source
  * of truth and this copy follows it, so re-enabling in /conta reaches every device.
  */
@@ -15,7 +15,7 @@ export function readIntroOff(): boolean {
 
 /**
  * The intro plays on its own at most once per browser session (tab): the next new game of the same
- * visit opens straight away. "Abrir a capinha de novo" still replays it on request.
+ * visit opens straight away. "Ver a abertura de novo" still replays it on request.
  */
 export const INTRO_SESSION_KEY = "tralked:case-intro:session";
 

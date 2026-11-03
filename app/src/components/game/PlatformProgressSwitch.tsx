@@ -50,6 +50,21 @@ export function PlatformProgressSwitch({
         label="TRALKED · DISCO 1"
         platLabel={view.platLabel}
       >
+        <div className="gpg gp-veil" style={delay(".3s")} aria-live="polite">
+          {view.catalog ? (
+            <b>{fmt(view.total)}</b>
+          ) : (
+            <b>
+              {fmt(view.unlocked)}
+              <span>/</span>
+              {fmt(view.total)}
+            </b>
+          )}
+          <p>
+            {view.detail}
+            {view.link ? <a href={view.link.href}>{view.link.label}</a> : null}
+          </p>
+        </div>
         {views.length > 1 ? (
           <fieldset className="gpx gp-veil" style={delay(".26s")}>
             <legend className="sr-only">{view.catalog ? "Conquistas por plataforma" : "Progresso por plataforma"}</legend>
@@ -76,21 +91,6 @@ export function PlatformProgressSwitch({
             </div>
           </fieldset>
         ) : null}
-        <div className="gpg gp-veil" style={delay(".3s")} aria-live="polite">
-          {view.catalog ? (
-            <b>{fmt(view.total)}</b>
-          ) : (
-            <b>
-              {fmt(view.unlocked)}
-              <span>/</span>
-              {fmt(view.total)}
-            </b>
-          )}
-          <p>
-            {view.detail}
-            {view.link ? <a href={view.link.href}>{view.link.label}</a> : null}
-          </p>
-        </div>
         <TrophyGrid
           values={view.trophies}
           label={view.trophiesLabel}
