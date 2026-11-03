@@ -234,6 +234,7 @@ async function processRequest(run: Run): Promise<Final> {
     progress.sourcesRead.push({ name: s.name, url: s.url, ok: false, reason });
   };
   const facts: ExtractedFacts[] = [];
+  const robotErrors: string[] = [];
   for (const s of sources) {
     const page = await deps.fetchPage(s.url);
     if (page.status !== "ok" || !page.text?.trim()) {
@@ -244,11 +245,19 @@ async function processRequest(run: Run): Promise<Final> {
       facts.push(await extractCached(run, s, { url: s.url, text: page.text, html: page.html }));
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
+      robotErrors.push(messageOf(error));
       notRead(s, `extração falhou: ${messageOf(error)}`);
       continue;
     }
     read.push({ source: s, text: page.text, html: page.html });
     progress.sourcesRead.push({ name: s.name, url: s.url, ok: true });
+  }
+
+  // Every page that could be read failed in the robot itself (AI / extraction): a systemic fault, not a gap in the sources.
+  if (facts.length === 0 && robotErrors.length > 0) {
+    const reason = clip(`falha do robô: ${robotErrors[0]}`, REASON_MAX);
+    db.addAlert("guia-falha-robo", `pedido ${request.id}: ${reason} (${robotErrors.length} fonte(s) com erro do robô)`, deps.now());
+    return { status: "failed", reason, report: run.report() };
   }
 
   // Step 6: one vote per independent source, then the dossier.

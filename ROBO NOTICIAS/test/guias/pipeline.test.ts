@@ -333,7 +333,7 @@ describe("runGuideRequest", () => {
       stop_reason: "end_turn",
       parsed_output: facts,
     }));
-    const client = { messages: { parse, create: vi.fn() } } as unknown as Anthropic;
+    const client = { messages: { parse, create: vi.fn(), stream: (p: unknown) => ({ finalMessage: () => (parse as (x: unknown) => unknown)(p) }) } } as unknown as Anthropic;
     const second: SourceRef = { ...STEAM_GUIDE, name: "Steam: Outro", url: "https://steamcommunity.com/sharedfiles/filedetails/?id=2" };
     const stages = fakeStages({ discoverSources: async () => [STEAM_GUIDE, second], extractFacts: undefined });
     const pages: FetchPage = async (url) => ({ status: "ok", text: `${STEAM_GUIDE_TEXT} ${url}`, html: "", finalUrl: url });
@@ -353,6 +353,25 @@ describe("runGuideRequest", () => {
     expect(calls.reports[0]!.body.reason).toBe("teto de gasto");
     expect((calls.reports[0]!.body.report as { spendUsd: number }).spendUsd).toBe(2);
     expect(calls.created).toEqual([]);
+  });
+
+  it("toda extração falha por erro do robô → failed 'falha do robô' + alerta, não waiting_sources", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      extractFacts: async () => {
+        throw new Error("Streaming is required");
+      },
+    });
+    const deps = makeDeps({ api, stages });
+
+    const outcome = await runGuideRequest(deps);
+
+    expect(outcome).toBe("failed");
+    expect(statuses(calls)).toEqual(["failed"]);
+    expect(calls.reports[0]!.body.reason).toBe("falha do robô: Streaming is required");
+    const alerts = deps.db.alerts();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.message).toContain("falha do robô: Streaming is required");
   });
 
   it("erro no meio nunca deixa o pedido em researching", async () => {

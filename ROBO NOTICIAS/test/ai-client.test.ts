@@ -130,11 +130,26 @@ describe("structured", () => {
     expect(db.spentTotal("live")).toBe(0);
   });
 
+  it("streams (final message) when maxTokens exceeds the SDK non-streaming limit, recording spend the same way", async () => {
+    const { client, parse } = fakeClient();
+    const final = await parse({ output_config: { format: { parse: (t: string) => JSON.parse(t) } }, model: "claude-haiku-5-5" });
+    const stream = vi.fn(() => ({ finalMessage: async () => final }));
+    (client as any).messages.stream = stream;
+    parse.mockClear();
+    const ai = createAi({ client, db, config, now: () => NOW });
+
+    await ai.structured({ ...baseOpts, bucket: "backfill", maxTokens: 32000 });
+
+    expect(parse).not.toHaveBeenCalled();
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(db.spentTotal("backfill")).toBeCloseTo(0.1);
+  });
+
   it("uses beta.messages.parse with the server-side fallback beta when fallbacks is set", async () => {
     const { client, parse, betaParse } = fakeClient();
     const ai = createAi({ client, db, config, now: () => NOW });
 
-    await ai.structured({ ...baseOpts, bucket: "live", model: "claude-opus-5-5", effort: "high", fallbacks: true, maxTokens: 32000 });
+    await ai.structured({ ...baseOpts, bucket: "live", model: "claude-opus-5-5", effort: "high", fallbacks: true, maxTokens: 32000, stream: false });
 
     expect(parse).not.toHaveBeenCalled();
     const params = betaParse.mock.calls[0]![0];
