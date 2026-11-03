@@ -21,13 +21,20 @@ import {
   GameHeadIsland,
   RoadmapIsland,
   SidebarIsland,
+  StaffGuidePreview,
   TipsIsland,
-  WalkthroughIsland,
+  WalkReportIsland,
+  WalkUserIsland,
 } from "@/components/guide/UserIslands";
 import { WalkthroughPage } from "@/components/guide/walk/WalkthroughPage";
 import { guideIdCached } from "@/lib/community/cached";
 import { listGameSlugs } from "@/lib/queries/games";
-import { getAchievementsOnlyCached, getGameCached, getGuideCached } from "@/lib/queries/games-cached";
+import {
+  getAchievementsOnlyCached,
+  getGameCached,
+  getGuideCached,
+  hasGuidePreviewCached,
+} from "@/lib/queries/games-cached";
 import { howToJsonLd, JsonLd } from "@/lib/seo/json-ld";
 import { gameMetadata } from "../metadata";
 
@@ -53,14 +60,22 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
   const guide = await getGuideCached(slug);
   if (!guide) {
     const only = await getAchievementsOnlyCached(slug);
-    if (only) {
+    const onlyPage = only ? (
+      <>
+        <GameHead game={only.game} />
+        <AchievementsOnly lists={maskHidden(only.lists)} />
+      </>
+    ) : null;
+    if (await hasGuidePreviewCached(slug)) {
+      // A walkthrough still in review: staff preview it here (read after the session, uncached);
+      // everyone else gets what the page shows without a guide.
       return (
-        <>
-          <GameHead game={only.game} />
-          <AchievementsOnly lists={maskHidden(only.lists)} />
-        </>
+        <Suspense fallback={onlyPage}>
+          <StaffGuidePreview slug={slug} fallback={onlyPage} />
+        </Suspense>
       );
     }
+    if (onlyPage) return onlyPage;
     if (await getGameCached(slug)) redirect(`/jogos/${slug}`);
     notFound();
   }
@@ -77,13 +92,26 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
   ) : null;
 
   if (guide.format === 2 && guide.walkthrough) {
-    // The walkthrough of the guide robot; the visitor's ticks and progress stream in.
+    // The walkthrough of the guide robot, from cache; only the visitor's ticks and progress (a few
+    // ids) and, for staff, the robot report stream in.
     return (
       <>
         <JsonLd data={howToJsonLd(guide)} />
-        <Suspense fallback={<WalkthroughPage guide={guide} viewer={null} />}>
-          <WalkthroughIsland guide={guide} />
-        </Suspense>
+        <WalkthroughPage
+          guide={guide}
+          user={
+            <Suspense fallback={null}>
+              <WalkUserIsland guide={guide} />
+            </Suspense>
+          }
+          report={
+            guide.walk ? (
+              <Suspense fallback={null}>
+                <WalkReportIsland guideId={guide.walk.guideId} />
+              </Suspense>
+            ) : null
+          }
+        />
         <div className="mt-14 flex flex-col gap-14">{community}</div>
       </>
     );

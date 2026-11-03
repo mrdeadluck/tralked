@@ -7,6 +7,7 @@ import { castTipVoteAndRecompute } from "@/lib/guide/votes";
 import { gameTag } from "@/lib/queries/games-cached";
 import { weeklyXpOf } from "@/lib/highscores/queries";
 import { levelChange, levelProgress, rewardOf, type Reward } from "@/lib/progression/reward";
+import { keyOfRef } from "@/lib/content/walk-refs";
 import { walkItemKeys, walkthroughSchema } from "@/lib/content/walkthrough-schema";
 import { claimGameCheckSlot } from "@/lib/sync/game-check";
 import { syncUserGame } from "@/lib/sync/user";
@@ -71,9 +72,11 @@ export type ToggleItemResult =
 
 /**
  * Ticks a walkthrough item of a published guide, or clears it when it already was. Requires login.
- * A manual tick never gives XP: only Steam's confirmation does (checkGameAchievements).
+ * `itemRef` is the item key, or the opaque ref the page uses for an item behind the spoiler gate
+ * (lib/content/walk-refs). A manual tick never gives XP: only Steam's confirmation does
+ * (checkGameAchievements).
  */
-export async function toggleItem(guideId: string, itemKey: string): Promise<ToggleItemResult> {
+export async function toggleItem(guideId: string, itemRef: string): Promise<ToggleItemResult> {
   const user = await getSessionUser();
   if (!user) return { status: "unauthenticated" };
 
@@ -82,7 +85,9 @@ export async function toggleItem(guideId: string, itemKey: string): Promise<Togg
     select: { walkthrough: true },
   });
   const walkthrough = walkthroughSchema.safeParse(guide?.walkthrough);
-  if (!walkthrough.success || !walkItemKeys(walkthrough.data).includes(itemKey)) return { status: "not_found" };
+  const keys = walkthrough.success ? walkItemKeys(walkthrough.data) : [];
+  const itemKey = typeof itemRef === "string" ? keyOfRef(itemRef, keys) : null;
+  if (!itemKey) return { status: "not_found" };
 
   const removed = await prisma.guideItemProgress.deleteMany({ where: { userId: user.id, guideId, itemKey } });
   if (removed.count > 0) return { status: "ok", done: false };
@@ -92,7 +97,8 @@ export async function toggleItem(guideId: string, itemKey: string): Promise<Togg
 
 export type CheckGameAchievementsResult = {
   status: "ok" | "private" | "unlinked" | "cooldown" | "error" | "unauthenticated";
-  newUnlocks: { apiName: string; name: string; iconUrl: string | null }[];
+  /** `id` is the achievement's database id (the walkthrough page knows hidden ones only by it). */
+  newUnlocks: { id: string; apiName: string; name: string; iconUrl: string | null }[];
   reward: Reward | null;
 };
 
@@ -135,13 +141,13 @@ export async function checkGameAchievements(gameId: string): Promise<CheckGameAc
 
   const newUnlocks = await prisma.achievement.findMany({
     where: { gameId, platform: "steam", apiName: { in: result.newUnlocks } },
-    select: { apiName: true, name: true, namePt: true, iconUrl: true },
+    select: { id: true, apiName: true, name: true, namePt: true, iconUrl: true },
   });
   const after = await statsOf();
   const xpGained = Math.max(0, (after?.totalXp ?? 0) - (before?.totalXp ?? 0));
   return {
     status: "ok",
-    newUnlocks: newUnlocks.map((a) => ({ apiName: a.apiName, name: a.namePt ?? a.name, iconUrl: a.iconUrl })),
+    newUnlocks: newUnlocks.map((a) => ({ id: a.id, apiName: a.apiName, name: a.namePt ?? a.name, iconUrl: a.iconUrl })),
     reward: rewardOf(xpGained, "Conquista", {
       levelUp: levelChange(before?.level, after?.level),
       progress: after ? levelProgress(after.totalXp, xpGained) : null,

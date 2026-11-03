@@ -3,17 +3,18 @@ import type { CSSProperties } from "react";
 import { titleFitStyle } from "@/components/game/title-fit";
 import { Chip } from "@/components/ui/Chip";
 import { PLATFORM_COLOR, type Platform } from "@/components/ui/PlatformChips";
-import { Ring } from "@/components/ui/Ring";
 import { genreName, orderedGenres } from "@/lib/engine/genres";
 import type { Walkthrough } from "@/lib/content/walkthrough-schema";
 import type { GuideDetail, WalkExtras } from "@/lib/queries/games";
 import { CompatSeal } from "./CompatSeal";
 import { editionLabel, MagazineCover } from "./MagazineCover";
+import { ProgressRing } from "./ProgressBits";
 
 /*
  * Head of a walkthrough page: the magazine cover on the left, the game on the right (official
  * logo when the catalog has one, else its name), the platform and "Treina…" chips, the compat
- * seal, edition and sources, and the visitor's progress ring. The wide official art is behind.
+ * seal, edition and sources, and the visitor's progress ring (streamed in, see progress.tsx). The
+ * wide official art is behind.
  */
 
 const isPlatform = (value: string): value is Platform => value in PLATFORM_COLOR;
@@ -38,8 +39,6 @@ export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
       ? "por 1 capítulo"
       : `pelos ${chapters} capítulos`;
   const phases = guide.steps.length;
-  const progress = game.progress;
-  const pct = progress && game.achievementCount > 0 ? Math.round((progress.unlockedCount / game.achievementCount) * 100) : null;
   const [lead, ...rest] = game.name.trim().split(/\s+/);
   const sources = sourceNames(guide, walkthrough);
 
@@ -108,14 +107,7 @@ export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
           </p>
         </div>
 
-        {pct !== null && progress ? (
-          <div className="wk-ring">
-            <Ring value={pct} size={104} />
-            <small>
-              {progress.unlockedCount} de {game.achievementCount}
-            </small>
-          </div>
-        ) : null}
+        <ProgressRing achievementCount={game.achievementCount} />
       </div>
     </section>
   );

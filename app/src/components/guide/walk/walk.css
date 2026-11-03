@@ -1,6 +1,6 @@
 /*
  * Walkthrough page (guide format 2), top half: magazine cover, hero, ficha, read-first, roadmap,
- * compat seal and sidebar. Visual reference: docs/superpowers/specs/2026-11-03-robo-guias/guia-final-v3.html.
+ * compat seal and sidebar (the rest is in walk-chapters.css). Visual reference: docs/superpowers/specs/2026-11-03-robo-guias/guia-final-v3.html.
  * Graphite + lime, chamfered corners, Archivo + JetBrains Mono; amber (--warn) only for missables.
  */
 .wk {
@@ -741,26 +741,6 @@ body:has(.wk-hero) {
   color: var(--acc);
   text-decoration: underline;
   text-underline-offset: 2px;
-}
-
-/* ---------- chapters (stubs until the full walkthrough lands) ---------- */
-.wk-chapters {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--border);
-}
-.wk-chapters li {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-.wk-chapters small {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--muted);
 }
 
 @media (max-width: 900px) {

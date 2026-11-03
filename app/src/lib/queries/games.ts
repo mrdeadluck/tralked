@@ -495,6 +495,8 @@ export type WalkExtras = {
   hardest: WalkAchievementView | null;
   /** Steam vs PS5 list sizes, from the robot report, for the "APENAS STEAM" seal. */
   compatCounts: { steam: number; ps5: number } | null;
+  /** Up to 4 official screenshots of the game, for the animated backdrop. */
+  screenshots: string[];
 };
 
 export type GuideDetail = {
@@ -535,7 +537,42 @@ export type GuideDetail = {
 export async function getGuidePublic(slug: string): Promise<GuideDetail | null> {
   const game = await getGame(slug);
   if (!game || !game.guide) return null;
+  return buildGuide(game, game.guide);
+}
 
+/**
+ * A walkthrough (format 2) that is not published yet (the robot's guides wait in `review`), as staff
+ * preview it on the guide page. Callers check the role first; never cache it.
+ */
+export async function getGuidePreview(slug: string): Promise<GuideDetail | null> {
+  const game = await getGame(slug);
+  if (!game || game.guide) return null;
+  const row = await prisma.guide.findUnique({
+    where: { gameId: game.id },
+    select: { format: true, updatedAt: true, _count: { select: { steps: true } } },
+  });
+  if (!row || row.format !== 2) return null;
+  return buildGuide(game, {
+    version: null,
+    updatedAt: row.updatedAt,
+    dateKind: "updated",
+    authorHandle: null,
+    reviewers: [],
+    stepCount: row._count.steps,
+    human: false,
+  });
+}
+
+/** Whether the game has a walkthrough that is not published (what staff can preview). */
+export async function hasGuidePreview(slug: string): Promise<boolean> {
+  const guide = await prisma.guide.findFirst({
+    where: { game: { slug }, format: 2, status: { not: "published" } },
+    select: { id: true },
+  });
+  return guide !== null;
+}
+
+async function buildGuide(game: GameDetail, meta: GuideMeta): Promise<GuideDetail> {
   const guide = await prisma.guide.findUniqueOrThrow({
     where: { gameId: game.id },
     include: {
@@ -628,7 +665,7 @@ export async function getGuidePublic(slug: string): Promise<GuideDetail | null> 
   const totalXp = xpOf.reduce((sum, a) => sum + a.xp, 0);
 
   return {
-    game: { ...game, guide: game.guide },
+    game: { ...game, guide: meta },
     format: guide.format,
     walkthrough,
     edition: guide.edition,
@@ -676,7 +713,7 @@ async function loadWalkExtras(
   guide: { id: string; hoursMin: number; hoursMax: number; report: unknown },
   walkthrough: Walkthrough,
 ): Promise<WalkExtras> {
-  const [game, rows] = await Promise.all([
+  const [game, rows, shots] = await Promise.all([
     prisma.game.findUniqueOrThrow({ where: { id: gameId }, select: { steamAppId: true, logoUrl: true } }),
     prisma.achievement.findMany({
       where: { gameId, platform: "steam" },
@@ -691,6 +728,12 @@ async function loadWalkExtras(
         globalPct: true,
         hidden: true,
       },
+    }),
+    prisma.gameMedia.findMany({
+      where: { gameId, kind: "screenshot", url: { not: null } },
+      orderBy: { order: "asc" },
+      take: 4,
+      select: { url: true },
     }),
   ]);
   const achievements: Record<string, WalkAchievementView> = {};
@@ -720,6 +763,10 @@ async function loadWalkExtras(
     hardest: hardest ? (achievements[hardest.apiName] ?? null) : null,
     compatCounts:
       coverage && coverage.steamOnly > 0 ? { steam: coverage.steam, ps5: coverage.steam - coverage.steamOnly } : null,
+    screenshots: shots.flatMap((m) => {
+      const url = safeImageUrl(m.url);
+      return url ? [url] : [];
+    }),
   };
 }
 

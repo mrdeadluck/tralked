@@ -3,18 +3,20 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import example from "@/lib/api/example-walkthrough.json";
-import { walkthroughSchema } from "@/lib/content/walkthrough-schema";
-import { applyGuideUserState, type GuideDetail, type WalkAchievementView } from "@/lib/queries/games";
-import Link from "next/link";
-import { CoverArt } from "@/components/art/CoverArt";
-import { Toc } from "@/components/guide/Toc";
+import { applyGuideUserState, type WalkAchievementView } from "@/lib/queries/games";
 import { CompatSeal } from "./CompatSeal";
-import { SpoilerAchievement, SpoilerGate, SpoilerProvider } from "./spoilers";
+import { ach, pbzGuide, shipped, walkthrough } from "./walk.test-util";
 import { WalkthroughPage } from "./WalkthroughPage";
 
 vi.mock("@/components/guide/reveal-achievement", () => ({
   revealAchievement: vi.fn(async () => ({ name: "Nome Revelado", description: null })),
+}));
+vi.mock("./reveal-spoilers", () => ({
+  revealWalkSpoilers: vi.fn(async () => ({
+    notes: { "1": "Antes de entrar na **região 9**, conclua **todas as missões com ícone roxo** no Diário." },
+    callouts: {},
+    items: {},
+  })),
 }));
 
 // The page reads the guide through the cached helpers; tests read the database directly.
@@ -30,92 +32,9 @@ vi.mock("@/lib/community/cached", () => ({ guideIdCached: vi.fn(async () => null
 
 afterEach(cleanup);
 
-const walkthrough = walkthroughSchema.parse(example);
-
-function ach(apiName: string, name: string | null, globalPct: number, hidden = false): WalkAchievementView {
-  return { id: `id-${apiName}`, apiName, name, description: null, iconUrl: null, globalPct, hidden, xp: 50, done: false };
-}
-
-const hardest = ach("ACH_TRUE_ENDING", "Sangue e Coração", 4.7);
-
-/** The Phantom Blade Zero guide as getGuidePublic returns it (format 2, edition 1). */
-function pbzGuide(over: Partial<GuideDetail> = {}): GuideDetail {
-  const now = new Date("2026-11-03T12:00:00Z");
-  return {
-    game: {
-      id: "game-pbz",
-      slug: "phantom-blade-zero",
-      name: "Phantom Blade Zero",
-      summary: null,
-      coverUrl: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/library_600x900.jpg",
-      platforms: ["PC", "PLAYSTATION"],
-      skills: [],
-      achievementCount: 66,
-      heroUrl: "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/library_hero.jpg",
-      timeToBeatCompleteMin: null,
-      progress: null,
-      generatedAt: now,
-      guide: {
-        version: null,
-        updatedAt: now,
-        dateKind: "published",
-        authorHandle: null,
-        reviewers: [],
-        stepCount: 1,
-        human: false,
-      },
-    },
-    format: 2,
-    walkthrough,
-    edition: 1,
-    compat: "steam_only",
-    report: null,
-    walk: {
-      guideId: "guide-pbz",
-      steamAppId: 4115450,
-      logoUrl: null,
-      hours: { min: 30, max: 40 },
-      hiddenCount: 36,
-      achievements: {
-        ACH_TRUE_ENDING: hardest,
-        ACH_HEALER_LEGACY: ach("ACH_HEALER_LEGACY", "Legado da Curandeira", 13.9),
-        ACH_SCARLET_SPECTRAL_BLADE: ach("ACH_SCARLET_SPECTRAL_BLADE", null, 67.1, true),
-      },
-      hardest,
-      compatCounts: { steam: 66, ps5: 36 },
-    },
-    itemsDone: new Set(),
-    facts: { difficulty: 5, timeTo100: null, playthroughs: "1", missables: 7, online: 0 },
-    overview: ["Phantom Blade Zero é um soulslike de ação com nove regiões ligadas."],
-    warnings: [],
-    collectibles: [],
-    steps: [
-      {
-        id: "s1",
-        key: "ate-mirage-estate",
-        order: 0,
-        title: "Até a Mirage Estate",
-        hours: "4 a 6 h",
-        body: "Weeping Creek Valley e a Crimson Forest, com os coletáveis de cada região.",
-        blocks: null,
-        cards: {},
-        achievements: [],
-        done: false,
-      },
-    ],
-    achievements: [],
-    tips: [],
-    revisions: [],
-    sources: [{ title: "PowerPyx", url: "https://www.powerpyx.com/" }],
-    totals: { xp: 150, pendingCount: 3, pendingXp: 150 },
-    skillLevels: [],
-    ...over,
-  };
-}
-
 describe("WalkthroughPage (topo)", () => {
   it("capa mostra TRALKED, Edição #001, 3 chamadas e selo TRALKED EM", () => {
-    render(<WalkthroughPage guide={pbzGuide()} viewer={null} />);
+    render(<WalkthroughPage guide={pbzGuide()} />);
     const cover = screen.getByRole("figure", { name: /capa/i });
     expect(cover).toHaveTextContent("TRALKED");
     expect(cover).toHaveTextContent("Edição #001");
@@ -132,13 +51,13 @@ describe("WalkthroughPage (topo)", () => {
   });
 
   it('nenhum texto da página contém "platina"', () => {
-    const { container } = render(<WalkthroughPage guide={pbzGuide()} viewer={null} />);
+    const { container } = render(<WalkthroughPage guide={pbzGuide()} />);
     expect(container.textContent).not.toMatch(/platina/i);
     expect(container.textContent).toMatch(/O caminho até o Tralked/);
   });
 
   it('ficha tem 8 campos e "Tempo até o Tralked"', () => {
-    render(<WalkthroughPage guide={pbzGuide()} viewer={null} />);
+    render(<WalkthroughPage guide={pbzGuide()} />);
     const ficha = screen.getByRole("region", { name: "Ficha do guia" });
     expect(within(ficha).getAllByRole("term")).toHaveLength(8);
     expect(within(ficha).getByText("Tempo até o Tralked")).toBeInTheDocument();
@@ -150,7 +69,7 @@ describe("WalkthroughPage (topo)", () => {
   });
 
   it("mais difícil borrado sem spoilers", async () => {
-    const { container } = render(<WalkthroughPage guide={pbzGuide()} viewer={null} />);
+    const { container } = render(<WalkthroughPage guide={pbzGuide()} />);
     expect(container.textContent).not.toContain("Sangue e Coração");
     const field = screen.getByText("Mais difícil").closest("div")!;
     expect(field.querySelector('[data-spoiler="hidden"]')).not.toBeNull();
@@ -162,14 +81,14 @@ describe("WalkthroughPage (topo)", () => {
   it("mais difícil oculto na Steam só chega depois de revelar", async () => {
     const secret = ach("ACH_TRUE_ENDING", null, 4.7, true);
     const guide = pbzGuide();
-    render(<WalkthroughPage guide={{ ...guide, walk: { ...guide.walk!, hardest: secret } }} viewer={null} />);
+    render(<WalkthroughPage guide={{ ...guide, walk: { ...guide.walk!, hardest: secret } }} />);
     const field = screen.getByText("Mais difícil").closest("div")!;
     fireEvent.click(within(field).getByRole("button", { name: /mostrar/i }));
     expect(await within(field).findByText("Nome Revelado")).toBeInTheDocument();
   });
 
   it("selo APENAS STEAM", () => {
-    render(<WalkthroughPage guide={pbzGuide()} viewer={null} />);
+    render(<WalkthroughPage guide={pbzGuide()} />);
     expect(screen.getByText("APENAS STEAM")).toBeInTheDocument();
     expect(screen.getByText(/Steam tem 66 conquistas; o PS5 tem 36/)).toBeInTheDocument();
   });
@@ -186,18 +105,19 @@ describe("WalkthroughPage (topo)", () => {
     expect(screen.queryByText(/o PS5 tem/)).toBeNull();
   });
 
-  it("leia antes: aviso com spoiler fica fechado até o leitor tocar", () => {
-    const { container } = render(<WalkthroughPage guide={pbzGuide()} viewer={null} />);
+  it("leia antes: aviso com spoiler fica fechado até o leitor tocar", async () => {
+    const { container } = render(<WalkthroughPage guide={pbzGuide()} />);
     const read = screen.getByRole("region", { name: "Leia isto para não perder nada" });
     expect(read).toHaveTextContent("Saves manuais");
     expect(container.textContent).not.toContain("todas as missões com ícone roxo");
     const gated = read.querySelector('[data-spoiler="hidden"]')!.parentElement!;
     fireEvent.click(within(gated).getByRole("button", { name: /mostrar/i }));
-    expect(read).toHaveTextContent("todas as missões com ícone roxo");
+    // The text was never in the page: it is fetched once the reader asks.
+    expect(await within(read).findByText(/todas as missões com ícone roxo/)).toBeInTheDocument();
   });
 
   it("roadmap lista as etapas com o número de conquistas", () => {
-    render(<WalkthroughPage guide={pbzGuide()} viewer={null} />);
+    render(<WalkthroughPage guide={pbzGuide()} />);
     const road = screen.getByRole("region", { name: "O caminho até o Tralked" });
     expect(road).toHaveTextContent("Até a Mirage Estate");
     // Chapters of the phase "ate-mirage-estate" hold 2 achievement items in the fixture.
@@ -256,29 +176,6 @@ describe("página /jogos/[slug]/guia", () => {
   });
 });
 
-/** Client components on the walkthrough page: their props are what React serializes to the browser. */
-const CLIENT = new Set<unknown>([SpoilerProvider, SpoilerGate, SpoilerAchievement, Toc, CoverArt, Link]);
-
-/**
- * What a server render of `node` sends to the browser: every rendered string, plus the props (minus
- * children) of each client component. Server components are expanded by calling them.
- */
-function shipped(node: ReactNode, out: string[] = []): string[] {
-  if (Array.isArray(node)) node.forEach((child) => shipped(child, out));
-  else if (typeof node === "string" || typeof node === "number") out.push(String(node));
-  else if (isValidElement(node)) {
-    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-    if (typeof el.type === "function" && !CLIENT.has(el.type)) {
-      shipped((el.type as (props: unknown) => ReactNode)(el.props), out);
-      return out;
-    }
-    const { children, ...props } = el.props;
-    if (CLIENT.has(el.type)) out.push(JSON.stringify(props));
-    shipped(children, out);
-  }
-  return out;
-}
-
 describe("conquista oculta da Steam", () => {
   it("nem o nome nem o apiName chegam ao navegador com spoilers desligados", () => {
     const secret: WalkAchievementView = { ...ach("ACH_SCARLET_SPECTRAL_BLADE", null, 67.1, true), id: "cm-hidden-1" };
@@ -294,7 +191,7 @@ describe("conquista oculta da Steam", () => {
           walkthrough: missable,
           walk: { ...guide.walk!, hardest: secret, achievements: { ...guide.walk!.achievements, ACH_SCARLET_SPECTRAL_BLADE: secret } },
         }}
-        viewer={null}
+       
       />
     );
     const out = shipped(page).join(" ");

@@ -1,30 +1,110 @@
-import type { Walkthrough } from "@/lib/content/walkthrough-schema";
+import { GreenTrail } from "./GreenTrail";
+import { ChapterScene, pluralKind } from "./ChapterScene";
+import { DoneCount } from "./ProgressBits";
+import { SpoilerItemName } from "./spoilers";
+import type { ChapterView, ItemView } from "./view";
+import { WalkStepView } from "./WalkStepView";
 
 /*
- * The walkthrough itself (stub): the list of chapters. The full version, with scenes, steps,
- * items to tick and the green trail, replaces this one.
+ * The walkthrough itself: each chapter opens with its scene, then its steps along the green line
+ * beside a sticky box (ticks, collectibles by kind, missables, the deadline). It closes with what
+ * can still be picked up later and what cannot (Lucas: always say what can be collected later).
  */
-export function WalkChapters({ walkthrough }: { walkthrough: Walkthrough }) {
+
+function names(items: ItemView[], prefix: string) {
+  return items.map((item, i) => (
+    <span key={item.ref}>
+      {i > 0 ? ", " : null}
+      {item.gated ? <SpoilerItemName id={`${prefix}-${item.ref}`} itemRef={item.ref} what="o item" /> : item.name}
+    </span>
+  ));
+}
+
+/** "Dá para voltar depois: … Não volta: …" at the end of a chapter. */
+function ChapterLater({ items }: { items: ItemView[] }) {
+  const later = items.filter((i) => i.returnLater);
+  const lost = items.filter((i) => i.missable);
+  if (later.length === 0 && lost.length === 0) return null;
   return (
-    <section id="g-detonado" className="wk-sec" aria-labelledby="g-detonado-h">
-      <p className="wk-lbl">Detonado</p>
-      <h2 id="g-detonado-h">Do início ao Tralked</h2>
-      <ol className="wk-chapters">
-        {walkthrough.chapters.map((c) => {
-          const items = c.steps.reduce((n, s) => n + s.items.length, 0);
-          return (
-            <li key={c.key}>
-              <span>
-                <b>{c.title}</b>
-                {c.region ? <small> · {c.region}</small> : null}
-              </span>
-              <small>
-                {c.hours} · {c.steps.length} passos · {items} itens
-              </small>
-            </li>
-          );
-        })}
-      </ol>
-    </section>
+    <aside className="wk-later" aria-label="O que dá para pegar depois">
+      {later.length > 0 ? (
+        <p>
+          <b>Dá para voltar depois:</b> {names(later, "depois")}. O detonado lembra na hora certa.
+        </p>
+      ) : null}
+      {lost.length > 0 ? (
+        <p>
+          <b className="w">Não volta:</b> {names(lost, "naovolta")}.
+        </p>
+      ) : null}
+    </aside>
+  );
+}
+
+function ChapterBox({ chapter, items }: { chapter: ChapterView; items: ItemView[] }) {
+  const kinds = new Map<string, number>();
+  for (const item of items)
+    if (item.kind === "collectible" && item.collectibleType)
+      kinds.set(item.collectibleType, (kinds.get(item.collectibleType) ?? 0) + 1);
+  const missables = items.filter((i) => i.missable).length;
+  return (
+    <aside className="wk-cside" aria-label={`Resumo de ${chapter.title}`}>
+      <div className="wk-card">
+        <h4 className="wk-lbl">{chapter.title}</h4>
+        <p className="wk-cnt">
+          <span>Itens marcados</span>
+          <DoneCount refs={items.map((i) => i.ref)} />
+        </p>
+        {[...kinds].map(([kind, n]) => (
+          <p key={kind} className="wk-cnt">
+            <span>{pluralKind(kind).replace(/^./, (c) => c.toUpperCase())}</span>
+            <b>{n}</b>
+          </p>
+        ))}
+        {missables > 0 ? (
+          <p className="wk-cnt w">
+            <span>Perdíveis</span>
+            <b>{missables}</b>
+          </p>
+        ) : null}
+      </div>
+      {chapter.deadline ? (
+        <div className="wk-card">
+          <h4 className="wk-lbl">Prazo deste capítulo</h4>
+          <p className="wk-deadline">
+            Tudo que é perdível aqui fecha: <b>{chapter.deadline}</b>.
+          </p>
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
+type WalkChaptersProps = { chapters: ChapterView[]; screenshots: string[] };
+
+export function WalkChapters({ chapters, screenshots }: WalkChaptersProps) {
+  return (
+    <div className="wk-walk">
+      {chapters.map((chapter, i) => {
+        const items = chapter.steps.flatMap((s) => s.items);
+        const image = chapter.sceneImage ?? (screenshots.length > 0 ? screenshots[i % screenshots.length] : null);
+        return (
+          <section key={chapter.key} id={`cap-${chapter.key}`} className="wk-chap" aria-labelledby={`cap-${chapter.key}-h`}>
+            <ChapterScene chapter={chapter} index={i} count={chapters.length} image={image} />
+            <div className="wk-cols">
+              <div className="wk-col">
+                <GreenTrail>
+                  {chapter.steps.map((step) => (
+                    <WalkStepView key={step.number} step={step} deadline={chapter.deadline} />
+                  ))}
+                </GreenTrail>
+                <ChapterLater items={items} />
+              </div>
+              <ChapterBox chapter={chapter} items={items} />
+            </div>
+          </section>
+        );
+      })}
+    </div>
   );
 }

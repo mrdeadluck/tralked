@@ -1,6 +1,6 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { getAchievementsOnly } from "./achievements-only";
-import { getGame, getGuidePublic } from "./games";
+import { getGame, getGuidePublic, hasGuidePreview } from "./games";
 
 /** Cache tag shared by everything public about one game (page data, guide, metadata). */
 export const gameTag = (slug: string) => `game:${slug}`;
@@ -27,4 +27,15 @@ export async function getAchievementsOnlyCached(slug: string) {
   cacheLife("hours");
   cacheTag(gameTag(slug));
   return getAchievementsOnly(slug);
+}
+
+/**
+ * Whether the game has an unpublished walkthrough staff can preview, cached: only the yes/no decides
+ * the branch of the page, the guide itself is read uncached and only for staff (StaffGuidePreview).
+ */
+export async function hasGuidePreviewCached(slug: string) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(gameTag(slug));
+  return hasGuidePreview(slug);
 }

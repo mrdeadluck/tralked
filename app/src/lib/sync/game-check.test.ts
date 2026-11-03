@@ -341,5 +341,17 @@ describe.skipIf(!reachable)("single-game Steam check", () => {
       session.userId = null;
       expect(await toggleItem(guide.id, key)).toEqual({ status: "unauthenticated" });
     });
+
+    it("toggleItem aceita a ref opaca de um item com spoiler e grava a chave real", async () => {
+      const { prisma } = await import("@/lib/db");
+      const { toggleItem } = await import("@/app/jogos/[slug]/guia/actions");
+      const { gatedRef } = await import("@/lib/content/walk-refs");
+      const { guide } = await publishedGuide();
+      const user = await newUser();
+      expect(await toggleItem(guide.id, gatedRef("boss-hua-noiva-mortal"))).toEqual({ status: "ok", done: true });
+      const rows = await prisma.guideItemProgress.findMany({ where: { userId: user.id, guideId: guide.id } });
+      expect(rows.map((r) => r.itemKey)).toEqual(["boss-hua-noiva-mortal"]);
+      expect(await toggleItem(guide.id, gatedRef("nao-existe"))).toEqual({ status: "not_found" });
+    });
   });
 });
