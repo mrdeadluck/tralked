@@ -4,7 +4,7 @@ import type { Ai } from "../ai/client.js";
 import { escapeAttr, escapeText } from "../ai/escape.js";
 import type { SpendBucket } from "../db.js";
 import type { ContentBlock } from "../tralked.js";
-import { CHECK_DUE, checkScopes, FRAME_SCOPE, jobSteps, type CheckContext, type GuideProblem } from "./checker.js";
+import { CHECK_DUE, checkScopes, FRAME_SCOPE, jobSteps, type CheckContext, type CodeWarning, type GuideProblem } from "./checker.js";
 import { chronologyProblems } from "./chronology.js";
 import type { GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
@@ -12,7 +12,7 @@ import { deterministicProblems, dossierTexts } from "./copy-check.js";
 import type { DossierAchievement, GuideDossier, GuideDossierSource } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
 import type { PsnWriteScope } from "./scope.js";
-import { anchoredIn, buildSkeleton, isMissable, placeableIn, writeJobs, type GuideSkeleton, type SkelItem, type WriteJob } from "./skeleton.js";
+import { anchoredIn, buildSkeleton, isMissable, placeableIn, untilOf, writeJobs, type GuideSkeleton, type SkelItem, type WriteJob } from "./skeleton.js";
 
 export { copiedRuns } from "./copy-check.js";
 
@@ -277,12 +277,39 @@ function itemLine(s: SkelItem): string {
   return `<item ${attrs.join(" ")}>${body(i.location)}</item>`;
 }
 
+/** "a, b e c". */
+const joinPt = (names: string[]) => (names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} e ${names.at(-1)}`);
+
+/**
+ * Task 21: how a code warning names what it warns: always by name (never "o item deste passo": a step may hold several
+ * items), an achievement as one, and a spoiler (hidden achievement, boss) inside `||…||`.
+ */
+function warnedName(name: string, spoiler: boolean, achievement: { hidden: boolean } | null): string {
+  const shown = spoiler ? `||${name}||` : `**${name}**`;
+  return achievement ? `a conquista ${achievement.hidden ? "oculta " : ""}${shown}` : shown;
+}
+
+/**
+ * Task 18/21: the warning at a chapter's first step for the loose missables the sources link to it (`warnChapter`).
+ * Only what the dossier says: the sources link them here; where each is done is the step that holds it.
+ */
+function anchorWarning(anchored: DossierAchievement[]): string {
+  const names = anchored.map((a) => (a.hidden ? warnedName(plain(achName(a), 80), true, a) : `**${plain(achName(a), 80)}**`));
+  return inline(`Perdível: as fontes ligam ${joinPt(names)} a esta região; fique atento a partir daqui.`, 2000);
+}
+
+/** The loose missables the code warns at the start of the job (only the job holding the chapter's first step). */
+const anchoredInJob = (skel: GuideSkeleton, job: WriteJob) => (job.steps[0] === job.chapter.steps[0] ? anchoredIn(skel, job.chapter) : []);
+
 function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource): string {
   const { chapter, steps } = job;
   const at = skel.chapters.indexOf(chapter);
   const prev = skel.chapters[at - 1];
   const next = skel.chapters[at + 1];
   const loose = placeableIn(skel, chapter);
+  const anchored = anchoredInJob(skel, job).map((l) => l.ach!);
+  // The code may warn a missable of these steps, or of a loose one the writer places here.
+  const missables = anchored.length > 0 || steps.some((s) => s.items.some(isMissable)) || loose.some(isMissable);
   return [
     `Escreva o texto dos passos abaixo, do capítulo "${body(chapter.title)}" do guia de ${body(game.game.name)}.`,
     `<capitulo key="${chapter.key}" titulo="${attr(chapter.title)}"${chapter.region ? ` regiao="${attr(chapter.region)}"` : ""}${chapter.deadlines.length ? ` prazo="${attr(chapter.deadlines.join("; "))}"` : ""}/>`,
@@ -296,6 +323,13 @@ function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource
           "## Conquistas sem lugar fixo",
           "Hoje elas estão na limpeza. Se uma delas destrava num destes passos, ponha o apiName em `conquistas` desse passo e escreva o item dela em `itens`, com a key dada.",
           ...loose.map(looseLine),
+        ].join("\n")
+      : "",
+    missables
+      ? [
+          "## Avisos de perdível que o sistema põe",
+          'O sistema põe sozinho o aviso de cada perdível de um passo que o seu texto não avisar ("Perdível: pegue … agora, antes de seguir.") e, no primeiro passo do capítulo, o aviso das conquistas perdíveis que as fontes ligam a ele. Esses avisos já estão no lugar: não os repita nem os amplie ("começam nesta região", "também começa aqui"). Seu texto diz só o que o dossiê traz sobre cada passo.',
+          ...(anchored.length > 0 ? [`No passo ${steps[0]!.key}: "${body(anchorWarning(anchored))}"`] : []),
         ].join("\n")
       : "",
   ]
@@ -558,13 +592,44 @@ ${problemsMessage(fixes)}` : user,
 // Assembly: the model's text on the code's skeleton
 // ---------------------------------------------------------------------------------------------
 
-/** The payload plus what the code had to fill or correct, as problems scoped to the call that should fix it. */
-export type WrittenGuide = { payload: GuidePayloadV2; repairs: GuideProblem[] };
+/**
+ * The payload plus what the code had to fill or correct, as problems scoped to the call that should fix it, and the
+ * warning callouts the code wrote (Task 21: the checker gets them apart, with their basis, and does not judge them).
+ */
+export type WrittenGuide = { payload: GuidePayloadV2; repairs: GuideProblem[]; codeWarnings: CodeWarning[] };
+
+/** The dossier facts behind the code's warning of a missable item or achievement of a step. */
+function stepWarningBase(x: SkelItem, name: string): Record<string, unknown> {
+  const until = untilOf(x.item, x.ach);
+  return {
+    key: x.key,
+    nome: name,
+    ...(x.ach ? { apiName: x.ach.apiName, oculta: x.ach.hidden } : {}),
+    perdivel: true,
+    ...(until ? { ate: until } : {}),
+    ...(x.item?.deadlineAssumed || x.ach?.deadlineAssumed ? { prazo_suposto: true } : {}),
+  };
+}
+
+/** The dossier facts behind the code's warning at a chapter's start: why the code anchored the achievement there. */
+function anchorWarningBase(a: DossierAchievement): Record<string, unknown> {
+  return {
+    apiName: a.apiName,
+    nome: achName(a),
+    oculta: a.hidden,
+    perdivel: true,
+    ...(a.missableUntil ? { ate: a.missableUntil } : {}),
+    avisar_em: a.warnChapter,
+    ...(a.doneChapter ? { concluir_em: a.doneChapter } : {}),
+    ...(a.deadlineAssumed ? { prazo_suposto: true } : {}),
+  };
+}
 
 function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   const { skel, dossier, game, jobs } = ctx;
   const frame = texts.frame;
   const repairs: GuideProblem[] = [];
+  const codeWarnings: CodeWarning[] = [];
   const jobOfStep = new Map(jobs.flatMap((j) => j.steps.map((s) => [s.key, j.id] as const)));
   const scopeOfStep = (stepKey: string) => jobOfStep.get(stepKey) ?? FRAME_SCOPE;
   const steamApiNames = new Set(dossier.achievements.map((a) => a.apiName));
@@ -775,26 +840,23 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       // already cite (by its name or its English name) needs no second one.
       const warnings = blocks.filter((b) => b.type === "callout" && b.tone === "aviso").map((b) => comparable((b as { text: string }).text));
       const cited = (i: WalkItem) => [i.name, i.nameEn].some((n) => n && warnings.some((w) => mentions(w, comparable(n))));
+      // Only what the dossier marks missable is warned, each by its name (Task 21: never "o item deste passo").
       const warn = items.filter((x) => isMissable(x) && !x.item?.returnLater);
-      const unwarned = walkItems.filter((i) => warn.some((x) => x.key === i.key) && !cited(i));
+      const unwarned = walkItems.flatMap((i) => {
+        const x = warn.find((w) => w.key === i.key);
+        return x && !cited(i) ? [{ i, x }] : [];
+      });
       if (unwarned.length > 0) {
-        const names = unwarned.map((i) => (i.spoiler ? "o item deste passo" : `**${i.name}**`)).join(", ");
+        const names = joinPt(unwarned.map(({ i, x }) => warnedName(i.name, i.spoiler, x.ach)));
         // No milestone here: it often names a boss (spoiler). The chapter's `deadline` carries it.
-        blocks = [{ type: "callout", tone: "aviso", text: inline(`Perdível: pegue ${names} agora, antes de seguir.`, 2000) }, ...blocks];
+        const text = inline(`Perdível: pegue ${names} agora, antes de seguir.`, 2000);
+        blocks = [{ type: "callout", tone: "aviso", text }, ...blocks];
+        codeWarnings.push({ step: s.key, text, base: unwarned.map(({ i, x }) => stepWarningBase(x, i.name)) });
       }
       if (anchor) {
-        const names = anchored.map((a) => (a.hidden ? "uma conquista oculta" : `**${achName(a)}**`)).join(", ");
-        blocks = [
-          {
-            type: "callout",
-            tone: "aviso",
-            text: inline(
-              `Perdível: comece aqui ${names}. O que ${anchored.length === 1 ? "ela pede" : "elas pedem"} pode se perder se você seguir adiante sem começar ou coletar neste capítulo; a conclusão vem no passo de cada uma.`,
-              2000,
-            ),
-          },
-          ...blocks,
-        ];
+        const text = anchorWarning(anchored);
+        blocks = [{ type: "callout", tone: "aviso", text }, ...blocks];
+        codeWarnings.push({ step: s.key, text, base: anchored.map(anchorWarningBase) });
       }
       if (n === steps.length - 1 && laterNote.has(c.key)) {
         const text = inline(laterNote.get(c.key), 2000);
@@ -931,7 +993,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       chapters,
     },
   };
-  return { payload, repairs: repairs.map((r) => ({ ...r, kind: r.kind ?? "reparo" })) };
+  return { payload, repairs: repairs.map((r) => ({ ...r, kind: r.kind ?? "reparo" })), codeWarnings };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1137,7 +1199,7 @@ export async function writeAndCheckGuide(
       : [];
     const found = [
       ...blocking(written),
-      ...(await checkScopes(ai, written.payload, dossier, ctx.skel, { frame: next.redone.frame, jobs: recheck }, checkOpts)),
+      ...(await checkScopes(ai, written.payload, dossier, ctx.skel, { frame: next.redone.frame, jobs: recheck }, { ...checkOpts, codeWarnings: written.codeWarnings })),
     ].filter((p) => inScope(p.scope));
     last = {
       round,

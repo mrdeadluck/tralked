@@ -51,8 +51,12 @@ export function goodChapter(prompt: string, variant = 0) {
   };
 }
 
-export type Verdict = { ok: boolean; problems: string[] };
+/** One entry of the checker's list (Task 21): `ok` true is a point the checker found right, not a defect. */
+export type CheckEntry = { ok: boolean; defeito: string };
+/** A plain string is a defect (`ok: false`); `ok` at the top is ignored (the checker's verdict is its defects). */
+export type Verdict = { ok?: boolean; problems: (string | CheckEntry)[] };
 export const OK: Verdict = { ok: true, problems: [] };
+const asAnswer = (v: Verdict) => ({ problems: v.problems.map((p) => (typeof p === "string" ? { ok: false, defeito: p } : p)) });
 
 export type Fake = {
   /** The checker's answer to each call (the check prompt and the call's number). */
@@ -78,7 +82,7 @@ export function fakeAi(fake: Fake = {}) {
       await fake.chapter?.(out, opts.user, chapters++);
       return out;
     }
-    return (fake.verdict ?? (() => OK))(opts.user, checks++);
+    return asAnswer((fake.verdict ?? (() => OK))(opts.user, checks++));
   });
   const ai = { structured, batchRequest: vi.fn(), recordBatchUsage: vi.fn(), assertBudget: vi.fn() } as unknown as Ai;
   const of = (prefix: string) => calls.filter((o) => o.purpose.startsWith(prefix));

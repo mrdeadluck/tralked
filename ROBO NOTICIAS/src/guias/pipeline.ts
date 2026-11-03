@@ -38,9 +38,9 @@ import { guideAiConfig, guideSpend } from "./spend.js";
 import { readSteamAliases, steamAliasUrl, steamLanguagesIn, type AliasLanguage } from "./steam-aliases.js";
 import { createWebSearch, type SearchHit } from "./websearch.js";
 import type { GuideProblem } from "./checker.js";
-import { groupProblems, resumableDraft, saveDraft, writeReportFile } from "./drafts.js";
+import { carriedDraft, groupProblems, resumableDraft, saveDraft, writeReportFile } from "./drafts.js";
 import { plain, writeAndCheckGuide, type GuideWriteResult } from "./writer.js";
-import { readWriting, saveWriting, writingKey } from "./writing-cache.js";
+import { earlierDraftKeys, readWriting, saveWriting, writingBaseKey, writingKey } from "./writing-cache.js";
 
 /**
  * One guide request, start to end: claim → dossier → sources → extraction → crossref → gate → site limits →
@@ -517,17 +517,26 @@ async function processRequest(run: Run): Promise<Final> {
   } else {
     // Task 20: a failed (or probe) draft of the same writing key is the starting point: only what it still lacks or
     // what its problems point at is written again. Every round is saved as soon as it is checked.
-    const previous = resumableDraft(db, cacheKey);
-    if (previous) {
-      const parts = Object.keys(previous.texts.jobs).length + (previous.texts.frame ? 1 : 0);
+    // Task 21: after a new version of the writer (or manual), only the job texts its checker accepted carry over.
+    const writing = { dossier: toWrite, scope, game: source.game, models };
+    const baseKey = writingBaseKey(writing);
+    const same = resumableDraft(db, cacheKey);
+    const previous = same ?? carriedDraft(db, { writingKey: cacheKey, baseKey, earlierKeys: earlierDraftKeys(writing) });
+    if (same) {
+      const parts = Object.keys(same.texts.jobs).length + (same.texts.frame ? 1 : 0);
       deps.log(
-        `guia: rascunho anterior reaproveitado (${previous.requestId}, ${previous.createdAt}${previous.probe ? ", sonda" : ""}): ` +
-          `${parts} partes escritas, ${previous.problems.length} problemas a corrigir`,
+        `guia: rascunho anterior reaproveitado (${same.requestId}, ${same.createdAt}${same.probe ? ", sonda" : ""}): ` +
+          `${parts} partes escritas, ${same.problems.length} problemas a corrigir`,
+      );
+    } else if (previous) {
+      deps.log(
+        `guia: rascunho de uma versão anterior do escritor (${previous.requestId}, ${previous.createdAt}${previous.probe ? ", sonda" : ""}): ` +
+          `só os ${Object.keys(previous.texts.jobs).length} trechos que o checador aprovou são reaproveitados, checados de novo; o resto é escrito`,
       );
     }
     let rounds = 0;
     const saveRound = (draft: Parameters<typeof saveDraft>[1]["draft"]) =>
-      saveDraft(db, { requestId: request.id, attempt: request.attempts, writingKey: cacheKey, draft, at: deps.now() });
+      saveDraft(db, { requestId: request.id, attempt: request.attempts, writingKey: cacheKey, baseKey, draft, at: deps.now() });
     written = await stages.writeAndCheckGuide(run.ai, toWrite, source, "backfill", {
       models,
       sourceTexts: read.map((r) => r.text),

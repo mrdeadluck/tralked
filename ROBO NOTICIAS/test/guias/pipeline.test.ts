@@ -1124,13 +1124,13 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
     Array.from({ length: n }, (_, i) => ({ text: `Problema ${i + 1} do trecho.`, scope: i % 2 ? "cap-2" : "cap-1", kind: "checador" as const }));
   const savedTexts: SavedTexts = { frame: null, jobs: { "cap-1": { passos: [], itens: [], depois: null } } };
   /** A writer stage that fails the check, reporting its rounds like the real one. */
-  const failingWriter = (problems: GuideProblem[]) =>
+  const failingWriter = (problems: GuideProblem[], texts: SavedTexts = savedTexts) =>
     vi.fn(async (_ai, _d, _g, _b, opts) => {
       const draft: DraftRound = {
         round: 2,
         ok: false,
         probe: Boolean(opts?.probe),
-        texts: savedTexts,
+        texts,
         payload: writtenPayload(),
         problems,
         repairs: [{ text: "O sistema pôs a conquista X.", scope: "cap-1", kind: "nota" }],
@@ -1197,6 +1197,24 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
     const opts = writerB.mock.calls[0]![4] as WriteAndCheckOpts;
     expect(opts.resume).toEqual({ texts: savedTexts, problems: scoped(2) });
     expect(deps.lines.some((l) => l.includes("rascunho anterior reaproveitado"))).toBe(true);
+  });
+
+  it("Task 21: depois de mudar a versão do escritor, recomeça só dos trechos que o checador aprovou, checados de novo", async () => {
+    const db = openGuideDb(":memory:");
+    const job = { passos: [], itens: [], depois: null };
+    const texts: SavedTexts = { frame: savedTexts.frame, jobs: { "cap-1": job, "cap-2": job } };
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: failingWriter(scoped(1), texts) }) }));
+    // The same inputs written by an earlier version of the writer: another writing key, the same base key.
+    db.raw.prepare("UPDATE drafts SET writing_key = 'escrita:versao-anterior'").run();
+    const writerB = failingWriter(scoped(1));
+    const deps = makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writerB }) });
+    await runGuideRequest(deps);
+    const opts = writerB.mock.calls[0]![4] as WriteAndCheckOpts;
+    expect(opts.resume).toEqual({
+      texts: { frame: null, jobs: { "cap-2": job } },
+      problems: [{ scope: "cap-2", kind: "checagem-devida", text: "O trecho cap-2 vem de uma versão anterior do escritor e precisa ser checado de novo." }],
+    });
+    expect(deps.lines.some((l) => l.includes("rascunho de uma versão anterior do escritor"))).toBe(true);
   });
 
   it("sonda: escreve só a moldura e N capítulos, salva e imprime os problemas agrupados, não envia nada", async () => {

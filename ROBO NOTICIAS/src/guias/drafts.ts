@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { GuideProblem } from "./checker.js";
+import { CHECK_DUE, FRAME_SCOPE, type GuideProblem } from "./checker.js";
 import type { GuideDb } from "./db.js";
 import { parseSavedTexts, type DraftRound, type SavedTexts } from "./writer.js";
 
@@ -19,6 +19,8 @@ export type SavedDraft = {
   requestId: string;
   attempt: number;
   writingKey: string;
+  /** Task 21: `writingBaseKey` of the inputs (null for drafts saved before it). */
+  baseKey: string | null;
   createdAt: string;
   round: number;
   ok: boolean;
@@ -47,14 +49,18 @@ type DraftRow = {
   internal_errors_json: string;
   texts_json: string | null;
   pending_json: string | null;
+  base_key: string | null;
 };
 
-export function saveDraft(db: GuideDb, input: { requestId: string; attempt: number; writingKey: string; draft: DraftInput; at: Date }): void {
+export function saveDraft(
+  db: GuideDb,
+  input: { requestId: string; attempt: number; writingKey: string; baseKey?: string; draft: DraftInput; at: Date },
+): void {
   const d = input.draft;
   db.raw
     .prepare(
       `INSERT INTO drafts (request_id, attempt, writing_key, created_at, round, ok, probe, payload_json, problems_json, repairs_json,
-         internal_errors_json, texts_json, pending_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         internal_errors_json, texts_json, pending_json, base_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.requestId,
@@ -70,6 +76,7 @@ export function saveDraft(db: GuideDb, input: { requestId: string; attempt: numb
       JSON.stringify(d.internalErrors),
       d.texts ? JSON.stringify(d.texts) : null,
       JSON.stringify(d.pending),
+      input.baseKey ?? null,
     );
 }
 
@@ -88,6 +95,7 @@ function fromRow(row: DraftRow): SavedDraft {
     requestId: row.request_id,
     attempt: row.attempt,
     writingKey: row.writing_key,
+    baseKey: row.base_key ?? null,
     createdAt: row.created_at,
     round: row.round,
     ok: row.ok === 1,
@@ -119,6 +127,42 @@ export function resumableDraft(db: GuideDb, writingKey: string): (SavedDraft & {
   if (!row) return undefined;
   const draft = fromRow(row);
   return draft.texts ? { ...draft, texts: draft.texts, problems: [...draft.problems, ...draft.pending] } : undefined;
+}
+
+/**
+ * Task 21: the last draft of the same inputs written by another version of the writer (or with another manual): the
+ * `baseKey` matches, or, for a draft saved before base keys, one of `earlierKeys` (writing-cache.ts `earlierDraftKeys`).
+ * Its frame and every part its checker failed or still owed (problems and pending, any kind) are dropped: written
+ * again. Only the job texts the checker accepted carry over, and the new checker checks each again before any is used
+ * (`checagem-devida`): a rewrite only if it rejects it. Undefined when no accepted job text is left.
+ */
+export function carriedDraft(
+  db: GuideDb,
+  keys: { writingKey: string; baseKey: string; earlierKeys?: string[] },
+): (SavedDraft & { texts: SavedTexts; problems: GuideProblem[] }) | undefined {
+  const earlier = keys.earlierKeys ?? [];
+  const row = db.raw
+    .prepare(
+      `SELECT * FROM drafts WHERE writing_key != ? AND (base_key = ? OR (base_key IS NULL AND writing_key IN (${earlier.map(() => "?").join(", ") || "NULL"})))
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(keys.writingKey, keys.baseKey, ...earlier) as unknown as DraftRow | undefined;
+  if (!row) return undefined;
+  const draft = fromRow(row);
+  if (!draft.texts) return undefined;
+  const failed = new Set([...draft.problems, ...draft.pending].map((p) => p.scope));
+  const jobs = Object.fromEntries(Object.entries(draft.texts.jobs).filter(([id]) => id !== FRAME_SCOPE && !failed.has(id)));
+  const ids = Object.keys(jobs);
+  if (ids.length === 0) return undefined;
+  return {
+    ...draft,
+    texts: { frame: null, jobs },
+    problems: ids.map((id) => ({
+      scope: id,
+      kind: CHECK_DUE,
+      text: `O trecho ${id} vem de uma versão anterior do escritor e precisa ser checado de novo.`,
+    })),
+  };
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

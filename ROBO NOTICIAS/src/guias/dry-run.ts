@@ -2,7 +2,7 @@ import { PRICES } from "../ai/client.js";
 import { statedSequence } from "./chapter-order.js";
 import type { DryRunConfig } from "./config.js";
 import { independentGroups } from "./crossref.js";
-import { resumableDraft } from "./drafts.js";
+import { carriedDraft, resumableDraft } from "./drafts.js";
 import type { GuideDb } from "./db.js";
 import { buildDossier, UNPLACED_MARK, type DossierAchievement, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "./dossier.js";
 import { completeness, withVerdict } from "./completeness.js";
@@ -18,7 +18,7 @@ import { buildSkeleton } from "./skeleton.js";
 import type { FetchPage, SourceRef } from "./sources.js";
 import { readSteamAliases, steamLanguagesIn } from "./steam-aliases.js";
 import { writerPlan } from "./writer.js";
-import { readWriting, writingKey } from "./writing-cache.js";
+import { earlierDraftKeys, readWriting, writingBaseKey, writingKey } from "./writing-cache.js";
 
 /**
  * The free dry run (`pnpm guia -- --ensaio --appid <n>` or `--pedido <id>`): replays a request on what the robot
@@ -353,12 +353,19 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   );
   // Task 20: a failed (or probe) draft of the same writing key: the real run writes only what it still needs.
   const draft = cached ? undefined : resumableDraft(db, key);
+  // Task 21: a draft of another version of the writer: only the job texts its checker accepted.
+  const writing = { dossier: toWrite, scope, game: context.game, models: config };
+  const carried =
+    cached || draft ? undefined : carriedDraft(db, { writingKey: key, baseKey: writingBaseKey(writing), earlierKeys: earlierDraftKeys(writing) });
   if (!cached) {
     const parts = draft ? Object.keys(draft.texts.jobs).length + (draft.texts.frame ? 1 : 0) : 0;
     log(
       draft
         ? `rascunho para recomeçar: ${draft.requestId} (${draft.createdAt}${draft.probe ? ", sonda" : ""}), ${parts} partes escritas, ${draft.problems.length} problemas a corrigir; só o que falta e o que tem problema é escrito`
-        : "rascunho para recomeçar: nenhum (a escrita começa do zero)",
+        : carried
+          ? `rascunho para recomeçar: ${carried.requestId} (${carried.createdAt}${carried.probe ? ", sonda" : ""}), de uma versão anterior do escritor: ` +
+            `só os ${Object.keys(carried.texts.jobs).length} trechos que o checador aprovou (${Object.keys(carried.texts.jobs).join(", ")}) são reaproveitados, checados de novo; o resto é escrito`
+          : "rascunho para recomeçar: nenhum (a escrita começa do zero)",
     );
   }
   const writer = writerCost(toWrite, { game: context.game, tralked: { players: 0, avgPlaytimeMin: null, completedPlayers: 0 }, achievements: context.steamList }, config, scope);

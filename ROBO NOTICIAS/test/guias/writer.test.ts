@@ -547,12 +547,23 @@ describe("checkGuide", () => {
     expect(frameCheck.system).toMatch(/certos por definição/);
   });
 
-  it("reprovação sem problema listado ainda é reprovação", async () => {
-    const { ai } = fakeAi({ verdict: () => ({ ok: false, problems: [] }) });
+  it("Task 21: de uma lista mista, só os defeitos (ok = false) ficam; uma lista só de acertos aprova", async () => {
+    const { ai, of } = fakeAi({
+      verdict: (user) =>
+        user.includes('"leiaAntes"')
+          ? {
+              problems: [
+                { ok: false, defeito: "A capa diz 3 perdíveis; a ficha diz 1." },
+                { ok: true, defeito: "A conquista sem nome PT-BR usa o nome em inglês, o que é aceitável." },
+              ],
+            }
+          : { problems: [{ ok: true, defeito: "O prazo do passo é consistente com o dossiê." }] },
+    });
     const payload = await writeGuide(ai, makeDossier(), GAME, "live");
     const verdict = await checkGuide(ai, payload, makeDossier());
-    expect(verdict.ok).toBe(false);
-    expect(verdict.problems).toHaveLength(1);
+    expect(verdict).toEqual({ ok: false, problems: ["A capa diz 3 perdíveis; a ficha diz 1."] });
+    const check = of("guide-check")[0]!;
+    expect(check.system).toContain("liste só defeitos; não liste o que está correto");
   });
 });
 
@@ -723,7 +734,7 @@ describe("guia pela lista da PSN (scope psn)", () => {
 // Task 20: what the checker judges, and with which facts (systematic first-check failures)
 // ---------------------------------------------------------------------------------------------
 
-const section = (user: string, tag: "dossie" | "guia" | "moldura") => user.split(`<${tag}>`)[1]!.split(`</${tag}>`)[0]!;
+const section = (user: string, tag: "dossie" | "guia" | "moldura" | "avisos_do_codigo") => user.split(`<${tag}>`)[1]!.split(`</${tag}>`)[0]!;
 const jobCheck = (calls: { purpose: string; user: string; system: string }[], stepKey: string) =>
   calls.find((c) => c.purpose === "guide-check" && section(c.user, "guia").includes(`"key":"${stepKey}"`))!;
 
@@ -766,7 +777,8 @@ describe("checador: julga cada parte só pelo que o escritor dela recebeu", () =
     const { ai, calls } = fakeAi();
     const result = await writeAndCheckGuide(ai, dossier, GAME, "live");
     const crimson = jobCheck(calls, "crimson-forest-1");
-    expect(section(crimson.user, "guia")).toContain("Perdível: comece aqui **The End**");
+    // Task 21: the code's warning is not text to judge: it goes in a block of its own (see the Task 21 tests).
+    expect(section(crimson.user, "avisos_do_codigo")).toContain("Perdível: as fontes ligam **The End** a esta região");
     const warned = section(crimson.user, "dossie").split('"conquistasAvisadasAqui"')[1]!;
     expect(warned).toContain('"apiName":"ACH_ENDING"');
     expect(warned).toContain('"perdivel":true');
@@ -1106,5 +1118,132 @@ describe("Task 20, revisão 2: o que a sonda mudou fora do escopo dela é checad
     const payload = await writeGuide(ai, makeDossier(), GAME, "live");
     const step = payload.walkthrough.chapters.flatMap((c) => c.steps).find((s) => s.key === "weeping-creek-3")!;
     expect(step.body.filter((b) => b.type === "callout" && b.tone === "aviso")).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Task 21: what the production probe showed (sonda-report.json)
+// ---------------------------------------------------------------------------------------------
+
+describe("Task 21: os avisos do código nomeiam o que avisam e não são julgados pelo checador", () => {
+  const inGuia = (user: string, key: string) => section(user, "guia").includes(`"key":"${key}"`);
+  const avisosOf = (payload: GuidePayloadV2, stepKey: string) =>
+    payload.walkthrough.chapters
+      .flatMap((c) => c.steps)
+      .find((s) => s.key === stepKey)!
+      .body.filter((b) => b.type === "callout" && b.tone === "aviso")
+      .map((b) => (b as { text: string }).text);
+  /** ACH_SECRET (hidden, loose) made missable until Crimson Forest; the Weeping Creek writer puts it in step 1 (a Bell). */
+  const secretWithBell = () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_SECRET")!, {
+      missable: true,
+      missableUntil: "Crimson Forest",
+      deadlineChapter: "Crimson Forest",
+    });
+    const placeInBellStep = (out: { passos: { key: string; conquistas: string[] }[] }, prompt: string) => {
+      if (prompt.includes('<passo key="weeping-creek-1">')) out.passos.find((p) => p.key === "weeping-creek-1")!.conquistas.push("ACH_SECRET");
+    };
+    return { dossier, placeInBellStep };
+  };
+  /** ACH_ENDING and ACH_SECRET (hidden): loose missables the sources link to Crimson Forest (warned at its start), done in Ashen Peak. */
+  const anchoredInCrimson = () => {
+    const dossier = makeDossier();
+    for (const apiName of ["ACH_ENDING", "ACH_SECRET"]) {
+      Object.assign(dossier.achievements.find((a) => a.apiName === apiName)!, {
+        missable: true,
+        warnChapter: "Crimson Forest",
+        doneChapter: "Ashen Peak",
+        deadlineAssumed: true,
+      });
+    }
+    return dossier;
+  };
+
+  it("num passo com mais de um item, o aviso nomeia o perdível (oculto entre ||), nunca 'o item deste passo'", async () => {
+    const { dossier, placeInBellStep } = secretWithBell();
+    const payload = await writeGuide(fakeAi({ chapter: placeInBellStep }).ai, dossier, GAME, "live");
+    const step = payload.walkthrough.chapters[0]!.steps.find((s) => s.key === "weeping-creek-1")!;
+    expect(step.items.map((i) => i.achievement ?? i.nameEn)).toEqual(["Bell", "ACH_SECRET"]);
+    // Only what the dossier marks missable is warned (the Bell is not), by its name, as an achievement.
+    expect(avisosOf(payload, "weeping-creek-1")).toEqual(["Perdível: pegue a conquista oculta ||Hidden Path|| agora, antes de seguir."]);
+    expect(JSON.stringify(payload)).not.toContain("deste passo");
+  });
+
+  it("um perdível visível é nomeado em negrito; uma conquista visível, como conquista", async () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_BELLS")!, { missable: true, missableUntil: "Crimson Forest", deadlineChapter: "Crimson Forest" });
+    const payload = await writeGuide(
+      fakeAi({
+        chapter: (out, prompt) => {
+          if (prompt.includes('<passo key="weeping-creek-3">')) out.passos.find((p) => p.key === "weeping-creek-3")!.conquistas.push("ACH_BELLS");
+        },
+      }).ai,
+      dossier,
+      GAME,
+      "live",
+    );
+    expect(avisosOf(payload, "weeping-creek-3")).toEqual([
+      "Perdível: pegue **Nome weeping-creek-old-lantern** e a conquista **Sineiro** agora, antes de seguir.",
+    ]);
+  });
+
+  it("o aviso do início do capítulo diz o que o dossiê sustenta: as fontes ligam as conquistas a esta região", async () => {
+    const payload = await writeGuide(fakeAi().ai, anchoredInCrimson(), GAME, "live");
+    expect(avisosOf(payload, "crimson-forest-1")).toEqual([
+      "Perdível: as fontes ligam **The End** e a conquista oculta ||Hidden Path|| a esta região; fique atento a partir daqui.",
+    ]);
+    expect(JSON.stringify(payload)).not.toContain("comece aqui");
+  });
+
+  it("o checador recebe os avisos do código à parte, com a base de cada um no dossiê, e não os julga", async () => {
+    const dossier = anchoredInCrimson();
+    const { ai, calls } = fakeAi();
+    await writeAndCheckGuide(ai, dossier, GAME, "live");
+    const crimson = jobCheck(calls, "crimson-forest-1");
+    expect(crimson.system).toContain("<avisos_do_codigo>");
+    // Not in the text to judge...
+    expect(section(crimson.user, "guia")).not.toContain("Perdível");
+    // ...but given apart, marked as the code's, with the facts the code wrote it from.
+    const anchor = JSON.parse(section(crimson.user, "avisos_do_codigo"));
+    expect(anchor.nota).toBe("escrito pelo código: não julgue");
+    expect(anchor.avisos).toEqual([
+      {
+        passo: "crimson-forest-1",
+        texto: "Perdível: as fontes ligam **The End** e a conquista oculta ||Hidden Path|| a esta região; fique atento a partir daqui.",
+        base: [
+          expect.objectContaining({ apiName: "ACH_ENDING", perdivel: true, avisar_em: "Crimson Forest", concluir_em: "Ashen Peak", prazo_suposto: true }),
+          expect.objectContaining({ apiName: "ACH_SECRET", oculta: true, avisar_em: "Crimson Forest" }),
+        ],
+      },
+    ]);
+    // A step's own warning: the missable item and its milestone.
+    const weeping = jobCheck(calls, "weeping-creek-1");
+    expect(section(weeping.user, "guia")).not.toContain("Perdível: pegue");
+    const item = JSON.parse(section(weeping.user, "avisos_do_codigo"));
+    expect(item.avisos).toEqual([
+      {
+        passo: "weeping-creek-3",
+        texto: "Perdível: pegue **Nome weeping-creek-old-lantern** agora, antes de seguir.",
+        base: [expect.objectContaining({ key: "weeping-creek-old-lantern", perdivel: true, ate: "Crimson Forest" })],
+      },
+    ]);
+    // A job with no code warning gets no block.
+    const cleanup = calls.find((c) => c.purpose === "guide-check" && inGuia(c.user, "limpeza-1"))!;
+    expect(cleanup.user).not.toContain("<avisos_do_codigo>");
+  });
+
+  it("o escritor é avisado (manual e mensagem do trecho) de não repetir nem ampliar os avisos do código", async () => {
+    expect(loadGuideStyle()).toContain("Não repita nem amplie os avisos do sistema");
+    const { ai, of } = fakeAi();
+    await writeGuide(ai, anchoredInCrimson(), GAME, "live");
+    const crimson = of("guide-write-chapter").find((c) => c.user.includes('<passo key="crimson-forest-1">'))!;
+    expect(crimson.user).toContain("não os repita nem os amplie");
+    expect(crimson.user).toContain(
+      'No passo crimson-forest-1: "Perdível: as fontes ligam **The End** e a conquista oculta ||Hidden Path|| a esta região; fique atento a partir daqui."',
+    );
+    const weeping = of("guide-write-chapter").find((c) => c.user.includes('<passo key="weeping-creek-1">'))!;
+    expect(weeping.user).toContain("não os repita nem os amplie");
+    expect(weeping.user).not.toContain("No passo crimson-forest-1");
   });
 });

@@ -61,6 +61,7 @@ O botão "Spoilers" do guia começa desligado. O que você marca como spoiler fi
 ## 8. Perdíveis e o que dá para pegar depois
 
 - O **aviso de perdível vem sempre antes do ponto de não retorno**, nunca depois. Ponha o aviso (bloco `aviso`) no passo em que o jogador ainda pode pegar o item, **antes** do texto que o leva adiante (antes do chefe, da porta que fecha, do capítulo seguinte). Diga o que se perde e a partir de quando: "Perdível: pegue a lanterna agora. Depois do chefe da Crimson Forest ela some."
+- **Os avisos do sistema já estão no lugar.** O sistema põe sozinho o aviso de cada perdível de um passo que o seu texto não avisar e, no primeiro passo do capítulo, o aviso das conquistas perdíveis que as fontes ligam a ele (`comecar_em`). Não repita nem amplie os avisos do sistema: nada de "começam nesta região", "também começa aqui" ou um prazo que o dossiê não dá. Seu aviso diz só o que o dossiê traz sobre aquele passo.
 - Quando o dossiê diz que o item volta depois (`volta_depois="sim"`), diga **"dá para voltar depois"** e, se o dossiê disser, como (seleção de capítulo, pós-jogo).
 - No fim de cada capítulo, o campo `depois` resume o que ficou para trás e dá para pegar depois. Se nada ficou para trás, `null`.
 - No "Leia antes", os pontos de não retorno do jogo inteiro aparecem primeiro, como `aviso`.

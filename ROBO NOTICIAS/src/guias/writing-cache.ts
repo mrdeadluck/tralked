@@ -20,7 +20,17 @@ export type CachedWriting = { payload: GuidePayloadV2; internalErrors: string[];
  * Bump this number whenever the writer (frameMessage, jobMessage, assemble), the checker (its prompts), the
  * skeleton or the guide contract change: a writing cached by older code must not be reused.
  */
-export const WRITER_CACHE_VERSION = 4;
+export const WRITER_CACHE_VERSION = 5;
+
+/**
+ * Task 21: the writer versions before drafts kept their base key (`writingBaseKey`), with the sha256 of the style
+ * manual (guia-estilo.md) they read, as checked out on Windows (CRLF, where the probe of 2026-11-03 ran) and as the
+ * repository stores it (LF). Their drafts are found by the key they were saved under (`earlierDraftKeys`).
+ */
+const EARLIER_WRITERS = [
+  { version: 4, styleSha: "9370203988e171c3c078769785708c0614a01a7358a59b43e6901af10d259bd4" },
+  { version: 4, styleSha: "31ede8b4f00a4cbb5b4c963ad897211fa7cdc2f0c7ac181b853442ec322ed058" },
+];
 
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 
@@ -43,13 +53,10 @@ function stableInput(dossier: GuideDossier, game: GuideDossierSource["game"]) {
   };
 }
 
-export function writingKey(input: {
-  dossier: GuideDossier;
-  scope?: PsnWriteScope;
-  game: GuideDossierSource["game"];
-  models: GuideModels;
-  version?: number;
-}): string {
+type WritingInputs = { dossier: GuideDossier; scope?: PsnWriteScope; game: GuideDossierSource["game"]; models: GuideModels };
+
+/** What the writing is written from: the stable dossier, the scope, the skeleton's shape and the game (JSON). */
+function inputsOf(input: WritingInputs): string {
   const { dossier, game } = stableInput(input.dossier, input.game);
   // The skeleton's shape (its keys); what each item says is in the dossier already.
   const skel = buildSkeleton(input.dossier);
@@ -58,9 +65,32 @@ export function writingKey(input: {
     chapters: skel.chapters.map((c) => ({ key: c.key, steps: c.steps.map((s) => ({ key: s.key, items: s.items.map((i) => i.key) })) })),
     loose: skel.loose.map((l) => l.key),
   };
-  const content = JSON.stringify({ dossier, scope: input.scope ?? null, skeleton, game });
-  const parts = [`v${input.version ?? WRITER_CACHE_VERSION}`, sha(content), sha(loadGuideStyle()), input.models.MODEL_WRITER, input.models.MODEL_FAST];
+  return JSON.stringify({ dossier, scope: input.scope ?? null, skeleton, game });
+}
+
+/** `styleSha`: the manual's hash (the current one by default; an earlier writer's to find its drafts). */
+export function writingKey(input: WritingInputs & { version?: number; styleSha?: string }): string {
+  const parts = [
+    `v${input.version ?? WRITER_CACHE_VERSION}`,
+    sha(inputsOf(input)),
+    input.styleSha ?? sha(loadGuideStyle()),
+    input.models.MODEL_WRITER,
+    input.models.MODEL_FAST,
+  ];
   return `escrita:${sha(parts.join("|"))}`;
+}
+
+/**
+ * Task 21: the same inputs without the writer's version and manual. A draft keeps it: after a version bump (or a new
+ * manual), the texts its checker accepted are still a starting point (drafts.ts `carriedDraft`).
+ */
+export function writingBaseKey(input: WritingInputs): string {
+  return `base:${sha([sha(inputsOf(input)), input.models.MODEL_WRITER, input.models.MODEL_FAST].join("|"))}`;
+}
+
+/** The keys the earlier writers (`EARLIER_WRITERS`) gave these inputs: their drafts have no base key. */
+export function earlierDraftKeys(input: WritingInputs): string[] {
+  return EARLIER_WRITERS.map((w) => writingKey({ ...input, version: w.version, styleSha: w.styleSha }));
 }
 
 export function saveWriting(db: GuideDb, key: string, written: { payload: GuidePayloadV2; internalErrors?: string[] }, at: Date): void {
