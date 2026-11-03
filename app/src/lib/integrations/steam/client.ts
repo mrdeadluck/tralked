@@ -182,9 +182,10 @@ export function createSteamClient({
       return parseAppList(data);
     },
 
-    async getSchemaForGame(appId) {
+    async getSchemaForGame(appId, lang = "english") {
       const data = await getJson<SchemaResponse>("/ISteamUserStats/GetSchemaForGame/v2/", {
         appid: appId,
+        l: lang,
       });
       return (data.game?.availableGameStats?.achievements ?? []).map((a) => ({
         apiName: a.name,

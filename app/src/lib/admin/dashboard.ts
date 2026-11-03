@@ -5,6 +5,8 @@ export type AdminQueues = {
   articlesInReview: number;
   botArticlesInReview: number;
   guidesInReview: number;
+  /** Guide requests the robot has not finished (queued, working, waiting for sources). */
+  guideRequestsOpen: number;
   openReports: number;
   /** Players with suspicious unlocks nobody decided on yet. */
   fraudUsers: number;
@@ -16,11 +18,12 @@ export type AdminQueues = {
 const DAY_MS = 86_400_000;
 
 export async function adminQueues(now: Date = new Date()): Promise<AdminQueues> {
-  const [articlesInReview, botArticlesInReview, guidesInReview, openReports, fraud, activeKeys, rejectedLastDay, drafts] =
+  const [articlesInReview, botArticlesInReview, guidesInReview, guideRequestsOpen, openReports, fraud, activeKeys, rejectedLastDay, drafts] =
     await Promise.all([
       prisma.article.count({ where: { status: "review" } }),
       prisma.article.count({ where: { status: "review", source: "bot" } }),
       prisma.guide.count({ where: { status: "review" } }),
+      prisma.guideRequest.count({ where: { status: { in: ["queued", "researching", "writing", "waiting_sources"] } } }),
       prisma.report.count({ where: { status: "open" } }),
       prisma.userAchievement.findMany({
         where: { suspicious: true, fraudReview: null },
@@ -35,6 +38,7 @@ export async function adminQueues(now: Date = new Date()): Promise<AdminQueues> 
     articlesInReview,
     botArticlesInReview,
     guidesInReview,
+    guideRequestsOpen,
     openReports,
     fraudUsers: fraud.length,
     activeKeys,

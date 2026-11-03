@@ -5,6 +5,12 @@ import player from "./__fixtures__/player.json";
 import wishlist from "./__fixtures__/wishlist.json";
 import type { SteamApi } from "./types";
 
+/** PT-BR names the offline schema answers for `l=brazilian` (the rest keeps the English name). */
+const PT_NAMES: Record<string, string> = {
+  FALSEHOOD: "Falsidade",
+  TEST_OF_RESOLVE: "Prova de Determinação",
+};
+
 const fromUnix = (seconds: number | undefined) => (seconds ? new Date(seconds * 1000) : null);
 
 /**
@@ -90,8 +96,12 @@ export function createSteamFixture(): SteamApi {
       };
     },
 
-    async getSchemaForGame(appId) {
-      return hasData(appId) ? hollowKnight.schema.map((a) => ({ ...a })) : [];
+    async getSchemaForGame(appId, lang = "english") {
+      if (!hasData(appId)) return [];
+      return hollowKnight.schema.map((a) => ({
+        ...a,
+        ...(lang === "brazilian" && { name: PT_NAMES[a.apiName] ?? a.name }),
+      }));
     },
 
     async getGlobalAchievementPercentages(appId) {
