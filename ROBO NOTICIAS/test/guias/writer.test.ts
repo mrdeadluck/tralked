@@ -1404,3 +1404,58 @@ describe("Task 23: a checagem de cópia de um rascunho retomado é refeita com a
     expect(rewrite.user).toContain("Trecho copiado de uma fonte");
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Task 25 (R39): a "collect N" accepted short by less than one unit carries an honest note and goes to review
+// ---------------------------------------------------------------------------------------------
+
+describe("R39: contagem incompleta aceita", () => {
+  const NOTE = "**The End** — As fontes localizam 38 de 40 Sha-Chi Amber Shards; 2 ainda não foram mapeados.";
+  /** ACH_ENDING (loose, two sources) as a "collect 10" the sources locate 38 of 40 shards for. */
+  const nearComplete = (located = 38) => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_ENDING")!, {
+      collect: {
+        target: 10,
+        counted: located / 4,
+        from: "texto",
+        exact: false,
+        conflictingTotals: [],
+        withoutLocation: [],
+        indexProblems: [],
+        shortfallAccepted: { located, stated: 40, missing: 40 - located, label: "Sha-Chi Amber Shards", source: "PowerPyx" },
+      },
+    });
+    return dossier;
+  };
+  const stepOf = (p: GuidePayloadV2, apiName: string) =>
+    p.walkthrough.chapters.flatMap((c) => c.steps).find((s) => s.items.some((i) => i.achievement === apiName))!;
+
+  it("a conquista sai com review true e o passo dela leva a nota do código (callout info) com os números do dossiê", async () => {
+    const payload = await writeGuide(fakeAi().ai, nearComplete(), GAME, "live");
+    const step = stepOf(payload, "ACH_ENDING");
+    expect(step.items.find((i) => i.achievement === "ACH_ENDING")!.review).toBe(true);
+    expect(step.body.filter((b) => b.type === "callout" && b.tone === "info").map((b) => (b as { text: string }).text)).toContain(NOTE);
+    expect(walkthroughSchema.safeParse(payload.walkthrough).success).toBe(true);
+    // Without the acceptance, no note.
+    const plain = await writeGuide(fakeAi().ai, makeDossier(), GAME, "live");
+    expect(JSON.stringify(plain)).not.toContain("ainda não foram mapeados");
+  });
+
+  it("um só faltando: 'ainda não foi mapeado'", async () => {
+    const payload = await writeGuide(fakeAi().ai, nearComplete(39), GAME, "live");
+    expect(JSON.stringify(stepOf(payload, "ACH_ENDING").body)).toContain("As fontes localizam 39 de 40 Sha-Chi Amber Shards; 1 ainda não foi mapeado.");
+  });
+
+  it("o escritor vê a contagem; o checador recebe a nota à parte, como texto do código, e não a julga", async () => {
+    const { ai, calls, of } = fakeAi();
+    await writeAndCheckGuide(ai, nearComplete(), GAME, "live");
+    const step = calls.find((c) => c.purpose === "guide-check" && c.user.includes("ainda não foram mapeados"))!;
+    expect(section(step.user, "guia")).not.toContain("ainda não foram mapeados");
+    const warnings = JSON.parse(section(step.user, "avisos_do_codigo"));
+    expect(warnings.avisos).toEqual([
+      expect.objectContaining({ texto: NOTE, base: [expect.objectContaining({ apiName: "ACH_ENDING", localizados: 38, declarados: 40, faltam: 2 })] }),
+    ]);
+    expect(of("guide-write-chapter").some((c) => c.user.includes('contagem_incompleta="as fontes localizam 38 de 40 Sha-Chi Amber Shards; 2 sem mapa"'))).toBe(true);
+  });
+});

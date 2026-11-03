@@ -38,6 +38,16 @@ describe("createWebSearch", () => {
     expect(recordSpend).toHaveBeenCalledWith(expect.closeTo(0.013, 6), expect.stringContaining("websearch"));
   });
 
+  it("Task 25: com MODEL_EXTRACT=Opus 5.5 a busca segue no mesmo tool (web_search_20260209 aceita Opus 5.5) e no preço do Opus", async () => {
+    const create = vi.fn(async (_req: unknown) => ({ content, usage: { input_tokens: 1000, output_tokens: 100, server_tool_use: { web_search_requests: 1 } } }));
+    const recordSpend = vi.fn();
+    const ws = createWebSearch({ client: { messages: { create } } as never, model: "claude-opus-5-5", recordSpend });
+    expect(await ws.search("phantom blade zero trophies")).toHaveLength(2);
+    expect(create.mock.calls[0]![0]).toMatchObject({ model: "claude-opus-5-5", tools: [{ type: "web_search_20260209", name: "web_search" }] });
+    // 1000*4/1e6 + 100*20/1e6 + 0.01
+    expect(recordSpend).toHaveBeenCalledWith(expect.closeTo(0.016, 6), expect.stringContaining("websearch"));
+  });
+
   it("continues a pause_turn and records each paid turn as it happens", async () => {
     const create = vi
       .fn()

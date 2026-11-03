@@ -13,7 +13,7 @@ import {
   singularPhrase,
   type FragmentRule,
 } from "./crossref.js";
-import { COMPLETE_SHARE, labelNamesType } from "./completeness.js";
+import { COMPLETE_SHARE, labelNamesType, totalKind, type StatedTotal } from "./completeness.js";
 import type { ExtractedFacts } from "./facts.js";
 import { computeCompat, matchAchievements, normalizeName, similarity, steamApiNameFor, type SteamEntry } from "./match.js";
 import type { SourceRole } from "./sources.js";
@@ -190,6 +190,12 @@ export type DossierAchievement = {
      * parts of that thing ("Sha-Chi Amber Fragment") left out because no source says how many make one.
      */
     byType?: { type: string; ambiguous: boolean; unconverted: number };
+    /**
+     * R39: still short after the re-reads, by less than one whole unit, and a source states a game total of the thing
+     * (or of its parts) that reaches N: the gate lets it pass, the guide says how many the sources locate (a code note)
+     * and the achievement goes to review. Numbers in the stated total's own unit (shards when it counts shards).
+     */
+    shortfallAccepted?: { located: number; stated: number; missing: number; label: string; source: string };
   };
   /** Sources contradict each other on missable / until. Task 8 maps it to `review = true`. */
   conflict?: string;
@@ -646,6 +652,8 @@ export function buildDossier(
   unreadSources: GuideDossier["unreadSources"] = [],
   aliases: AchievementAliases = {},
   sequence: Record<string, number> = {},
+  /** url -> the game's totals the page states (`statedGameTotals`): R39. */
+  statedTotals: Record<string, StatedTotal[]> = {},
 ): GuideDossier {
   // `?all=1` returns the rows of every platform; the master list is the Steam ones only.
   const steamList = fullList.filter((s) => s.platform === "steam");
@@ -1138,6 +1146,10 @@ export function buildDossier(
   // achievement's how-tos, else a rule of any source), and not at all without one. When a source says one thing has
   // a varying number of parts ("each has 2-6 petals"), every item may be a part: it counts 1/most, for review.
   const allItems = chapters.flatMap((c) => c.items);
+  /** Parts per unit of a "collect N <things>": its own texts' rule, else a rule of any source for that word. */
+  const perUnitOf = (s: SteamAchievement, unit: string) =>
+    [s.description, s.descriptionPt, ...(accs.get(s.apiName)?.howTos ?? [])].map(partsPerUnit).find((n) => n !== undefined) ??
+    fragmentRules.find((r) => similarity(r.unit, unit.split(" ").at(-1)!) >= 0.75)?.perUnit;
   const linkedWeight = new Map<string, Map<DossierItem, number>>();
   const byTypeOf = new Map<string, NonNullable<NonNullable<DossierAchievement["collect"]>["byType"]>>();
   for (const s of steamList) {
@@ -1148,9 +1160,7 @@ export function buildDossier(
     const unit = singularName(goal.noun);
     const unitWords = unit.split(" ");
     const texts = [s.description, s.descriptionPt, ...(accs.get(s.apiName)?.howTos ?? [])];
-    const lastWord = unitWords.at(-1)!;
-    const perUnit =
-      texts.map(partsPerUnit).find((n) => n !== undefined) ?? fragmentRules.find((r) => similarity(r.unit, lastWord) >= 0.75)?.perUnit;
+    const perUnit = perUnitOf(s, unit);
     const maxParts = texts.map(maxPartsPerUnit).find((n) => n !== undefined);
     const weights = new Map<DossierItem, number>();
     let unconverted = 0;
@@ -1292,6 +1302,36 @@ export function buildDossier(
       conflict: a && a.conflicts.length > 0 ? a.conflicts.join('; ') : undefined,
     };
   });
+  // R39: a count short by less than one whole unit passes when a source states a game total that reaches N.
+  const sourceOfUrl = new Map(facts.map((f) => [f.source.url, nameOf(f)] as const));
+  for (const a of achievements) {
+    const c = a.collect;
+    const noun = goals.get(a.apiName)?.noun;
+    if (!c || !noun || !(c.counted < c.target - 1e-6 && c.target - c.counted < 1 - 1e-6)) continue;
+    const steam = steamList.find((x) => x.apiName === a.apiName)!;
+    const perUnit = perUnitOf(steam, singularName(noun));
+    for (const [url, totals] of Object.entries(statedTotals)) {
+      const source = sourceOfUrl.get(url);
+      if (!source) continue;
+      const found = totals.flatMap((t) => {
+        const kind = totalKind(t.label, noun);
+        if (kind === "whole") return [{ t, units: t.total, located: c.counted }];
+        // Parts: only with a rule saying how many make one (the numbers are the parts': "38 de 40 shards").
+        if (kind === "part" && perUnit !== undefined) return [{ t, units: t.total / perUnit, located: Math.round(c.counted * perUnit * 1000) / 1000 }];
+        return [];
+      }).find((x) => x.units >= c.target - 1e-6 && x.located < x.t.total);
+      if (!found) continue;
+      const missing = Math.round((found.t.total - found.located) * 1000) / 1000;
+      c.shortfallAccepted = { located: found.located, stated: found.t.total, missing, label: found.t.label, source };
+      divergences.push(
+        `"${a.nameEn}" (${a.apiName}): contagem incompleta aceita (R39) — pede ${c.target} e os itens somam ${c.counted}; ` +
+          `as fontes localizam ${found.located} de ${found.t.total} ${found.t.label} (total declarado por ${source}); ` +
+          `${missing} sem mapa. O guia avisa e a conquista vai para revisão.`,
+      );
+      break;
+    }
+  }
+
   for (const a of achievements) {
     const ownAt = chapters.findIndex((c) => c.items.some((i) => i.achievement === a.apiName));
     const deadline = chapterForMilestone(a.missableUntil, chapters, Math.max(0, ownAt));

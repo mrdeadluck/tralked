@@ -152,3 +152,60 @@ describe("alerta guia-falha-robo por e-mail", () => {
     expect(db.alerts()[0]!.emailed).toBe(1);
   });
 });
+
+describe("Task 25: o ensaio mostra modelos e esforços, o custo da extração por esforço e o que passaria pela R39", () => {
+  const STEAM25: SteamAchievement[] = [
+    { platform: "steam", apiName: "ACH_043", name: "Complete Mastery", description: "Collect 10 Sha-Chi Ambers", globalPct: 10, hidden: false, namePt: null, descriptionPt: null },
+  ];
+  const SOURCE = { name: "PowerPyx", url: "https://www.powerpyx.com/pbz-collectibles/", role: "roteiro_psn" as const, language: "en" };
+  const TEXT = "Phantom Blade Zero contains 80 Collectibles Locations (40 Sha-Chi Amber Shards, 40 Blackstone Shards).\n" + "x".repeat(20_000);
+  const facts: ExtractedFacts = {
+    source: SOURCE,
+    chapters: [
+      {
+        title: "First Visit",
+        region: "Weeping Creek Valley",
+        order: 1,
+        items: Array.from({ length: 38 }, (_, i) => ({
+          kind: "collectible", name: "Sha-Chi Amber Shard", collectibleType: "Sha-Chi Amber Shard", location: `Ponto ${i + 1}`, missable: false, returnLater: false, countsForEn: [],
+        })),
+      },
+    ],
+    achievements: [{ nameEn: "Complete Mastery", howTo: "Collect 10 Sha-Chi Ambers; 4 shards combine into a whole Amber.", missable: false, bugged: false, online: false }],
+    platform: "psn",
+    complete: true,
+  };
+  function db25(cachedWith: string) {
+    const db = openGuideDb(":memory:");
+    db.savePage({ url: SOURCE.url, fetchedAt: new Date("2026-11-03T07:00:00Z"), status: "ok", finalUrl: SOURCE.url, text: TEXT, html: "<html></html>", textVersion: PAGE_TEXT_VERSION });
+    db.setMeta(extractionKey(cachedWith, SOURCE, TEXT), JSON.stringify(facts));
+    saveRunContext(db, { requestId: "req-25", steamAppId: 4115450, gameSlug: GAME.slug, game: GAME, steamList: STEAM25, sources: [SOURCE], savedAt: "2026-11-03T07:00:00.000Z" });
+    return db;
+  }
+  const run = async (config: Record<string, string>, cachedWith = "claude-sonnet-5-5") => {
+    const lines: string[] = [];
+    await dryRun({ db: db25(cachedWith), config: { ...CONFIG, ...config } as never, requestId: "req-25", log: (l) => lines.push(l) });
+    return lines.join("\n");
+  };
+
+  it("modelos e esforços por etapa; a contagem quase completa com o total declarado passa pela R39", async () => {
+    const out = await run({ MODEL_EXTRACT: "claude-opus-5-5", MODEL_CHECK: "claude-opus-5-5", EXTRACT_EFFORT: "high" });
+    expect(out).toContain(
+      "modelos: extração claude-opus-5-5 (esforço high), busca na web claude-opus-5-5, escrita claude-opus-5-5 (esforço high), " +
+        "checagem claude-opus-5-5 (esforço high), imagens claude-haiku-5-5",
+    );
+    // The cache holds the Sonnet reading: the Opus run extracts again, priced with Opus at high.
+    expect(out).toMatch(/extração a refazer na execução real: 1 página\(s\), ~\d+ KiB de texto, ~US\$ \d+\.\d\d \(claude-opus-5-5, esforço high\)/);
+    expect(out).toContain("gate steam: passa");
+    expect(out).toContain(
+      'R39: "Complete Mastery" (ACH_043) passa com a contagem incompleta: as fontes localizam 38 de 40 Sha-Chi Amber Shards (PowerPyx); 2 sem mapa → nota no guia e revisão',
+    );
+  });
+
+  it("mais esforço, extração mais cara na estimativa", async () => {
+    const usdOf = (out: string) => Number(/extração a refazer na execução real: .*?~US\$ (\d+\.\d\d)/.exec(out)![1]);
+    const medium = usdOf(await run({ MODEL_EXTRACT: "claude-opus-5-5" }));
+    const high = usdOf(await run({ MODEL_EXTRACT: "claude-opus-5-5", EXTRACT_EFFORT: "high" }));
+    expect(high).toBeGreaterThan(medium);
+  });
+});

@@ -58,6 +58,41 @@ const names = (label: string, text: string) => {
 /** Whether a collectible type ("Sha-Chi Amber Fragment") is one of a summary label's ("Sha-Chi Amber Shards"). */
 export const labelNamesType = (label: string, type: string) => names(label, type);
 
+/** A total of one kind of thing a page states for the whole game ("40 Sha-Chi Amber Shards"). */
+export type StatedTotal = { label: string; total: number };
+/** "contains 564 Collectibles Locations (161 Bells, …, 40 Sha-Chi Amber Shards, …)": the list in the parentheses. */
+const GAME_TOTALS = /\b\d{1,5}\s+collectibles?\s+locations?\s*\(([^()]{3,1000})\)/gi;
+const TOTAL_ENTRY = /^(\d{1,5})\s+(\S.*?)\.?$/;
+
+/**
+ * R39: the game's totals per kind of thing, as a page states them in the parentheses after its count of collectible
+ * locations (PowerPyx's Collectibles page). A region page ("contains 83 Collectible Locations." with no list) states
+ * none: its per-type lines are the region's, never the game's.
+ */
+export function statedGameTotals(text: string): StatedTotal[] {
+  const out: StatedTotal[] = [];
+  for (const m of text.matchAll(GAME_TOTALS)) {
+    for (const entry of m[1]!.split(/\s*,\s*|\s+and\s+/i)) {
+      const t = TOTAL_ENTRY.exec(entry.trim());
+      if (t && Number(t[1]) > 0) out.push({ label: t[2]!.trim(), total: Number(t[1]) });
+    }
+  }
+  return out;
+}
+
+/**
+ * How a stated total's label relates to the thing a "collect N" names: "whole" ("Sha-Chi Ambers" for "Sha-Chi
+ * Ambers"), "part" ("Sha-Chi Amber Shards": parts of it), or undefined (something else). A label that joins two
+ * things ("80 Accessories & Medicine") counts more than the one thing: never a total of it.
+ */
+export function totalKind(label: string, noun: string): "whole" | "part" | undefined {
+  const parts = labelParts(label);
+  if (parts.length !== 1) return undefined;
+  const isPart = parts[0]!.includes("fragment");
+  if (isPart) return names(label, `${noun} fragment`) ? "part" : undefined;
+  return names(label, noun) ? "whole" : undefined;
+}
+
 /** The things the numbered entries name: "#30 & #31 – Memory Flower / Sha-Chi Amber Fragment" is two. */
 const thingsIn = (text: string) => entriesIn(text).flatMap((e) => e.name.split(/\s+\/\s+/).map((t) => t.trim()).filter(Boolean));
 /** A thing's own name, without its type label and warnings ("Calming Gourd (Accessory) – MISSABLE" -> "calming gourd"). */

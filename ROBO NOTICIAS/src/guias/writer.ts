@@ -28,6 +28,9 @@ export { copiedRuns } from "./copy-check.js";
  * (`scope`, `psnList`, `steamOnly`); the Steam-only achievements get no item and no how-to.
  */
 
+/** The writer's effort (its model is MODEL_WRITER). */
+export const WRITER_EFFORT = "high" as const;
+
 /** The writer's model, and the checker's model and effort (Task 22). */
 export type GuideModels = Pick<GuideConfig, "MODEL_WRITER" | "MODEL_CHECK" | "CHECK_EFFORT">;
 export const DEFAULT_GUIDE_MODELS: GuideModels = { MODEL_WRITER: "claude-opus-5-5", MODEL_CHECK: DEFAULT_MODEL_CHECK, CHECK_EFFORT: DEFAULT_CHECK_EFFORT };
@@ -235,6 +238,26 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
 
 const missableAttr = (missable: boolean, until?: string) => `perdivel="${missable ? `sim${until ? `, até ${attr(until)}` : ""}` : "não"}"`;
 
+/** A number as the guide prints it (pt-BR decimal comma). */
+const numPt = (n: number) => String(n).replace(".", ",");
+
+/** R39: "as fontes localizam 38 de 40 Sha-Chi Amber Shards; 2 sem mapa", the dossier's numbers only. */
+const countFacts = (c: NonNullable<NonNullable<DossierAchievement["collect"]>["shortfallAccepted"]>) =>
+  `as fontes localizam ${numPt(c.located)} de ${numPt(c.stated)} ${c.label}; ${numPt(c.missing)} sem mapa`;
+
+/**
+ * R39: the code's note on a "collect N" the gate accepted short by less than one unit: how many the sources locate,
+ * of the total a source states, and how many are not mapped yet. Named (a step may hold several items).
+ */
+export function countNote(a: DossierAchievement): string | undefined {
+  const c = a.collect?.shortfallAccepted;
+  if (!c) return undefined;
+  const name = plain(achName(a), 80);
+  const shown = a.hidden ? `||${name}||` : `**${name}**`;
+  const rest = c.missing === 1 ? "ainda não foi mapeado" : "ainda não foram mapeados";
+  return inline(`${shown} — As fontes localizam ${numPt(c.located)} de ${numPt(c.stated)} ${c.label}; ${numPt(c.missing)} ${rest}.`, 2000);
+}
+
 /** An achievement with everything the writer needs to explain it (howTo included). */
 function achievementLine(a: DossierAchievement, key?: string, tag = "conquista"): string {
   const attrs = [
@@ -248,6 +271,8 @@ function achievementLine(a: DossierAchievement, key?: string, tag = "conquista")
     missableAttr(a.missable, a.missableUntil),
     a.bugged ? `bug="${attr(a.bugNote ?? "sim")}"` : "",
     a.online ? 'online="sim"' : "",
+    // R39: the writer knows the count is incomplete (the code's note says it in the step); never "todos os N".
+    a.collect?.shortfallAccepted ? `contagem_incompleta="${attr(countFacts(a.collect.shortfallAccepted))}"` : "",
     `fontes="${a.sources.length}${!a.agreed || a.conflict ? " (revisar)" : ""}"`,
   ].filter(Boolean);
   return `<${tag} ${attrs.join(" ")}>${body(a.howTo ?? "")}</${tag}>`;
@@ -560,7 +585,7 @@ async function draft(
       bucket: ctx.bucket,
       purpose: retry ? `${purpose}-retry` : purpose,
       model: ctx.models.MODEL_WRITER,
-      effort: "high",
+      effort: WRITER_EFFORT,
       system: loadGuideStyle(),
       user: fixes.length > 0 ? `${user}
 
@@ -795,10 +820,11 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       alsoOn: a && compatSteamOnly && !a.steamOnly ? ["psn"] : [],
       sources: sources.length > 0 ? sources : fallbackSources(),
       // R20: a deadline the code assumed (its own chapter) is reviewed too, and so are a revisit placed by the code,
-      // a number the code gave (R28) and a "collect N" link by a type that only loosely is the thing (Task 18).
+      // a number the code gave (R28), a "collect N" link by a type that only loosely is the thing (Task 18) and a
+      // "collect N" the gate accepted short (R39).
       review: Boolean(
         (i && (!i.agreed || i.conflict || i.deadlineAssumed || i.orderAssumed || i.numberAssumed || i.countedByType === "ambiguous")) ||
-          (a && (!a.agreed || a.conflict || a.deadlineAssumed || a.collect?.byType)) ||
+          (a && (!a.agreed || a.conflict || a.deadlineAssumed || a.collect?.byType || a.collect?.shortfallAccepted)) ||
           sources.length === 0,
       ),
     };
@@ -834,9 +860,16 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       const walkItems = items.map((item) => buildItem(item, s.key));
       const anchor = n === 0 && anchored.length > 0;
       const anchorText = anchor ? anchorWarning(anchored) : undefined;
-      // Room for the code's missable warnings and "later" note within the site's 20 blocks. A writer's block that only
-      // repeats a code warning (the job message shows the anchor's text) is dropped: the warning is not shown twice.
-      let blocks = (stepBlocks.get(s.key) ?? []).filter((b) => !sameText(b, anchorText)).slice(0, anchor ? 17 : 18);
+      // R39: the code's note on each "collect N" of the step accepted short.
+      const counts = items.flatMap((x) => {
+        const text = x.ach ? countNote(x.ach) : undefined;
+        return text ? [{ a: x.ach!, text }] : [];
+      });
+      // Room for the code's missable warnings, count notes and "later" note within the site's 20 blocks. A writer's
+      // block that only repeats a code text (the job message shows the anchor's text) is dropped: never shown twice.
+      let blocks = (stepBlocks.get(s.key) ?? [])
+        .filter((b) => !sameText(b, anchorText) && !counts.some((c) => sameText(b, c.text)))
+        .slice(0, Math.max(1, (anchor ? 17 : 18) - counts.length));
       if (blocks.length === 0) {
         repairs.push({ scope: scopeOfStep(s.key), text: `O passo ${s.key} do capítulo "${c.title}" ficou sem texto; escreva o caminho deste passo.` });
         blocks = [{ type: "paragraph", text: walkItems.length > 0 ? `Neste ponto: ${walkItems.map((i) => i.name).join(", ")}.` : "Siga em frente pela história." }];
@@ -863,6 +896,15 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
         const text = anchorText;
         blocks = [{ type: "callout", tone: "aviso", text }, ...blocks];
         codeWarnings.push({ step: s.key, text, base: anchored.map(anchorWarningBase) });
+      }
+      for (const { a, text } of counts) {
+        blocks = [...blocks, { type: "callout", tone: "info", text }];
+        const sa = a.collect!.shortfallAccepted!;
+        codeWarnings.push({
+          step: s.key,
+          text,
+          base: [{ apiName: a.apiName, nome: achName(a), pede: a.collect!.target, localizados: sa.located, declarados: sa.stated, faltam: sa.missing, tipo: sa.label, fonte: sa.source }],
+        });
       }
       if (n === steps.length - 1 && laterNote.has(c.key)) {
         const text = inline(laterNote.get(c.key), 2000);

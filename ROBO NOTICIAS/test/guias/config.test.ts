@@ -13,6 +13,7 @@ describe("loadGuideConfig", () => {
       MODEL_FAST: "claude-haiku-5-5",
       MODEL_CHECK: "claude-sonnet-5-5",
       CHECK_EFFORT: "high",
+      EXTRACT_EFFORT: "medium",
       GUIDE_BUDGET_USD: 25,
       DATA_DIR_GUIAS: "./data-guias",
       GUIDE_STEAM_REFERENCE_ID: "76561198012210783",
@@ -43,6 +44,10 @@ describe("loadGuideConfig", () => {
     expect(loadGuideConfig({ ...ENV, CHECK_EFFORT: "max" }).CHECK_EFFORT).toBe("max");
     expect(loadGuideConfig({ ...ENV, CHECK_EFFORT: "" }).CHECK_EFFORT).toBe("high");
     expect(() => loadGuideConfig({ ...ENV, CHECK_EFFORT: "turbo" })).toThrow(/CHECK_EFFORT/);
+    // Task 25: Opus may read (extraction) and check; the extraction's effort is its own setting.
+    expect(loadGuideConfig({ ...ENV, MODEL_EXTRACT: "claude-opus-5-5", EXTRACT_EFFORT: "high" })).toMatchObject({ MODEL_EXTRACT: "claude-opus-5-5", EXTRACT_EFFORT: "high" });
+    expect(loadGuideConfig({ ...ENV, EXTRACT_EFFORT: "" }).EXTRACT_EFFORT).toBe("medium");
+    expect(() => loadGuideConfig({ ...ENV, EXTRACT_EFFORT: "turbo" })).toThrow(/EXTRACT_EFFORT/);
   });
 
   it("o ensaio não precisa das chaves", () => {

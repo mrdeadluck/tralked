@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
-import { BudgetExceededError, createAi, type Ai } from "../ai/client.js";
+import { BudgetExceededError, createAi, type Ai, type Effort } from "../ai/client.js";
 import { TralkedError } from "../tralked-http.js";
 import type { GuideApi, GuideRequest, GuideRequestReport } from "./api.js";
 import { statedSequence } from "./chapter-order.js";
-import type { GuideConfig } from "./config.js";
+import { statedGameTotals, type StatedTotal } from "./completeness.js";
+import { DEFAULT_EXTRACT_EFFORT, type GuideConfig } from "./config.js";
 import type { GuidePayloadV2, GuideScope } from "./contract.js";
 import { independentGroups } from "./crossref.js";
 import type { GuideDb } from "./db.js";
@@ -85,7 +86,7 @@ export type GuidePipelineDeps = {
   /** Anthropic client: the AI calls go through `createAi` with the request's spend cap. */
   client: Anthropic;
   config: Pick<GuideConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "MODEL_CHECK" | "CHECK_EFFORT" | "GUIDE_BUDGET_USD"> &
-    Partial<Pick<GuideConfig, "GUIDE_STEAM_REFERENCE_ID" | "GUIDE_SOFT_DEADLINE_MIN" | "GUIDE_FORCE_DISCOVERY">>;
+    Partial<Pick<GuideConfig, "EXTRACT_EFFORT" | "GUIDE_STEAM_REFERENCE_ID" | "GUIDE_SOFT_DEADLINE_MIN" | "GUIDE_FORCE_DISCOVERY">>;
   /** `politeFetch` bound to the GuideDb (robots.txt, host intervals, challenge pages as unread). */
   fetchPage: FetchPage;
   /** Bytes of an image, or null when it cannot be read. */
@@ -455,7 +456,7 @@ async function processRequest(run: Run): Promise<Final> {
   // primary's pages in the order they state ("is the 2nd region").
   const aliases = await localizedNames(run, read, source.achievements);
   const groups = independentGroups(read.map((r) => ({ url: r.source.url, text: r.text })));
-  const dossier = buildDossier(source.achievements, facts, groups, unread, aliases, pageSequence(read));
+  const dossier = buildDossier(source.achievements, facts, groups, unread, aliases, pageSequence(read), pageTotals(read));
   progress.dossier = dossier;
   db.saveDossier(request.id, dossier, deps.now());
 
@@ -593,7 +594,10 @@ async function processRequest(run: Run): Promise<Final> {
   // here on the guide is always sent, without them when the soft deadline passes or the spend cap is hit.
   const bodyOf = (report: RobotReport) => {
     const { game: _game, ...rest } = payload;
-    return existing ? { ...rest, status: "review" as const, report } : { ...payload, status: "review" as const, report };
+    // Task 25: an update always says its scope: a Steam guide that replaces the PSN one has no psnList or steamOnly.
+    return existing
+      ? { ...rest, walkthrough: { ...rest.walkthrough, scope: rest.walkthrough.scope ?? ("steam" as const) }, status: "review" as const, report }
+      : { ...payload, status: "review" as const, report };
   };
   if (run.pastDeadline()) {
     progress.notes.push(`o prazo de ${run.deadlineMin} min passou depois de escrever: o guia saiu sem imagens e sem trilha sonora`);
@@ -619,10 +623,11 @@ async function processRequest(run: Run): Promise<Final> {
     const patch = toSend as Partial<GuidePayloadV2> & { report: RobotReport };
     const result = await api.patchGuide(existing.id, patch, `guia-${request.id}-t${request.attempts}-atualizar-${sha(JSON.stringify(patch)).slice(0, 16)}`);
     guideId = existing.id;
+    // A published guide answers 202: a pending version waits for an editor, and the guide on the air does not change.
     deps.log(
       result.status === "pending_review"
-        ? `guia: atualização do guia ${guideId} aguarda revisão (o guia no ar não muda até aprovar)`
-        : `guia: guia ${guideId} atualizado, em revisão`,
+        ? `guia: versão pendente criada (aguarda aprovação) para o guia ${guideId}${result.pendingId ? ` (${String(result.pendingId)})` : ""}, escopo ${patch.walkthrough?.scope ?? "steam"}; o guia no ar não muda até aprovar`
+        : `guia: guia em revisão atualizado (${guideId}, escopo ${patch.walkthrough?.scope ?? "steam"})`,
     );
   } else {
     const created = toSend as GuidePayloadV2 & { report: RobotReport };
@@ -633,6 +638,16 @@ async function processRequest(run: Run): Promise<Final> {
 
   // Step 12 (the final report) happens in runGuideRequest.
   return { status: "review", report: sentReport, guideId };
+}
+
+/** url -> the game's totals each page states ("contains 564 Collectibles Locations (… 40 Sha-Chi Amber Shards …)"): R39. */
+export function pageTotals(read: { source: SourceRef; text: string }[]): Record<string, StatedTotal[]> {
+  const out: Record<string, StatedTotal[]> = {};
+  for (const r of read) {
+    const totals = statedGameTotals(r.text);
+    if (totals.length > 0) out[r.source.url] = totals;
+  }
+  return out;
 }
 
 /** url -> the position each page states for itself in the game ("Crimson Forest is the 2nd region"). */
@@ -692,9 +707,13 @@ function unreadReason(page: Awaited<ReturnType<FetchPage>>): string {
   }
 }
 
-/** The extraction cache key: the model, the prompt, the source's role and url, and the page text. */
-export function extractionKey(model: string, source: SourceRef, text: string): string {
-  return `fatos:${sha([model, sha(extractionPrompt()), source.role, source.url, text].join("\n"))}`;
+/**
+ * The extraction cache key: the model, the prompt, the source's role and url, and the page text; Task 25: and the
+ * effort when it is not the default medium (the keys of the extractions already cached stay the same).
+ */
+export function extractionKey(model: string, source: SourceRef, text: string, effort: Effort = DEFAULT_EXTRACT_EFFORT): string {
+  const reading = effort === DEFAULT_EXTRACT_EFFORT ? model : `${model}|esforço ${effort}`;
+  return `fatos:${sha([reading, sha(extractionPrompt()), source.role, source.url, text].join("\n"))}`;
 }
 
 /** The cached facts of a page, when the cached JSON is still sound; anything else is extracted again. */
@@ -711,11 +730,12 @@ export function readCachedFacts(db: GuideDb, key: string, source: SourceRef): Ex
 
 async function extractCached(run: Run, source: SourceRef, page: { url: string; text: string; html?: string }): Promise<ExtractedFacts> {
   const { db, config } = run.deps;
-  const key = extractionKey(config.MODEL_EXTRACT, source, page.text);
+  const effort = config.EXTRACT_EFFORT ?? DEFAULT_EXTRACT_EFFORT;
+  const key = extractionKey(config.MODEL_EXTRACT, source, page.text, effort);
   const cached = readCachedFacts(db, key, source);
   if (cached) return cached;
   if (db.getMeta(key) !== undefined) run.deps.log(`guia: extração em cache de ${source.name} ilegível; extraio de novo`);
-  const facts = await run.stages.extractFacts(page, source, { ai: run.ai, model: config.MODEL_EXTRACT, bucket: "backfill" });
+  const facts = await run.stages.extractFacts(page, source, { ai: run.ai, model: config.MODEL_EXTRACT, effort, bucket: "backfill" });
   db.setMeta(key, JSON.stringify(facts));
   if (facts.shortfall) {
     run.deps.log(`guia: extração incompleta de ${source.name}: a página diz ${facts.shortfall.stated} entradas, vieram ${facts.shortfall.extracted} mesmo relendo em partes`);

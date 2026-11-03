@@ -9,6 +9,8 @@ const opt = <T extends z.ZodType>(schema: T) => z.preprocess(blankToUndefined, s
 /** Task 22: the checker's defaults (the checker and the writer's default models use these too). */
 export const DEFAULT_MODEL_CHECK = "claude-sonnet-5-5";
 export const DEFAULT_CHECK_EFFORT = "high" as const;
+/** Task 25: the extraction's default effort (the one every cached extraction was read with). */
+export const DEFAULT_EXTRACT_EFFORT = "medium" as const;
 
 const GuideConfigSchema = z.object({
   ANTHROPIC_API_KEY: opt(z.string({ error: "ANTHROPIC_API_KEY is required" }).min(1)),
@@ -16,7 +18,10 @@ const GuideConfigSchema = z.object({
   TRALKED_GUIDES_API_KEY: opt(z.string({ error: "TRALKED_GUIDES_API_KEY is required" }).min(1)),
   TRALKED_API_URL: opt(z.string().url().default("https://tralked.com")),
   MODEL_WRITER: opt(z.string().default("claude-opus-5-5")),
+  /** Extraction and web search (the server-side search tool takes Sonnet 5.5 and Opus 5.5 alike). */
   MODEL_EXTRACT: opt(z.string().default("claude-sonnet-5-5")),
+  /** Task 25: the extraction's effort: medium by default; high and above read with more thinking (64k output, streamed). */
+  EXTRACT_EFFORT: opt(z.enum(EFFORTS).default(DEFAULT_EXTRACT_EFFORT)),
   MODEL_FAST: opt(z.string().default("claude-haiku-5-5")),
   /** Task 22: the guide's fact-checker (the probe showed Haiku calling "defeito" what it described as right). */
   MODEL_CHECK: opt(z.string().default(DEFAULT_MODEL_CHECK)),

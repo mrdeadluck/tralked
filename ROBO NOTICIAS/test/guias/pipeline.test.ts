@@ -1251,3 +1251,79 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
     expect(db.raw.prepare("SELECT COUNT(*) AS n FROM meta WHERE key LIKE 'escrita:%'").get()).toMatchObject({ n: 0 });
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Task 25: Opus extraction effort, R39 in the run, the Steam update as a pending version
+// ---------------------------------------------------------------------------------------------
+
+describe("Task 25", () => {
+  const botGuide = { id: "guide-bot", source: "bot", status: "published" } as unknown as NonNullable<GameSearchHit["guide"]>;
+  const hit: GameSearchHit = { id: "game-1", slug: "phantom-test", name: "Phantom Test", steamAppId: 4115450, igdbId: null, aliases: [], guide: botGuide };
+  const update = { appId: 4115450, update: true };
+
+  it("a extração usa EXTRACT_EFFORT (padrão medium) e o esforço fora do padrão muda a chave do cache", async () => {
+    const stages = fakeStages();
+    const deps = makeDeps({ stages });
+    deps.config = { ...deps.config, MODEL_EXTRACT: "claude-opus-5-5", EXTRACT_EFFORT: "high" };
+    await runGuideRequest(deps);
+    expect(stages.calls.extractFacts![0]![2]).toMatchObject({ model: "claude-opus-5-5", effort: "high" });
+    const plain = fakeStages();
+    await runGuideRequest(makeDeps({ stages: plain }));
+    expect(plain.calls.extractFacts![0]![2]).toMatchObject({ effort: "medium" });
+    // medium keeps the keys the caches already hold; another effort is another reading.
+    expect(extractionKey("m", STEAM_GUIDE, "t", "medium")).toBe(extractionKey("m", STEAM_GUIDE, "t"));
+    expect(extractionKey("m", STEAM_GUIDE, "t", "high")).not.toBe(extractionKey("m", STEAM_GUIDE, "t"));
+  });
+
+  it("R39 no pipeline: o total declarado na página entra no dossiê e a contagem quase completa passa no gate", async () => {
+    const steam = [steamAch("ACH_043", "Complete Mastery", "Collect 10 Sha-Chi Ambers")];
+    const { api, calls } = fakeApi({ dossier: vi.fn(async () => ({ ...DOSSIER_SOURCE, achievements: steam })) });
+    const shards = Array.from({ length: 38 }, (_, i) => item("Sha-Chi Amber Shard", { collectibleType: "Sha-Chi Amber Shard", location: `Ponto ${i + 1}` }));
+    const stages = fakeStages({
+      extractFacts: async (_page, source) => ({
+        ...fact("x", "roteiro_steam", {
+          achievements: [ach("Complete Mastery", { howTo: "Collect 10 Sha-Chi Ambers; 4 shards combine into a whole Amber." })],
+          chapters: [chapter("Chapter 1", shards)],
+        }),
+        source,
+      }),
+    });
+    const page: FetchPage = async (url) =>
+      url === STEAM_GUIDE.url
+        ? { status: "ok", text: "The game contains 400 Collectibles Locations (40 Sha-Chi Amber Shards, 40 Blackstone Shards).", html: STEAM_GUIDE_HTML, finalUrl: url }
+        : fetchPage(url);
+    const deps = makeDeps({ api, stages, fetchPage: page });
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(calls.created).toHaveLength(1);
+    const dossier = deps.db.getDossier(REQUEST.id) as GuideDossier;
+    expect(dossier.achievements[0]!.collect!.shortfallAccepted).toMatchObject({ located: 38, stated: 40, missing: 2 });
+    expect(dossier.divergences.some((d) => d.includes("contagem incompleta aceita (R39)"))).toBe(true);
+  });
+
+  it("--atualizar com o gate da Steam passando: PATCH com scope steam (sem psnList/steamOnly); 202 → versão pendente criada", async () => {
+    const { api, calls } = fakeApi({ hit });
+    const deps = makeDeps({ api, direct: update });
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(calls.created).toEqual([]);
+    expect(calls.patched).toHaveLength(1);
+    const { id, patch } = calls.patched[0]!;
+    expect(id).toBe("guide-bot");
+    expect(patch.walkthrough!.scope).toBe("steam");
+    expect(patch.walkthrough).not.toHaveProperty("psnList");
+    expect(patch.walkthrough).not.toHaveProperty("steamOnly");
+    expect(guidePatchSchema.safeParse(patch).error?.issues).toBeUndefined();
+    expect(deps.lines.some((l) => l.includes("versão pendente criada (aguarda aprovação)") && l.includes("guide-bot"))).toBe(true);
+    expect(deps.lines.some((l) => l.includes("guia em revisão atualizado"))).toBe(false);
+  });
+
+  it("--atualizar num guia ainda em revisão: o site atualiza direto → 'guia em revisão atualizado'", async () => {
+    const { api } = fakeApi({
+      hit: { ...hit, guide: { ...botGuide, status: "review" } as never },
+      patchGuide: vi.fn(async (id: string) => ({ id, status: "review" })),
+    });
+    const deps = makeDeps({ api, direct: update });
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(deps.lines.some((l) => l.includes("guia em revisão atualizado") && l.includes("guide-bot"))).toBe(true);
+    expect(deps.lines.some((l) => l.includes("versão pendente criada"))).toBe(false);
+  });
+});

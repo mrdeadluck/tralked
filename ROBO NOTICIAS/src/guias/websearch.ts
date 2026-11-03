@@ -18,7 +18,7 @@ export interface WebSearch {
 
 export interface WebSearchDeps {
   client: Pick<Anthropic, "messages">;
-  /** Must be a model that supports the web search tool (e.g. claude-sonnet-5-5). */
+  /** Must be a model that supports the web search tool (claude-sonnet-5-5, or claude-opus-5-5 with MODEL_EXTRACT on Opus). */
   model: string;
   /** Called after every model turn of a search with that turn's cost (tokens + search requests). */
   recordSpend: (usd: number, purpose: string) => void;

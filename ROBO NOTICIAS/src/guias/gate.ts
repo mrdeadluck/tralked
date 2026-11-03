@@ -5,7 +5,8 @@ import type { DossierAchievement, GuideDossier, SteamAchievement } from "./dossi
  *
  * Scope "steam" (the default) fails when (a) a Steam achievement (hidden ones included) has no source, (b) a
  * Steam-only achievement has no Steam source, (c) a "collect N" count does not add up (R23: at least N, each item
- * with a location and a unique number; exactly N only when a source says the game has N), (d) a missable cannot be
+ * with a location and a unique number; exactly N only when a source says the game has N; R39: short by less than one
+ * whole unit passes when a source states a game total that reaches N), (d) a missable cannot be
  * tied to any chapter (R20: with no milestone that points to a chapter, its own chapter is the deadline, so (d)
  * only catches a missable achievement that no item of the walkthrough is), (e) no script source is complete.
  * Divergences between sources never fail it on their own.
@@ -32,7 +33,8 @@ function achievementGaps(steam: SteamAchievement, a: DossierAchievement | undefi
   }
   const c = a.collect;
   if (c) {
-    const short = c.exact ? Math.abs(c.counted - c.target) > 1e-6 : c.counted < c.target - 1e-6;
+    // R39: short by less than one whole unit with a stated game total that reaches N passes (the guide says so).
+    const short = (c.exact ? Math.abs(c.counted - c.target) > 1e-6 : c.counted < c.target - 1e-6) && !c.shortfallAccepted;
     if (c.conflictingTotals.length > 0) {
       missing.push(`As fontes discordam do total da conquista ${name}: ${c.conflictingTotals.join(" e ")}.`);
     } else if (short) {

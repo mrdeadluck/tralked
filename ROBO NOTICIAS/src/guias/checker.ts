@@ -28,7 +28,8 @@ export type CheckContext = {
 };
 /**
  * Task 21: a warning callout the code wrote (writer.ts `assemble`), not the writer: the writer cannot change it, so the
- * checker never judges it. It goes to the checker apart, with the dossier facts it was written from (`base`).
+ * checker never judges it. It goes to the checker apart, with the dossier facts it was written from (`base`). Task 25:
+ * the code's "info" note on a "collect N" accepted short (R39) goes the same way.
  */
 export type CodeWarning = { step: string; text: string; base: Record<string, unknown>[] };
 export type GuideCheckOpts = {
@@ -97,7 +98,7 @@ Verifique só isto:
 
 No trecho de um capítulo, <moldura> traz o título e o prazo do capítulo como a moldura do guia os escreveu: é texto do guia, checado à parte, não fato do dossiê nem trecho a julgar aqui; use-o só como contexto. \`conquistasAvisadasAqui\` são as conquistas perdíveis cujo aviso o sistema põe no início do capítulo, e \`conquistasSemLugarFixo\` são as conquistas que o escritor recebeu para citar ou pôr num passo: confira o que o texto diz delas por esses fatos. \`anterior\` e \`proximo\` são os capítulos vizinhos.
 
-<avisos_do_codigo>, quando vem, traz os avisos de perdível que o sistema escreveu nos passos (escrito pelo código: não julgue), cada um com a base dele no dossiê. Eles já saíram do trecho a julgar: nunca aponte problema neles nem cobre do texto do escritor o que eles dizem; use-os só como contexto. O texto do escritor que repete ou amplia um aviso com o que o dossiê não traz é problema do texto, como qualquer afirmação sem base.
+<avisos_do_codigo>, quando vem, traz os avisos de perdível e as notas de contagem incompleta que o sistema escreveu nos passos (escrito pelo código: não julgue), cada um com a base dele no dossiê. Eles já saíram do trecho a julgar: nunca aponte problema neles nem cobre do texto do escritor o que eles dizem; use-os só como contexto. O texto do escritor que repete ou amplia um aviso com o que o dossiê não traz é problema do texto, como qualquer afirmação sem base.
 
 Não avalie estilo, tom, tamanho nem gramática. Tradução, paráfrase e resumo fiéis estão certos. A dificuldade de 1 a 10 é uma nota do Tralked: só é problema se a justificativa contradizer o dossiê.
 
@@ -257,13 +258,14 @@ function jobPrompt(p: GuidePayloadV2, skel: GuideSkeleton, job: WriteJob, steps:
     ...(anchored.length > 0 ? { conquistasAvisadasAqui: anchored.map(looseFacts) } : {}),
     ...(loose.length > 0 ? { conquistasSemLugarFixo: loose.map(looseFacts) } : {}),
   };
-  // Task 21: the code's warnings leave the text to judge (the writer cannot change them) and go apart, with their basis.
+  // Task 21: the code's warnings (Task 25: and its count notes, R39) leave the text to judge (the writer cannot change
+  // them) and go apart, with their basis.
   const own = codeWarnings.filter((w) => steps.some((s) => s.key === w.step));
   const byCode = (stepKey: string, text: string) => own.some((w) => w.step === stepKey && w.text === text);
   const guide = {
     passos: steps.map((s) => ({
       key: s.key,
-      texto: s.body.filter((b) => !(b.type === "callout" && b.tone === "aviso" && byCode(s.key, b.text))),
+      texto: s.body.filter((b) => !(b.type === "callout" && byCode(s.key, b.text))),
       itens: s.items.map(({ sources: _s, image: _i, ...item }) => item),
     })),
   };

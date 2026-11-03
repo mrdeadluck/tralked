@@ -1,6 +1,6 @@
 import { PRICES, type Effort } from "../ai/client.js";
 import { statedSequence } from "./chapter-order.js";
-import type { DryRunConfig } from "./config.js";
+import { DEFAULT_EXTRACT_EFFORT, type DryRunConfig } from "./config.js";
 import { independentGroups } from "./crossref.js";
 import { carriedDraft, resumableDraft } from "./drafts.js";
 import type { GuideDb } from "./db.js";
@@ -10,14 +10,14 @@ import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate } from "./gate.js";
 import { estimatePayloadBytes, IMAGE_BYTES, kib, REPORT_SLACK_BYTES, SITE_LIMITS, skeletonLimitProblems } from "./limits.js";
 import { PAGE_TEXT_VERSION, pageText } from "./page-text.js";
-import { extractionKey, readCachedFacts } from "./pipeline.js";
+import { extractionKey, pageTotals, readCachedFacts } from "./pipeline.js";
 import { buildReport, STAGE_ONLY_TITLE, UNPLACED_TITLE } from "./report.js";
 import { latestRunContext, loadRunContext, type RunContext } from "./run-context.js";
 import { psnScope, type PsnWriteScope } from "./scope.js";
 import { buildSkeleton } from "./skeleton.js";
 import type { FetchPage, SourceRef } from "./sources.js";
 import { readSteamAliases, steamLanguagesIn } from "./steam-aliases.js";
-import { writerPlan } from "./writer.js";
+import { WRITER_EFFORT, writerPlan } from "./writer.js";
 import { earlierBaseKeys, earlierDraftKeys, readWriting, writingBaseKey, writingKey } from "./writing-cache.js";
 
 /**
@@ -29,7 +29,8 @@ import { earlierBaseKeys, earlierDraftKeys, readWriting, writingBaseKey, writing
 
 export type DryRunInput = {
   db: GuideDb;
-  config: Pick<DryRunConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "MODEL_CHECK" | "CHECK_EFFORT" | "GUIDE_STEAM_REFERENCE_ID">;
+  config: Pick<DryRunConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "MODEL_CHECK" | "CHECK_EFFORT" | "GUIDE_STEAM_REFERENCE_ID"> &
+    Partial<Pick<DryRunConfig, "EXTRACT_EFFORT">>;
   requestId?: string;
   appId?: number;
   log: (line: string) => void;
@@ -126,6 +127,19 @@ function cost(model: string, input: number, output: number): number | undefined 
   return price ? (input * price.in + output * price.out) / 1e6 : undefined;
 }
 
+/**
+ * Output tokens of an extraction per input token, by effort: the facts' JSON plus the adaptive thinking. Medium is
+ * measured (PBZ, 19 pages, ~268 KiB, Sonnet 5.5 at medium: US$ 1.27 for the whole set, about 1.4 output tokens per
+ * input token); the others are scaled from it (rough).
+ */
+const EXTRACT_OUTPUT_RATIO: Record<Effort, number> = { low: 1.1, medium: 1.4, high: 1.9, xhigh: 2.5, max: 3.2 };
+
+/** Estimated cost of extracting `chars` characters of page text with MODEL_EXTRACT at EXTRACT_EFFORT. */
+function extractCost(model: string, effort: Effort, chars: number): number | undefined {
+  const input = tokens(chars);
+  return cost(model, input, Math.ceil(input * EXTRACT_OUTPUT_RATIO[effort]));
+}
+
 /** Rough thinking tokens per checker call by effort (adaptive thinking is billed as output). */
 const CHECK_THINKING: Record<Effort, number> = { low: 500, medium: 1_500, high: 3_000, xhigh: 6_000, max: 10_000 };
 
@@ -174,6 +188,12 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
 
   log(`ensaio (sem IA, sem rede, só o cache): pedido ${context.requestId}${context.steamAppId ? `, appid ${context.steamAppId}` : ""}, ${context.game.name}`);
   if (note) log(`  aviso: ${note}`);
+  const extractEffort = config.EXTRACT_EFFORT ?? DEFAULT_EXTRACT_EFFORT;
+  const extraction = `(${config.MODEL_EXTRACT}, esforço ${extractEffort})`;
+  log(
+    `modelos: extração ${config.MODEL_EXTRACT} (esforço ${extractEffort}), busca na web ${config.MODEL_EXTRACT}, ` +
+      `escrita ${config.MODEL_WRITER} (esforço ${WRITER_EFFORT}), checagem ${config.MODEL_CHECK} (esforço ${config.CHECK_EFFORT}), imagens ${config.MODEL_FAST}`,
+  );
 
   // Pages and extractions, from the cache only.
   const fetchPage = cachedPage(db);
@@ -194,7 +214,7 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
       log(`  - ${source.name}: página fora do cache`);
       continue;
     }
-    const current = readCachedFacts(db, extractionKey(config.MODEL_EXTRACT, source, page.text), source);
+    const current = readCachedFacts(db, extractionKey(config.MODEL_EXTRACT, source, page.text, extractEffort), source);
     const old = byUrl.get(source.url);
     const found: CachedFacts | undefined = current ? { facts: current, stale: false } : old ? { facts: { ...old, source }, stale: true } : undefined;
     if (!found) {
@@ -221,7 +241,7 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
       log(`    extração incompleta (já relida em partes): diz ter ${pageFacts.shortfall.stated} entradas, a extração trouxe ${pageFacts.shortfall.extracted}`);
     } else if (check?.short) {
       rereadChars += page.text.length;
-      const est = cost(config.MODEL_EXTRACT, tokens(page.text.length), Math.ceil(tokens(page.text.length) * 0.35));
+      const est = extractCost(config.MODEL_EXTRACT, extractEffort, page.text.length);
       const types = check.types.map((t) => `${t.label} ${t.extracted}/${t.stated}`).join(", ");
       log(
         `    extração curta: ${source.name} diz ter ${check.stated} entradas e a extração tem ${check.extracted}` +
@@ -238,17 +258,17 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
     read.push({ source, text: page.text });
   }
   if (rereadChars > 0) {
-    const est = cost(config.MODEL_EXTRACT, tokens(rereadChars), Math.ceil(tokens(rereadChars) * 0.35));
+    const est = extractCost(config.MODEL_EXTRACT, extractEffort, rereadChars);
     log(
       `  releitura em partes na execução real: ~${kib(rereadChars)} KiB${est !== undefined ? `, ~${usd(est)}` : ""} além da extração; ` +
         "o ensaio não relê: os itens que ela recuperar não estão nos números abaixo",
     );
   }
   if (stale + missing > 0) {
-    const est = cost(config.MODEL_EXTRACT, tokens(reextractChars), Math.ceil(tokens(reextractChars) * 0.35));
+    const est = extractCost(config.MODEL_EXTRACT, extractEffort, reextractChars);
     log(
       `  extração a refazer na execução real: ${stale + missing} página(s), ~${kib(reextractChars)} KiB de texto` +
-        `${est !== undefined ? `, ~${usd(est)}` : ""}; os números abaixo vêm da extração antiga e vão mudar`,
+        `${est !== undefined ? `, ~${usd(est)} ${extraction}` : ""}; os números abaixo vêm da extração antiga e vão mudar`,
     );
   }
 
@@ -270,7 +290,15 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
     const n = statedSequence(r.text);
     if (n !== undefined) sequence[r.source.url] = n;
   }
-  const dossier = buildDossier(context.steamList, facts, independentGroups(read.map((r) => ({ url: r.source.url, text: r.text }))), unread, aliases, sequence);
+  const dossier = buildDossier(
+    context.steamList,
+    facts,
+    independentGroups(read.map((r) => ({ url: r.source.url, text: r.text }))),
+    unread,
+    aliases,
+    sequence,
+    pageTotals(read),
+  );
 
   // Gate, scope.
   const steamGate = gate(dossier, context.steamList);
@@ -280,6 +308,15 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   log(`escopo escolhido: ${chosen ?? "nenhum (o pedido ficaria em waiting_sources)"}`);
   for (const line of steamGate.missing) log(`  falta (steam): ${line}`);
   for (const line of psnGate?.missing ?? []) log(`  falta (psn): ${line}`);
+  // R39: the "collect N" counts the gate accepts short by less than one unit (a source states a total that reaches N).
+  for (const a of dossier.achievements) {
+    const sa = a.collect?.shortfallAccepted;
+    if (!sa) continue;
+    log(
+      `  R39: "${a.nameEn}" (${a.apiName}) passa com a contagem incompleta: as fontes localizam ${sa.located} de ${sa.stated} ${sa.label} (${sa.source}); ` +
+        `${sa.missing} sem mapa → nota no guia e revisão`,
+    );
+  }
   // Task 18: "collect N" counted by the route's items of the type the text names.
   for (const a of dossier.achievements) {
     const t = a.collect?.byType;

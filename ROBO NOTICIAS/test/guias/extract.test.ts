@@ -50,6 +50,16 @@ describe("extractFacts", () => {
     expect(extractedFactsSchema.safeParse(facts).success).toBe(true);
   });
 
+  it("Task 25: o esforço da extração vem da config (padrão medium, 32k de saída; high e acima: 64k, por streaming)", async () => {
+    const page = { url: source.url, text: "Some guide text.", html: "" };
+    const medium = fakeAi(() => base);
+    await extractFacts(page, source, { ai: medium.ai, model: "claude-sonnet-5-5" });
+    expect(medium.calls[0]).toMatchObject({ effort: "medium", maxTokens: 32000 });
+    const high = fakeAi(() => base);
+    await extractFacts(page, source, { ai: high.ai, model: "claude-opus-5-5", effort: "high" });
+    expect(high.calls[0]).toMatchObject({ model: "claude-opus-5-5", effort: "high", maxTokens: 64000 });
+  });
+
   it("marca platform psn quando a página fala em PS5/troféus e trophyListSize 36", async () => {
     const { ai, calls } = fakeAi(() => ({ ...base, platform: "psn", trophyListSize: 36 }));
     const facts = await extractFacts(

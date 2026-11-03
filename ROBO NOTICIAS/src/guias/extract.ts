@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { Ai } from "../ai/client.js";
+import type { Ai, Effort } from "../ai/client.js";
 import { completeness, withVerdict } from "./completeness.js";
 import { llmFactsSchema, type ExtractedFacts, type LlmFacts } from "./facts.js";
 import type { SourceRef } from "./sources.js";
@@ -10,8 +10,17 @@ export interface ExtractDeps {
   ai: Ai;
   /** `MODEL_EXTRACT` from the guide-robot config. */
   model: string;
+  /** `EXTRACT_EFFORT` (Task 25); medium when absent. */
+  effort?: Effort;
   bucket?: "live" | "backfill";
 }
+
+/**
+ * Output room of one extraction call: the facts of a 60k-character part plus the adaptive thinking (billed as output,
+ * more of it with more effort). Up to medium, 32k (what every extraction so far needed); above, 64k. Both are
+ * streamed by the client (over its non-streaming limit); only the tokens used are paid.
+ */
+export const extractMaxTokens = (effort: Effort) => (effort === "low" || effort === "medium" ? 32_000 : 64_000);
 
 let promptCache: string | undefined;
 export function extractionPrompt(): string {
@@ -115,11 +124,11 @@ async function readParts(
         bucket: deps.bucket ?? "backfill",
         purpose: `guia-extracao:${source.name}:${again ? "releitura " : ""}${i + 1}/${chunks.length}`,
         model: deps.model,
-        effort: "medium",
+        effort: deps.effort ?? "medium",
         system,
         user: `${header}\n\n${chunk}`,
         schema: llmFactsSchema,
-        maxTokens: 32000,
+        maxTokens: extractMaxTokens(deps.effort ?? "medium"),
       }),
     );
   }
