@@ -1,4 +1,5 @@
 import { parseHTML } from "linkedom";
+import { BudgetExceededError } from "../ai/client.js";
 import type { SearchHit } from "./websearch.js";
 import type { FetchPage, SourceRef, SourceRole } from "./sources.js";
 
@@ -8,6 +9,15 @@ export const STEAM_GUIDES_PICKED = 3;
 export interface DiscoverDeps {
   fetchPage: FetchPage;
   search: (query: string) => Promise<SearchHit[]>;
+  /** Called for each search that failed for a reason that does not stop discovery (the caller reports it). */
+  onSearchFailure?: (query: string, error: unknown) => void;
+}
+
+/** Budget and credential errors must stop the run: swallowing them would look like "no sources found". */
+function isFatalSearchError(err: unknown): boolean {
+  if (err instanceof BudgetExceededError) return true;
+  const e = err as { status?: number; name?: string } | null;
+  return e?.status === 401 || e?.status === 403 || e?.name === "AuthenticationError" || e?.name === "PermissionDeniedError";
 }
 
 /** "Phantom Blade Zero" -> "phantom-blade-zero" */
@@ -101,21 +111,23 @@ function searchPlan(name: string): string[] {
     `${name} trophy guide grindnstrat`,
     `${name} achievements guide (site:game8.co OR site:ign.com)`,
     `${name} achievements guide (site:games.gg OR site:allthings.how)`,
-    `${name} guide (site:fextralife.com OR site:fandom.com)`,
+    `${name} guide (site:fextralife.com OR site:fandom.com OR site:mobalytics.gg)`,
     `${name} 100% achievements guide site:reddit.com`,
   ];
 }
 
 const SEARCH_HOSTS: { match: RegExp; name: string; role: SourceRole }[] = [
   { match: /(^|\.)psnprofiles\.com$/, name: "PSNProfiles", role: "roteiro_psn" },
-  { match: /(^|\.)grindnstrat\.com$/, name: "Grindnstrat", role: "roteiro_psn" },
-  { match: /(^|\.)game8\.co$/, name: "Game8", role: "roteiro_psn" },
-  { match: /(^|\.)ign\.com$/, name: "IGN", role: "roteiro_psn" },
-  { match: /(^|\.)games\.gg$/, name: "games.gg", role: "confirmacao" },
-  { match: /(^|\.)allthings\.how$/, name: "allthings.how", role: "confirmacao" },
-  { match: /(^|\.)fextralife\.com$/, name: "Fextralife", role: "confirmacao" },
-  { match: /(^|\.)fandom\.com$/, name: "Fandom", role: "confirmacao" },
+  { match: /(^|\.)grindnstrat\.com$/, name: "Grindnstrat", role: "coletaveis" },
+  { match: /(^|\.)game8\.co$/, name: "Game8", role: "coletaveis" },
+  { match: /(^|\.)ign\.com$/, name: "IGN", role: "coletaveis" },
+  { match: /(^|\.)games\.gg$/, name: "games.gg", role: "coletaveis" },
+  { match: /(^|\.)allthings\.how$/, name: "allthings.how", role: "coletaveis" },
+  { match: /(^|\.)fextralife\.com$/, name: "Fextralife", role: "coletaveis" },
+  { match: /(^|\.)fandom\.com$/, name: "Fandom", role: "coletaveis" },
+  { match: /(^|\.)mobalytics\.gg$/, name: "Mobalytics", role: "coletaveis" },
   { match: /(^|\.)reddit\.com$/, name: "Reddit", role: "confirmacao" },
+  { match: /(^|\.)youtube\.com$|(^|\.)youtu\.be$/, name: "YouTube", role: "confirmacao" },
 ];
 const PER_HOST = 2;
 
@@ -164,7 +176,7 @@ export async function discoverSources(
   add({
     name: "TrueSteamAchievements",
     url: `https://www.truesteamachievements.com/game/${hyphenName(game.name)}/achievements`,
-    role: "confirmacao",
+    role: "roteiro_steam",
   });
 
   // Web search: at most MAX_SEARCHES per call.
@@ -174,7 +186,9 @@ export async function discoverSources(
     let hits: SearchHit[];
     try {
       hits = await search(query);
-    } catch {
+    } catch (err) {
+      if (isFatalSearchError(err)) throw err;
+      deps.onSearchFailure?.(query, err);
       continue;
     }
     for (const hit of hits) {

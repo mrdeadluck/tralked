@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { BudgetExceededError } from "../../src/ai/client.js";
 import { discoverSources, limitSearches, slugify } from "../../src/guias/discover.js";
 import type { FetchPage } from "../../src/guias/sources.js";
 import type { SearchHit } from "../../src/guias/websearch.js";
@@ -51,7 +52,7 @@ describe("discoverSources", () => {
     expect(f.urls).toContain(
       "https://steamcommunity.com/app/4115450/guides/?browsefilter=toprated&requiredtags[]=Achievements",
     );
-    const steam = sources.filter((s) => s.role === "roteiro_steam");
+    const steam = sources.filter((s) => s.role === "roteiro_steam" && s.url.includes("steamcommunity.com"));
     expect(steam.map((s) => s.url.split("id=")[1])).toEqual(["3829258710", "3829266508", "3829693154"]);
     expect(steam[0]!.language).toBe("zh");
   });
@@ -83,6 +84,60 @@ describe("discoverSources", () => {
   it("segue sem as fontes determinísticas quando a página é bloqueada", async () => {
     const blocked: FetchPage = async (url) => ({ status: "challenge", finalUrl: url });
     const sources = await discoverSources(game, { fetchPage: blocked, search: async () => [] });
-    expect(sources.map((s) => s.role).sort()).toEqual(["confirmacao", "roteiro_psn"]);
+    expect(sources.map((s) => s.role).sort()).toEqual(["roteiro_psn", "roteiro_steam"]);
+  });
+  it("atribui o papel certo a cada site achado na busca", async () => {
+    const expected: Record<string, string> = {
+      "https://psnprofiles.com/guide/1": "roteiro_psn",
+      "https://grindnstrat.com/pbz": "coletaveis",
+      "https://game8.co/games/pbz": "coletaveis",
+      "https://www.ign.com/wikis/pbz": "coletaveis",
+      "https://games.gg/pbz": "coletaveis",
+      "https://allthings.how/pbz": "coletaveis",
+      "https://pbz.fandom.com/wiki/Trophies": "coletaveis",
+      "https://pbz.wiki.fextralife.com/Trophies": "coletaveis",
+      "https://mobalytics.gg/pbz": "coletaveis",
+      "https://www.reddit.com/r/pbz/1": "confirmacao",
+    };
+    const hits = Object.keys(expected).map((url) => ({ title: url, url }));
+    const sources = await discoverSources(game, {
+      fetchPage: fetchPage().fetchPage,
+      search: async (q) => (q.includes("psnprofiles") ? hits : []),
+    });
+    for (const [url, role] of Object.entries(expected)) {
+      expect(sources.find((s) => s.url === url), url).toMatchObject({ role });
+    }
+    expect(sources.find((s) => s.name === "TrueSteamAchievements")?.role).toBe("roteiro_steam");
+    expect(sources.find((s) => s.name === "PowerPyx")?.role).toBe("roteiro_psn");
+  });
+
+  it("repassa erro de orçamento e de credencial da busca", async () => {
+    const budget = async (): Promise<SearchHit[]> => {
+      throw new BudgetExceededError("backfill", 70, 70);
+    };
+    await expect(discoverSources(game, { fetchPage: fetchPage().fetchPage, search: budget })).rejects.toBeInstanceOf(
+      BudgetExceededError,
+    );
+    const auth = async (): Promise<SearchHit[]> => {
+      throw Object.assign(new Error("invalid x-api-key"), { status: 401 });
+    };
+    await expect(discoverSources(game, { fetchPage: fetchPage().fetchPage, search: auth })).rejects.toThrow(/x-api-key/);
+  });
+
+  it("registra falha comum de uma busca e segue com as outras", async () => {
+    const failures: string[] = [];
+    let n = 0;
+    const search = async (q: string): Promise<SearchHit[]> => {
+      if (n++ === 0) throw new Error("timeout");
+      return q.includes("grindnstrat") ? [{ title: "g", url: "https://grindnstrat.com/pbz" }] : [];
+    };
+    const sources = await discoverSources(game, {
+      fetchPage: fetchPage().fetchPage,
+      search,
+      onSearchFailure: (q, e) => failures.push(`${q}: ${(e as Error).message}`),
+    });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/timeout/);
+    expect(sources.some((s) => s.name === "Grindnstrat")).toBe(true);
   });
 });

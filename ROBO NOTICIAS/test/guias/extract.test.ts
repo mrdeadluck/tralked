@@ -65,4 +65,20 @@ describe("extractFacts", () => {
   it("rejeita resposta fora do schema", () => {
     expect(llmFactsSchema.safeParse({ ...base, platform: "xbox" }).success).toBe(false);
   });
+  it("junta o capítulo cortado na fronteira entre partes, mantendo a ordem dos itens", async () => {
+    const text = `${"a".repeat(59_000)}
+${"b".repeat(5000)}`;
+    const item = (name: string): LlmFacts["chapters"][number]["items"][number] => ({
+      kind: "collectible", name, location: "x", missable: false, returnLater: false, countsForEn: [],
+    });
+    const { ai } = fakeAi((_o, i) =>
+      i === 0
+        ? { ...base, chapters: [chapter("Intro"), { title: "Crimson Forest", region: "Crimson Forest", order: 2, items: [item("A"), item("B")] }] }
+        : { ...base, chapters: [{ title: "crimson forest ", region: "Crimson Forest", order: 1, items: [item("C")] }, chapter("Meigu Lake")] },
+    );
+    const facts = await extractFacts({ url: source.url, text }, source, { ai, model: "claude-sonnet-5-5" });
+    expect(facts.chapters.map((c) => c.title)).toEqual(["Intro", "Crimson Forest", "Meigu Lake"]);
+    expect(facts.chapters[1]!.items.map((i) => i.name)).toEqual(["A", "B", "C"]);
+    expect(facts.chapters.map((c) => c.order)).toEqual([1, 2, 3]);
+  });
 });

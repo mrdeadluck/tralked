@@ -32,9 +32,27 @@ export function splitText(text: string, size = CHUNK_CHARS): string[] {
   return parts;
 }
 
+type Chapter = LlmFacts["chapters"][number];
+const sameChapter = (a: Chapter, b: Chapter) =>
+  a.title.trim().toLowerCase() === b.title.trim().toLowerCase() &&
+  (a.region ?? "").trim().toLowerCase() === (b.region ?? "").trim().toLowerCase();
+
+/** A chapter cut by a part boundary comes back as two chapters with the same title: join them, items in order. */
+function joinChapters(parts: LlmFacts[]): Chapter[] {
+  const out: Chapter[] = [];
+  parts.forEach((p, i) => {
+    p.chapters.forEach((c, j) => {
+      const last = out[out.length - 1];
+      if (i > 0 && j === 0 && last && sameChapter(last, c)) last.items = [...last.items, ...c.items];
+      else out.push({ ...c });
+    });
+  });
+  return out;
+}
+
 function merge(source: SourceRef, parts: LlmFacts[]): ExtractedFacts {
   const first = parts[0]!;
-  const chapters = parts.flatMap((p) => p.chapters).map((c, i) => ({ ...c, order: i + 1 }));
+  const chapters = joinChapters(parts).map((c, i) => ({ ...c, order: i + 1 }));
   const seen = new Set<string>();
   const achievements = parts
     .flatMap((p) => p.achievements)
