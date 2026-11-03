@@ -31,6 +31,11 @@ export type RobotReport = {
   missing?: string[];
   /** `failed` by the checker: the problems left after the rewrite. */
   problems?: string[];
+  /**
+   * R44 (`--aceitar-pendencias`): the checker's problems left after the rewrite that went out with the guide for the
+   * editor to read before approving (the items of those parts are marked for review).
+   */
+  pendencias?: { scope: string; texto: string }[];
   /** Robot bugs found while writing (the code's own chapter order broke the chronology check). */
   internalErrors?: string[];
   /** What the robot left out to deliver the guide (images or soundtrack after the deadline or the spend cap, ...). */
@@ -79,7 +84,12 @@ export type ReportInput = {
   problems?: string[];
   internalErrors?: string[];
   notes?: string[];
+  /** R44: the checker's leftovers sent along (see `RobotReport.pendencias`). */
+  pendencias?: { scope: string; texto: string }[];
 };
+
+/** R44: the divergence that tells the editor the guide went out with the checker's leftovers. */
+export const pendingSentence = (n: number) => `enviado com ${n} ${n === 1 ? "pendência" : "pendências"} do checador para revisão humana (R44)`;
 
 const usd = (value: number) => Math.round(value * 1e4) / 1e4;
 
@@ -125,7 +135,8 @@ export function buildReport(input: ReportInput): RobotReport {
   const byType = collectByType(d);
   return {
     sourcesRead: input.sourcesRead.map((s) => ({ name: s.name, url: s.url, ok: s.ok, ...(s.reason ? { reason: s.reason } : {}) })),
-    divergences: d ? [...d.divergences] : [],
+    // R44 first: a report cut to fit the body keeps it.
+    divergences: [...(input.pendencias?.length ? [pendingSentence(input.pendencias.length)] : []), ...(d ? d.divergences : [])],
     singleSource: d ? singleSourceFacts(d) : [],
     coverage: {
       steam,
@@ -138,6 +149,7 @@ export function buildReport(input: ReportInput): RobotReport {
     spendByPurpose: Object.fromEntries(Object.entries(input.spendByPurpose ?? {}).map(([k, v]) => [k, usd(v)])),
     ...(input.missing ? { missing: input.missing } : {}),
     ...(input.problems ? { problems: input.problems } : {}),
+    ...(input.pendencias?.length ? { pendencias: input.pendencias.map((p) => ({ ...p })) } : {}),
     ...(input.internalErrors?.length ? { internalErrors: input.internalErrors } : {}),
     ...(input.notes?.length ? { notes: [...input.notes] } : {}),
     ...(d && (d.corroborationOnly ?? []).length > 0 ? { unplaced: { title: UNPLACED_TITLE, items: d.corroborationOnly.map(unplacedItem) } } : {}),

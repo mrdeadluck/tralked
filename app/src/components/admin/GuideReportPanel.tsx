@@ -6,12 +6,31 @@ const LIST = "m-0 flex list-disc flex-col gap-1 pl-5 text-[14px]";
 
 /**
  * The robot's report of a guide, for the editor (sources read, divergences, single-source facts,
- * coverage, the list the guide follows and the robot's internal errors).
+ * coverage, the list the guide follows, the robot's internal errors and, first, the checker's leftovers it was sent
+ * with: R44).
  */
 export function GuideReportPanel({ report }: { report: GuideReport }) {
   return (
     <AdminSection title="Relatório do robô" aside={reportSummary(report)}>
       <div className="grid gap-5 md:grid-cols-2">
+        {report.pendencias ? (
+          <div className="flex flex-col gap-2 border border-acc p-4 md:col-span-2">
+            <h3 className="font-mono text-xs tracking-[0.08em] text-acc uppercase">Pendências do checador</h3>
+            <p className="text-[14px]">
+              O robô enviou este guia com {report.pendencias.length}{" "}
+              {report.pendencias.length === 1 ? "objeção do checador que não conseguiu resolver" : "objeções do checador que não conseguiu resolver"}{" "}
+              (R44). Os itens desses trechos estão marcados para revisão: leia antes de aprovar.
+            </p>
+            <ul className={LIST}>
+              {report.pendencias.map((p) => (
+                <li key={`${p.scope}-${p.texto}`}>
+                  {p.scope ? <span className="font-mono text-xs text-dim">[{p.scope}] </span> : null}
+                  {p.texto}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="flex flex-col gap-2">
           <h3 className="font-mono text-xs tracking-[0.08em] text-dim uppercase">Fontes lidas</h3>
           {report.sourcesRead.length === 0 ? (

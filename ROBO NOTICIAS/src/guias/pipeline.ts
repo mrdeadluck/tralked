@@ -29,10 +29,10 @@ import {
 } from "./limits.js";
 import { locateTarget } from "./locate.js";
 import { PAGE_TEXT_MAX } from "./page-text.js";
-import { buildReport, spendByPurpose, type RobotReport, type SourceRead } from "./report.js";
+import { buildReport, pendingSentence, spendByPurpose, type RobotReport, type SourceRead } from "./report.js";
 import { reusableDiscovery, saveRunContext } from "./run-context.js";
 import { psnScope, type PsnWriteScope } from "./scope.js";
-import { buildSkeleton } from "./skeleton.js";
+import { buildSkeleton, writeJobs } from "./skeleton.js";
 import { findSoundtrack } from "./soundtrack.js";
 import type { FetchPage, SourceRef } from "./sources.js";
 import { guideAiConfig, guideSpend } from "./spend.js";
@@ -102,8 +102,11 @@ export type GuidePipelineDeps = {
    * `probe` (Task 20, `--sonda`): write only the frame and the first `chapters` chapters, check them once, save and print
    * the problems, and stop (nothing sent, no images, no soundtrack). `updatePsn` (`--atualizar-psn`, Task 25 review):
    * an update may go out by the PSN list (otherwise an update whose Steam gate fails stops before writing).
+   * `acceptPending` (`--aceitar-pendencias N`, R44): a guide left with at most N problems after the rewrite, all of
+   * them the LLM checker's, still goes out (review / pending as always), its parts marked for review and the problems
+   * listed in the report.
    */
-  direct?: { appId: number; update: boolean; updatePsn?: boolean; probe?: { chapters: number } };
+  direct?: { appId: number; update: boolean; updatePsn?: boolean; acceptPending?: number; probe?: { chapters: number } };
   /** Where each run's report file goes (`relatorios/<request>-<attempt>.json`); default the GuideDb's folder. */
   reportDir?: string;
 };
@@ -187,6 +190,8 @@ type Run = {
     /** null: neither gate passed, no scope was chosen. */
     scope?: GuideScope | null;
     notes: string[];
+    /** R44: the checker's leftovers the guide goes out with (`--aceitar-pendencias`). */
+    pendencias?: { scope: string; texto: string }[];
   };
   report(extra?: { missing?: string[]; problems?: string[]; internalErrors?: string[] }): RobotReport;
   send: Sender["send"];
@@ -347,6 +352,7 @@ function startRun(deps: GuidePipelineDeps, request: GuideRequest, reports: Sende
         spendUsd: db.spentForRequest(request.id),
         spendByPurpose: spendByPurpose(db, request.id),
         notes: progress.notes,
+        ...(progress.pendencias ? { pendencias: progress.pendencias } : {}),
         ...extra,
       }),
     send: (body, key) => reports.send(body, key),
@@ -599,7 +605,23 @@ async function processRequest(run: Run): Promise<Final> {
   }
   const internalErrors = written.internalErrors ?? [];
   if (internalErrors.length > 0) deps.log(`guia: erro interno do escritor (ordem do código): ${internalErrors.join(" | ")}`);
-  if (!written.ok) {
+  // R44: with --aceitar-pendencias N, at most N leftovers, all of the LLM checker's, go out with the guide for review.
+  const leftovers = written.ok ? [] : (written.draft?.problems ?? []);
+  const accept = deps.direct?.acceptPending;
+  if (
+    !written.ok &&
+    accept !== undefined &&
+    leftovers.length > 0 &&
+    leftovers.length <= accept &&
+    leftovers.every((p) => p.kind === "checador") &&
+    (written.draft?.pending.length ?? 0) === 0
+  ) {
+    markForReview(written.payload, leftovers, writeJobs(skeleton));
+    progress.pendencias = leftovers.map((p) => ({ scope: p.scope, texto: p.text }));
+    deps.log(
+      `guia: ${pendingSentence(leftovers.length)}:\n${leftovers.map((p) => `  [${p.scope}] ${p.text}`).join("\n")}`,
+    );
+  } else if (!written.ok) {
     return {
       status: "failed",
       reason: `o checador recusou o guia depois da reescrita (${written.problems.length} ${written.problems.length === 1 ? "problema" : "problemas"})`,
@@ -656,6 +678,19 @@ async function processRequest(run: Run): Promise<Final> {
 
   // Step 12 (the final report) happens in runGuideRequest.
   return { status: "review", report: sentReport, guideId };
+}
+
+/**
+ * R44: every item of a part the checker still objects to goes to review: a job's steps (its id is its first step;
+ * it runs until the next job of the chapter), or a step named directly. The frame has no items: the report lists it.
+ */
+function markForReview(payload: GuidePayloadV2, problems: GuideProblem[], jobs: { id: string; steps: { key: string }[] }[]): void {
+  const steps = new Set<string>();
+  for (const p of problems) {
+    const job = jobs.find((j) => j.id === p.scope);
+    for (const key of job ? job.steps.map((s) => s.key) : [p.scope]) steps.add(key);
+  }
+  for (const c of payload.walkthrough.chapters) for (const s of c.steps) if (steps.has(s.key)) for (const i of s.items) i.review = true;
 }
 
 /** url -> the game's totals each page states ("contains 564 Collectibles Locations (… 40 Sha-Chi Amber Shards …)"): R39. */

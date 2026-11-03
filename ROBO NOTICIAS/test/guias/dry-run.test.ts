@@ -128,6 +128,14 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
     expect(parseGuiaArgs(["--", "--appid", "4115450"])).toEqual({ dryRun: false, direct: { appId: 4115450, update: false } });
     expect(parseGuiaArgs(["--appid", "4115450", "--atualizar"])).toEqual({ dryRun: false, direct: { appId: 4115450, update: true } });
     expect(() => parseGuiaArgs(["--atualizar"])).toThrow(/appid/);
+    // Task 31 (R44): only in direct mode, with a whole number of 1 or more.
+    expect(parseGuiaArgs(["--appid", "4115450", "--atualizar", "--aceitar-pendencias", "2"])).toEqual({
+      dryRun: false,
+      direct: { appId: 4115450, update: true, acceptPending: 2 },
+    });
+    expect(() => parseGuiaArgs(["--aceitar-pendencias", "2"])).toThrow(/appid/);
+    expect(() => parseGuiaArgs(["--appid", "4115450", "--aceitar-pendencias", "x"])).toThrow(/aceitar-pendencias/);
+    expect(() => parseGuiaArgs(["--appid", "4115450", "--aceitar-pendencias", "0"])).toThrow(/aceitar-pendencias/);
     // Task 25 review: an update by the PSN list only on purpose.
     expect(parseGuiaArgs(["--appid", "4115450", "--atualizar-psn"])).toEqual({ dryRun: false, direct: { appId: 4115450, update: true, updatePsn: true } });
     expect(() => parseGuiaArgs(["--appid", "abc"])).toThrow(/appid/);
