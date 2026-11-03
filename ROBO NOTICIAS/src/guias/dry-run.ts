@@ -8,7 +8,7 @@ import { blockedForGood, buildDossier, UNPLACED_MARK, type DossierAchievement, t
 import { completeness, withVerdict } from "./completeness.js";
 import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate } from "./gate.js";
-import { imageHints, imageItems, imageKey, markImageUsed, newImageUsage, pickItemImage, type PagesInput } from "./images.js";
+import { countImageSource, imageHints, imageItems, imageKey, markImageUsed, newImageUsage, pickItemImage, type PagesInput } from "./images.js";
 import { estimatePayloadBytes, IMAGE_BYTES, imageOrder, kib, REPORT_SLACK_BYTES, SITE_LIMITS, skeletonLimitProblems } from "./limits.js";
 import { PAGE_TEXT_VERSION, pageText } from "./page-text.js";
 import { extractionKey, pageTotals, readCachedFacts } from "./pipeline.js";
@@ -197,6 +197,7 @@ function imagePlan(skeleton: GuideSkeleton, pages: PagesInput, room: number): st
     const picked = pickItemImage(wanted.get(item)!, pages, usage);
     if (!picked) continue;
     markImageUsed(usage, picked);
+    countImageSource(usage, picked);
     keys.push(imageKey(picked.url));
   }
   const bySource = [...usage.bySource].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([site, n]) => `${site} ${n}`);

@@ -16,6 +16,7 @@ import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate, type GateResult } from "./gate.js";
 import {
   composeImage,
+  countImageSource,
   imageHints,
   imageItems,
   imageWidth,
@@ -24,6 +25,7 @@ import {
   newImageUsage,
   pickItemImage,
   refuseImage,
+  repeatedBytes,
   type ImageHints,
   type PagesInput,
   type PickedImage,
@@ -836,9 +838,8 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
         if (!bytesByUrl.has(picked.url)) bytesByUrl.set(picked.url, await deps.fetchImage(picked.url));
         bytes = bytesByUrl.get(picked.url) ?? null;
         const width = bytes ? await imageWidth(bytes) : undefined;
-        const repeated = bytes !== null && usage.hashes.has(sha(bytes));
+        const repeated = bytes !== null && repeatedBytes(usage, sha(bytes));
         if (bytes && !repeated && (width === undefined || width >= MIN_IMAGE_WIDTH)) break;
-        if (repeated) usage.duplicatesAvoided++;
         refuseImage(usage, picked.url);
         bytes = null;
         picked = stages.pickItemImage(want, pages, usage);
@@ -854,6 +855,7 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
       const composed = await stages.composeImage(bytes, { target, thirdParty: picked.thirdParty });
       const uploaded = await deps.api.uploadImage(new Uint8Array(composed), "image/webp", `guia-img-${sha(composed).slice(0, 40)}`);
       item.image = { url: uploaded.url, ...texts };
+      countImageSource(usage, picked);
       left -= Buffer.byteLength(`,"image":${JSON.stringify(item.image)}`, "utf8");
       added++;
     } catch (error) {

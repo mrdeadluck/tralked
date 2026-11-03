@@ -34,11 +34,16 @@ export type ImageItem = {
  * sources are rotated. Also keeps each page parsed once.
  */
 export type ImageUsage = {
+  /** Never offered again: placed (with their entry's other pictures) or refused. */
   urls: Set<string>;
+  /** Placed for an item (`markImageUsed`): only these make a duplicate avoided. */
+  taken: Set<string>;
   hashes: Set<string>;
-  /** Images placed per source site (host). */
+  /** Hashes already counted as a duplicate avoided (the same bytes count once). */
+  repeated: Set<string>;
+  /** Images sent per source site (host), counted once the upload went through. */
   bySource: Map<string, number>;
-  /** Picks where the item's best image was already another item's. */
+  /** Times an item's best image was already another item's (its URL, or its bytes). */
   duplicatesAvoided: number;
   parsed: Map<string, PageIndex>;
   /** The other pictures of the entry an offered image came from: one entry, one item. */
@@ -47,7 +52,9 @@ export type ImageUsage = {
 
 export const newImageUsage = (): ImageUsage => ({
   urls: new Set(),
+  taken: new Set(),
   hashes: new Set(),
+  repeated: new Set(),
   bySource: new Map(),
   duplicatesAvoided: 0,
   parsed: new Map(),
@@ -80,18 +87,33 @@ export const imageUsed = (usage: ImageUsage, url: string): boolean => usage.urls
 
 /**
  * The image went to an item: never offered again, nor the other pictures of its entry (that entry is this item's),
- * nor its bytes; its source counted.
+ * nor its bytes.
  */
 export function markImageUsed(usage: ImageUsage, picked: PickedImage, hash?: string): void {
   const key = imageKey(picked.url);
+  usage.taken.add(key);
   for (const k of usage.siblings.get(key) ?? [key]) usage.urls.add(k);
   if (hash) usage.hashes.add(hash);
+}
+
+/** The image reached the guide (uploaded): its source counts for the variety and the report. */
+export function countImageSource(usage: ImageUsage, picked: PickedImage): void {
   const source = imageSource(picked.sourceUrl);
   usage.bySource.set(source, (usage.bySource.get(source) ?? 0) + 1);
 }
 
 /** The image cannot be used (unreadable, too narrow, the same bytes as a placed one): never offered again. */
 export const refuseImage = (usage: ImageUsage, url: string): void => void usage.urls.add(imageKey(url));
+
+/** The fetched bytes are an image already placed: a duplicate avoided, once per picture. */
+export function repeatedBytes(usage: ImageUsage, hash: string): boolean {
+  if (!usage.hashes.has(hash)) return false;
+  if (!usage.repeated.has(hash)) {
+    usage.repeated.add(hash);
+    usage.duplicatesAvoided++;
+  }
+  return true;
+}
 
 /** Width of the image's bytes, or undefined when they are not an image sharp reads. */
 export async function imageWidth(bytes: Buffer): Promise<number | undefined> {
@@ -164,7 +186,8 @@ const HEADING_LEVEL: Record<string, number> = { H1: 1, H2: 2, H3: 3, H4: 4, H5: 
 const ENTRY_LEVEL = 7;
 const LABEL_MAX = 120;
 const MAX_DIST_LABEL = 40;
-const MAX_DIST_PROSE = 12;
+/** A mention looks ahead only, up to the next paragraph or title: this far at most. */
+const MAX_DIST_PROSE = 20;
 
 /** Where a page keeps its own text (WordPress, MediaWiki, Steam guides, Game8...); the whole <body> when none. */
 const CONTENT_ROOTS = [".entry-content", ".mw-parser-output", "#mw-content-text", ".guide.subSections", "[itemprop=articleBody]", ".archive-style-wrapper", "article", "main"];
@@ -183,8 +206,10 @@ function inSkippedArea(el: Element, root: Element): boolean {
   return false;
 }
 
-type PageImg = { at: number; url: string; key: string; alt: string };
-type PageLabel = { at: number; el: Element; level: number; text: string; bare: string; context: string };
+/** `tableIcon`: in a narrow table cell, or a trophy icon (a list's row icon, not the place). */
+type PageImg = { at: number; url: string; key: string; alt: string; tableIcon: boolean };
+/** `names`: every name the title gives its entry, normalized (see `labelNames`). */
+type PageLabel = { at: number; el: Element; level: number; names: string[]; context: string };
 /** `entry`: holds a label (it is that entry's own paragraph, not a mention elsewhere). */
 type PagePara = { at: number; el: Element; text: string; entry: boolean };
 type PageIndex = { imgs: PageImg[]; labels: PageLabel[]; paras: PagePara[] };
@@ -211,6 +236,47 @@ function labelLevel(el: Element): number | undefined {
   return ENTRY_LEVEL;
 }
 
+const MISSABLE_TAIL = /\s*[–—-]\s*missable\s*$/i;
+const NUMBERS_HEAD = /^\s*((?:#?\d+\s*(?:,|&|and)?\s*)+)[–—-]\s*/i;
+
+/**
+ * The names a title gives its entry: "#105 – Memory Flower – MISSABLE" is "Memory Flower" #105; a combined title
+ * ("#29 & #30 – Memory Flower / A Brother Once More (Tales)", "#32, #33, #34 – A / B – MISSABLE / C") names several
+ * things of the SAME entry, each also with its number and without its "(Type)".
+ */
+function labelNames(raw: string): string[] {
+  const clean = (s: string) => {
+    let t = s.trim();
+    while (MISSABLE_TAIL.test(t)) t = t.replace(MISSABLE_TAIL, "").trim();
+    return t;
+  };
+  const whole = clean(raw);
+  const head = whole.match(NUMBERS_HEAD);
+  const numbers = head ? [...head[1]!.matchAll(/\d+/g)].map((m) => m[0]) : [];
+  const rest = head ? whole.slice(head[0].length) : whole;
+  const out = new Set<string>();
+  const add = (s: string) => {
+    out.add(norm(s));
+    out.add(norm(s.replace(/\s*\([^)]*\)\s*$/, "")));
+  };
+  add(whole);
+  add(rest);
+  for (const part of rest.split(/\s*(?:\/|,|&)\s*/).map(clean).filter(Boolean)) {
+    add(part);
+    for (const n of numbers) add(`${n} ${part}`);
+  }
+  return [...out].filter(Boolean);
+}
+
+const TROPHY = /troph/i;
+/** A table cell kept narrow by its markup (an icon column): width up to 20% or 150 px. */
+function narrowCell(cell: Element): boolean {
+  const style = (cell.getAttribute("style") ?? "").match(/width\s*:\s*([\d.]+)\s*(%|px)/i);
+  const attr = (cell.getAttribute("width") ?? "").match(/^\s*([\d.]+)\s*(%|px)?\s*$/i);
+  const [value, unit] = style ? [Number(style[1]), style[2]!.toLowerCase()] : attr ? [Number(attr[1]), (attr[2] ?? "px").toLowerCase()] : [Number.NaN, ""];
+  return Number.isFinite(value) && (unit === "%" ? value <= 20 : value <= 150);
+}
+
 function indexPage(html: string, pageUrl: string): PageIndex {
   const { document } = parseHTML(html);
   const all = [...document.querySelectorAll("body *")] as Element[];
@@ -226,7 +292,10 @@ function indexPage(html: string, pageUrl: string): PageIndex {
       const key = imageKey(src.url);
       seen.set(key, (seen.get(key) ?? 0) + 1);
       if (!usableImage(el, src) || inSkippedArea(el, root)) return;
-      imgs.push({ at, url: src.url, key, alt: norm(`${el.getAttribute("alt") ?? ""} ${el.getAttribute("title") ?? ""}`) });
+      const alt = `${el.getAttribute("alt") ?? ""} ${el.getAttribute("title") ?? ""}`;
+      const cell = el.closest("td,th");
+      const tableIcon = !!cell && (narrowCell(cell) || TROPHY.test(`${src.url} ${alt} ${el.getAttribute("class") ?? ""}`));
+      imgs.push({ at, url: src.url, key, alt: norm(alt), tableIcon });
       return;
     }
     const level = labelLevel(el);
@@ -235,7 +304,7 @@ function indexPage(html: string, pageUrl: string): PageIndex {
       const raw = textOf(el).trim();
       const parent = el.parentElement;
       const context = level === ENTRY_LEVEL && parent && BLOCK_TAGS.has(parent.tagName) ? norm(textOf(parent)) : "";
-      labels.push({ at, el, level, text: norm(raw), bare: norm(raw.replace(/\s*\([^)]*\)\s*$/, "")), context });
+      labels.push({ at, el, level, names: labelNames(raw), context });
       return;
     }
     if (hasOwnText(el) && !el.closest("h1,h2,h3,h4,h5,h6") && !inSkippedArea(el, root)) paras.push({ at, el, text: norm(textOf(el)), entry: false });
@@ -254,15 +323,32 @@ function indexPage(html: string, pageUrl: string): PageIndex {
 const STOP = new Set(
   "from with then that this into will your where there have after before once when they their them which what just also onto down over under item items collectible collectibles".split(" "),
 );
-const words = (text: string) => norm(text).split(" ").filter((w) => w.length >= 4 && !STOP.has(w));
-/** Share of the hint's words the entry's text has. */
-function hintScore(hint: string[], context: string): number {
-  if (hint.length === 0) return 0;
-  const have = new Set(context.split(" "));
-  return hint.filter((w) => have.has(w)).length / hint.length;
+/** Words every PowerPyx location uses ("from the previous collectible, turn around"): half weight. */
+const GENERIC = new Set("previous turn around room drop dropped defeat defeated earlier same field area next continue ahead inside enemy enemies".split(" "));
+type Hint = { words: string[]; pairs: string[] };
+function hintOf(text: string): Hint {
+  const tokens = norm(text).split(" ").filter(Boolean);
+  return { words: tokens.filter((w) => w.length >= 4 && !STOP.has(w)), pairs: tokens.slice(1).map((w, i) => `${tokens[i]} ${w}`) };
 }
-const HINT_MIN = 0.4;
-const HINT_MARGIN = 0.15;
+/**
+ * How well the entry's text says what the hint says: its words (generic ones at half weight) and, for the wording
+ * itself, its word pairs ("same room" is not "next room").
+ */
+function hintScore(hint: Hint, context: string): number {
+  const tokens = context.split(" ");
+  const have = new Set(tokens);
+  const pairs = new Set(tokens.slice(1).map((w, i) => `${tokens[i]} ${w}`));
+  const weight = (w: string) => (GENERIC.has(w) ? 0.5 : 1);
+  const total = hint.words.reduce((n, w) => n + weight(w), 0);
+  const words = total > 0 ? hint.words.reduce((n, w) => n + (have.has(w) ? weight(w) : 0), 0) / total : 0;
+  const phrase = hint.pairs.length > 0 ? hint.pairs.filter((p) => pairs.has(p)).length / hint.pairs.length : 0;
+  return 0.6 * words + 0.4 * phrase;
+}
+/** Confirmed: the entry scores this much, and it is the only one that does. */
+const HINT_MIN = 0.6;
+/** A passing mention of an item no other item shares, on a page that lists it: the clear best is enough. */
+const MENTION_MIN = 0.4;
+const MENTION_MARGIN = 0.25;
 /** A hint of fewer words tells nothing. */
 const HINT_MIN_WORDS = 2;
 
@@ -273,15 +359,18 @@ type Entry = { images: PageImg[]; context: string };
  * points at (required when the guide has other items of the same name or the page does not list the item). None
  * when that is not clear: no picture beats another item's picture.
  */
-function chooseEntry(entries: Entry[], hint: string[], mustConfirm: boolean): Entry | undefined {
+function chooseEntry(entries: Entry[], hint: Hint, mustConfirm: boolean, mention = false): Entry | undefined {
   const withImages = entries.filter((e) => e.images.length > 0);
   if (withImages.length === 0) return undefined;
   if (withImages.length === 1 && !mustConfirm) return withImages[0];
-  if (hint.length < HINT_MIN_WORDS) return undefined;
+  if (hint.words.length < HINT_MIN_WORDS) return undefined;
   const scored = withImages.map((e) => ({ e, s: hintScore(hint, e.context) })).sort((a, b) => b.s - a.s);
+  const above = scored.filter((x) => x.s >= HINT_MIN);
+  if (above.length === 1) return above[0]!.e;
+  if (above.length > 1 || !mention || mustConfirm) return undefined;
+  // Several mentions of the same (unshared) item in one walkthrough: the one its place is clearly about.
   const [best, second] = scored;
-  if (!best || best.s < HINT_MIN || (second && best.s - second.s < HINT_MARGIN)) return undefined;
-  return best.e;
+  return best && best.s >= MENTION_MIN && best.s - (second?.s ?? 0) >= MENTION_MARGIN ? best.e : undefined;
 }
 
 /** `pos`: the image's rank in its entry (the closest to the mention first); `entry`: the keys of all its pictures. */
@@ -294,38 +383,45 @@ function pageCandidates(item: ImageItem, page: PagesInput[number], index: PageIn
   const alt = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
   const exact = new RegExp(`^(?:\\d+ )*(?:${alt})(?: \\d+)*$`);
   const word = new RegExp(`(?:^| )(?:${alt})(?: |$)`);
-  const hint = words(item.hint ?? "");
+  const hint = hintOf(item.hint ?? "");
   const listed = !item.sourceUrls?.length || item.sourceUrls.includes(page.url);
   // A name other items of the guide share, on a page that does not list this one: whatever entry it is, it is not provably this item's.
   if (item.shared && !listed) return [];
-  const mustConfirm = Boolean(item.shared) || (!listed && hint.length >= HINT_MIN_WORDS);
+  const mustConfirm = Boolean(item.shared) || (!listed && hint.words.length >= HINT_MIN_WORDS);
   const { imgs, labels, paras } = index;
 
-  const after = (from: number, to: number) => imgs.filter((i) => i.at > from && i.at < to && i.at - from <= MAX_DIST_LABEL);
-  const near = (at: number, from: number, to: number) =>
-    imgs
-      .filter((i) => i.at > from && i.at < to && Math.abs(i.at - at) <= MAX_DIST_PROSE)
-      .sort((x, y) => Math.abs(x.at - at) - Math.abs(y.at - at) || y.at - x.at);
+  const after = (from: number, to: number) => imgs.filter((i) => i.at > from && i.at < to && i.at - from <= MAX_DIST_LABEL && !i.tableIcon);
   const nextLabel = (at: number, level = ENTRY_LEVEL) => labels.find((l) => l.at > at && l.level <= level)?.at ?? Number.POSITIVE_INFINITY;
   const prevLabel = (at: number) => labels.findLast((l) => l.at < at)?.at ?? -1;
+  /**
+   * A mention's picture: the first one after it, before the next paragraph or title. Only a caption (the paragraph
+   * is the item's name and nothing else) may take the picture just above it.
+   */
+  const mentioned = (p: PagePara): PageImg[] => {
+    const nextPara = paras.find((q) => q.at > p.at && !p.el.contains(q.el))?.at ?? Number.POSITIVE_INFINITY;
+    const end = Math.min(nextPara, nextLabel(p.at));
+    const ahead = imgs.find((i) => i.at > p.at && i.at < end && i.at - p.at <= MAX_DIST_PROSE && !i.tableIcon);
+    if (ahead) return [ahead];
+    if (!exact.test(p.text)) return [];
+    const start = Math.max(paras.findLast((q) => q.at < p.at && !q.el.contains(p.el))?.at ?? -1, prevLabel(p.at));
+    const above = imgs.findLast((i) => i.at < p.at && i.at > start && p.at - i.at <= MAX_DIST_PROSE && !i.tableIcon);
+    return above ? [above] : [];
+  };
 
   const tiers: Entry[][] = [
     imgs.filter((i) => word.test(i.alt)).map((i) => ({ images: [i], context: i.alt })),
     labels
-      .filter((l) => exact.test(l.text) || exact.test(l.bare))
+      .filter((l) => l.names.some((n) => exact.test(n)))
       .map((l) => {
         const end = nextLabel(l.at, l.level);
         const block = paras.filter((p) => p.at > l.at && p.at < end && !p.entry).map((p) => p.text);
-        return { images: after(l.at, end), context: [l.context, l.text, ...block].join(" ") };
+        return { images: after(l.at, end), context: [l.context, ...block].join(" ") };
       }),
-    paras
-      .filter((p) => !p.entry && word.test(p.text))
-      // A passing mention: only the closest picture (the next one may be the next row's, another item's).
-      .map((p) => ({ images: near(p.at, prevLabel(p.at), nextLabel(p.at)).slice(0, 1), context: p.text })),
+    paras.filter((p) => !p.entry && word.test(p.text)).map((p) => ({ images: mentioned(p), context: p.text })),
   ];
   const out: Candidate[] = [];
   tiers.forEach((entries, tier) => {
-    const entry = chooseEntry(entries, hint, mustConfirm);
+    const entry = chooseEntry(entries, hint, mustConfirm, tier === 2);
     const keys = (entry?.images ?? []).map((i) => i.key);
     (entry?.images ?? []).forEach((img, pos) => {
       const thirdParty = !isOfficialHost(new URL(img.url).hostname);
@@ -397,7 +493,7 @@ export function pickItemImage(item: ImageItem, pages: PagesInput, usage: ImageUs
   const firstByPlace = [...all].sort((a, b) => specific(a, b) || a.order - b.order || a.pos - b.pos)[0]!;
   const uses = (c: Candidate) => usage.bySource.get(imageSource(c.picked.sourceUrl)) ?? 0;
   const free = all.filter((c) => !usage.urls.has(c.key)).sort((a, b) => specific(a, b) || uses(a) - uses(b) || a.order - b.order || a.pos - b.pos);
-  if (usage.urls.has(firstByPlace.key)) usage.duplicatesAvoided++;
+  if (usage.taken.has(firstByPlace.key)) usage.duplicatesAvoided++;
   const chosen = free[0];
   if (!chosen) return null;
   usage.siblings.set(chosen.key, chosen.entry);

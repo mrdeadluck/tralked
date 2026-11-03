@@ -4,12 +4,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { Ai } from "../../src/ai/client.js";
 import {
   composeImage,
+  countImageSource,
   imageKey,
   imageWidth,
   markImageUsed,
   newImageUsage,
   pickItemImage,
+  refuseImage,
+  repeatedBytes,
   type ImageItem,
+  type PickedImage,
   type PagesInput,
 } from "../../src/guias/images.js";
 import { locateTarget } from "../../src/guias/locate.js";
@@ -193,7 +197,10 @@ describe("Task 28: imagens por item, únicas e de fontes variadas (R42)", () => 
   const place = (items: ImageItem[], pages: PagesInput, usage = newImageUsage()) =>
     items.map((item) => {
       const picked = pickItemImage(item, pages, usage);
-      if (picked) markImageUsed(usage, picked);
+      if (picked) {
+        markImageUsed(usage, picked);
+        countImageSource(usage, picked); // the pipeline counts it once uploaded
+      }
       return picked;
     });
 
@@ -330,6 +337,79 @@ describe("Task 28: imagens por item, únicas e de fontes variadas (R42)", () => 
     const urls = picks.filter((p) => p !== null).map((p) => p.url);
     expect(new Set(urls).size).toBe(urls.length);
     expect(urls.some((u) => /logo/i.test(u))).toBe(false);
+  });
+});
+
+describe("Task 28 revisão 1: imagem errada é pior que nenhuma (cache real do PBZ)", () => {
+  const fx = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
+  const PANGZHEN = "https://www.powerpyx.com/phantom-blade-zero-pangzhen-collectible-locations/";
+  const MANDATE = "https://www.powerpyx.com/phantom-blade-zero-mandate-encampment-collectible-locations/";
+  const pangzhen = [{ url: PANGZHEN, sourceName: "PowerPyx (Pangzhen)", html: fx("powerpyx-pbz-pangzhen.html") }];
+  const mandate = [{ url: MANDATE, sourceName: "PowerPyx (Mandate Encampment)", html: fx("powerpyx-pbz-mandate-encampment.html") }];
+  const file = (p: PickedImage | null) => p?.url.match(/uploads\/(phantom-blade-zero-[a-z-]+-\d+-\d+-?)(?:-\d+x\d+)?\.jpg$/)?.[1];
+
+  it("dica genérica: a entrada cuja dica casa sozinha acima do limiar (#105 – MISSABLE), não a #56 que divide 'turn around'", () => {
+    const item = { name: "Memory Flower", hint: "From the previous collectible, turn around; in the field.", sourceUrls: [PANGZHEN], shared: true };
+    expect(file(pickItemImage(item, pangzhen))).toBe("phantom-blade-zero-pangzhen-105-1");
+  });
+
+  it("rótulo combinado '#29 & #30 – Memory Flower / A Brother Once More (Tales)': os dois nomes são da mesma entrada, não a #72", () => {
+    const hint = "In the same room as the previous collectible.";
+    expect(file(pickItemImage({ name: "Memory Flower", hint, sourceUrls: [PANGZHEN], shared: true }, pangzhen))).toBe("phantom-blade-zero-pangzhen-29-1");
+    expect(file(pickItemImage({ name: "A Brother Once More", hint, sourceUrls: [PANGZHEN] }, pangzhen))).toBe("phantom-blade-zero-pangzhen-29-1");
+  });
+
+  it("rótulo '#32, #33, #34 – Memory Flower / Memory Flower – MISSABLE / Twin Fish Pendant – MISSABLE': a entrada da arena, não a #36", () => {
+    const hint = "In the same arena; if you defeated Red earlier she won't join the fight and won't drop her collectibles.";
+    const usage = newImageUsage();
+    const flower = pickItemImage({ name: "Memory Flower", hint, sourceUrls: [MANDATE], shared: true }, mandate, usage);
+    expect(file(flower)).toBe("phantom-blade-zero-mandate-encampment-32-1");
+    expect(file(pickItemImage({ name: "Twin Fish Pendant", hint, sourceUrls: [MANDATE] }, mandate))).toBe("phantom-blade-zero-mandate-encampment-32-1");
+    // One entry, one item: once the flower has it, the entry's other picture does not go to another item.
+    markImageUsed(usage, flower!);
+    expect(pickItemImage({ name: "Twin Fish Pendant", hint, sourceUrls: [MANDATE] }, mandate, usage)).toBeNull();
+  });
+
+  it("menção no texto: só a imagem que vem DEPOIS dela (Rusted Loong Key → …00114, nunca a …00113 de antes)", () => {
+    const pages = [{ url: "https://phantombladezero.wiki.fextralife.com/Steel_and_Steam", sourceName: "Fextralife", html: fx("fextralife-pbz-steel-and-steam.html") }];
+    const picked = pickItemImage(
+      { name: "Rusted Loong Key", nameEn: "Rusted Loong Key", hint: "In the chest directly behind the Long Pillar Overlook Bell.", sourceUrls: [pages[0]!.url] },
+      pages,
+    );
+    expect(picked?.url).toMatch(/Wiki-Guide00114\.jpg$/);
+  });
+
+  it("menção no texto não pega ícone de tabela (troféu numa célula estreita)", () => {
+    const page = (cells: string) => [
+      { url: "https://x.com/roadmap/", sourceName: "X", html: `<html><body><article><table><tr>${cells}</tr></table></article></body></html>` },
+    ];
+    const name = `<td>Nothing Goes to Waste<br> Defeat the Puppet Scavenger</td>`;
+    const item = { name: "Nothing Goes to Waste" };
+    expect(pickItemImage(item, page(`${name}<td style="width: 9%;"><img src="https://x.com/uploads/12_game.png" /></td>`))).toBeNull();
+    expect(pickItemImage(item, page(`${name}<td><img src="https://x.com/uploads/trophy-guide-silver.png" /></td>`))).toBeNull();
+    // A wide cell with a real picture after the mention is still the item's.
+    expect(pickItemImage(item, page(`${name}<td><img src="https://x.com/uploads/boss-arena.jpg" width="800" /></td>`))?.url).toBe(
+      "https://x.com/uploads/boss-arena.jpg",
+    );
+  });
+
+  it("repetições evitadas: só imagens que outro item já levou (não as recusadas por largura ou leitura)", () => {
+    const pages = [{ url: "https://wiki.x.com/a", sourceName: "A", html: `<html><body><h3>Golden Feather</h3><img src="/gf.jpg" width="800"></body></html>` }];
+    const usage = newImageUsage();
+    refuseImage(usage, "https://wiki.x.com/gf.jpg");
+    expect(pickItemImage({ name: "Golden Feather" }, pages, usage)).toBeNull();
+    expect(usage.duplicatesAvoided).toBe(0);
+  });
+
+  it("os mesmos bytes de uma imagem já colocada contam uma repetição só", () => {
+    const usage = newImageUsage();
+    markImageUsed(usage, { url: "https://a.com/x.jpg", sourceName: "A", sourceUrl: "https://a.com/p", thirdParty: true }, "h1");
+    expect(repeatedBytes(usage, "h1")).toBe(true);
+    expect(repeatedBytes(usage, "h1")).toBe(true);
+    expect(repeatedBytes(usage, "h2")).toBe(false);
+    expect(usage.duplicatesAvoided).toBe(1);
+    // Placed is not yet sent: the source counts after the upload.
+    expect(usage.bySource.size).toBe(0);
   });
 });
 

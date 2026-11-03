@@ -1414,6 +1414,18 @@ describe("Task 28: imagens por item, únicas e de fontes variadas", () => {
     expect(deps.lines.some((l) => l.includes("2 imagens enviadas") && l.includes("wiki.example 1") && l.includes("1 repetição evitada"))).toBe(true);
   });
 
+  it("revisão 1: a fonte só conta depois do envio dar certo; a mesma imagem repetida conta uma vez só", async () => {
+    const { api, calls } = fakeApi({ uploadImage: vi.fn(async () => { throw new Error("upload 500"); }) } as never);
+    const src = { sourceName: "Wiki", sourceUrl: "https://wiki.example/a" };
+    const stages = fakeStages({
+      writeAndCheckGuide: async () => ({ ok: true as const, payload: guideOf(["Golden Feather"]) }),
+      pickItemImage: candidatesStage({ "Golden Feather": [{ url: "https://img.example/gf.jpg", ...src }] }),
+    });
+    expect(await runGuideRequest(makeDeps({ api, stages, fetchImage: vi.fn(async (url: string) => Buffer.from(url)) }))).toBe("review");
+    const report = calls.created[0]!.payload.report as RobotReport;
+    expect(report.images).toEqual({ placed: 0, bySource: {}, duplicatesAvoided: 0 });
+  });
+
   it("imagem com menos de 300 px de largura nos bytes baixados: recusada, vai para o próximo candidato", async () => {
     const { api, calls } = fakeApi();
     const narrow = await sharp({ create: { width: 200, height: 120, channels: 3, background: "#222" } }).png().toBuffer();
