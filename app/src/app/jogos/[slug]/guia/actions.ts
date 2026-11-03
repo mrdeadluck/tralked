@@ -91,7 +91,7 @@ export async function toggleItem(guideId: string, itemKey: string): Promise<Togg
 }
 
 export type CheckGameAchievementsResult = {
-  status: "ok" | "private" | "unlinked" | "cooldown";
+  status: "ok" | "private" | "unlinked" | "cooldown" | "error" | "unauthenticated";
   newUnlocks: { apiName: string; name: string; iconUrl: string | null }[];
   reward: Reward | null;
 };
@@ -109,7 +109,7 @@ const NOTHING = (status: CheckGameAchievementsResult["status"]): CheckGameAchiev
  */
 export async function checkGameAchievements(gameId: string): Promise<CheckGameAchievementsResult> {
   const user = await getSessionUser();
-  if (!user) return NOTHING("unlinked");
+  if (!user) return NOTHING("unauthenticated");
   const game = await prisma.game.findUnique({ where: { id: gameId }, select: { steamAppId: true } });
   if (!game?.steamAppId) return NOTHING("unlinked");
   if (!(await prisma.user.findUnique({ where: { id: user.id }, select: { steamId: true } }))?.steamId) {
@@ -128,8 +128,9 @@ export async function checkGameAchievements(gameId: string): Promise<CheckGameAc
       userId: user.id,
       error: error instanceof Error ? error.message : String(error),
     });
-    return NOTHING("ok");
+    return NOTHING("error");
   }
+  // private / unlinked / error (no fresh playtime to judge a completion): nothing was recorded.
   if (result.status !== "ok") return NOTHING(result.status);
 
   const newUnlocks = await prisma.achievement.findMany({

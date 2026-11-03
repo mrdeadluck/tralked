@@ -36,6 +36,8 @@ const steamState = vi.hoisted(() => ({
   unlocks: {} as Record<string, Date | null>,
   profilePublic: true,
   privateGame: false,
+  /** Fresh playtime of the app (GetOwnedGames filtered to it); "fail" makes the call throw. */
+  playtimeMin: 600 as number | "fail",
 }));
 vi.mock("@/lib/integrations", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/integrations")>();
@@ -57,12 +59,15 @@ function installSteam() {
   steamState.asked = [];
   steamState.unlocks = {};
   steamState.privateGame = false;
+  steamState.playtimeMin = 600;
   steamState.api = {
     async getPlayerSummary(steamId) {
       return { steamId, personaName: "Test", avatarUrl: "", profilePublic: steamState.profilePublic };
     },
-    async getOwnedGames() {
-      throw new Error("the single-game check must not read the library");
+    async getOwnedGames(_steamId, options) {
+      if (options?.appId !== APP_ID) throw new Error("the single-game check must not read the library");
+      if (steamState.playtimeMin === "fail") throw new Error("steam down");
+      return [{ appId: APP_ID, playtimeMin: steamState.playtimeMin }];
     },
     async getSchemaForGame() {
       return Object.keys(PCTS).map((apiName) => ({ apiName, name: apiName, hidden: false }));
@@ -216,6 +221,77 @@ describe.skipIf(!reachable)("single-game Steam check", () => {
     expect(result.reward).toBeNull();
     expect(await prisma.userAchievement.count({ where: { userId: user.id, suspicious: true } })).toBe(10);
     expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "achievement" } })).toBe(0);
+  });
+
+  it("logged out → unauthenticated", async () => {
+    const { checkGameAchievements } = await import("@/app/jogos/[slug]/guia/actions");
+    const id = await gameId();
+    expect(await checkGameAchievements(id)).toEqual({ status: "unauthenticated", newUnlocks: [], reward: null });
+  });
+
+  it("an unexpected failure → error (not ok)", async () => {
+    const { checkGameAchievements } = await import("@/app/jogos/[slug]/guia/actions");
+    const id = await gameId();
+    await newUser();
+    const read = steamState.api.getPlayerAchievements;
+    steamState.api.getPlayerAchievements = async () => {
+      throw new Error("steam exploded");
+    };
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await checkGameAchievements(id)).toEqual({ status: "error", newUnlocks: [], reward: null });
+    log.mockRestore();
+    steamState.api.getPlayerAchievements = read;
+  });
+
+  describe("completion (speed-platinum rule needs fresh playtime)", () => {
+    const allUnlocked = () =>
+      Object.fromEntries(Object.keys(PCTS).map((a, i) => [a, new Date(Date.UTC(2024, 0, 1 + i))]));
+
+    async function completable() {
+      const { prisma } = await import("@/lib/db");
+      const id = await gameId();
+      // Average completion of 100 h: the rule flags anything under 5 h.
+      await prisma.game.update({ where: { id }, data: { timeToBeatCompleteMin: 6000 } });
+      const user = await newUser();
+      // Stored playtime is days old and below the threshold.
+      await prisma.userGame.create({ data: { userId: user.id, gameId: id, platform: "steam", playtimeMin: 10, unlockedCount: 0 } });
+      return { id, user, prisma };
+    }
+
+    it("stored playtime below the threshold but fresh playtime fine → not flagged", async () => {
+      const { checkGameAchievements } = await import("@/app/jogos/[slug]/guia/actions");
+      const { id, user, prisma } = await completable();
+      steamState.unlocks = allUnlocked();
+      steamState.playtimeMin = 6000;
+
+      expect((await checkGameAchievements(id)).status).toBe("ok");
+      expect(await prisma.userAchievement.count({ where: { userId: user.id, suspicious: true } })).toBe(0);
+      expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "platinum" } })).toBe(1);
+    });
+
+    it("fresh playtime really below the threshold → flagged, no XP (same verdict as syncUser)", async () => {
+      const { checkGameAchievements } = await import("@/app/jogos/[slug]/guia/actions");
+      const { id, user, prisma } = await completable();
+      steamState.unlocks = allUnlocked();
+      steamState.playtimeMin = 60;
+
+      await checkGameAchievements(id);
+      expect(await prisma.userAchievement.count({ where: { userId: user.id, suspicious: true } })).toBe(12);
+      expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(0);
+    });
+
+    it("no fresh playtime → nothing recorded, status error", async () => {
+      const { checkGameAchievements } = await import("@/app/jogos/[slug]/guia/actions");
+      const { id, user, prisma } = await completable();
+      steamState.unlocks = allUnlocked();
+      steamState.playtimeMin = "fail";
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      expect(await checkGameAchievements(id)).toEqual({ status: "error", newUnlocks: [], reward: null });
+      log.mockRestore();
+      expect(await prisma.userAchievement.count({ where: { userId: user.id } })).toBe(0);
+      expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(0);
+    });
   });
 
   describe("toggleItem", () => {

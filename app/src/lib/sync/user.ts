@@ -689,7 +689,11 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
 }
 
 export type SyncUserGameResult = {
-  status: "ok" | "private" | "unlinked";
+  /**
+   * `error`: the game would be completed but Steam did not give its fresh playtime (needed by the
+   * speed-platinum rule); nothing was recorded, the normal sync settles it later.
+   */
+  status: "ok" | "private" | "unlinked" | "error";
   /** apiNames of the unlocks recorded for the first time by this read. */
   newUnlocks: string[];
 };
@@ -712,12 +716,40 @@ export async function syncUserGame(userId: string, appId: number): Promise<SyncU
     where: { userId, platform: "steam", game: { steamAppId: appId } },
     select: { playtimeMin: true },
   });
-  const playtimeMin = stored?.playtimeMin ?? 0;
   // requireUnlock: a game with no unlock is not recorded (nothing to add); fromLibrary stays false
   // so the library's playtime bookkeeping is untouched.
-  const fetched = await fetchGame(link.steamId, { appId, playtimeMin }, playtimeMin > 0, true);
-  if (fetched === "private") return { status: "private", newUnlocks: [] };
-  if (fetched === "none") return { status: "ok", newUnlocks: [] };
+  let playtimeMin = stored?.playtimeMin ?? 0;
+  let playtimeKnown = playtimeMin > 0;
+  const steam = getSteam();
+  const achievements = await fetchGame(link.steamId, { appId, playtimeMin }, playtimeKnown, true);
+  if (achievements === "private") return { status: "private", newUnlocks: [] };
+  if (achievements === "none") return { status: "ok", newUnlocks: [] };
+  let fetched = achievements;
+
+  // The speed-platinum rule judges a completion by playtime: stored hours may be days old (or
+  // missing), so a completing read asks Steam for this one app's playtime first. Without it the
+  // verdict would differ from syncUser's, and a wrong flag is sticky: record nothing instead.
+  const total = Math.max(fetched.game.achievementCount, fetched.game.achievements.length);
+  if (fetched.unlocks.length >= total) {
+    try {
+      const library = await steam.getOwnedGames(link.steamId, { appId });
+      if (library === "private") return { status: "private", newUnlocks: [] };
+      // Keyless adapter: no playtime anywhere, so (as in syncUser) the rule cannot apply.
+      if (library === "unsupported") {
+        playtimeKnown = false;
+      } else {
+        playtimeMin = library.find((g) => g.appId === appId)?.playtimeMin ?? 0;
+        // As in syncUser: a 0 only counts when Steam shows playtime for the library at all.
+        playtimeKnown =
+          playtimeMin > 0 ||
+          (await prisma.userGame.count({ where: { userId, platform: "steam", playtimeMin: { gt: 0 } } })) > 0;
+      }
+    } catch (error) {
+      console.error(`Game check: no fresh playtime for app ${appId}, user ${userId}`, error);
+      return { status: "error", newUnlocks: [] };
+    }
+    fetched = { ...fetched, playtimeMin, playtimeKnown };
+  }
 
   const known = await loadKnownUnlocks(userId);
   const everyUnlock = new Map(

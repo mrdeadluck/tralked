@@ -62,7 +62,8 @@ export interface SteamApi {
    * `'private'` when the profile is public but its game details are not; `'unsupported'` when
    * the adapter cannot list games (keyless community access): the sync then probes the catalog.
    */
-  getOwnedGames(steamId: string): Promise<SteamOwnedGame[] | "private" | "unsupported">;
+  /** `options.appId` narrows the answer to that one app (keyed adapter: `appids_filter`). */
+  getOwnedGames(steamId: string, options?: { appId?: number }): Promise<SteamOwnedGame[] | "private" | "unsupported">;
   /** `lang`: Steam's schema language (`brazilian` brings the PT-BR names); default `english`. */
   getSchemaForGame(appId: number, lang?: SteamSchemaLang): Promise<SteamSchemaAchievement[]>;
   getGlobalAchievementPercentages(appId: number): Promise<Record<string, number>>;
