@@ -3,9 +3,11 @@ import {
   ACHIEVEMENT_PLATFORMS,
   contentBlocksSchema,
   plainText,
+  STEP_KEY_PATTERN,
   stripInline,
   type ContentBlock,
 } from "./schema";
+import { walkthroughSchema, type Walkthrough } from "./walkthrough-schema";
 
 /**
  * Guide payload of the bot API (and of anything else that writes a whole guide): the fact sheet,
@@ -73,8 +75,8 @@ export const guideFactsSchema = z
     }
   });
 
-/** Stable step key: lowercase letters, numbers and hyphens ("chefe-final"). */
-export const STEP_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** Stable step key: lowercase letters, numbers and hyphens ("chefe-final"). Defined in ./schema (shared with the walkthrough). */
+export { STEP_KEY_PATTERN };
 
 export const guideStepSchema = z.strictObject({
   /**
@@ -169,10 +171,36 @@ export function checkUniqueNotes(
   });
 }
 
+const guideFormatSchema = z.union([z.literal(1), z.literal(2)]);
+
+/** Format 2 carries a walkthrough, and each chapter's phaseKey names one of the roadmap steps. */
+function checkWalkthrough(
+  guide: { format?: 1 | 2; walkthrough?: Walkthrough; steps?: { key?: string }[] },
+  ctx: z.RefinementCtx,
+) {
+  if (guide.format === 2 && !guide.walkthrough) {
+    ctx.addIssue({ code: "custom", path: ["walkthrough"], message: "O formato 2 exige o walkthrough" });
+  }
+  if (!guide.walkthrough || !guide.steps) return;
+  const keys = new Set(guide.steps.map((step) => step.key));
+  guide.walkthrough.chapters.forEach((chapter, i) => {
+    if (!keys.has(chapter.phaseKey)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["walkthrough", "chapters", i, "phaseKey"],
+        message: `phaseKey sem etapa com essa key: ${chapter.phaseKey}`,
+      });
+    }
+  });
+}
+
 export const guidePayloadSchema = z
   .strictObject({
     game: gameRefSchema,
     ...guideFields,
+    /** 1 = classic guide (steps + notes); 2 = walkthrough (the guide robot). */
+    format: guideFormatSchema.default(1),
+    walkthrough: walkthroughSchema.optional(),
     overview: guideFields.overview.default([]),
     warnings: guideFields.warnings.default([]),
     body: guideFields.body.optional(),
@@ -183,10 +211,11 @@ export const guidePayloadSchema = z
   .superRefine((guide, ctx) => {
     checkUniqueNotes(guide.achievementNotes, ctx);
     checkStepKeys(guide.steps, ctx);
+    checkWalkthrough(guide, ctx);
   });
 
 export const guidePatchSchema = z
-  .strictObject(guideFields)
+  .strictObject({ ...guideFields, format: guideFormatSchema, walkthrough: walkthroughSchema })
   .partial()
   .superRefine((patch, ctx) => {
     if (Object.keys(patch).length === 0) {
@@ -194,6 +223,7 @@ export const guidePatchSchema = z
     }
     checkUniqueNotes(patch.achievementNotes, ctx);
     checkStepKeys(patch.steps, ctx);
+    checkWalkthrough(patch, ctx);
   });
 
 export type GuidePayload = z.output<typeof guidePayloadSchema>;

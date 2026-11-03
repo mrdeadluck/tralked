@@ -37,7 +37,7 @@ function checkText(value: string, ctx: z.RefinementCtx, inline: boolean) {
   }
   if (!inline) return;
   for (const match of value.matchAll(INLINE_LINK)) {
-    if (!isSafeHttpUrl(match[2])) {
+    if (!isSafeHttpUrl(match[2] ?? "")) {
       ctx.addIssue({ code: "custom", message: `Link inválido: "${match[2]}" (use http:// ou https://)` });
     }
   }
@@ -60,6 +60,9 @@ export const inlineText = (max: number) =>
     .min(1, "Obrigatório")
     .max(max)
     .superRefine((value, ctx) => checkText(value, ctx, true));
+
+/** Stable key (of a step, chapter or item): lowercase letters, numbers and hyphens ("chefe-final"). */
+export const STEP_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export const ACHIEVEMENT_PLATFORMS = ["steam", "psn", "xbox", "retro"] as const;
 export const CALLOUT_TONES = ["info", "aviso", "spoiler"] as const;

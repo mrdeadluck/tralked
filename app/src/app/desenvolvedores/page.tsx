@@ -95,6 +95,7 @@ const ERROR_MEANING: Record<ApiErrorCode, string> = {
   guide_exists: "O jogo já tem guia. A mensagem traz o id; se o guia for desta chave, use PATCH.",
   published_locked: "A redação já publicou o conteúdo; só uma chave com publish pode alterá-lo.",
   idempotency_conflict: "O Idempotency-Key já foi usado com outro corpo ou em outro endpoint.",
+  unsupported_media_type: "O Content-Type não é aceito neste endpoint.",
   payload_too_large: "O corpo passa de 1 MiB.",
   validation_failed: "Campos inválidos. Cada item de issues aponta o campo por JSON Pointer.",
   rate_limited: `Mais de ${RATE_LIMIT} requisições no minuto. Espere os segundos de Retry-After.`,

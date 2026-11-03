@@ -14,7 +14,7 @@ import { apiError, type ApiErrorBody } from "./errors";
 export const IDEMPOTENCY_HEADER = "idempotency-key";
 const KEY_PATTERN = /^[\x21-\x7e]{1,255}$/;
 
-export type IngestionKind = "article" | "guide";
+export type IngestionKind = "article" | "guide" | "guide_request" | "media";
 export type StoredResponse = { status: number; body: unknown };
 
 export function readIdempotencyKey(request: Request): string | null {

@@ -31,7 +31,7 @@ describe("documented examples", () => {
     expect(guidePayloadSchema.safeParse(EXAMPLE_GUIDE).success).toBe(true);
     expect(Object.keys(EXAMPLE_GUIDE).sort()).toEqual(
       Object.keys(guidePayloadSchema.shape)
-        .filter((k) => k !== "status")
+        .filter((k) => !["status", "format", "walkthrough"].includes(k))
         .sort(),
     );
   });

@@ -12,6 +12,7 @@
 //   Article.status  draft | review | published | archived
 //   Content source  editorial | bot                            (Article.source, Guide.source)
 //   Guide.status    draft | review | published
+//   GuideRequest.status  queued | researching | writing | review | published | waiting_sources | failed | cancelled
 //   Comment target  article | guide | photo | thread
 //   Comment.status  visible | hidden | removed | deleted (by its author: body cleared, placeholder kept)
 //   Report target   article | guide | photo | thread | comment | post | user
@@ -94,6 +95,7 @@ model User {
   votes          GuideVote[]
   revisions      GuideRevision[]
   stepProgress   GuideStepProgress[]
+  itemProgress   GuideItemProgress[]
   author         Author?
   ownedFamilies  Family[]
   membership     FamilyMember?
@@ -115,8 +117,8 @@ model User {
   passwordResets PasswordResetToken[]
   wishlist       WishlistItem[]
   setup          PlayerSetup?
-  moderationDone ModerationLog[]     @relation("ModerationActor")
-  moderationOn   ModerationLog[]     @relation("ModerationTargetUser")
+  moderationDone ModerationLog[]      @relation("ModerationActor")
+  moderationOn   ModerationLog[]      @relation("ModerationTargetUser")
 
   @@index([mutedUntil])
   @@index([bannedUntil])
@@ -313,24 +315,27 @@ model GameSkill {
 /// An achievement / trophy of a game on one platform. `apiName` is the platform's own id
 /// (Steam apiname, PSN trophyId, Xbox achievement id, RA achievement id).
 model Achievement {
-  id          String  @id @default(cuid())
-  gameId      String
+  id            String  @id @default(cuid())
+  gameId        String
   /// steam | psn | xbox | retro
-  platform    String  @default("steam")
-  apiName     String
-  name        String
-  description String?
-  iconUrl     String?
-  globalPct   Float?
-  hidden      Boolean @default(false)
+  platform      String  @default("steam")
+  apiName       String
+  name          String
+  description   String?
+  /// Steam only: the PT-BR name and description from the store schema (l=brazilian).
+  namePt        String?
+  descriptionPt String?
+  iconUrl       String?
+  globalPct     Float?
+  hidden        Boolean @default(false)
   /// PSN only: bronze | silver | gold | platinum
-  trophyTier  String?
+  trophyTier    String?
   /// Xbox gamerscore or RetroAchievements points.
-  points      Int?
+  points        Int?
   /// RetroAchievements: the achievement belongs to the hardcore set. Whether a given unlock was
   /// earned in hardcore mode is UserAchievement.hardcore.
-  hardcore    Boolean @default(false)
-  game        Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  hardcore      Boolean @default(false)
+  game          Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   unlocks UserAchievement[]
   notes   GuideAchievementNote[]
@@ -684,6 +689,16 @@ model Guide {
   collectibles Json      @default("[]")
   /// Optional free-form body as ContentBlock[] (same schema as Article.blocks).
   blocks       Json?
+  /// 1 = classic guide (steps + notes); 2 = walkthrough (the guide robot).
+  format       Int       @default(1)
+  /// Format 2 only: the walkthrough (see lib/content/walkthrough-schema.ts).
+  walkthrough  Json?
+  /// Format 2 only: sequential edition number, unique across guides.
+  edition      Int?      @unique
+  /// Platform seal: steam_only | psn_xbox | psn | xbox.
+  compat       String?
+  /// Robot report (what it read, divergences, completeness gate); admin only.
+  report       Json?
   /// [{ title, url }] references the guide was written from (bot API).
   sources      Json      @default("[]")
   /// editorial | bot
@@ -706,9 +721,60 @@ model Guide {
   tips      GuideTip[]
   revisions GuideRevision[]
   versions  GuideVersion[]
+  progress  GuideItemProgress[]
+  pending   GuidePendingUpdate[]
 }
 
 /// Full snapshot of a guide (fields, steps, notes) saved on every edit, for diff and restore.
+/// A reader's checkmark on a walkthrough item. Hangs on the item key, so it survives updates that
+/// keep the key.
+model GuideItemProgress {
+  userId    String
+  guideId   String
+  itemKey   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+
+  @@id([userId, guideId, itemKey])
+}
+
+/// An update of an already published guide, waiting for an admin; the published guide does not change.
+model GuidePendingUpdate {
+  id        String   @id @default(cuid())
+  guideId   String
+  botKeyId  String?
+  /// The whole patch/payload the bot sent.
+  payload   Json
+  createdAt DateTime @default(now())
+  guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  botKey    ApiKey?  @relation(fields: [botKeyId], references: [id], onDelete: SetNull)
+
+  @@index([guideId])
+}
+
+/// A request for the robot to write a guide. Status values are listed in the header:
+/// queued | researching | writing | review | published | waiting_sources | failed | cancelled.
+model GuideRequest {
+  id             String    @id @default(cuid())
+  steamAppId     Int
+  gameId         String?
+  platform       String    @default("steam")
+  status         String
+  priority       Int       @default(0)
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime?
+  firstWaitingAt DateTime?
+  reason         String?
+  report         Json?
+  guideId        String?
+  requestedById  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, priority, createdAt])
+}
+
 model GuideVersion {
   id        String   @id @default(cuid())
   guideId   String
@@ -1154,9 +1220,10 @@ model ApiKey {
   revokedAt   DateTime?
   createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
-  articles   Article[]
-  guides     Guide[]
-  ingestions IngestionLog[]
+  articles      Article[]
+  guides        Guide[]
+  guidePendings GuidePendingUpdate[]
+  ingestions    IngestionLog[]
 }
 
 /// One bot POST. (keyId, idempotencyKey) is unique, so a repeated request returns the stored result.

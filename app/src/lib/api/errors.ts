@@ -19,6 +19,7 @@ export type ApiErrorCode =
   | "guide_exists"
   | "published_locked"
   | "idempotency_conflict"
+  | "unsupported_media_type"
   | "payload_too_large"
   | "validation_failed"
   | "rate_limited";
@@ -37,6 +38,7 @@ export const ERROR_STATUS: Record<ApiErrorCode, number> = {
   guide_exists: 409,
   published_locked: 409,
   idempotency_conflict: 409,
+  unsupported_media_type: 415,
   payload_too_large: 413,
   validation_failed: 422,
   rate_limited: 429,
