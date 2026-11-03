@@ -650,9 +650,10 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       countsFor: [...new Set(i?.countsFor ?? [])].filter((x) => steamApiNames.has(x)).slice(0, 20),
       alsoOn: a && compatSteamOnly && !a.steamOnly ? ["psn"] : [],
       sources: sources.length > 0 ? sources : fallbackSources(),
-      // R20: a deadline the code assumed (its own chapter) is reviewed too, and so is a revisit placed by the code.
+      // R20: a deadline the code assumed (its own chapter) is reviewed too, and so are a revisit placed by the code
+      // and a number the code gave (R28).
       review: Boolean(
-        (i && (!i.agreed || i.conflict || i.deadlineAssumed || i.orderAssumed)) ||
+        (i && (!i.agreed || i.conflict || i.deadlineAssumed || i.orderAssumed || i.numberAssumed)) ||
           (a && (!a.agreed || a.conflict || a.deadlineAssumed)) ||
           sources.length === 0,
       ),

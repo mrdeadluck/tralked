@@ -285,12 +285,13 @@ export async function politeFetchImage(url: string, opts: PoliteOptions = {}): P
 
 /** robots.txt that could not be read (5xx, 429, network error): nothing is fetched from the host for a few minutes. */
 const ROBOTS_UNREACHABLE_MS = 10 * 60_000;
+const ROBOTS_RETRY_MS = 5_000;
 const UNREACHABLE = "robots_unreachable";
 
 /**
  * robots.txt of a host (RFC 9309), from the page cache when fresh. Read: its rules, for 7 days. 4xx (none there):
- * everything allowed, for 7 days. 5xx, 429 or a network error (unreachable): everything disallowed, for 10 minutes
- * only, so a passing outage does not hold the host back for long.
+ * everything allowed, for 7 days. 5xx, 429 or a network error (unreachable), twice in a row 5 s apart: everything
+ * disallowed, for 10 minutes only, so a passing outage does not hold the host back for long.
  */
 async function loadRobots(target: URL, r: Resolved): Promise<RobotsEntry> {
   const robotsUrl = `${target.protocol}//${target.host}/robots.txt`;
@@ -303,20 +304,28 @@ async function loadRobots(target: URL, r: Resolved): Promise<RobotsEntry> {
       return { rules: [], until: at + ROBOTS_UNREACHABLE_MS, unreachable: cached.text ?? "inalcançável" };
     }
   }
-  let txt = "";
-  let unreachable: string | undefined;
-  try {
-    const followed = await fetchFollowing(new URL(robotsUrl), r, false);
-    if (followed.kind !== "response") throw new Error("robots.txt");
-    const { response } = followed;
-    if (response.ok) txt = await response.text();
-    else {
+  /** One read of robots.txt: its text (4xx: none, everything allowed), or why it could not be read. */
+  const attempt = async (): Promise<{ txt: string } | { unreachable: string }> => {
+    try {
+      const followed = await fetchFollowing(new URL(robotsUrl), r, false);
+      if (followed.kind !== "response") throw new Error("robots.txt");
+      const { response } = followed;
+      if (response.ok) return { txt: await response.text() };
       void response.body?.cancel().catch(() => {});
-      if (response.status >= 500 || response.status === 429 || response.status < 400) unreachable = `HTTP ${response.status}`;
+      if (response.status >= 500 || response.status === 429 || response.status < 400) return { unreachable: `HTTP ${response.status}` };
+      return { txt: "" };
+    } catch (error) {
+      return { unreachable: error instanceof Error ? error.message : String(error) };
     }
-  } catch (error) {
-    unreachable = error instanceof Error ? error.message : String(error);
+  };
+  // Unreachable: one more try a few seconds later before holding the host back.
+  let read = await attempt();
+  if ("unreachable" in read) {
+    await r.sleep(ROBOTS_RETRY_MS);
+    read = await attempt();
   }
+  const txt = "txt" in read ? read.txt : "";
+  const unreachable = "unreachable" in read ? read.unreachable : undefined;
   if (unreachable !== undefined) {
     r.db?.savePage({ url: robotsUrl, fetchedAt: new Date(now), status: UNREACHABLE, finalUrl: robotsUrl, text: unreachable });
     return { rules: [], until: now + ROBOTS_UNREACHABLE_MS, unreachable };

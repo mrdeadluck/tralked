@@ -185,7 +185,9 @@ describe("buildDossier: ordem da fonte principal (cronológica)", () => {
     // PowerPyx is a secondary source here: its Ashen Peak never becomes a chapter.
     expect(titles(d)).toEqual(["Weeping Creek", "Crimson Forest"]);
     expect(d.chapters[0]!.items[0]).toMatchObject({ agreed: true, sources: ["Steam Guide", "PowerPyx"] });
-    expect(d.corroborationOnly).toEqual([{ name: "Item de Ashen Peak", chapter: "Ashen Peak", source: "PowerPyx" }]);
+    expect(d.corroborationOnly).toEqual([
+      { name: "Item de Ashen Peak", kind: "collectible", chapter: "Ashen Peak", source: "PowerPyx", missable: false, returnLater: false, countsFor: [], countsForEn: [] },
+    ]);
     expect(d.facts.roadmap.map((r) => r.title)).toEqual(["Zerada única"]);
   });
 

@@ -67,6 +67,11 @@ export type DossierItem = {
   numbering?: "chapter";
   /** Its chapter is a revisit whose place in the game the primary script does not state: it goes to review. */
   orderAssumed?: boolean;
+  /**
+   * R28: it counts toward a "collect N" and its source gives no number: it got the next number of its type in its
+   * chapter (the source lists in route order), and goes to review.
+   */
+  numberAssumed?: boolean;
 };
 
 export type DossierChapter = {
@@ -83,8 +88,26 @@ export type DossierChapter = {
   orderAssumed?: boolean;
 };
 
-/** An item of a secondary source that matches no item of the primary script: it only corroborates. */
-export type CorroborationOnly = { name: string; chapter: string; source: string };
+/**
+ * An item of a secondary source that matches no item of the primary script: it only corroborates. It never gets a
+ * place in the route (no invented position); the report lists it as "not placed" with what the source says of it.
+ */
+export type CorroborationOnly = {
+  name: string;
+  nameEn?: string;
+  kind: string;
+  collectibleType?: string;
+  /** The source's chapter it came from. */
+  chapter: string;
+  source: string;
+  missable: boolean;
+  missableUntil?: string;
+  returnLater: boolean;
+  /** Steam apiNames it counts toward (matched). */
+  countsFor: string[];
+  /** What it counts toward as the source wrote it (also what matches no Steam achievement). */
+  countsForEn: string[];
+};
 
 export type DossierAchievement = {
   apiName: string;
@@ -529,6 +552,19 @@ export function buildDossier(
     }
   };
   const byOrder = (chapters: ExtractedFacts["chapters"]) => [...chapters].sort((a, b) => a.order - b.order);
+  const orphan = (item: FactItem, chapter: string, source: string): CorroborationOnly => ({
+    name: item.name,
+    ...(item.nameEn ? { nameEn: item.nameEn } : {}),
+    kind: item.kind,
+    ...(item.collectibleType ? { collectibleType: item.collectibleType } : {}),
+    chapter,
+    source,
+    missable: item.missable,
+    ...(item.missableUntil ? { missableUntil: item.missableUntil } : {}),
+    returnLater: item.returnLater,
+    countsFor: [...new Set(item.countsForEn.map(toApiName).filter((x): x is string => x !== undefined))],
+    countsForEn: [...item.countsForEn],
+  });
 
   let chapterList: ChapterAcc[] = [];
   const corroborationOnly: CorroborationOnly[] = [];
@@ -574,7 +610,7 @@ export function buildDossier(
       for (const chapter of ordered) {
         if (isPhase(page, chapter)) {
           // A stage's items are no steps of their own: they corroborate (their achievements stay covered).
-          for (const item of chapter.items) corroborationOnly.push({ name: item.name, chapter: chapter.title, source: nameOf(page) });
+          for (const item of chapter.items) corroborationOnly.push(orphan(item, chapter.title, nameOf(page)));
           continue;
         }
         // A heading with nothing to pick up is no chapter.
@@ -610,6 +646,7 @@ export function buildDossier(
     const slotNames = new Map(slots.map((s) => [s.acc, namesOf([s.acc.nameEn, s.acc.name])]));
     const slotApi = new Map(slots.map((s) => [s.acc, s.acc.achievementNameEn ? toApiName(s.acc.achievementNameEn) : undefined]));
     const claimed = new Set<string>();
+    const unmatched: { item: FactItem; fact: ExtractedFacts; group: string; chapter: string }[] = [];
     for (const fact of facts.filter((f) => !primary.includes(f))) {
       const group = nameOf(fact);
       const claim = (s: Slot) => `${group}|${s.chapter.uid}|${s.acc.id}`;
@@ -659,9 +696,26 @@ export function buildDossier(
             claimed.add(claim(found));
             merge(found.acc, item, fact, true);
           } else {
-            corroborationOnly.push({ name: item.name, chapter: chapter.title, source: group });
+            unmatched.push({ item, fact, group, chapter: chapter.title });
           }
         }
+      }
+    }
+    // Once more by the English name alone, anywhere: a localized or generic name may have hidden the match.
+    for (const { item, fact, group, chapter } of unmatched) {
+      const claim = (s: Slot) => `${group}|${s.chapter.uid}|${s.acc.id}`;
+      const en = item.nameEn ? normalizeName(item.nameEn) : "";
+      let found: Slot | undefined;
+      if (en.length >= 3) {
+        const exact = slots.filter((s) => slotNames.get(s.acc)!.includes(en));
+        const close = exact.length > 0 || en.length < 6 ? exact : slots.filter((s) => slotNames.get(s.acc)!.some((n) => similarity(n, en) >= 0.92));
+        if (close.length === 1 && !claimed.has(claim(close[0]!))) found = close[0];
+      }
+      if (found) {
+        claimed.add(claim(found));
+        merge(found.acc, item, fact, true);
+      } else {
+        corroborationOnly.push(orphan(item, chapter, group));
       }
     }
   } else {
@@ -717,6 +771,30 @@ export function buildDossier(
       };
     }),
   }));
+  // R28: a counting item with no number gets the next one of its type in its chapter (route order), for review.
+  for (const chapter of chapters) {
+    const typeOf = (i: DossierItem) => singular(normalizeName(i.collectibleType ?? i.kind));
+    const last = new Map<string, number>();
+    for (const i of chapter.items) if (i.index !== undefined) last.set(typeOf(i), Math.max(last.get(typeOf(i)) ?? 0, i.index));
+    for (const i of chapter.items) {
+      if (i.index !== undefined || i.countsFor.length === 0) continue;
+      const n = (last.get(typeOf(i)) ?? 0) + 1;
+      last.set(typeOf(i), n);
+      Object.assign(i, { index: n, numbering: "chapter" as const, numberAssumed: true });
+    }
+  }
+
+  // R30: a missable that only a secondary source lists stays out of the route (no invented position): warn.
+  const lostOnes = corroborationOnly.filter((c) => c.missable);
+  if (lostOnes.length > 0) {
+    const n = lostOnes.length;
+    const names = lostOnes.slice(0, 10).map((c) => c.name).join(", ");
+    divergences.push(
+      `${n} ${n === 1 ? "item perdível aparece só em fonte secundária e ficou" : "itens perdíveis aparecem só em fonte secundária e ficaram"} fora da rota (sem posição): ` +
+        `${names}${n > 10 ? ` (e mais ${n - 10})` : ""}. Revise antes de publicar: veja "Itens só de fonte secundária, não posicionados" no relatório.`,
+    );
+  }
+
   chapters.forEach((chapter, at) => {
     for (const item of chapter.items) {
       const deadline = chapterForMilestone(item.missableUntil, chapters, at);

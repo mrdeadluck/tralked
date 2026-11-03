@@ -14,7 +14,7 @@ import { extractFacts, extractionPrompt } from "./extract.js";
 import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate, type GateResult } from "./gate.js";
 import { composeImage, pickItemImage, type PagesInput } from "./images.js";
-import { bodyBytes, estimatePayloadBytes, fitBody, kib, SITE_LIMITS, skeletonLimitProblems, tooBigReason } from "./limits.js";
+import { bodyBytes, estimatePayloadBytes, fitBody, imagesWorthTrying, kib, SITE_LIMITS, skeletonLimitProblems, tooBigReason } from "./limits.js";
 import { locateTarget } from "./locate.js";
 import { PAGE_TEXT_MAX } from "./page-text.js";
 import { buildReport, spendByPurpose, type RobotReport, type SourceRead } from "./report.js";
@@ -26,7 +26,8 @@ import type { FetchPage, SourceRef } from "./sources.js";
 import { guideAiConfig, guideSpend } from "./spend.js";
 import { readSteamAliases, steamAliasUrl, steamLanguagesIn, type AliasLanguage } from "./steam-aliases.js";
 import { createWebSearch, type SearchHit } from "./websearch.js";
-import { plain, writeAndCheckGuide } from "./writer.js";
+import { plain, writeAndCheckGuide, type GuideWriteResult } from "./writer.js";
+import { readWriting, saveWriting, writingKey } from "./writing-cache.js";
 
 /**
  * One guide request, start to end: claim → dossier → sources → extraction → crossref → gate → site limits →
@@ -83,6 +84,7 @@ export type GuidePipelineDeps = {
 };
 
 export const BUDGET_REASON = "teto de gasto";
+export const DEADLINE_BEFORE_WRITING = "tempo esgotado antes da escrita";
 const REASON_MAX = 2000;
 const SOURCE_NAME_MAX = 120;
 const CREDIT_MAX = 200;
@@ -204,6 +206,11 @@ async function sendFinal(deps: GuidePipelineDeps, reports: Sender, request: Guid
       if (error instanceof RequestClosedError) {
         deps.log(`guia: o site fechou o pedido ${request.id} (${error.message})`);
         return true;
+      }
+      // The site refused this report (422 with issues, other 4xx): sending it again would get the same answer.
+      if (error instanceof TralkedError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429) {
+        deps.log(`guia: o site recusou o relato "${final.status}" do pedido ${request.id}: ${messageOf(error)}; não repito`);
+        return false;
       }
       const wait = FINAL_REPORT_RETRIES_MS[attempt];
       if (wait === undefined) {
@@ -388,20 +395,36 @@ async function processRequest(run: Run): Promise<Final> {
   if (estimate.withoutImages > SITE_LIMITS.bodyBytes) {
     return failed(run, `${tooBigReason(estimate.withoutImages)} (estimativa antes de escrever, sem imagens)`);
   }
-  const imagesFit = estimate.withImages <= SITE_LIMITS.bodyBytes;
+  const imagesFit = imagesWorthTrying(estimate);
   if (!imagesFit) {
     progress.notes.push(
       `as imagens dos itens ficaram de fora: com elas o guia passaria de ${kib(SITE_LIMITS.bodyBytes)} KiB (estimativa: ${kib(estimate.withImages)} KiB)`,
     );
   }
 
-  // Step 8: write and check, against the raw text of the pages read (copy check).
+  // The soft deadline already passed: writing is the long, paid part. Stop here; the caches stay for the retry.
+  if (run.pastDeadline()) return failed(run, DEADLINE_BEFORE_WRITING);
+
+  // Step 8: write and check, against the raw text of the pages read (copy check); an approved writing of the same
+  // dossier is reused from the cache, without the AI.
   await run.send({ status: "writing" });
-  const written = await stages.writeAndCheckGuide(run.ai, toWrite, source, "backfill", {
-    models: { MODEL_WRITER: config.MODEL_WRITER, MODEL_FAST: config.MODEL_FAST },
-    sourceTexts: read.map((r) => r.text),
-    ...(scope ? { scope } : {}),
-  });
+  const models = { MODEL_WRITER: config.MODEL_WRITER, MODEL_FAST: config.MODEL_FAST };
+  const cacheKey = writingKey({ dossier: toWrite, scope, game: source.game, models });
+  const reused = readWriting(db, cacheKey);
+  let written: GuideWriteResult;
+  if (reused) {
+    written = { ok: true, payload: reused.payload, ...(reused.internalErrors.length > 0 ? { internalErrors: reused.internalErrors } : {}) };
+    progress.notes.push("escrita reaproveitada do cache");
+    deps.log(`guia: escrita reaproveitada do cache (salva em ${reused.savedAt}); sem chamar a IA`);
+  } else {
+    written = await stages.writeAndCheckGuide(run.ai, toWrite, source, "backfill", {
+      models,
+      sourceTexts: read.map((r) => r.text),
+      ...(scope ? { scope } : {}),
+    });
+    // Saved before images and soundtrack touch the payload.
+    if (written.ok) saveWriting(db, cacheKey, written, deps.now());
+  }
   const internalErrors = written.internalErrors ?? [];
   if (internalErrors.length > 0) deps.log(`guia: erro interno do escritor (ordem do código): ${internalErrors.join(" | ")}`);
   if (!written.ok) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GuidePayloadV2 } from "../../src/guias/contract.js";
 import { buildDossier } from "../../src/guias/dossier.js";
-import { bodyBytes, estimatePayloadBytes, fitBody, SITE_LIMITS, skeletonLimitProblems } from "../../src/guias/limits.js";
+import { bodyBytes, estimatePayloadBytes, fitBody, imagesWorthTrying, SITE_LIMITS, skeletonLimitProblems } from "../../src/guias/limits.js";
 import { buildReport } from "../../src/guias/report.js";
 import { buildSkeleton } from "../../src/guias/skeleton.js";
 import { chapter, fact, item, steamAch } from "./helpers-dossier.js";
@@ -37,6 +37,13 @@ describe("limites do site antes de gastar (C2)", () => {
     expect(big.withoutImages).toBeGreaterThan(small.withoutImages * 10);
     expect(big.withImages - big.withoutImages).toBeGreaterThan(1200 * 300);
     expect(big.withImages).toBeGreaterThan(SITE_LIMITS.bodyBytes);
+  });
+});
+
+describe("imagens perto do limite", () => {
+  it("a estimativa é grosseira: um pouco acima do limite as imagens ainda são tentadas; bem acima, não", () => {
+    expect(imagesWorthTrying({ withImages: SITE_LIMITS.bodyBytes + 30_000 })).toBe(true);
+    expect(imagesWorthTrying({ withImages: SITE_LIMITS.bodyBytes * 1.3 })).toBe(false);
   });
 });
 

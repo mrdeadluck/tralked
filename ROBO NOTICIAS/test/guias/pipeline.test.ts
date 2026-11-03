@@ -9,6 +9,8 @@ import type { GuideDossier, GuideDossierSource, SteamAchievement } from "../../s
 import type { ExtractedFacts, LlmFacts } from "../../src/guias/facts.js";
 import { BudgetExceededError } from "../../src/ai/client.js";
 import { extractionKey, runGuideRequest, type GuidePipelineDeps, type GuideStages } from "../../src/guias/pipeline.js";
+import { dryRun } from "../../src/guias/dry-run.js";
+import { PAGE_TEXT_VERSION } from "../../src/guias/page-text.js";
 import { loadRunContext } from "../../src/guias/run-context.js";
 import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import type { FetchPage, SourceRef } from "../../src/guias/sources.js";
@@ -826,5 +828,62 @@ describe("pequenos consertos do pipeline", () => {
       sources: [POWERPYX, STEAM_GUIDE],
       steamList: STEAM,
     });
+  });
+});
+
+describe("Task 17: escrita em cache e confiabilidade", () => {
+  it("a escrita aprovada fica no cache: outra tentativa do mesmo jogo reaproveita sem chamar a IA, e o ensaio mostra", async () => {
+    const db = openGuideDb(":memory:");
+    const first = fakeStages();
+    const one = fakeApi();
+    expect(await runGuideRequest(makeDeps({ db, api: one.api, stages: first }))).toBe("review");
+    expect(first.calls.writeAndCheckGuide).toHaveLength(1);
+
+    const second = fakeStages();
+    const two = fakeApi({ claimNext: vi.fn(async () => ({ ...REQUEST, id: "req-2" })) });
+    expect(await runGuideRequest(makeDeps({ db, api: two.api, stages: second }))).toBe("review");
+    expect(second.calls.writeAndCheckGuide).toBeUndefined();
+    const { payload } = two.calls.created[0]!;
+    expect((payload.report as RobotReport).notes).toContain("escrita reaproveitada do cache");
+    // Images and soundtrack are per send: the media URLs belong to each site.
+    expect(second.calls.findSoundtrack).toHaveLength(1);
+    expect(payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.image).toBeDefined();
+
+    // The dry run sees it (the page it read must be in the cache: the fake fetch does not store pages).
+    db.savePage({ url: STEAM_GUIDE.url, fetchedAt: new Date(), status: "ok", finalUrl: STEAM_GUIDE.url, text: STEAM_GUIDE_TEXT, html: STEAM_GUIDE_HTML, textVersion: PAGE_TEXT_VERSION });
+    const lines: string[] = [];
+    await dryRun({ db, config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", GUIDE_STEAM_REFERENCE_ID: "76561198012210783" }, requestId: "req-2", log: (l) => lines.push(l) });
+    expect(lines).toContainEqual(expect.stringMatching(/^escrita reaproveitável do cache: sim/));
+  });
+
+  it("prazo suave já passou antes da escrita: failed 'tempo esgotado antes da escrita', sem escrever", async () => {
+    const { api, calls } = fakeApi();
+    let t = Date.parse("2026-11-03T12:00:00Z");
+    const stages = fakeStages({
+      extractFacts: async (_page, source) => {
+        t += 151 * 60_000;
+        return steamFacts(source);
+      },
+    });
+    expect(await runGuideRequest(makeDeps({ api, stages, now: () => new Date(t) }))).toBe("failed");
+    expect(stages.calls.writeAndCheckGuide).toBeUndefined();
+    expect(statuses(calls)).toEqual(["failed"]);
+    expect(calls.reports[0]!.body.reason).toBe("tempo esgotado antes da escrita");
+  });
+
+  it("relato final recusado com 422 e issues: não repete", async () => {
+    let tries = 0;
+    const { api } = fakeApi({
+      reportRequest: vi.fn(async (_id: string, body: GuideRequestReport) => {
+        if (body.status !== "waiting_sources") return;
+        tries++;
+        throw new TralkedError(422, "validation_failed", "relatório inválido", [{ path: "report", message: "muito grande" }]);
+      }),
+    });
+    const stages = fakeStages({ extractFacts: async (_page, source) => ({ ...fact("x", "roteiro_steam"), source }) });
+    const sleeps: number[] = [];
+    expect(await runGuideRequest(makeDeps({ api, stages, sleep: async (ms) => void sleeps.push(ms) }))).toBe("waiting_sources");
+    expect(tries).toBe(1);
+    expect(sleeps).toEqual([]);
   });
 });

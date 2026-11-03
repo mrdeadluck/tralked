@@ -14,6 +14,12 @@ export const bodyBytes = (body: unknown) => Buffer.byteLength(JSON.stringify(bod
 
 export const kib = (bytes: number) => Math.ceil(bytes / 1024);
 
+/**
+ * The size estimate is rough: near the cap the images are still tried (the final fit drops them if the real body
+ * does not fit); only well past it are they skipped before any work on them.
+ */
+export const imagesWorthTrying = (estimate: { withImages: number }) => estimate.withImages <= SITE_LIMITS.bodyBytes * 1.2;
+
 /** One Portuguese sentence per site limit the skeleton breaks; empty when it fits. */
 export function skeletonLimitProblems(skel: GuideSkeleton): string[] {
   const problems: string[] = [];
@@ -121,9 +127,20 @@ export function fitBody<T extends Body>(body: T): { ok: true; body: T; bytes: nu
   }
 
   const report = current.report;
-  if (report.divergences.length > LIST_KEEP || report.singleSource.length > LIST_KEEP) {
-    current = { ...current, report: { ...report, divergences: trimList(report.divergences), singleSource: trimList(report.singleSource) } };
-    dropped.push(`o relatório cortou as listas de divergências e de fonte única em ${LIST_KEEP} linhas cada`);
+  const unplaced = report.unplaced;
+  if (report.divergences.length > LIST_KEEP || report.singleSource.length > LIST_KEEP || (unplaced?.items.length ?? 0) > LIST_KEEP) {
+    current = {
+      ...current,
+      report: {
+        ...report,
+        divergences: trimList(report.divergences),
+        singleSource: trimList(report.singleSource),
+        ...(unplaced && unplaced.items.length > LIST_KEEP
+          ? { unplaced: { ...unplaced, items: unplaced.items.slice(0, LIST_KEEP), omitted: unplaced.items.length - LIST_KEEP + (unplaced.omitted ?? 0) } }
+          : {}),
+      },
+    };
+    dropped.push(`o relatório cortou as listas de divergências, de fonte única e de itens não posicionados em ${LIST_KEEP} linhas cada`);
     bytes = bodyBytes(current);
     if (bytes <= SITE_LIMITS.bodyBytes) return { ok: true, body: current, bytes, dropped };
   }

@@ -7,7 +7,7 @@ import { buildDossier, type DossierAchievement, type GuideDossier, type GuideDos
 import type { ExtractedFacts } from "./facts.js";
 import { extractedFactsSchema } from "./facts.js";
 import { gate } from "./gate.js";
-import { estimatePayloadBytes, kib, SITE_LIMITS, skeletonLimitProblems } from "./limits.js";
+import { estimatePayloadBytes, imagesWorthTrying, kib, SITE_LIMITS, skeletonLimitProblems } from "./limits.js";
 import { PAGE_TEXT_VERSION, pageText } from "./page-text.js";
 import { extractionKey, readCachedFacts } from "./pipeline.js";
 import { buildReport } from "./report.js";
@@ -17,6 +17,8 @@ import { buildSkeleton } from "./skeleton.js";
 import type { FetchPage, SourceRef } from "./sources.js";
 import { readSteamAliases, steamLanguagesIn } from "./steam-aliases.js";
 import { writerPlan } from "./writer.js";
+import { readWriting, writingKey } from "./writing-cache.js";
+import { UNPLACED_TITLE } from "./report.js";
 
 /**
  * The free dry run (`pnpm guia -- --ensaio --appid <n>` or `--pedido <id>`): replays a request on what the robot
@@ -262,6 +264,19 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
     `itens: ${items.length}; confirmados por 2+ fontes: ${items.filter((i) => i.agreed).length}; de uma fonte só: ` +
       `${items.filter((i) => i.sources.length === 1).length}; itens de fontes secundárias sem par (só corroboram): ${toWrite.corroborationOnly.length}`,
   );
+  if (toWrite.corroborationOnly.length > 0) {
+    log(`${UNPLACED_TITLE} (${toWrite.corroborationOnly.length}; fora da rota, no relatório):`);
+    for (const c of toWrite.corroborationOnly) {
+      const flags = [
+        c.missable ? `PERDÍVEL${c.missableUntil ? ` até "${c.missableUntil}"` : ""}` : "",
+        c.returnLater ? "volta depois" : "",
+        c.countsFor.length > 0 ? `conta para ${c.countsFor.join(", ")}` : c.countsForEn.length > 0 ? `conta para "${c.countsForEn.join('", "')}" (sem conquista da Steam que case)` : "",
+      ].filter(Boolean);
+      log(`  - ${c.name}${c.nameEn && c.nameEn !== c.name ? ` (${c.nameEn})` : ""} — ${c.source}, capítulo "${c.chapter}"${flags.length > 0 ? ` [${flags.join("; ")}]` : ""}`);
+    }
+  }
+  const warnings = toWrite.divergences.filter((d) => d.includes("fora da rota (sem posição)"));
+  for (const w of warnings) log(`aviso: ${w}`);
 
   // Site limits, size, cost.
   const skeleton = buildSkeleton(toWrite);
@@ -276,7 +291,13 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   const size = estimatePayloadBytes(skeleton, toWrite, reportBytes);
   log(
     `tamanho estimado do guia: ~${kib(size.withoutImages)} KiB sem imagens, ~${kib(size.withImages)} KiB com imagens ` +
-      `(limite ${kib(SITE_LIMITS.bodyBytes)} KiB)${size.withoutImages > SITE_LIMITS.bodyBytes ? " → NÃO CABE" : size.withImages > SITE_LIMITS.bodyBytes ? " → sai sem imagens" : ""}`,
+      `(limite ${kib(SITE_LIMITS.bodyBytes)} KiB)${size.withoutImages > SITE_LIMITS.bodyBytes ? " → NÃO CABE" : !imagesWorthTrying(size) ? " → sai sem imagens" : size.withImages > SITE_LIMITS.bodyBytes ? " → no limite: as imagens saem no ajuste final se não couberem" : ""}`,
+  );
+  const cached = readWriting(db, writingKey({ dossier: toWrite, scope, game: context.game, models: config }));
+  log(
+    cached
+      ? `escrita reaproveitável do cache: sim (salva em ${cached.savedAt}); a execução real não chama a IA para escrever`
+      : "escrita reaproveitável do cache: não (nenhuma escrita aprovada deste mesmo dossiê, escopo, estilo e modelos)",
   );
   const writer = writerCost(toWrite, { game: context.game, tralked: { players: 0, avgPlaytimeMin: null, completedPlayers: 0 }, achievements: context.steamList }, config, scope);
   log(

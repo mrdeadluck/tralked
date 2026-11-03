@@ -271,16 +271,16 @@ describe("R23: coletar pelo menos N", () => {
     expect(result.missing).toContain('A conquista "Leave No Stone Unturned" (ACH_STONE) pede 10, mas os itens encontrados somam 12.');
   });
 
-  it("no \"pelo menos N\", item sem número ou número repetido reprova", () => {
+  it("no \"pelo menos N\", número repetido reprova; item sem número ganha o próximo do capítulo, para revisão (R28)", () => {
     const stones = blackstones(12);
     stones[4] = { ...stones[4]!, index: undefined };
     const again = item("Pedra Negra 3 de novo", { collectibleType: "Blackstone", index: 3, countsForEn: ["Leave No Stone Unturned"] });
     const f = powerpyx({ chapters: [chapter("Weeping Creek", stones), chapter("Village of Lu", [again], 2)] });
-    const { result } = run(baseSteam(), [f]);
+    const { d, result } = run(baseSteam(), [f]);
     expect(result.missing).toEqual([
       'A contagem da conquista "Leave No Stone Unturned" (ACH_STONE) está errada: o número 3 aparece mais de uma vez.',
-      'A contagem da conquista "Leave No Stone Unturned" (ACH_STONE) está errada: o item "Pedra Negra 5" está sem número.',
     ]);
+    expect(d.chapters[0]!.items.find((i) => i.name === "Pedra Negra 5")).toMatchObject({ index: 13, numberAssumed: true });
   });
 
   it("número corrido do PowerPyx (entre tipos, recomeça em cada página) não vira número repetido", () => {

@@ -83,6 +83,9 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
     expect(out).toMatch(/limites do site: 7\/60 capítulos \(com a limpeza\), .* → cabe/);
     expect(out).toMatch(/tamanho estimado do guia: ~\d+ KiB sem imagens, ~\d+ KiB com imagens \(limite 1024 KiB\)/);
     expect(out).toMatch(/custo estimado da escrita: \d+ chamadas de claude-opus-5-5 .* ~US\$ \d+\.\d\d numa passada, até ~US\$ \d+\.\d\d com a reescrita/);
+    expect(out).toContain("Itens só de fonte secundária, não posicionados (1; fora da rota, no relatório):");
+    expect(out).toContain('  - Apprentice Healer — allthings.how, capítulo "Quest objectives for story and side quest achievements" [conta para ACH_HEALER]');
+    expect(out).toContain("escrita reaproveitável do cache: não");
     expect(result.ok).toBe(false);
   });
 

@@ -177,20 +177,31 @@ describe("politeFetch", () => {
 });
 
 describe("politeFetch: robots.txt fora do ar e redirecionamentos (RFC 9309)", () => {
-  it("robots.txt com 5xx: nada é lido do host, e só por alguns minutos", async () => {
+  it("robots.txt com 5xx (também na nova tentativa): nada é lido do host, e só por alguns minutos", async () => {
     const s = setup({
-      "https://a.test/robots.txt": [new Response("down", { status: 503 }), robots("User-agent: *\nAllow: /")],
+      "https://a.test/robots.txt": [new Response("down", { status: 503 }), new Response("down", { status: 503 }), robots("User-agent: *\nAllow: /")],
       "https://a.test/p": [ok(html(LONG))],
     });
     const r = await politeFetch("https://a.test/p", s.opts);
     expect(r).toMatchObject({ status: "error", reason: "robots.txt inacessível (HTTP 503)" });
-    expect(s.calls).toEqual(["https://a.test/robots.txt"]);
+    // One more try a few seconds later before blocking the host.
+    expect(s.calls).toEqual(["https://a.test/robots.txt", "https://a.test/robots.txt"]);
+    expect(s.sleeps).toContain(5_000);
     // Still within the short cache: no new robots.txt request, still nothing read.
     s.advance(5 * 60_000);
     expect((await politeFetch("https://a.test/p", s.opts)).status).toBe("error");
-    expect(s.calls).toEqual(["https://a.test/robots.txt"]);
+    expect(s.calls).toHaveLength(2);
     // A few minutes later robots.txt is asked again, and now the page is read.
     s.advance(10 * 60_000);
+    expect((await politeFetch("https://a.test/p", s.opts)).status).toBe("ok");
+    expect(s.calls).toEqual(["https://a.test/robots.txt", "https://a.test/robots.txt", "https://a.test/robots.txt", "https://a.test/p"]);
+  });
+
+  it("robots.txt com 5xx que volta na nova tentativa: o host não é bloqueado", async () => {
+    const s = setup({
+      "https://a.test/robots.txt": [new Response("down", { status: 502 }), robots("User-agent: *\nAllow: /")],
+      "https://a.test/p": [ok(html(LONG))],
+    });
     expect((await politeFetch("https://a.test/p", s.opts)).status).toBe("ok");
     expect(s.calls).toEqual(["https://a.test/robots.txt", "https://a.test/robots.txt", "https://a.test/p"]);
   });
@@ -204,11 +215,11 @@ describe("politeFetch: robots.txt fora do ar e redirecionamentos (RFC 9309)", ()
       }),
     };
     expect(await politeFetch("https://z.test/p", failing)).toMatchObject({ status: "error", reason: expect.stringContaining("ETIMEDOUT") });
-    expect(failing.fetchFn).toHaveBeenCalledTimes(1);
+    expect(failing.fetchFn).toHaveBeenCalledTimes(2);
     // A new run (new state), same database: the short cache still holds.
     const again = { ...failing, state: createPoliteState() };
     expect((await politeFetch("https://z.test/p", again)).status).toBe("error");
-    expect(failing.fetchFn).toHaveBeenCalledTimes(1);
+    expect(failing.fetchFn).toHaveBeenCalledTimes(2);
   });
 
   it("robots.txt com 4xx: tudo liberado (e fica 7 dias)", async () => {
