@@ -6,7 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import example from "@/lib/api/example-walkthrough.json";
 import { walkthroughSchema } from "@/lib/content/walkthrough-schema";
 import { applyGuideUserState, type GuideDetail, type WalkAchievementView } from "@/lib/queries/games";
+import Link from "next/link";
+import { CoverArt } from "@/components/art/CoverArt";
+import { Toc } from "@/components/guide/Toc";
 import { CompatSeal } from "./CompatSeal";
+import { SpoilerAchievement, SpoilerGate, SpoilerProvider } from "./spoilers";
 import { WalkthroughPage } from "./WalkthroughPage";
 
 vi.mock("@/components/guide/reveal-achievement", () => ({
@@ -249,5 +253,53 @@ describe("página /jogos/[slug]/guia", () => {
     const { default: GuidePage } = await import("@/app/jogos/[slug]/guia/page");
     const tree = await GuidePage({ params: Promise.resolve({ slug: "phantom-blade-zero" }) } as never);
     expect(typesIn(tree)).toContain(WalkthroughPage);
+  });
+});
+
+/** Client components on the walkthrough page: their props are what React serializes to the browser. */
+const CLIENT = new Set<unknown>([SpoilerProvider, SpoilerGate, SpoilerAchievement, Toc, CoverArt, Link]);
+
+/**
+ * What a server render of `node` sends to the browser: every rendered string, plus the props (minus
+ * children) of each client component. Server components are expanded by calling them.
+ */
+function shipped(node: ReactNode, out: string[] = []): string[] {
+  if (Array.isArray(node)) node.forEach((child) => shipped(child, out));
+  else if (typeof node === "string" || typeof node === "number") out.push(String(node));
+  else if (isValidElement(node)) {
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (typeof el.type === "function" && !CLIENT.has(el.type)) {
+      shipped((el.type as (props: unknown) => ReactNode)(el.props), out);
+      return out;
+    }
+    const { children, ...props } = el.props;
+    if (CLIENT.has(el.type)) out.push(JSON.stringify(props));
+    shipped(children, out);
+  }
+  return out;
+}
+
+describe("conquista oculta da Steam", () => {
+  it("nem o nome nem o apiName chegam ao navegador com spoilers desligados", () => {
+    const secret: WalkAchievementView = { ...ach("ACH_SCARLET_SPECTRAL_BLADE", null, 67.1, true), id: "cm-hidden-1" };
+    const guide = pbzGuide();
+    // The hidden achievement is both the hardest and a missable item.
+    const missable = structuredClone(walkthrough);
+    const boss = missable.chapters[0].steps.flatMap((st) => st.items).find((i) => i.achievement === "ACH_SCARLET_SPECTRAL_BLADE")!;
+    boss.missable = true;
+    const page = (
+      <WalkthroughPage
+        guide={{
+          ...guide,
+          walkthrough: missable,
+          walk: { ...guide.walk!, hardest: secret, achievements: { ...guide.walk!.achievements, ACH_SCARLET_SPECTRAL_BLADE: secret } },
+        }}
+        viewer={null}
+      />
+    );
+    const out = shipped(page).join(" ");
+    expect(out).toContain("cm-hidden-1");
+    expect(out).not.toContain("ACH_SCARLET_SPECTRAL_BLADE");
+    expect(out).not.toContain("Lâmina Espectral Escarlate");
   });
 });

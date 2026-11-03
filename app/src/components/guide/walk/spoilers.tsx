@@ -81,18 +81,26 @@ function FetchedName({ id }: { id: string }) {
   return <span className="text-muted">{failed ? "Conquista oculta" : "…"}</span>;
 }
 
+/*
+ * Only primitives cross into this client component: whatever it receives is serialized into the
+ * page, so a hidden achievement must arrive as its database id and nothing else (never its apiName,
+ * which often spells the name).
+ */
 type SpoilerAchievementProps = {
   /** Spoiler id on the page (see SpoilerGate). */
   id: string;
-  achievement: { id: string; name: string | null };
+  /** Database id of the achievement, to fetch a hidden one's name. */
+  achievementId: string;
+  /** The name; null for a hidden Steam achievement (fetched on reveal). */
+  name: string | null;
   what: string;
 };
 
 /** An achievement's name behind the spoiler gate; a hidden one (name null) is fetched on reveal. */
-export function SpoilerAchievement({ id, achievement, what }: SpoilerAchievementProps) {
+export function SpoilerAchievement({ id, achievementId, name, what }: SpoilerAchievementProps) {
   return (
     <SpoilerGate id={id} what={what}>
-      {achievement.name ?? <FetchedName id={achievement.id} />}
+      {name ?? <FetchedName id={achievementId} />}
     </SpoilerGate>
   );
 }

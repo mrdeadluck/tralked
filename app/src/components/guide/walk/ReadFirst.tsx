@@ -32,7 +32,12 @@ function MissableChip({ item, chapter, walk }: Missable & { walk: WalkExtras }) 
       )}
       <span>
         {achievement?.hidden ? (
-          <SpoilerAchievement id={`miss-${item.key}`} achievement={achievement} what="o perdível" />
+          <SpoilerAchievement
+            id={`miss-${item.key}`}
+            achievementId={achievement.id}
+            name={achievement.name}
+            what="o perdível"
+          />
         ) : secret ? (
           <SpoilerGate id={`miss-${item.key}`} what="o perdível">
             {item.name}

@@ -86,7 +86,12 @@ export function FichaGrid({ guide, walkthrough, walk }: FichaGridProps) {
       label: "Mais difícil",
       name: true,
       value: hardest ? (
-        <SpoilerAchievement id="ficha-hardest" achievement={hardest} what="a conquista mais difícil" />
+        <SpoilerAchievement
+          id="ficha-hardest"
+          achievementId={hardest.id}
+          name={hardest.name}
+          what="a conquista mais difícil"
+        />
       ) : (
         "—"
       ),
