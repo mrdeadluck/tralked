@@ -22,8 +22,8 @@ export class ImageRejectedError extends Error {
  * and re-encodes it as WebP: auto-oriented, at most 2048 px on the longest side, no metadata
  * (EXIF, GPS and ICC are dropped by sharp's default output). Throws `ImageRejectedError`.
  */
-export async function processImage(input: Buffer): Promise<ProcessedImage> {
-  if (input.byteLength > MAX_UPLOAD_BYTES) throw new ImageRejectedError("too_large");
+export async function processImage(input: Buffer, maxBytes: number = MAX_UPLOAD_BYTES): Promise<ProcessedImage> {
+  if (input.byteLength > maxBytes) throw new ImageRejectedError("too_large");
   if (input.byteLength === 0) throw new ImageRejectedError("invalid_type");
 
   const options = { limitInputPixels: MAX_INPUT_PIXELS, autoOrient: true } as const;

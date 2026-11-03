@@ -40,6 +40,13 @@ export type WriteSuccess = {
 
 export type Recorder = (tx: Prisma.TransactionClient, success: WriteSuccess) => Promise<void>;
 
+export type ReadBody = (
+  request: Request,
+) => Promise<
+  | { ok: true; body: unknown; /** What enters the request hash instead of `body` (e.g. the digest of binary bytes). */ hashInput?: unknown }
+  | { ok: false; code: ApiErrorCode; message: string }
+>;
+
 export type WriteContext = {
   key: ApiKeyRecord;
   body: unknown;
@@ -107,6 +114,8 @@ export async function handleWrite(
   options: {
     scope: ApiScope;
     kind: IngestionKind;
+    /** Replaces the JSON body reader (binary endpoints). */
+    readBody?: ReadBody;
     execute: (ctx: WriteContext) => Promise<WriteSuccess | WriteFailure>;
   },
 ): Promise<Response> {
@@ -124,14 +133,14 @@ export async function handleWrite(
     );
   }
 
-  const parsed = await readJson(request);
+  const parsed = await (options.readBody ?? readJson)(request);
   if (!parsed.ok) return apiError(parsed.code, parsed.message, [], headers);
 
   const entry: LogEntry = {
     keyId: key.id,
     idempotencyKey,
     kind: options.kind,
-    requestHash: requestHash(request.method, new URL(request.url).pathname, parsed.body),
+    requestHash: requestHash(request.method, new URL(request.url).pathname, "hashInput" in parsed ? parsed.hashInput : parsed.body),
   };
 
   const replay = answerForExisting(await findLog(key.id, idempotencyKey), entry.requestHash, headers);

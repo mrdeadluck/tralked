@@ -10,7 +10,7 @@ const SCOPES = [
   { id: "articles:write", label: "articles:write", hint: "Criar e editar notícias próprias" },
   { id: "guides:write", label: "guides:write", hint: "Criar e editar guias próprios" },
   { id: "publish", label: "publish", hint: "Publicar sem passar pela revisão" },
-  { id: "media:write", label: "media:write", hint: "Reservado para mídia" },
+  { id: "media:write", label: "media:write", hint: "Enviar imagens de guias" },
 ] as const;
 
 /** New bot key: name + scopes. The secret is shown once, here, with a copy button. */
