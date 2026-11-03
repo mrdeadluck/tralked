@@ -11,7 +11,8 @@ import { SpoilerProvider } from "./spoilers";
 import { SteamOnlyList } from "./SteamOnlyList";
 import { walkView } from "./view";
 import { WalkChapters } from "./WalkChapters";
-import { WalkJourney, type JourneyChapter } from "./WalkJourney";
+import { JourneyProvider, type JourneyChapter } from "./journey";
+import { WalkJourney } from "./WalkJourney";
 import { WalkSidebar } from "./WalkSidebar";
 import "./walk.css";
 import "./walk-chapters.css";
@@ -84,8 +85,10 @@ export function WalkthroughPage({ guide, user = null, report = null, preview = f
             />
           </div>
           <section id="g-detonado" className="wk-detonado" aria-label="Detonado">
-            <WalkJourney chapters={journey} />
-            <WalkChapters chapters={view.chapters} screenshots={walk.screenshots} />
+            <JourneyProvider chapters={journey}>
+              <WalkJourney />
+              <WalkChapters chapters={view.chapters} screenshots={walk.screenshots} />
+            </JourneyProvider>
             <SteamOnlyList achievements={view.steamOnly} />
             {report}
           </section>

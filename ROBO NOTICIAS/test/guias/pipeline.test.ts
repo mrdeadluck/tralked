@@ -1248,6 +1248,69 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
     expect(deps.lines.some((l) => l.includes("rascunho anterior reaproveitado"))).toBe(true);
   });
 
+  describe("Task 31 (R44): --aceitar-pendencias envia um guia quase aprovado para revisão humana", () => {
+    const leftovers: GuideProblem[] = [
+      { text: "Mirage Estate não está no dossiê.", scope: "torre", kind: "checador" },
+      { text: "A moldura diz 'dá para voltar'.", scope: "frame", kind: "checador" },
+    ];
+
+    it("com a flag e 2 problemas do checador → envia, com review nos itens do trecho e as pendências no relatório", async () => {
+      const { api, calls } = fakeApi();
+      const deps = makeDeps({ api, direct: { ...direct, acceptPending: 2 }, stages: fakeStages({ writeAndCheckGuide: failingWriter(leftovers) }) });
+      expect(await runGuideRequest(deps)).toBe("review");
+      expect(calls.created).toHaveLength(1);
+      const { payload } = calls.created[0]!;
+      const torre = payload.walkthrough.chapters[0]!.steps.find((s) => s.key === "torre")!;
+      expect(torre.items.every((i) => i.review)).toBe(true);
+      const report = payload.report as RobotReport;
+      expect(report.pendencias).toEqual([
+        { scope: "torre", texto: "Mirage Estate não está no dossiê." },
+        { scope: "frame", texto: "A moldura diz 'dá para voltar'." },
+      ]);
+      expect(report.divergences[0]).toBe("enviado com 2 pendências do checador para revisão humana (R44)");
+      expect(report.problems).toBeUndefined();
+      expect(parseReport(report)?.pendencias).toHaveLength(2);
+      const log = deps.lines.join("\n");
+      expect(log).toContain("2 pendências do checador");
+      expect(log).toContain("[torre] Mirage Estate não está no dossiê.");
+    });
+
+    it("um problema de cópia (ou de outro tipo) entre as sobras → não envia", async () => {
+      for (const kind of ["copia", "vocabulario", "cronologia", "reparo"] as const) {
+        const { api, calls } = fakeApi();
+        const problems = [leftovers[0]!, { text: "Outro.", scope: "torre", kind }];
+        const deps = makeDeps({ api, direct: { ...direct, acceptPending: 5 }, stages: fakeStages({ writeAndCheckGuide: failingWriter(problems) }) });
+        expect(await runGuideRequest(deps)).toBe("failed");
+        expect(calls.created).toEqual([]);
+      }
+    });
+
+    it("sem a flag, ou com mais sobras que N → não envia", async () => {
+      for (const d of [direct, { ...direct, acceptPending: 1 }]) {
+        const { api, calls } = fakeApi();
+        const deps = makeDeps({ api, direct: d, stages: fakeStages({ writeAndCheckGuide: failingWriter(leftovers) }) });
+        expect(await runGuideRequest(deps)).toBe("failed");
+        expect(calls.created).toEqual([]);
+      }
+    });
+  });
+
+  it("Task 30: a escrita recebe todos os problemas já apontados nas rodadas salvas do pedido (duas tentativas), sem mudar a chave", async () => {
+    const db = openGuideDb(":memory:");
+    const writerA = failingWriter([{ text: "Ouça Cada Flor é tradução inventada.", scope: "cap-1", kind: "checador" }]);
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writerA }) }));
+    const writerB = failingWriter([{ text: "Mirage Estate não está no dossiê.", scope: "cap-1", kind: "checador" }]);
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writerB }) }));
+    const writerC = failingWriter(scoped(1));
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writerC }) }));
+    const opts = writerC.mock.calls[0]![4] as WriteAndCheckOpts;
+    expect(opts.history!.get("cap-1")).toEqual({ problems: ["Ouça Cada Flor é tradução inventada.", "Mirage Estate não está no dossiê."], flagged: 2 });
+    // Same writing key every time: the last draft is still the one resumed.
+    const keys = db.raw.prepare("SELECT DISTINCT writing_key FROM drafts").all();
+    expect(keys).toHaveLength(1);
+    expect(opts.resume!.problems).toEqual([{ text: "Mirage Estate não está no dossiê.", scope: "cap-1", kind: "checador" }]);
+  });
+
   it("Task 21: depois de mudar a versão do escritor, recomeça só dos trechos que o checador aprovou, checados de novo", async () => {
     const db = openGuideDb(":memory:");
     const job = { passos: [], itens: [], depois: null };

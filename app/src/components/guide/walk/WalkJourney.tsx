@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { JourneyRow, useJourney } from "./journey";
 import { useWalkProgress } from "./progress";
 import { SpoilerToggle } from "./SpoilerToggle";
 
@@ -11,20 +12,11 @@ import { SpoilerToggle } from "./SpoilerToggle";
  * segment per chapter, the overall count and the spoiler switch. Same on phones.
  */
 
-export type JourneyChapter = {
-  key: string;
-  title: string;
-  /** Roadmap phase (a divider marks where it changes). */
-  phase: number;
-  /** Refs of the chapter's items (view.ts). */
-  refs: string[];
-  missables: number;
-};
-
 /** Where the current chapter is read: the chapter whose top passed this share of the window. */
 const READ_LINE = 0.55;
 
-export function WalkJourney({ chapters }: { chapters: JourneyChapter[] }) {
+export function WalkJourney() {
+  const chapters = useJourney();
   const { doneCount, user } = useWalkProgress();
   const navRef = useRef<HTMLElement>(null);
   const [slim, setSlim] = useState(false);
@@ -71,26 +63,7 @@ export function WalkJourney({ chapters }: { chapters: JourneyChapter[] }) {
     <>
       <nav ref={navRef} className="wk-journey" aria-label="Capítulos do detonado">
         <div className="wk-jr-in">
-          <ol className="wk-jr">
-            {chapters.map((c, i) => {
-              const full = c.refs.length > 0 && counts[i] === c.refs.length;
-              const cls = ["wk-hn", i === current ? "c" : "", full ? "f" : "", i > 0 && c.phase !== chapters[i - 1].phase ? "ph" : ""]
-                .filter(Boolean)
-                .join(" ");
-              return (
-                <li key={c.key} className={cls}>
-                  <a href={`#cap-${c.key}`} aria-current={i === current ? "location" : undefined}>
-                    <span className="dot" aria-hidden="true" />
-                    <span className="t">{c.title}</span>
-                    <span className="s">
-                      {user ? `${counts[i]}/${c.refs.length}` : `${c.refs.length} itens`}
-                      {c.missables > 0 ? <span className="w"> · {c.missables} ⚠</span> : null}
-                    </span>
-                  </a>
-                </li>
-              );
-            })}
-          </ol>
+          <JourneyRow chapters={chapters} counts={counts} user={Boolean(user)} current={current} currentAs="location" />
           <SpoilerToggle />
         </div>
       </nav>

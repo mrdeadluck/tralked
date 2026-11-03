@@ -178,6 +178,16 @@ describe("admin actions run for the right role", () => {
     await moderacao.moderateAction({ targetType: "photo", targetId: "p1", action: "remove" });
     expect(updateTag).toHaveBeenCalledWith("photo:p1");
   });
+
+  it("saving or moving a guide also refreshes the home's list of guides", async () => {
+    as("editor");
+    await guias.saveGuideAction(guide);
+    expect(updateTag).toHaveBeenCalledWith("game:g");
+    expect(updateTag).toHaveBeenCalledWith("guides");
+    updateTag.mockClear();
+    await guias.setGuideStatusAction({ id: "g1", status: "published" });
+    expect(updateTag).toHaveBeenCalledWith("guides");
+  });
 });
 
 describe("admin actions validate their input", () => {

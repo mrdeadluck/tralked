@@ -19,7 +19,21 @@ export type GuideReport = {
   psnScope?: { total: number; covered: number } | { total: null; covered: null };
   /** Report `internalErrors`: robot bugs found while writing (its own chapter order broke the chronology check). Absent when none. */
   internalErrors?: string[];
+  /**
+   * Report `pendencias` (R44): the checker's objections the robot sent the guide with, for the editor to read before
+   * approving (the parts they name are marked for review). Absent when none.
+   */
+  pendencias?: { scope: string; texto: string }[];
 };
+
+/** R44 leftovers of a stored report, whatever its shape. */
+function pendenciasOf(value: unknown): { scope: string; texto: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((p) => {
+    const x = p as Record<string, unknown> | null;
+    return x && typeof x.texto === "string" ? [{ scope: typeof x.scope === "string" ? x.scope : "", texto: x.texto }] : [];
+  });
+}
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []);
 const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
@@ -50,6 +64,7 @@ export function parseReport(value: unknown): GuideReport | null {
       ? { psnScope: psnTotal !== null && psnCovered !== null ? { total: psnTotal, covered: psnCovered } : { total: null, covered: null } }
       : {}),
     ...(strings(r.internalErrors).length > 0 ? { internalErrors: strings(r.internalErrors) } : {}),
+    ...(pendenciasOf(r.pendencias).length > 0 ? { pendencias: pendenciasOf(r.pendencias) } : {}),
   };
 }
 
@@ -67,6 +82,8 @@ export function reportSummary(report: GuideReport | null): string | null {
     const { covered, total } = report.psnScope;
     parts.push(total !== null ? `lista da PSN ${covered}/${total}` : "pela lista da PSN");
   }
+  const pending = report.pendencias?.length ?? 0;
+  if (pending > 0) parts.push(`${pending} ${pending === 1 ? "pendência" : "pendências"} do checador`);
   const errors = report.internalErrors?.length ?? 0;
   if (errors > 0) parts.push(`${errors} ${errors === 1 ? "erro interno" : "erros internos"} do robô`);
   return parts.join(" · ");
@@ -99,6 +116,11 @@ export function describePending(storedWalkthrough: unknown, payload: unknown): s
       `Capítulos: +${count(nextChapters, prevChapters)} / −${count(prevChapters, nextChapters)}`,
       `Itens: +${count(nextItems, prevItems)} / −${count(prevItems, nextItems)} (item removido perde a marca dos leitores)`,
     );
+  }
+  // R44: the update went out with the checker's leftovers: say so before the editor applies it.
+  const pending = pendenciasOf((patch.report as Record<string, unknown> | undefined)?.pendencias);
+  if (pending.length > 0) {
+    lines.push(`Pendências do checador (leia antes de aplicar): ${pending.map((p) => (p.scope ? `[${p.scope}] ${p.texto}` : p.texto)).join(" | ")}`);
   }
   const others = Object.keys(patch).filter((k) => k !== "walkthrough");
   if (others.length > 0) lines.push(`Outros campos: ${others.join(", ")}`);

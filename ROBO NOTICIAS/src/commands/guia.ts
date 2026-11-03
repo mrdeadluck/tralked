@@ -20,12 +20,16 @@ export const GUIDE_LOCK_STALE_MS = 3 * 60 * 60 * 1000;
 export const PROBE_DEFAULT_CHAPTERS = 2;
 
 export type GuiaArgs =
-  | { dryRun: false; direct?: { appId: number; update: boolean; updatePsn?: boolean; probe?: { chapters: number } }; draft?: undefined }
+  | {
+      dryRun: false;
+      direct?: { appId: number; update: boolean; updatePsn?: boolean; acceptPending?: number; probe?: { chapters: number } };
+      draft?: undefined;
+    }
   | { dryRun: false; draft: { requestId: string; dataDir?: string } }
   | { dryRun: true; appId?: number; requestId?: string; dataDir?: string };
 
 /**
- * `pnpm guia` runs one request; `pnpm guia -- --appid <n> [--atualizar | --atualizar-psn] [--sonda [--capitulos N]]` runs a game without a
+ * `pnpm guia` runs one request; `pnpm guia -- --appid <n> [--atualizar | --atualizar-psn] [--aceitar-pendencias N] [--sonda [--capitulos N]]` runs a game without a
  * request (the probe writes only the frame and N chapters); `pnpm guia -- --ensaio --appid <n> | --pedido <id>
  * [--dados <dir>]` is the free dry run; `pnpm guia -- --rascunho <pedido> [--dados <dir>]` shows the last draft.
  */
@@ -44,8 +48,13 @@ export function parseGuiaArgs(argv: string[]): GuiaArgs {
   }
   if (!args.includes("--ensaio")) {
     const updatePsn = args.includes("--atualizar-psn");
-    if (args.includes("--appid") || args.includes("--atualizar") || updatePsn || args.includes("--sonda")) {
+    const acceptPending = args.includes("--aceitar-pendencias") ? (value("--aceitar-pendencias") ?? "") : undefined;
+    if (args.includes("--appid") || args.includes("--atualizar") || updatePsn || acceptPending !== undefined || args.includes("--sonda")) {
       if (appId === undefined || !/^\d+$/.test(appId)) throw new Error(`appid inválido ou ausente: ${appId ?? "(nenhum)"}; use --appid <n>`);
+      // R44: only for a direct run, never the queue.
+      if (acceptPending !== undefined && (!/^\d+$/.test(acceptPending) || Number(acceptPending) < 1)) {
+        throw new Error(`--aceitar-pendencias inválido: ${acceptPending || "(nenhum)"}; use um inteiro de 1 em diante`);
+      }
       const chapters = value("--capitulos") ?? String(PROBE_DEFAULT_CHAPTERS);
       if (args.includes("--sonda") && (!/^\d+$/.test(chapters) || Number(chapters) < 1)) {
         throw new Error(`sonda: --capitulos inválido: ${chapters}; use um inteiro de 1 em diante`);
@@ -56,6 +65,7 @@ export function parseGuiaArgs(argv: string[]): GuiaArgs {
           appId: Number(appId),
           update: args.includes("--atualizar") || updatePsn,
           ...(updatePsn ? { updatePsn: true } : {}),
+          ...(acceptPending !== undefined ? { acceptPending: Number(acceptPending) } : {}),
           ...(args.includes("--sonda") ? { probe: { chapters: Number(chapters) } } : {}),
         },
       };

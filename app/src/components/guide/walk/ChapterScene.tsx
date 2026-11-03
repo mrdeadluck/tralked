@@ -1,22 +1,10 @@
+import { kindLabel } from "./kinds";
 import type { ChapterView } from "./view";
 
 /*
  * Opening of a chapter: a wide official screenshot, the title in wide type (last words in lime) and
  * the chapter's numbers: items, collectibles by kind, achievements, missables and hours.
  */
-
-/** Plural of a collectible kind ("sino" → "sinos", "fragmento de âmbar" → "fragmentos de âmbar"). */
-export function pluralKind(kind: string): string {
-  const [head, ...tail] = kind.split(" ");
-  let plural: string;
-  if (/ão$/.test(head)) plural = head.replace(/ão$/, "ões");
-  else if (/[aeiouáéíóúâêô]$/i.test(head)) plural = `${head}s`;
-  else if (/l$/.test(head)) plural = head.replace(/l$/, "is");
-  else if (/m$/.test(head)) plural = head.replace(/m$/, "ns");
-  else if (/[rzs]$/.test(head)) plural = `${head}es`;
-  else plural = `${head}s`;
-  return [plural, ...tail].join(" ");
-}
 
 /** Collectibles of the chapter by kind, most common first (at most 3 kinds). */
 function kindsOf(chapter: ChapterView): [string, number][] {
@@ -59,7 +47,7 @@ export function ChapterScene({ chapter, index, count, image }: ChapterSceneProps
         </li>
         {kindsOf(chapter).map(([kind, n]) => (
           <li key={kind}>
-            <b>{n}</b> {n === 1 ? kind : pluralKind(kind)}
+            <b>{n}</b> {kindLabel(kind, n)}
           </li>
         ))}
         {achievements > 0 ? (

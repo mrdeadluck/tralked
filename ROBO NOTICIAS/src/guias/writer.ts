@@ -175,6 +175,17 @@ function fichaOf(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierS
 // Prompts
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Task 29: a fixed rule of every frame and job message (not the style manual, not the cache version: the writing key
+ * and the saved drafts stay the same). The checker kept refusing invented PT names for achievements without
+ * `nome_pt` and places translated from a Chinese-only milestone.
+ */
+export const NAMES_RULE =
+  "## Nomes\n" +
+  'Se `nome_pt` for nulo (vazio, `nome_pt=""`), use só o nome em inglês da conquista, sem tradução. ' +
+  "Não traduza nem nomeie lugares, chefes ou marcos que o dossiê só traz em outro idioma: cite o marco como " +
+  "'o ponto indicado pela fonte' ou use o nome em inglês que aparece no dossiê.";
+
 function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource, scope?: PsnWriteScope): string {
   const ficha = fichaOf(skel, dossier, game, scope);
   const f = dossier.facts;
@@ -184,6 +195,7 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
     .slice(0, 5);
   return [
     "Escreva a moldura do guia: capa, textos da ficha, visão geral, \"leia antes\", as etapas do roadmap e o título de cada capítulo. Os números da ficha são calculados pelo sistema; você só os cita.",
+    NAMES_RULE,
     [
       "## Jogo",
       `Nome: ${body(game.game.name)}`,
@@ -343,6 +355,7 @@ function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource
     `Escreva o texto dos passos abaixo, do capítulo "${body(chapter.title)}" do guia de ${body(game.game.name)}.`,
     `<capitulo key="${chapter.key}" titulo="${attr(chapter.title)}"${chapter.region ? ` regiao="${attr(chapter.region)}"` : ""}${chapter.deadlines.length ? ` prazo="${attr(chapter.deadlines.join("; "))}"` : ""}/>`,
     `Capítulo anterior: ${prev ? body(prev.title) : "nenhum"}. Próximo: ${next ? body(next.title) : "nenhum"}.`,
+    NAMES_RULE,
     chapter.cleanup
       ? "Este é o capítulo de limpeza: cada passo traz uma conquista que não tem um ponto fixo na história. Explique como fazê-la depois da história."
       : "",
@@ -372,6 +385,58 @@ function problemsMessage(problems: string[]): string {
     "A checagem encontrou estes problemas na versão anterior desta parte do guia. Reescreva-a corrigindo-os; o que o dossiê não sustenta sai do texto.",
     ...problems.map((p) => `- ${p}`),
   ].join("\n");
+}
+
+/** Task 30: the problems pointed at in this part before (all rounds and attempts), newest first. */
+const PAST_PROBLEMS_MAX = 25;
+const PAST_PROBLEM_CHARS = 300;
+function pastProblemsMessage(past: string[]): string {
+  return [
+    "## Erros já apontados antes neste trecho: não repita nenhum",
+    ...past
+      .slice(-PAST_PROBLEMS_MAX)
+      .reverse()
+      .map((p) => `- ${p.length > PAST_PROBLEM_CHARS ? `${p.slice(0, PAST_PROBLEM_CHARS - 1)}…` : p}`),
+  ].join("\n");
+}
+
+/** Task 30: a part flagged in this many rounds (this rewrite is its 3rd or later) is written in strict mode. */
+export const STRICT_AFTER_REWRITES = 3;
+export const STRICT_MODE =
+  "## Modo estrito\n" +
+  "Escreva só o que o dossiê diz, com frases curtas; não acrescente localização, requisito, possibilidade de voltar, contagem de fontes ou tradução que não esteja escrita no dossiê; nomes que o dossiê só traz em chinês ou russo ficam como estão ou são omitidos.";
+
+/**
+ * Task 30: per part (frame or job id), what was pointed at in it before and in how many rounds (drafts.ts
+ * `problemHistory`). Only the rewrite's message uses it: never the writing key.
+ */
+export type ProblemHistory = Map<string, { problems: string[]; flagged: number }>;
+
+/** Adds one round's problems to a history (the writer adds its own rounds the same way). */
+export function addProblems(history: ProblemHistory, problems: GuideProblem[]): void {
+  const blocking = problems.filter((p) => p.kind !== CHECK_DUE && p.kind !== CHECKER_RIGHT && p.kind !== "nota");
+  for (const scope of new Set(blocking.map((p) => p.scope))) {
+    const entry = history.get(scope) ?? { problems: [], flagged: 0 };
+    entry.flagged++;
+    for (const p of blocking) {
+      const said = p.kind === undefined || p.kind === "checador" || p.kind === "copia";
+      if (p.scope === scope && said && !entry.problems.includes(p.text)) entry.problems.push(p.text);
+    }
+    history.set(scope, entry);
+  }
+}
+
+/** The rewrite's message: the current fixes, every earlier problem of the part not among them, strict mode if stubborn. */
+function rewriteMessage(user: string, fixes: string[], past: { problems: string[]; flagged: number } | undefined): string {
+  const earlier = (past?.problems ?? []).filter((p) => !fixes.includes(p));
+  return [
+    user,
+    problemsMessage(fixes),
+    earlier.length > 0 ? pastProblemsMessage(earlier) : "",
+    (past?.flagged ?? 0) >= STRICT_AFTER_REWRITES ? STRICT_MODE : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -578,18 +643,17 @@ async function draft(
   previous: PartialTexts | undefined,
   problems: GuideProblem[] = [],
   only?: Set<string>,
+  history: ProblemHistory = new Map(),
 ): Promise<{ texts: Texts; redone: Redone }> {
-  const own = (scope: string) => problems.filter((p) => p.scope === scope).map((p) => p.text);
-  const call = <T>(purpose: string, retry: boolean, user: string, schema: z.ZodType<T>, fixes: string[]) =>
+  const own = (scope: string) => [...new Set(problems.filter((p) => p.scope === scope).map((p) => p.text))];
+  const call = <T>(purpose: string, retry: boolean, user: string, schema: z.ZodType<T>, scope: string) =>
     ctx.ai.structured({
       bucket: ctx.bucket,
       purpose: retry ? `${purpose}-retry` : purpose,
       model: ctx.models.MODEL_WRITER,
       effort: WRITER_EFFORT,
       system: loadGuideStyle(),
-      user: fixes.length > 0 ? `${user}
-
-${problemsMessage(fixes)}` : user,
+      user: own(scope).length > 0 ? rewriteMessage(user, own(scope), history.get(scope)) : user,
       schema,
       maxTokens: WRITER_MAX_TOKENS,
       fallbacks: ctx.fallbacks,
@@ -601,14 +665,14 @@ ${problemsMessage(fixes)}` : user,
   const [frame, answers] = await Promise.all([
     redoFrame
       ? abortOnError(
-          call("guide-write-frame", Boolean(previous?.frame), frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope), FrameSchema, own(FRAME_SCOPE)),
+          call("guide-write-frame", Boolean(previous?.frame), frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope), FrameSchema, FRAME_SCOPE),
           abort,
         )
       : Promise.resolve(previous!.frame!),
     inPool(
       redoJobs,
       CONCURRENCY,
-      (job) => call("guide-write-chapter", Boolean(previous?.jobs.has(job.id)), jobMessage(ctx.skel, job, ctx.game), ChapterTextSchema, own(job.id)),
+      (job) => call("guide-write-chapter", Boolean(previous?.jobs.has(job.id)), jobMessage(ctx.skel, job, ctx.game), ChapterTextSchema, job.id),
       abort,
     ),
   ]);
@@ -1136,6 +1200,11 @@ export type WriteAndCheckOpts = WriteGuideOpts & {
   probe?: { chapters: number };
   /** Called after each round is checked (the pipeline saves it at once: a later failure loses nothing paid). */
   onRound?: (round: DraftRound) => void;
+  /**
+   * Task 30: what the saved rounds of this request and base key already pointed at, per part (drafts.ts
+   * `problemHistory`); this run's rounds are added as they are checked. Rewrites see all of it.
+   */
+  history?: ProblemHistory;
 };
 
 /**
@@ -1243,9 +1312,11 @@ export async function writeAndCheckGuide(
       ...textChecks(before).filter((p) => written.has(p.scope) && inScope(p.scope)),
     ];
   }
+  // Task 30: a copy (this run's rounds are added to it, the caller's map stays as it was).
+  const history: ProblemHistory = new Map([...(opts.history ?? [])].map(([k, v]) => [k, { problems: [...v.problems], flagged: v.flagged }]));
   let last: DraftRound | undefined;
   for (let round = 1; round <= (opts.probe ? 1 : 2); round++) {
-    const next = await draft(ctx, texts, problems, only);
+    const next = await draft(ctx, texts, problems, only, history);
     const written = assemble(ctx, next.texts);
     const recheck = ctx.jobs.filter(
       (j) =>
@@ -1284,6 +1355,7 @@ export async function writeAndCheckGuide(
       pending: [...pending, ...owed],
     };
     opts.onRound?.(last);
+    addProblems(history, found);
     texts = next.texts;
     problems = found;
     before = written;
