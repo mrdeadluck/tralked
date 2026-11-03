@@ -84,8 +84,8 @@ A capa é de revista: **3 chamadas** com o número em destaque, a manchete e a l
   - **7–8**: dificuldade máxima obrigatória, desafio sem tomar dano ou com tempo, grind pesado ou conquista com raridade global abaixo de 5% por habilidade.
   - **9–10**: extremo: morte permanente, jogo inteiro sem tomar dano ou sem morrer, competitivo de alto nível, conquista com raridade abaixo de 1% por habilidade.
   Perdível não deixa o jogo mais difícil, só mais trabalhoso: cite-o na justificativa, mas não suba a nota por isso. Grind longo e sem habilidade sobe no máximo um ponto.
-- `zeradas`: o mínimo de zeradas (até 80 caracteres: "1", "2 (finais diferentes)"); `notaZeradas` explica (até 120).
-- `horasMin` e `horasMax`: as horas da ficha. Se a ficha não trouxer horas, `null`.
+- **Os números da ficha (horas, zeradas, perdíveis, online, com bug, total de conquistas) são calculados pelo sistema** a partir do dossiê e dos dados oficiais. Você não os escreve: só os cita no texto, exatamente como vêm na mensagem. Quando a ficha diz "sem dado", não cite aquele número em lugar nenhum (nem horas por capítulo ou por etapa, que o dossiê não traz).
+- `notaZeradas`: o que fazer em cada zerada, em até 120 caracteres, só com o que o dossiê diz.
 - `maisDificil`: o apiName da conquista mais difícil (habilidade, raridade global da Steam); `null` se nenhuma se destaca.
 - `visaoGeral`: dois ou três parágrafos corridos, sem spoiler, sobre o jogo e o que pesa no caminho até o Tralked.
 

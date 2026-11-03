@@ -4,7 +4,8 @@ import { walkAchievementRefs, walkItemKeys, walkthroughSchema } from "@/lib/cont
 import type { Ai, StructuredOpts } from "../../src/ai/client.js";
 import { checkGuide } from "../../src/guias/checker.js";
 import type { GuidePayloadV2 } from "../../src/guias/contract.js";
-import { buildDossier, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "../../src/guias/dossier.js";
+import { buildDossier, type DossierChapter, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "../../src/guias/dossier.js";
+import { inPool } from "../../src/guias/pool.js";
 import { copiedRuns, loadGuideStyle, writeAndCheckGuide, writeGuide, writeGuideDetailed } from "../../src/guias/writer.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
 
@@ -18,18 +19,20 @@ const STEAM: SteamAchievement[] = [
 const SOURCE_TEXT =
   "Climb the scaffolding and take the ladder on the right side to reach the second bell near the old well.";
 
+/** Three chapters (Weeping Creek, Crimson Forest, Ashen Peak) from two sources, plus 3 loose achievements. */
 function makeDossier(): GuideDossier {
-  const bells = (src: string) => [
+  const bells = () => [
     item("Bell", { collectibleType: "Bell", index: 1, total: 2, location: "Start of the valley", countsForEn: ["Bell Ringer"] }),
-    item("Bell", { collectibleType: "Bell", index: 2, total: 2, location: SOURCE_TEXT, countsForEn: ["Bell Ringer"], ...(src === "PowerPyx" ? {} : {}) }),
+    item("Bell", { collectibleType: "Bell", index: 2, total: 2, location: SOURCE_TEXT, countsForEn: ["Bell Ringer"] }),
   ];
   const powerpyx = fact("PowerPyx", "roteiro_psn", {
     chapters: [
       chapter("Weeping Creek", [
-        ...bells("PowerPyx"),
+        ...bells(),
         item("Old Lantern", { kind: "key_item", location: "Shrine behind the waterfall", missable: true, missableUntil: "Crimson Forest" }),
       ], 1),
       chapter("Crimson Forest", [item("The Warden", { kind: "boss", location: "Arena", achievementNameEn: "Warden Down" })], 2),
+      chapter("Ashen Peak", [item("Ash Feather", { location: "Summit" })], 3),
     ],
     achievements: [ach("Bell Ringer"), ach("Warden Down"), ach("The End"), ach("Hidden Path", { howTo: SOURCE_TEXT })],
     roadmap: [
@@ -41,7 +44,7 @@ function makeDossier(): GuideDossier {
     difficulty: { value: 4, note: "Easy." },
   });
   const steamGuide = fact("SteamGuide", "roteiro_steam", {
-    chapters: [chapter("Weeping Creek", bells("SteamGuide"), 1)],
+    chapters: [chapter("Weeping Creek", bells(), 1)],
     achievements: [ach("Bell Ringer"), ach("Warden Down"), ach("The End"), ach("Hidden Path")],
     hours: { min: 10, max: 12 },
   });
@@ -75,7 +78,7 @@ function goodFrame(prompt: string, variant = 0) {
       chamadas: [
         { valor: "1", rotulo: "Perdível" },
         { valor: "0", rotulo: "Online" },
-        { valor: "2", rotulo: "Capítulos" },
+        { valor: "3", rotulo: "Capítulos" },
       ],
       manchete: `O caminho até o Tralked ${variant}`,
       linhaFina: "Todos os sinos e as 4 conquistas, na ordem do jogo.",
@@ -83,18 +86,15 @@ function goodFrame(prompt: string, variant = 0) {
     ficha: {
       dificuldade: 4,
       justificativaDificuldade: "Nenhuma conquista pede dificuldade alta.",
-      zeradas: "1",
       notaZeradas: "Uma zerada basta.",
-      horasMin: 10,
-      horasMax: 12,
       maisDificil: "ACH_SECRET",
     },
     visaoGeral: ["Um jogo de ação curto.", "O Tralked sai numa zerada."],
-    leiaAntes: [{ titulo: "Lanterna", texto: "Pegue a lanterna antes da floresta.", tom: "aviso", spoiler: false }],
-    etapas: keysIn(prompt, "etapa").map((key) => ({ key, titulo: `Etapa ${key}`, horas: "5 h", blocos: [{ tipo: "paragrafo", texto: "Siga a história." }] })),
+    leiaAntes: [{ titulo: "Lanterna", texto: "Pegue a lanterna antes da floresta.", tom: "aviso" as const, spoiler: false }],
+    etapas: keysIn(prompt, "etapa").map((key) => ({ key, titulo: `Etapa ${key}`, blocos: [{ tipo: "paragrafo" as const, texto: "Siga a história." }] })),
     capitulos: [
-      ...keysIn(prompt, "capitulo").map((key) => ({ key, fase: "inventada", titulo: `Capítulo ${key}`, horas: "3 h", prazo: "Antes da floresta" })),
-      { key: "capitulo-inventado", fase: "x", titulo: "Inventado", horas: "1 h", prazo: null },
+      ...keysIn(prompt, "capitulo").map((key) => ({ key, fase: "inventada", titulo: `Capítulo ${key}`, prazo: "Antes da floresta" as string | null })),
+      { key: "capitulo-inventado", fase: "x", titulo: "Inventado", prazo: null },
     ],
   };
 }
@@ -104,45 +104,51 @@ function goodChapter(prompt: string, variant = 0) {
     passos: [
       ...keysIn(prompt, "passo").map((key) => ({
         key,
-        blocos: [{ tipo: "paragrafo", texto: `Texto próprio do passo ${variant}.` }],
+        blocos: [{ tipo: "paragrafo" as const, texto: `Texto próprio do passo ${variant}.` }],
         conquistas: [] as string[],
       })),
-      { key: "passo-inventado", blocos: [{ tipo: "paragrafo", texto: "x" }], conquistas: [] },
+      { key: "passo-inventado", blocos: [{ tipo: "paragrafo" as const, texto: "x" }], conquistas: [] as string[] },
     ],
     itens: [
       ...keysIn(prompt, "item").map((key) => ({ key, nome: `Nome ${key}`, local: "Perto da entrada.", spoiler: false })),
       { key: "item-inventado", nome: "Inventado", local: "Lugar", spoiler: false },
     ],
-    depois: "Dá para voltar depois e pegar o que faltou.",
+    depois: "Dá para voltar depois e pegar o que faltou." as string | null,
   };
 }
 
 type Verdict = { ok: boolean; problems: string[] };
+const OK: Verdict = { ok: true, problems: [] };
 
-type Hooks = {
+type Fake = {
+  /** The checker's answer to each call (the check prompt and the call's number). */
+  verdict?: (user: string, n: number) => Verdict;
+  variant?: number;
   frame?: (out: ReturnType<typeof goodFrame>) => void;
-  chapter?: (out: ReturnType<typeof goodChapter>, prompt: string) => void;
+  chapter?: (out: ReturnType<typeof goodChapter>, prompt: string, n: number) => void | Promise<void>;
 };
 
-function fakeAi(verdicts: Verdict[] = [{ ok: true, problems: [] }], variant = 0, hooks: Hooks = {}) {
+function fakeAi(fake: Fake = {}) {
   const calls: StructuredOpts<unknown>[] = [];
-  let c = 0;
+  let checks = 0;
+  let chapters = 0;
   const structured = vi.fn(async (opts: StructuredOpts<unknown>) => {
     calls.push(opts);
     if (opts.purpose.startsWith("guide-write-frame")) {
-      const out = goodFrame(opts.user, variant);
-      hooks.frame?.(out);
+      const out = goodFrame(opts.user, fake.variant);
+      fake.frame?.(out);
       return out;
     }
     if (opts.purpose.startsWith("guide-write-chapter")) {
-      const out = goodChapter(opts.user, variant);
-      hooks.chapter?.(out, opts.user);
+      const out = goodChapter(opts.user, fake.variant);
+      await fake.chapter?.(out, opts.user, chapters++);
       return out;
     }
-    return verdicts[Math.min(c++, verdicts.length - 1)];
+    return (fake.verdict ?? (() => OK))(opts.user, checks++);
   });
   const ai = { structured, batchRequest: vi.fn(), recordBatchUsage: vi.fn(), assertBudget: vi.fn() } as unknown as Ai;
-  return { ai, calls };
+  const of = (prefix: string) => calls.filter((o) => o.purpose.startsWith(prefix));
+  return { ai, calls, of };
 }
 
 const allKeys = (p: GuidePayloadV2) => [
@@ -151,11 +157,13 @@ const allKeys = (p: GuidePayloadV2) => [
   ...p.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items.map((i) => i.key))),
   ...p.steps.map((s) => s.key ?? ""),
 ];
+const itemsOf = (p: GuidePayloadV2) =>
+  p.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items.map((i) => ({ step: s.key, chapter: c.key, i }))));
 
 describe("guia-estilo.md", () => {
   it("carries the guide rules", () => {
     const style = loadGuideStyle();
-    for (const phrase of ["Tralked", "platina", "(inglês)", "namePt", "8 palavras", "spoiler", "antes", "dá para voltar depois", "3 chamadas", "review", "1 a 10"]) {
+    for (const phrase of ["Tralked", "platina", "(inglês)", "namePt", "8 palavras", "spoiler", "antes", "dá para voltar depois", "3 chamadas", "review", "1 a 10", "calculados pelo sistema"]) {
       expect(style).toContain(phrase);
     }
   });
@@ -164,8 +172,8 @@ describe("guia-estilo.md", () => {
 describe("writeGuide", () => {
   it("as chaves vêm do código e se repetem entre duas execuções", async () => {
     const dossier = makeDossier();
-    const a = await writeGuide(fakeAi([], 0).ai, dossier, GAME, "live");
-    const b = await writeGuide(fakeAi([], 1).ai, dossier, GAME, "live");
+    const a = await writeGuide(fakeAi({ variant: 0 }).ai, dossier, GAME, "live");
+    const b = await writeGuide(fakeAi({ variant: 1 }).ai, dossier, GAME, "live");
     expect(a.walkthrough.cover.headline).not.toBe(b.walkthrough.cover.headline);
     expect(allKeys(a)).toEqual(allKeys(b));
     expect(allKeys(a).join(" ")).not.toMatch(/inventad/);
@@ -175,7 +183,7 @@ describe("writeGuide", () => {
   });
 
   it("o payload devolvido passa no walkthroughSchema do site", async () => {
-    const { ai, calls } = fakeAi();
+    const { ai, of } = fakeAi();
     const payload = await writeGuide(ai, makeDossier(), GAME, "live");
     const walk = walkthroughSchema.safeParse(payload.walkthrough);
     expect(walk.error?.issues).toBeUndefined();
@@ -205,8 +213,8 @@ describe("writeGuide", () => {
     const lanternStep = walk.data!.chapters.flatMap((c) => c.steps).find((s) => s.items.some((i) => i.nameEn === "Old Lantern"))!;
     expect(lanternStep.body[0]).toMatchObject({ type: "callout", tone: "aviso" });
 
-    // The model writes with MODEL_WRITER at high effort and never with invented keys.
-    const writes = calls.filter((o) => o.purpose.startsWith("guide-write"));
+    // The model writes with MODEL_WRITER at high effort.
+    const writes = of("guide-write");
     expect(writes.length).toBeGreaterThanOrEqual(2);
     for (const w of writes) expect(w).toMatchObject({ model: "claude-opus-5-5", effort: "high", bucket: "live" });
   });
@@ -232,11 +240,45 @@ describe("writeGuide", () => {
   });
 });
 
-describe("estrutura feita pelo código", () => {
-  const itemsOf = (p: GuidePayloadV2) => p.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items.map((i) => ({ step: s.key, chapter: c.key, i }))));
+describe("números só do dossiê, do catálogo ou do código", () => {
+  it("sem horas nas fontes nem no catálogo: zero na ficha, — no selo, nos capítulos e nas etapas, sem reparo", async () => {
+    const dossier = makeDossier();
+    dossier.facts.hours = undefined;
+    const { payload, repairs } = await writeGuideDetailed(fakeAi().ai, dossier, GAME, "live");
+    expect(payload.facts).toMatchObject({ hoursMin: 0, hoursMax: 0, playthroughs: "1" });
+    expect(payload.walkthrough.cover.sealHours).toBe("—");
+    for (const c of payload.walkthrough.chapters) expect(c.hours).toBe("—");
+    for (const s of payload.steps) expect(s.hours).toBe("—");
+    expect(repairs).toEqual([]);
+  });
 
+  it("horas vêm do tempo do catálogo quando as fontes não têm; zeradas sem dado viram —", async () => {
+    const dossier = makeDossier();
+    dossier.facts.hours = undefined;
+    dossier.facts.playthroughs = undefined;
+    const game = { ...GAME, game: { ...GAME.game, timeToBeatCompleteMin: 615 } };
+    const payload = await writeGuide(fakeAi().ai, dossier, game, "live");
+    expect(payload.facts).toMatchObject({ hoursMin: 10, hoursMax: 10, playthroughs: "—" });
+    expect(payload.walkthrough.cover.sealHours).toBe("10 h");
+  });
+
+  it("chamada da capa com número fora da ficha é trocada por uma da ficha", async () => {
+    const { ai } = fakeAi({
+      frame: (out) => {
+        out.capa.chamadas = [{ valor: "999", rotulo: "Inventado" }, { valor: "10–12 h", rotulo: "Tempo até o Tralked" }];
+      },
+    });
+    const p = await writeGuide(ai, makeDossier(), GAME, "live");
+    const calls = p.walkthrough.cover.calls;
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toEqual({ value: "10–12 h", label: "Tempo até o Tralked" });
+    expect(calls.map((c) => c.value)).not.toContain("999");
+  });
+});
+
+describe("estrutura feita pelo código", () => {
   it("conquista sem lugar fixo que o modelo põe num passo sai da limpeza", async () => {
-    const { ai } = fakeAi([], 0, {
+    const { ai } = fakeAi({
       chapter: (out, prompt) => {
         if (!prompt.includes('<passo key="weeping-creek-2">')) return;
         out.passos.find((p) => p.key === "weeping-creek-2")!.conquistas.push("ACH_BELLS", "NAO_EXISTE");
@@ -254,17 +296,37 @@ describe("estrutura feita pelo código", () => {
     expect(cleanup.steps.map((s) => s.key)).toEqual(["limpeza-2", "limpeza-3"]);
   });
 
-  it("perdível que o modelo não posiciona vai para antes do capítulo do prazo, e vira problema", async () => {
+  const missableSecret = () => {
     const dossier = makeDossier();
     const secret = dossier.achievements.find((a) => a.apiName === "ACH_SECRET")!;
     Object.assign(secret, { missable: true, missableUntil: "Crimson Forest", deadlineChapter: "Crimson Forest" });
-    const { ai } = fakeAi();
-    const { payload, repairs } = await writeGuideDetailed(ai, dossier, GAME, "live");
+    return dossier;
+  };
+
+  it("perdível que o modelo não posiciona vai para antes do capítulo do prazo, e vira problema", async () => {
+    const { payload, repairs } = await writeGuideDetailed(fakeAi().ai, missableSecret(), GAME, "live");
     const placed = itemsOf(payload).find((x) => x.i.achievement === "ACH_SECRET")!;
     expect(placed.step).toBe("weeping-creek-3");
     expect(placed.i.missable).toBe(true);
     expect(payload.facts.missables).toBe(1);
-    expect(repairs.join(" ")).toMatch(/ACH_SECRET/);
+    expect(repairs.map((r) => r.text).join(" ")).toMatch(/ACH_SECRET/);
+  });
+
+  it("perdível posto pelo modelo depois do capítulo do prazo é recusado e vai para antes dele", async () => {
+    const { ai, of } = fakeAi({
+      chapter: (out, prompt) => {
+        if (!prompt.includes('<passo key="ashen-peak-1">')) return;
+        out.passos.find((p) => p.key === "ashen-peak-1")!.conquistas.push("ACH_SECRET");
+      },
+    });
+    const { payload, repairs } = await writeGuideDetailed(ai, missableSecret(), GAME, "live");
+    expect(itemsOf(payload).find((x) => x.i.achievement === "ACH_SECRET")!.step).toBe("weeping-creek-3");
+    const refused = repairs.find((r) => r.text.includes("depois do capítulo"))!;
+    expect(refused).toMatchObject({ scope: "ashen-peak-1" });
+    // The Ashen Peak call was not even offered the missable (its milestone chapter came before).
+    const ashen = of("guide-write-chapter").find((c) => c.user.includes('<passo key="ashen-peak-1">'))!;
+    expect(ashen.user).not.toContain('apiName="ACH_SECRET"');
+    expect(ashen.user).toContain('apiName="ACH_ENDING"');
   });
 
   it("o prazo fica no capítulo do perdível, não no capítulo do marco", async () => {
@@ -274,63 +336,115 @@ describe("estrutura feita pelo código", () => {
     expect(byKey.get("crimson-forest")!.deadline).toBeUndefined();
   });
 
-  it("chamada da capa com número fora da ficha é trocada por uma da ficha", async () => {
-    const { ai } = fakeAi([], 0, {
-      frame: (out) => {
-        out.capa.chamadas = [{ valor: "999", rotulo: "Inventado" }, { valor: "10–12 h", rotulo: "Tempo até o Tralked" }];
+  it("as conquistas sem lugar fixo vão compactas (sem o como) aos capítulos", async () => {
+    const { ai, of } = fakeAi();
+    await writeGuide(ai, makeDossier(), GAME, "live");
+    const weeping = of("guide-write-chapter").find((c) => c.user.includes('<passo key="weeping-creek-1">'))!;
+    expect(weeping.user).toContain('<conquista key="conq-ach-secret" apiName="ACH_SECRET"');
+    expect(weeping.user).not.toContain(SOURCE_TEXT.slice(0, 40) + " near"); // the howTo of ACH_SECRET
+    expect(weeping.user.split("## Conquistas sem lugar fixo")[1]).not.toContain("Climb the scaffolding");
+  });
+});
+
+describe("gasto", () => {
+  it("o primeiro erro de uma chamada para o pool: nenhuma chamada nova depois dele", async () => {
+    const dossier = makeDossier();
+    const extra: DossierChapter[] = Array.from({ length: 8 }, (_, n) => ({
+      title: `Extra ${n + 1}`,
+      order: 10 + n,
+      items: [{ ...dossier.chapters[2]!.items[0]!, id: `x${n}`, name: `Extra item ${n + 1}`, nameEn: `Extra item ${n + 1}` }],
+    }));
+    dossier.chapters.push(...extra);
+    const { ai, of } = fakeAi({
+      chapter: async (_out, _prompt, n) => {
+        if (n === 0) throw new Error("API caiu");
+        await new Promise((r) => setTimeout(r, 20));
       },
     });
-    const p = await writeGuide(ai, makeDossier(), GAME, "live");
-    const calls = p.walkthrough.cover.calls;
-    expect(calls).toHaveLength(3);
-    expect(calls[0]).toEqual({ value: "10–12 h", label: "Tempo até o Tralked" });
-    expect(calls.map((c) => c.value)).not.toContain("999");
+    await expect(writeGuide(ai, dossier, GAME, "live")).rejects.toThrow("API caiu");
+    await new Promise((r) => setTimeout(r, 100));
+    // 12 jobs exist; only the 3 started together were paid for.
+    expect(of("guide-write-chapter").length).toBeLessThanOrEqual(3);
+  });
+
+  it("inPool para de puxar trabalho quando uma chamada falha", async () => {
+    const started: number[] = [];
+    const run = async (n: number) => {
+      started.push(n);
+      if (n === 1) throw new Error("falhou");
+      await new Promise((r) => setTimeout(r, 10));
+      return n;
+    };
+    await expect(inPool([1, 2, 3, 4, 5, 6], 2, run)).rejects.toThrow("falhou");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(started).toEqual([1, 2]);
   });
 });
 
 describe("writeAndCheckGuide", () => {
   it("reescreve uma vez com os problemas do checador", async () => {
-    const { ai, calls } = fakeAi([
-      { ok: false, problems: ["O passo diz 3 sinos; o dossiê diz 2."] },
-      { ok: true, problems: [] },
-    ]);
+    const problem = "O passo crimson-forest-1 diz 3 chefes; o dossiê diz 1.";
+    let failed = false;
+    const { ai, of } = fakeAi({
+      verdict: (user) => {
+        if (!failed && user.includes('"key":"crimson-forest-1"')) {
+          failed = true;
+          return { ok: false, problems: [problem] };
+        }
+        return OK;
+      },
+    });
     const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live");
     expect(result.ok).toBe(true);
-    const checks = calls.filter((o) => o.purpose.startsWith("guide-check"));
-    expect(checks).toHaveLength(2);
-    for (const c of checks) expect(c).toMatchObject({ model: "claude-haiku-5-5", effort: "low" });
-    const retries = calls.filter((o) => o.purpose.startsWith("guide-write") && o.purpose.endsWith("-retry"));
-    expect(retries.length).toBeGreaterThan(0);
-    for (const r of retries) expect(r.user).toContain("O passo diz 3 sinos; o dossiê diz 2.");
+    for (const c of of("guide-check")) expect(c).toMatchObject({ model: "claude-haiku-5-5", effort: "low" });
+    // Only the job the problem points at is rewritten (no frame, no other chapter), with its problem.
+    const retries = of("guide-write").filter((o) => o.purpose.endsWith("-retry"));
+    expect(retries).toHaveLength(1);
+    expect(retries[0]!.purpose).toBe("guide-write-chapter-retry");
+    expect(retries[0]!.user).toContain('<passo key="crimson-forest-1">');
+    expect(retries[0]!.user).toContain(problem);
+    // First round: frame + 4 jobs; second round: only the rewritten job.
+    expect(of("guide-check")).toHaveLength(6);
+  });
+
+  it("um problema da moldura reescreve só a moldura", async () => {
+    let failed = false;
+    const { ai, of } = fakeAi({
+      verdict: (user) => {
+        if (!failed && user.includes('"leiaAntes"')) {
+          failed = true;
+          return { ok: false, problems: ["A visão geral cita um chefe."] };
+        }
+        return OK;
+      },
+    });
+    const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live");
+    expect(result.ok).toBe(true);
+    const retries = of("guide-write").filter((o) => o.purpose.endsWith("-retry"));
+    expect(retries.map((r) => r.purpose)).toEqual(["guide-write-frame-retry"]);
   });
 
   it("falha quando a segunda checagem também reprova", async () => {
-    const { ai, calls } = fakeAi([{ ok: false, problems: ["Número errado."] }]);
+    const { ai } = fakeAi({ verdict: () => ({ ok: false, problems: ["Número errado."] }) });
     const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.problems).toContain("Número errado.");
-    expect(calls.filter((o) => o.purpose.startsWith("guide-check"))).toHaveLength(2);
   });
 
-  it("a cópia de uma fonte vira problema antes do checador", async () => {
-    const dossier = makeDossier();
-    const { ai, calls } = fakeAi();
-    // The writer copies the source's sentence into every item location.
-    const structured = ai.structured as unknown as ReturnType<typeof vi.fn>;
-    const original = structured.getMockImplementation() as (o: StructuredOpts<unknown>) => Promise<unknown>;
-    let copied = false;
-    structured.mockImplementation(async (opts: StructuredOpts<unknown>) => {
-      const out = await original(opts);
-      if (opts.purpose === "guide-write-chapter" && !copied) {
-        copied = true;
-        (out as { itens: { local: string }[] }).itens.forEach((i) => (i.local = SOURCE_TEXT));
-      }
-      return out;
+  it("a cópia de uma fonte vira problema antes do checador e reescreve só aquele trecho", async () => {
+    const { ai, of } = fakeAi({
+      chapter: (out, prompt) => {
+        // The first Weeping Creek answer copies the source's sentence into every item location.
+        if (prompt.includes('<passo key="weeping-creek-1">') && !prompt.includes("Correções obrigatórias")) {
+          out.itens.forEach((i) => (i.local = SOURCE_TEXT));
+        }
+      },
     });
-    const result = await writeAndCheckGuide(ai, dossier, GAME, "live");
+    const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live");
     expect(result.ok).toBe(true);
-    const retries = calls.filter((o) => o.purpose.endsWith("-retry"));
-    expect(retries.length).toBeGreaterThan(0);
+    const retries = of("guide-write").filter((o) => o.purpose.endsWith("-retry"));
+    expect(retries).toHaveLength(1);
+    expect(retries[0]!.user).toContain('<passo key="weeping-creek-1">');
     expect(retries[0]!.user).toMatch(/copiad/i);
   });
 });
@@ -357,19 +471,42 @@ describe("copiedRuns", () => {
 });
 
 describe("checkGuide", () => {
-  it("usa MODEL_FAST com esforço baixo e devolve os problemas", async () => {
-    const { ai, calls } = fakeAi([{ ok: false, problems: [" A ficha diz 2 perdíveis. ", ""] }]);
+  it("usa MODEL_FAST com esforço baixo, uma chamada por trecho, e devolve os problemas sem repetir", async () => {
+    const { ai, of } = fakeAi({ verdict: () => ({ ok: false, problems: [" A ficha diz 2 perdíveis. ", ""] }) });
     const payload = await writeGuide(ai, makeDossier(), GAME, "live");
     const verdict = await checkGuide(ai, payload, makeDossier());
     expect(verdict).toEqual({ ok: false, problems: ["A ficha diz 2 perdíveis."] });
-    const check = calls.find((o) => o.purpose === "guide-check")!;
-    expect(check).toMatchObject({ model: "claude-haiku-5-5", effort: "low" });
-    expect(check.user).toContain("<dossie>");
-    expect(check.user).toContain("<guia>");
+    const checks = of("guide-check");
+    expect(checks).toHaveLength(5); // frame + Weeping Creek + Crimson Forest + Ashen Peak + cleanup
+    for (const c of checks) {
+      expect(c).toMatchObject({ model: "claude-haiku-5-5", effort: "low" });
+      expect(c.user).toContain("<numeros_do_codigo>");
+      expect(c.user).toContain("<dossie>");
+      expect(c.user).toContain("<guia>");
+    }
+    // A job check carries only its own steps and the dossier facts behind them.
+    const crimson = checks.find((c) => c.user.includes('"key":"crimson-forest-1"'))!;
+    expect(crimson.user).not.toContain('"key":"weeping-creek-1"');
+    expect(crimson.user).toContain("Warden Down");
+    expect(crimson.user).not.toContain("Old Lantern");
+  });
+
+  it("os números do código vão ao checador como autoritativos, inclusive horas do catálogo", async () => {
+    const dossier = makeDossier();
+    dossier.facts.hours = undefined;
+    const game = { ...GAME, game: { ...GAME.game, timeToBeatCompleteMin: 615 } };
+    const { ai, of } = fakeAi();
+    const payload = await writeGuide(ai, dossier, game, "live");
+    await checkGuide(ai, payload, dossier);
+    const frameCheck = of("guide-check").find((c) => c.user.includes('"leiaAntes"'))!;
+    const numbers = frameCheck.user.split("</numeros_do_codigo>")[0]!;
+    expect(numbers).toContain('"hoursMin":10');
+    expect(numbers).toContain('"seloHoras":"10 h"');
+    expect(frameCheck.system).toMatch(/certos por definição/);
   });
 
   it("reprovação sem problema listado ainda é reprovação", async () => {
-    const { ai } = fakeAi([{ ok: false, problems: [] }]);
+    const { ai } = fakeAi({ verdict: () => ({ ok: false, problems: [] }) });
     const payload = await writeGuide(ai, makeDossier(), GAME, "live");
     const verdict = await checkGuide(ai, payload, makeDossier());
     expect(verdict.ok).toBe(false);
