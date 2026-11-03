@@ -52,6 +52,8 @@ export type DossierItem = {
   /** Listed by >= 2 independent groups. */
   agreed: boolean;
   platforms: FactPlatform[];
+  /** Sources contradict each other (total, missable, until). Task 8 maps it to `review = true`. */
+  conflict?: string;
 };
 
 export type DossierChapter = { title: string; region?: string; order: number; items: DossierItem[] };
@@ -81,7 +83,20 @@ export type DossierAchievement = {
   /** At least one covering source is `platform: "steam"`. */
   steamSourced: boolean;
   /** "Collect N" achievements: N and what the items add up to (fragments converted by the rule). */
-  collect?: { target: number; counted: number };
+  collect?: {
+    target: number;
+    counted: number;
+    /** Where N came from: the achievement text, or the `total` the sources print on the items. */
+    from: "texto" | "total";
+    /** Distinct `total`s printed by the counting items when the text gave no N and they disagree. */
+    conflictingTotals: number[];
+    /** Counting items with no location. */
+    withoutLocation: string[];
+    /** Problems with the numbering 1..N of the counting items (duplicates, absent). */
+    indexProblems: string[];
+  };
+  /** Sources contradict each other on missable / until. Task 8 maps it to `review = true`. */
+  conflict?: string;
 };
 
 export type Scalar<T> = { value: T; sources: string[]; agreed: boolean };
@@ -122,6 +137,8 @@ type Acc = Omit<DossierItem, "sources" | "sourceLinks" | "agreed" | "platforms" 
   groups: Set<string>;
   links: Map<string, SourceLink>;
   platforms: Set<FactPlatform>;
+  missSeen: Set<boolean>;
+  conflicts: string[];
 };
 
 const singular = (word: string) => word.replace(/s$/, "");
@@ -156,6 +173,8 @@ function pickScalar<T>(
   facts: ExtractedFacts[],
   nameOf: (f: ExtractedFacts) => string,
   read: (f: ExtractedFacts) => T | undefined,
+  key: (v: T) => string,
+  show: (v: T) => string,
   label: string,
   divergences: string[],
 ): Scalar<T> | undefined {
@@ -163,12 +182,12 @@ function pickScalar<T>(
   const first = withValue[0];
   if (!first) return undefined;
   const value = read(first)!;
-  const same = withValue.filter((f) => JSON.stringify(read(f)) === JSON.stringify(value));
+  const same = withValue.filter((f) => key(read(f)!) === key(value));
   const sources = [...new Set(same.map(nameOf))];
   const other = withValue.filter((f) => !same.includes(f));
   if (other.length > 0) {
     divergences.push(
-      `${label}: ${sources.join(", ")} diz ${JSON.stringify(value)}, mas ${[...new Set(other.map(nameOf))].join(", ")} diz ${JSON.stringify(read(other[0]!))}.`,
+      `${label}: ${sources.join(", ")} diz ${show(value)}, mas ${[...new Set(other.map(nameOf))].join(", ")} diz ${show(read(other[0]!)!)}.`,
     );
   }
   return { value, sources, agreed: sources.length >= 2 };
@@ -180,11 +199,13 @@ function pickScalar<T>(
  * Pure code, no AI. `groups` come from `independentGroups`.
  */
 export function buildDossier(
-  steamList: SteamAchievement[],
+  fullList: SteamAchievement[],
   rawFacts: ExtractedFacts[],
   groups: string[][],
   unreadSources: GuideDossier["unreadSources"] = [],
 ): GuideDossier {
+  // `?all=1` returns the rows of every platform; the master list is the Steam ones only.
+  const steamList = fullList.filter((s) => s.platform === "steam");
   const facts = rawFacts
     .map((f, i) => ({ f, i }))
     .sort((a, b) => ROLE_ORDER[a.f.source.role] - ROLE_ORDER[b.f.source.role] || a.i - b.i)
@@ -233,15 +254,27 @@ export function buildDossier(
             groups: new Set(),
             links: new Map(),
             platforms: new Set(),
+            missSeen: new Set(),
+            conflicts: [],
           };
           target.items.set(id, acc);
         }
         acc.nameEn ??= item.nameEn;
         acc.collectibleType ??= item.collectibleType;
         acc.index ??= item.index;
+        if (acc.total !== undefined && item.total !== undefined && acc.total !== item.total) {
+          acc.conflicts.push(`total ${acc.total} numa fonte e ${item.total} em ${nameOf(fact)}`);
+        }
         acc.total ??= item.total;
         acc.location ||= item.location;
+        acc.missSeen.add(item.missable);
+        if (acc.missSeen.size > 1 && !acc.conflicts.some((c) => c.startsWith("perdível"))) {
+          acc.conflicts.push(`perdível segundo uma fonte e não perdível segundo ${nameOf(fact)}`);
+        }
         acc.missable ||= item.missable;
+        if (acc.missableUntil && item.missableUntil && normalizeName(acc.missableUntil) !== normalizeName(item.missableUntil)) {
+          acc.conflicts.push(`prazo "${acc.missableUntil}" numa fonte e "${item.missableUntil}" em ${nameOf(fact)}`);
+        }
         acc.missableUntil ??= item.missableUntil;
         acc.returnLater ||= item.returnLater;
         acc.achievementNameEn ??= item.achievementNameEn;
@@ -258,11 +291,12 @@ export function buildDossier(
     region: c.region,
     order: c.order,
     items: [...c.items.values()].map((acc): DossierItem => {
-      const { groups: g, links, platforms, achievementNameEn, countsForEn, ...rest } = acc;
+      const { groups: g, links, platforms, achievementNameEn, countsForEn, missSeen: _m, conflicts, ...rest } = acc;
       const achievement = achievementNameEn ? toApiName(achievementNameEn) : undefined;
       if (achievementNameEn && !achievement) {
         divergences.push(`O item "${acc.name}" aponta para a conquista "${achievementNameEn}", que não existe na lista da Steam.`);
       }
+      for (const c of conflicts) divergences.push(`O item "${acc.name}": ${c}.`);
       return {
         ...rest,
         achievement,
@@ -271,6 +305,7 @@ export function buildDossier(
         sourceLinks: [...links.values()],
         agreed: g.size >= 2,
         platforms: [...platforms],
+        conflict: conflicts.length > 0 ? conflicts.join('; ') : undefined,
       };
     }),
   }));
@@ -302,12 +337,14 @@ export function buildDossier(
     groups: Set<string>;
     links: Map<string, SourceLink>;
     platforms: Set<FactPlatform>;
+    missSeen: Set<boolean>;
+    conflicts: string[];
   };
   const accs = new Map<string, AchAcc>();
   const accFor = (apiName: string) => {
     let a = accs.get(apiName);
     if (!a) {
-      a = { missable: false, bugged: false, online: false, groups: new Set(), links: new Map(), platforms: new Set() };
+      a = { missable: false, bugged: false, online: false, groups: new Set(), links: new Map(), platforms: new Set(), missSeen: new Set(), conflicts: [] };
       accs.set(apiName, a);
     }
     return a;
@@ -327,7 +364,14 @@ export function buildDossier(
       const a = accFor(apiName);
       touch(a, fact);
       a.howTo ||= entry.howTo;
+      a.missSeen.add(entry.missable);
+      if (a.missSeen.size > 1 && !a.conflicts.some((c) => c.startsWith("perdível"))) {
+        a.conflicts.push(`perdível segundo uma fonte e não perdível segundo ${nameOf(fact)}`);
+      }
       a.missable ||= entry.missable;
+      if (a.missableUntil && entry.missableUntil && normalizeName(a.missableUntil) !== normalizeName(entry.missableUntil)) {
+        a.conflicts.push(`prazo "${a.missableUntil}" numa fonte e "${entry.missableUntil}" em ${nameOf(fact)}`);
+      }
       a.missableUntil ??= entry.missableUntil;
       a.bugged ||= entry.bugged;
       a.bugNote ??= entry.bugNote;
@@ -364,8 +408,21 @@ export function buildDossier(
     const a = accs.get(s.apiName);
     const groupsSet = a?.groups ?? new Set<string>();
     const counting = allItems.filter((i) => i.countsFor.includes(s.apiName));
-    const target = [s.description, s.descriptionPt, a?.howTo].map(collectTarget).find((n) => n !== undefined);
-    const counted = counting.reduce((sum, i) => sum + weightOf(i), 0);
+    const textTarget = [s.description, s.descriptionPt, a?.howTo].map(collectTarget).find((n) => n !== undefined);
+    const totals = [...new Set(counting.map((i) => i.total).filter((t): t is number => t !== undefined))];
+    const target = textTarget ?? (totals.length > 0 ? Math.max(...totals) : undefined);
+    const weights = counting.map(weightOf);
+    const counted = weights.reduce((sum, w) => sum + w, 0);
+    const indexProblems: string[] = [];
+    const indexed = counting.filter((i) => i.index !== undefined);
+    if (target !== undefined && indexed.length > 0 && weights.every((w) => w === 1) && counted === target) {
+      const seen = new Set<number>();
+      for (const i of indexed) {
+        if (seen.has(i.index!)) indexProblems.push(`o número ${i.index} aparece mais de uma vez`);
+        seen.add(i.index!);
+      }
+      for (let n = 1; n <= target; n++) if (!seen.has(n)) indexProblems.push(`falta o número ${n}`);
+    }
     return {
       apiName: s.apiName,
       nameEn: s.name,
@@ -385,7 +442,18 @@ export function buildDossier(
       agreed: groupsSet.size >= 2,
       steamOnly: !onPsn.get(s.apiName),
       steamSourced: a?.platforms.has("steam") ?? false,
-      collect: target !== undefined ? { target, counted: Math.round(counted * 1000) / 1000 } : undefined,
+      collect:
+        target !== undefined
+          ? {
+              target,
+              counted: Math.round(counted * 1000) / 1000,
+              from: textTarget !== undefined ? "texto" : "total",
+              conflictingTotals: textTarget === undefined && totals.length > 1 ? totals : [],
+              withoutLocation: counting.filter((i) => !i.location.trim()).map((i) => i.name),
+              indexProblems,
+            }
+          : undefined,
+      conflict: a && a.conflicts.length > 0 ? a.conflicts.join('; ') : undefined,
     };
   });
   for (const a of achievements) {
@@ -401,7 +469,8 @@ export function buildDossier(
       : [
           {
             platform: "psn",
-            matchedAll: psnNames.every((nameEn) => steamBy.has(toApiName(nameEn) ?? "")),
+            // The PlayStation platinum has no Steam twin: it never makes the list "unmatched".
+            matchedAll: psnNames.every((nameEn) => steamBy.has(toApiName(nameEn) ?? "") || /platin/.test(normalizeName(nameEn))),
             size: psnTrophyListSize ?? psnNames.length,
           },
         ],
@@ -437,9 +506,9 @@ export function buildDossier(
     chapters,
     achievements,
     facts: {
-      playthroughs: pickScalar(facts, nameOf, (f) => f.playthroughs, "Número de jogadas", divergences),
-      difficulty: pickScalar(facts, nameOf, (f) => f.difficulty, "Dificuldade", divergences),
-      hours: pickScalar(facts, nameOf, (f) => f.hours, "Horas", divergences),
+      playthroughs: pickScalar(facts, nameOf, (f) => f.playthroughs, (v) => String(v.min), (v) => `${v.min} jogada(s)`, "Número de jogadas", divergences),
+      difficulty: pickScalar(facts, nameOf, (f) => f.difficulty, (v) => String(v.value), (v) => `dificuldade ${v.value}`, "Dificuldade", divergences),
+      hours: pickScalar(facts, nameOf, (f) => f.hours, (v) => `${v.min}-${v.max}`, (v) => `${v.min} a ${v.max} horas`, "Horas", divergences),
       roadmap: (roadmapFact?.roadmap ?? []).map((r) => ({ ...r, sources: [nameOf(roadmapFact!)] })),
       psnTrophyListSize,
       compat,

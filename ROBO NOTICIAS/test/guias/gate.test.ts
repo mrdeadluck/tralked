@@ -130,4 +130,104 @@ describe("gate", () => {
     expect(d.divergences).toContain("PowerPyx diz 23 sino e lista 22.");
     expect(result.ok).toBe(true);
   });
+
+  it("duas fontes de roteiro incompletas reprovam: WIP nunca é a única fonte", () => {
+    const other = fact("Outro Guia", "roteiro_steam", { complete: false, achievements: [ach("With Heart and Blood")] });
+    const { result } = run(baseSteam(), [powerpyx({ complete: false }), other]);
+    expect(result.missing).toEqual(["Nenhuma fonte de roteiro está completa (PowerPyx, Outro Guia)."]);
+  });
+
+  describe("contagem sem número no texto da Steam", () => {
+    const steam = (): SteamAchievement[] => [
+      steamAch("ACH_013", "With Heart and Blood", "Finish the story."),
+      steamAch("ACH_HID", "Shadow Blade", "", true),
+      steamAch("ACH_STONE", "Leave No Stone Unturned", "Collect all Blackstones"),
+    ];
+    const stones = (count: number, total: number | ((i: number) => number), extra: (i: number) => object = () => ({})) =>
+      Array.from({ length: count }, (_, i) =>
+        item(`Pedra Negra ${i + 1}`, {
+          collectibleType: "Blackstone",
+          index: i + 1,
+          total: typeof total === "number" ? total : total(i),
+          countsForEn: ["Leave No Stone Unturned"],
+          ...extra(i),
+        }),
+      );
+    const withStones = (items: ReturnType<typeof stones>) => powerpyx({ chapters: [chapter("Weeping Creek", items)] });
+
+    it("9 itens com total 10 → gate falha", () => {
+      const { result } = run(steam(), [withStones(stones(9, 10))]);
+      expect(result.missing).toEqual(['A conquista "Leave No Stone Unturned" (ACH_STONE) pede 10, mas os itens encontrados somam 9.']);
+    });
+
+    it("10 itens com total 10 passa", () => {
+      expect(run(steam(), [withStones(stones(10, 10))]).result.ok).toBe(true);
+    });
+
+    it("fontes que discordam do total reprovam e o item vai para revisão", () => {
+      const a = withStones(stones(10, 10));
+      const b = fact("Grindnstrat", "coletaveis", { chapters: [chapter("Weeping Creek", stones(10, 9))] });
+      const { d, result } = run(steam(), [a, b]);
+      expect(d.chapters[0]!.items[0]!.conflict).toContain("total 10 numa fonte e 9 em Grindnstrat");
+      expect(d.divergences.some((x) => x.includes("total 10"))).toBe(true);
+      expect(result.ok).toBe(true);
+      const mixed = run(steam(), [withStones(stones(10, (i) => (i === 0 ? 9 : 10)))]);
+      expect(mixed.result.missing).toEqual(['As fontes discordam do total da conquista "Leave No Stone Unturned" (ACH_STONE): 9 e 10.']);
+    });
+
+    it("item contado sem localização reprova", () => {
+      const { result } = run(steam(), [withStones(stones(10, 10, (i) => (i === 3 ? { location: " " } : {})))]);
+      expect(result.missing).toEqual(['O item "Pedra Negra 4" da conquista "Leave No Stone Unturned" (ACH_STONE) está sem localização.']);
+    });
+
+    it("numeração duplicada ou ausente reprova", () => {
+      const first = stones(9, 10);
+      const again = stones(1, 10, () => ({ index: 3, name: "Pedra Negra 3 de novo" }));
+      const f = powerpyx({ chapters: [chapter("Weeping Creek", first), chapter("Village of Lu", again, 2)] });
+      const { result } = run(steam(), [f]);
+      expect(result.missing).toEqual([
+        'A contagem da conquista "Leave No Stone Unturned" (ACH_STONE) está errada: o número 3 aparece mais de uma vez.',
+        'A contagem da conquista "Leave No Stone Unturned" (ACH_STONE) está errada: falta o número 10.',
+      ]);
+    });
+  });
+
+  it("linhas de PSN/Xbox da lista ?all=1 não viram conquistas da Steam", () => {
+    const psnRow = { ...steamAch("PSN_PLAT", "Platinum", "Get all trophies"), platform: "psn" };
+    const mixed = [...baseSteam(), psnRow];
+    const { d, result } = run(mixed, [powerpyx()]);
+    expect(result).toEqual({ ok: true, missing: [] });
+    expect(d.achievements.map((a) => a.apiName)).not.toContain("PSN_PLAT");
+    expect(d.facts.compat).toBe("psn");
+  });
+
+  it("a platina da PSN não impede o selo psn", () => {
+    const f = powerpyx({
+      trophyListSize: 4,
+      achievements: [...powerpyx().achievements, ach("Platinum Trophy")],
+    });
+    expect(run(baseSteam(), [f]).d.facts.compat).toBe("psn");
+  });
+
+  it("fontes que concordam no número concordam, mesmo com notas diferentes", () => {
+    const a = powerpyx({ playthroughs: { min: 1, note: "uma jogada basta" }, hours: { min: 20, max: 25 } });
+    const b = fact("Grindnstrat", "coletaveis", { playthroughs: { min: 1, note: "1 playthrough" }, hours: { min: 20, max: 30 } });
+    const { d } = run(baseSteam(), [a, b]);
+    expect(d.facts.playthroughs).toMatchObject({ agreed: true, sources: ["PowerPyx", "Grindnstrat"] });
+    expect(d.divergences).toEqual(["Horas: PowerPyx diz 20 a 25 horas, mas Grindnstrat diz 20 a 30 horas."]);
+  });
+
+  it("fontes que se contradizem em perdível ou prazo marcam revisão", () => {
+    const a = powerpyx({
+      chapters: [chapter("Weeping Creek", [...blackstones(10), item("Selo", { missable: true, missableUntil: "Weeping Creek" })])],
+    });
+    const b = fact("Grindnstrat", "coletaveis", {
+      achievements: [ach("Shadow Blade", { missable: true, missableUntil: "Village of Lu" })],
+      chapters: [chapter("Weeping Creek", [item("Selo", { missable: true, missableUntil: "Village of Lu" })])],
+    });
+    const { d } = run(baseSteam(), [a, b]);
+    const selo = d.chapters[0]!.items.find((i) => i.name === "Selo")!;
+    expect(selo.conflict).toContain('prazo "Weeping Creek" numa fonte e "Village of Lu" em Grindnstrat');
+    expect(d.achievements.find((x) => x.apiName === "ACH_HID")!.conflict).toContain("prazo");
+  });
 });
