@@ -523,11 +523,7 @@ describe("copiedRuns", () => {
   describe("Task 23: nomes próprios conhecidos do dossiê não contam como cópia", () => {
     // The real false positives of the PBZ run (the source lines and the dossier's names, as they are).
     const pbzSource = "Memory Flower – Xuan Li’s Memory Flower – 6. Control: after the cutscene, defeat Meng Hua, the Merciful Lady of the Blossom Veil, the normal final boss.";
-    const pbzNames = [
-      "Memory Flower – Xuan Li’s Memory Flower – 6. Control",
-      "Boss: Meng Hua, the Merciful Lady of the Blossom Veil",
-      "Memory Flower",
-    ];
+    const pbzNames = ["Memory Flower – Xuan Li’s Memory Flower – 6. Control", "Boss: Meng Hua, the Merciful Lady of the Blossom Veil"];
 
     it("os dois casos reais da rodada completa não são cópia", () => {
       expect(copiedRuns("Pegue a Memory Flower – Xuan Li's Memory Flower – 6. Control logo ali.", [pbzSource], 9)).toEqual([
@@ -552,6 +548,35 @@ describe("copiedRuns", () => {
       expect(copiedRuns("Climb the scaffolding and take the ladder on the right side, then pass the Old Well e suba.", [long], 9, names)).toHaveLength(1);
       // A one-word name never hides anything ("the" is no name).
       expect(copiedRuns("Depois disso, take the ladder on the right side to reach the second bell e siga.", [source], 9, ["the", "Ladder"])).toHaveLength(1);
+    });
+
+    it("revisão: um nome no meio de uma frase copiada (8 palavras + nome + 8 palavras) não a salva", () => {
+      const copied = "Walk past the broken cart and climb the Old Well then cross the wooden bridge and follow it.";
+      expect(copiedRuns(`Dica: ${copied}`, [copied], 9, ["Old Well"])).toEqual([
+        "walk past the broken cart and climb the old well then cross the wooden bridge and follow it",
+      ]);
+    });
+
+    it("revisão: a cauda de uma instrução em minúscula depois de \"defeat\" não vira nome", () => {
+      const names = knownNames(makeDossierWith("Defeat the Warden and take the ladder on the right side to reach the second bell."));
+      expect(names.some((n) => /ladder/i.test(n))).toBe(false);
+      expect(copiedRuns("Depois disso, take the ladder on the right side to reach the second bell e siga.", [source], 9, names)).toHaveLength(1);
+      // A long target (more than 6 words) is no name either.
+      const long = knownNames(makeDossierWith("Defeat Lord Of The Very Long Winding Mountain Pass Title."));
+      expect(long.some((n) => /winding/i.test(n))).toBe(false);
+    });
+
+    it("revisão: o tipo de coletável é substantivo genérico, não nome", () => {
+      const dossier = makeDossier();
+      dossier.chapters[0]!.items[0]!.collectibleType = "Memory Flower";
+      expect(knownNames(dossier)).not.toContain("Memory Flower");
+    });
+
+    it("revisão: a parte de um nome que começa com artigo ou em minúscula não vale sozinha", () => {
+      const source2 = "At the summit the Merciful Lady of the Blossom Veil waits at the top of the stairs.";
+      const text = "No alto, the Merciful Lady of the Blossom Veil waits at the top, pronta.";
+      expect(copiedRuns(text, [source2], 9, ["Boss: Meng Hua, the Merciful Lady of the Blossom Veil"])).toHaveLength(1);
+      expect(copiedRuns(text, [source2], 9, ["Shrine: the merciful lady of the blossom veil"])).toHaveLength(1);
     });
   });
 });
