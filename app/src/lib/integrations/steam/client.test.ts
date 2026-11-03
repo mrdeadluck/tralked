@@ -143,6 +143,13 @@ describe("steam client", () => {
     await expect(setup({ response: {} }).client.getAppList()).resolves.toEqual({ apps: [], haveMore: false, lastAppId: 0 });
   });
 
+  it("getOwnedGames with an appId asks Steam for that app only (appids_filter)", async () => {
+    const { client, lastUrl } = setup({ response: { game_count: 1, games: [{ appid: 620, playtime_forever: 90 }] } });
+    await expect(client.getOwnedGames("765", { appId: 620 })).resolves.toMatchObject([{ appId: 620, playtimeMin: 90 }]);
+    const input = JSON.parse(lastUrl().searchParams.get("input_json")!);
+    expect(input).toMatchObject({ steamid: "765", appids_filter: [620] });
+  });
+
   it("getOwnedGames returns 'private' when game details are hidden ({response:{}})", async () => {
     const { client } = setup({ response: {} });
     await expect(client.getOwnedGames("765")).resolves.toBe("private");

@@ -144,12 +144,24 @@ export function createSteamClient({
       };
     },
 
-    async getOwnedGames(steamId) {
+    async getOwnedGames(steamId, options) {
       // Every game of the library, never-played and played free-to-play games included.
+      // skip_unvetted_apps=false: Steam leaves some owned apps out of the list unless asked.
       const data = await getJson<OwnedGamesResponse>(
         "/IPlayerService/GetOwnedGames/v1/",
-        // skip_unvetted_apps=false: Steam leaves some owned apps out of the list unless asked.
-        { steamid: steamId, include_appinfo: 1, include_played_free_games: 1, skip_unvetted_apps: "false", format: "json" },
+        options?.appId === undefined
+          ? { steamid: steamId, include_appinfo: 1, include_played_free_games: 1, skip_unvetted_apps: "false", format: "json" }
+          : {
+              // One app only: appids_filter is only accepted inside input_json.
+              input_json: JSON.stringify({
+                steamid: steamId,
+                include_appinfo: true,
+                include_played_free_games: true,
+                skip_unvetted_apps: false,
+                appids_filter: [options.appId],
+              }),
+              format: "json",
+            },
       );
       // A public profile with "Game details" private answers `{"response":{}}`: neither
       // `games` nor `game_count`. A real empty library still carries `game_count: 0`.

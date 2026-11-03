@@ -492,6 +492,21 @@ async function currentProgress(userId: string) {
   };
 }
 
+/** The user's recorded Steam unlocks (what the anti-fraud rules and the sticky flag build on). */
+async function loadKnownUnlocks(userId: string): Promise<Map<string, KnownUnlock>> {
+  const rows = await prisma.userAchievement.findMany({
+    // Steam unlocks only: other platforms are imported (and checked) by their own sync.
+    where: { userId, achievement: { platform: "steam" } },
+    select: { achievementId: true, unlockedAt: true, suspicious: true, fraudReview: true },
+  });
+  return new Map(
+    rows.map((r) => [
+      r.achievementId,
+      { unlockedAt: r.unlockedAt, suspicious: r.suspicious, cleared: r.fraudReview === "cleared" },
+    ]),
+  );
+}
+
 /**
  * Imports the user's Steam account: with a key, the whole library (never-played games included,
  * playtime, hours milestones XP) and the wishlist, then the achievements (history included) of
@@ -633,18 +648,7 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
 
   // Anti-fraud looks at all of the user's unlocks together (bursts can span games), using
   // Steam's real unlock times, so importing old history never trips the burst rule by itself.
-  const known = new Map<string, KnownUnlock>(
-    (
-      await prisma.userAchievement.findMany({
-        // Steam unlocks only: other platforms are imported (and checked) by their own sync.
-        where: { userId, achievement: { platform: "steam" } },
-        select: { achievementId: true, unlockedAt: true, suspicious: true, fraudReview: true },
-      })
-    ).map((r) => [
-      r.achievementId,
-      { unlockedAt: r.unlockedAt, suspicious: r.suspicious, cleared: r.fraudReview === "cleared" },
-    ]),
-  );
+  const known = await loadKnownUnlocks(userId);
   const everyUnlock = new Map(
     [...known].map(([achievementId, k]) => [achievementId, { achievementId, unlockedAt: k.unlockedAt }]),
   );
@@ -681,6 +685,91 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
       (id) => (after.skillLevels.get(id) ?? 1) > (before.skillLevels.get(id) ?? 1),
     ),
     partial,
+  };
+}
+
+export type SyncUserGameResult = {
+  /**
+   * `error`: the game would be completed but Steam did not give its fresh playtime (needed by the
+   * speed-platinum rule); nothing was recorded, the normal sync settles it later.
+   */
+  status: "ok" | "private" | "unlinked" | "error";
+  /** apiNames of the unlocks recorded for the first time by this read. */
+  newUnlocks: string[];
+};
+
+/**
+ * Reads one game of the user from Steam (and nothing else of the library) and records it through
+ * the same path as `syncUser`: same transaction, anti-fraud and ledger, then recomputes level,
+ * skills and missions. No sync slot (the caller rate-limits). Playtime is left as stored.
+ */
+export async function syncUserGame(userId: string, appId: number): Promise<SyncUserGameResult> {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  if (!user.steamId) return { status: "unlinked", newUnlocks: [] };
+  const steamRow = await prisma.linkedAccount.findUnique({
+    where: { userId_platform: { userId, platform: "steam" } },
+    select: { linkedAt: true },
+  });
+  const link: SteamSnapshot = { steamId: user.steamId, linkedAt: steamRow?.linkedAt ?? null };
+
+  const stored = await prisma.userGame.findFirst({
+    where: { userId, platform: "steam", game: { steamAppId: appId } },
+    select: { playtimeMin: true },
+  });
+  // requireUnlock: a game with no unlock is not recorded (nothing to add); fromLibrary stays false
+  // so the library's playtime bookkeeping is untouched.
+  let playtimeMin = stored?.playtimeMin ?? 0;
+  let playtimeKnown = playtimeMin > 0;
+  const steam = getSteam();
+  const achievements = await fetchGame(link.steamId, { appId, playtimeMin }, playtimeKnown, true);
+  if (achievements === "private") return { status: "private", newUnlocks: [] };
+  if (achievements === "none") return { status: "ok", newUnlocks: [] };
+  let fetched = achievements;
+
+  // The speed-platinum rule judges a completion by playtime: stored hours may be days old (or
+  // missing), so a completing read asks Steam for this one app's playtime first. Without it the
+  // verdict would differ from syncUser's, and a wrong flag is sticky: record nothing instead.
+  const total = Math.max(fetched.game.achievementCount, fetched.game.achievements.length);
+  if (fetched.unlocks.length >= total) {
+    try {
+      const library = await steam.getOwnedGames(link.steamId, { appId });
+      if (library === "private") return { status: "private", newUnlocks: [] };
+      // Keyless adapter: no playtime anywhere, so (as in syncUser) the rule cannot apply.
+      if (library === "unsupported") {
+        playtimeKnown = false;
+      } else {
+        playtimeMin = library.find((g) => g.appId === appId)?.playtimeMin ?? 0;
+        // As in syncUser: a 0 only counts when Steam shows playtime for the library at all.
+        playtimeKnown =
+          playtimeMin > 0 ||
+          (await prisma.userGame.count({ where: { userId, platform: "steam", playtimeMin: { gt: 0 } } })) > 0;
+      }
+    } catch (error) {
+      console.error(`Game check: no fresh playtime for app ${appId}, user ${userId}`, error);
+      return { status: "error", newUnlocks: [] };
+    }
+    fetched = { ...fetched, playtimeMin, playtimeKnown };
+  }
+
+  const known = await loadKnownUnlocks(userId);
+  const everyUnlock = new Map(
+    [...known].map(([achievementId, k]) => [achievementId, { achievementId, unlockedAt: k.unlockedAt }]),
+  );
+  for (const u of fetched.unlocks) everyUnlock.set(u.achievementId, u);
+  const bursts = findBursts([...everyUnlock.values()]);
+
+  try {
+    await recordGame(userId, link, fetched, known, bursts);
+  } catch (error) {
+    if (error instanceof SteamUnlinkedError) return { status: "unlinked", newUnlocks: [] };
+    throw error;
+  }
+  await recomputeUser(userId);
+
+  const apiNameById = new Map(fetched.game.achievements.map((a) => [a.id, a.apiName]));
+  return {
+    status: "ok",
+    newUnlocks: fetched.unlocks.filter((u) => !known.has(u.achievementId)).map((u) => apiNameById.get(u.achievementId)!),
   };
 }
 
