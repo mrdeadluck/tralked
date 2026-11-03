@@ -30,7 +30,7 @@ export type WriteFailure = {
 
 export type WriteSuccess = {
   ok: true;
-  httpStatus: 200 | 201;
+  httpStatus: 200 | 201 | 202;
   body: Record<string, unknown>;
   resultId: string;
   logStatus: "created" | "updated";

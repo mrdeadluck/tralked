@@ -8,9 +8,11 @@ import {
   guideInputSchema,
   guideStatusSchema,
   newGuideSchema,
+  pendingUpdateSchema,
   saveGuide,
   setGuideStatus,
 } from "@/lib/admin/guides";
+import { applyPendingUpdate, discardPendingUpdate, PendingUpdateError } from "@/lib/api/guide-pending";
 import { gameTag } from "@/lib/queries/games-cached";
 
 /** Saves a guide from the editor; every save writes a GuideVersion (editor or admin). */
@@ -40,4 +42,26 @@ export async function createGuideAction(raw: unknown): Promise<AdminResult> {
   const result = await createGuideForGame(ready.data, ready.user.id);
   if (!result.ok) return result;
   redirect(`/admin/guias/${result.id}`);
+}
+
+/** Applies a bot update of a published guide: the guide changes and a GuideVersion is saved. */
+export async function applyPendingUpdateAction(raw: unknown): Promise<AdminResult> {
+  const ready = await authorizeAction("staff", pendingUpdateSchema, raw);
+  if (!ready.ok) return ready;
+  try {
+    const { gameSlug } = await applyPendingUpdate(ready.data.id, ready.user.id);
+    updateTag(gameTag(gameSlug));
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof PendingUpdateError) return { ok: false, error: error.message };
+    throw error;
+  }
+}
+
+/** Throws away a bot update of a published guide; the guide stays as it is. */
+export async function discardPendingUpdateAction(raw: unknown): Promise<AdminResult> {
+  const ready = await authorizeAction("staff", pendingUpdateSchema, raw);
+  if (!ready.ok) return ready;
+  await discardPendingUpdate(ready.data.id);
+  return { ok: true };
 }

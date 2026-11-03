@@ -4,8 +4,8 @@ import { ActionButton } from "@/components/admin/ActionButton";
 import { AdminHead, AdminSection, Empty, StatusBadge, TableRegion, TABLE, TD, TH, When } from "@/components/admin/ui";
 import { articlesInReview } from "@/lib/admin/articles";
 import { requireStaffPage } from "@/lib/admin/guard";
-import { guidesInReview } from "@/lib/admin/guides";
-import { setGuideStatusAction } from "../guias/actions";
+import { guidesInReview, pendingGuideUpdates } from "@/lib/admin/guides";
+import { applyPendingUpdateAction, discardPendingUpdateAction, setGuideStatusAction } from "../guias/actions";
 import { setArticleStatusAction } from "../noticias/actions";
 
 export const metadata: Metadata = { title: "Revisão" };
@@ -15,7 +15,7 @@ export const instant = false;
 /** Review queue: articles and guides waiting for an editor, bot content first. */
 export default async function ReviewQueuePage() {
   await requireStaffPage();
-  const [articles, guides] = await Promise.all([articlesInReview(), guidesInReview()]);
+  const [articles, guides, pending] = await Promise.all([articlesInReview(), guidesInReview(), pendingGuideUpdates()]);
 
   return (
     <>
@@ -108,6 +108,7 @@ export default async function ReviewQueuePage() {
                         Guia de {g.gameName}
                       </Link>
                       <span className="block font-mono text-xs text-dim">{g.version}</span>
+                      {g.reportLine ? <span className="block text-[13px] text-muted">Relatório do robô: {g.reportLine}</span> : null}
                     </td>
                     <td className={TD}>
                       {g.source === "bot" ? (
@@ -141,6 +142,45 @@ export default async function ReviewQueuePage() {
               </tbody>
             </table>
           </TableRegion>
+        )}
+      </AdminSection>
+
+      <AdminSection title="Atualizações de guias no ar" aside={`${pending.length} esperando`}>
+        {pending.length === 0 ? (
+          <Empty title="Nenhuma atualização esperando aprovação." />
+        ) : (
+          <ul className="m-0 flex list-none flex-col gap-3 p-0">
+            {pending.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-3">
+                <span className="flex flex-col gap-1">
+                  <Link href={`/admin/guias/${p.guideId}`} className="font-semibold hover:text-acc hover:underline hover:underline-offset-4">
+                    Guia de {p.gameName}
+                  </Link>
+                  <span className="flex items-center gap-3 text-[13px] text-text-3">
+                    <When date={p.createdAt} />
+                    {p.changes.join(" · ")}
+                  </span>
+                </span>
+                <span className="flex flex-wrap gap-2">
+                  <ActionButton
+                    action={applyPendingUpdateAction}
+                    input={{ id: p.id }}
+                    label="Aplicar"
+                    ariaLabel={`Aplicar a atualização do guia de ${p.gameName}`}
+                    tone="primary"
+                    confirm="Aplicar esta atualização muda o guia publicado. Continuar?"
+                  />
+                  <ActionButton
+                    action={discardPendingUpdateAction}
+                    input={{ id: p.id }}
+                    label="Descartar"
+                    ariaLabel={`Descartar a atualização do guia de ${p.gameName}`}
+                    confirm="Descartar esta atualização?"
+                  />
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </AdminSection>
     </>

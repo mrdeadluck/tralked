@@ -1,5 +1,7 @@
 import type { GuidePayloadInput } from "@/lib/content/guide-schema";
+import type { WalkthroughInput } from "@/lib/content/walkthrough-schema";
 import type { ArticlePayloadInput } from "./article-schema";
+import walkthroughExample from "./example-walkthrough.json";
 
 /**
  * Complete example payloads shown on /desenvolvedores and in docs/robos.md. Tests check that both
@@ -151,4 +153,33 @@ export const EXAMPLE_GUIDE = {
     { name: "Lembranças", total: 25, description: "Presentes dados pelos personagens em troca de néctar." },
   ],
   sources: [{ title: "Hades, página oficial", url: "https://www.supergiantgames.com/games/hades/" }],
+} satisfies GuidePayloadInput;
+
+/**
+ * Format 2 (guide robot): a walkthrough in chapters, steps and items. The walkthrough is a copy of
+ * the robot's contract fixture. A real game must have every Steam achievement (hidden ones too)
+ * as some item.achievement, and the apiNames below are placeholders.
+ */
+export const EXAMPLE_GUIDE_V2 = {
+  game: { steamAppId: 2182200 },
+  format: 2,
+  version: "v1.0",
+  facts: { difficulty: 5, hoursMin: 30, hoursMax: 40, playthroughs: "1", missables: 1, online: 0 },
+  steps: [
+    {
+      key: "ate-mirage-estate",
+      title: "Até a Mirage Estate",
+      hours: "4 a 6 h",
+      body: [{ type: "paragraph", text: "Weeping Creek Valley e a Crimson Forest, com os coletáveis de cada região." }],
+      achievements: [],
+    },
+  ],
+  walkthrough: walkthroughExample as WalkthroughInput,
+  report: {
+    sourcesRead: [{ name: "PowerPyx", url: "https://www.powerpyx.com/", ok: true }],
+    divergences: [],
+    singleSource: [],
+    coverage: { steam: 66, covered: 66, steamOnly: 0 },
+    spendUsd: 0.4,
+  },
 } satisfies GuidePayloadInput;
