@@ -31,10 +31,32 @@ describe("findSoundtrack", () => {
     expect(d.structured).not.toHaveBeenCalled();
   });
 
-  it("gravadora ou compositor confirmados pelo juiz → aceita; playlist vira playlistId", async () => {
-    const d = deps("Sumthing Else Records", { official: true, relation: "label" });
+  it("gravadora ou compositor só valem com evidência dos créditos; playlist vira playlistId", async () => {
+    const d = deps("Sumthing Else Records");
     d.search.mockResolvedValue([{ title: "Phantom Blade Zero OST", url: "https://www.youtube.com/playlist?list=PLxyz" }]);
-    expect(await findSoundtrack(d.ai, game, d)).toMatchObject({ playlistId: "PLxyz", channel: "Sumthing Else Records" });
+    expect(await findSoundtrack(d.ai, { ...game, label: "Sumthing Else" }, d)).toMatchObject({
+      playlistId: "PLxyz",
+      channel: "Sumthing Else Records",
+    });
+    expect(await findSoundtrack(d.ai, { ...game, composer: "Sumthing Else" }, d)).not.toBeNull();
+  });
+
+  it("juiz de IA não basta: sem evidência de gravadora/compositor → null", async () => {
+    const d = deps("Sumthing Else Records", { official: true, relation: "label" });
+    expect(await findSoundtrack(d.ai, game, d)).toBeNull();
+    expect(d.structured).not.toHaveBeenCalled();
+  });
+
+  it("canal de fã que contém o nome da produtora → null", async () => {
+    for (const channel of ["S-GAME Music Archive", "Fan Tracks - S-GAME OST", "S"]) {
+      const d = deps(channel);
+      expect(await findSoundtrack(d.ai, game, d)).toBeNull();
+    }
+  });
+
+  it("canal automático '- Topic' do artista oficial casa", async () => {
+    const d = deps("Hiroki Kikuta - Topic");
+    expect(await findSoundtrack(d.ai, { ...game, composer: "Hiroki Kikuta" }, d)).not.toBeNull();
   });
 
   it("título sem o nome do jogo é descartado sem consultar o canal", async () => {

@@ -66,6 +66,33 @@ describe("composeImage", () => {
   });
 });
 
+describe("marca em imagem de terceiro", () => {
+  it("vai para o canto mais vazio e deixa a marca d'água da fonte intacta", async () => {
+    // flat grey picture with a high-contrast pattern (a source watermark) in the bottom-right corner
+    const stripes = Array.from({ length: 12 }, (_, i) => `<rect x="${560 + i * 20}" y="400" width="10" height="100" fill="#fff"/>`).join("");
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500"><rect width="800" height="500" fill="#303030"/><rect x="560" y="400" width="240" height="100" fill="#000"/>${stripes}</svg>`;
+    const src = await sharp(Buffer.from(svg)).png().toBuffer();
+    const out = await composeImage(src, { target: null, thirdParty: true });
+    const truth = await sharp(src).resize({ width: 1600 }).png().toBuffer();
+    const lossyBase = await sharp(truth).webp({ quality: 86 }).toBuffer();
+    const br = { left: 1100, top: 800, width: 500, height: 200 };
+    const meanDiff = async (x: Buffer) => {
+      const a = await raw(x, br);
+      const b = await raw(truth, br);
+      let diff = 0;
+      for (let i = 0; i < a.data.length; i++) diff += Math.abs(a.data[i]! - b.data[i]!);
+      return diff / a.data.length;
+    };
+    // same as plain WebP compression of the resized input: nothing drawn over the source watermark
+    expect(Math.abs((await meanDiff(out)) - (await meanDiff(lossyBase)))).toBeLessThan(1);
+    // the mark landed in another corner: bright pixels there
+    const tl = await raw(out, { left: 0, top: 0, width: 330, height: 90 });
+    const bl = await raw(out, { left: 0, top: 910, width: 330, height: 90 });
+    const bright = (d: Buffer) => d.reduce((m, v) => Math.max(m, v), 0);
+    expect(Math.max(bright(tl.data), bright(bl.data))).toBeGreaterThan(100);
+  });
+});
+
 describe("pickItemImage", () => {
   const html = (body: string) => `<html><body>${body}</body></html>`;
   const item = { name: "Pena Dourada", nameEn: "Golden Feather" };
@@ -96,6 +123,58 @@ describe("pickItemImage", () => {
       { url: "https://steamcommunity.com/sharedfiles/filedetails/?id=1", sourceName: "Steam Guide", html: html(body) },
     ];
     expect(pickItemImage(item, pages)?.sourceName).toBe("Steam Guide");
+  });
+
+  it("imagem antes da legenda", () => {
+    const pages = [
+      {
+        url: "https://wiki.x.com/p",
+        sourceName: "W",
+        html: html(`<div><img src="/hero.jpg" width="900"><p>Intro text.</p><img src="/gf.jpg" width="800"><p class="cap">Golden Feather</p></div>`),
+      },
+    ];
+    expect(pickItemImage(item, pages)?.url).toBe("https://wiki.x.com/gf.jpg");
+  });
+
+  it("vários itens no mesmo contêiner: cada um fica com a sua imagem", () => {
+    const pages = [
+      {
+        url: "https://wiki.x.com/p",
+        sourceName: "W",
+        html: html(
+          `<div><img src="/hero.jpg" width="900"><p>Silver Coin: near the gate.</p><img src="/coin.jpg" width="800">` +
+            `<p>Golden Feather: behind the waterfall.</p><img src="/gf.jpg" width="800"></div>`,
+        ),
+      },
+    ];
+    expect(pickItemImage(item, pages)?.url).toBe("https://wiki.x.com/gf.jpg");
+    expect(pickItemImage({ name: "Silver Coin" }, pages)?.url).toBe("https://wiki.x.com/coin.jpg");
+  });
+
+  it("não cruza para a seção de outro item (cabeçalho seguinte)", () => {
+    const pages = [
+      {
+        url: "https://wiki.x.com/p",
+        sourceName: "W",
+        html: html(`<h3>Golden Feather</h3><p>Somewhere.</p><h3>Silver Coin</h3><img src="/coin.jpg" width="800">`),
+      },
+    ];
+    expect(pickItemImage(item, pages)).toBeNull();
+  });
+
+  it("palavra inteira: 'Golden Feather Fragment' não é 'Golden Feather'; sumário é ignorado", () => {
+    const pages = [
+      {
+        url: "https://wiki.x.com/p",
+        sourceName: "W",
+        html: html(
+          `<nav class="toc"><a href="#gf">Golden Feather</a><img src="/toc.jpg" width="800"></nav>` +
+            `<h3>Golden Feather Fragment</h3><img src="/frag.jpg" width="800">` +
+            `<h3>Golden Feather 2</h3><img src="/gf2.jpg" width="800">`,
+        ),
+      },
+    ];
+    expect(pickItemImage(item, pages)?.url).toBe("https://wiki.x.com/gf2.jpg");
   });
 
   it("ignora ícones e não chuta quando o item não aparece", () => {

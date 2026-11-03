@@ -67,37 +67,83 @@ function usableImage(img: Element, url: string): boolean {
   return true;
 }
 
-const imgsIn = (el: Element) => [...el.querySelectorAll("img")] as Element[];
+const HEADING = "h1,h2,h3,h4,h5,h6";
+const CAPTION = `${HEADING},figcaption,caption,dt,strong,b,th`;
+const SKIP = "nav,footer,aside,header,[role=navigation]";
+const SKIP_CLASS = /(^|[\s_-])(toc|menu|nav|navigation|breadcrumbs?|sidebar|comments?|related|share)([\s_-]|$)/i;
+const MAX_DIST_CAPTION = 40;
+const MAX_DIST_PROSE = 12;
 
-/** Images of the block that names the item: climb from the deepest element mentioning it until a block holds images. */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function inSkippedArea(el: Element): boolean {
+  if (el.closest(SKIP) || el.closest("a[href^='#']")) return true;
+  for (let n: Element | null = el; n; n = n.parentElement) {
+    if (SKIP_CLASS.test(`${n.getAttribute("class") ?? ""} ${n.getAttribute("id") ?? ""}`)) return true;
+  }
+  return false;
+}
+
+/**
+ * Image of the item's block. Captions/headings that name the item (the whole text, plus an optional number)
+ * come before prose mentions; the image is the closest one in document order within the section bounded by
+ * the neighbouring headings, so another item's picture or a hero image is never taken.
+ */
 function imagesNear(html: string, pageUrl: string, names: string[]): string[] {
   const { document } = parseHTML(html);
   const wanted = names.map(norm).filter((n) => n.length >= 3);
   if (wanted.length === 0) return [];
-  const hasName = (el: Element) => {
-    const t = norm(el.textContent ?? "");
-    return wanted.some((n) => t.includes(n));
-  };
   const all = [...document.querySelectorAll("body *")] as Element[];
-  const mentions = all.filter((el) => el.tagName !== "IMG" && hasName(el) && ![...el.children].some((c) => hasName(c as Element)));
-  for (const m of mentions) {
-    let node: Element | null = m;
-    for (let up = 0; node && up < 4; up++) {
-      // Images inside this node, then in the siblings that follow it up to the next heading.
-      const pool: Element[] = imgsIn(node);
-      let sib = node.nextElementSibling;
-      for (let n = 0; sib && n < 3 && !/^H[1-6]$/.test(sib.tagName); n++, sib = sib.nextElementSibling) {
-        if (sib.tagName === "IMG") pool.push(sib);
-        pool.push(...imgsIn(sib));
-      }
-      const found: string[] = [];
-      for (const img of pool) {
-        const src = bestSrc(img, pageUrl);
-        if (src && usableImage(img, src)) found.push(src);
-      }
-      if (found.length > 0) return found;
-      node = node.parentElement;
+  const index = new Map(all.map((el, i) => [el, i] as const));
+  const alt = wanted.map(escapeRe).join("|");
+  const exact = new RegExp(`^(?:\\d+ )?(?:${alt})(?: \\d+)*$`);
+  const word = new RegExp(`(?:^| )(?:${alt})(?: |$)`);
+
+  const own = (el: Element) => norm(el.textContent ?? "");
+  const hasWord = (el: Element) => word.test(own(el));
+  const mentions = all.filter(
+    (el) => el.tagName !== "IMG" && hasWord(el) && ![...el.children].some((c) => hasWord(c as Element)) && !inSkippedArea(el),
+  );
+  const captions = mentions.filter((el) => el.matches(CAPTION) && exact.test(own(el)));
+  const prose = mentions.filter((el) => !el.matches(CAPTION) && !el.closest("h1,h2,h3,h4,h5,h6,figcaption"));
+
+  const imgs = all.filter((el) => el.tagName === "IMG");
+  const headingIdx = all.flatMap((el, i) => (el.matches(HEADING) ? [i] : []));
+
+  const pick = (m: Element, maxDist: number): string | null => {
+    const fig = m.closest("figure");
+    const pool = fig ? ([...fig.querySelectorAll("img")] as Element[]) : [];
+    let candidates: Element[];
+    if (pool.length > 0) candidates = pool;
+    else {
+      const heading = m.closest(HEADING);
+      const mi = index.get(heading ?? m)!;
+      const start = heading ? mi : (headingIdx.filter((i) => i < mi).pop() ?? -1);
+      const end = headingIdx.find((i) => i > mi) ?? all.length;
+      candidates = imgs.filter((img) => {
+        const i = index.get(img)!;
+        return i > start && i < end && !inSkippedArea(img);
+      });
     }
+    const mi = index.get(m)!;
+    const ranked = candidates
+      .map((img) => ({ img, d: Math.abs(index.get(img)! - mi), after: index.get(img)! > mi }))
+      .filter((c) => c.d <= maxDist)
+      .sort((x, y) => x.d - y.d || Number(y.after) - Number(x.after));
+    for (const { img } of ranked) {
+      const src = bestSrc(img, pageUrl);
+      if (src && usableImage(img, src)) return src;
+    }
+    return null;
+  };
+
+  for (const m of captions) {
+    const src = pick(m, MAX_DIST_CAPTION);
+    if (src) return [src];
+  }
+  for (const m of prose) {
+    const src = pick(m, MAX_DIST_PROSE);
+    if (src) return [src];
   }
   return [];
 }
@@ -132,23 +178,26 @@ export type ComposeOpts = {
   crop?: Crop;
 };
 
-type Corner = "tl" | "tr" | "bl";
+type Corner = "tl" | "tr" | "bl" | "br";
+type Box = { left: number; top: number; width: number; height: number };
 
-/** The corner with the least detail (lowest luminance spread); bottom-right is left to the Tralked mark. */
-async function emptiestCorner(img: Buffer, w: number, h: number): Promise<Corner> {
-  const cw = Math.round(w * 0.2);
-  const ch = Math.round(h * 0.2);
-  const spots: [Corner, number, number][] = [
-    ["tl", 0, 0],
-    ["tr", w - cw, 0],
-    ["bl", 0, h - ch],
-  ];
-  let best: Corner = "tl";
+const cornerBox = (c: Corner, w: number, h: number, bw: number, bh: number): Box => ({
+  left: c === "tl" || c === "bl" ? 0 : w - bw,
+  top: c === "tl" || c === "tr" ? 0 : h - bh,
+  width: bw,
+  height: bh,
+});
+
+/** Detail (luminance spread) of each corner box; lowest wins, earlier in `order` wins ties. */
+async function emptiest(img: Buffer, order: Corner[], w: number, h: number, bw: number, bh: number): Promise<Corner> {
+  let best = order[0]!;
   let bestDev = Number.POSITIVE_INFINITY;
-  for (const [c, left, top] of spots) {
-    const st = await sharp(img).extract({ left, top, width: cw, height: ch }).greyscale().stats();
+  for (const c of order) {
+    // stats() ignores pending pipeline steps, so materialize the crop first
+    const crop = await sharp(img).extract(cornerBox(c, w, h, bw, bh)).greyscale().raw().toBuffer({ resolveWithObject: true });
+    const st = await sharp(crop.data, { raw: crop.info }).stats();
     const dev = st.channels[0]?.stdev ?? 0;
-    if (dev < bestDev) {
+    if (dev < bestDev - 1e-6) {
       bestDev = dev;
       best = c;
     }
@@ -160,7 +209,7 @@ function overlaySvg(w: number, h: number, t: Target, corner: Corner): string {
   const cx = t.x * w;
   const cy = t.y * h;
   const r = Math.max(t.r * w, 16);
-  const from = { tl: [0, 0], tr: [w, 0], bl: [0, h] }[corner];
+  const from = { tl: [0, 0], tr: [w, 0], bl: [0, h], br: [w, h] }[corner];
   let dx = from[0]! - cx;
   let dy = from[1]! - cy;
   const dist = Math.hypot(dx, dy) || 1;
@@ -217,16 +266,29 @@ export async function composeImage(bytes: Buffer, opts: ComposeOpts): Promise<Bu
   const w = meta.width ?? OUTPUT_WIDTH;
   const h = meta.height ?? 0;
 
-  const layers: OverlayOptions[] = [];
-  if (target) {
-    const corner = await emptiestCorner(resized, w, h);
-    layers.push({ input: Buffer.from(overlaySvg(w, h, target, corner)), left: 0, top: 0 });
-  }
   const markW = Math.round(w * MARK_WIDTH_FRACTION);
   const mark = await sharp(wordmark(), { density: 300 }).resize({ width: markW }).png().toBuffer();
   const markH = (await sharp(mark).metadata()).height ?? 0;
   const margin = Math.round(w * 0.015);
-  layers.push({ input: mark, left: w - markW - margin, top: Math.max(0, h - markH - margin) });
+  const boxW = Math.min(w, markW + 2 * margin);
+  const boxH = Math.min(h, markH + 2 * margin);
+
+  // A third-party image keeps its own watermark: the mark goes to the corner with the least detail.
+  const markCorner: Corner = opts.thirdParty
+    ? await emptiest(resized, ["br", "bl", "tr", "tl"], w, h, boxW, boxH)
+    : "br";
+
+  const layers: OverlayOptions[] = [];
+  if (target) {
+    const others = (["tl", "tr", "bl", "br"] as Corner[]).filter((c) => c !== markCorner);
+    const corner = await emptiest(resized, others, w, h, Math.round(w * 0.2), Math.round(h * 0.2));
+    layers.push({ input: Buffer.from(overlaySvg(w, h, target, corner)), left: 0, top: 0 });
+  }
+  layers.push({
+    input: mark,
+    left: markCorner === "tl" || markCorner === "bl" ? margin : w - markW - margin,
+    top: markCorner === "tl" || markCorner === "tr" ? margin : Math.max(0, h - markH - margin),
+  });
 
   return sharp(resized).composite(layers).webp({ quality: 86 }).toBuffer();
 }
