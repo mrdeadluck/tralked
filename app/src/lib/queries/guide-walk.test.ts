@@ -10,7 +10,8 @@ const REPORT = {
   sourcesRead: [{ name: "PowerPyx", url: "https://www.powerpyx.com/", ok: true }],
   divergences: ["O PowerPyx diz 23 sinos e lista 22."],
   singleSource: [],
-  coverage: { steam: 66, covered: 66, steamOnly: 30 },
+  // psn: the list's own size (platinum included) wins over 66 - 31.
+  coverage: { steam: 66, covered: 66, steamOnly: 31, psn: 36 },
   spendUsd: 0.4,
 };
 
@@ -131,6 +132,6 @@ describe("getGuidePublic (formato 2)", () => {
   });
 
   it("loadGuideReport devolve o relatório (só para staff)", async () => {
-    expect((await loadGuideReport(guideId))?.coverage).toEqual({ steam: 66, covered: 66, steamOnly: 30 });
+    expect((await loadGuideReport(guideId))?.coverage).toEqual({ steam: 66, covered: 66, steamOnly: 31, psn: 36 });
   });
 });

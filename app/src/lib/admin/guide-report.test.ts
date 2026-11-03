@@ -22,6 +22,12 @@ describe("parseReport", () => {
     expect(reportSummary(report)).toContain("1 erro interno");
   });
 
+  it("reads the PlayStation list's size when the robot sent it, and only then", () => {
+    expect(parseReport({ ...base, coverage: { ...base.coverage, psn: 36 } })?.coverage).toEqual({ steam: 66, covered: 36, steamOnly: 30, psn: 36 });
+    expect(parseReport(base)?.coverage).not.toHaveProperty("psn");
+    expect(parseReport({ ...base, coverage: { ...base.coverage, psn: "36" } })?.coverage).not.toHaveProperty("psn");
+  });
+
   it("a guide by the Steam list, or an older report, reads exactly as before (the robot's contract tests compare it)", () => {
     const keys = ["coverage", "divergences", "singleSource", "sourcesRead", "spendUsd"];
     expect(Object.keys(parseReport(base)!).sort()).toEqual(keys);

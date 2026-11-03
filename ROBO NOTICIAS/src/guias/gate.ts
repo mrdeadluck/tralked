@@ -1,4 +1,4 @@
-import type { DossierAchievement, GuideDossier, SteamAchievement } from "./dossier.js";
+import { steamOnlyApiNames, type DossierAchievement, type GuideDossier, type SteamAchievement } from "./dossier.js";
 
 /**
  * The completeness gate: the robot only sends a guide that passes. `missing` has one Portuguese sentence per gap.
@@ -23,12 +23,15 @@ export const NO_PSN_LIST = "Nenhuma fonte de roteiro da PSN completa traz a list
 
 const label = (name: string, apiName: string) => `"${name}" (${apiName})`;
 
-/** Rules (a), (c) and (d) of one achievement of the list being judged; (b) only for the Steam list. */
-function achievementGaps(steam: SteamAchievement, a: DossierAchievement | undefined, scope: GateScope): string[] {
+/**
+ * Rules (a), (c) and (d) of one achievement of the list being judged; (b) only for the Steam list. `steamOnly`: the
+ * achievement is not on the PlayStation list (`steamOnlyApiNames`).
+ */
+function achievementGaps(steam: SteamAchievement, a: DossierAchievement | undefined, scope: GateScope, steamOnly = false): string[] {
   const name = label(steam.name, steam.apiName);
   if (!a || a.sources.length === 0) return [`A conquista ${steam.hidden ? "oculta " : ""}${name} da Steam não aparece em nenhuma fonte.`];
   const missing: string[] = [];
-  if (scope === "steam" && a.steamOnly && !a.steamSourced) {
+  if (scope === "steam" && steamOnly && !a.steamSourced) {
     missing.push(`A conquista ${name} existe só na Steam e nenhuma fonte da Steam a cobre.`);
   }
   const c = a.collect;
@@ -86,7 +89,8 @@ export function gate(d: GuideDossier, fullList: SteamAchievement[], opts: { scop
   const missing: string[] = [];
 
   if (scope === "steam") {
-    for (const steam of steamList) missing.push(...achievementGaps(steam, byApiName.get(steam.apiName), scope));
+    const steamOnly = steamOnlyApiNames(d);
+    for (const steam of steamList) missing.push(...achievementGaps(steam, byApiName.get(steam.apiName), scope, steamOnly.has(steam.apiName)));
   } else {
     const list = d.facts.psnList;
     if (!list) return { ok: false, missing: [NO_PSN_LIST] };

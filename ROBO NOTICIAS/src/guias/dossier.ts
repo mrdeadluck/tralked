@@ -1498,3 +1498,20 @@ export function buildDossier(
     unreadSources,
   };
 }
+
+/**
+ * The Steam achievements that are not on the PlayStation list. The whole list from a complete PSN script
+ * (`facts.psnList`) decides when there is one: the per-achievement `steamOnly` flag only says that no PSN source
+ * named the achievement, and walkthrough pages name many achievements in passing (PBZ: 63 of 66 flagged as on the
+ * PSN list, which has 36 trophies). Without the whole list, the flag is all there is.
+ * The flag stays as it was in the dossier: the writing cache hashes the dossier, and no text of the writer reads it.
+ */
+export function steamOnlyApiNames(d: Pick<GuideDossier, "achievements" | "facts">): Set<string> {
+  const list = d.facts.psnList;
+  if (!list) return new Set(d.achievements.filter((a) => a.steamOnly).map((a) => a.apiName));
+  const onList = new Set(list.matches.flatMap((m) => (m.apiName ? [m.apiName] : [])));
+  return new Set(d.achievements.filter((a) => !onList.has(a.apiName)).map((a) => a.apiName));
+}
+
+/** How many trophies the PlayStation list has (platinum included), when a source says. */
+export const psnListSize = (d: Pick<GuideDossier, "facts">): number | undefined => d.facts.psnList?.total ?? d.facts.psnTrophyListSize;

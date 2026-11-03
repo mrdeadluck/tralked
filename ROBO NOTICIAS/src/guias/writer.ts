@@ -9,7 +9,7 @@ import { chronologyProblems } from "./chronology.js";
 import { DEFAULT_CHECK_EFFORT, DEFAULT_MODEL_CHECK, type GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
 import { deterministicProblems, dossierTexts, knownNames } from "./copy-check.js";
-import type { DossierAchievement, GuideDossier, GuideDossierSource } from "./dossier.js";
+import { steamOnlyApiNames, type DossierAchievement, type GuideDossier, type GuideDossierSource } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
 import type { PsnWriteScope } from "./scope.js";
 import { anchoredIn, buildSkeleton, isMissable, placeableIn, untilOf, writeJobs, type GuideSkeleton, type SkelItem, type WriteJob } from "./skeleton.js";
@@ -840,6 +840,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   const fallbackSources = (): WalkSource[] =>
     game.game.steamAppId ? [{ name: "Steam", url: `https://steamcommunity.com/stats/${game.game.steamAppId}/achievements` }] : [];
   const compatSteamOnly = dossier.facts.compat === "steam_only";
+  const notOnPsn = steamOnlyApiNames(dossier);
 
   const buildItem = (s: SkelItem, stepKey: string): WalkItem => {
     const t = itemText.get(s.key);
@@ -881,7 +882,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       spoiler: Boolean(t?.spoiler || a?.hidden || i?.kind.toLowerCase() === "boss"),
       ...(a && steamApiNames.has(a.apiName) ? { achievement: a.apiName } : {}),
       countsFor: [...new Set(i?.countsFor ?? [])].filter((x) => steamApiNames.has(x)).slice(0, 20),
-      alsoOn: a && compatSteamOnly && !a.steamOnly ? ["psn"] : [],
+      alsoOn: a && compatSteamOnly && !notOnPsn.has(a.apiName) ? ["psn"] : [],
       sources: sources.length > 0 ? sources : fallbackSources(),
       // R20: a deadline the code assumed (its own chapter) is reviewed too, and so are a revisit placed by the code,
       // a number the code gave (R28), a "collect N" link by a type that only loosely is the thing (Task 18) and a

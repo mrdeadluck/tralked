@@ -828,6 +828,7 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
   const usage = newImageUsage();
   let added = 0;
   let skipped = 0;
+  let unringed = 0;
   let left = budget;
   const report = () => {
     const bySource = Object.fromEntries([...usage.bySource].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
@@ -836,7 +837,8 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
     const dups = usage.duplicatesAvoided;
     deps.log(
       `guia: ${added} ${added === 1 ? "imagem" : "imagens"} enviadas${sources ? ` (por fonte: ${sources})` : ""}` +
-        `${dups ? `; ${dups} ${dups === 1 ? "repetição evitada" : "repetições evitadas"}` : ""}${skipped ? `, ${skipped} com erro` : ""}`,
+        `${dups ? `; ${dups} ${dups === 1 ? "repetição evitada" : "repetições evitadas"}` : ""}${skipped ? `, ${skipped} com erro` : ""}` +
+        `${unringed ? `; ${unringed} sem a marcação do item (a localização falhou)` : ""}`,
     );
   };
   if (left <= 0) {
@@ -885,10 +887,15 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
       const texts = creditOf(picked);
       if (imageBytes(texts) > left) return outOfRoom();
       markImageUsed(usage, picked, sha(bytes));
-      const target = await stages.locateTarget(ai, bytes, item.nameEn ?? item.name, {
-        model: deps.config.MODEL_FAST,
-        bucket: "backfill",
-      });
+      // The ring is a nicety: an image whose spot the model could not give (an error, a cut answer) goes without it.
+      let target: Awaited<ReturnType<typeof stages.locateTarget>> = null;
+      try {
+        target = await stages.locateTarget(ai, bytes, item.nameEn ?? item.name, { model: deps.config.MODEL_FAST, bucket: "backfill" });
+      } catch (error) {
+        if (error instanceof BudgetExceededError) throw error;
+        unringed++;
+        deps.log(`guia: imagem de "${item.name}" vai sem a marcação do item: ${messageOf(error)}`);
+      }
       const composed = await stages.composeImage(bytes, { target, thirdParty: picked.thirdParty });
       const uploaded = await deps.api.uploadImage(new Uint8Array(composed), "image/webp", `guia-img-${sha(composed).slice(0, 40)}`);
       item.image = { url: uploaded.url, ...texts };

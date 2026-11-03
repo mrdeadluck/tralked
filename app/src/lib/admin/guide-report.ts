@@ -9,7 +9,8 @@ export type GuideReport = {
   sourcesRead: { name: string; url: string | null; ok: boolean; reason: string | null }[];
   divergences: string[];
   singleSource: string[];
-  coverage: { steam: number; covered: number; steamOnly: number } | null;
+  /** `psn`: the PlayStation list's size (platinum included), when the robot knew it (reports since 2026-11-03). */
+  coverage: { steam: number; covered: number; steamOnly: number; psn?: number } | null;
   spendUsd: number | null;
   /**
    * Report `scope: "psn"` (R22): the guide follows the PSN trophy list, with the report's
@@ -58,7 +59,10 @@ export function parseReport(value: unknown): GuideReport | null {
     }),
     divergences: strings(r.divergences),
     singleSource: strings(r.singleSource),
-    coverage: steam !== null && covered !== null ? { steam, covered, steamOnly: num(cov?.steamOnly) ?? 0 } : null,
+    coverage:
+      steam !== null && covered !== null
+        ? { steam, covered, steamOnly: num(cov?.steamOnly) ?? 0, ...(num(cov?.psn) !== null ? { psn: num(cov?.psn)! } : {}) }
+        : null,
     spendUsd: num(r.spendUsd),
     ...(r.scope === "psn"
       ? { psnScope: psnTotal !== null && psnCovered !== null ? { total: psnTotal, covered: psnCovered } : { total: null, covered: null } }

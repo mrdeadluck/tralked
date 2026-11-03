@@ -1,11 +1,11 @@
 import type { GuideScope } from "./contract.js";
 import type { GuideDb } from "./db.js";
-import type { CorroborationOnly, GuideDossier, SteamAchievement } from "./dossier.js";
+import { psnListSize, steamOnlyApiNames, type CorroborationOnly, type GuideDossier, type SteamAchievement } from "./dossier.js";
 
 /**
  * The robot's report of a request: it goes in the request's `report` (PATCH /guide-requests/{id}) and in the
  * guide's `report` (POST/PATCH /guides). The admin reads it with `parseReport` (app/src/lib/admin/guide-report.ts)
- * and the page's compat seal reads `coverage.steam` and `coverage.steamOnly`.
+ * and the page's compat seal reads `coverage.steam` and `coverage.psn` (or, without it, `coverage.steamOnly`).
  */
 
 /** A page the robot tried to read. `url` is "" for a web search that failed. */
@@ -18,7 +18,7 @@ export type RobotReport = {
   /** Facts that only one independent source states. */
   singleSource: string[];
   /** Steam achievements; how many some source covers; how many are not on the PSN list (or there is none). */
-  coverage: { steam: number; covered: number; steamOnly: number };
+  coverage: { steam: number; covered: number; steamOnly: number; psn?: number };
   /** The list the guide covers: the whole Steam list, or the PSN trophy list (R22); null when neither gate passed. */
   scope: GuideScope | null;
   /** Scope psn: PSN trophies (platinum included) and how many some source covers (the platinum once all others are). */
@@ -146,7 +146,9 @@ export function buildReport(input: ReportInput): RobotReport {
     coverage: {
       steam,
       covered: d ? d.achievements.filter((a) => a.sources.length > 0).length : 0,
-      steamOnly: d ? d.achievements.filter((a) => a.steamOnly).length : 0,
+      steamOnly: d ? steamOnlyApiNames(d).size : 0,
+      // The PlayStation list's size (platinum included), when a source says: the page's compat seal prints it.
+      ...(d && psnListSize(d) !== undefined ? { psn: psnListSize(d) } : {}),
     },
     scope,
     ...(psn ? { psnCoverage: psn } : {}),

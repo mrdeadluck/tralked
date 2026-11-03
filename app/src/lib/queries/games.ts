@@ -768,8 +768,14 @@ async function loadWalkExtras(
     hiddenCount: rows.filter((a) => a.hidden).length,
     achievements,
     hardest: hardest ? (achievements[hardest.apiName] ?? null) : null,
+    // The PlayStation list's own size when the report has it (it counts the platinum, which Steam has not);
+    // older reports only say how many Steam achievements are missing from it.
     compatCounts:
-      coverage && coverage.steamOnly > 0 ? { steam: coverage.steam, psn: coverage.steam - coverage.steamOnly } : null,
+      coverage?.psn !== undefined
+        ? { steam: coverage.steam, psn: coverage.psn }
+        : coverage && coverage.steamOnly > 0
+          ? { steam: coverage.steam, psn: coverage.steam - coverage.steamOnly }
+          : null,
     screenshots: shots.flatMap((m) => {
       const url = safeImageUrl(m.url);
       return url ? [url] : [];

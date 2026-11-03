@@ -837,6 +837,23 @@ describe("pedido nunca preso em researching / writing (I1)", () => {
   });
 });
 
+describe("localização da imagem falhou", () => {
+  it("a imagem vai sem a marcação do item, não fica de fora", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      locateTarget: async () => {
+        throw new Error("No structured output for guia-locate (stop_reason max_tokens)");
+      },
+    });
+    const deps = makeDeps({ api, stages });
+    expect(await runGuideRequest(deps)).toBe("review");
+    const { payload } = calls.created[0]!;
+    expect(payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.image).toMatchObject({ url: "https://cdn.tralked.com/guias/feather.webp" });
+    expect(stages.calls.composeImage![0]![1]).toMatchObject({ target: null });
+    expect(deps.lines).toContainEqual(expect.stringContaining("sem a marcação do item (a localização falhou)"));
+  });
+});
+
 describe("teto de gasto depois do guia escrito (I3)", () => {
   it("nas imagens: para as imagens e envia o guia, com a nota", async () => {
     const { api, calls } = fakeApi();

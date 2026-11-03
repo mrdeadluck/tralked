@@ -41,7 +41,8 @@ export async function locateTarget(
     user: `Where is "${itemName}" in this image?`,
     images: [{ mediaType: "image/jpeg", data: small }],
     schema: locateSchema,
-    maxTokens: 300,
+    // 300 cut 64 of 509 PBZ answers short (stop_reason max_tokens): the model thinks a little even at effort low.
+    maxTokens: 1024,
   });
   if (!out.found) return null;
   const { x, y, r } = out;
