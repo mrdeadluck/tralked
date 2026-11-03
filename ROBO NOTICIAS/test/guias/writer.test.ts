@@ -1483,3 +1483,58 @@ describe("Task 29: regra fixa de nomes na mensagem da moldura e dos trechos", ()
     expect(loadGuideStyle()).not.toContain("o ponto indicado pela fonte");
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Task 30: rewrites see every past problem of the job; strict mode for stubborn jobs
+// ---------------------------------------------------------------------------------------------
+
+describe("Task 30: a reescrita vê todos os problemas já apontados no trecho", () => {
+  const STRICT =
+    "Escreva só o que o dossiê diz, com frases curtas; não acrescente localização, requisito, possibilidade de voltar, contagem de fontes ou tradução que não esteja escrita no dossiê; nomes que o dossiê só traz em chinês ou russo ficam como estão ou são omitidos.";
+  const PAST = "Erros já apontados antes neste trecho: não repita nenhum";
+  /** Saved texts of a whole first writing, to resume from. */
+  async function savedTexts() {
+    const rounds: DraftRound[] = [];
+    await writeAndCheckGuide(fakeAi().ai, makeDossier(), GAME, "live", { onRound: (r) => rounds.push(r) });
+    return rounds[0]!.texts;
+  }
+  const rewriteOf = (calls: { purpose: string; user: string }[], step: string) =>
+    calls.find((c) => c.purpose === "guide-write-chapter-retry" && c.user.includes(`<passo key="${step}">`))!;
+
+  it("um trabalho com problemas em 2 rodadas anteriores recebe as duas listas (atual e antigas, sem duplicata)", async () => {
+    const texts = await savedTexts();
+    const { ai, calls } = fakeAi();
+    await writeAndCheckGuide(ai, makeDossier(), GAME, "live", {
+      resume: { texts, problems: [{ scope: "weeping-creek-1", text: "Notas do Colecionador é tradução inventada.", kind: "checador" }] },
+      history: new Map([
+        ["weeping-creek-1", { problems: ["Ouça Cada Flor é tradução inventada.", "Notas do Colecionador é tradução inventada."], flagged: 2 }],
+      ]),
+    });
+    const user = rewriteOf(calls, "weeping-creek-1").user;
+    const [current, past] = user.split(PAST);
+    expect(current).toContain("## Correções obrigatórias");
+    expect(current).toContain("- Notas do Colecionador é tradução inventada.");
+    expect(past).toContain("- Ouça Cada Flor é tradução inventada.");
+    expect(past).not.toContain("Notas do Colecionador");
+    // Second rewrite of this job: not strict yet.
+    expect(user).not.toContain(STRICT);
+  });
+
+  it("modo estrito a partir da 3ª reescrita do trabalho; os problemas de uma rodada desta execução entram no histórico", async () => {
+    const texts = await savedTexts();
+    const { ai, calls } = fakeAi({
+      verdict: (user, n) => (n < 30 && user.includes('"key":"weeping-creek-1"') ? { problems: ["Mirage Estate não está no dossiê."] } : OK),
+    });
+    await writeAndCheckGuide(ai, makeDossier(), GAME, "live", {
+      resume: { texts, problems: [{ scope: "weeping-creek-1", text: "Ouça Cada Flor é tradução inventada.", kind: "checador" }] },
+      history: new Map([["weeping-creek-1", { problems: ["Ouça Cada Flor é tradução inventada."], flagged: 2 }]]),
+    });
+    const rewrites = calls.filter((c) => c.purpose === "guide-write-chapter-retry" && c.user.includes('<passo key="weeping-creek-1">'));
+    expect(rewrites).toHaveLength(2);
+    // 1st call here: the job's 2nd rewrite (flagged twice before); 2nd call: its 3rd → strict, with the round-1 problem as current.
+    expect(rewrites[0]!.user).not.toContain(STRICT);
+    expect(rewrites[1]!.user).toContain(STRICT);
+    expect(rewrites[1]!.user.split(PAST)[0]).toContain("- Mirage Estate não está no dossiê.");
+    expect(rewrites[1]!.user.split(PAST)[1]).toContain("- Ouça Cada Flor é tradução inventada.");
+  });
+});

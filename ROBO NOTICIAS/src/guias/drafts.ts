@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CHECK_DUE, FRAME_SCOPE, type GuideProblem } from "./checker.js";
 import type { GuideDb } from "./db.js";
-import { parseSavedTexts, type DraftRound, type SavedTexts } from "./writer.js";
+import { addProblems, parseSavedTexts, type DraftRound, type ProblemHistory, type SavedTexts } from "./writer.js";
 
 /**
  * Task 20: every write-and-check round is kept in the GuideDb (`drafts`): the assembled payload, the checker's
@@ -166,6 +166,22 @@ export function carriedDraft(
       text: `O trecho ${id} vem de uma versão anterior do escritor e precisa ser checado de novo.`,
     })),
   };
+}
+
+/**
+ * Task 30: what the checker and the copy check already said about each part of this writing: every saved round of the
+ * request with the same base key (any attempt, any writer version), oldest first. `problems`: the texts of the checker
+ * and copy findings, without duplicates; `flagged`: how many rounds had a blocking problem there (each one sent the
+ * part to be rewritten). A rewrite gets them all, not only the last round's (the PBZ Steam version kept bringing back
+ * the problems of two rounds before).
+ */
+export function problemHistory(db: GuideDb, keys: { requestId: string; baseKey: string }): ProblemHistory {
+  const rows = db.raw
+    .prepare("SELECT problems_json FROM drafts WHERE request_id = ? AND base_key = ? ORDER BY id")
+    .all(keys.requestId, keys.baseKey) as unknown as { problems_json: string }[];
+  const history: ProblemHistory = new Map();
+  for (const row of rows) addProblems(history, parse<GuideProblem[]>(row.problems_json, []));
+  return history;
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

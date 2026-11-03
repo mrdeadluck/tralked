@@ -1245,6 +1245,22 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
     expect(deps.lines.some((l) => l.includes("rascunho anterior reaproveitado"))).toBe(true);
   });
 
+  it("Task 30: a escrita recebe todos os problemas já apontados nas rodadas salvas do pedido (duas tentativas), sem mudar a chave", async () => {
+    const db = openGuideDb(":memory:");
+    const writerA = failingWriter([{ text: "Ouça Cada Flor é tradução inventada.", scope: "cap-1", kind: "checador" }]);
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writerA }) }));
+    const writerB = failingWriter([{ text: "Mirage Estate não está no dossiê.", scope: "cap-1", kind: "checador" }]);
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writerB }) }));
+    const writerC = failingWriter(scoped(1));
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writerC }) }));
+    const opts = writerC.mock.calls[0]![4] as WriteAndCheckOpts;
+    expect(opts.history!.get("cap-1")).toEqual({ problems: ["Ouça Cada Flor é tradução inventada.", "Mirage Estate não está no dossiê."], flagged: 2 });
+    // Same writing key every time: the last draft is still the one resumed.
+    const keys = db.raw.prepare("SELECT DISTINCT writing_key FROM drafts").all();
+    expect(keys).toHaveLength(1);
+    expect(opts.resume!.problems).toEqual([{ text: "Mirage Estate não está no dossiê.", scope: "cap-1", kind: "checador" }]);
+  });
+
   it("Task 21: depois de mudar a versão do escritor, recomeça só dos trechos que o checador aprovou, checados de novo", async () => {
     const db = openGuideDb(":memory:");
     const job = { passos: [], itens: [], depois: null };

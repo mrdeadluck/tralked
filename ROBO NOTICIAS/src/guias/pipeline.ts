@@ -39,7 +39,7 @@ import { guideAiConfig, guideSpend } from "./spend.js";
 import { readSteamAliases, steamAliasUrl, steamLanguagesIn, type AliasLanguage } from "./steam-aliases.js";
 import { createWebSearch, type SearchHit } from "./websearch.js";
 import type { GuideProblem } from "./checker.js";
-import { carriedDraft, groupProblems, resumableDraft, saveDraft, writeReportFile } from "./drafts.js";
+import { carriedDraft, groupProblems, problemHistory, resumableDraft, saveDraft, writeReportFile } from "./drafts.js";
 import { plain, writeAndCheckGuide, type GuideWriteResult } from "./writer.js";
 import { earlierBaseKeys, earlierDraftKeys, readWriting, saveWriting, writingBaseKey, writingKey } from "./writing-cache.js";
 
@@ -561,6 +561,8 @@ async function processRequest(run: Run): Promise<Final> {
       sourceTexts: read.map((r) => r.text),
       ...(scope ? { scope } : {}),
       ...(previous ? { resume: { texts: previous.texts, problems: previous.problems } } : {}),
+      // Task 30: every problem already pointed at in this request's rounds of the same inputs (never the writing key).
+      history: problemHistory(db, { requestId: request.id, baseKey }),
       ...(probe ? { probe } : {}),
       onRound: (round) => {
         rounds++;

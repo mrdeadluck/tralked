@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { carriedDraft, describeDraft, groupProblems, latestDraft, resumableDraft, saveDraft, writeReportFile } from "../../src/guias/drafts.js";
+import { carriedDraft, describeDraft, groupProblems, latestDraft, problemHistory, resumableDraft, saveDraft, writeReportFile } from "../../src/guias/drafts.js";
 import { openGuideDb } from "../../src/guias/db.js";
 import type { DraftRound } from "../../src/guias/writer.js";
 
@@ -150,5 +150,29 @@ describe("rascunhos no GuideDb", () => {
       const carried = carriedDraft(db, { ...keys, earlierKeys: ["escrita:v4"] })!;
       expect(Object.keys(carried.texts.jobs)).toEqual(["cap-4", "cap-5"]);
     });
+  });
+});
+
+describe("Task 30: histórico de problemas por trecho (mesmo pedido, mesma chave base, todas as tentativas e rodadas)", () => {
+  it("junta os problemas do checador e de cópia de cada trecho, sem duplicatas, e conta as rodadas que o apontaram", () => {
+    const db = openGuideDb(":memory:");
+    const at = new Date("2026-11-03T10:00:00Z");
+    const p = (text: string, scope: string, kind: "checador" | "copia" | "reparo" | "nota" = "checador") => ({ text, scope, kind });
+    const save = (requestId: string, attempt: number, baseKey: string, problems: ReturnType<typeof p>[], writingKey = "escrita:a") =>
+      saveDraft(db, { requestId, attempt, writingKey, baseKey, draft: round({ problems }), at });
+    save("direto-1", 12, "base:x", [p("Ouça Cada Flor é tradução inventada.", "limpeza-37"), p("Mirage Estate não está no dossiê.", "frame")]);
+    save("direto-1", 13, "base:x", [p("Notas do Colecionador é tradução inventada.", "limpeza-37"), p("Trecho copiado.", "limpeza-37", "copia")], "escrita:b");
+    save("direto-1", 13, "base:x", [p("Ouça Cada Flor é tradução inventada.", "limpeza-37"), p("O passo ficou sem texto.", "limpeza-37", "reparo")]);
+    // Another request or another base key: not this writing.
+    save("direto-2", 1, "base:x", [p("De outro pedido.", "limpeza-37")]);
+    save("direto-1", 13, "base:y", [p("De outra chave base.", "limpeza-37")]);
+
+    const h = problemHistory(db, { requestId: "direto-1", baseKey: "base:x" });
+    expect(h.get("limpeza-37")).toEqual({
+      problems: ["Ouça Cada Flor é tradução inventada.", "Notas do Colecionador é tradução inventada.", "Trecho copiado."],
+      flagged: 3,
+    });
+    expect(h.get("frame")).toEqual({ problems: ["Mirage Estate não está no dossiê."], flagged: 1 });
+    expect(problemHistory(db, { requestId: "direto-9", baseKey: "base:x" }).size).toBe(0);
   });
 });
