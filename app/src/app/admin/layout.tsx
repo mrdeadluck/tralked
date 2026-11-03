@@ -27,6 +27,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
           { href: "/admin/revisao", label: "Revisão", count: queues.articlesInReview + queues.guidesInReview },
           { href: "/admin/noticias", label: "Notícias" },
           { href: "/admin/guias", label: "Guias" },
+          { href: "/admin/guias/pedidos", label: "Pedidos de guia", count: queues.guideRequestsOpen },
         ]
       : []),
     { href: "/admin/moderacao", label: "Moderação", count: queues.openReports },

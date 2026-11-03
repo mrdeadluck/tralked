@@ -17,6 +17,8 @@ export type SteamOwnedGame = {
   lastPlayedAt?: Date | null;
 };
 
+export type SteamSchemaLang = "english" | "brazilian";
+
 export type SteamSchemaAchievement = {
   apiName: string;
   name: string;
@@ -61,7 +63,8 @@ export interface SteamApi {
    * the adapter cannot list games (keyless community access): the sync then probes the catalog.
    */
   getOwnedGames(steamId: string): Promise<SteamOwnedGame[] | "private" | "unsupported">;
-  getSchemaForGame(appId: number): Promise<SteamSchemaAchievement[]>;
+  /** `lang`: Steam's schema language (`brazilian` brings the PT-BR names); default `english`. */
+  getSchemaForGame(appId: number, lang?: SteamSchemaLang): Promise<SteamSchemaAchievement[]>;
   getGlobalAchievementPercentages(appId: number): Promise<Record<string, number>>;
   /** `'private'` when the player's game details are not public. */
   getPlayerAchievements(

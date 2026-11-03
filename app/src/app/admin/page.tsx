@@ -23,6 +23,7 @@ export default async function AdminDashboard() {
       detail: q.botArticlesInReview > 0 ? `${q.botArticlesInReview} enviadas por robôs` : "Nenhuma de robô",
     },
     { href: "/admin/revisao", label: "Guias em revisão", count: q.guidesInReview, detail: "Publicar ou devolver para rascunho" },
+    { href: "/admin/guias/pedidos", label: "Pedidos de guia abertos", count: q.guideRequestsOpen, detail: "Na fila, em andamento ou aguardando fontes" },
     { href: "/admin/moderacao", label: "Denúncias abertas", count: q.openReports, detail: "Comentários, fotos e fórum" },
     { href: "/admin/noticias?status=draft", label: "Rascunhos", count: q.drafts, detail: "Notícias ainda não enviadas" },
     { href: "/admin/fraude", label: "Casos de fraude", count: q.fraudUsers, detail: "Jogadores com desbloqueios suspeitos", adminOnly: true },

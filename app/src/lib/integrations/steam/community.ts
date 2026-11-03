@@ -1,7 +1,7 @@
 import { parseWishlist } from "./client";
 import { createPoliteFetch, isSteamCdnUrl, readJson, readText, type PoliteFetch } from "./polite-fetch";
 import { decodeEntities } from "./text";
-import type { SteamApi, SteamPlayerAchievement, SteamSchemaAchievement } from "./types";
+import type { SteamApi, SteamPlayerAchievement, SteamSchemaAchievement, SteamSchemaLang } from "./types";
 
 const COMMUNITY = "https://steamcommunity.com";
 const WEB_API = "https://api.steampowered.com";
@@ -156,8 +156,13 @@ export function createSteamCommunity(config: SteamCommunityConfig = {}): SteamAp
    * Reads one achievement page. Steam redirects some apps to a friendly name
    * (`/stats/TF2?tab=achievements`) and apps without stats to the profile itself.
    */
-  async function achievementPage(steamId: string, appId: number): Promise<ParsedAchievementPage> {
-    let url = `${profileBase(steamId)}/stats/${appId}/achievements/?xml=1`;
+  async function achievementPage(
+    steamId: string,
+    appId: number,
+    lang: SteamSchemaLang = "english",
+  ): Promise<ParsedAchievementPage> {
+    const langQuery = lang === "english" ? "" : `&l=${lang}`;
+    let url = `${profileBase(steamId)}/stats/${appId}/achievements/?xml=1${langQuery}`;
     for (let hop = 0; hop < 3; hop++) {
       const res = await politeFetch(url, { redirect: "manual" });
       if (res.status >= 300 && res.status < 400) {
@@ -167,7 +172,7 @@ export function createSteamCommunity(config: SteamCommunityConfig = {}): SteamAp
         const pinned = target?.protocol === "https:" && target.hostname === "steamcommunity.com";
         const stats = pinned ? target.pathname.match(/^(.*\/stats\/[^/]+)\/?(?:achievements\/?)?$/) : null;
         if (!target || !stats) return { status: "unavailable" };
-        url = `${target.origin}${stats[1]}/achievements/?xml=1`;
+        url = `${target.origin}${stats[1]}/achievements/?xml=1${langQuery}`;
         continue;
       }
       if (res.status === 404) return { status: "unavailable" };
@@ -188,8 +193,8 @@ export function createSteamCommunity(config: SteamCommunityConfig = {}): SteamAp
       return "unsupported";
     },
 
-    async getSchemaForGame(appId): Promise<SteamSchemaAchievement[]> {
-      const page = await achievementPage(referenceSteamId, appId);
+    async getSchemaForGame(appId, lang = "english"): Promise<SteamSchemaAchievement[]> {
+      const page = await achievementPage(referenceSteamId, appId, lang);
       if (page.status === "private") {
         throw new Error(`Steam reference profile ${referenceSteamId} is private`);
       }

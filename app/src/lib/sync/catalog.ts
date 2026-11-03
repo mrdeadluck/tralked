@@ -47,8 +47,10 @@ export async function syncGame(appId: number): Promise<Game | null> {
   const schema = await steam.getSchemaForGame(appId);
   if (schema.length === 0) return null;
 
-  const [percentages, igdb, sgdbArt, existing] = await Promise.all([
+  const [percentages, schemaPt, igdb, sgdbArt, existing] = await Promise.all([
     bestEffort("Steam rarity", appId, () => steam.getGlobalAchievementPercentages(appId), {}),
+    // PT-BR names and descriptions: a failure only leaves them empty (the guide falls back to English).
+    bestEffort("Steam PT-BR schema", appId, () => steam.getSchemaForGame(appId, "brazilian"), []),
     bestEffort("IGDB", appId, () => getIgdb().findBySteamAppId(appId), null),
     bestEffort("SteamGridDB", appId, () => getSgdb().getArt(appId), {}),
     prisma.game.findUnique({ where: { steamAppId: appId }, select: { name: true } }),
@@ -82,6 +84,7 @@ export async function syncGame(appId: number): Promise<Game | null> {
     // unless Steam still knows it only by appid (placeholder name): it waits for its details.
     stub: isPlaceholderName(name, appId),
   };
+  const ptByApiName = new Map(schemaPt.map((a) => [a.apiName, a]));
   const skills = igdb ? mapToSkills(igdb) : [];
 
   const write = () =>
@@ -122,6 +125,9 @@ export async function syncGame(appId: number): Promise<Game | null> {
         description: a.description ?? null,
         iconUrl: a.iconUrl ?? null,
         hidden: a.hidden,
+        // Only what the PT-BR read brought: a failed read keeps the names already stored.
+        ...(ptByApiName.get(a.apiName)?.name && { namePt: ptByApiName.get(a.apiName)!.name }),
+        ...(ptByApiName.get(a.apiName)?.description && { descriptionPt: ptByApiName.get(a.apiName)!.description }),
         ...(percentages[a.apiName] !== undefined && { globalPct: percentages[a.apiName] }),
       });
 
