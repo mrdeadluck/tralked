@@ -167,6 +167,24 @@
 .wk-hn .w {
   color: var(--warn);
 }
+/* Before a chapter: the chapters already behind the reader. */
+.wk-hn.p::before {
+  background: var(--acc-dim);
+}
+.wk-hn.p .dot {
+  border-color: var(--acc-dim);
+}
+
+/* ---------- journey again, compact, in the gap before each chapter ---------- */
+.wk-jgap {
+  margin-top: 34px;
+}
+.wk-jgap .wk-jr {
+  padding: 12px 0 10px;
+}
+.wk-jgap + .wk-scene {
+  margin-top: 16px;
+}
 
 /* spoiler switch (journey and slim bar) */
 .wk-sp {
