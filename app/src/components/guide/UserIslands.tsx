@@ -17,6 +17,7 @@ import { AchievementList } from "./AchievementList";
 import { CommunityTips } from "./CommunityTips";
 import { GuideSidebar } from "./GuideSidebar";
 import { Roadmap } from "./Roadmap";
+import { GuideUnavailable } from "./walk/GuideUnavailable";
 import { WalkUserSeed } from "./walk/progress";
 import { RobotReport } from "./walk/RobotReport";
 import { walkGatedKeys } from "./walk/view";
@@ -111,6 +112,7 @@ export async function StaffGuidePreview({ slug, fallback }: { slug: string; fall
     if (fallback) return <>{fallback}</>;
     redirect(`/jogos/${slug}`);
   }
+  if (!guide.walkthrough) return <GuideUnavailable game={guide.game} />;
   return (
     <WalkthroughPage
       guide={guide}

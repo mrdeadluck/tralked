@@ -16,8 +16,10 @@ type Field = { label: string; value: ReactNode; note: ReactNode; warn?: boolean;
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
-function hoursText({ min, max }: WalkExtras["hours"]): string {
-  return min === max ? String(min) : `${min}–${max}`;
+/** The guide's hours; null when it has no estimate (0/0): no number is invented. */
+function hoursText({ min, max }: WalkExtras["hours"]): string | null {
+  if (min <= 0 && max <= 0) return null;
+  return min === max ? String(max) : `${min}–${max}`;
 }
 
 type FichaGridProps = { guide: GuideDetail; walkthrough: Walkthrough; walk: WalkExtras };
@@ -28,6 +30,7 @@ export function FichaGrid({ guide, walkthrough, walk }: FichaGridProps) {
   const players = facts.timeTo100?.source === "tralked" ? timeTo100Label(facts.timeTo100) : null;
   const asOf = game.guide.updatedAt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
   const hardest = walk.hardest;
+  const hours = hoursText(walk.hours);
 
   const fields: Field[] = [
     {
@@ -49,13 +52,19 @@ export function FichaGrid({ guide, walkthrough, walk }: FichaGridProps) {
     },
     {
       label: "Tempo até o Tralked",
-      value: (
+      value: hours ? (
         <>
-          {hoursText(walk.hours)}
+          {hours}
           <small> h</small>
         </>
+      ) : (
+        "—"
       ),
-      note: players ? `Jogadores do Tralked: ${players.value} (${players.source}).` : "Estimativa do guia, seguindo o detonado.",
+      note: players
+        ? `Jogadores do Tralked: ${players.value} (${players.source}).`
+        : hours
+          ? "Estimativa do guia, seguindo o detonado."
+          : "Sem estimativa de tempo ainda.",
     },
     {
       label: "Conquistas",

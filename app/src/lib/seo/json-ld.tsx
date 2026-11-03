@@ -111,6 +111,8 @@ export function videoGameJsonLd(game: VideoGameInput): JsonLdObject {
 
 export type HowToInput = {
   game: { slug: string; name: string; summary: string | null };
+  /** 2 = walkthrough (its roadmap is #g-roadmap); the classic guide's route is #g-rota. */
+  format?: number;
   /** The guide's time to 100% (the same as the game page); null leaves totalTime out. */
   facts: { timeTo100: { minutes: number } | null };
   overview: string[];
@@ -138,7 +140,7 @@ export function howToJsonLd(guide: HowToInput): JsonLdObject {
       position: i + 1,
       name: unwrapSpoilers(step.title),
       text: unwrapSpoilers(step.body || step.title),
-      url: `${url}#g-rota`,
+      url: `${url}#${guide.format === 2 ? "g-roadmap" : "g-rota"}`,
     })),
     inLanguage: "pt-BR",
   };

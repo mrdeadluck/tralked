@@ -132,7 +132,7 @@ const ERROR_MEANING: Record<ApiErrorCode, string> = {
   published_locked: "A redação já publicou a notícia; só uma chave com publish pode alterá-la. Num guia publicado, o PATCH responde 202 pending_review.",
   idempotency_conflict: "O Idempotency-Key já foi usado com outro corpo ou em outro endpoint.",
   unsupported_media_type: "Em POST /api/v1/media, o Content-Type não é image/png, image/jpeg ou image/webp, ou o arquivo não é uma imagem válida.",
-  payload_too_large: "O corpo passa de 1 MiB, ou a imagem de POST /api/v1/media passa de 8 MiB.",
+  payload_too_large: "O corpo passa de 1 MiB, ou a imagem de POST /api/v1/media passa de 4 MiB.",
   validation_failed:
     "Campos inválidos. Cada item de issues aponta o campo por JSON Pointer. Em PATCH /api/v1/guide-requests/{id}, também quando o pedido foi cancelado ou publicado.",
   rate_limited: `Mais de ${RATE_LIMIT} requisições no minuto. Espere os segundos de Retry-After.`,
@@ -145,7 +145,7 @@ const SCOPES: { scope: string; allows: string }[] = [
     allows: "Criar o guia de um jogo, atualizar os próprios e consultar o status. Pegar e relatar os pedidos de guia e ler o dossiê completo (?all=1).",
   },
   { scope: "publish", allows: "Publicar direto, sem passar pela fila de revisão, e alterar o que já está publicado." },
-  { scope: "media:write", allows: "Enviar imagens (PNG, JPEG ou WebP, até 8 MiB) para as páginas do robô, em POST /api/v1/media." },
+  { scope: "media:write", allows: "Enviar imagens (PNG, JPEG ou WebP, até 4 MiB) para as páginas do robô, em POST /api/v1/media." },
 ];
 
 const ENDPOINTS: { method: string; path: string; scope: string; does: string }[] = [
@@ -398,7 +398,8 @@ export default function DesenvolvedoresPage() {
             detonados (guia formato 2), <C>||spoiler||</C> esconde um trecho até o leitor ligar os spoilers (nome de
             chefe, reviravolta, conquista oculta), também no &quot;leia antes&quot;, no <C>location</C> dos itens, no{" "}
             <C>deadline</C> dos capítulos e nas etapas do roadmap; no JSON-LD para buscadores o trecho sai sem as
-            marcas. Todo <C>||</C> precisa fechar. Títulos,
+            marcas. Todo <C>||</C> precisa fechar. No <C>heading</C> e no <C>header</C> das tabelas de um passo,{" "}
+            <C>||</C> é recusado (a página mostraria as barras). Títulos,
             legendas e créditos são texto puro. Quebras de linha <C>\r\n</C> e <C>\r</C> são convertidas em{" "}
             <C>\n</C> antes da validação; outros caracteres de controle, exceto tabulação, são recusados.
           </p>
@@ -437,7 +438,9 @@ export default function DesenvolvedoresPage() {
           <p className={prose}>
             Guia já publicado e chave sem <C>publish</C>: a resposta é <C>202</C> com <C>id</C>,{" "}
             <C>status: &quot;pending_review&quot;</C> e <C>pendingId</C>. O guia no ar não muda; a atualização
-            espera um editor aplicá-la ou descartá-la no admin. Com <C>publish</C>, a alteração vale na hora.
+            espera um editor aplicá-la ou descartá-la no admin. Uma atualização nova substitui a que ainda esperava.
+            Com <C>publish</C>, a alteração vale na hora. Um guia publicado nunca volta a revisão por PATCH: o{" "}
+            <C>status</C> enviado é ignorado.
           </p>
           <p className={prose}>
             Etapas e progresso dos leitores: dê a cada etapa uma <C>key</C> estável (letras minúsculas, números e
@@ -489,7 +492,8 @@ export default function DesenvolvedoresPage() {
           </p>
           <p className={prose}>
             <C>POST /api/v1/guide-requests/next</C> pega o pedido de maior prioridade e, entre eles, o mais antigo
-            (um pedido em <C>waiting_sources</C> volta quando chega a hora da nova tentativa). O pedido passa a{" "}
+            (um pedido em <C>waiting_sources</C> volta quando chega a hora da nova tentativa, e um parado há mais de 4 h
+            em <C>researching</C> ou <C>writing</C> volta como nova tentativa). O pedido passa a{" "}
             <C>researching</C> e nenhum outro robô o recebe. Sem pedido, a resposta é <C>204</C>, sem corpo.{" "}
             <C>gameSlug</C> é o jogo para ler <C>GET /api/v1/games/&#123;slug&#125;/dossie?all=1</C>, que traz
             também as conquistas ocultas.
@@ -512,9 +516,9 @@ export default function DesenvolvedoresPage() {
         <Section id="imagens" title="Enviar imagens">
           <p className={prose}>
             <C>POST /api/v1/media</C> (escopo <C>media:write</C>) recebe o arquivo cru, não JSON, com{" "}
-            <C>Content-Type</C> <C>image/png</C>, <C>image/jpeg</C> ou <C>image/webp</C>, até 8 MiB. O Tralked
+            <C>Content-Type</C> <C>image/png</C>, <C>image/jpeg</C> ou <C>image/webp</C>, até 4 MiB. O Tralked
             decodifica a imagem, converte para WebP com no máximo 2048 px no lado maior e remove os metadados. Outro
-            tipo, ou um arquivo que não é imagem, dá <C>415</C>; acima de 8 MiB, <C>413</C>. A resposta{" "}
+            tipo, ou um arquivo que não é imagem, dá <C>415</C>; acima de 4 MiB, <C>413</C>. A resposta{" "}
             <C>201</C> traz a URL https para usar em <C>image.url</C> de um item do roteiro.
           </p>
           <Code label="Enviar uma imagem" code={CURL_MEDIA} />
@@ -582,7 +586,7 @@ export default function DesenvolvedoresPage() {
               janela zerar). Acima do limite: <C>429</C> com <C>Retry-After</C>.
             </li>
             <li>
-              Corpo de até 1 MiB (imagem de até 8 MiB em <C>POST /api/v1/media</C>), com no máximo 64 níveis de
+              Corpo de até 1 MiB (imagem de até 4 MiB em <C>POST /api/v1/media</C>), com no máximo 64 níveis de
               listas e objetos aninhados.
             </li>
             <li>

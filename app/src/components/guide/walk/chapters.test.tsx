@@ -57,9 +57,9 @@ const item = (ref: string): ItemView => itemsOf().find((i) => i.ref === ref)!;
 
 const SEED: WalkUserSeedData = { doneRefs: [], unlockedIds: [], unlockedCount: 15, pendingXp: 150 };
 
-function Page({ children, seed = SEED }: { children: ReactNode; seed?: WalkUserSeedData | null }) {
+function Page({ children, seed = SEED, preview }: { children: ReactNode; seed?: WalkUserSeedData | null; preview?: boolean }) {
   return (
-    <WalkProgressProvider guideId="guide-pbz" gameId="game-pbz" returnTo="/jogos/phantom-blade-zero/guia">
+    <WalkProgressProvider guideId="guide-pbz" gameId="game-pbz" returnTo="/jogos/phantom-blade-zero/guia" preview={preview}>
       <SpoilerProvider guideId="guide-pbz">
         {seed ? <WalkUserSeed {...seed} /> : null}
         {children}
@@ -152,6 +152,37 @@ describe("WalkItemRow", () => {
       "/entrar?returnTo=%2Fjogos%2Fphantom-blade-zero%2Fguia",
     );
     expect(toggleItem).not.toHaveBeenCalled();
+  });
+
+  it('"Prévia" só na prévia da equipe; no guia publicado, um item que sumiu pede para recarregar', async () => {
+    vi.mocked(toggleItem).mockResolvedValue({ status: "not_found" });
+    const { unmount } = render(
+      <Page>
+        <WalkItemRow item={item(LEGADO)} />
+      </Page>,
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /Legado da Curandeira/ }));
+    expect(await screen.findByText(/Recarregue a página/)).toBeInTheDocument();
+    expect(screen.queryByText(/Prévia/)).toBeNull();
+    unmount();
+
+    render(
+      <Page preview>
+        <WalkItemRow item={item(LEGADO)} />
+      </Page>,
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /Legado da Curandeira/ }));
+    expect(await screen.findByText(/Prévia: marcar fica para quando o guia for publicado/)).toBeInTheDocument();
+  });
+
+  it("item que também vale no PlayStation diz PlayStation, não um console", () => {
+    render(
+      <Page>
+        <WalkItemRow item={{ ...item(LEGADO), alsoOn: ["psn", "xbox"] }} />
+      </Page>,
+    );
+    expect(screen.getByText("também no PlayStation/Xbox")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/PS5/);
   });
 
   it("selos, fontes e crédito da imagem", () => {

@@ -5,6 +5,7 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyGuideUserState, type WalkAchievementView } from "@/lib/queries/games";
 import { CompatSeal } from "./CompatSeal";
+import { GuideUnavailable } from "./GuideUnavailable";
 import { ach, pbzGuide, shipped, walkthrough } from "./walk.test-util";
 import { WalkthroughPage } from "./WalkthroughPage";
 
@@ -69,6 +70,25 @@ describe("WalkthroughPage (topo)", () => {
     expect(ficha).toHaveTextContent(/XP do guia/);
   });
 
+  it("sem estimativa de horas (0/0) a ficha e o selo da capa mostram —, nunca 0", () => {
+    const guide = pbzGuide();
+    const walkthrough0 = { ...guide.walkthrough!, cover: { ...guide.walkthrough!.cover, sealHours: "0 h" } };
+    render(<WalkthroughPage guide={{ ...guide, walkthrough: walkthrough0, walk: { ...guide.walk!, hours: { min: 0, max: 0 } } }} />);
+    const ficha = screen.getByRole("region", { name: "Ficha do guia" });
+    const time = within(ficha).getByText("Tempo até o Tralked").closest("div")!;
+    expect(time.querySelector(".v")).toHaveTextContent(/^—$/);
+    const cover = screen.getByRole("figure", { name: /capa/i });
+    expect(cover.querySelector(".wk-seal b")).toHaveTextContent(/^—$/);
+    expect(cover).not.toHaveTextContent(/TRALKED EM\s*0/);
+  });
+
+  it("guia indisponível: título, link para o jogo e nada do layout clássico", () => {
+    render(<GuideUnavailable game={pbzGuide().game} />);
+    expect(screen.getByRole("heading", { name: "Guia indisponível no momento" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "página de Phantom Blade Zero" })).toHaveAttribute("href", "/jogos/phantom-blade-zero");
+    expect(screen.queryByText(/Rota para o 100%/)).toBeNull();
+  });
+
   it("mais difícil borrado sem spoilers", async () => {
     const { container } = render(<WalkthroughPage guide={pbzGuide()} />);
     expect(container.textContent).not.toContain("Sangue e Coração");
@@ -91,7 +111,8 @@ describe("WalkthroughPage (topo)", () => {
   it("selo APENAS STEAM", () => {
     render(<WalkthroughPage guide={pbzGuide()} />);
     expect(screen.getByText("APENAS STEAM")).toBeInTheDocument();
-    expect(screen.getByText(/Steam tem 66 conquistas; o PS5 tem 36/)).toBeInTheDocument();
+    expect(screen.getByText(/Steam tem 66 conquistas; a lista do PlayStation tem 36/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/PS5/);
   });
 
   it("selo das outras compatibilidades", () => {
@@ -103,7 +124,7 @@ describe("WalkthroughPage (topo)", () => {
     expect(screen.getByText("COMPATÍVEL COM XBOX")).toBeInTheDocument();
     rerender(<CompatSeal compat="steam_only" counts={null} />);
     expect(screen.getByText("APENAS STEAM")).toBeInTheDocument();
-    expect(screen.queryByText(/o PS5 tem/)).toBeNull();
+    expect(screen.queryByText(/a lista do PlayStation tem/)).toBeNull();
   });
 
   it("leia antes: aviso com spoiler fica fechado até o leitor tocar", async () => {

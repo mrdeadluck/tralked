@@ -11,6 +11,14 @@ export type GuideReport = {
   singleSource: string[];
   coverage: { steam: number; covered: number; steamOnly: number } | null;
   spendUsd: number | null;
+  /**
+   * Report `scope: "psn"` (R22): the guide follows the PSN trophy list, with the report's
+   * `psnCoverage` (trophies, and how many some source covers) when it has one. Absent when the guide
+   * covers the whole Steam list (the default), so a Steam report reads exactly as before.
+   */
+  psnScope?: { total: number; covered: number } | { total: null; covered: null };
+  /** Report `internalErrors`: robot bugs found while writing (its own chapter order broke the chronology check). Absent when none. */
+  internalErrors?: string[];
 };
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []);
@@ -24,6 +32,9 @@ export function parseReport(value: unknown): GuideReport | null {
   const cov = r.coverage as Record<string, unknown> | undefined;
   const steam = num(cov?.steam);
   const covered = num(cov?.covered);
+  const psn = r.psnCoverage as Record<string, unknown> | undefined;
+  const psnTotal = num(psn?.total);
+  const psnCovered = num(psn?.covered);
   return {
     sourcesRead: sources.flatMap((s) => {
       const x = s as Record<string, unknown>;
@@ -35,6 +46,10 @@ export function parseReport(value: unknown): GuideReport | null {
     singleSource: strings(r.singleSource),
     coverage: steam !== null && covered !== null ? { steam, covered, steamOnly: num(cov?.steamOnly) ?? 0 } : null,
     spendUsd: num(r.spendUsd),
+    ...(r.scope === "psn"
+      ? { psnScope: psnTotal !== null && psnCovered !== null ? { total: psnTotal, covered: psnCovered } : { total: null, covered: null } }
+      : {}),
+    ...(strings(r.internalErrors).length > 0 ? { internalErrors: strings(r.internalErrors) } : {}),
   };
 }
 
@@ -48,6 +63,12 @@ export function reportSummary(report: GuideReport | null): string | null {
     `${report.singleSource.length} fatos com uma fonte só`,
   ];
   if (report.coverage) parts.push(`cobertura ${report.coverage.covered}/${report.coverage.steam}`);
+  if (report.psnScope) {
+    const { covered, total } = report.psnScope;
+    parts.push(total !== null ? `lista da PSN ${covered}/${total}` : "pela lista da PSN");
+  }
+  const errors = report.internalErrors?.length ?? 0;
+  if (errors > 0) parts.push(`${errors} ${errors === 1 ? "erro interno" : "erros internos"} do robô`);
   return parts.join(" · ");
 }
 

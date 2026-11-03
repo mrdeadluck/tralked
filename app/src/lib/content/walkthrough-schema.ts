@@ -13,7 +13,8 @@ import { contentBlocksSchema, INLINE_SPOILER, inlineText, plainText, STEP_KEY_PA
  * Inline text (step paragraphs, lists, quotes, callouts and table cells, read-first notes, item
  * locations) and a chapter's `deadline` may wrap a spoiler in `||…||` (a boss name, a twist, a
  * hidden achievement's name): the page leaves it out until the reader turns spoilers on (the
- * guide's roadmap steps too). Every `||` must close.
+ * guide's roadmap steps too). Every `||` must close. A step's headings and table headers are plain
+ * text shown as is: they refuse `||` (the page would print the bars).
  *
  * `scope` (R22): "steam" (default) covers every Steam achievement; "psn" follows the PSN trophy list
  * (`psnList`) and names the Steam achievements left without a route (`steamOnly`).
@@ -126,7 +127,20 @@ function blockTexts(block: ContentBlock): { text: string; path: (string | number
   }
 }
 
+/** Plain texts of a step block (heading, table header): shown as is, so `||` is refused there. */
+function blockPlainTexts(block: ContentBlock): { text: string; path: (string | number)[] }[] {
+  switch (block.type) {
+    case "heading":
+      return [{ text: block.text, path: ["text"] }];
+    case "table":
+      return block.header.map((text, i) => ({ text, path: ["header", i] }));
+    default:
+      return [];
+  }
+}
+
 const SPOILER_UNCLOSED = "Spoiler sem fechamento: use ||texto||";
+const SPOILER_IN_PLAIN = "Este campo não aceita ||: título e cabeçalho de tabela aparecem como estão. Escreva sem o spoiler.";
 
 type ScopeFields = {
   scope: (typeof GUIDE_SCOPES)[number];
@@ -212,9 +226,14 @@ export const walkthroughSchema = z
       spoilers(chapter.deadline, ["chapters", c, "deadline"]);
       chapter.steps.forEach((step, s) => {
         claim(step.key, ["chapters", c, "steps", s, "key"]);
-        step.body.forEach((block, b) =>
-          blockTexts(block).forEach(({ text, path }) => spoilers(text, ["chapters", c, "steps", s, "body", b, ...path])),
-        );
+        step.body.forEach((block, b) => {
+          blockTexts(block).forEach(({ text, path }) => spoilers(text, ["chapters", c, "steps", s, "body", b, ...path]));
+          blockPlainTexts(block).forEach(({ text, path }) => {
+            if (text.includes("||")) {
+              ctx.addIssue({ code: "custom", path: ["chapters", c, "steps", s, "body", b, ...path], message: SPOILER_IN_PLAIN });
+            }
+          });
+        });
         step.items.forEach((item, i) => {
           claim(item.key, ["chapters", c, "steps", s, "items", i, "key"]);
           spoilers(item.location, ["chapters", c, "steps", s, "items", i, "location"]);

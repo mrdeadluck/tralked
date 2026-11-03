@@ -1,9 +1,12 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SteamApi } from "@/lib/integrations";
 
 const WITH_ACH = 96100001;
 const NO_ACH = 96100002;
-const APPS = [WITH_ACH, NO_ACH];
+/** Has achievements, but Steam knows it only by appid (a placeholder catalog entry, no dossier). */
+const NAMELESS = 96100003;
+const APPS = [WITH_ACH, NO_ACH, NAMELESS];
+const HOUR = 3_600_000;
 const DAY = 86_400_000;
 
 const steamState = vi.hoisted(() => ({ api: null as unknown as SteamApi }));
@@ -14,7 +17,7 @@ vi.mock("@/lib/integrations", async (importOriginal) => {
   steamState.api = {
     ...fixture,
     async getSchemaForGame(appId, lang) {
-      if (appId === WITH_ACH) {
+      if (appId === WITH_ACH || appId === NAMELESS) {
         return [
           lang === "brazilian"
             ? { apiName: "ACH_A", name: "Primeira vitória", description: "Vença uma vez.", hidden: false }
@@ -53,6 +56,15 @@ const nextRequest = (secret: string) =>
     headers: { authorization: `Bearer ${secret}` },
   });
 
+beforeAll(async () => {
+  // A named catalog entry: syncGame keeps the name (IGDB is off here), so the game is not a stub.
+  await prisma.game.upsert({
+    where: { steamAppId: WITH_ACH },
+    create: { steamAppId: WITH_ACH, slug: "t3-pedidos-jogo", name: "Jogo dos Pedidos", platforms: ["PC"], achievementCount: 1 },
+    update: { name: "Jogo dos Pedidos" },
+  });
+});
+
 beforeEach(async () => {
   // The test database is private to this suite run: the claim order depends on the whole table.
   await prisma.guideRequest.deleteMany();
@@ -83,12 +95,38 @@ describe("guide request queue", () => {
     );
   });
 
-  it("jogo com guia só aceita pedido com update", async () => {
+  it("jogo que a Steam só conhece pelo appid (sem dossiê) é recusado", async () => {
+    await expect(queue.createGuideRequest({ steamAppId: NAMELESS, requestedById: null })).rejects.toThrow(
+      "ainda não tem nome",
+    );
+    expect(await prisma.guideRequest.count()).toBe(0);
+  });
+
+  it("atualização só para guia escrito pelo robô", async () => {
     const { syncGame } = await import("@/lib/sync/catalog");
     const game = (await syncGame(WITH_ACH))!;
     const guide = await prisma.guide.create({
+      data: { gameId: game.id, status: "published", version: "v1", difficulty: 1, hoursMin: 1, hoursMax: 2, playthroughs: "1", missables: 0, online: 0, source: "editorial" },
+    });
+    try {
+      await expect(queue.createGuideRequest({ steamAppId: WITH_ACH, requestedById: null, update: true })).rejects.toThrow(
+        "não foi escrito pelo robô",
+      );
+      expect(await prisma.guideRequest.count()).toBe(0);
+    } finally {
+      await prisma.guide.delete({ where: { id: guide.id } });
+    }
+  });
+
+  it("jogo com guia só aceita pedido com update", async () => {
+    const { syncGame } = await import("@/lib/sync/catalog");
+    const game = (await syncGame(WITH_ACH))!;
+    const key = await createApiKey({ name: "t3 autor do guia", scopes: ["guides:write"] });
+    const guide = await prisma.guide.create({
       data: {
         gameId: game.id,
+        source: "bot",
+        botKeyId: key.id,
         status: "published",
         version: "v1",
         difficulty: 1,
@@ -103,6 +141,7 @@ describe("guide request queue", () => {
     const request = await queue.createGuideRequest({ steamAppId: WITH_ACH, requestedById: null, update: true });
     expect(request.guideId).toBe(guide.id);
     await prisma.guide.delete({ where: { id: guide.id } });
+    await prisma.apiKey.delete({ where: { id: key.id } });
   });
 
   it("claimNextRequest respeita prioridade e depois a ordem de chegada", async () => {
@@ -122,6 +161,29 @@ describe("guide request queue", () => {
     await seed();
     const [a, b] = await Promise.all([queue.claimNextRequest(T0), queue.claimNextRequest(T0)]);
     expect([a, b].filter(Boolean)).toHaveLength(1);
+  });
+
+  it("pedido preso em researching/writing há mais de 4 h volta a ser pego (nova tentativa)", async () => {
+    const stuck = await seed({ status: "writing" });
+    await prisma.guideRequest.update({ where: { id: stuck.id }, data: { attempts: 1, updatedAt: new Date(T0.getTime() - 4 * HOUR - 1000) } });
+    const fresh = await seed({ status: "researching" });
+    await prisma.guideRequest.update({ where: { id: fresh.id }, data: { attempts: 1, updatedAt: new Date(T0.getTime() - 3 * HOUR) } });
+
+    const claimed = await queue.claimNextRequest(T0);
+    expect(claimed).toMatchObject({ id: stuck.id, status: "researching", attempts: 2 });
+    expect(await queue.claimNextRequest(T0)).toBeNull();
+  });
+
+  it("retryNow aceita researching/writing parado há mais de 4 h, e só então", async () => {
+    const stuck = await seed({ status: "researching" });
+    await prisma.guideRequest.update({ where: { id: stuck.id }, data: { updatedAt: new Date(T0.getTime() - 5 * HOUR) } });
+    const working = await seed({ status: "writing", steamAppId: NO_ACH });
+    await prisma.guideRequest.update({ where: { id: working.id }, data: { updatedAt: new Date(T0.getTime() - HOUR) } });
+
+    expect(queue.canRetry({ status: "writing", updatedAt: new Date(T0.getTime() - HOUR) }, T0)).toBe(false);
+    expect(queue.canRetry({ status: "researching", updatedAt: new Date(T0.getTime() - 5 * HOUR) }, T0)).toBe(true);
+    expect(await queue.retryNow(working.id, T0)).toBeNull();
+    expect((await queue.retryNow(stuck.id, T0))?.status).toBe("queued");
   });
 
   it("waiting_sources volta em 3 dias e falha após 30", async () => {

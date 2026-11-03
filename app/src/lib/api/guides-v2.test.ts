@@ -409,3 +409,100 @@ describe("GET /api/v1/games/{slug}/dossie", () => {
     expect((await get(game.slug, "", keys.reader)).status).toBe(200);
   });
 });
+
+describe("cache refresh of the guide page (staff preview and publication)", () => {
+  const tagged = (slug: string) => revalidateTag.mock.calls.filter(([tag]) => tag === `game:${slug}`).length;
+
+  it("a format-2 guide in review refreshes the game tag on create and on update", async () => {
+    const { game, body } = await createV2();
+    expect(tagged(game.slug)).toBe(1);
+    const patched = await guideById.PATCH(call("PATCH", `/api/v1/guides/${body.id}`, { key: keys.robot, body: { version: "v1.1" } }), params(body.id));
+    expect(patched.status).toBe(200);
+    expect(tagged(game.slug)).toBe(2);
+  });
+
+  it("setGuideStatus refreshes the game tag itself; queue, apply and discard of a pending too", async () => {
+    const { game, body } = await createV2();
+    revalidateTag.mockClear();
+    await setGuideStatus({ id: body.id, status: "published" }, editorId);
+    expect(tagged(game.slug)).toBe(1);
+
+    const queue = () =>
+      guideById.PATCH(call("PATCH", `/api/v1/guides/${body.id}`, { key: keys.robot, body: { version: "v1.2" } }), params(body.id));
+    const first = await json(await queue());
+    expect(tagged(game.slug)).toBe(2);
+    await discardPendingUpdate(first.pendingId);
+    expect(tagged(game.slug)).toBe(3);
+    const second = await json(await queue());
+    await applyPendingUpdate(second.pendingId, editorId);
+    expect(tagged(game.slug)).toBe(5);
+  });
+});
+
+describe("pending updates of a published guide", () => {
+  async function published() {
+    const { game, body } = await createV2();
+    await setGuideStatus({ id: body.id, status: "published" }, editorId);
+    return { game, id: body.id as string };
+  }
+  const patchVersion = async (id: string, version: string, extra: Record<string, unknown> = {}) =>
+    json(await guideById.PATCH(call("PATCH", `/api/v1/guides/${id}`, { key: keys.robot, body: { version, ...extra } }), params(id)));
+
+  it("a new pending replaces the older ones of the same guide (the robot sends the whole guide)", async () => {
+    const { id } = await published();
+    await patchVersion(id, "v1.1");
+    const second = await patchVersion(id, "v1.2");
+    const rows = await prisma.guidePendingUpdate.findMany({ where: { guideId: id } });
+    expect(rows.map((r) => r.id)).toEqual([second.pendingId]);
+  });
+
+  it("applying a pending deletes the older ones, and an older one is never applied over a newer", async () => {
+    const { id } = await published();
+    const newer = await patchVersion(id, "v1.2");
+    // An older pending left over from before the replacement rule.
+    const older = await prisma.guidePendingUpdate.create({
+      data: { guideId: id, botKeyId: keys.robot.id, payload: { version: "v1.1" }, createdAt: new Date(Date.now() - 60_000) },
+    });
+    await applyPendingUpdate(newer.pendingId, editorId);
+    expect(await prisma.guidePendingUpdate.count({ where: { guideId: id } })).toBe(0);
+    expect((await prisma.guide.findUniqueOrThrow({ where: { id } })).version).toBe("v1.2");
+    expect(await prisma.guidePendingUpdate.findUnique({ where: { id: older.id } })).toBeNull();
+  });
+
+  it("a bot status in a pending never downgrades the published guide", async () => {
+    const { id } = await published();
+    const pending = await patchVersion(id, "v1.3", { status: "review" });
+    await applyPendingUpdate(pending.pendingId, editorId);
+    expect(await prisma.guide.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "published", version: "v1.3" });
+  });
+
+  it("a key with publish cannot move a published guide back to review either", async () => {
+    const { body } = await createV2(keys.publisher, { status: "published" });
+    const response = await guideById.PATCH(
+      call("PATCH", `/api/v1/guides/${body.id}`, { key: keys.publisher, body: { status: "review", version: "v2.1" } }),
+      params(body.id),
+    );
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({ status: "published" });
+    expect(await prisma.guide.findUniqueOrThrow({ where: { id: body.id } })).toMatchObject({ status: "published", version: "v2.1" });
+  });
+});
+
+describe("guide requests follow the guide's publication", () => {
+  it("publishing a guide moves its requests in review to published", async () => {
+    const { game, body } = await createV2();
+    const inReview = await prisma.guideRequest.create({
+      data: { steamAppId: 96200000 + seq++, gameId: game.id, guideId: body.id, status: "review" },
+    });
+    const failed = await prisma.guideRequest.create({
+      data: { steamAppId: 96200000 + seq++, gameId: game.id, guideId: body.id, status: "failed" },
+    });
+    try {
+      await setGuideStatus({ id: body.id, status: "published" }, editorId);
+      expect((await prisma.guideRequest.findUniqueOrThrow({ where: { id: inReview.id } })).status).toBe("published");
+      expect((await prisma.guideRequest.findUniqueOrThrow({ where: { id: failed.id } })).status).toBe("failed");
+    } finally {
+      await prisma.guideRequest.deleteMany({ where: { id: { in: [inReview.id, failed.id] } } });
+    }
+  });
+});

@@ -60,6 +60,7 @@ export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
           edition={guide.edition}
           cover={walkthrough.cover}
           playthroughs={guide.facts.playthroughs}
+          hours={walk.hours}
           date={game.guide.updatedAt}
         />
 

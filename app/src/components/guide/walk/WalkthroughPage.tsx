@@ -51,7 +51,7 @@ export function WalkthroughPage({ guide, user = null, report = null, preview = f
 
   return (
     <div className="wk">
-      <WalkProgressProvider guideId={walk.guideId} gameId={guide.game.id} returnTo={returnTo}>
+      <WalkProgressProvider guideId={walk.guideId} gameId={guide.game.id} returnTo={returnTo} preview={preview}>
         <SpoilerProvider guideId={walk.guideId}>
           {user}
           <BackdropFader images={walk.screenshots} />

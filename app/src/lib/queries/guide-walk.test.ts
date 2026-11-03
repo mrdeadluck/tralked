@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import example from "@/lib/api/example-walkthrough.json";
 
 const { prisma } = await import("@/lib/db");
@@ -87,7 +87,7 @@ describe("getGuidePublic (formato 2)", () => {
       logoUrl: "https://cdn.example.com/logo.png",
       hours: { min: 30, max: 40 },
       hiddenCount: 1,
-      compatCounts: { steam: 66, ps5: 36 },
+      compatCounts: { steam: 66, psn: 36 },
     });
     expect(guide!.walk!.hardest).toMatchObject({ name: "Sangue e Coração", globalPct: 4.7, hidden: false });
     expect(guide!.steps[0].key).toBe("ate-mirage-estate");
@@ -115,6 +115,19 @@ describe("getGuidePublic (formato 2)", () => {
     const guide = await getGuidePublic(SLUG);
     const state = await loadGuideUserState(guide!, userId);
     expect(state.doneItemKeys).toEqual(["sino-lady-rift"]);
+  });
+
+  it("walkthrough guardado inválido: registra o erro e não vira guia formato 1", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await prisma.guide.update({ where: { id: guideId }, data: { walkthrough: { ...example, cover: null } } });
+    try {
+      const guide = await getGuidePublic(SLUG);
+      expect(guide).toMatchObject({ format: 2, walkthrough: null, walk: null });
+      expect(error).toHaveBeenCalledWith(expect.stringContaining(`walkthrough inválido no guia ${guideId} (${SLUG})`), expect.anything());
+    } finally {
+      await prisma.guide.update({ where: { id: guideId }, data: { walkthrough: example } });
+      error.mockRestore();
+    }
   });
 
   it("loadGuideReport devolve o relatório (só para staff)", async () => {

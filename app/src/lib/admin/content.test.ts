@@ -304,11 +304,18 @@ describe("saveGuide", () => {
   it("every save adds a version, and publishing stamps publishedAt", async () => {
     const { ids } = await stepState();
     const steps = ids.map((id, i) => ({ id, title: `Etapa ${i}`, hours: "1 h", body: body("x"), achievements: [] }));
-    const result = await saveGuide(guideInput({ steps, status: "published", changeSummary: "" }), editor.id, NOW);
-    expect(result).toMatchObject({ ok: true, revision: 4 });
-    const guide = await prisma.guide.findUniqueOrThrow({ where: { id: guideId } });
-    expect(guide.publishedAt).toEqual(NOW);
-    expect(await prisma.guideRevision.count({ where: { guideId } })).toBe(1);
+    const request = await prisma.guideRequest.create({ data: { steamAppId: APP_ID, gameId, guideId, status: "review" } });
+    try {
+      const result = await saveGuide(guideInput({ steps, status: "published", changeSummary: "" }), editor.id, NOW);
+      expect(result).toMatchObject({ ok: true, revision: 4 });
+      const guide = await prisma.guide.findUniqueOrThrow({ where: { id: guideId } });
+      expect(guide.publishedAt).toEqual(NOW);
+      expect(await prisma.guideRevision.count({ where: { guideId } })).toBe(1);
+      // The robot's request for the guide is done once the guide is published.
+      expect((await prisma.guideRequest.findUniqueOrThrow({ where: { id: request.id } })).status).toBe("published");
+    } finally {
+      await prisma.guideRequest.delete({ where: { id: request.id } });
+    }
   });
 
   it("refuses unknown achievements in steps and notes, and steps of another guide", async () => {

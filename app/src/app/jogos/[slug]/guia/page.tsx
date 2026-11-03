@@ -26,6 +26,7 @@ import {
   WalkReportIsland,
   WalkUserIsland,
 } from "@/components/guide/UserIslands";
+import { GuideUnavailable } from "@/components/guide/walk/GuideUnavailable";
 import { WalkthroughPage } from "@/components/guide/walk/WalkthroughPage";
 import { guideIdCached } from "@/lib/community/cached";
 import { listGameSlugs } from "@/lib/queries/games";
@@ -90,6 +91,9 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
       <Comments targetType="guide" targetId={guideId} />
     </>
   ) : null;
+
+  // A walkthrough whose stored data is invalid (logged by getGuidePublic) never renders as a classic guide.
+  if (guide.format === 2 && !guide.walkthrough) return <GuideUnavailable game={guide.game} />;
 
   if (guide.format === 2 && guide.walkthrough) {
     // The walkthrough of the guide robot, from cache; only the visitor's ticks and progress (a few

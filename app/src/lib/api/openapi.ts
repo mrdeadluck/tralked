@@ -88,7 +88,7 @@ const writeErrors = {
   "401": errorResponse("Chave ausente, inválida ou revogada."),
   "403": errorResponse("A chave não tem o escopo necessário."),
   "409": errorResponse("Slug em uso, guia já existente, conteúdo publicado travado ou Idempotency-Key reutilizado."),
-  "413": errorResponse("Corpo maior que 1 MiB (imagem maior que 8 MiB em /api/v1/media)."),
+  "413": errorResponse("Corpo maior que 1 MiB (imagem maior que 4 MiB em /api/v1/media)."),
   "422": errorResponse("Campos inválidos; `issues` aponta cada campo por JSON Pointer."),
   "429": errorResponse(`Mais de ${RATE_LIMIT} requisições por minuto nesta chave.`),
 };
@@ -260,7 +260,7 @@ export function openApiDocument(): JsonSchema {
           tags: ["Guias"],
           summary: "Enviar uma imagem para um guia",
           description:
-            "Escopo media:write. O corpo é o arquivo cru (PNG, JPEG ou WebP, até 8 MiB), não JSON. A imagem é decodificada, convertida para WebP com no máximo 2048 px no lado maior e sem metadados. Use a URL da resposta em image.url de um item do roteiro.",
+            "Escopo media:write. O corpo é o arquivo cru (PNG, JPEG ou WebP, até 4 MiB), não JSON. A imagem é decodificada, convertida para WebP com no máximo 2048 px no lado maior e sem metadados. Use a URL da resposta em image.url de um item do roteiro.",
           parameters: [idempotencyParam],
           requestBody: {
             required: true,

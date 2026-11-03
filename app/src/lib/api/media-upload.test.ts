@@ -56,8 +56,8 @@ describe("POST /api/v1/media", () => {
     expect((await media.POST(upload(writer, png, { idem: null }))).status).toBe(400);
   });
 
-  it("413 for 9 MiB", async () => {
-    const response = await media.POST(upload(writer, new Uint8Array(9 * 1024 * 1024)));
+  it("413 above 4 MiB (Vercel refuses bodies over 4.5 MB before the code runs)", async () => {
+    const response = await media.POST(upload(writer, new Uint8Array(4 * 1024 * 1024 + 1)));
     expect(response.status).toBe(413);
     expect(await errorCode(response)).toBe("payload_too_large");
   });

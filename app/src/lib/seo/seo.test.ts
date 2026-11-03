@@ -67,6 +67,18 @@ describe("JSON-LD", () => {
 });
 
 describe("HowTo of a walkthrough (R19)", () => {
+  it("steps point at the roadmap the page has: #g-roadmap for a walkthrough, #g-rota for a classic guide", () => {
+    const input = {
+      game: { slug: "pbz", name: "Phantom Blade Zero", summary: null },
+      facts: { timeTo100: null },
+      overview: [],
+      steps: [{ order: 1, title: "Até a Mirage Estate", body: "" }],
+    };
+    expect(howToJsonLd({ ...input, format: 2 }).step).toMatchObject([{ url: expect.stringMatching(/\/jogos\/pbz\/guia#g-roadmap$/) }]);
+    expect(howToJsonLd({ ...input, format: 1 }).step).toMatchObject([{ url: expect.stringMatching(/\/jogos\/pbz\/guia#g-rota$/) }]);
+    expect(howToJsonLd(input).step).toMatchObject([{ url: expect.stringMatching(/\/jogos\/pbz\/guia#g-rota$/) }]);
+  });
+
   it("search gets the boss name without the || markers", () => {
     const howTo = howToJsonLd({
       game: { slug: "pbz", name: "Phantom Blade Zero", summary: null },

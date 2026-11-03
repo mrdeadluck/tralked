@@ -5,19 +5,22 @@ import { getStorage, uploadKey, type Storage } from "@/lib/storage";
 import { readCapped } from "./read-capped";
 import { fail, type ReadBody, type WriteContext, type WriteFailure, type WriteSuccess } from "./write";
 
-/** Largest image a bot may upload (bytes), before it is re-encoded. */
-export const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
+/**
+ * Largest image a bot may upload (bytes), before it is re-encoded. Vercel refuses request bodies over
+ * 4.5 MB before this code runs, so the limit stays under it (the 413 then comes from us, with JSON).
+ */
+export const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
 
 /** Blob folder (and local folder) of images uploaded by bots. */
 export const BOT_MEDIA_PREFIX = "guias";
 
 const ACCEPTED_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const TOO_LARGE = "A imagem passa de 8 MiB.";
+const TOO_LARGE = "A imagem passa de 4 MiB.";
 
 /** What `readMediaBody` hands to `uploadMedia`. */
 export type MediaBody = { bytes: Buffer };
 
-/** Reads the raw image body (capped at 8 MiB while streaming); the digest of the bytes is what idempotency compares. */
+/** Reads the raw image body (capped at 4 MiB while streaming); the digest of the bytes is what idempotency compares. */
 export const readMediaBody: ReadBody = async (request) => {
   const type = request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
   if (!ACCEPTED_TYPES.has(type)) {

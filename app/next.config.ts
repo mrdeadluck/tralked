@@ -35,10 +35,10 @@ const nextConfig: NextConfig = {
   },
   // Steam art is hotlinked from Steam's CDNs (never stored): store/library art, achievement icons
   // and avatars. Query strings stay allowed because Steam versions its files with `?t=`.
+  // Vercel Blob images (gallery photos, the robot's guide images) are plain <img>: no pattern here,
+  // so the image optimizer is never an open proxy for any Blob store.
   images: {
     remotePatterns: [
-      // Vercel Blob: gallery photos and the images bots upload for guides.
-      { protocol: "https", hostname: "*.public.blob.vercel-storage.com", pathname: "/**" },
       { protocol: "https", hostname: "shared.akamai.steamstatic.com", pathname: "/store_item_assets/**" },
       { protocol: "https", hostname: "shared.fastly.steamstatic.com", pathname: "/store_item_assets/**" },
       { protocol: "https", hostname: "shared.fastly.steamstatic.com", pathname: "/community_assets/**" },

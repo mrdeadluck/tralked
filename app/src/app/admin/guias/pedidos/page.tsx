@@ -4,7 +4,7 @@ import { ActionButton } from "@/components/admin/ActionButton";
 import { GuideRequestForm } from "@/components/admin/GuideRequestForm";
 import { AdminHead, AdminSection, Empty, StatusBadge, TableRegion, TABLE, TD, TH, When } from "@/components/admin/ui";
 import { requireStaffPage } from "@/lib/admin/guard";
-import { listGuideRequests, REQUEST_STATUS_LABEL } from "@/lib/guide-requests/queue";
+import { canRetry, listGuideRequests, REQUEST_STATUS_LABEL } from "@/lib/guide-requests/queue";
 import {
   bumpPriorityAction,
   cancelRequestAction,
@@ -16,11 +16,12 @@ export const metadata: Metadata = { title: "Pedidos de guia" };
 export const instant = false;
 
 const CANCELLABLE = ["queued", "researching", "writing", "waiting_sources"];
-const RETRYABLE = ["waiting_sources", "failed", "cancelled"];
 
 export default async function GuideRequestsPage() {
   await requireStaffPage();
   const requests = await listGuideRequests();
+  // After the session read: the page is per request, so "now" is the request's time.
+  const now = new Date();
 
   return (
     <>
@@ -28,7 +29,7 @@ export default async function GuideRequestsPage() {
         title="Pedidos de guia"
         lede={
           <>
-            O robô pega um pedido por vez, do maior para o menor peso. Sem fontes suficientes, ele tenta de novo a cada 3 dias, por até 30.{" "}
+            O robô pega um pedido por vez, do maior para o menor peso. Sem fontes suficientes, ele tenta de novo a cada 3 dias, por até 30. Um pedido parado há mais de 4 h em pesquisa ou escrita volta para a fila.{" "}
             <Link href="/admin/guias" className="text-acc underline underline-offset-4 hover:no-underline">
               Voltar aos guias
             </Link>
@@ -104,7 +105,7 @@ export default async function GuideRequestsPage() {
                             <ActionButton action={bumpPriorityAction} input={{ id: r.id, delta: -1 }} label="Prioridade ↓" ariaLabel={`Baixar a prioridade de ${game}`} />
                           </>
                         ) : null}
-                        {RETRYABLE.includes(r.status) ? (
+                        {canRetry(r, now) ? (
                           <ActionButton action={retryRequestAction} input={{ id: r.id }} label="Tentar agora" ariaLabel={`Tentar agora o guia de ${game}`} />
                         ) : null}
                         {CANCELLABLE.includes(r.status) ? (

@@ -15,8 +15,8 @@ const COMPATIBLE: Record<Exclude<GuideCompat, "steam_only">, { title: string; no
 
 type CompatSealProps = {
   compat: GuideCompat;
-  /** Steam and PS5 list sizes (robot report), for "APENAS STEAM". */
-  counts: { steam: number; ps5: number } | null;
+  /** Steam and PlayStation list sizes (robot report), for "APENAS STEAM". */
+  counts: { steam: number; psn: number } | null;
 };
 
 export function CompatSeal({ compat, counts }: CompatSealProps) {
@@ -27,7 +27,7 @@ export function CompatSeal({ compat, counts }: CompatSealProps) {
         <b>APENAS STEAM</b>
         <span>
           {counts
-            ? `Steam tem ${counts.steam} conquistas; o PS5 tem ${counts.ps5}. Os passos marcam quais valem nas duas.`
+            ? `Steam tem ${counts.steam} conquistas; a lista do PlayStation tem ${counts.psn}. Os passos marcam quais valem nas duas.`
             : "A lista de outras plataformas é diferente. Os passos marcam o que vale em cada uma."}
         </span>
       </p>

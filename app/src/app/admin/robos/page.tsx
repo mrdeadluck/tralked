@@ -5,7 +5,14 @@ import { KeyCreator } from "@/components/admin/KeyCreator";
 import { AdminHead, AdminSection, Empty, FILTER_SELECT, StatusBadge, TableRegion, TABLE, TD, TH, When } from "@/components/admin/ui";
 import { Pager } from "@/components/community/Pager";
 import { requireStaffPage } from "@/lib/admin/guard";
-import { INGESTION_KINDS, INGESTION_STATUSES, ingestionFilterSchema, listIngestion } from "@/lib/admin/robots";
+import {
+  INGESTION_KIND_FILTER_LABEL,
+  INGESTION_KINDS,
+  INGESTION_STATUSES,
+  ingestionFilterSchema,
+  ingestionKindView,
+  listIngestion,
+} from "@/lib/admin/robots";
 import { listApiKeys } from "@/lib/api/keys";
 import { revokeKeyAction } from "./actions";
 
@@ -14,7 +21,6 @@ export const metadata: Metadata = { title: "Robôs" };
 export const instant = false;
 
 const STATUS_LABEL = { created: "Criados", updated: "Atualizados", rejected: "Recusados" } as const;
-const KIND_LABEL = { article: "Notícias", guide: "Guias" } as const;
 const activeLabel = (n: number) => `${n} ${n === 1 ? "ativa" : "ativas"}`;
 
 export default async function RobotsPage({ searchParams }: PageProps<"/admin/robos">) {
@@ -159,11 +165,11 @@ export default async function RobotsPage({ searchParams }: PageProps<"/admin/rob
             <label htmlFor="log-tipo" className="text-[13px] font-semibold text-text-2">
               Tipo
             </label>
-            <select id="log-tipo" name="tipo" defaultValue={filter.kind ?? ""} className={`${FILTER_SELECT} w-[140px]`}>
+            <select id="log-tipo" name="tipo" defaultValue={filter.kind ?? ""} className={`${FILTER_SELECT} w-[170px]`}>
               <option value="">Todos</option>
               {INGESTION_KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {KIND_LABEL[k]}
+                  {INGESTION_KIND_FILTER_LABEL[k]}
                 </option>
               ))}
             </select>
@@ -190,46 +196,46 @@ export default async function RobotsPage({ searchParams }: PageProps<"/admin/rob
                 </tr>
               </thead>
               <tbody>
-                {log.rows.map((row) => (
-                  <tr key={row.id} className="hover:bg-hover">
-                    <td className={TD}>
-                      <When date={row.createdAt} />
-                    </td>
-                    <td className={`${TD} text-[13px]`}>{keyName.get(row.keyId) ?? row.keyName}</td>
-                    <td className={TD}>
-                      <span className="text-[13px]">{row.kind === "guide" ? "Guia" : "Notícia"}</span>
-                      <code className="block max-w-[200px] truncate font-mono text-xs text-dim" title={row.idempotencyKey}>
-                        {row.idempotencyKey}
-                      </code>
-                    </td>
-                    <td className={TD}>
-                      <span className="flex items-center gap-2">
-                        <StatusBadge status={row.status} />
-                        {row.httpStatus ? <span className="font-mono text-[12px] text-dim tabular-nums">{row.httpStatus}</span> : null}
-                      </span>
-                    </td>
-                    <td className={`${TD} max-w-[380px] text-[13px]`}>
-                      {row.issues.length > 0 ? (
-                        <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-text-2">
-                          {row.issues.map((issue, i) => (
-                            <li key={i} className="break-words">
-                              {issue}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : row.resultId ? (
-                        <Link
-                          href={row.kind === "guide" ? `/admin/guias/${row.resultId}` : `/admin/noticias/${row.resultId}`}
-                          className="text-acc underline underline-offset-4 hover:no-underline"
-                        >
-                          Abrir no editor
-                        </Link>
-                      ) : (
-                        <span className="text-dim">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {log.rows.map((row) => {
+                  const kind = ingestionKindView(row.kind, row.resultId);
+                  return (
+                    <tr key={row.id} className="hover:bg-hover">
+                      <td className={TD}>
+                        <When date={row.createdAt} />
+                      </td>
+                      <td className={`${TD} text-[13px]`}>{keyName.get(row.keyId) ?? row.keyName}</td>
+                      <td className={TD}>
+                        <span className="text-[13px]">{kind.label}</span>
+                        <code className="block max-w-[200px] truncate font-mono text-xs text-dim" title={row.idempotencyKey}>
+                          {row.idempotencyKey}
+                        </code>
+                      </td>
+                      <td className={TD}>
+                        <span className="flex items-center gap-2">
+                          <StatusBadge status={row.status} />
+                          {row.httpStatus ? <span className="font-mono text-[12px] text-dim tabular-nums">{row.httpStatus}</span> : null}
+                        </span>
+                      </td>
+                      <td className={`${TD} max-w-[380px] text-[13px]`}>
+                        {row.issues.length > 0 ? (
+                          <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-text-2">
+                            {row.issues.map((issue, i) => (
+                              <li key={i} className="break-words">
+                                {issue}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : kind.href ? (
+                          <Link href={kind.href} className="text-acc underline underline-offset-4 hover:no-underline">
+                            {row.kind === "guide_request" ? "Abrir os pedidos" : "Abrir no editor"}
+                          </Link>
+                        ) : (
+                          <span className="text-dim">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </TableRegion>

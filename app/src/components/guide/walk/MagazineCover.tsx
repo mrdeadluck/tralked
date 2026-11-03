@@ -24,6 +24,15 @@ export function editionLabel(edition: number | null): string {
   return edition === null ? "Prévia" : `#${String(edition).padStart(3, "0")}`;
 }
 
+/** A seal of zero hours ("0 h", "0"): the guide has no estimate, so the seal shows a dash. */
+const NO_HOURS = /^\s*0+(?:[.,]0+)?\s*(?:h|horas?)?\s*$/i;
+
+/** The seal's hours as the robot wrote them, or "—" when there is no estimate (never "0 h"). */
+function sealHoursText(sealHours: string, hours: { min: number; max: number }): string {
+  if ((hours.min <= 0 && hours.max <= 0) || NO_HOURS.test(sealHours)) return "—";
+  return sealHours;
+}
+
 /** The game's name split for the cover: all but the last word, and the last word (in lime). */
 function splitName(name: string): [string, string] {
   const words = name.trim().split(/\s+/);
@@ -37,11 +46,13 @@ type MagazineCoverProps = {
   cover: Walkthrough["cover"];
   /** Minimum playthroughs ("1"), printed on the seal. */
   playthroughs: string;
+  /** The guide's hours (facts): 0/0 means no estimate. */
+  hours: { min: number; max: number };
   /** Publication date of the edition. */
   date: Date;
 };
 
-export function MagazineCover({ game, edition, cover, playthroughs, date }: MagazineCoverProps) {
+export function MagazineCover({ game, edition, cover, playthroughs, hours, date }: MagazineCoverProps) {
   const [lead, last] = splitName(game.name);
   const headSize = Math.min(
     HEAD_MAX,
@@ -91,7 +102,7 @@ export function MagazineCover({ game, edition, cover, playthroughs, date }: Maga
           </ul>
           <p className="wk-seal">
             <small>TRALKED EM</small>
-            <b>{cover.sealHours}</b>
+            <b>{sealHoursText(cover.sealHours, hours)}</b>
             <small>{runs}</small>
           </p>
         </div>

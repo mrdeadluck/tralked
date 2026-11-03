@@ -737,6 +737,7 @@ model GuideItemProgress {
   guide     Guide    @relation(fields: [guideId], references: [id], onDelete: Cascade)
 
   @@id([userId, guideId, itemKey])
+  @@index([guideId])
 }
 
 /// An update of an already published guide, waiting for an admin; the published guide does not change.

@@ -5,7 +5,31 @@ import { prisma } from "@/lib/db";
 /** Ingestion log of the bot API, for the "Robôs" page (filters: key, status, kind). */
 
 export const INGESTION_STATUSES = ["created", "updated", "rejected"] as const;
-export const INGESTION_KINDS = ["article", "guide"] as const;
+export const INGESTION_KINDS = ["article", "guide", "guide_request", "media"] as const;
+type IngestionKind = (typeof INGESTION_KINDS)[number];
+
+/** Plural label of each kind, for the filter. */
+export const INGESTION_KIND_FILTER_LABEL: Record<IngestionKind, string> = {
+  article: "Notícias",
+  guide: "Guias",
+  guide_request: "Pedidos de guia",
+  media: "Imagens",
+};
+
+const KIND_VIEW: Record<IngestionKind, { label: string; href: (id: string) => string | null }> = {
+  article: { label: "Notícia", href: (id) => `/admin/noticias/${id}` },
+  guide: { label: "Guia", href: (id) => `/admin/guias/${id}` },
+  guide_request: { label: "Pedido de guia", href: () => "/admin/guias/pedidos" },
+  // An uploaded image has no editor: it is used by URL inside a guide.
+  media: { label: "Imagem", href: () => null },
+};
+
+/** How a log row names what was sent, and where its result opens (null: nothing to open). */
+export function ingestionKindView(kind: string, resultId: string | null): { label: string; href: string | null } {
+  const view = (KIND_VIEW as Record<string, (typeof KIND_VIEW)[IngestionKind] | undefined>)[kind];
+  if (!view) return { label: kind, href: null };
+  return { label: view.label, href: resultId ? view.href(resultId) : null };
+}
 
 export const INGESTION_STATUS_LABEL: Record<(typeof INGESTION_STATUSES)[number], string> = {
   created: "Criado",

@@ -493,8 +493,8 @@ export type WalkExtras = {
   achievements: Record<string, WalkAchievementView>;
   /** The rarest achievement the robot named (`extraFacts.hardest`). */
   hardest: WalkAchievementView | null;
-  /** Steam vs PS5 list sizes, from the robot report, for the "APENAS STEAM" seal. */
-  compatCounts: { steam: number; ps5: number } | null;
+  /** Steam vs PlayStation list sizes, from the robot report, for the "APENAS STEAM" seal. */
+  compatCounts: { steam: number; psn: number } | null;
   /** Up to 4 official screenshots of the game, for the animated backdrop. */
   screenshots: string[];
 };
@@ -659,6 +659,13 @@ async function buildGuide(game: GameDetail, meta: GuideMeta): Promise<GuideDetai
 
   const parsedWalk = guide.format === 2 ? walkthroughSchema.safeParse(guide.walkthrough) : null;
   const walkthrough = parsedWalk?.success ? parsedWalk.data : null;
+  if (parsedWalk && !parsedWalk.success) {
+    // The page shows "guia indisponível" (never the classic layout over a walkthrough's data).
+    console.error(
+      `walkthrough inválido no guia ${guide.id} (${game.slug})`,
+      parsedWalk.error.issues.slice(0, 5).map((i) => `${i.path.join("/")}: ${i.message}`),
+    );
+  }
   const walk = walkthrough ? await loadWalkExtras(game.id, guide, walkthrough) : null;
   // A walkthrough covers the whole Steam list; a classic guide, the achievements it explains.
   const xpOf = walk ? Object.values(walk.achievements) : achievements;
@@ -762,7 +769,7 @@ async function loadWalkExtras(
     achievements,
     hardest: hardest ? (achievements[hardest.apiName] ?? null) : null,
     compatCounts:
-      coverage && coverage.steamOnly > 0 ? { steam: coverage.steam, ps5: coverage.steam - coverage.steamOnly } : null,
+      coverage && coverage.steamOnly > 0 ? { steam: coverage.steam, psn: coverage.steam - coverage.steamOnly } : null,
     screenshots: shots.flatMap((m) => {
       const url = safeImageUrl(m.url);
       return url ? [url] : [];

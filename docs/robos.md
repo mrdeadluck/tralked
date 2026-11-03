@@ -27,7 +27,7 @@ Uma chave revogada para de funcionar na hora e passa a receber `401`. Cada chave
 | `articles:write` | Criar notícias, alterar as próprias e consultar o status delas. |
 | `guides:write` | Criar o guia de um jogo, atualizar os próprios e consultar o status deles. Pegar e relatar os pedidos de guia da fila e ler o dossiê completo de um jogo (`?all=1`). |
 | `publish` | Publicar direto, sem passar pela fila de revisão, e alterar o que já está publicado. |
-| `media:write` | Enviar imagens (PNG, JPEG ou WebP, até 8 MiB) em `POST /api/v1/media`. |
+| `media:write` | Enviar imagens (PNG, JPEG ou WebP, até 4 MiB) em `POST /api/v1/media`. |
 
 ## Endpoints
 
@@ -280,7 +280,7 @@ Parágrafos, itens de lista, citações, avisos e células de tabela aceitam uma
 - `**negrito**`
 - `*itálico*`
 - `[texto](https://…)`, com link http ou https
-- `||spoiler||`, só nos detonados (guia formato 2): um trecho escondido até o leitor ligar os spoilers, como o nome de um chefe, uma reviravolta ou o nome de uma conquista oculta no meio do texto. Vale também nos textos do "leia antes", no `location` dos itens, no `deadline` dos capítulos e nas etapas do roadmap (título e texto), que a página também esconde. Nos dados para buscadores (JSON-LD) o trecho sai sem as marcas, com o texto. Nos outros campos de texto puro (nomes, títulos de capítulo, capa, visão geral) `||` não esconde nada: não ponha spoiler ali. Todo `||` precisa fechar; fora dos detonados, `||` é texto comum.
+- `||spoiler||`, só nos detonados (guia formato 2): um trecho escondido até o leitor ligar os spoilers, como o nome de um chefe, uma reviravolta ou o nome de uma conquista oculta no meio do texto. Vale também nos textos do "leia antes", no `location` dos itens, no `deadline` dos capítulos e nas etapas do roadmap (título e texto), que a página também esconde. Nos dados para buscadores (JSON-LD) o trecho sai sem as marcas, com o texto. Nos outros campos de texto puro (nomes, títulos de capítulo, capa, visão geral) `||` não esconde nada: não ponha spoiler ali. Nos blocos `heading` e no cabeçalho (`header`) das tabelas de um passo do detonado, `||` é recusado com `422`, porque a página mostraria as barras. Todo `||` precisa fechar; fora dos detonados, `||` é texto comum.
 
 Títulos, legendas e créditos são texto puro.
 
@@ -439,7 +439,8 @@ A resposta é `201` com `id`, `status`, `url` e `revision: 1`. Se o jogo já tiv
   - Dê a cada etapa uma `key` estável (letras minúsculas, números e hífens, por exemplo `"chefe-final"`), em todas as etapas ou em nenhuma. Com `key`, as etapas são casadas pela `key`: você pode reordenar, incluir e remover etapas, e a marca de cada leitor continua na etapa certa. Uma etapa removida perde só as marcas dela. Um guia antigo, cujas etapas ainda não têm `key`, adota as `key` por posição no primeiro envio com o mesmo número de etapas.
   - Sem `key`, as etapas são casadas por posição, e só quando o número de etapas não muda. Se o número mudar, a resposta é `422` em `/steps`: mande `key` em cada etapa para incluir, remover ou reordenar.
 - Toda criação e toda atualização salvam uma versão completa do guia, que a redação pode comparar e restaurar. A resposta traz o número dessa versão em `revision`.
-- **Guia já publicado, chave sem `publish`:** a resposta é `202` com `{ "id", "status": "pending_review", "pendingId" }`. O guia no ar não muda. A atualização fica guardada até um editor aplicá-la ou descartá-la no admin. Uma chave com `publish` altera o guia publicado direto, com `200`.
+- **Guia já publicado, chave sem `publish`:** a resposta é `202` com `{ "id", "status": "pending_review", "pendingId" }`. O guia no ar não muda. A atualização fica guardada até um editor aplicá-la ou descartá-la no admin. Uma atualização nova do mesmo guia substitui a que ainda esperava (o robô manda o guia inteiro a cada vez), e aplicar uma descarta as mais antigas. Uma chave com `publish` altera o guia publicado direto, com `200`.
+- **Um guia publicado continua publicado:** o `status` que vier num PATCH (`review` ou `draft`) é ignorado num guia já publicado, direto ou ao aplicar a atualização pendente. Só a redação tira um guia do ar.
 
 ```bash
 curl -X PATCH "$TRALKED_URL/api/v1/guides/ID_DO_GUIA" \
@@ -617,7 +618,7 @@ O exemplo abaixo mostra um capítulo só. Um guia real cobre todas as conquistas
 
 O robô de guias não escolhe jogos. Ele atende os pedidos que a redação põe na fila do admin, um por vez. Os dois endpoints exigem `guides:write`.
 
-`POST /api/v1/guide-requests/next` pega o próximo pedido: o de maior prioridade e, entre eles, o mais antigo. Um pedido em `waiting_sources` volta a ser pego quando chega a hora da nova tentativa. O pedido passa a `researching` e nenhum outro robô o recebe. Sem pedido, a resposta é `204`, sem corpo. Com pedido, a resposta é `200`:
+`POST /api/v1/guide-requests/next` pega o próximo pedido: o de maior prioridade e, entre eles, o mais antigo. Um pedido em `waiting_sources` volta a ser pego quando chega a hora da nova tentativa. Um pedido parado há mais de 4 horas em `researching` ou `writing` (o robô caiu no meio) também volta a ser pego, como nova tentativa; relate o andamento para que isso não aconteça com um pedido em curso. O pedido passa a `researching` e nenhum outro robô o recebe. Sem pedido, a resposta é `204`, sem corpo. Com pedido, a resposta é `200`:
 
 ```json
 {
@@ -638,7 +639,7 @@ O robô de guias não escolhe jogos. Ele atende os pedidos que a redação põe 
 | --- | --- |
 | `researching` | Lendo as fontes. |
 | `writing` | Escrevendo o guia. |
-| `review` | O guia foi criado ou atualizado e está na fila de revisão. Mande o `guideId`. |
+| `review` | O guia foi criado ou atualizado e está na fila de revisão. Mande o `guideId`. Quando a redação publicar o guia, o pedido passa sozinho a `published`. |
 | `waiting_sources` | Faltam fontes para cobrir o jogo. Mande em `report` o que falta. O Tralked agenda nova tentativa em 3 dias. Depois de 30 dias esperando, o pedido vira `failed` com o motivo "fontes insuficientes após 30 dias". |
 | `failed` | O robô desistiu. Mande o motivo em `reason`. |
 
@@ -657,7 +658,7 @@ curl -X PATCH "$TRALKED_URL/api/v1/guide-requests/ID_DO_PEDIDO" \
 `POST /api/v1/media` (escopo `media:write`) recebe uma imagem para usar num guia. O corpo é o arquivo cru, não JSON:
 
 - `Content-Type`: `image/png`, `image/jpeg` ou `image/webp`. Outro tipo dá `415 unsupported_media_type`.
-- Até 8 MiB. Acima disso, `413 payload_too_large`.
+- Até 4 MiB. Acima disso, `413 payload_too_large`.
 - O Tralked decodifica a imagem, converte para WebP com no máximo 2048 px no lado maior e remove os metadados. Um arquivo que não é imagem de verdade dá `415`.
 - O `Idempotency-Key` vale como nas outras escritas: o mesmo arquivo com a mesma chave devolve a mesma resposta.
 
@@ -774,7 +775,7 @@ Todo erro tem o mesmo formato. Em `issues`, `path` é um JSON Pointer para o cam
 | 409 | `guide_exists` | O jogo já tem guia. A mensagem traz o id; se o guia for desta chave, use PATCH. |
 | 409 | `published_locked` | A redação já publicou a notícia, e só uma chave com `publish` pode alterá-la. Num guia publicado, o PATCH não dá este erro: responde `202 pending_review`. |
 | 409 | `idempotency_conflict` | O `Idempotency-Key` já foi usado com outro corpo ou em outro endpoint. |
-| 413 | `payload_too_large` | O corpo passa de 1 MiB, ou a imagem de `POST /api/v1/media` passa de 8 MiB. |
+| 413 | `payload_too_large` | O corpo passa de 1 MiB, ou a imagem de `POST /api/v1/media` passa de 4 MiB. |
 | 415 | `unsupported_media_type` | Em `POST /api/v1/media`, o `Content-Type` não é `image/png`, `image/jpeg` ou `image/webp`, ou o arquivo não é uma imagem válida. |
 | 422 | `validation_failed` | Há campos inválidos. Cada item de `issues` aponta o campo por JSON Pointer. Em `PATCH /api/v1/guide-requests/{id}`, também quando o pedido foi cancelado ou já foi publicado. |
 | 429 | `rate_limited` | A chave passou de 60 requisições no minuto. Espere os segundos indicados em `Retry-After`. |
@@ -791,7 +792,7 @@ Gere um `Idempotency-Key` para cada conteúdo, com 1 a 255 caracteres ASCII vis�
 ## Limites
 
 - **60 requisições por minuto por chave.** Toda resposta autenticada traz os cabeçalhos `X-RateLimit-Limit`, `X-RateLimit-Remaining` e `X-RateLimit-Reset` (segundos até a janela zerar). Acima do limite, a resposta é `429` com o cabeçalho `Retry-After`.
-- **Corpo de até 1 MiB** (imagem de até 8 MiB em `POST /api/v1/media`), com no máximo 64 níveis de listas e objetos aninhados (acima disso: `422 validation_failed`, sem `issues`).
+- **Corpo de até 1 MiB** (imagem de até 4 MiB em `POST /api/v1/media`), com no máximo 64 níveis de listas e objetos aninhados (acima disso: `422 validation_failed`, sem `issues`).
 - **Tamanho do conteúdo:** até 300 blocos por notícia, 60 etapas por guia e 10 jogos por notícia. No formato 2, até 60 capítulos, 80 passos por capítulo e 40 itens por passo.
 - **Imagens:** por URL https, com texto alternativo e crédito. Para hospedar a imagem no Tralked, envie o arquivo em `POST /api/v1/media` (escopo `media:write`) e use a URL da resposta.
 

@@ -40,7 +40,12 @@ const concurrentWrite = (id?: string): WriteFailure =>
 
 export const normalizeVersion = (version: string) => (version.startsWith("v") ? version : `v${version}`);
 
-const invalidateGuide = (gameSlug: string) => revalidateTag(gameTag(gameSlug), { expire: 0 });
+/**
+ * Expires the game's cached pages (game, guide, metadata). Published guides change what everyone
+ * sees; a format-2 guide in review changes the staff preview, whose branch the cached
+ * hasGuidePreviewCached decides. Shared by every guide write (API, pending updates, admin status).
+ */
+export const invalidateGuide = (gameSlug: string) => revalidateTag(gameTag(gameSlug), { expire: 0 });
 
 /**
  * Maps the achievements a guide refers to onto the game's Achievement rows: step achievements are
@@ -325,7 +330,7 @@ export async function createGuide(ctx: WriteContext): Promise<WriteSuccess | Wri
         body: { id: guide.id, status, url: guideUrl(game.slug), revision },
         resultId: guide.id,
         logStatus: "created",
-        after: status === "published" ? () => invalidateGuide(game.slug) : undefined,
+        after: status === "published" || payload.format === 2 ? () => invalidateGuide(game.slug) : undefined,
       };
       await ctx.record(tx, success);
       return success;
@@ -567,13 +572,15 @@ export async function updateGuide(ctx: WriteContext, id: string): Promise<WriteS
           body: { id, status: "pending_review", pendingId },
           resultId: id,
           logStatus: "updated",
+          after: () => invalidateGuide(guide.game.slug),
         };
         await ctx.record(tx, success);
         return success;
       });
     }
 
-    const status = patch.status ?? guide.status;
+    // A published guide never goes back to review or draft through the API (only an editor moves it).
+    const status = guide.status === "published" ? "published" : (patch.status ?? guide.status);
     return await prisma.$transaction(async (tx): Promise<WriteSuccess | WriteFailure> => {
       const written = await applyGuidePatch(tx, guide, patch, noteIds, { status, authorId: null });
       if (!written.ok) return written;
@@ -584,7 +591,7 @@ export async function updateGuide(ctx: WriteContext, id: string): Promise<WriteS
         resultId: id,
         logStatus: "updated",
         after:
-          status === "published" || guide.status === "published"
+          status === "published" || guide.status === "published" || guide.format === 2 || patch.format === 2
             ? () => invalidateGuide(guide.game.slug)
             : undefined,
       };

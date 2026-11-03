@@ -35,6 +35,10 @@ vi.mock("next/navigation", async (original) => ({
   }),
 }));
 
+// "use cache" is a no-op outside Next: the cache helpers only record what they were told.
+const cache = vi.hoisted(() => ({ cacheLife: vi.fn(), cacheTag: vi.fn() }));
+vi.mock("next/cache", async (original) => ({ ...(await original<typeof import("next/cache")>()), ...cache }));
+
 const SLUG = "test-walk-preview";
 
 describe.skipIf(!reachable)("detonado: spoilers e prévia da equipe", () => {
@@ -107,6 +111,17 @@ describe.skipIf(!reachable)("detonado: spoilers e prévia da equipe", () => {
     expect(boss?.achievement?.name).toBe("Lâmina Espectral Escarlate");
     // Only gated items travel: an ordinary one is already on the page.
     expect(Object.keys(open!.items)).toEqual([gatedRef("boss-hua-noiva-mortal")]);
+  });
+
+  it("revealWalkSpoilers de guia publicado sai do cache com a tag do jogo (publicar expira a tag)", async () => {
+    const { revealWalkSpoilers } = await import("./reveal-spoilers");
+    cache.cacheTag.mockClear();
+    cache.cacheLife.mockClear();
+    await setStatus("published");
+    session.role = null;
+    expect(await revealWalkSpoilers(guideId)).not.toBeNull();
+    expect(cache.cacheTag).toHaveBeenCalledWith(`game:${SLUG}`);
+    expect(cache.cacheLife).toHaveBeenCalledWith("hours");
   });
 
   it("getGuidePreview lê o guia em revisão; o público não", async () => {

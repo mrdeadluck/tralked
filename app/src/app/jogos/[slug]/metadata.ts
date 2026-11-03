@@ -18,7 +18,7 @@ export async function gameMetadata(slug: string): Promise<Metadata> {
   return game.hasGuide
     ? {
         title: `Guia de conquistas 100%: ${game.name} | Tralked`,
-        description: `Rota completa, conquistas detalhadas e coletáveis para platinar ${game.name}.`,
+        description: `Rota completa, conquistas detalhadas e coletáveis até o Tralked em ${game.name}.`,
       }
     : {
         title: `${game.name}: conquistas | Tralked`,

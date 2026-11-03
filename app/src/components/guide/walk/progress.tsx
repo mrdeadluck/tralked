@@ -27,6 +27,8 @@ type WalkProgress = {
   gameId: string;
   /** The guide page, to come back after logging in. */
   returnTo: string;
+  /** Staff preview of a guide still in review: ticking waits for the publication. */
+  preview: boolean;
   /** Null for an anonymous visitor (and until the session streams in). */
   user: { unlockedCount: number | null; pendingXp: number } | null;
   isDone: (ref: string) => boolean;
@@ -43,9 +45,9 @@ type WalkProgress = {
 const WalkProgressContext = createContext<WalkProgress | null>(null);
 const SeedContext = createContext<(seed: WalkUserSeedData) => void>(() => {});
 
-type ProviderProps = { guideId: string; gameId: string; returnTo: string; children: ReactNode };
+type ProviderProps = { guideId: string; gameId: string; returnTo: string; preview?: boolean; children: ReactNode };
 
-export function WalkProgressProvider({ guideId, gameId, returnTo, children }: ProviderProps) {
+export function WalkProgressProvider({ guideId, gameId, returnTo, preview = false, children }: ProviderProps) {
   const [user, setUser] = useState<WalkProgress["user"]>(null);
   const [done, setDoneSet] = useState<ReadonlySet<string>>(() => new Set());
   const [unlocked, setUnlocked] = useState<ReadonlySet<string>>(() => new Set());
@@ -82,6 +84,7 @@ export function WalkProgressProvider({ guideId, gameId, returnTo, children }: Pr
       guideId,
       gameId,
       returnTo,
+      preview,
       user,
       isDone: (ref) => done.has(ref),
       doneCount: (refs) => refs.reduce((n, ref) => n + (done.has(ref) ? 1 : 0), 0),
@@ -89,7 +92,7 @@ export function WalkProgressProvider({ guideId, gameId, returnTo, children }: Pr
       isUnlocked: (id) => unlocked.has(id),
       check,
     }),
-    [guideId, gameId, returnTo, user, done, setDone, unlocked, check],
+    [guideId, gameId, returnTo, preview, user, done, setDone, unlocked, check],
   );
   return (
     <SeedContext.Provider value={seed}>

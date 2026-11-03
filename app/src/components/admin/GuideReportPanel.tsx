@@ -4,7 +4,10 @@ import { AdminSection } from "./ui";
 
 const LIST = "m-0 flex list-disc flex-col gap-1 pl-5 text-[14px]";
 
-/** The robot's report of a guide, for the editor (sources read, divergences, single-source facts, coverage). */
+/**
+ * The robot's report of a guide, for the editor (sources read, divergences, single-source facts,
+ * coverage, the list the guide follows and the robot's internal errors).
+ */
 export function GuideReportPanel({ report }: { report: GuideReport }) {
   return (
     <AdminSection title="Relatório do robô" aside={reportSummary(report)}>
@@ -41,6 +44,11 @@ export function GuideReportPanel({ report }: { report: GuideReport }) {
           ) : (
             <p className="text-[14px] text-muted">O robô não informou a cobertura.</p>
           )}
+          <p className="text-[14px]">
+            {report.psnScope
+              ? `Guia pela lista da PSN${report.psnScope.total !== null ? `: ${report.psnScope.covered} de ${report.psnScope.total} troféus cobertos` : ""}. As conquistas só da Steam ficam sem roteiro.`
+              : "Guia pela lista completa da Steam."}
+          </p>
         </div>
         <div className="flex flex-col gap-2">
           <h3 className="font-mono text-xs tracking-[0.08em] text-dim uppercase">Divergências entre fontes</h3>
@@ -66,6 +74,17 @@ export function GuideReportPanel({ report }: { report: GuideReport }) {
             </ul>
           )}
         </div>
+        {report.internalErrors ? (
+          <div className="flex flex-col gap-2 md:col-span-2">
+            <h3 className="font-mono text-xs tracking-[0.08em] text-dim uppercase">Erros internos do robô</h3>
+            <p className="text-[14px] text-muted">Falhas do próprio robô ao montar o guia (ordem dos capítulos): confira a ordem antes de publicar.</p>
+            <ul className={LIST}>
+              {report.internalErrors.map((e) => (
+                <li key={e}>{e}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
     </AdminSection>
   );

@@ -19,16 +19,17 @@ import { locationScope, type ItemImage, type ItemSource, type ItemView } from ".
 /** Second checks after a tick Steam did not confirm yet, counted from the first one. */
 const RECHECK_MS = [30_000, 90_000];
 
-type SteamStatus = "checking" | "waiting" | "invite" | "error" | "login" | "unpublished" | null;
+type SteamStatus = "checking" | "waiting" | "invite" | "error" | "login" | "unpublished" | "gone" | null;
 
 const STATUS_TEXT: Record<Exclude<SteamStatus, null | "login" | "invite">, string> = {
   checking: "Conferindo na Steam…",
   waiting: "marcada por você · a Steam ainda não mostrou",
   error: "Não foi possível falar com a Steam agora",
   unpublished: "Prévia: marcar fica para quando o guia for publicado.",
+  gone: "Este item mudou no guia. Recarregue a página.",
 };
 
-const ALSO_ON: Record<"psn" | "xbox", string> = { psn: "PS5", xbox: "Xbox" };
+const ALSO_ON: Record<"psn" | "xbox", string> = { psn: "PlayStation", xbox: "Xbox" };
 
 function Sources({ sources, review }: { sources: ItemSource[]; review: boolean }) {
   const n = sources.length;
@@ -175,7 +176,7 @@ export function WalkItemRow({ item }: { item: ItemView }) {
     }
     if (result.status !== "ok") {
       progress.setDone(item.ref, done);
-      setStatus(result.status === "unauthenticated" ? "login" : "unpublished");
+      setStatus(result.status === "unauthenticated" ? "login" : progress.preview ? "unpublished" : "gone");
       return;
     }
     if (result.done !== next) progress.setDone(item.ref, result.done);

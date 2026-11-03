@@ -81,7 +81,7 @@ export function pbzGuide(over: Partial<GuideDetail> = {}): GuideDetail {
         ACH_SCARLET_SPECTRAL_BLADE: ach("ACH_SCARLET_SPECTRAL_BLADE", null, 67.1, true),
       },
       hardest,
-      compatCounts: { steam: 66, ps5: 36 },
+      compatCounts: { steam: 66, psn: 36 },
       screenshots: [],
     },
     itemsDone: new Set(),

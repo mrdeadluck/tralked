@@ -4,10 +4,15 @@ import { describe, expect, it } from "vitest";
 import { EXAMPLE_GUIDE } from "@/lib/api/examples";
 import { toPointer } from "@/lib/api/errors";
 import { guidePayloadSchema } from "./guide-schema";
-import { walkAchievementRefs, walkItemKeys, walkthroughSchema } from "./walkthrough-schema";
+import { walkAchievementRefs, walkItemKeys, walkthroughSchema, type WalkthroughInput } from "./walkthrough-schema";
 
-const fixture = (): any =>
-  JSON.parse(readFileSync(resolve(process.cwd(), "../ROBO NOTICIAS/test/guias/fixtures/walkthrough-pbz.json"), "utf8"));
+/** The robot's Phantom Blade Zero walkthrough (its contract fixture), fresh for each mutation. */
+const fixture = (): WalkthroughInput =>
+  JSON.parse(readFileSync(resolve(process.cwd(), "../ROBO NOTICIAS/test/guias/fixtures/walkthrough-pbz.json"), "utf8")) as WalkthroughInput;
+
+/** A step body block with text (paragraph, callout...) or items (list), to mutate it in a test. */
+const textBlock = (w: WalkthroughInput, step: number, block: number) => w.chapters[0].steps[step].body[block] as { text: string };
+const listBlock = (w: WalkthroughInput, step: number, block: number) => w.chapters[0].steps[step].body[block] as { items: string[] };
 
 const pointers = (result: { success: boolean; error?: { issues: { path: PropertyKey[] }[] } }) =>
   result.error?.issues.map((i) => toPointer(i.path)) ?? [];
@@ -30,14 +35,14 @@ describe("walkthroughSchema", () => {
 
   it("aceita ||spoiler|| fechado e recusa || sem par no texto, no leia antes e no local", () => {
     const w = fixture();
-    expect(w.chapters[0].steps[8].body[0].text).toContain("||**Hua, a Noiva Mortal**||");
+    expect(textBlock(w, 8, 0).text).toContain("||**Hua, a Noiva Mortal**||");
     w.readFirst[0].text = "Salve antes de ||o chefe final||.";
     w.chapters[0].steps[0].items[0].location = "Atrás de ||Hua||.";
     expect(walkthroughSchema.safeParse(w).error?.issues).toBeUndefined();
 
     w.readFirst[0].text = "Salve antes de ||o chefe final.";
     w.chapters[0].steps[0].items[0].location = "Atrás de Hua||.";
-    w.chapters[0].steps[6].body[2].items[1] = "Fale com || o ferreiro||";
+    listBlock(w, 6, 2).items[1] = "Fale com || o ferreiro||";
     const result = walkthroughSchema.safeParse(w);
     expect(pointers(result)).toEqual(
       expect.arrayContaining([
@@ -47,6 +52,18 @@ describe("walkthroughSchema", () => {
       ]),
     );
     expect(result.error?.issues[0].message).toBe("Spoiler sem fechamento: use ||texto||");
+  });
+
+  it("recusa || no título de bloco e no cabeçalho de tabela (texto puro, a página mostraria as barras)", () => {
+    const w = fixture();
+    w.chapters[0].steps[0].body.push(
+      { type: "heading", level: 3, text: "Antes de ||Hua||" },
+      { type: "table", header: ["Chefe", "||Hua||"], rows: [["Ponto", "||Fraca a fogo||"]] },
+    );
+    const n = w.chapters[0].steps[0].body.length;
+    const result = walkthroughSchema.safeParse(w);
+    expect(pointers(result)).toEqual([`/chapters/0/steps/0/body/${n - 2}/text`, `/chapters/0/steps/0/body/${n - 1}/header/1`]);
+    expect(result.error?.issues[0].message).toMatch(/não aceita \|\|/);
   });
 
   it("recusa cover.calls com 2 itens", () => {

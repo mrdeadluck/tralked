@@ -62,6 +62,7 @@ export async function applyPendingUpdateAction(raw: unknown): Promise<AdminResul
 export async function discardPendingUpdateAction(raw: unknown): Promise<AdminResult> {
   const ready = await authorizeAction("staff", pendingUpdateSchema, raw);
   if (!ready.ok) return ready;
-  await discardPendingUpdate(ready.data.id);
+  const discarded = await discardPendingUpdate(ready.data.id);
+  if (discarded) updateTag(gameTag(discarded.gameSlug));
   return { ok: true };
 }

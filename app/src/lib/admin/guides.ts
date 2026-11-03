@@ -4,6 +4,7 @@ import {
   collectiblesData,
   noteData,
   assignEdition,
+  invalidateGuide,
   normalizeVersion,
   saveGuideVersion,
   stepData,
@@ -77,6 +78,14 @@ export type SaveGuideResult =
   | { ok: false; error: string; field?: string };
 
 const PLATFORM_LABEL: Record<string, string> = { steam: "Steam", psn: "PlayStation", xbox: "Xbox", retro: "RetroAchievements" };
+
+/** On a guide's first publication, the robot's requests for it that waited in review are done. */
+async function closeRequestsOnPublish(tx: Prisma.TransactionClient, guide: { id: string; gameId: string }) {
+  await tx.guideRequest.updateMany({
+    where: { status: "review", OR: [{ guideId: guide.id }, { gameId: guide.gameId }] },
+    data: { status: "published", nextAttemptAt: null },
+  });
+}
 
 export async function saveGuide(
   input: GuideInput,
@@ -158,7 +167,10 @@ export async function saveGuide(
           data: { guideId: guide.id, version, summary: input.changeSummary, authorId: editorId, createdAt: now },
         });
       }
-      if (publishing) await assignEdition(tx, guide.id);
+      if (publishing) {
+        await assignEdition(tx, guide.id);
+        await closeRequestsOnPublish(tx, guide);
+      }
       const saved = await tx.guideStep.findMany({ where: { guideId: guide.id }, orderBy: { order: "asc" }, select: { id: true } });
       return { revision: await saveGuideVersion(tx, guide.id, editorId), stepIds: saved.map((s) => s.id) };
     },
@@ -221,7 +233,10 @@ export async function gamesWithoutGuide(): Promise<{ id: string; name: string; s
 
 export const guideStatusSchema = z.strictObject({ id: z.string().min(1).max(64), status: z.enum(GUIDE_STATUSES) });
 
-/** Moves a guide through the workflow from the review queue (also saves a GuideVersion). */
+/**
+ * Moves a guide through the workflow from the review queue (also saves a GuideVersion). Expires the
+ * game's cached pages itself, so every caller refreshes the guide and the game page.
+ */
 export async function setGuideStatus(
   input: z.output<typeof guideStatusSchema>,
   editorId: string,
@@ -229,7 +244,7 @@ export async function setGuideStatus(
 ): Promise<{ ok: true; gameSlug: string } | { ok: false; error: string }> {
   const guide = await prisma.guide.findUnique({
     where: { id: input.id },
-    select: { status: true, game: { select: { slug: true } } },
+    select: { id: true, gameId: true, status: true, game: { select: { slug: true } } },
   });
   if (!guide) return { ok: false, error: "Este guia não existe mais." };
   const publishing = input.status === "published" && guide.status !== "published";
@@ -238,9 +253,13 @@ export async function setGuideStatus(
       where: { id: input.id },
       data: { status: input.status, ...(publishing ? { publishedAt: now } : {}) },
     });
-    if (publishing) await assignEdition(tx, input.id);
+    if (publishing) {
+      await assignEdition(tx, input.id);
+      await closeRequestsOnPublish(tx, guide);
+    }
     await saveGuideVersion(tx, input.id, editorId);
   });
+  invalidateGuide(guide.game.slug);
   return { ok: true, gameSlug: guide.game.slug };
 }
 
