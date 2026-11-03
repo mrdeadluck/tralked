@@ -62,6 +62,34 @@ describe("extractFacts", () => {
     expect(facts.complete).toBe(true);
   });
 
+  it("guarda o grau do troféu (a linha da tabela traz | Platinum): a platina de nome temático é reconhecida", async () => {
+    const trophy = (nameEn: string, grade: "platinum" | "gold" | "silver" | "bronze") => ({
+      nameEn,
+      howTo: "x",
+      missable: false,
+      bugged: false,
+      online: false,
+      grade,
+    });
+    const { ai } = fakeAi(() => ({
+      ...base,
+      platform: "psn",
+      achievements: [trophy("Master of the Phantom Blade", "platinum"), trophy("Platinum Edge", "bronze")],
+    }));
+    const facts = await extractFacts(
+      { url: source.url, text: "Master of the Phantom Blade | Platinum | Obtain all trophies\nPlatinum Edge | Bronze | Upgrade", html: "<p>x</p>" },
+      source,
+      { ai, model: "claude-sonnet-5-5" },
+    );
+    expect(facts.achievements.map((a) => [a.nameEn, a.grade])).toEqual([
+      ["Master of the Phantom Blade", "platinum"],
+      ["Platinum Edge", "bronze"],
+    ]);
+    expect(extractedFactsSchema.safeParse(facts).success).toBe(true);
+    expect(llmFactsSchema.safeParse({ ...base, achievements: [{ ...trophy("x", "gold"), grade: "diamond" }] }).success).toBe(false);
+    expect(extractionPrompt()).toMatch(/`grade`[^\n]*platinum[^\n]*Platinum/);
+  });
+
   it("rejeita resposta fora do schema", () => {
     expect(llmFactsSchema.safeParse({ ...base, platform: "xbox" }).success).toBe(false);
   });

@@ -537,14 +537,14 @@ describe("runGuideRequest", () => {
 
 describe("scope psn: a Steam não fecha, a lista da PSN do PowerPyx fecha (R22)", () => {
   const STEAM_PLUS: SteamAchievement[] = [...STEAM, steamAch("ACH_ARENA", "Arena Master", "Win every arena fight.")];
-  const POWERPYX_TEXT = "PowerPyx roadmap: The End. Golden Feather on the old tower. Platinum at the end.";
+  const POWERPYX_TEXT = "PowerPyx roadmap: The End. Golden Feather on the old tower. Lord of the Phantoms at the end.";
   const pages: FetchPage = async (url) =>
     url === POWERPYX.url ? { status: "ok", text: POWERPYX_TEXT, finalUrl: url } : fetchPage(url);
   /** PowerPyx: complete PSN script with the whole trophy list (The End + platinum). */
   const powerpyxFacts = (source: SourceRef): ExtractedFacts => ({
     ...fact("x", "roteiro_psn", {
       trophyListSize: 2,
-      achievements: [ach("The End"), ach("Phantom Test Platinum")],
+      achievements: [ach("The End"), ach("Lord of the Phantoms", { grade: "platinum" })],
       chapters: [chapter("Chapter 1", [item("Golden Feather")])],
       roadmap: [{ title: "Story", summary: "Play the story once." }],
     }),
@@ -582,7 +582,7 @@ describe("scope psn: a Steam não fecha, a lista da PSN do PowerPyx fecha (R22)"
     expect(parsed.error?.issues).toBeUndefined();
     expect(payload.walkthrough).toMatchObject({
       scope: "psn",
-      psnList: { total: 2, names: ["The End", "Phantom Test Platinum"] },
+      psnList: { total: 2, names: ["The End", "Lord of the Phantoms"] },
       steamOnly: ["ACH_ARENA"],
     });
     const items = payload.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items));
@@ -620,6 +620,19 @@ describe("scope psn: a Steam não fecha, a lista da PSN do PowerPyx fecha (R22)"
     expect(report.missing.at(-1)).toBe(
       'O guia pela lista da PSN também não sai (1 lacuna): O troféu "Only On PlayStation" da lista da PSN não casa com nenhuma conquista da Steam.',
     );
+  });
+});
+
+describe("erro interno do escritor", () => {
+  it("a ordem errada feita pelo código vai para o relatório como erro interno e o guia segue para revisão", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      writeAndCheckGuide: async () => ({ ok: true as const, payload: writtenPayload(), internalErrors: ["O capítulo x veio depois de y."] }),
+    });
+    const deps = makeDeps({ api, stages });
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(calls.created[0]!.payload.report).toMatchObject({ internalErrors: ["O capítulo x veio depois de y."] });
+    expect(deps.lines.some((l) => l.includes("erro interno") && l.includes("O capítulo x veio depois de y."))).toBe(true);
   });
 });
 

@@ -16,8 +16,8 @@ export function SteamOnlyList({ achievements }: { achievements: AchView[] }) {
       <p className="wk-lbl">Fora do roteiro</p>
       <h2 id="g-so-steam-h">Só na Steam — sem roteiro ainda</h2>
       <p className="wk-sost-note">
-        Estas conquistas não estão na lista da PSN que o guia segue, e nenhuma fonte explica como fazê-las ainda.
-        Quando aparecer fonte, o guia é atualizado.
+        Estas conquistas existem só na versão Steam e ficaram fora deste guia, que segue a lista da PSN; quando o
+        guia Steam completo sair, elas entram.
       </p>
       <ul className="wk-sost-list">
         {achievements.map((a) => (

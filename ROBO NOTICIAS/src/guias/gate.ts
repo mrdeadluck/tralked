@@ -11,7 +11,7 @@ import type { DossierAchievement, GuideDossier, SteamAchievement } from "./dossi
  * Divergences between sources never fail it on their own.
  *
  * Scope "psn" (R22) judges the PSN trophy list instead of the Steam one: it needs the whole list from a complete
- * PSN script (`facts.psnList`), every trophy but the platinum matched to a Steam achievement, and (a), (c), (d), (e)
+ * PSN script (`facts.psnList`), at most one platinum, every other trophy matched to its own Steam achievement, and (a), (c), (d), (e)
  * on those. The Steam achievements outside the list are left out of the guide (`steamOnly`), so (b) does not apply.
  */
 
@@ -84,7 +84,14 @@ export function gate(d: GuideDossier, fullList: SteamAchievement[], opts: { scop
   } else {
     const list = d.facts.psnList;
     if (!list) return { ok: false, missing: [NO_PSN_LIST] };
+    const top = list.matches.filter((m) => m.platinum);
+    if (top.length > 1) {
+      missing.push(
+        `A lista da PSN marca ${top.length} troféus como o troféu máximo (${top.map((m) => `"${m.name}"`).join(", ")}); só pode haver um.`,
+      );
+    }
     const steamBy = new Map(steamList.map((s) => [s.apiName, s]));
+    const trophyOf = new Map<string, string>();
     for (const trophy of list.matches) {
       if (trophy.platinum) continue;
       const steam = trophy.apiName ? steamBy.get(trophy.apiName) : undefined;
@@ -92,6 +99,13 @@ export function gate(d: GuideDossier, fullList: SteamAchievement[], opts: { scop
         missing.push(`O troféu "${trophy.name}" da lista da PSN não casa com nenhuma conquista da Steam.`);
         continue;
       }
+      // One Steam achievement per trophy: two trophies on one achievement would hide a missing one.
+      const twin = trophyOf.get(steam.apiName);
+      if (twin !== undefined) {
+        missing.push(`Os troféus "${twin}" e "${trophy.name}" da lista da PSN casam com a mesma conquista da Steam (${steam.apiName}).`);
+        continue;
+      }
+      trophyOf.set(steam.apiName, trophy.name);
       missing.push(...achievementGaps(steam, byApiName.get(steam.apiName), scope));
     }
   }

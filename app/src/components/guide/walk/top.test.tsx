@@ -156,6 +156,10 @@ describe("guia pela lista da PSN (scope psn, R22)", () => {
   it('lista "Só na Steam — sem roteiro ainda" com nome, descrição, ícone e raridade', () => {
     render(<WalkthroughPage guide={psnGuide()} />);
     const block = screen.getByRole("region", { name: "Só na Steam — sem roteiro ainda" });
+    // True whatever the sources say: the guide follows the PSN list, these are left out of it.
+    expect(block).toHaveTextContent(
+      "Estas conquistas existem só na versão Steam e ficaram fora deste guia, que segue a lista da PSN; quando o guia Steam completo sair, elas entram.",
+    );
     const rows = within(block).getAllByRole("listitem");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveTextContent("Mestre da Arena");

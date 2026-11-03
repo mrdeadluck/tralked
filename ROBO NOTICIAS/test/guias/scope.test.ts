@@ -10,11 +10,11 @@ const steam = (): SteamAchievement[] => [
   steamAch("ACH_W2", "Collect 3 Relics", "Collect 3 relics."),
 ];
 
-/** PowerPyx carries the whole PSN list (2 trophies + platinum); a Steam guide covers a Steam-only one too. */
+/** PowerPyx carries the whole PSN list (2 trophies + a themed platinum, "all trophies"); a Steam guide covers a Steam-only one too. */
 function dossier() {
   const powerpyx = fact("PowerPyx", "roteiro_psn", {
     trophyListSize: 3,
-    achievements: [ach("With Heart and Blood"), ach("Shadow Blade"), ach("Phantom Test Platinum Trophy")],
+    achievements: [ach("With Heart and Blood"), ach("Shadow Blade"), ach("Lord of the Phantoms", { howTo: "Unlock all other trophies." })],
     chapters: [chapter("Weeping Creek", [item("Shrine", { kind: "other", achievementNameEn: "Shadow Blade" })])],
   });
   const steamGuide = fact("Steam Guide", "roteiro_steam", {
@@ -34,7 +34,7 @@ describe("psnScope", () => {
   it("as conquistas fora da lista da PSN viram steamOnly, sem roteiro", () => {
     const { dossier: d, scope } = psnScope(dossier(), steam());
     expect(scope).toEqual({
-      psnList: { total: 3, names: ["With Heart and Blood", "Shadow Blade", "Phantom Test Platinum Trophy"] },
+      psnList: { total: 3, names: ["With Heart and Blood", "Shadow Blade", "Lord of the Phantoms"] },
       steamOnly: ["ACH_W1", "ACH_W2"],
       steamTotal: 4,
     });

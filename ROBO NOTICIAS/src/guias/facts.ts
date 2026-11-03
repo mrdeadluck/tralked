@@ -38,6 +38,8 @@ const achievementSchema = z.object({
   bugged: z.boolean(),
   bugNote: z.string().optional(),
   online: z.boolean(),
+  /** PSN trophy grade, when the page shows it ("| Platinum |" in a trophy table). Identifies the platinum. */
+  grade: z.enum(["platinum", "gold", "silver", "bronze"]).optional(),
 });
 
 /** What the model fills in; `source` is attached by the code, never by the model. */

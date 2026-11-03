@@ -125,7 +125,10 @@ export type PsnTrophyList = {
   names: string[];
   /** The source group that gave the list. */
   source: string;
-  /** Each name and the Steam achievement it is; none for the platinum and for a trophy with no Steam twin. */
+  /**
+   * Each name and the Steam achievement it is; none for the platinum and for a trophy with no Steam twin. The
+   * platinum comes from the trophy grade the source shows (themed names), else from a "get all trophies" how-to.
+   */
   matches: { name: string; apiName?: string; platinum: boolean }[];
 };
 
@@ -181,8 +184,26 @@ function primaryFacts(facts: ExtractedFacts[]): ExtractedFacts[] {
   return facts.filter((f) => f === lead || (hostOf(f.source.url) === host && f.source.name.startsWith(`${name} (`)));
 }
 
-/** Platinum (PlayStation's last trophy): it has no Steam twin. */
-const isPlatinum = (name: string) => /platin/.test(normalizeName(name));
+/** "Obtain all trophies": what the platinum asks for. */
+const ALL_TROPHIES = /\b(?:all|every)\b[^.]*\btroph|\btodos os trofeus\b/i;
+
+type TrophyEntry = { name: string; apiName?: string; grade?: string; howTo?: string };
+
+/**
+ * Which trophies of a PSN list are the platinum (it has no Steam twin, and often a themed name): the ones the
+ * source grades "platinum"; else the single trophy with no Steam twin whose how-to is "get all trophies"; else, as a
+ * last resort, the single trophy with no Steam twin named "platinum". More than one graded platinum is returned as
+ * is: the gate refuses such a list.
+ */
+function platinumIndexes(entries: TrophyEntry[]): number[] {
+  const graded = entries.flatMap((e, i) => (e.grade === "platinum" ? [i] : []));
+  if (graded.length > 0) return graded;
+  const loose = entries.flatMap((e, i) => (e.apiName ? [] : [i]));
+  const allTrophies = loose.filter((i) => ALL_TROPHIES.test(plain(entries[i]!.howTo ?? "")));
+  if (allTrophies.length === 1) return allTrophies;
+  const named = loose.filter((i) => /platin/.test(normalizeName(entries[i]!.name)));
+  return named.length === 1 ? named : [];
+}
 
 const FRAGMENT_WORD = /\b(fragment\w*|shard\w*|piece\w*|pedaco\w*)\b/;
 
@@ -251,30 +272,58 @@ const sameRegion = (a: string, b: string) => a === b || a.includes(b) || b.inclu
 type ChapterAcc = { title: string; region?: string; norm: string; regionNorm: string; uid: number; items: Map<string, Acc> };
 
 /**
- * The dossier chapter a source's chapter joins. Chapters merge by title; they split by region only when both
- * have a region and the regions differ ("First Visit" of Crimson Forest and of Meigu Lake). A chapter without
+ * The dossier chapter a source's chapter joins, if any. Chapters merge by title; they split by region only when
+ * both have a region and the regions differ ("First Visit" of Crimson Forest and of Meigu Lake). A chapter without
  * region joins the only chapter of that title; with several of different regions it stays apart (no guessing).
- * A new chapter goes right after `after` (the chapter before it in the same source), or at the end.
+ * `adopt`: a region-less chapter of that title found by a chapter with region takes the region (the merge itself;
+ * a mere lookup leaves it alone).
  */
-function chapterFor(list: ChapterAcc[], title: string, region: string | undefined, uid: () => number, after?: ChapterAcc): ChapterAcc {
+function findChapter(list: ChapterAcc[], title: string, region: string | undefined, adopt: boolean): ChapterAcc | undefined {
   const norm = normalizeName(title);
   const regionNorm = normalizeName(region ?? "");
   const same = list.filter((c) => c.norm === norm);
-  let found: ChapterAcc | undefined;
-  if (regionNorm) {
-    found = same.find((c) => c.regionNorm && sameRegion(c.regionNorm, regionNorm));
-    // A region-less chapter of that title takes the region, unless other regions already claim the title.
-    if (!found && same.length === 1 && !same[0]!.regionNorm) {
-      found = same[0]!;
-      found.region = region;
-      found.regionNorm = regionNorm;
-    }
-  } else {
-    found = same.length === 1 ? same[0] : same.find((c) => !c.regionNorm);
-  }
+  if (!regionNorm) return same.length === 1 ? same[0] : same.find((c) => !c.regionNorm);
+  const found = same.find((c) => c.regionNorm && sameRegion(c.regionNorm, regionNorm));
   if (found) return found;
-  const created: ChapterAcc = { title, region, norm, regionNorm, uid: uid(), items: new Map() };
-  list.splice(after ? list.indexOf(after) + 1 : list.length, 0, created);
+  // A region-less chapter of that title takes the region, unless other regions already claim the title.
+  if (same.length === 1 && !same[0]!.regionNorm) {
+    if (adopt) {
+      same[0]!.region = region;
+      same[0]!.regionNorm = regionNorm;
+    }
+    return same[0];
+  }
+  return undefined;
+}
+
+type SourceChapter = { title: string; region?: string };
+
+/**
+ * The chapter of `chapters[at]` (one source's chapters, in its order), created when no dossier chapter matches.
+ * A new chapter keeps the source's order around the chapters already there: right after `previous` (the chapter
+ * before it in this source); with none, right before the next chapter of this source already in the list (a
+ * secondary guide's "Prologue" stays before the primary's first chapter); with neither (the source shares no
+ * chapter with the list yet, like each PowerPyx region page), at the end, so pages keep the order they came in.
+ */
+function chapterFor(
+  list: ChapterAcc[],
+  chapters: SourceChapter[],
+  at: number,
+  uid: () => number,
+  previous: ChapterAcc | undefined,
+): ChapterAcc {
+  const { title, region } = chapters[at]!;
+  const found = findChapter(list, title, region, true);
+  if (found) return found;
+  const created: ChapterAcc = { title, region, norm: normalizeName(title), regionNorm: normalizeName(region ?? ""), uid: uid(), items: new Map() };
+  let index = list.length;
+  if (previous) {
+    index = list.indexOf(previous) + 1;
+  } else {
+    const next = chapters.slice(at + 1).map((c) => findChapter(list, c.title, c.region, false)).find((c) => c !== undefined);
+    if (next) index = list.indexOf(next);
+  }
+  list.splice(index, 0, created);
   return created;
 }
 
@@ -345,8 +394,9 @@ export function buildDossier(
   const nextUid = () => ++uids;
   for (const fact of facts) {
     let previous: ChapterAcc | undefined;
-    for (const chapter of [...fact.chapters].sort((a, b) => a.order - b.order)) {
-      const target = chapterFor(chapterList, chapter.title, chapter.region, nextUid, previous);
+    const ordered = [...fact.chapters].sort((a, b) => a.order - b.order);
+    for (const [at, chapter] of ordered.entries()) {
+      const target = chapterFor(chapterList, ordered, at, nextUid, previous);
       previous = target;
       if (primary.includes(fact) && !primaryOrder.includes(target)) primaryOrder.push(target);
       for (const item of chapter.items) {
@@ -531,6 +581,11 @@ export function buildDossier(
     ),
   ];
   const onPsn = new Map(matchAchievements(steam, psnNames.map((nameEn) => ({ nameEn }))).map((m) => [m.apiName, m.matched]));
+  /** A PSN trophy with what the source says about it (grade, how-to) and its Steam twin. */
+  const trophyEntry = (name: string, fs: ExtractedFacts[]): TrophyEntry => {
+    const said = fs.flatMap((f) => f.achievements).filter((a) => normalizeName(a.nameEn) === normalizeName(name));
+    return { name, apiName: toApiName(name), grade: said.find((a) => a.grade)?.grade, howTo: said.find((a) => a.howTo)?.howTo };
+  };
 
   const allItems = chapters.flatMap((c) => c.items);
   const achievements: DossierAchievement[] = steamList.map((s): DossierAchievement => {
@@ -620,7 +675,11 @@ export function buildDossier(
           {
             platform: "psn",
             // The PlayStation platinum has no Steam twin: it never makes the list "unmatched".
-            matchedAll: psnNames.every((nameEn) => steamBy.has(toApiName(nameEn) ?? "") || isPlatinum(nameEn)),
+            matchedAll: (() => {
+              const entries = psnNames.map((name) => trophyEntry(name, psnFacts));
+              const platinum = new Set(platinumIndexes(entries));
+              return entries.every((e, i) => steamBy.has(e.apiName ?? "") || platinum.has(i));
+            })(),
             size: psnTrophyListSize ?? psnNames.length,
           },
         ],
@@ -668,12 +727,15 @@ export function buildDossier(
   const listFact = psnFacts.find(
     (f) => f.source.role === "roteiro_psn" && f.complete && f.trophyListSize !== undefined && trophyNames(f).length === f.trophyListSize,
   );
-  const listNames = listFact ? trophyNames(listFact) : [];
+  const listEntries = listFact ? trophyNames(listFact).map((name) => trophyEntry(name, [listFact])) : [];
+  const listPlatinum = new Set(platinumIndexes(listEntries));
   const psnList: PsnTrophyList | undefined = listFact && {
     total: listFact.trophyListSize!,
-    names: listNames,
+    names: listEntries.map((e) => e.name),
     source: nameOf(listFact),
-    matches: listNames.map((name) => (isPlatinum(name) ? { name, platinum: true } : { name, apiName: toApiName(name), platinum: false })),
+    matches: listEntries.map((e, i) =>
+      listPlatinum.has(i) ? { name: e.name, platinum: true } : { name: e.name, ...(e.apiName ? { apiName: e.apiName } : {}), platinum: false },
+    ),
   };
 
   return {

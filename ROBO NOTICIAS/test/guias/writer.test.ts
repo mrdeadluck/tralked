@@ -546,6 +546,7 @@ describe("ordem cronológica (checagem do código)", () => {
     payload.walkthrough.chapters = [second!, first!, ...rest];
     expect(check(payload)).toContainEqual({
       key: null,
+      owner: "code",
       text: 'O capítulo weeping-creek veio depois de crimson-forest, mas no roteiro principal (PowerPyx) "Weeping Creek" vem antes de "Crimson Forest". Siga a ordem da fonte.',
     });
   });
@@ -560,6 +561,7 @@ describe("ordem cronológica (checagem do código)", () => {
     const problems = check(payload);
     expect(problems).toContainEqual({
       key: lantern.key,
+      owner: "code",
       text: `O perdível "${lantern.name}" (${lantern.key}) está no capítulo ashen-peak, depois de crimson-forest, onde ele se perde. O aviso tem que vir antes do ponto de não retorno.`,
     });
   });
@@ -568,7 +570,7 @@ describe("ordem cronológica (checagem do código)", () => {
     const payload = await writeGuide(fakeAi().ai, makeDossier(), GAME, "live");
     const step = payload.walkthrough.chapters[0]!.steps.find((s) => s.items.some((i) => i.missable))!;
     step.body = step.body.filter((b) => !(b.type === "callout" && b.tone === "aviso"));
-    expect(check(payload)).toEqual([{ key: step.key, text: `O passo ${step.key} tem perdível e não traz o aviso de perdível.` }]);
+    expect(check(payload)).toEqual([{ key: step.key, owner: "code", text: `O passo ${step.key} tem perdível e não traz o aviso de perdível.` }]);
   });
 
   it("um capítulo numa etapa anterior à do capítulo de antes é pego; o escritor já corrige a fase", async () => {
@@ -578,6 +580,7 @@ describe("ordem cronológica (checagem do código)", () => {
     payload.walkthrough.chapters[1]!.phaseKey = story!;
     expect(check(payload)).toContainEqual({
       key: null,
+      owner: "code",
       text: `O capítulo crimson-forest está na etapa ${story}, que vem antes da etapa ${cleanup} do capítulo anterior. As etapas seguem o roadmap, na ordem.`,
     });
 
@@ -592,6 +595,35 @@ describe("ordem cronológica (checagem do código)", () => {
     expect(written.repairs.map((r) => r.text)).toContain(
       `O capítulo crimson-forest foi posto na etapa ${story}, antes da etapa ${cleanup} do capítulo anterior; ficou na ${cleanup}. As etapas seguem o roadmap, na ordem.`,
     );
+  });
+});
+
+describe("ordem cronológica: de quem é o erro", () => {
+  it("conquista sem lugar fixo posta pelo modelo depois do prazo é problema do escritor", async () => {
+    const dossier = makeDossier();
+    const secret = dossier.achievements.find((a) => a.apiName === "ACH_SECRET")!;
+    Object.assign(secret, { missable: true, deadlineChapter: "Crimson Forest" });
+    const payload = await writeGuide(fakeAi().ai, dossier, GAME, "live");
+    const at = payload.walkthrough.chapters.flatMap((c) => c.steps).find((s) => s.items.some((i) => i.achievement === "ACH_SECRET"))!;
+    const placed = at.items.find((i) => i.achievement === "ACH_SECRET")!;
+    at.items = at.items.filter((i) => i !== placed);
+    payload.walkthrough.chapters[2]!.steps[0]!.items.push(placed);
+    expect(chronologyProblems(payload, buildSkeleton(dossier), dossier)).toContainEqual(
+      expect.objectContaining({ key: placed.key, owner: "writer" }),
+    );
+  });
+
+  it("ordem que o próprio código fez errada vira erro interno no resultado, sem reescrita do modelo", async () => {
+    const dossier = makeDossier();
+    dossier.primaryScript = { ...dossier.primaryScript!, chapters: [...dossier.primaryScript!.chapters].reverse() };
+    const { ai, of } = fakeAi();
+    const result = await writeAndCheckGuide(ai, dossier, GAME, "live");
+    expect(result.ok).toBe(true);
+    expect(result.internalErrors).toEqual([
+      'O capítulo crimson-forest veio depois de weeping-creek, mas no roteiro principal (PowerPyx) "Crimson Forest" vem antes de "Weeping Creek". Siga a ordem da fonte.',
+      'O capítulo ashen-peak veio depois de weeping-creek, mas no roteiro principal (PowerPyx) "Ashen Peak" vem antes de "Weeping Creek". Siga a ordem da fonte.',
+    ]);
+    expect(of("guide-write").filter((o) => o.purpose.endsWith("-retry"))).toEqual([]);
   });
 });
 
@@ -611,7 +643,7 @@ describe("guia pela lista da PSN (scope psn)", () => {
             ], 1),
             chapter("Crimson Forest", [item("The Warden", { kind: "boss", location: "Arena", achievementNameEn: "Warden Down" })], 2),
           ],
-          achievements: [ach("Bell Ringer"), ach("Warden Down"), ach("The End"), ach("Hidden Path"), ach("Phantom Test Platinum")],
+          achievements: [ach("Bell Ringer"), ach("Warden Down"), ach("The End"), ach("Hidden Path"), ach("Lord of the Phantoms", { grade: "platinum" })],
           roadmap: [{ title: "Story playthrough", summary: "Play the story." }],
         }),
       ],
@@ -632,7 +664,7 @@ describe("guia pela lista da PSN (scope psn)", () => {
     expect(guidePayloadSchema.safeParse(payload).error?.issues).toBeUndefined();
     expect(payload.walkthrough).toMatchObject({
       scope: "psn",
-      psnList: { total: 5, names: ["Bell Ringer", "Warden Down", "The End", "Hidden Path", "Phantom Test Platinum"] },
+      psnList: { total: 5, names: ["Bell Ringer", "Warden Down", "The End", "Hidden Path", "Lord of the Phantoms"] },
       steamOnly: ["ACH_ARENA"],
     });
     // Every Steam achievement is an item or is in steamOnly, never both; the Steam-only one has no item.

@@ -9,10 +9,13 @@ import type { GuideSkeleton, SkelItem } from "./skeleton.js";
  *   chapters it does not have slotting in between;
  * - the chapters walk the roadmap phases forward, never back to an earlier phase;
  * - no missable comes after the chapter where it is lost, and the step that holds it carries the warning.
- * Problems are the writer's to fix, with the key they belong to (a step or item key; null for the frame).
+ * Each problem has the key it belongs to (a step or item key; null for the frame) and its owner: "writer" when the
+ * model placed it (a loose achievement put in a step), so a rewrite can fix it; "code" when the order is the code's
+ * own (chapters, phases, the skeleton's items, the warnings): a bug the model cannot fix, reported as an internal
+ * error instead.
  */
 
-export type ChronologyProblem = { text: string; key: string | null };
+export type ChronologyProblem = { text: string; key: string | null; owner: "code" | "writer" };
 
 export function chronologyProblems(p: GuidePayloadV2, skel: GuideSkeleton, dossier: GuideDossier): ChronologyProblem[] {
   const problems: ChronologyProblem[] = [];
@@ -31,6 +34,7 @@ export function chronologyProblems(p: GuidePayloadV2, skel: GuideSkeleton, dossi
       if (last && at < last.at) {
         problems.push({
           key: null,
+          owner: "code",
           text: `O capítulo ${chapter.key} veio depois de ${last.key}, mas no roteiro principal (${primary.name}) "${title}" vem antes de "${last.title}". Siga a ordem da fonte.`,
         });
       } else {
@@ -49,6 +53,7 @@ export function chronologyProblems(p: GuidePayloadV2, skel: GuideSkeleton, dossi
     if (at >= 0 && previous >= 0 && at < previous) {
       problems.push({
         key: null,
+        owner: "code",
         text: `O capítulo ${chapter.key} está na etapa ${chapter.phaseKey}, que vem antes da etapa ${before.phaseKey} do capítulo anterior. As etapas seguem o roadmap, na ordem.`,
       });
     }
@@ -58,12 +63,14 @@ export function chronologyProblems(p: GuidePayloadV2, skel: GuideSkeleton, dossi
   const skelItems = new Map<string, SkelItem>();
   for (const c of skel.chapters) for (const s of c.steps) for (const i of s.items) skelItems.set(i.key, i);
   for (const l of skel.loose) skelItems.set(l.key, l);
+  // Loose achievements are the only items the model places (assemble in writer.ts).
+  const placedByModel = new Set(skel.loose.map((l) => l.key));
   const chapterAt = new Map(chapters.map((c, i) => [c.key, i]));
   chapters.forEach((chapter, at) => {
     for (const step of chapter.steps) {
       const lost = step.items.filter((i) => i.missable && !i.returnLater);
       if (lost.length > 0 && !step.body.some((b) => b.type === "callout" && b.tone === "aviso")) {
-        problems.push({ key: step.key, text: `O passo ${step.key} tem perdível e não traz o aviso de perdível.` });
+        problems.push({ key: step.key, owner: "code", text: `O passo ${step.key} tem perdível e não traz o aviso de perdível.` });
       }
       for (const item of lost) {
         const s = skelItems.get(item.key);
@@ -73,6 +80,7 @@ export function chronologyProblems(p: GuidePayloadV2, skel: GuideSkeleton, dossi
         if (deadline >= 0 && at > deadline) {
           problems.push({
             key: item.key,
+            owner: placedByModel.has(item.key) ? "writer" : "code",
             text: `O perdível "${item.name}" (${item.key}) está no capítulo ${chapter.key}, depois de ${deadlineKey}, onde ele se perde. O aviso tem que vir antes do ponto de não retorno.`,
           });
         }

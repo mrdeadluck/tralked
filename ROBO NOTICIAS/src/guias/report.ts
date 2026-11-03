@@ -31,6 +31,8 @@ export type RobotReport = {
   missing?: string[];
   /** `failed` by the checker: the problems left after the rewrite. */
   problems?: string[];
+  /** Robot bugs found while writing (the code's own chapter order broke the chronology check). */
+  internalErrors?: string[];
 };
 
 export type ReportInput = {
@@ -45,6 +47,7 @@ export type ReportInput = {
   scope?: GuideScope;
   missing?: string[];
   problems?: string[];
+  internalErrors?: string[];
 };
 
 const usd = (value: number) => Math.round(value * 1e4) / 1e4;
@@ -103,6 +106,7 @@ export function buildReport(input: ReportInput): RobotReport {
     spendByPurpose: Object.fromEntries(Object.entries(input.spendByPurpose ?? {}).map(([k, v]) => [k, usd(v)])),
     ...(input.missing ? { missing: input.missing } : {}),
     ...(input.problems ? { problems: input.problems } : {}),
+    ...(input.internalErrors?.length ? { internalErrors: input.internalErrors } : {}),
   };
 }
 

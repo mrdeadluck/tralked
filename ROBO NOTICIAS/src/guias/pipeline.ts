@@ -94,7 +94,7 @@ type Run = {
   search: (query: string) => Promise<SearchHit[]>;
   /** What the failure report can still say. */
   progress: { sourcesRead: SourceRead[]; steamList?: GuideDossierSource["achievements"]; dossier?: GuideDossier; scope?: GuideScope };
-  report(extra?: { missing?: string[]; problems?: string[] }): RobotReport;
+  report(extra?: { missing?: string[]; problems?: string[]; internalErrors?: string[] }): RobotReport;
   /** PATCH of the request; throws RequestClosedError when the site no longer takes reports for it. */
   send(body: GuideRequestReport): Promise<void>;
 };
@@ -306,11 +306,13 @@ async function processRequest(run: Run): Promise<Final> {
     sourceTexts: read.map((r) => r.text),
     ...(scope ? { scope } : {}),
   });
+  const internalErrors = written.internalErrors ?? [];
+  if (internalErrors.length > 0) deps.log(`guia: erro interno do escritor (ordem do código): ${internalErrors.join(" | ")}`);
   if (!written.ok) {
     return {
       status: "failed",
       reason: `o checador recusou o guia depois da reescrita (${written.problems.length} ${written.problems.length === 1 ? "problema" : "problemas"})`,
-      report: run.report({ problems: written.problems }),
+      report: run.report({ problems: written.problems, internalErrors }),
     };
   }
   const payload = written.payload;
@@ -321,7 +323,7 @@ async function processRequest(run: Run): Promise<Final> {
   await addSoundtrack(run, payload, source);
 
   // Step 11: create, or update the robot's guide of the game. Always `review`.
-  const report = run.report();
+  const report = run.report({ internalErrors });
   let guideId: string;
   if (existing) {
     const { game: _game, ...rest } = payload;

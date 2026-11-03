@@ -224,7 +224,7 @@ describe("gate", () => {
     expect(d.facts.compat).toBe("psn");
   });
 
-  it("a platina da PSN não impede o selo psn", () => {
+  it("a platina da PSN não impede o selo psn (sem grau nem \"todos os troféus\": último recurso, o nome)", () => {
     const f = powerpyx({
       trophyListSize: 4,
       achievements: [...powerpyx().achievements, ach("Platinum Trophy")],
@@ -292,13 +292,13 @@ describe("gate com scope psn (R22)", () => {
     steamAch("ACH_W2", "Master of Weapon 2", "Upgrade weapon 2 fully."),
   ];
   const psnList = (over: Partial<Omit<ExtractedFacts, "source">> = {}) =>
-    powerpyx({ trophyListSize: 4, achievements: [...powerpyx().achievements, ach("Phantom Test Platinum")], ...over });
+    powerpyx({ trophyListSize: 4, achievements: [...powerpyx().achievements, ach("Master of the Phantom Blade", { grade: "platinum" })], ...over });
 
   it("a Steam reprova pelas exclusivas, a lista da PSN completa e coberta passa", () => {
     const { d, result } = run(steamPlus(), [psnList()]);
     expect(result.ok).toBe(false);
     expect(d.facts.psnList).toMatchObject({ total: 4, source: "PowerPyx" });
-    expect(d.facts.psnList!.names).toEqual(["With Heart and Blood", "Shadow Blade", "Leave No Stone Unturned", "Phantom Test Platinum"]);
+    expect(d.facts.psnList!.names).toEqual(["With Heart and Blood", "Shadow Blade", "Leave No Stone Unturned", "Master of the Phantom Blade"]);
     expect(gate(d, steamPlus(), { scope: "psn" })).toEqual({ ok: true, missing: [] });
   });
 
@@ -316,6 +316,58 @@ describe("gate com scope psn (R22)", () => {
     expect(gate(d, steamPlus(), { scope: "psn" }).missing).toEqual([
       'O troféu "Only On PlayStation" da lista da PSN não casa com nenhuma conquista da Steam.',
     ]);
+  });
+
+  describe("o troféu máximo da PSN tem nome temático", () => {
+    const themed = (extra: Partial<ReturnType<typeof ach>>) =>
+      psnList({ achievements: [...powerpyx().achievements, ach("Master of the Phantom Blade", extra)] });
+
+    it("o grau que a fonte mostra (Platinum) o identifica, mesmo sem 'platinum' no nome", () => {
+      const { d } = run(steamPlus(), [themed({ grade: "platinum" })]);
+      expect(d.facts.psnList!.matches.at(-1)).toEqual({ name: "Master of the Phantom Blade", platinum: true });
+      expect(gate(d, steamPlus(), { scope: "psn" })).toEqual({ ok: true, missing: [] });
+    });
+
+    it("sem grau: o único troféu sem par na Steam cujo como é 'todos os troféus' é ele", () => {
+      const { d } = run(steamPlus(), [themed({ howTo: "Obtain all other trophies in the game." })]);
+      expect(gate(d, steamPlus(), { scope: "psn" })).toEqual({ ok: true, missing: [] });
+    });
+
+    it("sem grau e sem 'todos os troféus', um nome temático não é adivinhado", () => {
+      const { d } = run(steamPlus(), [themed({ howTo: "Defeat the final boss." })]);
+      expect(gate(d, steamPlus(), { scope: "psn" }).missing).toEqual([
+        'O troféu "Master of the Phantom Blade" da lista da PSN não casa com nenhuma conquista da Steam.',
+      ]);
+    });
+
+    it("troféu comum com 'platin' no nome que casa com a Steam continua sendo julgado", () => {
+      const steam = [...steamPlus(), steamAch("ACH_EDGE", "Platinum Edge", "Upgrade the Platinum Edge.")];
+      const f = psnList({
+        trophyListSize: 5,
+        achievements: [...powerpyx().achievements, ach("Platinum Edge", { grade: "bronze" }), ach("Master of the Phantom Blade", { grade: "platinum" })],
+      });
+      const { d } = run(steam, [f]);
+      expect(d.facts.psnList!.matches.find((m) => m.name === "Platinum Edge")).toEqual({ name: "Platinum Edge", apiName: "ACH_EDGE", platinum: false });
+      expect(gate(d, steam, { scope: "psn" })).toEqual({ ok: true, missing: [] });
+    });
+
+    it("dois troféus marcados como o máximo reprovam", () => {
+      const f = psnList({ trophyListSize: 5, achievements: [...themed({ grade: "platinum" }).achievements, ach("Second Crown", { grade: "platinum" })] });
+      const { d } = run(steamPlus(), [f]);
+      expect(gate(d, steamPlus(), { scope: "psn" }).missing).toEqual([
+        'A lista da PSN marca 2 troféus como o troféu máximo ("Master of the Phantom Blade", "Second Crown"); só pode haver um.',
+      ]);
+    });
+  });
+
+  it("dois troféus da PSN que casam com a mesma conquista da Steam reprovam", () => {
+    const steam = [...steamPlus(), steamAch("ACH_BLADE2", "Shadow Blades", "", true)];
+    // "Shadow Blade II" is not on Steam, but the Steam guide's alias list maps it to ACH_HID too.
+    const f = psnList({ trophyListSize: 5, achievements: [...psnList().achievements, ach("Shadow Blade II")] });
+    const d = buildDossier(steam, [f], [[f.source.url]], [], { ACH_HID: ["Shadow Blade II"] });
+    expect(gate(d, steam, { scope: "psn" }).missing).toContain(
+      'Os troféus "Shadow Blade" e "Shadow Blade II" da lista da PSN casam com a mesma conquista da Steam (ACH_HID).',
+    );
   });
 
   it("sem a lista inteira da PSN (total e nomes) numa fonte completa, o scope psn não sai", () => {

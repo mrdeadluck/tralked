@@ -179,7 +179,8 @@ describe("buildDossier: ordem da fonte principal (cronológica)", () => {
     });
     const d = build([powerpyx, steamGuide]);
     expect(d.primaryScript?.name).toBe("Steam Guide");
-    expect(titles(d)).toEqual(["Weeping Creek", "Crimson Forest", "Ashen Peak"]);
+    // In PowerPyx, Ashen Peak comes before Weeping Creek: it goes right before it.
+    expect(titles(d)).toEqual(["Ashen Peak", "Weeping Creek", "Crimson Forest"]);
     expect(d.facts.roadmap.map((r) => r.title)).toEqual(["Zerada única"]);
   });
 
@@ -192,6 +193,20 @@ describe("buildDossier: ordem da fonte principal (cronológica)", () => {
     // Items still align inside each chapter (both sources list the Weeping Creek item).
     expect(d.chapters[0]!.items).toHaveLength(1);
     expect(d.chapters[0]!.items[0]!.sources).toEqual(["PowerPyx", "Steam Guide"]);
+  });
+
+  it("fonte secundária que abre com capítulos que o principal não tem: eles ficam antes do primeiro capítulo que ela divide", () => {
+    const powerpyx = fact("PowerPyx", "roteiro_psn", { chapters: chapters("Weeping Creek", "Crimson Forest", "Ashen Peak") });
+    const steamGuide = fact("Steam Guide", "roteiro_steam", { chapters: chapters("Prologue", "Tutorial Cave", "Weeping Creek", "Crimson Forest") });
+    const d = build([powerpyx, steamGuide]);
+    expect(titles(d)).toEqual(["Prologue", "Tutorial Cave", "Weeping Creek", "Crimson Forest", "Ashen Peak"]);
+  });
+
+  it("páginas que não dividem capítulo (uma por região) ficam na ordem em que chegaram", () => {
+    const pages = ["Crimson Forest", "Meigu Lake", "Pangzhen"].map((r) =>
+      fact(`PowerPyx (${r})`, "coletaveis", { chapters: chapters(r) }, `https://www.powerpyx.com/pbz-${r.toLowerCase().replace(/ /g, "-")}/`),
+    );
+    expect(titles(build(pages))).toEqual(["Crimson Forest", "Meigu Lake", "Pangzhen"]);
   });
 });
 

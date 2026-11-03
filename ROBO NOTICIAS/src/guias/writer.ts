@@ -864,7 +864,14 @@ export async function writeGuide(
   return (await writeGuideDetailed(ai, dossier, game, bucket, opts)).payload;
 }
 
-export type GuideWriteResult = { ok: true; payload: GuidePayloadV2 } | { ok: false; problems: string[]; payload: GuidePayloadV2 };
+/**
+ * `internalErrors`: chronology violations of the code's own structure (chapter order, phases, the skeleton's items):
+ * a robot bug, not the model's to rewrite. The guide still goes to review, with them in the report.
+ */
+export type GuideWriteResult = (
+  | { ok: true; payload: GuidePayloadV2 }
+  | { ok: false; problems: string[]; payload: GuidePayloadV2 }
+) & { internalErrors?: string[] };
 
 export type WriteAndCheckOpts = WriteGuideOpts & {
   /** Text of the source pages, for the copy check; defaults to the source texts the dossier carries. */
@@ -879,7 +886,7 @@ function jobSignature(payload: GuidePayloadV2, job: WriteJob): string {
 }
 
 /**
- * Writes and checks: the code's repairs, the deterministic checks (copy, vocabulary, chronology), then the LLM checker per
+ * Writes and checks: the code's repairs, the deterministic checks (copy, vocabulary, the model's chronology slips), then the LLM checker per
  * frame and per job. With problems, rewrites once only the frame and the jobs they point at, then checks again
  * (the LLM only where the text or the items changed). `ok: false` after that: the pipeline marks the request
  * `failed`.
@@ -899,13 +906,16 @@ export async function writeAndCheckGuide(
     const stepOfItem = new Map(written.payload.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items.map((i) => [i.key, s.key] as const))));
     const jobOfStep = new Map(ctx.jobs.flatMap((j) => j.steps.map((s) => [s.key, j.id] as const)));
     const scopeOf = (key: string | null) => (key === null ? FRAME_SCOPE : (jobOfStep.get(stepOfItem.get(key) ?? key) ?? FRAME_SCOPE));
+    const byWriter = chronologyProblems(written.payload, ctx.skel, ctx.dossier).filter((p) => p.owner === "writer");
     return [
       ...written.repairs,
-      ...[...deterministicProblems(written.payload, sources), ...chronologyProblems(written.payload, ctx.skel, ctx.dossier)].map((p) => ({
-        text: p.text,
-        scope: scopeOf(p.key),
-      })),
+      ...[...deterministicProblems(written.payload, sources), ...byWriter].map((p) => ({ text: p.text, scope: scopeOf(p.key) })),
     ];
+  };
+  /** The code's own chronology violations: reported, never sent to the model. */
+  const internal = (written: WrittenGuide) => {
+    const errors = chronologyProblems(written.payload, ctx.skel, ctx.dossier).filter((p) => p.owner === "code").map((p) => p.text);
+    return errors.length > 0 ? { internalErrors: errors } : {};
   };
 
   const firstTexts = await draft(ctx);
@@ -914,7 +924,7 @@ export async function writeAndCheckGuide(
     ...deterministic(first),
     ...(await checkScopes(ai, first.payload, dossier, ctx.skel, { frame: true, jobs: ctx.jobs }, checkOpts)),
   ];
-  if (firstProblems.length === 0) return { ok: true, payload: first.payload };
+  if (firstProblems.length === 0) return { ok: true, payload: first.payload, ...internal(first) };
 
   const secondTexts = await draft(ctx, firstTexts, firstProblems);
   const second = assemble(ctx, secondTexts);
@@ -924,6 +934,6 @@ export async function writeAndCheckGuide(
     ...deterministic(second),
     ...(await checkScopes(ai, second.payload, dossier, ctx.skel, { frame: rewritten.has(FRAME_SCOPE), jobs: recheck }, checkOpts)),
   ];
-  if (secondProblems.length === 0) return { ok: true, payload: second.payload };
-  return { ok: false, problems: [...new Set(secondProblems.map((p) => p.text))], payload: second.payload };
+  if (secondProblems.length === 0) return { ok: true, payload: second.payload, ...internal(second) };
+  return { ok: false, problems: [...new Set(secondProblems.map((p) => p.text))], payload: second.payload, ...internal(second) };
 }
