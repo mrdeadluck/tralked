@@ -7,6 +7,10 @@
 // Types
 // ---------------------------------------------------------------------------------------------
 
+import { type ApiIssue, createCall, TralkedError } from "./tralked-http.js";
+
+export { type ApiIssue, TralkedError };
+
 export const ARTICLE_CATEGORIES = ["GAMES", "GUIAS", "COMUNIDADE", "MERCADO", "ENTRETENIMENTO", "TECNOLOGIA"] as const;
 export const ARTICLE_PLATFORMS = ["PC", "PLAYSTATION", "XBOX", "NINTENDO"] as const;
 
@@ -108,22 +112,6 @@ export type GameMedia = {
   videos: { youtubeId: string }[];
 };
 
-export type ApiIssue = { path: string; message: string };
-
-export class TralkedError extends Error {
-  readonly status: number;
-  readonly code: string;
-  readonly issues: ApiIssue[];
-
-  constructor(status: number, code: string, message: string, issues: ApiIssue[] = []) {
-    super(message);
-    this.name = "TralkedError";
-    this.status = status;
-    this.code = code;
-    this.issues = issues;
-  }
-}
-
 export type GameHit = { slug: string; name: string };
 
 export type Tralked = {
@@ -159,45 +147,10 @@ export const articleKey = (mode: string, storyId: string | number) => `robo-${mo
 /** Idempotency key of the n-th update of an article. */
 export const updateKey = (articleId: string, n: number) => `robo-update-${articleId}-${n}`;
 
-const MAX_RETRIES = 3;
-const BACKOFF_BASE_MS = 1_000;
-const RETRY_AFTER_CAP_MS = 120_000;
-const REQUEST_TIMEOUT_MS = 30_000;
 /** The site refuses `q` shorter than this. */
 const MIN_QUERY_LENGTH = 2;
 /** `GET /api/v1/articles` page size: a feed of exactly this many articles may be cut. */
 export const FEED_LIMIT = 200;
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-/** `Retry-After` as milliseconds (delta-seconds or HTTP date), or null when absent or unreadable. */
-function retryAfterMs(header: string | null): number | null {
-  if (header === null) return null;
-  const value = header.trim();
-  if (/^\d+(\.\d+)?$/.test(value)) return Math.min(Number(value) * 1000, RETRY_AFTER_CAP_MS);
-  const date = Date.parse(value);
-  if (Number.isNaN(date)) return null;
-  return Math.min(Math.max(date - Date.now(), 0), RETRY_AFTER_CAP_MS);
-}
-
-const isRetryableStatus = (status: number) => status === 429 || status >= 500;
-
-async function errorFrom(response: Response): Promise<TralkedError> {
-  let code = "unknown";
-  let message = `HTTP ${response.status}`;
-  let issues: ApiIssue[] = [];
-  try {
-    const parsed = (await response.json()) as { error?: { code?: string; message?: string; issues?: ApiIssue[] } };
-    if (parsed.error) {
-      code = parsed.error.code ?? code;
-      message = parsed.error.message ?? message;
-      issues = Array.isArray(parsed.error.issues) ? parsed.error.issues : [];
-    }
-  } catch {
-    // Not a JSON error body (a proxy page, say): keep the status only.
-  }
-  return new TralkedError(response.status, code, message, issues);
-}
 
 /** Indexes of the games a 422 complains about, or null when any issue is about something else. */
 function badGameIndexes(error: TralkedError): number[] | null {
@@ -250,42 +203,7 @@ function lastPathSegment(url: string): string {
 // ---------------------------------------------------------------------------------------------
 
 export function createTralked(options: { baseUrl: string; key: string; fetchFn?: typeof fetch }): Tralked {
-  const baseUrl = options.baseUrl.replace(/\/+$/, "");
-  const fetchFn = options.fetchFn ?? fetch;
-
-  /** One logical request: 429, 5xx and network failures are retried; other failures throw. */
-  async function call(method: string, path: string, init: { body?: unknown; idempotencyKey?: string } = {}) {
-    const headers: Record<string, string> = { Authorization: `Bearer ${options.key}`, Accept: "application/json" };
-    if (init.body !== undefined) headers["Content-Type"] = "application/json";
-    if (init.idempotencyKey !== undefined) headers["Idempotency-Key"] = init.idempotencyKey;
-
-    for (let attempt = 0; ; attempt++) {
-      let response: Response | null = null;
-      let failure: unknown = null;
-      try {
-        response = await fetchFn(`${baseUrl}${path}`, {
-          method,
-          headers,
-          body: init.body === undefined ? undefined : JSON.stringify(init.body),
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        });
-      } catch (error) {
-        failure = error;
-      }
-
-      if (response?.ok) return response;
-      const retryable = response === null || isRetryableStatus(response.status);
-      if (!retryable || attempt >= MAX_RETRIES) {
-        if (response === null) {
-          const reason = failure instanceof Error ? failure.message : String(failure);
-          throw new TralkedError(0, "network_error", `Falha de rede em ${method} ${path}: ${reason}`);
-        }
-        throw await errorFrom(response);
-      }
-      const wait = (response && retryAfterMs(response.headers.get("Retry-After"))) ?? BACKOFF_BASE_MS * 2 ** attempt;
-      await sleep(wait);
-    }
-  }
+  const call = createCall(options);
 
   const json = async <T>(response: Response) => (await response.json()) as T;
 

@@ -4,6 +4,9 @@ import type { z } from "zod";
 import type { Config } from "../config.js";
 import type { Db, SpendBucket } from "../db.js";
 
+/** What `createAi` needs of a database: the news robot passes its `Db`, the guide robot a per-request adapter. */
+export type SpendLedger = Pick<Db, "spentToday" | "spentTotal" | "recordSpend">;
+
 /** USD per 1M tokens (input / output). Cache read 0.1x input, cache write 1.25x input, batch 0.5x all. */
 export const PRICES: Record<string, { in: number; out: number }> = {
   "claude-opus-5-5": { in: 4, out: 20 },
@@ -103,7 +106,7 @@ const systemBlocks = (system: string) => [
 
 const userMessages = (user: string) => [{ role: "user" as const, content: user }];
 
-export function createAi(deps: { client: Anthropic; db: Db; config: Config; now?: () => Date }): Ai {
+export function createAi(deps: { client: Anthropic; db: SpendLedger; config: Pick<Config, "DAILY_BUDGET_USD" | "BACKFILL_BUDGET_USD">; now?: () => Date }): Ai {
   const { client, db, config } = deps;
   const now = deps.now ?? (() => new Date());
 

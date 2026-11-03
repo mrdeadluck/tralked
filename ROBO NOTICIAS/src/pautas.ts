@@ -253,7 +253,7 @@ const CHALLENGE_TITLE = /just a moment|attention required|making sure you.?re no
 const CHALLENGE_BODY = /id="anubis_challenge"|window\._cf_chl_opt|cf-chl-/;
 
 /** A bot-protection page: the source is unavailable (never worked around). */
-function isChallenge(html: string): boolean {
+export function isChallenge(html: string): boolean {
   const title = /<title[^>]*>([^<]*)<\/title>/i.exec(html)?.[1] ?? "";
   return CHALLENGE_TITLE.test(title) || CHALLENGE_BODY.test(html);
 }
