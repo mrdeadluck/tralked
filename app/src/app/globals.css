@@ -6,24 +6,30 @@
  * e são expostos ao Tailwind via @theme inline (bg-bg, text-acc, border-line...).
  */
 :root {
-  --bg: #0b0c0f;
-  --bg-deep: #08090b;
-  --surface: #121317;
-  --surface-2: #141519;
-  --hover: #17191e;
-  --hover-2: #1c1e24;
-  --border: #1e2026;
-  --border-2: #2c2e36;
-  --divider: #1a1c21;
-  --track: #22242b;
-  --text: #ecece6;
-  --text-2: #c9cbd1;
-  --text-3: #b9bbc2;
-  --muted: #9ea1a9;
-  --dim: #888b94;
-  --dim-2: #888b94;
+  /* Grafite de console (levemente frio) em três degraus de superfície; substitui o preto neutro. */
+  --bg: oklch(0.17 0.006 250);
+  --bg-deep: oklch(0.145 0.005 250);
+  --surface: oklch(0.205 0.007 250);
+  --surface-2: oklch(0.225 0.007 250);
+  --hover: oklch(0.245 0.008 250);
+  --hover-2: oklch(0.27 0.008 250);
+  --border: oklch(0.3 0.008 250);
+  --border-2: oklch(0.38 0.01 250);
+  --divider: oklch(0.26 0.008 250);
+  --track: oklch(0.29 0.009 250);
+  --text: oklch(0.95 0.004 250);
+  --text-2: oklch(0.83 0.006 250);
+  --text-3: oklch(0.78 0.007 250);
+  --muted: oklch(0.71 0.008 250);
+  --dim: oklch(0.67 0.008 250);
+  --dim-2: oklch(0.67 0.008 250);
   --ph: #5d6068;
   --acc: #c6f432;
+  /* Verde em papéis: lima = ação/XP/TRALKED!; lima apagado = barras comuns; musgo = conquistado. */
+  --acc-ink: #11160a;
+  --acc-dim: oklch(0.72 0.15 128);
+  --moss: oklch(0.34 0.075 135);
+  --moss-2: oklch(0.26 0.04 135);
   /* Brand purple for UI marks (rank arrows…): light enough for AA text on the dark surfaces. */
   --brand-2: #a368fa;
   --discord: #5865f2;
@@ -46,12 +52,12 @@
   --silver: #c9cdd6;
   --bronze: oklch(0.68 0.11 50);
   --plat: oklch(0.86 0.06 230);
-  --paper: #15161b;
-  --paper-2: #191a20;
+  --paper: oklch(0.2 0.007 250);
+  --paper-2: oklch(0.225 0.008 250);
   --stripes: repeating-linear-gradient(
     135deg,
-    #16181d 0 10px,
-    #1b1d23 10px 20px
+    oklch(0.195 0.007 250) 0 10px,
+    oklch(0.215 0.008 250) 10px 20px
   );
   color-scheme: dark;
 }
@@ -75,6 +81,10 @@
   --color-dim-2: var(--dim-2);
   --color-ph: var(--ph);
   --color-acc: var(--acc);
+  --color-acc-ink: var(--acc-ink);
+  --color-acc-dim: var(--acc-dim);
+  --color-moss: var(--moss);
+  --color-moss-2: var(--moss-2);
   --color-discord: var(--discord);
   --color-ps: var(--ps);
   --color-xbox: var(--xbox);
@@ -94,6 +104,33 @@
   --font-mono: var(--font-jetbrains-mono), ui-monospace, Consolas, monospace;
 
   --breakpoint-nav: 900px;
+}
+
+/*
+ * Assinatura da marca: o corte de 45° num canto (o chanfro de cartucho). Painéis cortam o canto
+ * superior direito; botões o inferior direito; o selo de nível dois cantos opostos.
+ */
+@utility tk-cut {
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+}
+@utility tk-cut-sm {
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
+}
+@utility tk-cut-b {
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
+}
+@utility tk-cut-x {
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+/* Rótulo de interface: Archivo condensado, maiúsculo (substitui o mono como fantasia). */
+@utility tk-lbl {
+  font-family: var(--font-sans);
+  font-stretch: 75%;
+  font-weight: 700;
+  font-size: 12.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 /* Base rules live in @layer base so Tailwind utilities (mt-*, outline-*, ...) can override them. */
@@ -122,6 +159,11 @@
   p {
     margin: 0;
     text-wrap: pretty;
+  }
+
+  ::selection {
+    background: var(--acc);
+    color: var(--acc-ink);
   }
 
   input::placeholder {

@@ -73,17 +73,18 @@ export function ListSearch({ basePath, params, q = "", label, placeholder, ancho
 
   return (
     <form role="search" action={anchor ? `${basePath}#${anchor}` : basePath} method="get" onSubmit={onSubmit} className="flex max-w-[560px] flex-col gap-1.5">
-      <label htmlFor={inputId} className="font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">
+      <label htmlFor={inputId} className="tk-lbl">
         {label}
       </label>
       <div className="flex gap-2">
         {kept.map(([key, val]) => (
           <input key={key} type="hidden" name={key} value={val} />
         ))}
-        <span className="flex h-[42px] min-w-0 flex-1 items-center gap-2.5 rounded-[2px] border border-line-2 bg-surface-2 px-3.5 text-dim-2 focus-within:border-acc">
-          <span aria-hidden="true" className="font-mono">
-            ⌕
-          </span>
+        <span className="flex h-[42px] min-w-0 flex-1 items-center gap-2.5 bg-bg px-3.5 text-muted shadow-[inset_0_0_0_1px_var(--border)] focus-within:shadow-[inset_0_0_0_1px_var(--acc)]">
+          <svg aria-hidden="true" viewBox="0 0 16 16" className="size-[15px] flex-none" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <circle cx="7" cy="7" r="5" />
+            <path d="m11 11 3.5 3.5" />
+          </svg>
           <input
             id={inputId}
             type="search"
@@ -103,14 +104,14 @@ export function ListSearch({ basePath, params, q = "", label, placeholder, ancho
             className="min-w-0 flex-1 border-0 bg-transparent text-sm text-text outline-0"
           />
           {pending ? (
-            <span className="font-mono text-xs text-dim" aria-hidden="true">
+            <span className="text-xs text-muted" aria-hidden="true">
               …
             </span>
           ) : null}
         </span>
         <button
           type="submit"
-          className="h-[42px] cursor-pointer rounded-[2px] border border-acc px-4 font-mono text-xs font-bold tracking-[0.1em] text-acc uppercase hover:bg-acc hover:text-bg"
+          className="h-[42px] cursor-pointer bg-acc px-4 text-[13px] font-extrabold font-stretch-[80%] tracking-[0.06em] text-acc-ink uppercase tk-cut-b hover:brightness-[1.08]"
         >
           Buscar
         </button>

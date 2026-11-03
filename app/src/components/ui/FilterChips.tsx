@@ -22,7 +22,7 @@ export function FilterChips({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="flex flex-wrap gap-1.5"
+      className="inline-flex flex-wrap gap-x-0.5 gap-y-1 bg-bg shadow-[inset_0_0_0_1px_var(--border)]"
     >
       {options.map((option) => {
         const pressed = option.id === value;
@@ -36,14 +36,14 @@ export function FilterChips({
             style={style}
             aria-pressed={pressed}
             onClick={() => onChange(option.id)}
-            className={`inline-flex h-11 cursor-pointer items-center gap-[7px] rounded-[2px] border px-3 font-mono transition-colors duration-150 sm:h-[34px] text-xs tracking-[0.08em] uppercase disabled:cursor-not-allowed disabled:opacity-45 ${
+            className={`inline-flex h-11 cursor-pointer items-center gap-1.5 px-3 text-[12.5px] font-bold font-stretch-[80%] tracking-[0.06em] uppercase transition-colors duration-150 sm:h-9 disabled:cursor-not-allowed disabled:opacity-45 ${
               option.color
                 ? "before:size-1.5 before:bg-(--c) before:content-['']"
                 : ""
             } ${
               pressed
-                ? "border-text bg-text text-bg"
-                : "border-line-2 bg-transparent text-text-3 hover:border-dim hover:text-text"
+                ? "bg-track text-text shadow-[inset_0_-2px_0_var(--acc)]"
+                : "bg-transparent text-text-2 hover:bg-surface-2 hover:text-text"
             }`}
           >
             {option.label}

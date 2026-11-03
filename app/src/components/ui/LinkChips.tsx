@@ -28,9 +28,9 @@ type LinkChipsProps = {
  */
 export function LinkChips({ label, caption, options, current, trailing }: LinkChipsProps) {
   return (
-    <div role="group" aria-label={label} className="flex flex-wrap items-center gap-1.5">
+    <div role="group" aria-label={label} className="flex w-fit max-w-full flex-wrap items-center gap-x-0.5 gap-y-1 bg-bg shadow-[inset_0_0_0_1px_var(--border)]">
       {caption ? (
-        <span aria-hidden="true" className="mr-1 font-mono text-xs tracking-[0.12em] text-dim-2 uppercase">
+        <span aria-hidden="true" className="pr-1 pl-3 tk-lbl">
           {caption}
         </span>
       ) : null}
@@ -44,13 +44,13 @@ export function LinkChips({ label, caption, options, current, trailing }: LinkCh
             style={style}
             aria-current={active ? "true" : undefined}
             scroll={false}
-            className={`inline-flex h-11 items-center gap-[7px] rounded-[2px] border px-3 font-mono transition-colors duration-150 sm:h-[34px] text-xs tracking-[0.08em] uppercase ${
+            className={`inline-flex h-11 items-center gap-1.5 px-3 text-[12.5px] font-bold font-stretch-[80%] tracking-[0.06em] uppercase transition-colors duration-150 sm:h-9 ${
               option.color ? "before:size-1.5 before:bg-(--c) before:content-['']" : ""
-            } ${active ? "border-text bg-text text-bg" : "border-line-2 text-text-3 hover:border-dim hover:text-text"}`}
+            } ${active ? "bg-track text-text shadow-[inset_0_-2px_0_var(--acc)]" : "text-text-2 hover:bg-surface-2 hover:text-text"}`}
           >
             {option.label}
             {option.count !== undefined ? (
-              <span className={active ? "text-bg" : "text-dim"}>· {option.count.toLocaleString("pt-BR")}</span>
+              <span className="font-semibold text-muted">{option.count.toLocaleString("pt-BR")}</span>
             ) : null}
           </Link>
         );

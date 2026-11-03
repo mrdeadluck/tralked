@@ -34,7 +34,7 @@ export function Ring({ value, size = 44 }: RingProps) {
         cy={h}
         r={r}
         fill="none"
-        stroke="var(--acc)"
+        stroke={pct >= 100 ? "var(--acc)" : "var(--acc-dim)"}
         strokeWidth={stroke}
         strokeDasharray={`${(c * pct) / 100} ${c}`}
         transform={`rotate(-90 ${h} ${h})`}
@@ -45,8 +45,8 @@ export function Ring({ value, size = 44 }: RingProps) {
         textAnchor="middle"
         dominantBaseline="central"
         fill="var(--text)"
-        style={{ fontSize, fontWeight: 700 }}
-        className="font-mono"
+        style={{ fontSize, fontWeight: 800 }}
+        className="font-sans tabular-nums"
       >
         {Math.round(pct)}%
       </text>

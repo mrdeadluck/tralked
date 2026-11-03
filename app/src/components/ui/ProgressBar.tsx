@@ -13,10 +13,10 @@ export function ProgressBar({ value, label }: ProgressBarProps) {
       aria-valuemax={100}
       aria-valuenow={Math.round(pct)}
       aria-label={label}
-      className="h-[3px] overflow-hidden rounded-[2px] bg-track"
+      className="h-1 overflow-hidden bg-track"
     >
       <i
-        className="block h-full bg-acc transition-[width] duration-700 ease-[cubic-bezier(.2,.8,.2,1)]"
+        className={`block h-full ${pct >= 100 ? "bg-acc" : "bg-acc-dim"} transition-[width] duration-700 ease-[cubic-bezier(.2,.8,.2,1)]`}
         style={{ width: `${pct}%` }}
       />
     </div>

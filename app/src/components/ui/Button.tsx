@@ -8,7 +8,7 @@ type ButtonProps = ComponentPropsWithRef<"button"> & {
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary:
-    "border-acc bg-acc text-bg hover:border-acc hover:brightness-[1.08]",
+    "border-acc bg-acc text-acc-ink tk-cut-b hover:border-acc hover:brightness-[1.08]",
   ghost: "border-line-2 bg-transparent text-text hover:border-text",
 };
 
@@ -21,7 +21,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={`inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-[2px] border px-[18px] font-mono text-xs font-bold tracking-[0.1em] uppercase disabled:cursor-not-allowed disabled:opacity-45 ${VARIANT_CLASSES[variant]} ${className}`}
+      className={`inline-flex h-11 cursor-pointer items-center justify-center gap-2 border px-[18px] text-[13.5px] font-extrabold font-stretch-[80%] tracking-[0.06em] uppercase transition-[filter,border-color] duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45 ${VARIANT_CLASSES[variant]} ${className}`}
       {...rest}
     />
   );
