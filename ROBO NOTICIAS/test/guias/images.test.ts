@@ -2,7 +2,16 @@ import { readFileSync } from "node:fs";
 import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
 import type { Ai } from "../../src/ai/client.js";
-import { composeImage, pickItemImage } from "../../src/guias/images.js";
+import {
+  composeImage,
+  imageKey,
+  imageWidth,
+  markImageUsed,
+  newImageUsage,
+  pickItemImage,
+  type ImageItem,
+  type PagesInput,
+} from "../../src/guias/images.js";
 import { locateTarget } from "../../src/guias/locate.js";
 
 const sample = readFileSync(new URL("./fixtures/map-sample.jpg", import.meta.url));
@@ -116,15 +125,6 @@ describe("pickItemImage", () => {
     });
   });
 
-  it("PowerPyx fica por último, wiki e guia Steam vêm antes", () => {
-    const body = `<h3>Golden Feather</h3><img src="/a.jpg" width="800">`;
-    const pages = [
-      { url: "https://www.powerpyx.com/game-guide/", sourceName: "PowerPyx", html: html(body) },
-      { url: "https://steamcommunity.com/sharedfiles/filedetails/?id=1", sourceName: "Steam Guide", html: html(body) },
-    ];
-    expect(pickItemImage(item, pages)?.sourceName).toBe("Steam Guide");
-  });
-
   it("imagem antes da legenda", () => {
     const pages = [
       {
@@ -183,6 +183,160 @@ describe("pickItemImage", () => {
       { url: "https://y.com/g", sourceName: "Y", html: html(`<h3>Silver Coin</h3><img src="/coin.jpg" width="800">`) },
     ];
     expect(pickItemImage(item, pages)).toBeNull();
+  });
+});
+
+describe("Task 28: imagens por item, únicas e de fontes variadas (R42)", () => {
+  const html = (body: string, bodyClass = "") => `<html><body class="${bodyClass}">${body}</body></html>`;
+  const fx = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
+  /** Picks for the items in order, each one used as the pipeline does: what each item got. */
+  const place = (items: ImageItem[], pages: PagesInput, usage = newImageUsage()) =>
+    items.map((item) => {
+      const picked = pickItemImage(item, pages, usage);
+      if (picked) markImageUsed(usage, picked);
+      return picked;
+    });
+
+  it("a mesma imagem nunca vai para dois itens; o segundo leva o próximo candidato do próprio item ou nenhum", () => {
+    const pages = [
+      { url: "https://wiki.x.com/a", sourceName: "A", html: html(`<h3>Golden Feather</h3><img src="/gf.jpg" width="800">`) },
+      { url: "https://guides.y.com/b", sourceName: "B", html: html(`<h3>Golden Feather</h3><img src="/gf-b.jpg" width="800">`) },
+    ];
+    const usage = newImageUsage();
+    const [first, second, third] = place([{ name: "Golden Feather" }, { name: "Golden Feather" }, { name: "Golden Feather" }], pages, usage);
+    expect(first?.url).toBe("https://wiki.x.com/gf.jpg");
+    expect(second?.url).toBe("https://guides.y.com/gf-b.jpg");
+    expect(third).toBeNull();
+    expect(usage.duplicatesAvoided).toBe(2);
+  });
+
+  it("a URL normalizada conta: a miniatura -300x169 e a original são a mesma imagem", () => {
+    expect(imageKey("https://www.powerpyx.com/wp-content/uploads/pbz-1-1-300x169.jpg?x=1")).toBe(
+      imageKey("https://www.powerpyx.com/wp-content/uploads/pbz-1-1.jpg"),
+    );
+    expect(imageKey("https://static0.fextralifeimages.com/file/pbz/thumb/0/02/Shot.jpg/900px-Shot.jpg")).toBe(
+      imageKey("https://static0.fextralifeimages.com/file/pbz/0/02/Shot.jpg"),
+    );
+  });
+
+  it("fontes variadas: com imagem própria em duas fontes, os itens se revezam entre elas", () => {
+    const names = ["Golden Feather", "Silver Coin", "Iron Key", "Jade Ring"];
+    const body = (who: string) => names.map((n) => `<h3>${n}</h3><img src="/${who}-${n.replace(" ", "")}.jpg" width="800">`).join("");
+    const pages = [
+      { url: "https://www.powerpyx.com/game-guide/", sourceName: "PowerPyx", html: html(body("ppx")) },
+      { url: "https://steamcommunity.com/sharedfiles/filedetails/?id=1", sourceName: "Steam Guide", html: html(body("steam")) },
+    ];
+    const picks = place(names.map((name) => ({ name })), pages);
+    expect(picks.map((p) => p?.sourceName)).toEqual(["PowerPyx", "Steam Guide", "PowerPyx", "Steam Guide"]);
+  });
+
+  it("especificidade vence a variedade: o bloco do item numa fonte já usada antes da menção solta em outra", () => {
+    const pages = [
+      {
+        url: "https://wiki.x.com/a",
+        sourceName: "A",
+        html: html(`<h3>Silver Coin</h3><img src="/coin.jpg" width="800"><h3>Golden Feather</h3><img src="/gf.jpg" width="800">`),
+      },
+      { url: "https://guides.y.com/b", sourceName: "B", html: html(`<p>You may find the Golden Feather around here.</p><img src="/loose.jpg" width="800">`) },
+    ];
+    const picks = place([{ name: "Silver Coin" }, { name: "Golden Feather" }], pages);
+    expect(picks.map((p) => p?.url)).toEqual(["https://wiki.x.com/coin.jpg", "https://wiki.x.com/gf.jpg"]);
+  });
+
+  it("alt com o nome do item conta como prova do item", () => {
+    const pages = [
+      {
+        url: "https://wiki.x.com/a",
+        sourceName: "A",
+        html: html(`<p>Many things live here.</p><img src="/x.jpg" width="800"><img src="/gf.jpg" width="800" alt="Golden Feather location">`),
+      },
+    ];
+    expect(pickItemImage({ name: "Golden Feather" }, pages)?.url).toBe("https://wiki.x.com/gf.jpg");
+  });
+
+  it("recusa imagem de topo/infobox, repetida na página e estreita; a classe do <body> não esconde a página", () => {
+    const page = (inner: string) => [{ url: "https://site.x.com/p", sourceName: "X", html: html(inner, "content-sidebar genesis-breadcrumbs-visible") }];
+    const item = { name: "Golden Feather" };
+    expect(pickItemImage(item, page(`<h3>Golden Feather</h3><img src="/gf.jpg" width="300" height="169">`))?.url).toBe("https://site.x.com/gf.jpg");
+    expect(pickItemImage(item, page(`<h3>Golden Feather</h3><div class="infobox"><img src="/box.jpg" width="800"></div>`))).toBeNull();
+    expect(pickItemImage(item, page(`<div class="post-hero"><h3>Golden Feather</h3><img src="/hero.jpg" width="800"></div>`))).toBeNull();
+    expect(pickItemImage(item, page(`<img src="/art.jpg" width="900"><h3>Golden Feather</h3><img src="/art.jpg" width="900">`))).toBeNull();
+    expect(pickItemImage(item, page(`<h3>Golden Feather</h3><img src="/small.jpg" width="200" height="120">`))).toBeNull();
+    // A small thumbnail whose srcset offers the big file is fine.
+    expect(
+      pickItemImage(item, page(`<h3>Golden Feather</h3><img src="/gf-200x113.jpg" width="200" srcset="/gf-200x113.jpg 200w, /gf.jpg 1280w">`))?.url,
+    ).toBe("https://site.x.com/gf.jpg");
+  });
+
+  it("entradas com o mesmo nome: a pista de local separa; sem pista, nenhuma (nunca a de outro item)", () => {
+    const pages = [
+      {
+        url: "https://www.powerpyx.com/region/",
+        sourceName: "PowerPyx (Region)",
+        html: html(
+          `<p><strong>#4 – Blackstone Fragment</strong><br>From the Outpost Bell, climb the stairs to the courtyard chest.</p><p><img src="/r-4.jpg" width="800"></p>` +
+            `<p><strong>#9 – Blackstone Fragment</strong><br>Behind the waterfall, a monk drops it once defeated.</p><p><img src="/r-9.jpg" width="800"></p>`,
+        ),
+      },
+    ];
+    const waterfall = pickItemImage({ name: "Blackstone Fragment", hint: "Go behind the waterfall and defeat the monk; he drops it." }, pages);
+    expect(waterfall?.url).toBe("https://www.powerpyx.com/r-9.jpg");
+    const outpost = pickItemImage({ name: "Blackstone Fragment", hint: "Outpost Bell: up the stairs, chest in the courtyard." }, pages);
+    expect(outpost?.url).toBe("https://www.powerpyx.com/r-4.jpg");
+    expect(pickItemImage({ name: "Blackstone Fragment" }, pages)).toBeNull();
+    // The number in the item's own name picks its entry.
+    expect(pickItemImage({ name: "#9 Blackstone Fragment" }, pages)?.url).toBe("https://www.powerpyx.com/r-9.jpg");
+  });
+
+  it("PowerPyx real (Weeping Creek Valley): cada entrada numerada dá a sua própria captura, sem repetir", () => {
+    const pages = [
+      {
+        url: "https://www.powerpyx.com/phantom-blade-zero-weeping-creek-valley-collectible-locations/",
+        sourceName: "PowerPyx (Weeping Creek Valley)",
+        html: fx("powerpyx-pbz-weeping-creek.html"),
+      },
+    ];
+    const items: ImageItem[] = [
+      { name: "Bell (The Beginning)" },
+      { name: "Bell (The Lady's Rift)" },
+      { name: "Triple Threat" },
+      { name: "Hunter's Insight" },
+      { name: "Sanguine Twin" },
+      { name: "Bell (Outpost)" },
+      { name: "Scarlet Wraithblade" },
+      { name: "Sha-Chi Amber Fragment", hint: "In a chest next to the enemy you defeat to remove the thread barrier." },
+      { name: "Sha-Chi Amber Fragment", hint: "From the Rustblade Pavilion Bell go up the stairs; an enemy jumps out of the boxes and drops it." },
+      { name: "Sha-Chi Amber Fragment", hint: "From the Outpost Bell break the barricade, enter the house up the stairs and defeat the enemy inside." },
+      { name: "Blackstone Fragment", hint: "From the Long Pillar Overlook Bell, cross the bridge, drop into the village, follow the river north to the wooden platform." },
+      { name: "Blackstone Fragment", hint: "From the Long Pillar Overlook Bell, backtrack into the small cave under the tower; the monks drop it." },
+    ];
+    const picks = place(items, pages);
+    const urls = picks.map((p) => p?.url);
+    expect(urls.every(Boolean)).toBe(true);
+    expect(new Set(urls).size).toBe(items.length);
+    expect(urls[0]).toBe("https://www.powerpyx.com/wp-content/uploads/phantom-blade-zero-weeping-creek-valley-1-1.jpg");
+    // Same-named entries, each its own screenshot: #12, #15, #24 and #49, #50.
+    expect(new Set(urls.slice(7).map((u) => u!.match(/valley-(\d+)-/)?.[1])).size).toBe(5);
+    expect(picks.every((p) => p!.sourceUrl === pages[0]!.url && p!.thirdParty)).toBe(true);
+  });
+
+  it("Fextralife real (Steel and Steam): o print do trecho não vai para os vários itens de mesmo nome do guia", () => {
+    const pages = [{ url: "https://phantombladezero.wiki.fextralife.com/Steel_and_Steam", sourceName: "Fextralife", html: fx("fextralife-pbz-steel-and-steam.html") }];
+    // Many items of the guide share these names (one per place): a passing mention in a walkthrough is none of them.
+    const shared = (name: string): ImageItem[] => Array.from({ length: 8 }, () => ({ name, shared: true }));
+    const picks = place([...shared("Blackstone Fragment"), ...shared("Sha-Chi Amber Fragment"), { name: "Scarlet Wraithblade" }], pages);
+    // Before: one screenshot for 27 "Blackstone Fragment" items and another for 23 "Sha-Chi Amber Fragment" ones.
+    expect(picks.slice(0, 16).every((p) => p === null)).toBe(true);
+    const urls = picks.filter((p) => p !== null).map((p) => p.url);
+    expect(new Set(urls).size).toBe(urls.length);
+    expect(urls.some((u) => /logo/i.test(u))).toBe(false);
+  });
+});
+
+describe("imageWidth", () => {
+  it("lê a largura dos bytes; bytes que não são imagem → undefined", async () => {
+    expect(await imageWidth(sample)).toBe(800);
+    expect(await imageWidth(Buffer.from("not an image"))).toBeUndefined();
   });
 });
 

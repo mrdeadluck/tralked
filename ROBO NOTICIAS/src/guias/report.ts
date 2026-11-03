@@ -47,7 +47,11 @@ export type RobotReport = {
    * them): what was counted, and whether the type match is only loose (`ambiguous`, for review).
    */
   collectByType?: CollectByType[];
+  /** Task 28: the item images placed, per source site, and how many times an image already placed was not reused. */
+  images?: ImageReport;
 };
+
+export type ImageReport = { placed: number; bySource: Record<string, number>; duplicatesAvoided: number };
 
 export type CollectByType = {
   apiName: string;
@@ -79,6 +83,7 @@ export type ReportInput = {
   problems?: string[];
   internalErrors?: string[];
   notes?: string[];
+  images?: ImageReport;
 };
 
 const usd = (value: number) => Math.round(value * 1e4) / 1e4;
@@ -143,6 +148,7 @@ export function buildReport(input: ReportInput): RobotReport {
     ...(d && (d.corroborationOnly ?? []).length > 0 ? { unplaced: { title: UNPLACED_TITLE, items: d.corroborationOnly.map(unplacedItem) } } : {}),
     ...(d && (d.stageOnly ?? []).length > 0 ? { stageOnly: { title: STAGE_ONLY_TITLE, items: d.stageOnly.map(unplacedItem) } } : {}),
     ...(byType.length > 0 ? { collectByType: byType } : {}),
+    ...(input.images ? { images: input.images } : {}),
   };
 }
 

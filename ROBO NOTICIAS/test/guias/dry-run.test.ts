@@ -99,6 +99,26 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("Task 28: diz quantas imagens seriam colocadas, de que fonte, e que nenhuma se repete (páginas reais do cache)", async () => {
+    const db = cache();
+    const wcv = "https://www.powerpyx.com/phantom-blade-zero-weeping-creek-valley-collectible-locations/";
+    const row = db.getPage(wcv)!;
+    db.savePage({
+      url: wcv,
+      fetchedAt: new Date(row.fetched_at),
+      status: "ok",
+      finalUrl: wcv,
+      text: row.text,
+      html: readFileSync(new URL("./fixtures/powerpyx-pbz-weeping-creek.html", import.meta.url), "utf8"),
+      textVersion: row.text_version,
+    });
+    const lines: string[] = [];
+    await dryRun({ db, config: CONFIG, appId: 4115450, log: (l) => lines.push(l) });
+    const line = lines.find((l) => l.startsWith("imagens que seriam colocadas"));
+    expect(line).toMatch(/imagens que seriam colocadas \(sem baixar\): (\d+) de \d+ itens; por fonte: powerpyx\.com \1; nenhuma imagem repetida/);
+    expect(Number(line!.match(/: (\d+) de/)![1])).toBeGreaterThanOrEqual(8);
+  });
+
   it("extração curta (a página numera 75 entradas, o cache tem 18): o ensaio avisa que a execução real relê em partes e estima", async () => {
     const db = openGuideDb(":memory:");
     const text = readFileSync(new URL("./fixtures/powerpyx-pbz-village-of-lu.txt", import.meta.url), "utf8");

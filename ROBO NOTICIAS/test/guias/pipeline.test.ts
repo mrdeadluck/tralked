@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { mkdtempSync, readFileSync } from "node:fs";
+import sharp from "sharp";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -15,6 +16,7 @@ import { extractionKey, runGuideRequest, type GuidePipelineDeps, type GuideStage
 import { dryRun } from "../../src/guias/dry-run.js";
 import { PAGE_TEXT_VERSION } from "../../src/guias/page-text.js";
 import { bodyBytes, imageBytes, REPORT_SLACK_BYTES, SITE_LIMITS } from "../../src/guias/limits.js";
+import { imageUsed } from "../../src/guias/images.js";
 import { loadRunContext } from "../../src/guias/run-context.js";
 import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import type { FetchPage, SourceRef } from "../../src/guias/sources.js";
@@ -1034,7 +1036,8 @@ describe("Task 17 fix round 1", () => {
           return { x: 0.5, y: 0.5, r: 0.1 };
         },
       });
-      expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("review");
+      // Each image its own bytes (the same bytes twice would be one picture: Task 28).
+      expect(await runGuideRequest(makeDeps({ api, stages, fetchImage: async (url) => Buffer.from(url) }))).toBe("review");
       return { located, bytes: bodyBytes(calls.created[0]!.payload) };
     };
     // Plenty of room: both, the missable first.
@@ -1363,5 +1366,101 @@ describe("Task 25", () => {
     expect(await runGuideRequest(deps)).toBe("review");
     expect(deps.lines.some((l) => l.includes("guia em revisão atualizado") && l.includes("guide-bot"))).toBe(true);
     expect(deps.lines.some((l) => l.includes("versão pendente criada"))).toBe(false);
+  });
+});
+
+describe("Task 28: imagens por item, únicas e de fontes variadas", () => {
+  /** A written guide of `n` collectibles in one step, the first one keyed as the skeleton keys "Golden Feather". */
+  const guideOf = (names: string[]) => {
+    const payload = writtenPayload();
+    const step = payload.walkthrough.chapters[0]!.steps[0]!;
+    const base = step.items[0]!;
+    step.items = names.map((name, n) => ({ ...base, key: n === 0 ? "chapter-1-golden-feather" : `item-${n}`, name, nameEn: name }));
+    return payload;
+  };
+  /** A pick stage over fixed candidates per item name that, like the real one, never offers a used image again. */
+  const candidatesStage =
+    (byName: Record<string, { url: string; sourceName: string; sourceUrl: string }[]>): GuideStages["pickItemImage"] =>
+    (item, _pages, usage) =>
+      (byName[item.nameEn ?? item.name] ?? []).map((c) => ({ ...c, thirdParty: true })).find((c) => !usage || !imageUsed(usage, c.url)) ?? null;
+
+  it("bytes iguais em URLs diferentes: o segundo item leva o próximo candidato; o relatório conta por fonte e as repetições evitadas", async () => {
+    const { api, calls } = fakeApi();
+    const wiki = { sourceName: "Wiki", sourceUrl: "https://wiki.example/a" };
+    const steam = { sourceName: "Steam: guia", sourceUrl: "https://steamcommunity.com/sharedfiles/filedetails/?id=9" };
+    const stages = fakeStages({
+      writeAndCheckGuide: async () => ({ ok: true as const, payload: guideOf(["Golden Feather", "Silver Coin"]) }),
+      pickItemImage: candidatesStage({
+        "Golden Feather": [{ url: "https://img.example/gf.jpg", ...wiki }],
+        "Silver Coin": [
+          { url: "https://img.example/gf-copy.jpg", ...wiki },
+          { url: "https://img.example/coin.jpg", ...steam },
+        ],
+      }),
+    });
+    const bytes: Record<string, string> = {
+      "https://img.example/gf.jpg": "feather",
+      "https://img.example/gf-copy.jpg": "feather",
+      "https://img.example/coin.jpg": "coin",
+    };
+    const deps = makeDeps({ api, stages, fetchImage: vi.fn(async (url: string) => Buffer.from(bytes[url]!)) });
+    expect(await runGuideRequest(deps)).toBe("review");
+    const items = calls.created[0]!.payload.walkthrough.chapters[0]!.steps[0]!.items;
+    expect(items.map((i) => i.image?.sourceUrl)).toEqual([wiki.sourceUrl, steam.sourceUrl]);
+    expect(items.map((i) => i.image?.credit)).toEqual(["Imagem: Wiki", "Imagem: Steam: guia"]);
+    expect(calls.uploads).toHaveLength(2);
+    const report = calls.created[0]!.payload.report as RobotReport;
+    expect(report.images).toEqual({ placed: 2, bySource: { "wiki.example": 1, "steamcommunity.com": 1 }, duplicatesAvoided: 1 });
+    expect(deps.lines.some((l) => l.includes("2 imagens enviadas") && l.includes("wiki.example 1") && l.includes("1 repetição evitada"))).toBe(true);
+  });
+
+  it("imagem com menos de 300 px de largura nos bytes baixados: recusada, vai para o próximo candidato", async () => {
+    const { api, calls } = fakeApi();
+    const narrow = await sharp({ create: { width: 200, height: 120, channels: 3, background: "#222" } }).png().toBuffer();
+    const wide = await sharp({ create: { width: 640, height: 360, channels: 3, background: "#444" } }).png().toBuffer();
+    const src = { sourceName: "Wiki", sourceUrl: "https://wiki.example/a" };
+    const stages = fakeStages({
+      writeAndCheckGuide: async () => ({ ok: true as const, payload: guideOf(["Golden Feather"]) }),
+      pickItemImage: candidatesStage({ "Golden Feather": [{ url: "https://img.example/small.png", ...src }, { url: "https://img.example/big.png", ...src }] }),
+    });
+    const fetchImage = vi.fn(async (url: string) => (url.endsWith("small.png") ? narrow : wide));
+    expect(await runGuideRequest(makeDeps({ api, stages, fetchImage }))).toBe("review");
+    expect(fetchImage.mock.calls.map(([u]) => u)).toEqual(["https://img.example/small.png", "https://img.example/big.png"]);
+    expect(stages.calls.composeImage![0]![0]).toBe(wide);
+    expect(calls.created[0]!.payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.image).toBeDefined();
+  });
+
+  it("a escolha recebe a pista do dossiê (o local nas palavras da fonte) e as páginas que listam o item", async () => {
+    const seen: unknown[] = [];
+    const stages = fakeStages({
+      writeAndCheckGuide: async () => ({ ok: true as const, payload: guideOf(["Pena Dourada"]) }),
+      pickItemImage: (item) => {
+        seen.push(item);
+        return null;
+      },
+    });
+    expect(await runGuideRequest(makeDeps({ stages }))).toBe("review");
+    expect(seen[0]).toMatchObject({
+      name: "Pena Dourada",
+      aliases: expect.arrayContaining(["Golden Feather"]),
+      hint: "perto da entrada",
+      sourceUrls: [STEAM_GUIDE.url],
+    });
+  });
+
+  it("com as páginas reais: cada item leva uma imagem diferente e o crédito aponta a página exata", async () => {
+    const { api, calls } = fakeApi();
+    const html = readFileSync(new URL("./fixtures/powerpyx-pbz-weeping-creek.html", import.meta.url), "utf8");
+    const page = "https://www.powerpyx.com/phantom-blade-zero-weeping-creek-valley-collectible-locations/";
+    const fetchWith: FetchPage = async (url) => (url === STEAM_GUIDE.url ? { status: "ok", text: STEAM_GUIDE_TEXT, html, finalUrl: page } : fetchPage(url));
+    const names = ["Bell (The Beginning)", "Bell (The Lady's Rift)", "Triple Threat", "Sanguine Twin"];
+    const stages = fakeStages({ writeAndCheckGuide: async () => ({ ok: true as const, payload: guideOf(names) }) });
+    const fetchImage = vi.fn(async (url: string) => Buffer.from(url));
+    expect(await runGuideRequest(makeDeps({ api, stages, fetchPage: fetchWith, fetchImage }))).toBe("review");
+    const items = calls.created[0]!.payload.walkthrough.chapters[0]!.steps[0]!.items;
+    const fetched = fetchImage.mock.calls.map(([u]) => u);
+    expect(new Set(fetched).size).toBe(names.length);
+    expect(fetched[0]).toContain("phantom-blade-zero-weeping-creek-valley-1-1.jpg");
+    expect(items.every((i) => i.image?.sourceUrl === STEAM_GUIDE.url)).toBe(true);
   });
 });

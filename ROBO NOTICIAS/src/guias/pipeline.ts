@@ -14,7 +14,20 @@ import { buildDossier, type AchievementAliases, type GuideDossier, type GuideDos
 import { extractFacts, extractionPrompt } from "./extract.js";
 import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate, type GateResult } from "./gate.js";
-import { composeImage, pickItemImage, type PagesInput } from "./images.js";
+import {
+  composeImage,
+  imageHints,
+  imageItems,
+  imageWidth,
+  markImageUsed,
+  MIN_IMAGE_WIDTH,
+  newImageUsage,
+  pickItemImage,
+  refuseImage,
+  type ImageHints,
+  type PagesInput,
+  type PickedImage,
+} from "./images.js";
 import {
   bodyBytes,
   estimatePayloadBytes,
@@ -29,7 +42,7 @@ import {
 } from "./limits.js";
 import { locateTarget } from "./locate.js";
 import { PAGE_TEXT_MAX } from "./page-text.js";
-import { buildReport, spendByPurpose, type RobotReport, type SourceRead } from "./report.js";
+import { buildReport, spendByPurpose, type ImageReport, type RobotReport, type SourceRead } from "./report.js";
 import { reusableDiscovery, saveRunContext } from "./run-context.js";
 import { psnScope, type PsnWriteScope } from "./scope.js";
 import { buildSkeleton } from "./skeleton.js";
@@ -187,6 +200,8 @@ type Run = {
     /** null: neither gate passed, no scope was chosen. */
     scope?: GuideScope | null;
     notes: string[];
+    /** Task 28: the images placed per source, once the image stage ran. */
+    images?: ImageReport;
   };
   report(extra?: { missing?: string[]; problems?: string[]; internalErrors?: string[] }): RobotReport;
   send: Sender["send"];
@@ -347,6 +362,7 @@ function startRun(deps: GuidePipelineDeps, request: GuideRequest, reports: Sende
         spendUsd: db.spentForRequest(request.id),
         spendByPurpose: spendByPurpose(db, request.id),
         notes: progress.notes,
+        ...(progress.images ? { images: progress.images } : {}),
         ...extra,
       }),
     send: (body, key) => reports.send(body, key),
@@ -622,7 +638,7 @@ async function processRequest(run: Run): Promise<Final> {
     // What is left of the 1 MiB for images (the report's last notes kept apart).
     const budget = SITE_LIMITS.bodyBytes - bodyBytes(bodyOf(run.report({ internalErrors }))) - REPORT_SLACK_BYTES;
     const pages: PagesInput = read.filter((r) => r.html).map((r) => ({ url: r.source.url, html: r.html!, sourceName: r.source.name }));
-    await addImages(run, payload, pages, budget);
+    await addImages(run, payload, pages, budget, imageHints(skeleton));
   }
 
   // Step 11: create, or update the robot's guide of the game. Always `review`, always under the body cap.
@@ -764,20 +780,45 @@ async function extractCached(run: Run, source: SourceRef, page: { url: string; t
  * useful first (missables, counted collectibles, then the rest, each in route order), only while they fit in
  * `budget` bytes of the body: no fetching, locating or uploading for an image that would be thrown away. Stops,
  * keeping what it has, when the soft deadline passes or the spend cap is hit (the guide is already written).
+ * Task 28: an image (same URL or same bytes) goes to one item only; one narrower than MIN_IMAGE_WIDTH is no item's
+ * picture; the next candidate of the item is tried instead (R42: per-item, unique, varied sources).
  */
-async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, budget: number): Promise<void> {
+async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, budget: number, hints: ImageHints): Promise<void> {
   const { deps, stages, ai } = run;
   const bytesByUrl = new Map<string, Buffer | null>();
+  const usage = newImageUsage();
   let added = 0;
   let skipped = 0;
   let left = budget;
-  const report = () => deps.log(`guia: ${added} ${added === 1 ? "imagem" : "imagens"} enviadas${skipped ? `, ${skipped} com erro` : ""}`);
+  const report = () => {
+    const bySource = Object.fromEntries([...usage.bySource].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
+    run.progress.images = { placed: added, bySource, duplicatesAvoided: usage.duplicatesAvoided };
+    const sources = Object.entries(bySource).map(([site, n]) => `${site} ${n}`).join(", ");
+    const dups = usage.duplicatesAvoided;
+    deps.log(
+      `guia: ${added} ${added === 1 ? "imagem" : "imagens"} enviadas${sources ? ` (por fonte: ${sources})` : ""}` +
+        `${dups ? `; ${dups} ${dups === 1 ? "repetição evitada" : "repetições evitadas"}` : ""}${skipped ? `, ${skipped} com erro` : ""}`,
+    );
+  };
   if (left <= 0) {
     run.progress.notes.push(`sem espaço para imagens: o guia escrito já ocupa quase os ${kib(SITE_LIMITS.bodyBytes)} KiB do envio`);
     report();
     return;
   }
-  for (const item of imageOrder(payload.walkthrough.chapters)) {
+  const ordered = imageOrder(payload.walkthrough.chapters);
+  const wanted = imageItems(ordered, hints);
+  /** The texts the item's image carries: names from the page, plain, clipped to the site's limits (a stray "<" would refuse the guide). */
+  const creditOf = (picked: PickedImage) => {
+    const sourceName = plain(picked.sourceName, SOURCE_NAME_MAX) || hostName(picked.sourceUrl) || "Fonte";
+    const credit = plain(`Imagem: ${picked.sourceName}`, CREDIT_MAX) || `Imagem: ${sourceName}`;
+    const sourceUrl = isHttpUrl(picked.sourceUrl) ? picked.sourceUrl : undefined;
+    return { credit, sourceName, ...(sourceUrl ? { sourceUrl } : {}) };
+  };
+  const outOfRoom = () => {
+    run.progress.notes.push(`o espaço do envio (${kib(SITE_LIMITS.bodyBytes)} KiB) acabou nas imagens: ${added} enviadas, as demais ficaram de fora`);
+    report();
+  };
+  for (const item of ordered) {
     if (item.image) continue;
     if (run.pastDeadline()) {
       run.progress.notes.push(`o prazo de ${run.deadlineMin} min passou: as imagens pararam em ${added}, o resto do guia saiu sem imagem`);
@@ -785,27 +826,34 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
       return;
     }
     try {
-      const picked = stages.pickItemImage(item, pages);
+      const want = wanted.get(item)!;
+      let picked = stages.pickItemImage(want, pages, usage);
       if (!picked) continue;
-      // Names from the page: plain text, clipped to the site's limits (a stray "<" would refuse the guide).
-      const sourceName = plain(picked.sourceName, SOURCE_NAME_MAX) || hostName(picked.sourceUrl) || "Fonte";
-      const credit = plain(`Imagem: ${picked.sourceName}`, CREDIT_MAX) || `Imagem: ${sourceName}`;
-      const sourceUrl = isHttpUrl(picked.sourceUrl) ? picked.sourceUrl : undefined;
-      if (imageBytes({ credit, sourceName, ...(sourceUrl ? { sourceUrl } : {}) }) > left) {
-        run.progress.notes.push(`o espaço do envio (${kib(SITE_LIMITS.bodyBytes)} KiB) acabou nas imagens: ${added} enviadas, as demais ficaram de fora`);
-        report();
-        return;
+      if (imageBytes(creditOf(picked)) > left) return outOfRoom();
+      // The candidates in turn until one is readable, wide enough and not the bytes of an image already placed.
+      let bytes: Buffer | null = null;
+      for (let tries = 0; picked && tries < MAX_IMAGE_TRIES; tries++) {
+        if (!bytesByUrl.has(picked.url)) bytesByUrl.set(picked.url, await deps.fetchImage(picked.url));
+        bytes = bytesByUrl.get(picked.url) ?? null;
+        const width = bytes ? await imageWidth(bytes) : undefined;
+        const repeated = bytes !== null && usage.hashes.has(sha(bytes));
+        if (bytes && !repeated && (width === undefined || width >= MIN_IMAGE_WIDTH)) break;
+        if (repeated) usage.duplicatesAvoided++;
+        refuseImage(usage, picked.url);
+        bytes = null;
+        picked = stages.pickItemImage(want, pages, usage);
       }
-      if (!bytesByUrl.has(picked.url)) bytesByUrl.set(picked.url, await deps.fetchImage(picked.url));
-      const bytes = bytesByUrl.get(picked.url);
-      if (!bytes) continue;
+      if (!picked || !bytes) continue;
+      const texts = creditOf(picked);
+      if (imageBytes(texts) > left) return outOfRoom();
+      markImageUsed(usage, picked, sha(bytes));
       const target = await stages.locateTarget(ai, bytes, item.nameEn ?? item.name, {
         model: deps.config.MODEL_FAST,
         bucket: "backfill",
       });
       const composed = await stages.composeImage(bytes, { target, thirdParty: picked.thirdParty });
       const uploaded = await deps.api.uploadImage(new Uint8Array(composed), "image/webp", `guia-img-${sha(composed).slice(0, 40)}`);
-      item.image = { url: uploaded.url, credit, sourceName, ...(sourceUrl ? { sourceUrl } : {}) };
+      item.image = { url: uploaded.url, ...texts };
       left -= Buffer.byteLength(`,"image":${JSON.stringify(item.image)}`, "utf8");
       added++;
     } catch (error) {
@@ -821,6 +869,8 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
   }
   report();
 }
+/** Candidates fetched for one item at most (unreadable, too narrow or repeated ones skipped). */
+const MAX_IMAGE_TRIES = 6;
 
 const hostName = (url: string) => (URL.canParse(url) ? new URL(url).hostname.replace(/^www\./, "") : "");
 const isHttpUrl = (url: string) => URL.canParse(url) && /^https?:$/.test(new URL(url).protocol);

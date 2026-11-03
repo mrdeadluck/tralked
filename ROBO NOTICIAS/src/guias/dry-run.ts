@@ -8,13 +8,14 @@ import { blockedForGood, buildDossier, UNPLACED_MARK, type DossierAchievement, t
 import { completeness, withVerdict } from "./completeness.js";
 import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate } from "./gate.js";
-import { estimatePayloadBytes, IMAGE_BYTES, kib, REPORT_SLACK_BYTES, SITE_LIMITS, skeletonLimitProblems } from "./limits.js";
+import { imageHints, imageItems, imageKey, markImageUsed, newImageUsage, pickItemImage, type PagesInput } from "./images.js";
+import { estimatePayloadBytes, IMAGE_BYTES, imageOrder, kib, REPORT_SLACK_BYTES, SITE_LIMITS, skeletonLimitProblems } from "./limits.js";
 import { PAGE_TEXT_VERSION, pageText } from "./page-text.js";
 import { extractionKey, pageTotals, readCachedFacts } from "./pipeline.js";
 import { buildReport, STAGE_ONLY_TITLE, UNPLACED_TITLE } from "./report.js";
 import { latestRunContext, loadRunContext, type RunContext } from "./run-context.js";
 import { psnScope, type PsnWriteScope } from "./scope.js";
-import { buildSkeleton } from "./skeleton.js";
+import { buildSkeleton, isMissable, type GuideSkeleton } from "./skeleton.js";
 import type { FetchPage, SourceRef } from "./sources.js";
 import { readSteamAliases, steamLanguagesIn } from "./steam-aliases.js";
 import { WRITER_EFFORT, writerPlan } from "./writer.js";
@@ -167,6 +168,46 @@ function writerCost(dossier: GuideDossier, game: GuideDossierSource, models: Dry
   return { calls: calls.length, writeIn, writeOut, checkIn, checkOut, check, onePass, worst: onePass === undefined ? undefined : onePass * 2 };
 }
 
+/**
+ * Task 28: the images a real run would place, in its order and within the estimated room, from the cached pages
+ * (nothing downloaded: one image per URL here; the run also refuses the same bytes twice and narrow images).
+ */
+function imagePlan(skeleton: GuideSkeleton, pages: PagesInput, room: number): string {
+  const route = skeleton.chapters.flatMap((c) =>
+    c.steps.flatMap((st) =>
+      st.items.map((x) => {
+        const nameEn = x.item?.nameEn ?? x.ach?.nameEn;
+        return {
+          key: x.key,
+          name: x.item?.name ?? x.ach?.namePt ?? x.ach?.nameEn ?? x.key,
+          ...(nameEn ? { nameEn } : {}),
+          sources: [...(x.item?.sourceLinks ?? []), ...(x.ach?.sourceLinks ?? [])],
+          missable: isMissable(x),
+          countsFor: x.item?.countsFor ?? [],
+        };
+      }),
+    ),
+  );
+  const ordered = imageOrder([{ steps: [{ items: route }] }]);
+  const wanted = imageItems(ordered, imageHints(skeleton));
+  const usage = newImageUsage();
+  const keys: string[] = [];
+  for (const item of ordered) {
+    if (keys.length >= room) break;
+    const picked = pickItemImage(wanted.get(item)!, pages, usage);
+    if (!picked) continue;
+    markImageUsed(usage, picked);
+    keys.push(imageKey(picked.url));
+  }
+  const bySource = [...usage.bySource].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([site, n]) => `${site} ${n}`);
+  const repeated = keys.length - new Set(keys).size;
+  return (
+    `imagens que seriam colocadas (sem baixar): ${keys.length} de ${ordered.length} itens; por fonte: ${bySource.join(", ") || "nenhuma"}; ` +
+    `${repeated === 0 ? "nenhuma imagem repetida" : `${repeated} IMAGENS REPETIDAS`}` +
+    `${usage.duplicatesAvoided ? ` (${usage.duplicatesAvoided} ${usage.duplicatesAvoided === 1 ? "repetição evitada" : "repetições evitadas"})` : ""}`
+  );
+}
+
 export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   const { db, config, log } = input;
   let context: RunContext | undefined;
@@ -201,6 +242,8 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   const byUrl = extractionsOf(db);
   const facts: ExtractedFacts[] = [];
   const read: { source: SourceRef; text: string }[] = [];
+  /** The pages' HTML, for the image plan. */
+  const htmlPages: PagesInput = [];
   const unread: GuideDossier["unreadSources"] = [];
   let stale = 0;
   let missing = 0;
@@ -222,6 +265,7 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
       log(`  - ${source.name}: página fora do cache`);
       continue;
     }
+    if (page.html) htmlPages.push({ url: source.url, html: page.html, sourceName: source.name });
     const current = readCachedFacts(db, extractionKey(config.MODEL_EXTRACT, source, page.text, extractEffort), source);
     const old = byUrl.get(source.url);
     const found: CachedFacts | undefined = current ? { facts: current, stale: false } : old ? { facts: { ...old, source }, stale: true } : undefined;
@@ -392,6 +436,7 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
     log(
       `imagens (decididas depois da escrita, pelo tamanho real): cabem ~${Math.min(room, items.length)} de ${items.length} pela estimativa; perdíveis primeiro, depois coletáveis contados, depois o resto`,
     );
+    log(imagePlan(skeleton, htmlPages, room));
   }
   const key = writingKey({ dossier: toWrite, scope, game: context.game, models: config });
   const cached = readWriting(db, key);
