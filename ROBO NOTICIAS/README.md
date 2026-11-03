@@ -261,3 +261,56 @@ Moved to active in the fix round: Digital Foundry, Rockstar Newswire, Sony Group
 ## Models and SDK
 
 `@anthropic-ai/sdk` 1.3.0 is installed but not used until Task 8. `@anthropic-ai/sdk/helpers/zod` exports `zodOutputFormat`, and `client.beta.messages.parse` exists in the types.
+
+## Robô de Guias
+
+A second robot in this folder writes the Tralked guides (format 2, the walkthrough) **on demand only**: it processes the requests Lucas puts in the queue at `/admin/guias/pedidos` and never picks a game by itself. It shares the AI client, the spend control and the site HTTP core with the news robot, but has its own config, SQLite and lock, so one robot never stops the other.
+
+### Setup
+
+1. Create the site key (in `app/`, with `DATABASE_URL` pointing at the site database). Never give it `publish`: robot guides always go to the review queue.
+
+   ```
+   pnpm api:key "Robo de Guias" guides:write media:write
+   ```
+
+2. Add to `.env`:
+
+   | Key | Required | Meaning |
+   |---|---|---|
+   | `TRALKED_GUIDES_API_KEY` | yes | The secret above. |
+   | `ANTHROPIC_API_KEY` | yes | Same as the news robot. |
+   | `GUIDE_BUDGET_USD` | no | Spend cap per request (every attempt of it), default US$ 25. |
+   | `MODEL_WRITER` / `MODEL_EXTRACT` / `MODEL_FAST` | no | Defaults `claude-opus-5-5` (writing), `claude-sonnet-5-5` (extraction and web search), `claude-haiku-5-5` (checker, image locating). |
+   | `DATA_DIR_GUIAS` | no | Default `./data-guias` (gitignored): `robo-guias.db` (page cache, runs, spend, dossiers, extracted facts), `guia.lock`, `logs/`. |
+
+### Requesting a guide
+
+Use the admin: `/admin/guias/pedidos` → "Pedir guia" (search the catalog or type the Steam appid). "Atualizar guia existente" asks for a new version of a game that already has a guide. There is no `pnpm guia:pedido` shortcut: creating a request needs a staff session, which the robot's API key does not have.
+
+### `pnpm guia`
+
+Processes **one** request and exits. Without a request it prints `nada na fila`. It holds `data-guias/guia.lock` (a lock older than 3 h belongs to a crashed run and is taken over); a second run while one is going prints `outra execução está em andamento`.
+
+One request, in order: claim the next request → the game's full Steam list (`/dossie?all=1`, hidden achievements included) → find the sources (PowerPyx, the 3 best Steam guides about 100%, TrueSteamAchievements, up to 6 web searches) → read each page (robots.txt, 2 s per host, 5 s on `steamcommunity.com`; a Cloudflare/Anubis challenge page is a source not read, never worked around) → extract the facts (cached by page content: a retry only pays for pages that changed) → group copies of the same text as one source → the dossier → the **completeness gate** → write and check → item images → official soundtrack → send → report.
+
+| Ends in | When |
+|---|---|
+| `review` | The guide was created (or, for a game whose guide the robot wrote, updated with `PATCH`; a published guide keeps its live version until an editor approves the pending update). |
+| `waiting_sources` | The gate found gaps. Nothing is sent; the request's report lists what is missing (`missing`). The site retries it every 3 days, for up to 30 days. |
+| `failed` | Reason `teto de gasto` when the request's cap was reached; the checker still rejected the guide after one rewrite (`problems` in the report); the game already has a guide written by the team (the robot never replaces it); or any other error, with its message. |
+
+Whatever happens after the claim, the request ends in one of these three: it is never left in `researching` or `writing`. If the request was cancelled on the site meanwhile, the robot stops and reports nothing more.
+
+The **report** goes with the request and with the guide (`Guide.report`, staff only): `sourcesRead` (`{ name, url, ok, reason? }`, failed searches included), `divergences`, `singleSource`, `coverage` (`{ steam, covered, steamOnly }`, which the page's compat seal also reads), `spendUsd` (the request's total, every attempt) and `spendByPurpose`.
+
+Images: picked from the block of each item in the pages read (wikis and Steam guides first, PowerPyx last), uploaded as WebP with a lime ring and arrow on the spot and the TRALKED mark. A third-party image is never cropped and keeps its own watermark; the item shows `Imagem: <fonte>` and links to the page. Soundtrack: only a YouTube video or playlist from the developer's or publisher's own channel; otherwise the guide has no music.
+
+### Task Scheduler (Windows)
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\instalar-tarefa-guias.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\instalar-tarefa-guias.ps1 -Remover
+```
+
+Creates `Tralked Robo - Guias`: `pnpm guia` every 30 min (at :05 and :35), `-MultipleInstances IgnoreNew`, a 3 h time limit, output appended to `data-guias/logs/agendador-guias.log`. Same structure as `instalar-tarefas.ps1` (S4U with fallback to "only while logged on", idempotent, `-Remover`).

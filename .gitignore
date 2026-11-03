@@ -8,6 +8,7 @@ coverage/
 .superpowers/
 .claude/
 .vercel
+data-guias/
 
 .env*
 !.env.example

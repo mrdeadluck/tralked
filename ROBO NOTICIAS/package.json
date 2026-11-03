@@ -12,6 +12,7 @@
     "retroativo": "tsx src/commands/retroativo.ts",
     "despublicar": "tsx src/commands/despublicar.ts",
     "resumo": "tsx src/commands/resumo.ts",
+    "guia": "tsx src/commands/guia.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

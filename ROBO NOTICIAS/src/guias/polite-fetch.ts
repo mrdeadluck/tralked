@@ -105,12 +105,62 @@ function retryAfterMs(header: string | null): number {
   return Number.isNaN(date) ? DEFAULT_RETRY_MS : Math.min(Math.max(date - Date.now(), 0), RETRY_AFTER_CAP_MS);
 }
 
-export async function politeFetch(url: string, opts: PoliteOptions = {}): Promise<PoliteResult> {
-  const { db } = opts;
+type Resolved = {
+  db?: GuideDb;
+  state: PoliteState;
+  now: () => Date;
+  sleep: (ms: number) => Promise<void>;
+  /** One GET honoring the host interval. */
+  get: (u: URL, accept?: string) => Promise<Response>;
+};
+
+function resolveOptions(opts: PoliteOptions): Resolved {
   const fetchFn = opts.fetchFn ?? fetch;
   const state = opts.state ?? defaultState;
   const now = opts.now ?? (() => new Date());
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  async function get(u: URL, accept = ACCEPT): Promise<Response> {
+    const gap = HOST_GAP_MS[u.hostname] ?? DEFAULT_GAP_MS;
+    const last = state.lastRequestAt.get(u.hostname);
+    if (last !== undefined) {
+      const wait = last + gap - now().getTime();
+      if (wait > 0) await sleep(wait);
+    }
+    state.lastRequestAt.set(u.hostname, now().getTime());
+    return fetchFn(u.toString(), {
+      headers: { "User-Agent": USER_AGENT, Accept: accept },
+      redirect: "follow",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  }
+  return { db: opts.db, state, now, sleep, get };
+}
+
+/** robots.txt allows the url (rules cached per host in the state). */
+async function allowed(target: URL, r: Resolved): Promise<boolean> {
+  let rules = r.state.robots.get(target.host);
+  if (!rules) {
+    rules = await loadRobots(target, r.db, r.now, (u) => r.get(u));
+    r.state.robots.set(target.host, rules);
+  }
+  return robotsAllows(rules, `${target.pathname}${target.search}`);
+}
+
+/** The GET, retried once after a 429 (Retry-After honored, capped). */
+async function getWithRetry(target: URL, r: Resolved, accept?: string): Promise<Response> {
+  let response = await r.get(target, accept);
+  if (response.status === 429) {
+    const wait = retryAfterMs(response.headers.get("Retry-After"));
+    void response.body?.cancel().catch(() => {});
+    await r.sleep(wait);
+    response = await r.get(target, accept);
+  }
+  return response;
+}
+
+export async function politeFetch(url: string, opts: PoliteOptions = {}): Promise<PoliteResult> {
+  const r = resolveOptions(opts);
+  const { db, now } = r;
 
   if (!URL.canParse(url)) return { status: "error", finalUrl: url, reason: "invalid URL" };
   const target = new URL(url);
@@ -120,39 +170,10 @@ export async function politeFetch(url: string, opts: PoliteOptions = {}): Promis
     return { status: "ok", text: cached.text ?? undefined, html: cached.html ?? undefined, finalUrl: cached.final_url };
   }
 
-  /** One GET honoring the host interval. */
-  async function get(u: URL): Promise<Response> {
-    const gap = HOST_GAP_MS[u.hostname] ?? DEFAULT_GAP_MS;
-    const last = state.lastRequestAt.get(u.hostname);
-    if (last !== undefined) {
-      const wait = last + gap - now().getTime();
-      if (wait > 0) await sleep(wait);
-    }
-    state.lastRequestAt.set(u.hostname, now().getTime());
-    return fetchFn(u.toString(), {
-      headers: { "User-Agent": USER_AGENT, Accept: ACCEPT },
-      redirect: "follow",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  }
-
   try {
-    let rules = state.robots.get(target.host);
-    if (!rules) {
-      rules = await loadRobots(target, db, now, get);
-      state.robots.set(target.host, rules);
-    }
-    if (!robotsAllows(rules, `${target.pathname}${target.search}`)) {
-      return { status: "blocked", finalUrl: url, reason: "robots.txt" };
-    }
+    if (!(await allowed(target, r))) return { status: "blocked", finalUrl: url, reason: "robots.txt" };
 
-    let response = await get(target);
-    if (response.status === 429) {
-      const wait = retryAfterMs(response.headers.get("Retry-After"));
-      void response.body?.cancel().catch(() => {});
-      await sleep(wait);
-      response = await get(target);
-    }
+    const response = await getWithRetry(target, r);
 
     const html = await response.text();
     const finalUrl = response.url || url;
@@ -172,6 +193,34 @@ export async function politeFetch(url: string, opts: PoliteOptions = {}): Promis
     return { status: "ok", text, html, finalUrl };
   } catch (error) {
     return { status: "error", finalUrl: url, reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+const IMAGE_MAX_BYTES = 15 * 1024 * 1024;
+const IMAGE_ACCEPT = "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8";
+
+/**
+ * Bytes of an image under the same rules as the pages (robots.txt, host interval, one retry on 429). Null when
+ * it is not allowed, fails, is not an image (a challenge page is HTML) or is over 15 MB. Never cached.
+ */
+export async function politeFetchImage(url: string, opts: PoliteOptions = {}): Promise<Buffer | null> {
+  const r = resolveOptions(opts);
+  if (!URL.canParse(url)) return null;
+  const target = new URL(url);
+  if (target.protocol !== "https:" && target.protocol !== "http:") return null;
+  try {
+    if (!(await allowed(target, r))) return null;
+    const response = await getWithRetry(target, r, IMAGE_ACCEPT);
+    const type = response.headers.get("Content-Type") ?? "";
+    const length = Number(response.headers.get("Content-Length") ?? 0);
+    if (!response.ok || !type.startsWith("image/") || length > IMAGE_MAX_BYTES) {
+      void response.body?.cancel().catch(() => {});
+      return null;
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return bytes.length > 0 && bytes.length <= IMAGE_MAX_BYTES ? bytes : null;
+  } catch {
+    return null;
   }
 }
 
