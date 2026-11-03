@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { Ai, StructuredOpts } from "../../src/ai/client.js";
-import { extractFacts, extractionPrompt, splitText } from "../../src/guias/extract.js";
+import { extractFacts, extractionPrompt, RETRY_NOTE, splitText, statedEntries } from "../../src/guias/extract.js";
 import { extractedFactsSchema, llmFactsSchema, type LlmFacts } from "../../src/guias/facts.js";
 import type { SourceRef } from "../../src/guias/sources.js";
 
@@ -146,5 +147,65 @@ ${"c".repeat(5000)}`;
     expect(wip).toMatch(/дополняется/);
     expect(wip).toMatch(/not yet confirmed/);
     expect(wip).toMatch(/NOT work in progress[^.]*corrections are welcome/);
+  });
+});
+
+describe("extração completa: a página diz quantas entradas tem (Village of Lu, cache real)", () => {
+  const lu: SourceRef = {
+    name: "PowerPyx (Village Of Lu)",
+    url: "https://www.powerpyx.com/phantom-blade-zero-village-of-lu-collectible-locations/",
+    role: "coletaveis",
+    language: "en",
+  };
+  const text = readFileSync(new URL("./fixtures/powerpyx-pbz-village-of-lu.txt", import.meta.url), "utf8");
+  type Item = LlmFacts["chapters"][number]["items"][number];
+  /** What a faithful model returns for a text: one item per "#N – Name" entry in it. */
+  const entriesIn = (user: string): Item[] =>
+    [...user.matchAll(/^#(\d+)\s*[–-]\s*(.+)$/gm)].map((m) => ({
+      kind: "collectible", name: m[2]!.trim(), location: "x", missable: false, returnLater: false, countsForEn: [],
+    }));
+  const answer = (items: Item[]): LlmFacts => ({ ...base, chapters: [{ title: "First Visit", region: "Village of Lu", order: 1, items }] });
+
+  it("a página diz 76 (e numera até #76); um hub sem entradas numeradas não conta", () => {
+    expect(statedEntries(text)).toBe(76);
+    expect(statedEntries("Phantom Blade Zero contains 564 Collectibles Locations (161 Bells, ...). By region: ...")).toBeUndefined();
+    expect(statedEntries("#1 – Bell\nx\n#2 – Memory Flower\ny\n#3 – Bell")).toBe(3);
+  });
+
+  it("veio curta (18 de 76): relê em partes menores, com a regra de listar cada entrada numerada, e fica com a lista inteira", async () => {
+    const { ai, calls } = fakeAi((opts, i) => (i === 0 ? answer(entriesIn(opts.user).slice(0, 18)) : answer(entriesIn(opts.user))));
+    const facts = await extractFacts({ url: lu.url, text }, lu, { ai, model: "claude-sonnet-5-5" });
+    // One first pass, then the page again in parts of at most 15k characters (and always at least two).
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    const retries = calls.slice(1);
+    expect(retries.every((c) => c.user.includes(RETRY_NOTE))).toBe(true);
+    expect(calls[0]!.user).not.toContain(RETRY_NOTE);
+    expect(RETRY_NOTE).toMatch(/EVERY numbered entry/);
+    expect(retries.every((c) => c.purpose.startsWith("guia-extracao:"))).toBe(true);
+    const items = facts.chapters.flatMap((c) => c.items);
+    expect(items.length).toBeGreaterThanOrEqual(69);
+    expect(facts.shortfall).toBeUndefined();
+    expect(extractedFactsSchema.safeParse(facts).success).toBe(true);
+  });
+
+  it("continua curta depois de reler: a fonte fica marcada como incompleta (para o relatório)", async () => {
+    const { ai, calls } = fakeAi((opts) => answer(entriesIn(opts.user).slice(0, 9)));
+    const facts = await extractFacts({ url: lu.url, text }, lu, { ai, model: "claude-sonnet-5-5" });
+    const retries = calls.length - 1;
+    expect(retries).toBeGreaterThanOrEqual(2);
+    expect(facts.shortfall).toEqual({ stated: 76, extracted: facts.chapters.flatMap((c) => c.items).length });
+    expect(facts.shortfall!.extracted).toBe(calls.slice(1).reduce((n, c) => n + Math.min(9, entriesIn(c.user).length), 0));
+    expect(facts.shortfall!.extracted).toBeLessThan(69);
+  });
+
+  it("veio completa: nenhuma releitura", async () => {
+    const { ai, calls } = fakeAi((opts) => answer(entriesIn(opts.user)));
+    const facts = await extractFacts({ url: lu.url, text }, lu, { ai, model: "claude-sonnet-5-5" });
+    expect(calls).toHaveLength(1);
+    expect(facts.shortfall).toBeUndefined();
+  });
+
+  it("o prompt manda listar cada entrada numerada, sem resumir", () => {
+    expect(extractionPrompt()).toMatch(/every numbered entry/i);
   });
 });

@@ -4,6 +4,7 @@ import type { DryRunConfig } from "./config.js";
 import { independentGroups } from "./crossref.js";
 import type { GuideDb } from "./db.js";
 import { buildDossier, UNPLACED_MARK, type DossierAchievement, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "./dossier.js";
+import { COMPLETE_SHARE, statedEntries } from "./extract.js";
 import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate } from "./gate.js";
 import { estimatePayloadBytes, IMAGE_BYTES, kib, REPORT_SLACK_BYTES, SITE_LIMITS, skeletonLimitProblems } from "./limits.js";
@@ -178,6 +179,8 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   let stale = 0;
   let missing = 0;
   let reextractChars = 0;
+  /** Characters of the pages a real run would read again in parts (their extraction came back short). */
+  let rereadChars = 0;
   log(`fontes (${context.sources.length}):`);
   for (const source of context.sources) {
     const page = await fetchPage(source.url);
@@ -207,6 +210,25 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
       `  - ${source.name} [${source.role}${found.facts.complete ? ", completo" : ""}]: ${found.facts.chapters.length} capítulos, ${items} itens, ` +
         `${found.facts.achievements.length} conquistas — extração ${found.stale ? "ANTIGA (prompt ou texto mudaram: a execução real extrai de novo)" : "atual"}`,
     );
+    // The page says how many entries it lists and the extraction brought less than 90% of them.
+    const stated = statedEntries(page.text);
+    if (found.facts.shortfall) {
+      log(`    extração incompleta (já relida em partes): diz ter ${found.facts.shortfall.stated} entradas, a extração trouxe ${found.facts.shortfall.extracted}`);
+    } else if (stated !== undefined && items < COMPLETE_SHARE * stated) {
+      rereadChars += page.text.length;
+      const est = cost(config.MODEL_EXTRACT, tokens(page.text.length), Math.ceil(tokens(page.text.length) * 0.35));
+      log(
+        `    extração curta: ${source.name} diz ter ${stated} entradas e a extração tem ${items} (menos de 90%); a execução real relê a página em partes ` +
+          `(~${kib(page.text.length)} KiB${est !== undefined ? `, ~${usd(est)}` : ""})`,
+      );
+    }
+  }
+  if (rereadChars > 0) {
+    const est = cost(config.MODEL_EXTRACT, tokens(rereadChars), Math.ceil(tokens(rereadChars) * 0.35));
+    log(
+      `  releitura em partes na execução real: ~${kib(rereadChars)} KiB${est !== undefined ? `, ~${usd(est)}` : ""} além da extração; ` +
+        "o ensaio não relê: os itens que ela recuperar não estão nos números abaixo",
+    );
   }
   if (stale + missing > 0) {
     const est = cost(config.MODEL_EXTRACT, tokens(reextractChars), Math.ceil(tokens(reextractChars) * 0.35));
@@ -224,7 +246,8 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
       const steam = context.steamList.filter((a) => a.platform === "steam");
       const result = await readSteamAliases(context.steamAppId, languages, steam, fetchPage, config.GUIDE_STEAM_REFERENCE_ID);
       aliases = result.aliases;
-      for (const f of result.failed) log(`  nomes da Steam em ${f.language}: fora do cache`);
+      for (const f of result.failed) log(`  nomes da Steam em ${f.language}: ${f.reason}`);
+      if (result.read.length > 0) log(`  nomes da Steam lidos do cache: ${result.read.join(", ")}`);
     }
   }
 
@@ -243,6 +266,15 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   log(`escopo escolhido: ${chosen ?? "nenhum (o pedido ficaria em waiting_sources)"}`);
   for (const line of steamGate.missing) log(`  falta (steam): ${line}`);
   for (const line of psnGate?.missing ?? []) log(`  falta (psn): ${line}`);
+  // Task 18: "collect N" counted by the route's items of the type the text names.
+  for (const a of dossier.achievements) {
+    const t = a.collect?.byType;
+    if (!t) continue;
+    log(
+      `  contagem por tipo: "${a.nameEn}" (${a.apiName}) pede ${a.collect!.target} "${t.type}"; os itens do tipo somam ${a.collect!.counted}` +
+        `${t.unconverted > 0 ? `; ${t.unconverted} fragmentos sem regra de conversão ficaram de fora` : ""}${t.ambiguous ? "; ligação ambígua (revisão)" : ""}`,
+    );
+  }
 
   let toWrite = dossier;
   let scope: PsnWriteScope | undefined;

@@ -29,7 +29,7 @@ import {
 import { locateTarget } from "./locate.js";
 import { PAGE_TEXT_MAX } from "./page-text.js";
 import { buildReport, spendByPurpose, type RobotReport, type SourceRead } from "./report.js";
-import { saveRunContext } from "./run-context.js";
+import { reusableDiscovery, saveRunContext } from "./run-context.js";
 import { psnScope, type PsnWriteScope } from "./scope.js";
 import { buildSkeleton } from "./skeleton.js";
 import { findSoundtrack } from "./soundtrack.js";
@@ -82,7 +82,7 @@ export type GuidePipelineDeps = {
   /** Anthropic client: the AI calls go through `createAi` with the request's spend cap. */
   client: Anthropic;
   config: Pick<GuideConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "GUIDE_BUDGET_USD"> &
-    Partial<Pick<GuideConfig, "GUIDE_STEAM_REFERENCE_ID" | "GUIDE_SOFT_DEADLINE_MIN">>;
+    Partial<Pick<GuideConfig, "GUIDE_STEAM_REFERENCE_ID" | "GUIDE_SOFT_DEADLINE_MIN" | "GUIDE_FORCE_DISCOVERY">>;
   /** `politeFetch` bound to the GuideDb (robots.txt, host intervals, challenge pages as unread). */
   fetchPage: FetchPage;
   /** Bytes of an image, or null when it cannot be read. */
@@ -150,7 +150,8 @@ type Run = {
     sourcesRead: SourceRead[];
     steamList?: GuideDossierSource["achievements"];
     dossier?: GuideDossier;
-    scope?: GuideScope;
+    /** null: neither gate passed, no scope was chosen. */
+    scope?: GuideScope | null;
     notes: string[];
   };
   report(extra?: { missing?: string[]; problems?: string[]; internalErrors?: string[] }): RobotReport;
@@ -309,16 +310,24 @@ async function processRequest(run: Run): Promise<Final> {
   progress.steamList = source.achievements;
   if (!source.achievements.some((a) => a.platform === "steam")) return failed(run, "o jogo não tem conquistas na Steam");
 
-  // Step 3: the sources. A failed search is reported as a source not read.
-  const sources = await stages.discoverSources(
-    { name: source.game.name, steamAppId: request.steamAppId },
-    {
-      fetchPage: deps.fetchPage,
-      search: run.search,
-      onSearchFailure: (query, error) => progress.sourcesRead.push({ name: `Busca: ${query}`, url: "", ok: false, reason: messageOf(error) }),
-    },
-  );
-  // What this request runs on, for the free dry run (`pnpm guia -- --ensaio`).
+  // Step 3: the sources. The web searches are paid: a discovery of the last 7 days for this request or game is reused
+  // (unless GUIDE_FORCE_DISCOVERY). A failed search is reported as a source not read.
+  const discovered = config.GUIDE_FORCE_DISCOVERY ? undefined : reusableDiscovery(db, request.id, request.steamAppId, deps.now());
+  let sources: SourceRef[];
+  if (discovered) {
+    sources = discovered.sources;
+    deps.log(`guia: fontes da descoberta reaproveitadas (salvas em ${discovered.savedAt}, ${sources.length} fontes); sem busca na web`);
+  } else {
+    sources = await stages.discoverSources(
+      { name: source.game.name, steamAppId: request.steamAppId },
+      {
+        fetchPage: deps.fetchPage,
+        search: run.search,
+        onSearchFailure: (query, error) => progress.sourcesRead.push({ name: `Busca: ${query}`, url: "", ok: false, reason: messageOf(error) }),
+      },
+    );
+  }
+  // What this request runs on, for the free dry run (`pnpm guia -- --ensaio`); `savedAt` stays the discovery's date.
   saveRunContext(db, {
     requestId: request.id,
     steamAppId: request.steamAppId,
@@ -326,7 +335,7 @@ async function processRequest(run: Run): Promise<Final> {
     game: source.game,
     steamList: source.achievements,
     sources,
-    savedAt: deps.now().toISOString(),
+    savedAt: discovered?.savedAt ?? deps.now().toISOString(),
   });
 
   // Steps 4–5: read each page, then extract its facts (cached by content: a retry only pays for what changed).
@@ -378,6 +387,7 @@ async function processRequest(run: Run): Promise<Final> {
   if (!verdict.ok) {
     const psn = gate(dossier, source.achievements, { scope: "psn" });
     if (!psn.ok) {
+      progress.scope = null;
       const missing = [...verdict.missing, psnFailure(psn)];
       const head = missing.slice(0, 3).join(" ");
       const more = missing.length > 3 ? ` (e mais ${missing.length - 3})` : "";
@@ -523,7 +533,7 @@ async function localizedNames(
   const result = await readSteamAliases(appId, languages, steam, run.deps.fetchPage, profile);
   const entry = (language: AliasLanguage) => ({
     name: `Steam: nomes das conquistas (${language})`,
-    url: steamAliasUrl(appId, language, profile),
+    url: result.urls[language] ?? steamAliasUrl(appId, language),
   });
   for (const language of result.read) run.progress.sourcesRead.push({ ...entry(language), ok: true });
   for (const { language, reason } of result.failed) run.progress.sourcesRead.push({ ...entry(language), ok: false, reason });
@@ -568,6 +578,9 @@ async function extractCached(run: Run, source: SourceRef, page: { url: string; t
   if (db.getMeta(key) !== undefined) run.deps.log(`guia: extração em cache de ${source.name} ilegível; extraio de novo`);
   const facts = await run.stages.extractFacts(page, source, { ai: run.ai, model: config.MODEL_EXTRACT, bucket: "backfill" });
   db.setMeta(key, JSON.stringify(facts));
+  if (facts.shortfall) {
+    run.deps.log(`guia: extração incompleta de ${source.name}: a página diz ${facts.shortfall.stated} entradas, vieram ${facts.shortfall.extracted} mesmo relendo em partes`);
+  }
   return facts;
 }
 

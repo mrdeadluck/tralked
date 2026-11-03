@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import type { FetchPage } from "../../src/guias/sources.js";
 import {
+  parseAchievementSchemaPage,
   parseAchievementXml,
   readSteamAliases,
   REFERENCE_STEAM_ID,
   steamAliasUrl,
   steamLanguagesIn,
+  steamProfileXmlUrl,
 } from "../../src/guias/steam-aliases.js";
 
 // Hand-made in the format of Steam's community achievement XML (`/profiles/<id>/stats/<app>/achievements/?xml=1`),
@@ -76,13 +79,16 @@ describe("readSteamAliases", () => {
     const asked: string[] = [];
     const fetchPage: FetchPage = async (url) => {
       asked.push(url);
-      if (url === steamAliasUrl(4115450, "russian")) return { status: "ok", text: "", html: RUSSIAN, finalUrl: url };
-      if (url === steamAliasUrl(4115450, "schinese")) return { status: "ok", text: "", html: SCHINESE, finalUrl: url };
+      if (url === steamProfileXmlUrl(4115450, "russian")) return { status: "ok", text: "", html: RUSSIAN, finalUrl: url };
+      if (url === steamProfileXmlUrl(4115450, "schinese")) return { status: "ok", text: "", html: SCHINESE, finalUrl: url };
       return { status: "error", finalUrl: url, reason: "HTTP 500" };
     };
     const result = await readSteamAliases(4115450, ["russian", "schinese", "tchinese"], STEAM, fetchPage);
-    expect(asked).toEqual([steamAliasUrl(4115450, "russian"), steamAliasUrl(4115450, "schinese"), steamAliasUrl(4115450, "tchinese")]);
-    expect(steamAliasUrl(4115450, "russian")).toBe(
+    // The schema page first (it answers 500 here), then the profile XML.
+    expect(asked).toEqual(
+      (["russian", "schinese", "tchinese"] as const).flatMap((l) => [steamAliasUrl(4115450, l), steamProfileXmlUrl(4115450, l)]),
+    );
+    expect(steamProfileXmlUrl(4115450, "russian")).toBe(
       `https://steamcommunity.com/profiles/${REFERENCE_STEAM_ID}/stats/4115450/achievements/?xml=1&l=russian`,
     );
     expect(result.aliases).toEqual({
@@ -110,8 +116,12 @@ describe("readSteamAliases", () => {
       asked.push(url);
       return { status: "ok", text: "", html: RUSSIAN, finalUrl: url };
     };
+    // A schema page that is no achievement list (here the XML) is not read as one: the profile XML is next.
     await readSteamAliases(4115450, ["russian"], STEAM, fetchPage, "76561197960287930");
-    expect(asked).toEqual(["https://steamcommunity.com/profiles/76561197960287930/stats/4115450/achievements/?xml=1&l=russian"]);
+    expect(asked).toEqual([
+      "https://steamcommunity.com/achievements/4115450?l=russian",
+      "https://steamcommunity.com/profiles/76561197960287930/stats/4115450/achievements/?xml=1&l=russian",
+    ]);
   });
 
   it("uma lista que não é a do jogo (nenhum apiName casa) não vale", async () => {
@@ -119,5 +129,66 @@ describe("readSteamAliases", () => {
     const result = await readSteamAliases(4115450, ["russian"], STEAM, fetchPage);
     expect(result.aliases).toEqual({});
     expect(result.failed).toEqual([{ language: "russian", reason: "a lista da Steam não tem as conquistas do jogo" }]);
+  });
+});
+
+// Trimmed from the live pages (2026-11-03, two polite GETs): `steamcommunity.com/achievements/4115450?l=<lang>`
+// embeds the game's achievement schema in the language asked, apinames and hidden achievements included.
+const fixture = (lang: string) => readFileSync(new URL(`./fixtures/steam-achievements-4115450-${lang}.html`, import.meta.url), "utf8");
+
+describe("parseAchievementSchemaPage (página pública de conquistas do jogo)", () => {
+  it("lê apiName e nome no idioma pedido, ocultas incluídas (chinês e russo, Phantom Blade Zero)", () => {
+    const zh = parseAchievementSchemaPage(fixture("schinese"))!;
+    expect(zh).toHaveLength(66);
+    expect(zh).toContainEqual({ apiName: "ACH_043", name: "珀力非凡" });
+    expect(zh).toContainEqual({ apiName: "ACH_066", name: "逆天改命" });
+    // ACH_002 is hidden on Steam: the page still names it.
+    expect(zh).toContainEqual({ apiName: "ACH_002", name: "逆行不逆心" });
+    const ru = parseAchievementSchemaPage(fixture("russian"))!;
+    expect(ru).toHaveLength(66);
+    expect(ru).toContainEqual({ apiName: "ACH_013", name: "Сердцем и кровью" });
+    expect(ru).toContainEqual({ apiName: "ACH_044", name: "Прислушиваясь к каждому цветку" });
+  });
+
+  it("página sem a lista (erro, outra página, JSON quebrado) → null", () => {
+    expect(parseAchievementSchemaPage("<html><body>Steam Community :: Error</body></html>")).toBeNull();
+    expect(parseAchievementSchemaPage('<script type="application/json" id="valve-ssr-data">{"renderContext":{"queryData":"{bad"}}</script>')).toBeNull();
+    expect(parseAchievementSchemaPage(RUSSIAN)).toBeNull();
+  });
+});
+
+describe("readSteamAliases: a página pública primeiro", () => {
+  const PBZ = [
+    { apiName: "ACH_013", name: "With Heart and Blood" },
+    { apiName: "ACH_043", name: "Complete Mastery" },
+  ];
+
+  it("lê os nomes localizados da página do jogo, sem perfil nem XML", async () => {
+    const asked: string[] = [];
+    const fetchPage: FetchPage = async (url) => {
+      asked.push(url);
+      if (url === steamAliasUrl(4115450, "schinese")) return { status: "ok", text: "", html: fixture("schinese"), finalUrl: url };
+      if (url === steamAliasUrl(4115450, "russian")) return { status: "ok", text: "", html: fixture("russian"), finalUrl: url };
+      return { status: "error", finalUrl: url, reason: "HTTP 404" };
+    };
+    const result = await readSteamAliases(4115450, ["schinese", "russian"], PBZ, fetchPage);
+    expect(steamAliasUrl(4115450, "schinese")).toBe("https://steamcommunity.com/achievements/4115450?l=schinese");
+    expect(asked).toEqual([steamAliasUrl(4115450, "schinese"), steamAliasUrl(4115450, "russian")]);
+    expect(result.aliases).toEqual({ ACH_013: ["昭昭心与血", "Сердцем и кровью"], ACH_043: ["珀力非凡", "Овладение мастерством"] });
+    expect(result.read).toEqual(["schinese", "russian"]);
+    expect(result.urls).toEqual({ schinese: steamAliasUrl(4115450, "schinese"), russian: steamAliasUrl(4115450, "russian") });
+  });
+
+  it("o XML do perfil que devolve os nomes em inglês (o que aconteceu no PBZ) não vale como lista localizada", async () => {
+    const english = achievementXml([
+      ["ach_013", "With Heart and Blood", "All Comes to Light"],
+      ["ach_043", "Complete Mastery", "Collect 10 Sha-Chi Ambers"],
+    ]);
+    const fetchPage: FetchPage = async (url) =>
+      url === steamProfileXmlUrl(4115450, "russian") ? { status: "ok", text: "", html: english, finalUrl: url } : { status: "error", finalUrl: url, reason: "HTTP 404" };
+    const result = await readSteamAliases(4115450, ["russian"], PBZ, fetchPage);
+    expect(result.aliases).toEqual({});
+    expect(result.read).toEqual([]);
+    expect(result.failed).toEqual([{ language: "russian", reason: "a Steam devolveu os nomes em inglês, não em russian" }]);
   });
 });

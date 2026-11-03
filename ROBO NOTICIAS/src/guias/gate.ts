@@ -36,7 +36,9 @@ function achievementGaps(steam: SteamAchievement, a: DossierAchievement | undefi
     if (c.conflictingTotals.length > 0) {
       missing.push(`As fontes discordam do total da conquista ${name}: ${c.conflictingTotals.join(" e ")}.`);
     } else if (short) {
-      missing.push(`A conquista ${name} pede ${c.target}, mas os itens encontrados somam ${c.counted}.`);
+      const parts = c.byType?.unconverted ?? 0;
+      const why = parts > 0 ? ` (${parts} ${parts === 1 ? "fragmento" : "fragmentos"} sem regra de conversão nas fontes)` : "";
+      missing.push(`A conquista ${name} pede ${c.target}, mas os itens encontrados somam ${c.counted}${why}.`);
     }
     for (const item of c.withoutLocation) missing.push(`O item "${item}" da conquista ${name} está sem localização.`);
     for (const problem of c.indexProblems) missing.push(`A contagem da conquista ${name} está errada: ${problem}.`);

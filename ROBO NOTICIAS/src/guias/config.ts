@@ -20,6 +20,13 @@ const GuideConfigSchema = z.object({
    * goes stale at 180 min).
    */
   GUIDE_SOFT_DEADLINE_MIN: opt(z.coerce.number().positive().default(150)),
+  /** "1": search the web for sources again even when a discovery of the last 7 days could be reused. */
+  GUIDE_FORCE_DISCOVERY: opt(
+    z
+      .enum(["0", "1", "true", "false"])
+      .default("0")
+      .transform((v) => v === "1" || v === "true"),
+  ),
   DATA_DIR_GUIAS: opt(z.string().default("./data-guias")),
   /** Public Steam profile whose achievement pages give the achievements' names in other languages (it must own the game). */
   GUIDE_STEAM_REFERENCE_ID: opt(

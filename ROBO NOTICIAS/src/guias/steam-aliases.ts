@@ -4,10 +4,14 @@ import type { FetchPage } from "./sources.js";
 /**
  * The achievements' names in the languages of the guides read. The best Steam guides of a new game are often
  * Chinese or Russian and cite the achievements by their localized Steam names ("逆天改命", "Сердцем и кровью"),
- * which never match the English list. Steam's public community XML of a profile that owns the game gives every
- * achievement's apiname and name in any language (`l=`), the same keyless page the site reads as the schema
- * (app/src/lib/integrations/steam/community.ts). Read through `politeFetch` (robots.txt, 5 s per request on
- * steamcommunity.com, 7-day cache).
+ * which never match the English list.
+ *
+ * First the game's public achievement page, `steamcommunity.com/achievements/<appid>?l=<language>` (keyless, no
+ * profile): it embeds the achievement schema in the language asked, apinames and hidden achievements included
+ * (verified live on Phantom Blade Zero, 2026-11-03). Then, as a fallback, the community XML of a profile that owns
+ * the game (`?xml=1&l=`), the page the site reads as the schema (app/src/lib/integrations/steam/community.ts); on
+ * PBZ it answered in English whatever the `l=`, so a list of English names does not count as localized. Read
+ * through `politeFetch` (robots.txt, 5 s per request on steamcommunity.com, 7-day cache).
  */
 
 /** Steam's language codes the robot reads names in. */
@@ -50,7 +54,11 @@ export function steamLanguagesIn(pages: { text: string; language?: string }[]): 
   return ALIAS_LANGUAGES.filter((l) => found.has(l));
 }
 
-export const steamAliasUrl = (appId: number | string, language: AliasLanguage, profile = REFERENCE_STEAM_ID) =>
+/** The game's public achievement page in a language (the schema, embedded as JSON). */
+export const steamAliasUrl = (appId: number | string, language: AliasLanguage) => `https://steamcommunity.com/achievements/${appId}?l=${language}`;
+
+/** The fallback: a profile's achievement XML in a language. */
+export const steamProfileXmlUrl = (appId: number | string, language: AliasLanguage, profile = REFERENCE_STEAM_ID) =>
   `https://steamcommunity.com/profiles/${profile}/stats/${appId}/achievements/?xml=1&l=${language}`;
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
@@ -80,6 +88,35 @@ export function parseAchievementXml(xml: string): { apiName: string; name: strin
   return out;
 }
 
+type SchemaQuery = {
+  queryKey?: unknown[];
+  state?: { data?: { groups?: { achievements?: { api_name?: unknown; name?: unknown }[] }[] } | null };
+};
+
+/**
+ * apiName and name of each achievement on the game's public achievement page: its server-rendered JSON
+ * (`<script id="valve-ssr-data">`) carries `renderContext.queryData`, a JSON string whose `["achievements", appid,
+ * "schema_v2"]` query holds the schema in the page's language. Null when the page has no such list.
+ */
+export function parseAchievementSchemaPage(html: string): { apiName: string; name: string }[] | null {
+  const script = /<script[^>]*\bid="valve-ssr-data"[^>]*>([\s\S]*?)<\/script>/.exec(html);
+  if (!script) return null;
+  try {
+    const ssr = JSON.parse(script[1]!) as { renderContext?: { queryData?: unknown } };
+    const queryData = ssr.renderContext?.queryData;
+    if (typeof queryData !== "string") return null;
+    const { queries } = JSON.parse(queryData) as { queries?: SchemaQuery[] };
+    const schema = (queries ?? []).find((q) => q.queryKey?.[0] === "achievements" && Array.isArray(q.state?.data?.groups));
+    const rows = (schema?.state?.data?.groups ?? []).flatMap((g) => g.achievements ?? []);
+    const out = rows.flatMap((a) =>
+      typeof a.api_name === "string" && typeof a.name === "string" && a.name.trim() ? [{ apiName: a.api_name, name: a.name.trim() }] : [],
+    );
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Steam sends some apps to a friendly name (`/stats/<Name>/?tab=achievements`): the XML url under that name. */
 function friendlyRetry(finalUrl: string, asked: string, language: AliasLanguage): string | undefined {
   if (!URL.canParse(finalUrl) || finalUrl === asked) return undefined;
@@ -94,39 +131,44 @@ export type SteamAliasResult = {
   aliases: AchievementAliases;
   /** Languages whose list was read. */
   read: AliasLanguage[];
+  /** The page each language was read from (the public page, or the profile XML when only that one answered). */
+  urls: Partial<Record<AliasLanguage, string>>;
   failed: { language: AliasLanguage; reason: string }[];
 };
 
 /**
- * Names of the Steam master list's achievements in each language, keyed by the list's apiName. A language whose
- * list cannot be read is reported in `failed` and skipped: its guides simply match fewer names.
+ * Names of the Steam master list's achievements in each language, keyed by the list's apiName: from the game's
+ * public achievement page, else from the profile XML. A language whose list cannot be read, or comes back in
+ * English, is reported in `failed` and skipped: its guides simply match fewer names. `steamList` may carry the
+ * English names, to tell an English list apart.
  */
 export async function readSteamAliases(
   appId: number,
   languages: AliasLanguage[],
-  steamList: { apiName: string }[],
+  steamList: { apiName: string; name?: string }[],
   fetchPage: FetchPage,
   profile = REFERENCE_STEAM_ID,
 ): Promise<SteamAliasResult> {
   const canonical = new Map(steamList.map((s) => [s.apiName.toLowerCase(), s.apiName]));
+  const english = new Map(steamList.flatMap((s) => (s.name ? [[s.apiName.toLowerCase(), s.name.trim()] as const] : [])));
   const aliases: AchievementAliases = {};
-  const result: SteamAliasResult = { aliases, read: [], failed: [] };
+  const result: SteamAliasResult = { aliases, read: [], urls: {}, failed: [] };
   for (const language of languages) {
-    const url = steamAliasUrl(appId, language, profile);
-    let page = await fetchPage(url);
-    let rows = page.status === "ok" ? parseAchievementXml(page.html ?? "") : null;
-    const retry = page.status === "ok" && !rows ? friendlyRetry(page.finalUrl, url, language) : undefined;
-    if (retry) {
-      page = await fetchPage(retry);
-      rows = page.status === "ok" ? parseAchievementXml(page.html ?? "") : null;
-    }
-    if (!rows) {
-      result.failed.push({ language, reason: page.status === "ok" ? "a Steam não devolveu a lista de conquistas" : (page.reason ?? page.status) });
+    const pageUrl = steamAliasUrl(appId, language);
+    const page = await fetchPage(pageUrl);
+    const fromPage = page.status === "ok" ? parseAchievementSchemaPage(page.html ?? "") : null;
+    const listed = fromPage ? { rows: fromPage, url: pageUrl } : await readProfileXml(appId, language, fetchPage, profile);
+    if ("reason" in listed) {
+      result.failed.push({ language, reason: listed.reason });
       continue;
     }
-    const known = rows.filter((r) => canonical.has(r.apiName.toLowerCase()));
+    const known = listed.rows.filter((r) => canonical.has(r.apiName.toLowerCase()));
     if (known.length === 0) {
       result.failed.push({ language, reason: "a lista da Steam não tem as conquistas do jogo" });
+      continue;
+    }
+    if (english.size > 0 && known.every((r) => english.get(r.apiName.toLowerCase()) === r.name.trim())) {
+      result.failed.push({ language, reason: `a Steam devolveu os nomes em inglês, não em ${language}` });
       continue;
     }
     for (const row of known) {
@@ -135,6 +177,28 @@ export async function readSteamAliases(
       if (!names.includes(row.name)) names.push(row.name);
     }
     result.read.push(language);
+    result.urls[language] = listed.url;
   }
   return result;
+}
+
+/** The fallback list: the profile's achievement XML (following the app's friendly name once). */
+async function readProfileXml(
+  appId: number,
+  language: AliasLanguage,
+  fetchPage: FetchPage,
+  profile: string,
+): Promise<{ rows: { apiName: string; name: string }[]; url: string } | { reason: string }> {
+  const url = steamProfileXmlUrl(appId, language, profile);
+  let page = await fetchPage(url);
+  let read = url;
+  let rows = page.status === "ok" ? parseAchievementXml(page.html ?? "") : null;
+  const retry = page.status === "ok" && !rows ? friendlyRetry(page.finalUrl, url, language) : undefined;
+  if (retry) {
+    page = await fetchPage(retry);
+    read = retry;
+    rows = page.status === "ok" ? parseAchievementXml(page.html ?? "") : null;
+  }
+  if (rows) return { rows, url: read };
+  return { reason: page.status === "ok" ? "a Steam não devolveu a lista de conquistas" : (page.reason ?? page.status) };
 }

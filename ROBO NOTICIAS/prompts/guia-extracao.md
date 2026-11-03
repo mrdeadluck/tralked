@@ -16,3 +16,4 @@ You extract facts from one page of a video game guide (trophy/achievement roadma
     Judge only the text you were given; when it is one part of a longer page, the code combines the parts.
 11. When the text is one part of a longer page, extract only what is in this part.
 12. Ignore ads, comments, navigation and unrelated games.
+13. When the page numbers its entries (#1, #2, ...) or says how many it lists ("contains 76 Collectible Locations"), list EVERY numbered entry as its own item, in page order: never summarize, merge or skip entries, even when many share a type ("#5 Memory Flower", "#9 Memory Flower" and "#11 Memory Flower" are three items).

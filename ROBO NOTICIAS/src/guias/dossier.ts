@@ -1,7 +1,18 @@
 import type { Dossier } from "../tralked.js";
 import type { GuideCompat } from "./contract.js";
 import { isRevisit, pageLabel, revisitPlace } from "./chapter-order.js";
-import { buildSourceGroups, collectTarget, detectFragmentRules, type FragmentRule } from "./crossref.js";
+import {
+  buildSourceGroups,
+  collectGoal,
+  detectFragmentRules,
+  leadClause,
+  maxPartsPerUnit,
+  PART_WORDS,
+  partsPerUnit,
+  singularName,
+  singularPhrase,
+  type FragmentRule,
+} from "./crossref.js";
 import type { ExtractedFacts } from "./facts.js";
 import { computeCompat, matchAchievements, normalizeName, similarity, steamApiNameFor, type SteamEntry } from "./match.js";
 import type { SourceRole } from "./sources.js";
@@ -72,6 +83,12 @@ export type DossierItem = {
    * chapter (the source lists in route order), and goes to review.
    */
   numberAssumed?: boolean;
+  /**
+   * Task 18: linked by the code to a "collect N <type>" achievement because its type is that thing (no source links
+   * it). "ambiguous": the type only contains the name, or the sources say one unit has a varying number of parts
+   * (2-6 petals): it goes to review.
+   */
+  countedByType?: "exact" | "ambiguous";
 };
 
 export type DossierChapter = {
@@ -153,6 +170,11 @@ export type DossierAchievement = {
     withoutLocation: string[];
     /** Problems with the numbering of the counting items (duplicates, absent; at least N: an item without number). */
     indexProblems: string[];
+    /**
+     * Task 18: the route's items of the type the text names were counted ("Collect 30 Accessories"). `unconverted`:
+     * parts of that thing ("Sha-Chi Amber Fragment") left out because no source says how many make one.
+     */
+    byType?: { type: string; ambiguous: boolean; unconverted: number };
   };
   /** Sources contradict each other on missable / until. Task 8 maps it to `review = true`. */
   conflict?: string;
@@ -317,9 +339,106 @@ function chapterForMilestone(
       }
     }
   }
+  const title = regionChapter(milestone, chapters, from);
+  return title ? { title, assumed: true } : undefined;
+}
+
+/** Words that never tell one place, thing or phrase from another. */
+const STOP = new Set(["the", "of", "a", "an", "and", "or", "to", "in", "on", "at", "for", "de", "do", "da", "dos", "das", "o", "os", "e", "no", "na"]);
+const wordsOf = (text: string) => normalizeName(text).split(" ").filter((w) => w && !STOP.has(w));
+
+/**
+ * The earliest chapter, at or after `from`, of a region the text names. The region's words in any order ("Weeping
+ * Valley Creek" is "Weeping Creek Valley"); "Crimson Manor" names no "Crimson Forest".
+ */
+function regionChapter(text: string | undefined, chapters: DossierChapter[], from: number): string | undefined {
+  if (!text) return undefined;
+  const words = new Set(wordsOf(text));
+  return chapters.slice(Math.max(0, from)).find((c) => {
+    const region = wordsOf(c.region ?? "");
+    return region.join("").length >= 3 && region.every((w) => words.has(w));
+  })?.title;
+}
+
+/** Words that name no boss, NPC or quest of their own ("an optional boss", "the normal final boss"). */
+const GENERIC = new Set([
+  "boss", "bosses", "enemy", "enemies", "area", "region", "optional", "final", "normal", "main", "all", "every", "game", "story", "side",
+  "quest", "quests", "tale", "tales", "trophy", "achievement", "defeat", "complete", "completing", "collect", "obtain", "awarded", "first",
+  "after", "before", "during", "through", "each", "with", "from", "into", "this", "that", "then", "when", "where", "midway", "end",
+]);
+
+/**
+ * The bosses, NPCs and quests an achievement text names: what it puts in brackets ("Complete [A Severed Mindseal]")
+ * and what it says to defeat ("Defeat Meng Hua, the Merciful Lady of the Blossom Veil"), cut at commas, colons and
+ * "and"; each as its words.
+ */
+function namedTargets(texts: (string | null | undefined)[]): string[][] {
+  const out: string[][] = [];
+  for (const text of texts) {
+    if (!text) continue;
+    const names = [
+      ...[...text.matchAll(/[[【「『]([^\]】」』]{3,80})[\]】」』]/g)].map((m) => m[1]!),
+      ...[...text.matchAll(/\b(?:defeat|beat|kill|slay)\s+([^.;()[\]]+)/gi)].flatMap((m) => m[1]!.split(/[,:]|\band\b/i)),
+    ];
+    for (const name of names) {
+      const words = wordsOf(name);
+      if (words.length > 0 && words.join("").length >= 4 && !words.some((w) => GENERIC.has(w))) out.push(words);
+    }
+  }
+  return out;
+}
+
+/**
+ * Phrases that tie an achievement to a place by text: its own name (two words or more) and the pairs of adjacent
+ * distinctive words of its texts ("completing the true ending" -> "true ending").
+ */
+function mentionPhrases(nameEn: string, texts: (string | null | undefined)[]): string[] {
+  const phrases = new Set<string>();
+  const name = wordsOf(nameEn);
+  if (name.length >= 2) phrases.add(normalizeName(nameEn));
+  for (const text of texts) {
+    if (!text) continue;
+    const words = normalizeName(text).split(" ");
+    for (let i = 0; i + 1 < words.length; i++) {
+      const [a, b] = [words[i]!, words[i + 1]!];
+      if (a.length >= 4 && b.length >= 4 && !STOP.has(a) && !STOP.has(b) && !GENERIC.has(a) && !GENERIC.has(b)) phrases.add(`${a} ${b}`);
+    }
+  }
+  return [...phrases];
+}
+
+/**
+ * Task 18 (B): the chapter of a missable achievement that no milestone and no item of its own ties to one, read from
+ * its texts, in this order: (1) a region its milestone or how-to names (the first chapter of the earliest one: warning
+ * early is safe); (2) a boss, NPC or quest it names that is an item of the route (by name); (3) a route item whose
+ * name or location mentions it. Always at or after `from`. The code's reading, never the source's: `deadlineAssumed`.
+ */
+function looseDeadline(
+  a: { nameEn: string; description: string | null; missableUntil?: string },
+  howTos: string[],
+  chapters: DossierChapter[],
+  from: number,
+): string | undefined {
+  for (const text of [a.missableUntil, ...howTos]) {
+    const title = regionChapter(text, chapters, from);
+    if (title) return title;
+  }
+  const ahead = chapters.slice(Math.max(0, from));
+  const targets = namedTargets([a.description, ...howTos, a.missableUntil]);
   for (const chapter of ahead) {
-    const region = normalizeName(chapter.region ?? "");
-    if (region.length >= 3 && wanted.includes(region)) return { title: chapter.title, assumed: true };
+    const hit = chapter.items.some((i) => {
+      const words = new Set(wordsOf(`${i.name} ${i.nameEn ?? ""}`));
+      return targets.some((t) => t.every((w) => words.has(w)));
+    });
+    if (hit) return chapter.title;
+  }
+  const phrases = mentionPhrases(a.nameEn, [a.description, ...howTos]);
+  for (const chapter of ahead) {
+    const hit = chapter.items.some((i) => {
+      const text = ` ${normalizeName(`${i.name} ${i.location}`)} `;
+      return phrases.some((p) => text.includes(` ${p} `));
+    });
+    if (hit) return chapter.title;
   }
   return undefined;
 }
@@ -483,7 +602,16 @@ export function buildDossier(
   const primary = primaryFacts(byRole);
   const facts = [...primary, ...byRole.filter((f) => !primary.includes(f))];
   const { nameOf } = buildSourceGroups(facts, groups);
-  const divergences: string[] = [];
+  // An extraction that stayed short of what its page says it lists, even read again in parts (extract.ts): first,
+  // so a cut report keeps it.
+  const divergences: string[] = facts.flatMap((f) =>
+    f.shortfall
+      ? [
+          `Extração incompleta: ${f.source.name} diz ter ${f.shortfall.stated} entradas e a extração trouxe ${f.shortfall.extracted}, ` +
+            "mesmo relendo a página em partes; a rota dessa página pode estar incompleta. Revise antes de publicar.",
+        ]
+      : [],
+  );
   const steam: SteamEntry[] = steamList.map((s) => ({
     apiName: s.apiName,
     name: s.name,
@@ -855,6 +983,8 @@ export function buildDossier(
   // --- achievements -------------------------------------------------------------------------------------------
   type AchAcc = {
     howTo?: string;
+    /** Every source's how-to, in source order (a fragment rule or a region may sit in any of them). */
+    howTos: string[];
     missable: boolean;
     missableUntil?: string;
     bugged: boolean;
@@ -870,7 +1000,7 @@ export function buildDossier(
   const accFor = (apiName: string) => {
     let a = accs.get(apiName);
     if (!a) {
-      a = { missable: false, bugged: false, online: false, groups: new Set(), links: new Map(), platforms: new Set(), missSeen: new Set(), conflicts: [] };
+      a = { howTos: [], missable: false, bugged: false, online: false, groups: new Set(), links: new Map(), platforms: new Set(), missSeen: new Set(), conflicts: [] };
       accs.set(apiName, a);
     }
     return a;
@@ -890,6 +1020,7 @@ export function buildDossier(
       const a = accFor(apiName);
       touch(a, fact);
       a.howTo ||= entry.howTo;
+      if (entry.howTo && !a.howTos.includes(entry.howTo)) a.howTos.push(entry.howTo);
       a.missSeen.add(entry.missable);
       if (a.missSeen.size > 1 && !a.conflicts.some((c) => c.startsWith("perdível"))) {
         a.conflicts.push(`perdível segundo uma fonte e não perdível segundo ${nameOf(fact)}`);
@@ -934,14 +1065,77 @@ export function buildDossier(
     return { name, apiName: toApiName(name), grade: said.find((a) => a.grade)?.grade, howTo: said.find((a) => a.howTo)?.howTo };
   };
 
+  // "Collect N <things>": from the Steam text, else the lead clause of the how-to (its details are steps, not the goal).
+  const goals = new Map<string, { target: number; noun?: string }>();
+  for (const s of steamList) {
+    const found = [s.description, s.descriptionPt, leadClause(accs.get(s.apiName)?.howTo)].map(collectGoal).filter((g) => g !== undefined);
+    if (found[0]) goals.set(s.apiName, { target: found[0].target, noun: found.find((g) => g.target === found[0]!.target && g.noun)?.noun });
+  }
+
+  // Task 18 (A): a "collect N <things>" the sources link no (or too few) items to counts the route's items of that
+  // type. A part of the thing ("Sha-Chi Amber Fragment") counts 1/N when a source says N make one (in this
+  // achievement's how-tos, else a rule of any source), and not at all without one. When a source says one thing has
+  // a varying number of parts ("each has 2-6 petals"), every item may be a part: it counts 1/most, for review.
+  const allItems = chapters.flatMap((c) => c.items);
+  const linkedWeight = new Map<string, Map<DossierItem, number>>();
+  const byTypeOf = new Map<string, NonNullable<NonNullable<DossierAchievement["collect"]>["byType"]>>();
+  for (const s of steamList) {
+    const goal = goals.get(s.apiName);
+    if (!goal?.noun) continue;
+    const already = allItems.filter((i) => i.countsFor.includes(s.apiName)).reduce((n, i) => n + weightOf(i), 0);
+    if (already >= goal.target) continue;
+    const unit = singularName(goal.noun);
+    const unitWords = unit.split(" ");
+    const texts = [s.description, s.descriptionPt, ...(accs.get(s.apiName)?.howTos ?? [])];
+    const lastWord = unitWords.at(-1)!;
+    const perUnit =
+      texts.map(partsPerUnit).find((n) => n !== undefined) ?? fragmentRules.find((r) => similarity(r.unit, lastWord) >= 0.75)?.perUnit;
+    const maxParts = texts.map(maxPartsPerUnit).find((n) => n !== undefined);
+    const weights = new Map<DossierItem, number>();
+    let unconverted = 0;
+    let ambiguous = false;
+    for (const item of allItems) {
+      if (!item.collectibleType || item.countsFor.includes(s.apiName)) continue;
+      const type = singularName(item.collectibleType);
+      const words = type.split(" ");
+      const partOf = words.length === unitWords.length + 1 && PART_WORDS.has(words.at(-1)!) && words.slice(0, -1).join(" ") === unit;
+      let weight: number;
+      let loose = false;
+      if (type === unit) weight = 1;
+      else if (partOf) {
+        // No fixed rule but "2-6 petals each": the most parts, for review. Neither: it cannot count.
+        const per = perUnit ?? maxParts;
+        if (per === undefined) {
+          unconverted++;
+          continue;
+        }
+        weight = 1 / per;
+        loose = perUnit === undefined;
+      } else if (unitWords.every((w) => words.includes(w)) && !words.some((w) => PART_WORDS.has(w))) {
+        weight = 1;
+        loose = true;
+      } else continue;
+      if (maxParts !== undefined && !partOf) {
+        weight = 1 / maxParts;
+        loose = true;
+      }
+      ambiguous ||= loose;
+      weights.set(item, weight);
+      item.countsFor.push(s.apiName);
+      item.countedByType = loose || item.countedByType === "ambiguous" ? "ambiguous" : "exact";
+    }
+    if (weights.size > 0 || unconverted > 0) {
+      linkedWeight.set(s.apiName, weights);
+      byTypeOf.set(s.apiName, { type: singularPhrase(goal.noun), ambiguous, unconverted });
+    }
+  }
+
   // R28: an item that counts toward a "collect N" and has no number gets the next one of its type in its chapter
   // (the source lists in route order), for review. Only for achievements with a collect target.
   const collectApis = new Set(
     steamList
       .filter(
-        (s) =>
-          [s.description, s.descriptionPt, accs.get(s.apiName)?.howTo].some((t) => collectTarget(t) !== undefined) ||
-          chapters.some((c) => c.items.some((i) => i.countsFor.includes(s.apiName) && i.total !== undefined)),
+        (s) => goals.has(s.apiName) || chapters.some((c) => c.items.some((i) => i.countsFor.includes(s.apiName) && i.total !== undefined)),
       )
       .map((s) => s.apiName),
   );
@@ -957,18 +1151,18 @@ export function buildDossier(
     }
   }
 
-  const allItems = chapters.flatMap((c) => c.items);
   const chapterOf = new Map(chapters.flatMap((c) => c.items.map((i) => [i, c.title] as const)));
   const achievements: DossierAchievement[] = steamList.map((s): DossierAchievement => {
     const a = accs.get(s.apiName);
     const groupsSet = a?.groups ?? new Set<string>();
     const counting = allItems.filter((i) => i.countsFor.includes(s.apiName));
-    const textTarget = [s.description, s.descriptionPt, a?.howTo].map(collectTarget).find((n) => n !== undefined);
+    const textTarget = goals.get(s.apiName)?.target;
     const totals = [...new Set(counting.map((i) => i.total).filter((t): t is number => t !== undefined))];
     const target = textTarget ?? (totals.length > 0 ? Math.max(...totals) : undefined);
     // R23: exactly N only when a source says the game has N (the items print it as their total).
     const exact = textTarget === undefined || totals.includes(textTarget);
-    const weights = counting.map(weightOf);
+    const weights = counting.map((i) => linkedWeight.get(s.apiName)?.get(i) ?? weightOf(i));
+    const byType = byTypeOf.get(s.apiName);
     const counted = weights.reduce((sum, w) => sum + w, 0);
     const indexProblems: string[] = [];
     const indexed = counting.filter((i) => i.index !== undefined);
@@ -1016,6 +1210,7 @@ export function buildDossier(
               conflictingTotals: textTarget === undefined && totals.length > 1 ? totals : [],
               withoutLocation: counting.filter((i) => !i.location.trim()).map((i) => i.name),
               indexProblems,
+              ...(byType ? { byType } : {}),
             }
           : undefined,
       conflict: a && a.conflicts.length > 0 ? a.conflicts.join('; ') : undefined,
@@ -1029,10 +1224,11 @@ export function buildDossier(
       if (deadline.assumed) a.deadlineAssumed = true;
     }
     if (a.missable && !a.deadlineChapter) {
-      // R20: the chapter of the item that is this achievement. A loose one stays without deadline (gate rule d).
-      const own = chapters[ownAt];
-      if (own) {
-        a.deadlineChapter = own.title;
+      // R20: the chapter of the item that is this achievement; else (Task 18) what its texts tie it to. One that
+      // nothing ties to a chapter stays without deadline (gate rule d).
+      const title = chapters[ownAt]?.title ?? looseDeadline(a, accs.get(a.apiName)?.howTos ?? [], chapters, Math.max(0, ownAt));
+      if (title) {
+        a.deadlineChapter = title;
         a.deadlineAssumed = true;
       }
     }

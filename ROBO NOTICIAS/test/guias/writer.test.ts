@@ -235,6 +235,15 @@ describe("writeGuide", () => {
     expect(payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.review).toBe(true);
   });
 
+  it("item ligado a um 'collect N' pelo tipo: exato não pede revisão, ambíguo (pétalas de tamanho variável) pede", async () => {
+    const exact = makeDossier();
+    Object.assign(exact.chapters[0]!.items[0]!, { countedByType: "exact" });
+    expect((await writeGuide(fakeAi().ai, exact, GAME, "live")).walkthrough.chapters[0]!.steps[0]!.items[0]!.review).toBe(false);
+    const ambiguous = makeDossier();
+    Object.assign(ambiguous.chapters[0]!.items[0]!, { countedByType: "ambiguous" });
+    expect((await writeGuide(fakeAi().ai, ambiguous, GAME, "live")).walkthrough.chapters[0]!.steps[0]!.items[0]!.review).toBe(true);
+  });
+
   it("item de revisita que o código pôs no fim (sem posição declarada pela fonte) sai com review true", async () => {
     const dossier = makeDossier();
     // A bell listed by both sources: no review on its own.

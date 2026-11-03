@@ -89,22 +89,50 @@ function merge(source: SourceRef, parts: LlmFacts[]): ExtractedFacts {
   };
 }
 
-export async function extractFacts(
-  page: { url: string; text: string; html?: string },
+/** A page whose extraction came back short is read again in parts of at most this many characters (two at least). */
+export const RETRY_CHUNK_CHARS = 15_000;
+/** The extraction must bring at least this share of the entries the page says it lists. */
+export const COMPLETE_SHARE = 0.9;
+/** Added to each part of the second reading. */
+export const RETRY_NOTE =
+  "This page was read before and entries were lost. List EVERY numbered entry of this part as its own item, in page order; do not summarize, merge or skip entries.";
+
+const STATED_TOTAL = /\bcontains\s+(\d{1,4})\s+collectibles?\b|\b(\d{1,4})\s+collectibles?\s+locations?\b/i;
+const NUMBERED_ENTRY = /^#(\d{1,4})\s*[–—:-]/gm;
+
+/**
+ * How many entries a page lists, when it numbers them ("#1 – Bell (Crossroads)"): the total it states ("contains 76
+ * Collectible Locations"), else its highest number. A page without numbered entries (a hub that only quotes the
+ * game's total) gives none.
+ */
+export function statedEntries(text: string): number | undefined {
+  const numbers = [...text.matchAll(NUMBERED_ENTRY)].map((m) => Number(m[1]));
+  if (numbers.length === 0) return undefined;
+  const found = STATED_TOTAL.exec(text);
+  const stated = found ? Number(found[1] ?? found[2]) : NaN;
+  return stated > 0 ? stated : Math.max(...numbers);
+}
+
+const itemCount = (facts: ExtractedFacts) => facts.chapters.reduce((n, c) => n + c.items.length, 0);
+
+async function readParts(
+  page: { url: string; text: string },
   source: SourceRef,
   deps: ExtractDeps,
-): Promise<ExtractedFacts> {
-  const chunks = splitText(page.text);
+  chunks: string[],
+  again: boolean,
+): Promise<LlmFacts[]> {
   const system = extractionPrompt();
   const parts: LlmFacts[] = [];
   for (const [i, chunk] of chunks.entries()) {
     const header =
       `Source: ${source.name} (${page.url}), role ${source.role}.` +
-      (chunks.length > 1 ? ` This is part ${i + 1} of ${chunks.length} of the page; extract only what is in this part.` : "");
+      (chunks.length > 1 ? ` This is part ${i + 1} of ${chunks.length} of the page; extract only what is in this part.` : "") +
+      (again ? `\n\n${RETRY_NOTE}` : "");
     parts.push(
       await deps.ai.structured({
         bucket: deps.bucket ?? "backfill",
-        purpose: `guia-extracao:${source.name}:${i + 1}/${chunks.length}`,
+        purpose: `guia-extracao:${source.name}:${again ? "releitura " : ""}${i + 1}/${chunks.length}`,
         model: deps.model,
         effort: "medium",
         system,
@@ -114,5 +142,33 @@ export async function extractFacts(
       }),
     );
   }
-  return merge(source, parts);
+  return parts;
+}
+
+/**
+ * The facts of a page. When the page says how many entries it lists and the extraction brought less than 90% of
+ * them (the model summarized a long list: PowerPyx's Village of Lu, 76 entries, came back with 18), the page is
+ * read once more in smaller parts with an explicit "list every numbered entry"; the reading with more items wins
+ * (chapters from it, achievements from both). Still short: `shortfall` marks the source incomplete.
+ */
+export async function extractFacts(
+  page: { url: string; text: string; html?: string },
+  source: SourceRef,
+  deps: ExtractDeps,
+): Promise<ExtractedFacts> {
+  const firstParts = await readParts(page, source, deps, splitText(page.text), false);
+  const first = merge(source, firstParts);
+  const stated = statedEntries(page.text);
+  if (stated === undefined || itemCount(first) >= COMPLETE_SHARE * stated) return first;
+
+  const size = Math.min(RETRY_CHUNK_CHARS, Math.ceil(page.text.length / 2));
+  const againParts = await readParts(page, source, deps, splitText(page.text, size), true);
+  let best = first;
+  if (itemCount(merge(source, againParts)) > itemCount(first)) {
+    // The second reading's chapters; the first one's achievements and facts too (the roadmap only once).
+    const hasRoadmap = againParts.some((p) => (p.roadmap?.length ?? 0) > 0);
+    best = merge(source, [...againParts, ...firstParts.map((p) => ({ ...p, chapters: [], ...(hasRoadmap ? { roadmap: [] } : {}) }))]);
+  }
+  const extracted = itemCount(best);
+  return extracted >= COMPLETE_SHARE * stated ? best : { ...best, shortfall: { stated, extracted } };
 }

@@ -15,6 +15,7 @@ describe("loadGuideConfig", () => {
       DATA_DIR_GUIAS: "./data-guias",
       GUIDE_STEAM_REFERENCE_ID: "76561198012210783",
       GUIDE_SOFT_DEADLINE_MIN: 150,
+      GUIDE_FORCE_DISCOVERY: false,
     });
     expect(c.RESEND_API_KEY).toBeUndefined();
   });
@@ -32,6 +33,9 @@ describe("loadGuideConfig", () => {
     expect(c.MODEL_FAST).toBe("x");
     expect(c.ALERT_EMAIL).toBe("a@b.c");
     expect(loadGuideConfig({ ...ENV, GUIDE_SOFT_DEADLINE_MIN: "90" }).GUIDE_SOFT_DEADLINE_MIN).toBe(90);
+    expect(loadGuideConfig({ ...ENV, GUIDE_FORCE_DISCOVERY: "1" }).GUIDE_FORCE_DISCOVERY).toBe(true);
+    expect(loadGuideConfig({ ...ENV, GUIDE_FORCE_DISCOVERY: "true" }).GUIDE_FORCE_DISCOVERY).toBe(true);
+    expect(loadGuideConfig({ ...ENV, GUIDE_FORCE_DISCOVERY: "0" }).GUIDE_FORCE_DISCOVERY).toBe(false);
   });
 
   it("o ensaio não precisa das chaves", () => {

@@ -81,3 +81,30 @@ describe("buildDossier: fontes por item", () => {
     expect(d.chapters[0]!.items[0]!.achievement).toBe("ACH_013");
   });
 });
+
+describe("Task 18: 'collect N <coisas>' e regras de partes", () => {
+  it("collectGoal lê N e o nome da coisa; leadClause corta os detalhes do como-fazer", async () => {
+    const { collectGoal, leadClause, singularName, singularPhrase } = await import("../../src/guias/crossref.js");
+    expect(collectGoal("Collect 10 Sha-Chi Ambers")).toEqual({ target: 10, noun: "Sha-Chi Ambers" });
+    expect(collectGoal("Collect 10 full Memory Flowers (each has 2-6 petals).")).toEqual({ target: 10, noun: "Memory Flowers" });
+    expect(collectGoal("Collect 30 Accessories in any order")).toEqual({ target: 30, noun: "Accessories" });
+    expect(collectGoal("Collect 1 thing")).toBeUndefined();
+    expect(leadClause("Complete [Flesh Lily], [Apprentice Healer], and [A Healer’s Mercy]: bring Flesh Lily to Yu’er, collect 3 herbs")).toBe(
+      "Complete [Flesh Lily], [Apprentice Healer], and [A Healer’s Mercy]",
+    );
+    expect(singularName("Sha-Chi Ambers")).toBe("sha chi amber");
+    expect(singularName("Accessories")).toBe("accessory");
+    expect(singularPhrase("Blackstones")).toBe("Blackstone");
+  });
+
+  it("partsPerUnit em inglês, chinês e russo; maxPartsPerUnit quando o número varia", async () => {
+    const { maxPartsPerUnit, partsPerUnit } = await import("../../src/guias/crossref.js");
+    expect(partsPerUnit("集齐了10块杀气琥珀；每4块碎片合成1块杀气琥珀，共需40块碎片")).toBe(4);
+    expect(partsPerUnit("4 shards combine into a whole Blackstone")).toBe(4);
+    expect(partsPerUnit("Каждые 4 осколка = 1 янтарь")).toBe(4);
+    expect(partsPerUnit("Collect 10 Sha-Chi Ambers")).toBeUndefined();
+    expect(maxPartsPerUnit("Collect 10 full Memory Flowers (each has 2-6 petals).")).toBe(6);
+    expect(maxPartsPerUnit("They appear as fragments, between 2 and 6 in each group")).toBe(6);
+    expect(maxPartsPerUnit("Collect 10 Memory Flowers")).toBeUndefined();
+  });
+});

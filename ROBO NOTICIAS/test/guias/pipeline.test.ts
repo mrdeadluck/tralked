@@ -15,7 +15,7 @@ import { bodyBytes, imageBytes, REPORT_SLACK_BYTES, SITE_LIMITS } from "../../sr
 import { loadRunContext } from "../../src/guias/run-context.js";
 import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import type { FetchPage, SourceRef } from "../../src/guias/sources.js";
-import { steamAliasUrl } from "../../src/guias/steam-aliases.js";
+import { steamAliasUrl, steamProfileXmlUrl } from "../../src/guias/steam-aliases.js";
 import { writeAndCheckGuide } from "../../src/guias/writer.js";
 import { TralkedError } from "../../src/tralked-http.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
@@ -264,14 +264,15 @@ describe("runGuideRequest", () => {
     expect(statuses(calls)).toEqual(["waiting_sources"]);
     const sent = calls.reports[0]!.body;
     expect(sent.reason).toContain("The End");
-    const report = sent.report as { missing: string[]; coverage: unknown; sourcesRead: unknown[]; scope: string };
+    const report = sent.report as { missing: string[]; coverage: unknown; sourcesRead: unknown[]; scope: string | null };
     // Neither scope: the Steam gaps, then why the PSN list could not be used either.
     expect(report.missing).toHaveLength(2);
     expect(report.missing[0]).toContain('"The End" (ACH_END)');
     expect(report.missing[1]).toBe(
       "O guia pela lista da PSN também não sai (1 lacuna): Nenhuma fonte de roteiro da PSN completa traz a lista inteira de troféus (o total e todos os nomes).",
     );
-    expect(report.scope).toBe("steam");
+    // Neither gate passed: no scope was chosen (F).
+    expect(report.scope).toBeNull();
     expect(report.coverage).toEqual({ steam: 1, covered: 0, steamOnly: 1 });
     expect(report.sourcesRead).toContainEqual({
       name: "PowerPyx",
@@ -513,7 +514,7 @@ describe("runGuideRequest", () => {
     const pages: FetchPage = async (url) => {
       asked.push(url);
       if (url === STEAM_GUIDE.url) return { status: "ok", text: ruText, html: STEAM_GUIDE_HTML, finalUrl: url, truncated: true };
-      if (url === steamAliasUrl(4115450, "russian", REF_ID)) return { status: "ok", text: "", html: xml, finalUrl: url };
+      if (url === steamProfileXmlUrl(4115450, "russian", REF_ID)) return { status: "ok", text: "", html: xml, finalUrl: url };
       return { status: "error", finalUrl: url, reason: "HTTP 404" };
     };
     const stages = fakeStages({
@@ -526,11 +527,13 @@ describe("runGuideRequest", () => {
     const deps = makeDeps({ api, stages, fetchPage: pages, config: { ...base.config, GUIDE_STEAM_REFERENCE_ID: REF_ID } });
 
     expect(await runGuideRequest(deps)).toBe("review");
-    expect(asked).toContain(steamAliasUrl(4115450, "russian", REF_ID));
+    // The game's public achievement page first (404 here), then the configured profile's XML.
+    expect(asked).toContain(steamAliasUrl(4115450, "russian"));
+    expect(asked).toContain(steamProfileXmlUrl(4115450, "russian", REF_ID));
     const dossier = deps.db.getDossier(REQUEST.id) as GuideDossier;
     expect(dossier.achievements[0]).toMatchObject({ apiName: "ACH_END", sources: [STEAM_GUIDE.name], steamSourced: true });
     const report = calls.reports.at(-1)!.body.report as RobotReport;
-    expect(report.sourcesRead).toContainEqual({ name: "Steam: nomes das conquistas (russian)", url: steamAliasUrl(4115450, "russian", REF_ID), ok: true });
+    expect(report.sourcesRead).toContainEqual({ name: "Steam: nomes das conquistas (russian)", url: steamProfileXmlUrl(4115450, "russian", REF_ID), ok: true });
     // A page over the text limit is read, and the report says only its start was.
     expect(report.sourcesRead).toContainEqual({
       name: STEAM_GUIDE.name,
@@ -607,8 +610,9 @@ describe("scope psn: a Steam não fecha, a lista da PSN do PowerPyx fecha (R22)"
 
     expect(outcome).toBe("waiting_sources");
     expect(calls.created).toEqual([]);
-    const report = calls.reports.at(-1)!.body.report as { missing: string[]; scope: string };
-    expect(report.scope).toBe("steam");
+    const report = calls.reports.at(-1)!.body.report as { missing: string[]; scope: string | null };
+    // Neither gate passed: no scope was chosen (F).
+    expect(report.scope).toBeNull();
     expect(report.missing).toEqual([
       'A conquista "Arena Master" (ACH_ARENA) da Steam não aparece em nenhuma fonte.',
       "O guia pela lista da PSN também não sai (1 lacuna): Nenhuma fonte de roteiro da PSN completa traz a lista inteira de troféus (o total e todos os nomes).",
@@ -675,6 +679,63 @@ describe("buildReport", () => {
       coverage: { steam: 1, covered: 0, steamOnly: 0 },
       spendUsd: 1.2346,
     });
+  });
+});
+
+describe("buildReport: escopo", () => {
+  it("nenhum escopo escolhido (os dois gates falharam) → scope null, que o admin lê como antes", () => {
+    const report = buildReport({ sourcesRead: [], steamList: STEAM, spendUsd: 0, scope: null });
+    expect(report.scope).toBeNull();
+    expect(parseReport(report)).not.toHaveProperty("psnScope");
+  });
+});
+
+describe("cache da descoberta (E): a busca na web não é paga de novo por 7 dias", () => {
+  const SAVED_AT = "2026-11-01T12:00:00.000Z";
+  const saved = (db: GuideDb, requestId: string, savedAt = SAVED_AT) =>
+    db.setMeta(
+      `guia-contexto:${requestId}`,
+      JSON.stringify({ requestId, steamAppId: 4115450, gameSlug: "phantom-test", game: DOSSIER_SOURCE.game, steamList: STEAM, sources: [STEAM_GUIDE], savedAt }),
+    );
+
+  it("tentativa nova do mesmo pedido, descoberta de 2 dias atrás → reaproveita as fontes, sem busca", async () => {
+    const db = openGuideDb(":memory:");
+    saved(db, REQUEST.id);
+    const stages = fakeStages();
+    const deps = makeDeps({ db, stages });
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(stages.calls.discoverSources).toBeUndefined();
+    expect(stages.calls.extractFacts).toHaveLength(1);
+    expect(deps.lines.some((l) => l.includes("fontes da descoberta reaproveitadas") && l.includes(SAVED_AT))).toBe(true);
+    // The saved context keeps the discovery's date: the cache still expires 7 days after the search.
+    expect(loadRunContext(db, REQUEST.id)!.savedAt).toBe(SAVED_AT);
+  });
+
+  it("outro pedido do mesmo jogo também reaproveita (e ganha o contexto para o ensaio)", async () => {
+    const db = openGuideDb(":memory:");
+    saved(db, "req-antigo");
+    const stages = fakeStages();
+    await runGuideRequest(makeDeps({ db, stages }));
+    expect(stages.calls.discoverSources).toBeUndefined();
+    expect(loadRunContext(db, REQUEST.id)).toMatchObject({ requestId: REQUEST.id, sources: [STEAM_GUIDE], savedAt: SAVED_AT });
+  });
+
+  it("descoberta com mais de 7 dias → busca de novo", async () => {
+    const db = openGuideDb(":memory:");
+    saved(db, REQUEST.id, "2026-10-27T11:59:00.000Z");
+    const stages = fakeStages();
+    await runGuideRequest(makeDeps({ db, stages }));
+    expect(stages.calls.discoverSources).toHaveLength(1);
+    expect(loadRunContext(db, REQUEST.id)!.savedAt).toBe("2026-11-03T12:00:00.000Z");
+  });
+
+  it("GUIDE_FORCE_DISCOVERY → busca de novo mesmo com a descoberta recente", async () => {
+    const db = openGuideDb(":memory:");
+    saved(db, REQUEST.id);
+    const stages = fakeStages();
+    const base = makeDeps();
+    await runGuideRequest(makeDeps({ db, stages, config: { ...base.config, GUIDE_FORCE_DISCOVERY: true } }));
+    expect(stages.calls.discoverSources).toHaveLength(1);
   });
 });
 

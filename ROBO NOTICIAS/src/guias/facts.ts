@@ -64,7 +64,15 @@ export const llmFactsSchema = z.object({
  */
 export const extractedFactsSchema = llmFactsSchema
   .omit({ claimsComplete: true, workInProgress: true })
-  .extend({ source: sourceRefSchema, complete: z.boolean() });
+  .extend({
+    source: sourceRefSchema,
+    complete: z.boolean(),
+    /**
+     * The page says how many entries it lists ("contains 76 Collectible Locations", "#1".."#76") and the extraction
+     * stayed under 90% of that even read again in parts: the source is incomplete (the report says so).
+     */
+    shortfall: z.object({ stated: z.number(), extracted: z.number() }).optional(),
+  });
 
 export type LlmFacts = z.infer<typeof llmFactsSchema>;
 export type ExtractedFacts = z.infer<typeof extractedFactsSchema>;

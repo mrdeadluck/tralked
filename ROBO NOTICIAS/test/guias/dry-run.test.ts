@@ -89,6 +89,22 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("extração curta (a página diz 76 entradas, o cache tem 18): o ensaio avisa que a execução real relê em partes e estima", async () => {
+    const db = openGuideDb(":memory:");
+    const text = readFileSync(new URL("./fixtures/powerpyx-pbz-village-of-lu.txt", import.meta.url), "utf8");
+    const lu = { name: "PowerPyx (Village Of Lu)", url: "https://www.powerpyx.com/phantom-blade-zero-village-of-lu-collectible-locations/", role: "coletaveis" as const, language: "en" };
+    db.savePage({ url: lu.url, fetchedAt: new Date("2026-11-03T07:00:00Z"), status: "ok", finalUrl: lu.url, text, html: "<html></html>", textVersion: PAGE_TEXT_VERSION });
+    const items = Array.from({ length: 18 }, (_, i) => ({ kind: "collectible", name: `Item ${i + 1}`, location: "x", missable: false, returnLater: false, countsForEn: [] }));
+    const facts: ExtractedFacts = { source: lu, chapters: [{ title: "First Visit", region: "Village of Lu", order: 1, items }], achievements: [], platform: "unknown", complete: false };
+    db.setMeta(extractionKey(CONFIG.MODEL_EXTRACT, lu, text), JSON.stringify(facts));
+    saveRunContext(db, { requestId: "req-lu", steamAppId: 4115450, gameSlug: GAME.slug, game: GAME, steamList: fixture.steam, sources: [lu], savedAt: "2026-11-03T07:00:00.000Z" });
+    const lines: string[] = [];
+    await dryRun({ db, config: CONFIG, requestId: "req-lu", log: (l) => lines.push(l) });
+    expect(lines.join("\n")).toMatch(
+      /extração curta: PowerPyx \(Village Of Lu\) diz ter 76 entradas e a extração tem 18 \(menos de 90%\); a execução real relê a página em partes \(~\d+ KiB, ~US\$ \d+\.\d\d\)/,
+    );
+  });
+
   it("pedido sem nada salvo: diz o que existe, sem inventar", async () => {
     const lines: string[] = [];
     const db = cache();

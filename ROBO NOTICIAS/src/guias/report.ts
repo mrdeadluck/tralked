@@ -19,8 +19,8 @@ export type RobotReport = {
   singleSource: string[];
   /** Steam achievements; how many some source covers; how many are not on the PSN list (or there is none). */
   coverage: { steam: number; covered: number; steamOnly: number };
-  /** The list the guide covers: the whole Steam list, or the PSN trophy list (R22). */
-  scope: GuideScope;
+  /** The list the guide covers: the whole Steam list, or the PSN trophy list (R22); null when neither gate passed. */
+  scope: GuideScope | null;
   /** Scope psn: PSN trophies (platinum included) and how many some source covers (the platinum once all others are). */
   psnCoverage?: { total: number; covered: number };
   /** AI spend of the request so far (every attempt), in USD. */
@@ -57,8 +57,8 @@ export type ReportInput = {
   steamList?: SteamAchievement[];
   spendUsd: number;
   spendByPurpose?: Record<string, number>;
-  /** Absent = "steam". */
-  scope?: GuideScope;
+  /** Absent = "steam"; null = no scope chosen (both gates failed). */
+  scope?: GuideScope | null;
   missing?: string[];
   problems?: string[];
   internalErrors?: string[];
@@ -104,7 +104,7 @@ function psnCoverage(d: GuideDossier): { total: number; covered: number } | unde
 export function buildReport(input: ReportInput): RobotReport {
   const d = input.dossier;
   const steam = (input.steamList ?? []).filter((a) => a.platform === "steam").length;
-  const scope = input.scope ?? "steam";
+  const scope = input.scope === undefined ? "steam" : input.scope;
   const psn = scope === "psn" && d ? psnCoverage(d) : undefined;
   return {
     sourcesRead: input.sourcesRead.map((s) => ({ name: s.name, url: s.url, ok: s.ok, ...(s.reason ? { reason: s.reason } : {}) })),
