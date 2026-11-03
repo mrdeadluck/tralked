@@ -92,10 +92,16 @@ export type GuidePipelineDeps = {
   /** Waits between the final report's retries; real time by default. */
   sleep?: (ms: number) => Promise<void>;
   stages?: Partial<GuideStages>;
+  /**
+   * Direct mode (`pnpm guia -- --appid <n>`): no request is claimed and none is reported to the site. The run uses the
+   * synthetic request `direto-<appid>` for spend cap, caches and logs; an existing robot guide is updated only with `update`.
+   */
+  direct?: { appId: number; update: boolean };
 };
 
 export const BUDGET_REASON = "teto de gasto";
 export const DEADLINE_BEFORE_WRITING = "tempo esgotado antes da escrita";
+export const directRequestId = (appId: number) => `direto-${appId}`;
 const REASON_MAX = 2000;
 const SOURCE_NAME_MAX = 120;
 const CREDIT_MAX = 200;
@@ -127,6 +133,11 @@ function sender(deps: GuidePipelineDeps, request: GuideRequest): Sender {
     nextKey,
     async send(body, key = nextKey(body.status)) {
       const reason = body.reason === undefined ? undefined : clip(body.reason, REASON_MAX);
+      if (deps.direct) {
+        // Direct mode has no request on the site: the report is a local log line.
+        deps.log(`guia: [direto] relato "${body.status}"${reason ? ` (${reason})` : ""}`);
+        return;
+      }
       try {
         await deps.api.reportRequest(request.id, { ...body, ...(reason !== undefined ? { reason } : {}) }, key);
       } catch (error) {
@@ -162,7 +173,9 @@ type Run = {
 };
 
 export async function runGuideRequest(deps: GuidePipelineDeps): Promise<GuideOutcome> {
-  const request = await deps.api.claimNext();
+  const request: GuideRequest | null = deps.direct
+    ? { id: directRequestId(deps.direct.appId), steamAppId: deps.direct.appId, gameSlug: "", attempts: 1 }
+    : await deps.api.claimNext();
   if (!request) return "idle";
   const startedAt = deps.now();
   deps.log(`guia: pedido ${request.id} (appid ${request.steamAppId}, tentativa ${request.attempts})`);
@@ -303,6 +316,9 @@ async function processRequest(run: Run): Promise<Final> {
     return failed(run, "o jogo já tem um guia feito pela equipe; o robô não substitui guia humano");
   }
   const existing = hit?.guide ?? null;
+  if (existing && deps.direct && !deps.direct.update) {
+    return failed(run, "o jogo já tem um guia do robô; use --atualizar para pedir uma nova versão");
+  }
   const slug = request.gameSlug || hit?.slug;
   if (!slug) return failed(run, "o jogo não está no catálogo do site");
   const source = await api.dossier(slug);

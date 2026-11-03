@@ -1021,3 +1021,93 @@ describe("Task 17 fix round 1", () => {
     expect(calls.created).toHaveLength(1);
   });
 });
+
+describe("Task 19: modo direto por appid, sem pedido na fila", () => {
+  const direct = { appId: 4115450, update: false };
+  const botGuide = { id: "guide-bot", source: "bot", status: "published" } as unknown as NonNullable<GameSearchHit["guide"]>;
+  const hitWith = (guide: GameSearchHit["guide"]): GameSearchHit => ({
+    id: "game-1",
+    slug: "phantom-test",
+    name: "Phantom Test",
+    steamAppId: 4115450,
+    igdbId: null,
+    aliases: [],
+    guide,
+  });
+
+  it("caminho feliz: createGuide em review, sem claimNext nem reportRequest", async () => {
+    const { api, calls } = fakeApi();
+    const deps = makeDeps({ api, direct });
+
+    const outcome = await runGuideRequest(deps);
+
+    expect(outcome).toBe("review");
+    expect(api.claimNext).not.toHaveBeenCalled();
+    expect(api.reportRequest).not.toHaveBeenCalled();
+    expect(calls.created).toHaveLength(1);
+    expect(calls.created[0]!.payload.status).toBe("review");
+    expect(calls.created[0]!.key).toContain("direto-4115450");
+    expect(deps.lines.some((l) => l.includes('[direto] relato "review"'))).toBe(true);
+    expect(deps.lines.some((l) => l.includes("direto-4115450 → review"))).toBe(true);
+    expect(deps.db.getDossier("direto-4115450")).toBeDefined();
+  });
+
+  it("jogo ausente → failed com mensagem clara, nada criado", async () => {
+    const { api, calls } = fakeApi({ hit: null });
+    const deps = makeDeps({ api, direct });
+    expect(await runGuideRequest(deps)).toBe("failed");
+    expect(api.reportRequest).not.toHaveBeenCalled();
+    expect(calls.created).toEqual([]);
+    expect(deps.lines.some((l) => l.includes("o jogo não está no catálogo do site"))).toBe(true);
+  });
+
+  it("guia do robô já existente sem --atualizar → recusado; com --atualizar → patchGuide", async () => {
+    const refused = fakeApi({ hit: hitWith(botGuide) });
+    const depsA = makeDeps({ api: refused.api, direct });
+    expect(await runGuideRequest(depsA)).toBe("failed");
+    expect(depsA.lines.some((l) => l.includes("--atualizar"))).toBe(true);
+    expect(refused.calls.created).toEqual([]);
+    expect(refused.calls.patched).toEqual([]);
+
+    const updated = fakeApi({ hit: hitWith(botGuide) });
+    const depsB = makeDeps({ api: updated.api, direct: { appId: 4115450, update: true } });
+    expect(await runGuideRequest(depsB)).toBe("review");
+    expect(updated.calls.patched).toHaveLength(1);
+    expect(updated.calls.created).toEqual([]);
+  });
+
+  it("guia editorial → recusado mesmo com --atualizar", async () => {
+    const { api, calls } = fakeApi({ hit: hitWith({ ...botGuide, source: "editorial" } as never) });
+    const deps = makeDeps({ api, direct: { appId: 4115450, update: true } });
+    expect(await runGuideRequest(deps)).toBe("failed");
+    expect(calls.patched).toEqual([]);
+    expect(deps.lines.some((l) => l.includes("guia feito pela equipe"))).toBe(true);
+  });
+
+  it("teto de gasto vale para direto-<appid>, contando o gasto anterior", async () => {
+    const { api, calls } = fakeApi();
+    const db = openGuideDb(":memory:");
+    db.recordSpend("direto-4115450", "extract", "claude-sonnet-5-5", 1, new Date("2026-11-02T12:00:00Z"));
+    const facts: LlmFacts = { chapters: [], achievements: [], platform: "steam", claimsComplete: true, workInProgress: false };
+    const parse = vi.fn(async () => ({
+      model: "claude-sonnet-5-5",
+      usage: { input_tokens: 1_000_000, output_tokens: 0 },
+      stop_reason: "end_turn",
+      parsed_output: facts,
+    }));
+    const client = { messages: { parse, create: vi.fn(), stream: (p: unknown) => ({ finalMessage: () => (parse as (x: unknown) => unknown)(p) }) } } as unknown as Anthropic;
+    const deps = makeDeps({
+      api,
+      db,
+      client,
+      direct,
+      stages: fakeStages({ discoverSources: async () => [STEAM_GUIDE], extractFacts: undefined }),
+      config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", GUIDE_BUDGET_USD: 1 },
+    });
+
+    expect(await runGuideRequest(deps)).toBe("failed");
+    expect(parse).not.toHaveBeenCalled(); // US$ 1 already spent under direto-4115450 = the cap: the first extraction is refused
+    expect(deps.lines.some((l) => l.includes("teto de gasto"))).toBe(true);
+    expect(calls.created).toEqual([]);
+  });
+});

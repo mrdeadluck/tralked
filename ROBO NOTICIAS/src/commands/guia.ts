@@ -15,17 +15,25 @@ export const GUIDE_LOCK_FILE = "guia.lock";
 /** A guide run can take hours (many pages, polite intervals, images); a lock older than this is a crashed run. */
 export const GUIDE_LOCK_STALE_MS = 3 * 60 * 60 * 1000;
 
-export type GuiaArgs = { dryRun: false } | { dryRun: true; appId?: number; requestId?: string; dataDir?: string };
+export type GuiaArgs =
+  | { dryRun: false; direct?: { appId: number; update: boolean } }
+  | { dryRun: true; appId?: number; requestId?: string; dataDir?: string };
 
-/** `pnpm guia` runs one request; `pnpm guia -- --ensaio --appid <n> | --pedido <id> [--dados <dir>]` is the free dry run. */
+/** `pnpm guia` runs one request; `pnpm guia -- --appid <n> [--atualizar]` runs a game without a request; `pnpm guia -- --ensaio --appid <n> | --pedido <id> [--dados <dir>]` is the free dry run. */
 export function parseGuiaArgs(argv: string[]): GuiaArgs {
   const args = argv.filter((a) => a !== "--");
-  if (!args.includes("--ensaio")) return { dryRun: false };
   const value = (flag: string) => {
     const at = args.indexOf(flag);
     return at >= 0 ? args[at + 1] : undefined;
   };
   const appId = value("--appid");
+  if (!args.includes("--ensaio")) {
+    if (args.includes("--appid") || args.includes("--atualizar")) {
+      if (appId === undefined || !/^\d+$/.test(appId)) throw new Error(`appid inválido ou ausente: ${appId ?? "(nenhum)"}; use --appid <n>`);
+      return { dryRun: false, direct: { appId: Number(appId), update: args.includes("--atualizar") } };
+    }
+    return { dryRun: false };
+  }
   const requestId = value("--pedido");
   const dataDir = value("--dados");
   if (appId === undefined && requestId === undefined) throw new Error("ensaio: informe --appid <n> ou --pedido <id>");
@@ -50,7 +58,7 @@ async function ensaio(args: Extract<GuiaArgs, { dryRun: true }>): Promise<void> 
   }
 }
 
-/** `pnpm guia`: processes ONE guide request of the queue (the scheduler runs it every 30 min). */
+/** `pnpm guia`: processes ONE guide request of the queue (the scheduler runs it every 30 min); with `--appid`, one game directly. */
 async function main(): Promise<void> {
   const args = parseGuiaArgs(process.argv.slice(2));
   if (args.dryRun) return ensaio(args);
@@ -75,6 +83,7 @@ async function main(): Promise<void> {
       fetchImage: (url) => politeFetchImage(url, polite),
       now: () => new Date(),
       log: (line) => console.log(line),
+      ...(args.direct ? { direct: args.direct } : {}),
     });
     console.log(`guia ${new Date().toISOString()}: ${outcome === "idle" ? "nada na fila" : outcome}`);
   } finally {

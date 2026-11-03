@@ -115,6 +115,10 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
 
   it("argumentos do comando", () => {
     expect(parseGuiaArgs([])).toEqual({ dryRun: false });
+    expect(parseGuiaArgs(["--", "--appid", "4115450"])).toEqual({ dryRun: false, direct: { appId: 4115450, update: false } });
+    expect(parseGuiaArgs(["--appid", "4115450", "--atualizar"])).toEqual({ dryRun: false, direct: { appId: 4115450, update: true } });
+    expect(() => parseGuiaArgs(["--atualizar"])).toThrow(/appid/);
+    expect(() => parseGuiaArgs(["--appid", "abc"])).toThrow(/appid/);
     expect(parseGuiaArgs(["--", "--ensaio", "--appid", "4115450"])).toEqual({ dryRun: true, appId: 4115450 });
     expect(parseGuiaArgs(["--ensaio", "--pedido", "abc", "--dados", "/tmp/copia"])).toEqual({ dryRun: true, requestId: "abc", dataDir: "/tmp/copia" });
     expect(() => parseGuiaArgs(["--ensaio"])).toThrow("--appid");
