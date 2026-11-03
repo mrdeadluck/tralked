@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanName, fetchStoreApp, htmlToText, libraryAssetUrls, parseStoreApp, parseStoreAssets, parseStoreDate } from "./store";
+import { cleanName, fetchStoreApp, htmlToText, libraryAssetUrls, parseStoreApp, parseStoreAssets, parseStoreDate, parseStoreReviews } from "./store";
 import { fetchMostOwnedPage, fetchTags, fetchTopList, parseOwners, rankByOwners } from "./steamspy";
 
 // Trimmed from the real `appdetails?appids=367520&l=brazilian` answer (31/10/2026).
@@ -195,5 +195,27 @@ describe("parseStoreAssets", () => {
     const odd = { response: { store_items: [{ appid: 1, assets: { asset_url_format: "steam/apps/1/${FILENAME}", library_capsule: "../x?y=<b>" } }] } };
     expect(parseStoreAssets(odd).size).toBe(0);
     expect(parseStoreAssets(null).size).toBe(0);
+  });
+});
+
+describe("parseStoreReviews", () => {
+  it("reads the all-languages summary of GetItems, positive rounded from the percentage", () => {
+    const json = {
+      response: {
+        store_items: [
+          { appid: 1222680, reviews: { summary_filtered: { review_count: 130319, percent_positive: 84 }, summary_language_specific: { review_count: 5, percent_positive: 1 } } },
+          { appid: 10, reviews: { summary_filtered: { review_count: 0, percent_positive: 0 } } },
+          { appid: 20 },
+          { appid: 30, reviews: { summary_filtered: { review_count: 9, percent_positive: 140 } } },
+        ],
+      },
+    };
+    expect(parseStoreReviews(json)).toEqual(
+      new Map([
+        [1222680, { positive: 109468, total: 130319 }],
+        [10, { positive: 0, total: 0 }],
+      ]),
+    );
+    expect(parseStoreReviews("<!DOCTYPE html>")).toEqual(new Map());
   });
 });

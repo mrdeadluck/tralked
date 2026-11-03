@@ -32,37 +32,51 @@ describe.skipIf(!reachable)("catalog enrichment", () => {
     await prisma.$disconnect();
   });
 
-  it("reads Steam review totals, marks every game read and leaves the failures' totals alone", async () => {
+  it("reads Steam review totals in one request per batch, marks every game read and leaves the missing ones' totals alone", async () => {
     const { prisma } = await import("@/lib/db");
     const { enrichReviews } = await import("./enrich");
     // Above every seeded game, so they are the first of the queue.
     const ok = await prisma.game.create({
       data: { slug: `${SLUG}ok`, name: "Enrich Ok", steamAppId: APP + 1, achievementCount: 0, popularity: 2e9 },
     });
-    const broken = await prisma.game.create({
-      data: { slug: `${SLUG}broken`, name: "Enrich Broken", steamAppId: APP + 2, achievementCount: 0, popularity: 2e9 - 1 },
+    const missing = await prisma.game.create({
+      data: { slug: `${SLUG}missing`, name: "Enrich Missing", steamAppId: APP + 2, achievementCount: 0, popularity: 2e9 - 1 },
     });
-    const politeFetch = async (url: string) =>
-      url.includes(`/appreviews/${APP + 1}?`)
-        ? new Response(JSON.stringify({ success: 1, query_summary: { total_positive: 80, total_reviews: 100 } }))
-        : url.includes(`/appreviews/${APP + 2}?`)
-          ? new Response("down", { status: 503 })
-          : new Response(JSON.stringify({ success: 1, query_summary: { total_positive: 0, total_reviews: 0 } }));
-    // Only the two test games fit before the deadline: the clock passes it after two reads.
-    let reads = 0;
-    const now = () => (reads >= 2 ? Date.now() + 120_000 : Date.now());
-    const counting = async (url: string) => {
-      reads++;
-      return politeFetch(url);
+    const asked: string[] = [];
+    const politeFetch = async (url: string) => {
+      asked.push(url);
+      return new Response(
+        JSON.stringify({
+          response: {
+            store_items: [{ appid: APP + 1, reviews: { summary_filtered: { review_count: 200, percent_positive: 80 } } }],
+          },
+        }),
+      );
     };
-    const result = await enrichReviews(Date.now() + 60_000, counting, silent, now);
-    expect(result).toEqual({ done: 1, failed: 1 });
+    // One batch only: the clock passes the deadline after the first request.
+    const now = () => (asked.length >= 1 ? Date.now() + 120_000 : Date.now());
+    const result = await enrichReviews(Date.now() + 60_000, politeFetch, silent, now);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain("IStoreBrowseService/GetItems");
+    expect(decodeURIComponent(asked[0])).toContain(`"appid":${APP + 1}`);
+    expect(result.done).toBe(1);
     const read = (id: string) =>
       prisma.game.findUniqueOrThrow({ where: { id }, select: { steamReviewPositive: true, steamReviewTotal: true, steamReviewsAt: true } });
-    expect(await read(ok.id)).toMatchObject({ steamReviewPositive: 80, steamReviewTotal: 100 });
-    const failed = await read(broken.id);
-    expect(failed.steamReviewTotal).toBeNull();
-    expect(failed.steamReviewsAt).not.toBeNull();
+    expect(await read(ok.id)).toMatchObject({ steamReviewPositive: 160, steamReviewTotal: 200 });
+    const without = await read(missing.id);
+    expect(without.steamReviewTotal).toBeNull();
+    expect(without.steamReviewsAt).not.toBeNull();
+  });
+
+  it("marks nothing when Steam does not answer: the games stay first in the queue", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { enrichReviews } = await import("./enrich");
+    const game = await prisma.game.create({
+      data: { slug: `${SLUG}down`, name: "Enrich Down", steamAppId: APP + 3, achievementCount: 0, popularity: 2_100_000_000 },
+    });
+    const result = await enrichReviews(Date.now() + 60_000, async () => new Response("down", { status: 503 }), silent);
+    expect(result).toEqual({ done: 0, failed: 0 });
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: game.id } })).steamReviewsAt).toBeNull();
   });
 
   it("marks media attempts, so a game without IGDB media leaves the queue", async () => {

@@ -2,7 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getIgdb, getSgdb } from "@/lib/integrations";
 import type { PoliteFetch } from "@/lib/integrations/steam/polite-fetch";
-import { fetchStoreReviews } from "@/lib/integrations/steam/store";
+import { fetchStoreReviews, type StoreReviews } from "@/lib/integrations/steam/store";
 import type { WithDb } from "@/lib/worker/db-retry";
 import { rethrowIfDatabaseDown } from "@/lib/worker/errors";
 import { mediaQueue, syncGameMedia, type MediaDeps } from "./media";
@@ -120,27 +120,27 @@ export async function enrichReviews(
         select: { id: true, steamAppId: true },
       });
       if (games.length === 0) return false;
-      const pending: ReviewRow[] = [];
-      const flush = async () => {
-        if (pending.length === 0) return;
-        const rows = pending.splice(0);
-        await writeReviews(rows);
-        const read = rows.filter((r) => r.total !== null).length;
-        result.done += read;
-        result.failed += rows.length - read;
-      };
-      for (const game of games) {
-        if (now() >= stopAt) break;
-        let reviews = null;
-        try {
-          reviews = await fetchStoreReviews(politeFetch, game.steamAppId!);
-        } catch (error) {
-          log.error(`Reviews: app ${game.steamAppId} failed`, error);
-        }
-        pending.push({ id: game.id, at: new Date(now()), positive: reviews?.positive ?? null, total: reviews?.total ?? null });
-        if (pending.length >= FLUSH_EVERY) await flush();
+      // One request for the whole batch. When it fails (Steam down), nothing is marked: the lane
+      // stops and the games stay first in the queue for the next run.
+      let totals: Map<number, StoreReviews>;
+      try {
+        totals = await fetchStoreReviews(politeFetch, games.map((g) => g.steamAppId!));
+      } catch (error) {
+        log.error("Reviews: Steam did not answer, the lane stops", error);
+        return false;
       }
-      await flush();
+      const at = new Date(now());
+      const rows = games.map((g) => {
+        const reviews = totals.get(g.steamAppId!);
+        return { id: g.id, at, positive: reviews?.positive ?? null, total: reviews?.total ?? null };
+      });
+      for (let i = 0; i < rows.length; i += FLUSH_EVERY) {
+        const group = rows.slice(i, i + FLUSH_EVERY);
+        await writeReviews(group);
+        const read = group.filter((r) => r.total !== null).length;
+        result.done += read;
+        result.failed += group.length - read;
+      }
       log.info(`Reviews: ${result.done} games read, ${result.failed} failed`);
       return true;
     });

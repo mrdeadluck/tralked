@@ -189,6 +189,45 @@ export async function fetchStoreAssets(politeFetch: PoliteFetch, appIds: number[
   return parseStoreAssets(await readJson(res));
 }
 
+/** Steam user reviews of an app (all languages). */
+export type StoreReviews = { positive: number; total: number };
+
+/**
+ * The review summaries of a GetItems answer, by app id: `summary_filtered` (all languages, the
+ * store page's own figure). Steam gives a whole percentage, so `positive` is rounded from it.
+ * An app without reviews (or unknown) is left out.
+ */
+export function parseStoreReviews(json: unknown): Map<number, StoreReviews> {
+  type Summary = { review_count?: unknown; percent_positive?: unknown };
+  type Item = { appid?: number; reviews?: { summary_filtered?: Summary } };
+  const items = (json as { response?: { store_items?: Item[] } } | null)?.response?.store_items ?? [];
+  const out = new Map<number, StoreReviews>();
+  for (const item of items) {
+    const summary = item.reviews?.summary_filtered;
+    const total = Number(summary?.review_count);
+    const percent = Number(summary?.percent_positive);
+    if (!item.appid || !Number.isInteger(total) || total < 0 || !(percent >= 0 && percent <= 100)) continue;
+    out.set(item.appid, { positive: Math.round((total * percent) / 100), total });
+  }
+  return out;
+}
+
+/**
+ * Review totals of up to 100 apps in one request. The store's old `appreviews` address now
+ * redirects to the home page (every read failed with HTML from 2026-11-02).
+ */
+export async function fetchStoreReviews(politeFetch: PoliteFetch, appIds: number[]): Promise<Map<number, StoreReviews>> {
+  if (appIds.length === 0) return new Map();
+  const input = {
+    ids: appIds.slice(0, 100).map((appid) => ({ appid })),
+    context: { language: "english", country_code: "US" },
+    data_request: { include_reviews: true },
+  };
+  const res = await politeFetch(`${STORE_BROWSE}?input_json=${encodeURIComponent(JSON.stringify(input))}`);
+  if (!res.ok) throw new Error(`Steam GetItems (reviews) failed with HTTP ${res.status}`);
+  return parseStoreReviews(await readJson(res));
+}
+
 /** Library art at its unhashed path: portrait cover, wide hero and transparent logo. */
 export function libraryAssetUrls(appId: number) {
   return {
@@ -198,24 +237,3 @@ export function libraryAssetUrls(appId: number) {
   };
 }
 
-/** Steam user reviews of an app, all languages and purchase types. */
-export type StoreReviews = { positive: number; total: number };
-
-/** The `query_summary` of an appreviews answer; null when it has none (unknown app). */
-export function parseStoreReviews(json: unknown): StoreReviews | null {
-  const summary = (json as { success?: number; query_summary?: Record<string, unknown> } | null)?.query_summary;
-  if (!summary) return null;
-  const positive = Number(summary.total_positive);
-  const total = Number(summary.total_reviews);
-  if (!Number.isInteger(positive) || !Number.isInteger(total) || positive < 0 || total < positive) return null;
-  return { positive, total };
-}
-
-/** Review totals of the store page (one request, no review texts). */
-export async function fetchStoreReviews(politeFetch: PoliteFetch, appId: number): Promise<StoreReviews | null> {
-  const res = await politeFetch(
-    `${STORE}/appreviews/${appId}?json=1&language=all&purchase_type=all&review_type=all&num_per_page=0`,
-  );
-  if (!res.ok) throw new Error(`Steam store appreviews ${appId} failed with HTTP ${res.status}`);
-  return parseStoreReviews(await readJson(res));
-}
