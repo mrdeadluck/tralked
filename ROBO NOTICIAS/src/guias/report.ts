@@ -1,6 +1,6 @@
 import type { GuideScope } from "./contract.js";
 import type { GuideDb } from "./db.js";
-import type { GuideDossier, SteamAchievement } from "./dossier.js";
+import type { CorroborationOnly, GuideDossier, SteamAchievement } from "./dossier.js";
 
 /**
  * The robot's report of a request: it goes in the request's `report` (PATCH /guide-requests/{id}) and in the
@@ -33,7 +33,21 @@ export type RobotReport = {
   problems?: string[];
   /** Robot bugs found while writing (the code's own chapter order broke the chronology check). */
   internalErrors?: string[];
+  /** What the robot left out to deliver the guide (images or soundtrack after the deadline or the spend cap, ...). */
+  notes?: string[];
+  /**
+   * R30: items only secondary sources list, matching no item of the route: never placed in the guide (no invented
+   * position), listed here with what the source says (missable, until when, come back later, counts toward).
+   */
+  unplaced?: { title: typeof UNPLACED_TITLE; items: UnplacedItem[]; /** Cut to fit the 1 MiB body. */ omitted?: number };
+  /** Items the primary script names only in its roadmap stages and that match no item of the route. */
+  stageOnly?: { title: typeof STAGE_ONLY_TITLE; items: UnplacedItem[] };
 };
+
+export const STAGE_ONLY_TITLE = "Itens citados só nas etapas do roadmap do roteiro principal, não posicionados";
+
+export const UNPLACED_TITLE = "Itens só de fonte secundária, não posicionados";
+export type UnplacedItem = Omit<CorroborationOnly, "kind" | "collectibleType">;
 
 export type ReportInput = {
   sourcesRead: SourceRead[];
@@ -48,6 +62,7 @@ export type ReportInput = {
   missing?: string[];
   problems?: string[];
   internalErrors?: string[];
+  notes?: string[];
 };
 
 const usd = (value: number) => Math.round(value * 1e4) / 1e4;
@@ -107,7 +122,15 @@ export function buildReport(input: ReportInput): RobotReport {
     ...(input.missing ? { missing: input.missing } : {}),
     ...(input.problems ? { problems: input.problems } : {}),
     ...(input.internalErrors?.length ? { internalErrors: input.internalErrors } : {}),
+    ...(input.notes?.length ? { notes: [...input.notes] } : {}),
+    ...(d && (d.corroborationOnly ?? []).length > 0 ? { unplaced: { title: UNPLACED_TITLE, items: d.corroborationOnly.map(unplacedItem) } } : {}),
+    ...(d && (d.stageOnly ?? []).length > 0 ? { stageOnly: { title: STAGE_ONLY_TITLE, items: d.stageOnly.map(unplacedItem) } } : {}),
   };
+}
+
+function unplacedItem(c: CorroborationOnly): UnplacedItem {
+  const { kind: _kind, collectibleType: _type, ...rest } = c;
+  return rest;
 }
 
 /** Spend of a request grouped by purpose; "guia-extracao:PowerPyx:1/2" and "websearch: query" group by their prefix. */

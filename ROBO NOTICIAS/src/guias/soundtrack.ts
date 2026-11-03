@@ -1,4 +1,5 @@
 import type { Ai } from "../ai/client.js";
+import type { FetchPage } from "./sources.js";
 import type { SearchHit } from "./websearch.js";
 
 const MAX_CANDIDATES = 6;
@@ -7,21 +8,26 @@ export type Soundtrack = { youtubeId?: string; playlistId?: string; title: strin
 /** `composer` and `label` are evidence from the game's credits; without them only developer / publisher channels are accepted. */
 export type SoundtrackGame = { name: string; developer: string; publisher: string; composer?: string; label?: string };
 
+/** What YouTube's oEmbed says of a video or playlist: its title, the channel's name and the channel's page. */
+export type OembedMeta = { title: string; channel: string; channelUrl?: string };
+
 export interface SoundtrackDeps {
   /** `createWebSearch(...).search` */
   search: (query: string) => Promise<SearchHit[]>;
-  /** Title and channel of a YouTube video or playlist URL; null when unavailable. Defaults to YouTube oEmbed. */
-  oembed?: (url: string) => Promise<{ title: string; channel: string } | null>;
+  /** The polite page reader (robots.txt, host interval): the default `oembed` reads through it. */
+  fetchPage?: FetchPage;
+  /** oEmbed of a YouTube URL; null when unavailable. Defaults to `youtubeOembed` through `fetchPage`. */
+  oembed?: (url: string) => Promise<OembedMeta | null>;
 }
 
-export async function youtubeOembed(url: string): Promise<{ title: string; channel: string } | null> {
+/** YouTube oEmbed of a video or playlist URL, read through the polite fetch; null when unavailable. */
+export async function youtubeOembed(url: string, fetchPage: FetchPage): Promise<OembedMeta | null> {
+  const page = await fetchPage(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`);
+  if (page.status !== "ok") return null;
   try {
-    const res = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null;
-    const j = (await res.json()) as { title?: string; author_name?: string };
-    return j.title && j.author_name ? { title: j.title, channel: j.author_name } : null;
+    const j = JSON.parse(page.html ?? page.text ?? "") as { title?: unknown; author_name?: unknown; author_url?: unknown };
+    if (typeof j.title !== "string" || typeof j.author_name !== "string" || !j.title || !j.author_name) return null;
+    return { title: j.title, channel: j.author_name, ...(typeof j.author_url === "string" ? { channelUrl: j.author_url } : {}) };
   } catch {
     return null;
   }
@@ -53,6 +59,34 @@ function channelMatches(channel: string, company: string | undefined): boolean {
   return c.length >= 3 && c === core(company);
 }
 
+/**
+ * The handle or custom name in a channel's URL ("https://www.youtube.com/@SGAMEOfficial" -> "SGAMEOfficial");
+ * undefined for a bare channel id, which says nothing about whose channel it is.
+ */
+export function channelHandle(channelUrl: string | undefined): string | undefined {
+  if (!channelUrl) return undefined;
+  try {
+    const u = new URL(channelUrl);
+    if (u.hostname.replace(/^www\.|^m\./, "") !== "youtube.com") return undefined;
+    const path = decodeURIComponent(u.pathname);
+    return /^\/@([^/]+)/.exec(path)?.[1] ?? /^\/(?:c|user)\/([^/]+)/.exec(path)?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+/** What may follow the company's name in its handle: "@SGAMEOfficial", "@CapcomUSA_" are its; "@sgamefans" is not. */
+const HANDLE_TAIL = /^(?:official|oficial|games?|studios?|music|musica|records|recordings|label|ost|soundtrack|channel|global|jp|en|us|tv|inc|ltd|\d)*$/;
+
+/** A display name can be anyone's; the handle is unique: it must be the company's name too. */
+function handleMatches(handle: string, company: string | undefined): boolean {
+  if (!company) return false;
+  const compact = (s: string) => norm(s).replace(/ /g, "");
+  const h = compact(handle.replace(/-topic$/i, ""));
+  const c = compact(core(company));
+  return c.length >= 3 && h.startsWith(c) && HANDLE_TAIL.test(h.slice(c.length));
+}
+
 /** Video or playlist id from a YouTube URL. */
 export function parseYoutube(url: string): { youtubeId?: string; playlistId?: string } | null {
   try {
@@ -73,13 +107,18 @@ export function parseYoutube(url: string): { youtubeId?: string; playlistId?: st
   }
 }
 
-/** Official soundtrack on YouTube, or null: the channel must be the developer's, publisher's, label's or composer's (the last two only when the credits name them). In doubt, null. */
+/**
+ * Official soundtrack on YouTube, or null: the channel must be the developer's, publisher's, label's or composer's
+ * (the last two only when the credits name them), by its name AND by its handle in the channel URL (a display name
+ * can be copied, a handle cannot). In doubt, null.
+ */
 export async function findSoundtrack(
   _ai: Ai,
   game: SoundtrackGame,
   deps: SoundtrackDeps,
 ): Promise<Soundtrack | null> {
-  const oembed = deps.oembed ?? youtubeOembed;
+  const fetchPage = deps.fetchPage;
+  const oembed = deps.oembed ?? (fetchPage ? (url: string) => youtubeOembed(url, fetchPage) : async () => null);
   const gameKey = norm(game.name);
   const queries = [`${game.name} official soundtrack`, `${game.name} OST youtube`];
   const seen = new Set<string>();
@@ -93,7 +132,10 @@ export async function findSoundtrack(
       if (tried++ >= MAX_CANDIDATES) return null;
       const meta = await oembed(hit.url);
       if (!meta) continue;
-      const official = [game.developer, game.publisher, game.label, game.composer].some((c) => channelMatches(meta.channel, c));
+      const handle = channelHandle(meta.channelUrl);
+      const official =
+        handle !== undefined &&
+        [game.developer, game.publisher, game.label, game.composer].some((c) => channelMatches(meta.channel, c) && handleMatches(handle, c));
       if (official) return { ...ids, title: meta.title, channel: meta.channel };
     }
   }

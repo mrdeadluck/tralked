@@ -18,17 +18,34 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return shared / (a.size + b.size - shared || 1);
 }
 
+/** Sites where each page has its own author (a Steam guide, a Reddit thread): their pages are not one source. */
+const MULTI_AUTHOR = /(^|\.)(steamcommunity\.com|reddit\.com|youtube\.com|youtu\.be|psnprofiles\.com)$/;
+
+/** The site a page belongs to (host without "www."); null for multi-author sites and unparseable urls. */
+function siteOf(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return MULTI_AUTHOR.test(host) ? null : host;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Groups of urls that are really one source: pages whose 5-word shingles overlap by Jaccard >= 0.6 (a copy of
- * PowerPyx is not a second opinion). Groups keep the input order; every url lands in exactly one group.
+ * Groups of urls that are really one source: pages of the same site (PowerPyx's roadmap and its region pages,
+ * two allthings.how articles), and pages whose 5-word shingles overlap by Jaccard >= 0.6 (a copy of PowerPyx is
+ * not a second opinion). On multi-author sites (Steam guides, Reddit) only the text decides. Groups keep the input
+ * order; every url lands in exactly one group.
  */
 export function independentGroups(pages: { url: string; text: string }[]): string[][] {
   const sets = pages.map((p) => shingles(p.text));
+  const sites = pages.map((p) => siteOf(p.url));
   const parent = pages.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
   for (let i = 0; i < pages.length; i++) {
     for (let j = i + 1; j < pages.length; j++) {
-      if (jaccard(sets[i]!, sets[j]!) >= SAME_SOURCE) parent[find(j)] = find(i);
+      const sameSite = sites[i] !== null && sites[i] === sites[j];
+      if (sameSite || jaccard(sets[i]!, sets[j]!) >= SAME_SOURCE) parent[find(j)] = find(i);
     }
   }
   const byRoot = new Map<number, string[]>();

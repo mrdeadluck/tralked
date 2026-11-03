@@ -271,16 +271,34 @@ describe("R23: coletar pelo menos N", () => {
     expect(result.missing).toContain('A conquista "Leave No Stone Unturned" (ACH_STONE) pede 10, mas os itens encontrados somam 12.');
   });
 
-  it("no \"pelo menos N\", item sem número ou número repetido reprova", () => {
+  it("no \"pelo menos N\", número repetido reprova; item sem número ganha o próximo do capítulo, para revisão (R28)", () => {
     const stones = blackstones(12);
     stones[4] = { ...stones[4]!, index: undefined };
     const again = item("Pedra Negra 3 de novo", { collectibleType: "Blackstone", index: 3, countsForEn: ["Leave No Stone Unturned"] });
     const f = powerpyx({ chapters: [chapter("Weeping Creek", stones), chapter("Village of Lu", [again], 2)] });
-    const { result } = run(baseSteam(), [f]);
+    const { d, result } = run(baseSteam(), [f]);
     expect(result.missing).toEqual([
       'A contagem da conquista "Leave No Stone Unturned" (ACH_STONE) está errada: o número 3 aparece mais de uma vez.',
-      'A contagem da conquista "Leave No Stone Unturned" (ACH_STONE) está errada: o item "Pedra Negra 5" está sem número.',
     ]);
+    expect(d.chapters[0]!.items.find((i) => i.name === "Pedra Negra 5")).toMatchObject({ index: 13, numberAssumed: true });
+  });
+
+  it("número corrido do PowerPyx (entre tipos, recomeça em cada página) não vira número repetido", () => {
+    // Each region page numbers everything it lists, #1, #2, #3... across types: the Blackstones of two pages
+    // carry 2, 4, 6... on both pages.
+    const page = (region: string) => {
+      const items = Array.from({ length: 6 }, (_, i) => [
+        item(`Sino ${region} ${i + 1}`, { collectibleType: "Bell", index: 2 * i + 1 }),
+        item(`Pedra Negra ${region} ${i + 1}`, { collectibleType: "Blackstone", index: 2 * i + 2, countsForEn: ["Leave No Stone Unturned"] }),
+      ]).flat();
+      return fact(`PowerPyx (${region})`, "coletaveis", { chapters: [{ title: "First Visit", region, order: 1, items }] }, `https://www.powerpyx.com/pbz-${region.toLowerCase()}/`);
+    };
+    const roadmap = powerpyx({ chapters: [] });
+    const lead = { ...roadmap, source: { ...roadmap.source, url: "https://www.powerpyx.com/pbz-roadmap/" } };
+    const { d, result } = run(baseSteam(), [lead, page("Weeping"), page("Crimson")]);
+    expect(result).toEqual({ ok: true, missing: [] });
+    expect(d.achievements.find((a) => a.apiName === "ACH_STONE")!.collect).toMatchObject({ counted: 12, indexProblems: [] });
+    expect(d.chapters[1]!.items.filter((i) => i.collectibleType === "Blackstone").map((i) => i.index)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 });
 

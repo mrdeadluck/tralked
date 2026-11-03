@@ -371,7 +371,7 @@ const unmark = (text: string) =>
  * titles, region, overview and cover are shown as is and feed search, so the manual keeps bosses out
  * of them instead.
  */
-function plain(text: string | null | undefined, max: number): string {
+export function plain(text: string | null | undefined, max: number): string {
   return text ? inline(unmark(text).replaceAll("||", ""), max) : "";
 }
 
@@ -650,9 +650,12 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       countsFor: [...new Set(i?.countsFor ?? [])].filter((x) => steamApiNames.has(x)).slice(0, 20),
       alsoOn: a && compatSteamOnly && !a.steamOnly ? ["psn"] : [],
       sources: sources.length > 0 ? sources : fallbackSources(),
-      // R20: a deadline the code assumed (its own chapter) is reviewed too.
+      // R20: a deadline the code assumed (its own chapter) is reviewed too, and so are a revisit placed by the code
+      // and a number the code gave (R28).
       review: Boolean(
-        (i && (!i.agreed || i.conflict || i.deadlineAssumed)) || (a && (!a.agreed || a.conflict || a.deadlineAssumed)) || sources.length === 0,
+        (i && (!i.agreed || i.conflict || i.deadlineAssumed || i.orderAssumed || i.numberAssumed)) ||
+          (a && (!a.agreed || a.conflict || a.deadlineAssumed)) ||
+          sources.length === 0,
       ),
     };
   };
@@ -840,6 +843,27 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
 // ---------------------------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * The writer's calls without calling anything (the dry run's cost estimate): the system prompt, the frame message
+ * and each write job's message, with the job's step and item counts.
+ */
+export function writerPlan(
+  dossier: GuideDossier,
+  game: GuideDossierSource,
+  scope?: PsnWriteScope,
+): { system: string; frame: string; jobs: { message: string; steps: number; items: number }[] } {
+  const skel = buildSkeleton(dossier);
+  return {
+    system: loadGuideStyle(),
+    frame: frameMessage(skel, dossier, game, scope),
+    jobs: writeJobs(skel).map((job) => ({
+      message: jobMessage(skel, job, game),
+      steps: job.steps.length,
+      items: job.steps.reduce((n, s) => n + s.items.length, 0),
+    })),
+  };
+}
 
 /** Writes the guide and reports what the code had to fill or correct (as scoped problems). */
 export async function writeGuideDetailed(

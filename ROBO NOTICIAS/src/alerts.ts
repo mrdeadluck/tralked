@@ -37,8 +37,11 @@ export function formatLocal(d: Date): string {
   return timeFmt.format(d).replace(",", "");
 }
 
+/** Where alerts live: the news robot's `robo.db` or the guide robot's `robo-guias.db` (same `alerts` table). */
+export type AlertStore = Pick<Db, "raw" | "dir" | "alerts">;
+
 /** Appends a line to today's log file (São Paulo day). No-op for an in-memory database. */
-export function logLine(db: Db, line: string, now: Date = new Date()): void {
+export function logLine(db: Pick<Db, "dir">, line: string, now: Date = new Date()): void {
   if (db.dir === ":memory:") return;
   try {
     const logs = join(db.dir, "logs");
@@ -149,11 +152,11 @@ export async function sendEmail(
   }
 }
 
-function alertsEmail(rows: AlertRow[]): { subject: string; text: string } {
+function alertsEmail(rows: AlertRow[], robot: string): { subject: string; text: string } {
   const n = rows.length;
   const subject = `Tralked Robô: ${n} ${n === 1 ? "alerta" : "alertas"}`;
   const lines = rows.map((a) => `[${formatLocal(new Date(a.at))}] ${a.kind}: ${a.message}`);
-  const text = [`O robô de notícias registrou ${n} ${n === 1 ? "alerta" : "alertas"}:`, "", ...lines, "", "Horários de Brasília."].join("\n");
+  const text = [`O robô ${robot} registrou ${n} ${n === 1 ? "alerta" : "alertas"}:`, "", ...lines, "", "Horários de Brasília."].join("\n");
   return { subject, text };
 }
 
@@ -163,10 +166,11 @@ function alertsEmail(rows: AlertRow[]): { subject: string; text: string } {
  * claimed before the request, so two commands finishing together do not send the same alert twice.
  */
 export async function sendPendingAlerts(
-  db: Db,
+  db: AlertStore,
   config: Pick<Config, "RESEND_API_KEY" | "ALERT_EMAIL">,
   fetchFn: FetchLike,
   now: Date = new Date(),
+  robot = "de notícias",
 ): Promise<number> {
   if (!config.RESEND_API_KEY || !config.ALERT_EMAIL) return 0;
   try {
@@ -176,7 +180,7 @@ export async function sendPendingAlerts(
     const claimed = pending.filter((a) => Number(claim.run(a.id).changes) === 1);
     if (claimed.length === 0) return 0;
 
-    const { subject, text } = alertsEmail(claimed);
+    const { subject, text } = alertsEmail(claimed, robot);
     const sent = await sendEmail(config, fetchFn, subject, text);
     if (!sent) {
       for (const a of claimed) release.run(a.id);

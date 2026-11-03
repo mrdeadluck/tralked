@@ -7,7 +7,12 @@ import type { GuidePayloadV2 } from "../../src/guias/contract.js";
 import { openGuideDb, type GuideDb } from "../../src/guias/db.js";
 import type { GuideDossier, GuideDossierSource, SteamAchievement } from "../../src/guias/dossier.js";
 import type { ExtractedFacts, LlmFacts } from "../../src/guias/facts.js";
-import { runGuideRequest, type GuidePipelineDeps, type GuideStages } from "../../src/guias/pipeline.js";
+import { BudgetExceededError } from "../../src/ai/client.js";
+import { extractionKey, runGuideRequest, type GuidePipelineDeps, type GuideStages } from "../../src/guias/pipeline.js";
+import { dryRun } from "../../src/guias/dry-run.js";
+import { PAGE_TEXT_VERSION } from "../../src/guias/page-text.js";
+import { bodyBytes, imageBytes, REPORT_SLACK_BYTES, SITE_LIMITS } from "../../src/guias/limits.js";
+import { loadRunContext } from "../../src/guias/run-context.js";
 import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import type { FetchPage, SourceRef } from "../../src/guias/sources.js";
 import { steamAliasUrl } from "../../src/guias/steam-aliases.js";
@@ -224,6 +229,7 @@ function makeDeps(over: Partial<GuidePipelineDeps> = {}): GuidePipelineDeps & { 
     fetchImage: vi.fn(async () => Buffer.from("jpeg-bytes")),
     now: () => new Date("2026-11-03T12:00:00Z"),
     log: (line) => lines.push(line),
+    sleep: async () => {},
     stages: fakeStages(),
     ...over,
     lines,
@@ -669,5 +675,288 @@ describe("buildReport", () => {
       coverage: { steam: 1, covered: 0, steamOnly: 0 },
       spendUsd: 1.2346,
     });
+  });
+});
+
+describe("pedido nunca preso em researching / writing (I1)", () => {
+  it("erro ao montar a execução (modelo sem preço) também termina em failed", async () => {
+    const { api, calls } = fakeApi();
+    const deps = makeDeps({
+      api,
+      config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "modelo-sem-preco", MODEL_FAST: "claude-haiku-5-5", GUIDE_BUDGET_USD: 25 },
+    });
+    expect(await runGuideRequest(deps)).toBe("failed");
+    expect(statuses(calls)).toEqual(["failed"]);
+    expect(calls.reports[0]!.body.reason).toContain("No price configured");
+  });
+
+  it("o relato final é tentado de novo, com a mesma chave, quando o site falha", async () => {
+    let failures = 0;
+    const keys: string[] = [];
+    const { api } = fakeApi({
+      reportRequest: vi.fn(async (_id: string, body: GuideRequestReport, key: string) => {
+        keys.push(key);
+        if (body.status === "waiting_sources" && failures < 2) {
+          failures++;
+          throw new Error("fetch failed");
+        }
+      }),
+    });
+    const stages = fakeStages({ extractFacts: async (_page, source) => ({ ...fact("x", "roteiro_steam"), source }) });
+    const sleeps: number[] = [];
+    const deps = makeDeps({ api, stages, sleep: async (ms) => void sleeps.push(ms) });
+    expect(await runGuideRequest(deps)).toBe("waiting_sources");
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys).size).toBe(1);
+    expect(sleeps).toEqual([2_000, 10_000]);
+  });
+
+  it("prazo suave: passou depois de escrever → o guia sai sem imagens e sem trilha, e o relatório diz", async () => {
+    const { api, calls } = fakeApi();
+    let t = Date.parse("2026-11-03T12:00:00Z");
+    const stages = fakeStages({
+      writeAndCheckGuide: async () => {
+        t += 151 * 60_000;
+        return { ok: true as const, payload: writtenPayload() };
+      },
+    });
+    const deps = makeDeps({ api, stages, now: () => new Date(t) });
+    expect(await runGuideRequest(deps)).toBe("review");
+    const { payload } = calls.created[0]!;
+    expect(stages.calls.locateTarget).toBeUndefined();
+    expect(stages.calls.findSoundtrack).toBeUndefined();
+    expect(payload.walkthrough.soundtrack).toBeUndefined();
+    expect((payload.report as RobotReport).notes).toEqual(["o prazo de 150 min passou depois de escrever: o guia saiu sem imagens e sem trilha sonora"]);
+    expect(calls.reports.at(-1)!.body.report).toMatchObject({ notes: (payload.report as RobotReport).notes });
+  });
+});
+
+describe("teto de gasto depois do guia escrito (I3)", () => {
+  it("nas imagens: para as imagens e envia o guia, com a nota", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      locateTarget: async () => {
+        throw new BudgetExceededError("backfill", 25.1, 25);
+      },
+    });
+    const deps = makeDeps({ api, stages });
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(calls.created).toHaveLength(1);
+    const { payload } = calls.created[0]!;
+    expect(payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.image).toBeUndefined();
+    expect((payload.report as RobotReport).notes).toEqual([expect.stringContaining("teto de gasto atingido nas imagens")]);
+    expect(statuses(calls)).toEqual(["writing", "review"]);
+  });
+
+  it("na trilha sonora: envia o guia sem música, com a nota", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      findSoundtrack: async () => {
+        throw new BudgetExceededError("backfill", 25.1, 25);
+      },
+    });
+    expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("review");
+    const { payload } = calls.created[0]!;
+    expect(payload.walkthrough.soundtrack).toBeUndefined();
+    expect((payload.report as RobotReport).notes).toEqual(["teto de gasto atingido na busca da trilha sonora: o guia saiu sem música"]);
+  });
+});
+
+describe("limites do site antes de gastar com a escrita (C2)", () => {
+  it("guia com mais de 60 capítulos: failed com o motivo, sem escrever", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      extractFacts: async (_page, source) => ({
+        ...fact("x", "roteiro_steam", {
+          achievements: [ach("The End")],
+          chapters: Array.from({ length: 61 }, (_, i) => chapter(`Capítulo ${i + 1}`, [item(`Item ${i + 1}`)], i + 1)),
+        }),
+        source,
+      }),
+    });
+    expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("failed");
+    expect(stages.calls.writeAndCheckGuide).toBeUndefined();
+    expect(statuses(calls)).toEqual(["failed"]);
+    expect(calls.reports[0]!.body.reason).toBe("o guia não cabe nos limites do site: O guia teria 62 capítulos; o site aceita até 60.");
+  });
+
+  it("corpo final acima de 1 MiB mesmo sem imagens: failed, nada enviado", async () => {
+    const { api, calls } = fakeApi();
+    const huge = writtenPayload();
+    huge.walkthrough.chapters[0]!.steps[0]!.items[0]!.location = "x".repeat(1_100_000);
+    const stages = fakeStages({ writeAndCheckGuide: async () => ({ ok: true as const, payload: huge }) });
+    expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("failed");
+    expect(calls.created).toEqual([]);
+    expect(calls.reports.at(-1)!.body.reason).toMatch(/^o guia ficaria com \d+ KiB e o site aceita até 1024 KiB \(1 MiB\) por envio$/);
+  });
+});
+
+describe("pequenos consertos do pipeline", () => {
+  it("cache de extração corrompido: extrai de novo em vez de marcar a página como não lida", async () => {
+    const db = openGuideDb(":memory:");
+    const key = extractionKey("claude-sonnet-5-5", STEAM_GUIDE, STEAM_GUIDE_TEXT);
+    db.setMeta(key, "{corrompido");
+    const stages = fakeStages();
+    expect(await runGuideRequest(makeDeps({ db, stages }))).toBe("review");
+    expect(stages.calls.extractFacts).toHaveLength(1);
+    expect(() => JSON.parse(db.getMeta(key)!)).not.toThrow();
+  });
+
+  it("nome de fonte e textos do oEmbed com '<' saem como texto puro, dentro dos limites do site", async () => {
+    const { api, calls } = fakeApi();
+    const odd: SourceRef = { ...STEAM_GUIDE, name: `Steam: <Mod> ${"Guia ".repeat(40)}` };
+    const stages = fakeStages({
+      discoverSources: async () => [odd],
+      findSoundtrack: async () => ({ youtubeId: "abcdefghijk", title: `<b>OST</b> ${"x".repeat(200)}`, channel: "S-Game <official>" }),
+    });
+    expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("review");
+    const { payload } = calls.created[0]!;
+    const image = payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.image!;
+    expect(image.credit).not.toMatch(/<[A-Za-z]/);
+    expect(image.sourceName.length).toBeLessThanOrEqual(120);
+    expect(payload.walkthrough.soundtrack!.title.length).toBeLessThanOrEqual(120);
+    expect(payload.walkthrough.soundtrack!.channel).not.toMatch(/<[A-Za-z]/);
+    expect(guidePayloadSchema.safeParse(payload).error?.issues).toBeUndefined();
+  });
+
+  it("guarda o contexto do pedido (fontes e lista da Steam) para o ensaio", async () => {
+    const deps = makeDeps();
+    await runGuideRequest(deps);
+    expect(loadRunContext(deps.db, REQUEST.id)).toMatchObject({
+      requestId: REQUEST.id,
+      steamAppId: REQUEST.steamAppId,
+      gameSlug: "phantom-test",
+      sources: [POWERPYX, STEAM_GUIDE],
+      steamList: STEAM,
+    });
+  });
+});
+
+describe("Task 17: escrita em cache e confiabilidade", () => {
+  it("a escrita aprovada fica no cache: outra tentativa do mesmo jogo reaproveita sem chamar a IA, e o ensaio mostra", async () => {
+    const db = openGuideDb(":memory:");
+    const first = fakeStages();
+    const one = fakeApi();
+    expect(await runGuideRequest(makeDeps({ db, api: one.api, stages: first }))).toBe("review");
+    expect(first.calls.writeAndCheckGuide).toHaveLength(1);
+
+    const second = fakeStages();
+    const two = fakeApi({ claimNext: vi.fn(async () => ({ ...REQUEST, id: "req-2" })) });
+    expect(await runGuideRequest(makeDeps({ db, api: two.api, stages: second }))).toBe("review");
+    expect(second.calls.writeAndCheckGuide).toBeUndefined();
+    const { payload } = two.calls.created[0]!;
+    expect((payload.report as RobotReport).notes).toContain("escrita reaproveitada do cache");
+    // Images and soundtrack are per send: the media URLs belong to each site.
+    expect(second.calls.findSoundtrack).toHaveLength(1);
+    expect(payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.image).toBeDefined();
+
+    // The dry run sees it (the page it read must be in the cache: the fake fetch does not store pages).
+    db.savePage({ url: STEAM_GUIDE.url, fetchedAt: new Date(), status: "ok", finalUrl: STEAM_GUIDE.url, text: STEAM_GUIDE_TEXT, html: STEAM_GUIDE_HTML, textVersion: PAGE_TEXT_VERSION });
+    const lines: string[] = [];
+    await dryRun({ db, config: { MODEL_WRITER: "claude-opus-5-5", MODEL_EXTRACT: "claude-sonnet-5-5", MODEL_FAST: "claude-haiku-5-5", GUIDE_STEAM_REFERENCE_ID: "76561198012210783" }, requestId: "req-2", log: (l) => lines.push(l) });
+    expect(lines).toContainEqual(expect.stringMatching(/^escrita reaproveitável do cache: sim/));
+  });
+
+  it("prazo suave já passou antes da escrita: failed 'tempo esgotado antes da escrita', sem escrever", async () => {
+    const { api, calls } = fakeApi();
+    let t = Date.parse("2026-11-03T12:00:00Z");
+    const stages = fakeStages({
+      extractFacts: async (_page, source) => {
+        t += 151 * 60_000;
+        return steamFacts(source);
+      },
+    });
+    expect(await runGuideRequest(makeDeps({ api, stages, now: () => new Date(t) }))).toBe("failed");
+    expect(stages.calls.writeAndCheckGuide).toBeUndefined();
+    expect(statuses(calls)).toEqual(["failed"]);
+    expect(calls.reports[0]!.body.reason).toBe("tempo esgotado antes da escrita");
+  });
+
+  it("relato final recusado com 422 e issues: não repete", async () => {
+    let tries = 0;
+    const { api } = fakeApi({
+      reportRequest: vi.fn(async (_id: string, body: GuideRequestReport) => {
+        if (body.status !== "waiting_sources") return;
+        tries++;
+        throw new TralkedError(422, "validation_failed", "relatório inválido", [{ path: "report", message: "muito grande" }]);
+      }),
+    });
+    const stages = fakeStages({ extractFacts: async (_page, source) => ({ ...fact("x", "roteiro_steam"), source }) });
+    const sleeps: number[] = [];
+    expect(await runGuideRequest(makeDeps({ api, stages, sleep: async (ms) => void sleeps.push(ms) }))).toBe("waiting_sources");
+    expect(tries).toBe(1);
+    expect(sleeps).toEqual([]);
+  });
+});
+
+describe("Task 17 fix round 1", () => {
+  it("imagens decididas depois da escrita pelo tamanho real: sem espaço, nenhuma busca nem envio, e o guia sai", async () => {
+    // The guide's size without images, measured once.
+    const probe = fakeApi();
+    await runGuideRequest(makeDeps({ api: probe.api, stages: fakeStages({ pickItemImage: () => null }) }));
+    const bare = bodyBytes(probe.calls.created[0]!.payload);
+
+    const { api, calls } = fakeApi();
+    const full = writtenPayload();
+    // Room for the text, not for one image more.
+    full.walkthrough.chapters[0]!.steps[0]!.items[0]!.location = `Topo da torre velha${"x".repeat(SITE_LIMITS.bodyBytes - bare - REPORT_SLACK_BYTES / 2)}`;
+    const stages = fakeStages({ writeAndCheckGuide: async () => ({ ok: true as const, payload: full }) });
+    const deps = makeDeps({ api, stages });
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(stages.calls.locateTarget).toBeUndefined();
+    expect(calls.uploads).toEqual([]);
+    expect(calls.created).toHaveLength(1);
+    expect((calls.created[0]!.payload.report as RobotReport).notes).toContainEqual(expect.stringContaining("sem espaço para imagens"));
+  });
+
+  it("imagens: as perdíveis primeiro, e a busca para quando o orçamento de tamanho acaba", async () => {
+    /** A guide of two items (the second missable), with `pad` more characters of text, and what it sent. */
+    const send = async (pad: number, withImages = true) => {
+      const { api, calls } = fakeApi();
+      const payload = writtenPayload();
+      const step = payload.walkthrough.chapters[0]!.steps[0]!;
+      const base = step.items[0]!;
+      step.items = [
+        { ...base, key: "comum", name: "Comum", nameEn: "Plain", location: `Comum ${"x".repeat(pad)}` },
+        { ...base, key: "perdivel", name: "Perdível", nameEn: "Lost", missable: true },
+      ];
+      const located: string[] = [];
+      const stages = fakeStages({
+        writeAndCheckGuide: async () => ({ ok: true as const, payload }),
+        pickItemImage: (item) =>
+          withImages ? { url: `https://images.example/${item.nameEn}.jpg`, sourceName: "Wiki", sourceUrl: "https://wiki.example/x", thirdParty: true } : null,
+        locateTarget: async (_ai, _bytes, name) => {
+          located.push(name);
+          return { x: 0.5, y: 0.5, r: 0.1 };
+        },
+      });
+      expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("review");
+      return { located, bytes: bodyBytes(calls.created[0]!.payload) };
+    };
+    // Plenty of room: both, the missable first.
+    const both = await send(0);
+    expect(both.located).toEqual(["Lost", "Plain"]);
+    const none = await send(0, false);
+    const perImage = (both.bytes - none.bytes) / 2;
+    // Room for the first image (as the robot estimates it) and half of a second: only the missable's is fetched.
+    const estimate = imageBytes({ credit: "Imagem: Wiki", sourceName: "Wiki", sourceUrl: "https://wiki.example/x" });
+    const pad = SITE_LIMITS.bodyBytes - REPORT_SLACK_BYTES - none.bytes - estimate - Math.round(perImage / 2);
+    expect((await send(pad)).located).toEqual(["Lost"]);
+  });
+
+  it("escrita no cache é de graça: o prazo flexível passado não impede reaproveitar", async () => {
+    const db = openGuideDb(":memory:");
+    await runGuideRequest(makeDeps({ db, stages: fakeStages() }));
+    let t = Date.parse("2026-11-03T12:00:00Z");
+    const stages = fakeStages({
+      discoverSources: async () => {
+        t += 151 * 60_000;
+        return [POWERPYX, STEAM_GUIDE];
+      },
+    });
+    const { api, calls } = fakeApi({ claimNext: vi.fn(async () => ({ ...REQUEST, id: "req-3" })) });
+    expect(await runGuideRequest(makeDeps({ db, api, stages, now: () => new Date(t) }))).toBe("review");
+    expect(stages.calls.writeAndCheckGuide).toBeUndefined();
+    expect(calls.created).toHaveLength(1);
   });
 });

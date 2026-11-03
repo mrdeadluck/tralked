@@ -20,7 +20,7 @@ export interface WebSearchDeps {
   client: Pick<Anthropic, "messages">;
   /** Must be a model that supports the web search tool (e.g. claude-sonnet-5-5). */
   model: string;
-  /** Called once per search with the computed cost (tokens + search requests). */
+  /** Called after every model turn of a search with that turn's cost (tokens + search requests). */
   recordSpend: (usd: number, purpose: string) => void;
   /** Searches the model may run for one query. Default 1. */
   maxUses?: number;
@@ -61,10 +61,9 @@ export function createWebSearch(deps: WebSearchDeps): WebSearch {
       { role: "user", content: `Search the web for: ${query}` },
     ];
     const blocks: Block[] = [];
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let searches = 0;
-    // `pause_turn`: the server-side tool loop hit its iteration limit; send the turn back to continue it.
+    const purpose = `websearch: ${query}`.slice(0, 120);
+    // `pause_turn`: the server-side tool loop hit its iteration limit; send the turn back to continue it. Each
+    // turn is recorded as soon as it is paid, so a later turn that throws loses nothing.
     for (let turn = 0; turn < MAX_PAUSED_TURNS; turn++) {
       const res = await client.messages.create({
         model,
@@ -78,15 +77,12 @@ export function createWebSearch(deps: WebSearchDeps): WebSearch {
         output_tokens: number;
         server_tool_use?: { web_search_requests?: number } | null;
       };
-      inputTokens += usage.input_tokens;
-      outputTokens += usage.output_tokens;
-      searches += usage.server_tool_use?.web_search_requests ?? 0;
+      const searches = usage.server_tool_use?.web_search_requests ?? 0;
+      recordSpend((usage.input_tokens * priceIn + usage.output_tokens * priceOut) / 1e6 + searches * WEB_SEARCH_USD_PER_REQUEST, purpose);
       blocks.push(...(res.content as Block[]));
       if (res.stop_reason !== "pause_turn") break;
       messages.push({ role: "assistant", content: res.content });
     }
-    const usd = (inputTokens * priceIn + outputTokens * priceOut) / 1e6 + searches * WEB_SEARCH_USD_PER_REQUEST;
-    recordSpend(usd, `websearch: ${query}`.slice(0, 120));
     return extractHits(blocks);
   }
 

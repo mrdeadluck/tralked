@@ -16,6 +16,23 @@ describe("independentGroups", () => {
     ]);
     expect(groups).toEqual([["https://powerpyx.com/pbz", "https://copycat.example/pbz"], ["https://grindnstrat.com/pbz"]]);
   });
+
+  it("páginas do mesmo site são uma fonte só; guias de autores diferentes na Steam continuam independentes", () => {
+    const groups = independentGroups([
+      { url: "https://www.powerpyx.com/pbz-roadmap/", text: words("roteiro", 300) },
+      { url: "https://allthings.how/pbz-achievements/", text: words("conquistas", 300) },
+      { url: "https://powerpyx.com/pbz-crimson-forest/", text: words("floresta", 300) },
+      { url: "https://allthings.how/pbz-bosses/", text: words("chefes", 300) },
+      { url: "https://steamcommunity.com/sharedfiles/filedetails/?id=1", text: words("guia um", 300) },
+      { url: "https://steamcommunity.com/sharedfiles/filedetails/?id=2", text: words("guia dois", 300) },
+    ]);
+    expect(groups).toEqual([
+      ["https://www.powerpyx.com/pbz-roadmap/", "https://powerpyx.com/pbz-crimson-forest/"],
+      ["https://allthings.how/pbz-achievements/", "https://allthings.how/pbz-bosses/"],
+      ["https://steamcommunity.com/sharedfiles/filedetails/?id=1"],
+      ["https://steamcommunity.com/sharedfiles/filedetails/?id=2"],
+    ]);
+  });
 });
 
 describe("buildDossier: fontes por item", () => {

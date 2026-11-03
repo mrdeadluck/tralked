@@ -90,7 +90,8 @@ describe("politeFetch", () => {
     expect(s.calls.length).toBe(before);
     s.advance(2 * 86_400_000);
     await politeFetch("https://a.test/p", s.opts);
-    expect(s.calls.length).toBe(before + 1);
+    // After 7 days robots.txt is asked again too.
+    expect(s.calls.slice(before)).toEqual(["https://a.test/robots.txt", "https://a.test/p"]);
   });
 
   it("texto de guia: tabela mantida e página guardada com a versão do extrator", async () => {
@@ -175,6 +176,90 @@ describe("politeFetch", () => {
   });
 });
 
+describe("politeFetch: robots.txt fora do ar e redirecionamentos (RFC 9309)", () => {
+  it("robots.txt com 5xx (também na nova tentativa): nada é lido do host, e só por alguns minutos", async () => {
+    const s = setup({
+      "https://a.test/robots.txt": [new Response("down", { status: 503 }), new Response("down", { status: 503 }), robots("User-agent: *\nAllow: /")],
+      "https://a.test/p": [ok(html(LONG))],
+    });
+    const r = await politeFetch("https://a.test/p", s.opts);
+    expect(r).toMatchObject({ status: "error", reason: "robots.txt inacessível (HTTP 503)" });
+    // One more try a few seconds later before blocking the host.
+    expect(s.calls).toEqual(["https://a.test/robots.txt", "https://a.test/robots.txt"]);
+    expect(s.sleeps).toContain(5_000);
+    // Still within the short cache: no new robots.txt request, still nothing read.
+    s.advance(5 * 60_000);
+    expect((await politeFetch("https://a.test/p", s.opts)).status).toBe("error");
+    expect(s.calls).toHaveLength(2);
+    // A few minutes later robots.txt is asked again, and now the page is read.
+    s.advance(10 * 60_000);
+    expect((await politeFetch("https://a.test/p", s.opts)).status).toBe("ok");
+    expect(s.calls).toEqual(["https://a.test/robots.txt", "https://a.test/robots.txt", "https://a.test/robots.txt", "https://a.test/p"]);
+  });
+
+  it("robots.txt com 5xx que volta na nova tentativa: o host não é bloqueado", async () => {
+    const s = setup({
+      "https://a.test/robots.txt": [new Response("down", { status: 502 }), robots("User-agent: *\nAllow: /")],
+      "https://a.test/p": [ok(html(LONG))],
+    });
+    expect((await politeFetch("https://a.test/p", s.opts)).status).toBe("ok");
+    expect(s.calls).toEqual(["https://a.test/robots.txt", "https://a.test/robots.txt", "https://a.test/p"]);
+  });
+
+  it("robots.txt inalcançável (erro de rede) também bloqueia; a mesma cache curta vale entre execuções (banco)", async () => {
+    const s = setup({});
+    const failing = {
+      ...s.opts,
+      fetchFn: vi.fn<typeof fetch>(async () => {
+        throw new Error("ETIMEDOUT");
+      }),
+    };
+    expect(await politeFetch("https://z.test/p", failing)).toMatchObject({ status: "error", reason: expect.stringContaining("ETIMEDOUT") });
+    expect(failing.fetchFn).toHaveBeenCalledTimes(2);
+    // A new run (new state), same database: the short cache still holds.
+    const again = { ...failing, state: createPoliteState() };
+    expect((await politeFetch("https://z.test/p", again)).status).toBe("error");
+    expect(failing.fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("robots.txt com 4xx: tudo liberado (e fica 7 dias)", async () => {
+    const s = setup({ "https://a.test/robots.txt": [new Response("gone", { status: 410 })], "https://a.test/p": [ok(html(LONG))] });
+    expect((await politeFetch("https://a.test/p", s.opts)).status).toBe("ok");
+  });
+
+  it("redirecionamento para caminho proibido no outro host: bloqueado, sem ler o destino", async () => {
+    const s = setup({
+      "https://a.test/p": [new Response(null, { status: 301, headers: { Location: "https://b.test/private/q" } })],
+      "https://b.test/robots.txt": [robots("User-agent: *\nDisallow: /private")],
+    });
+    const r = await politeFetch("https://a.test/p", s.opts);
+    expect(r).toMatchObject({ status: "blocked", reason: "robots.txt" });
+    expect(s.calls).toEqual(["https://a.test/robots.txt", "https://a.test/p", "https://b.test/robots.txt"]);
+  });
+
+  it("redirecionamento permitido: segue à mão, respeitando o intervalo do novo host", async () => {
+    const s = setup({
+      "https://b.test/x": [ok(html(LONG))],
+      "https://a.test/p": [new Response(null, { status: 302, headers: { Location: "https://b.test/q" } })],
+      "https://b.test/q": [ok(html(LONG))],
+    });
+    await politeFetch("https://b.test/x", s.opts);
+    s.sleeps.length = 0;
+    const r = await politeFetch("https://a.test/p", s.opts);
+    expect(r).toMatchObject({ status: "ok", finalUrl: "https://b.test/q" });
+    expect(s.sleeps).toEqual([2000]);
+    for (const [, init] of s.opts.fetchFn.mock.calls) expect(init?.redirect).toBe("manual");
+  });
+
+  it("mais de 5 redirecionamentos: erro", async () => {
+    const hop = (n: number) => new Response(null, { status: 301, headers: { Location: `https://a.test/h${n + 1}` } });
+    const s = setup(Object.fromEntries([["https://a.test/h0", [hop(0)]], ...Array.from({ length: 7 }, (_, n) => [`https://a.test/h${n + 1}`, [hop(n + 1)]])]));
+    const r = await politeFetch("https://a.test/h0", s.opts);
+    expect(r).toMatchObject({ status: "error", reason: expect.stringContaining("redirecionamentos") });
+    expect(s.calls.filter((u) => u.startsWith("https://a.test/h"))).toHaveLength(6);
+  });
+});
+
 describe("politeFetchImage", () => {
   const image = (bytes = "jpeg") => new Response(bytes, { status: 200, headers: { "Content-Type": "image/jpeg" } });
 
@@ -196,5 +281,14 @@ describe("politeFetchImage", () => {
     expect(await politeFetchImage("https://a.test/c.jpg", s.opts)).toBeNull();
     expect(await politeFetchImage("https://a.test/d.jpg", s.opts)).toBeNull();
     expect(await politeFetchImage("data:image/png;base64,AAAA", s.opts)).toBeNull();
+  });
+
+  it("imagem redirecionada para caminho proibido → null, sem buscar", async () => {
+    const s = setup({
+      "https://a.test/i.jpg": [new Response(null, { status: 301, headers: { Location: "https://b.test/private/i.jpg" } })],
+      "https://b.test/robots.txt": [robots("User-agent: *\nDisallow: /private")],
+    });
+    expect(await politeFetchImage("https://a.test/i.jpg", s.opts)).toBeNull();
+    expect(s.calls).not.toContain("https://b.test/private/i.jpg");
   });
 });

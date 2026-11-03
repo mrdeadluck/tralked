@@ -227,6 +227,23 @@ describe("writeGuide", () => {
     expect(first.review).toBe(true);
     expect(step.body.some((b) => b.type === "callout" && b.tone === "aviso" && /pegue .* agora/.test(b.text))).toBe(true);
   });
+
+  it("item com número dado pelo código (R28) sai com review true", async () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.chapters[0]!.items[0]!, { numberAssumed: true });
+    const payload = await writeGuide(fakeAi().ai, dossier, GAME, "live");
+    expect(payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.review).toBe(true);
+  });
+
+  it("item de revisita que o código pôs no fim (sem posição declarada pela fonte) sai com review true", async () => {
+    const dossier = makeDossier();
+    // A bell listed by both sources: no review on its own.
+    Object.assign(dossier.chapters[0]!.items[0]!, { orderAssumed: true });
+    const payload = await writeGuide(fakeAi().ai, dossier, GAME, "live");
+    const first = payload.walkthrough.chapters[0]!.steps[0]!.items[0]!;
+    expect(first.collectibleType).toBe("Bell");
+    expect(first.review).toBe(true);
+  });
 });
 
 describe("números só do dossiê, do catálogo ou do código", () => {
