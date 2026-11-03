@@ -53,6 +53,27 @@ describe("buildDossier: capítulos", () => {
     expect(d.chapters[0]!.items[0]!.sources).toEqual(["PowerPyx (Crimson Forest)", "Grindnstrat"]);
   });
 
+  it("uma fonte sem região (ou com a região escrita de outro jeito) junta-se ao capítulo de mesmo título", () => {
+    const withRegion = fact("PowerPyx (Crimson Forest)", "coletaveis", {
+      chapters: [region("First Visit", "Crimson Forest", [item("Bell (Gate)", { countsForEn: ["Lost and Found"] })])],
+    });
+    const noRegion = fact("Grindnstrat", "coletaveis", { chapters: [{ title: "First Visit", order: 1, items: [item("Bell (Gate)", { countsForEn: ["Lost and Found"] })] }] });
+    const longer = fact("Game8", "coletaveis", { chapters: [region("First visit", "The Crimson Forest", [item("Bell (Gate)", { countsForEn: ["Lost and Found"] })])] });
+    const d = build([withRegion, noRegion, longer]);
+    expect(d.chapters.map((c) => c.title)).toEqual(["First Visit"]);
+    expect(d.chapters[0]!.region).toBe("Crimson Forest");
+    expect(d.chapters[0]!.items).toHaveLength(1);
+    expect(d.chapters[0]!.items[0]!).toMatchObject({ agreed: true, sources: ["PowerPyx (Crimson Forest)", "Grindnstrat", "Game8"] });
+  });
+
+  it("sem região, com dois capítulos de regiões diferentes de mesmo título: não adivinha e fica à parte", () => {
+    const crimson = fact("PowerPyx (Crimson Forest)", "coletaveis", { chapters: [region("First Visit", "Crimson Forest", [item("Bell (Gate)")])] });
+    const meigu = fact("PowerPyx (Meigu Lake)", "coletaveis", { chapters: [region("First Visit", "Meigu Lake", [item("Bell (Shore)")])] });
+    const pangzhen = fact("PowerPyx (Pangzhen)", "coletaveis", { chapters: [{ title: "First Visit", order: 1, items: [item("Bell (Square)")] }] });
+    const d = build([crimson, meigu, pangzhen]);
+    expect(d.chapters.map((c) => c.title)).toEqual(["First Visit — Crimson Forest", "First Visit — Meigu Lake", "First Visit"]);
+  });
+
   it("um título único fica como está", () => {
     const d = build([fact("PowerPyx", "roteiro_psn", { chapters: [region("Mount Soulrend", "Mount Soulrend", [item("Bell")])] })]);
     expect(d.chapters.map((c) => c.title)).toEqual(["Mount Soulrend"]);
@@ -78,7 +99,7 @@ describe("buildDossier: prazo de perdível (R20)", () => {
     expect(d.chapters[0]!.items[0]).toMatchObject({ deadlineChapter: "Weeping Creek", deadlineAssumed: true });
   });
 
-  it("marco que cita uma região liga ao primeiro capítulo dela, sem assumir", () => {
+  it("marco que cita uma região liga ao primeiro capítulo dela a partir do capítulo do item, e vai para revisão", () => {
     const region = (title: string, regionName: string, items: ReturnType<typeof item>[], order: number) => ({ title, region: regionName, order, items });
     const d = build([
       fact("PowerPyx", "roteiro_psn", {
@@ -90,7 +111,23 @@ describe("buildDossier: prazo de perdível (R20)", () => {
     ]);
     const boulder = d.chapters[0]!.items[0]!;
     expect(boulder.deadlineChapter).toBe("First Visit — Crimson Forest");
-    expect(boulder.deadlineAssumed).toBeUndefined();
+    // The region is the code's reading of the milestone, not a chapter the source named.
+    expect(boulder.deadlineAssumed).toBe(true);
+  });
+
+  it("revisita: o marco que cita a região não aponta para um capítulo anterior ao do item", () => {
+    const region = (title: string, regionName: string, items: ReturnType<typeof item>[], order: number) => ({ title, region: regionName, order, items });
+    const d = build([
+      fact("PowerPyx", "roteiro_psn", {
+        chapters: [
+          region("First Visit", "Meigu Lake", [item("Bell (Shore)")], 1),
+          region("Crimson Forest", "Crimson Forest", [item("Bell (Gate)")], 2),
+          region("Second Visit", "Meigu Lake", [item("Ice Lotus", { missable: true, missableUntil: "Meigu Lake main boss" }), item("Bell (Ice)")], 3),
+        ],
+      }),
+    ]);
+    const lotus = d.chapters.find((c) => c.title === "Second Visit")!.items[0]!;
+    expect(lotus).toMatchObject({ deadlineChapter: "Second Visit", deadlineAssumed: true });
   });
 
   it("marco explícito que casa com um capítulo continua valendo", () => {

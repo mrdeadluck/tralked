@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { REFERENCE_STEAM_ID } from "./steam-aliases.js";
 
 /** Treat empty strings (e.g. "KEY=" in .env) as unset. */
 const blankToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
@@ -15,6 +16,13 @@ const GuideConfigSchema = z.object({
   /** Spending cap per guide request, in USD. */
   GUIDE_BUDGET_USD: opt(z.coerce.number().positive().default(25)),
   DATA_DIR_GUIAS: opt(z.string().default("./data-guias")),
+  /** Public Steam profile whose achievement pages give the achievements' names in other languages (it must own the game). */
+  GUIDE_STEAM_REFERENCE_ID: opt(
+    z
+      .string()
+      .regex(/^7656\d{13}$/, "GUIDE_STEAM_REFERENCE_ID must be a SteamID64")
+      .default(REFERENCE_STEAM_ID),
+  ),
   RESEND_API_KEY: opt(z.string().min(1).optional()),
   ALERT_EMAIL: opt(z.string().min(1).optional()),
 });

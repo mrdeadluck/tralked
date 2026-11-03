@@ -159,29 +159,69 @@ function alignId(chapter: string, item: ExtractedFacts["chapters"][number]["item
   return `${normalizeName(chapter)}|${type}|${tail}`;
 }
 
-/** The chapter a "until X" milestone belongs to: X names a chapter, or an item inside one. */
-function chapterForMilestone(milestone: string | undefined, chapters: DossierChapter[]): string | undefined {
+/**
+ * The chapter a "until X" milestone belongs to: X names a chapter, or an item inside one. Failing that, X names a
+ * region ("Crimson Forest region main boss"): the first chapter of that region at or after `from` (the missable's
+ * own chapter, so a revisit never gets a deadline before the item can be had). That last one is the code's reading
+ * of the milestone, not a chapter the source named: `assumed`, so it goes to review.
+ */
+function chapterForMilestone(
+  milestone: string | undefined,
+  chapters: DossierChapter[],
+  from = 0,
+): { title: string; assumed: boolean } | undefined {
   if (!milestone) return undefined;
   const wanted = normalizeName(milestone);
   if (wanted.length < 3) return undefined;
   for (const chapter of chapters) {
     const title = normalizeName(chapter.title);
-    if (title.length >= 3 && (wanted.includes(title) || title.includes(wanted))) return chapter.title;
+    if (title.length >= 3 && (wanted.includes(title) || title.includes(wanted))) return { title: chapter.title, assumed: false };
   }
   for (const chapter of chapters) {
     for (const item of chapter.items) {
       for (const name of [item.nameEn, item.name]) {
         const n = name ? normalizeName(name) : "";
-        if (n.length >= 3 && (wanted.includes(n) || n.includes(wanted))) return chapter.title;
+        if (n.length >= 3 && (wanted.includes(n) || n.includes(wanted))) return { title: chapter.title, assumed: false };
       }
     }
   }
-  // "Crimson Forest region main boss": the first chapter of the region it names.
-  for (const chapter of chapters) {
+  for (const chapter of chapters.slice(Math.max(0, from))) {
     const region = normalizeName(chapter.region ?? "");
-    if (region.length >= 3 && wanted.includes(region)) return chapter.title;
+    if (region.length >= 3 && wanted.includes(region)) return { title: chapter.title, assumed: true };
   }
   return undefined;
+}
+
+/** Free-form regions name the same place: equal, or one contains the other ("Crimson Forest" / "The Crimson Forest"). */
+const sameRegion = (a: string, b: string) => a === b || a.includes(b) || b.includes(a);
+
+type ChapterAcc = { title: string; region?: string; norm: string; regionNorm: string; order: number; items: Map<string, Acc> };
+
+/**
+ * The dossier chapter a source's chapter joins. Chapters merge by title; they split by region only when both
+ * have a region and the regions differ ("First Visit" of Crimson Forest and of Meigu Lake). A chapter without
+ * region joins the only chapter of that title; with several of different regions it stays apart (no guessing).
+ */
+function chapterFor(list: ChapterAcc[], title: string, region: string | undefined): ChapterAcc {
+  const norm = normalizeName(title);
+  const regionNorm = normalizeName(region ?? "");
+  const same = list.filter((c) => c.norm === norm);
+  let found: ChapterAcc | undefined;
+  if (regionNorm) {
+    found = same.find((c) => c.regionNorm && sameRegion(c.regionNorm, regionNorm));
+    // A region-less chapter of that title takes the region, unless other regions already claim the title.
+    if (!found && same.length === 1 && !same[0]!.regionNorm) {
+      found = same[0]!;
+      found.region = region;
+      found.regionNorm = regionNorm;
+    }
+  } else {
+    found = same.length === 1 ? same[0] : same.find((c) => !c.regionNorm);
+  }
+  if (found) return found;
+  const created: ChapterAcc = { title, region, norm, regionNorm, order: list.length + 1, items: new Map() };
+  list.push(created);
+  return created;
 }
 
 function pickScalar<T>(
@@ -242,18 +282,12 @@ export function buildDossier(
   };
 
   // --- chapters and items -------------------------------------------------------------------------------------
-  const chapterMap = new Map<string, { title: string; region?: string; order: number; items: Map<string, Acc> }>();
+  const chapterList: ChapterAcc[] = [];
   for (const fact of facts) {
     for (const chapter of [...fact.chapters].sort((a, b) => a.order - b.order)) {
-      // Title and region: "First Visit" of Crimson Forest and "First Visit" of Meigu Lake are different chapters.
-      const chapterKey = `${normalizeName(chapter.title)}|${normalizeName(chapter.region ?? "")}`;
-      let target = chapterMap.get(chapterKey);
-      if (!target) {
-        target = { title: chapter.title, region: chapter.region, order: chapterMap.size + 1, items: new Map() };
-        chapterMap.set(chapterKey, target);
-      }
+      const target = chapterFor(chapterList, chapter.title, chapter.region);
       for (const item of chapter.items) {
-        const id = alignId(chapterKey, item);
+        const id = alignId(`${target.norm} ${target.order}`, item);
         let acc = target.items.get(id);
         if (!acc) {
           acc = {
@@ -305,11 +339,11 @@ export function buildDossier(
 
   // A title shared by chapters of different regions gets the region, so every chapter title stays unique.
   const titleCount = new Map<string, number>();
-  for (const c of chapterMap.values()) titleCount.set(normalizeName(c.title), (titleCount.get(normalizeName(c.title)) ?? 0) + 1);
+  for (const c of chapterList) titleCount.set(c.norm, (titleCount.get(c.norm) ?? 0) + 1);
   const shownTitle = (c: { title: string; region?: string }) =>
     c.region && (titleCount.get(normalizeName(c.title)) ?? 0) > 1 ? `${c.title} — ${c.region}` : c.title;
 
-  const chapters: DossierChapter[] = [...chapterMap.values()].map((c) => ({
+  const chapters: DossierChapter[] = chapterList.map((c) => ({
     title: shownTitle(c),
     region: c.region,
     order: c.order,
@@ -332,16 +366,20 @@ export function buildDossier(
       };
     }),
   }));
-  for (const chapter of chapters) {
+  chapters.forEach((chapter, at) => {
     for (const item of chapter.items) {
-      if (item.missableUntil) item.deadlineChapter = chapterForMilestone(item.missableUntil, chapters);
+      const deadline = chapterForMilestone(item.missableUntil, chapters, at);
+      if (deadline) {
+        item.deadlineChapter = deadline.title;
+        if (deadline.assumed) item.deadlineAssumed = true;
+      }
       // R20: a missable whose milestone points to no chapter is picked up in its own chapter (and reviewed).
       if (item.missable && !item.deadlineChapter) {
         item.deadlineChapter = chapter.title;
         item.deadlineAssumed = true;
       }
     }
-  }
+  });
 
   // --- fragments ----------------------------------------------------------------------------------------------
   const { rules: fragmentRules, conflicts } = detectFragmentRules(facts, nameOf);
@@ -485,10 +523,15 @@ export function buildDossier(
     };
   });
   for (const a of achievements) {
-    if (a.missableUntil) a.deadlineChapter = chapterForMilestone(a.missableUntil, chapters);
+    const ownAt = chapters.findIndex((c) => c.items.some((i) => i.achievement === a.apiName));
+    const deadline = chapterForMilestone(a.missableUntil, chapters, Math.max(0, ownAt));
+    if (deadline) {
+      a.deadlineChapter = deadline.title;
+      if (deadline.assumed) a.deadlineAssumed = true;
+    }
     if (a.missable && !a.deadlineChapter) {
       // R20: the chapter of the item that is this achievement. A loose one stays without deadline (gate rule d).
-      const own = chapters.find((c) => c.items.some((i) => i.achievement === a.apiName));
+      const own = chapters[ownAt];
       if (own) {
         a.deadlineChapter = own.title;
         a.deadlineAssumed = true;

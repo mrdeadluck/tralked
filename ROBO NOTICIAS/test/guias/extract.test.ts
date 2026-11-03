@@ -109,11 +109,14 @@ ${"c".repeat(5000)}`;
     });
   });
 
-  it("o prompt separa a promessa de 100% do aviso de WIP e não trata 'aceito correções' como WIP", () => {
+  it("o prompt separa a promessa de 100% do aviso de WIP: 'sendo atualizado' e 'falta confirmar' são WIP, 'aceito correções' não", () => {
     const prompt = extractionPrompt();
     expect(prompt).toMatch(/`claimsComplete`/);
-    expect(prompt).toMatch(/`workInProgress`/);
-    expect(prompt).toMatch(/corrections are welcome/);
     expect(prompt).toMatch(/全成就/);
+    const wip = prompt.slice(prompt.indexOf("`workInProgress`"));
+    expect(wip).toMatch(/being updated/);
+    expect(wip).toMatch(/дополняется/);
+    expect(wip).toMatch(/not yet confirmed/);
+    expect(wip).toMatch(/NOT work in progress[^.]*corrections are welcome/);
   });
 });

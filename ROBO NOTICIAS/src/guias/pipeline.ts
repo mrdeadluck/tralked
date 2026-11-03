@@ -57,7 +57,8 @@ export type GuidePipelineDeps = {
   db: GuideDb;
   /** Anthropic client: the AI calls go through `createAi` with the request's spend cap. */
   client: Anthropic;
-  config: Pick<GuideConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "GUIDE_BUDGET_USD">;
+  config: Pick<GuideConfig, "MODEL_WRITER" | "MODEL_EXTRACT" | "MODEL_FAST" | "GUIDE_BUDGET_USD"> &
+    Partial<Pick<GuideConfig, "GUIDE_STEAM_REFERENCE_ID">>;
   /** `politeFetch` bound to the GuideDb (robots.txt, host intervals, challenge pages as unread). */
   fetchPage: FetchPage;
   /** Bytes of an image, or null when it cannot be read. */
@@ -340,8 +341,12 @@ async function localizedNames(
   if (languages.length === 0) return {};
   const appId = run.request.steamAppId;
   const steam = steamList.filter((a) => a.platform === "steam");
-  const result = await readSteamAliases(appId, languages, steam, run.deps.fetchPage);
-  const entry = (language: AliasLanguage) => ({ name: `Steam: nomes das conquistas (${language})`, url: steamAliasUrl(appId, language) });
+  const profile = run.deps.config.GUIDE_STEAM_REFERENCE_ID;
+  const result = await readSteamAliases(appId, languages, steam, run.deps.fetchPage, profile);
+  const entry = (language: AliasLanguage) => ({
+    name: `Steam: nomes das conquistas (${language})`,
+    url: steamAliasUrl(appId, language, profile),
+  });
   for (const language of result.read) run.progress.sourcesRead.push({ ...entry(language), ok: true });
   for (const { language, reason } of result.failed) run.progress.sourcesRead.push({ ...entry(language), ok: false, reason });
   return result.aliases;

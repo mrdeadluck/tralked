@@ -484,7 +484,8 @@ describe("runGuideRequest", () => {
     expect(second.calls.extractFacts).toBeUndefined();
   });
 
-  it("guia russo cita as conquistas pelo nome russo: a lista da Steam em russo faz casar", async () => {
+  it("guia russo cita as conquistas pelo nome russo: a lista da Steam em russo (do perfil configurado) faz casar", async () => {
+    const REF_ID = "76561197960287930";
     const { api, calls } = fakeApi();
     const ruText = "Конец: пройдите сюжет до финала. Золотое перо: заберитесь на старую башню в первой главе.".repeat(2);
     const xml =
@@ -495,7 +496,7 @@ describe("runGuideRequest", () => {
     const pages: FetchPage = async (url) => {
       asked.push(url);
       if (url === STEAM_GUIDE.url) return { status: "ok", text: ruText, html: STEAM_GUIDE_HTML, finalUrl: url, truncated: true };
-      if (url === steamAliasUrl(4115450, "russian")) return { status: "ok", text: "", html: xml, finalUrl: url };
+      if (url === steamAliasUrl(4115450, "russian", REF_ID)) return { status: "ok", text: "", html: xml, finalUrl: url };
       return { status: "error", finalUrl: url, reason: "HTTP 404" };
     };
     const stages = fakeStages({
@@ -504,14 +505,15 @@ describe("runGuideRequest", () => {
         source,
       }),
     });
-    const deps = makeDeps({ api, stages, fetchPage: pages });
+    const base = makeDeps();
+    const deps = makeDeps({ api, stages, fetchPage: pages, config: { ...base.config, GUIDE_STEAM_REFERENCE_ID: REF_ID } });
 
     expect(await runGuideRequest(deps)).toBe("review");
-    expect(asked).toContain(steamAliasUrl(4115450, "russian"));
+    expect(asked).toContain(steamAliasUrl(4115450, "russian", REF_ID));
     const dossier = deps.db.getDossier(REQUEST.id) as GuideDossier;
     expect(dossier.achievements[0]).toMatchObject({ apiName: "ACH_END", sources: [STEAM_GUIDE.name], steamSourced: true });
     const report = calls.reports.at(-1)!.body.report as RobotReport;
-    expect(report.sourcesRead).toContainEqual({ name: "Steam: nomes das conquistas (russian)", url: steamAliasUrl(4115450, "russian"), ok: true });
+    expect(report.sourcesRead).toContainEqual({ name: "Steam: nomes das conquistas (russian)", url: steamAliasUrl(4115450, "russian", REF_ID), ok: true });
     // A page over the text limit is read, and the report says only its start was.
     expect(report.sourcesRead).toContainEqual({
       name: STEAM_GUIDE.name,

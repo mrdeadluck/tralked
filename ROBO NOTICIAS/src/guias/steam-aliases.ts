@@ -14,7 +14,10 @@ import type { FetchPage } from "./sources.js";
 export const ALIAS_LANGUAGES = ["schinese", "tchinese", "russian", "japanese", "koreana"] as const;
 export type AliasLanguage = (typeof ALIAS_LANGUAGES)[number];
 
-/** MrDead_'s public profile, the site's reference profile for the schema of every game (`DEFAULT_REFERENCE_STEAM_ID`). */
+/**
+ * Default reference profile: MrDead_'s public profile, the site's reference for the schema of every game
+ * (`DEFAULT_REFERENCE_STEAM_ID`). `GUIDE_STEAM_REFERENCE_ID` overrides it.
+ */
 export const REFERENCE_STEAM_ID = "76561198012210783";
 
 const COUNT = {
@@ -103,12 +106,13 @@ export async function readSteamAliases(
   languages: AliasLanguage[],
   steamList: { apiName: string }[],
   fetchPage: FetchPage,
+  profile = REFERENCE_STEAM_ID,
 ): Promise<SteamAliasResult> {
   const canonical = new Map(steamList.map((s) => [s.apiName.toLowerCase(), s.apiName]));
   const aliases: AchievementAliases = {};
   const result: SteamAliasResult = { aliases, read: [], failed: [] };
   for (const language of languages) {
-    const url = steamAliasUrl(appId, language);
+    const url = steamAliasUrl(appId, language, profile);
     let page = await fetchPage(url);
     let rows = page.status === "ok" ? parseAchievementXml(page.html ?? "") : null;
     const retry = page.status === "ok" && !rows ? friendlyRetry(page.finalUrl, url, language) : undefined;

@@ -4,8 +4,8 @@ import { parseHTML } from "linkedom";
  * The text of a guide page, for the extraction. Unlike the news robot's `extractText` (Readability + paragraphs,
  * capped at 20,000 chars) it keeps the whole page body in document order: tables one line per row with the cells
  * joined by " | " (header row included), list items, headings and the plain div/span text blocks that guides
- * (Steam community, wikis) are made of. Site chrome is dropped: nav, header menus, footer, aside, scripts,
- * cookie banners, comments, share bars.
+ * (Steam community, wikis) are made of. Site chrome is dropped: nav, header menus, footer, aside, scripts, form
+ * controls, cookie banners, comments, share bars.
  *
  * `PAGE_TEXT_VERSION` is stored with each cached page: a page cached by an older extractor gets its text
  * recomputed from the stored HTML (no new fetch).
@@ -20,9 +20,10 @@ type El = NonNullable<ReturnType<Doc["querySelector"]>>;
 type N = El["childNodes"][number];
 
 const DROP_TAGS = new Set([
-  "SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "IFRAME", "NAV", "FOOTER", "ASIDE", "FORM", "BUTTON", "SELECT",
-  "TEXTAREA", "INPUT", "CANVAS", "VIDEO", "AUDIO", "OBJECT", "EMBED", "DIALOG", "HEAD", "LINK", "META",
+  "SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "IFRAME", "NAV", "FOOTER", "ASIDE", "BUTTON", "SELECT",
+  "TEXTAREA", "INPUT", "OPTION", "DATALIST", "CANVAS", "VIDEO", "AUDIO", "OBJECT", "EMBED", "DIALOG", "HEAD", "LINK", "META",
 ]);
+// <form> itself is kept: ASP.NET sites wrap the whole page in one. Only its controls (above) are dropped.
 
 /**
  * Words of site chrome. A class name or id is chrome when its first or last word is one of these
@@ -36,7 +37,7 @@ const NOISE_WORDS = new Set([
 ]);
 
 const BLOCK_TAGS = new Set([
-  "ADDRESS", "ARTICLE", "BLOCKQUOTE", "CENTER", "DD", "DETAILS", "DIV", "DL", "DT", "FIELDSET", "FIGCAPTION",
+  "ADDRESS", "ARTICLE", "BLOCKQUOTE", "CENTER", "DD", "DETAILS", "DIV", "DL", "DT", "FIELDSET", "FIGCAPTION", "FORM", "LABEL",
   "FIGURE", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN", "OL", "P", "PRE", "SECTION",
   "SUMMARY", "UL", "TR", "TBODY", "THEAD", "TFOOT", "CAPTION",
 ]);

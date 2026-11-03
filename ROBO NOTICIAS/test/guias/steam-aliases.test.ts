@@ -104,6 +104,16 @@ describe("readSteamAliases", () => {
     expect(result.aliases.ACH_HEART).toEqual(["Сердцем и кровью"]);
   });
 
+  it("lê o perfil de referência configurado", async () => {
+    const asked: string[] = [];
+    const fetchPage: FetchPage = async (url) => {
+      asked.push(url);
+      return { status: "ok", text: "", html: RUSSIAN, finalUrl: url };
+    };
+    await readSteamAliases(4115450, ["russian"], STEAM, fetchPage, "76561197960287930");
+    expect(asked).toEqual(["https://steamcommunity.com/profiles/76561197960287930/stats/4115450/achievements/?xml=1&l=russian"]);
+  });
+
   it("uma lista que não é a do jogo (nenhum apiName casa) não vale", async () => {
     const fetchPage: FetchPage = async (url) => ({ status: "ok", text: "", html: achievementXml([["other", "Чужое", "x"]]), finalUrl: url });
     const result = await readSteamAliases(4115450, ["russian"], STEAM, fetchPage);

@@ -95,6 +95,13 @@ describe("pageText (texto de página de guia)", () => {
     );
   });
 
+  it("página inteira dentro de um <form> (ASP.NET): o conteúdo fica, só os controles saem", () => {
+    const html = `<html><body><form id="aspnetForm" action="/x"><input type="hidden" name="__VIEWSTATE" value="abc">
+      <h1>Trophy Guide</h1><p>All 36 trophies.</p><select><option>Sort by</option></select><button>Search</button>
+      <label>Name</label></form></body></html>`;
+    expect(pageText(html).text).toBe(["# Trophy Guide", "All 36 trophies.", "Name"].join("\n"));
+  });
+
   it("corta só acima do teto e avisa que cortou", () => {
     // Distinct lines of 99 chars (+ the line break): repeated identical lines are collapsed into one.
     const lines = (n: number) => Array.from({ length: n }, (_, i) => `<p>${String(i).padStart(6, "0")}${"x".repeat(93)}</p>`).join("");
