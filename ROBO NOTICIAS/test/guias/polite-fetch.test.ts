@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { openGuideDb } from "../../src/guias/db.js";
+import { PAGE_TEXT_MAX, PAGE_TEXT_VERSION } from "../../src/guias/page-text.js";
 import { createPoliteState, politeFetch, politeFetchImage } from "../../src/guias/polite-fetch.js";
 
 const html = (body: string, title = "Guide") =>
@@ -90,6 +91,44 @@ describe("politeFetch", () => {
     s.advance(2 * 86_400_000);
     await politeFetch("https://a.test/p", s.opts);
     expect(s.calls.length).toBe(before + 1);
+  });
+
+  it("texto de guia: tabela mantida e página guardada com a versão do extrator", async () => {
+    const page = `<html><body><h1>Trophies</h1><table><tr><th>Trophy</th><th>How</th></tr><tr><td>Lost and Found</td><td>Give all treasures to Zhang</td></tr></table></body></html>`;
+    const s = setup({ "https://a.test/t": [ok(page)] });
+    const r = await politeFetch("https://a.test/t", s.opts);
+    expect(r.text).toContain("Trophy | How\nLost and Found | Give all treasures to Zhang");
+    expect(r.truncated).toBe(false);
+    expect(s.db.getPage("https://a.test/t")).toMatchObject({ text_version: PAGE_TEXT_VERSION, text: r.text });
+  });
+
+  it("página em cache de um extrator antigo: texto refeito do HTML guardado, sem buscar de novo", async () => {
+    const s = setup({});
+    const fetchedAt = new Date(Date.parse("2026-11-03T12:00:00Z") - 86_400_000);
+    const page = `<html><body><p>Intro</p><table><tr><td>Lost and Found</td><td>Give all treasures to Zhang</td></tr></table></body></html>`;
+    s.db.savePage({ url: "https://a.test/old", fetchedAt, status: "ok", finalUrl: "https://a.test/old", text: "Intro", html: page, contentHash: "x" });
+    const r = await politeFetch("https://a.test/old", s.opts);
+    expect(s.calls).toEqual([]);
+    expect(r).toMatchObject({ status: "ok", text: "Intro\nLost and Found | Give all treasures to Zhang", html: page });
+    const row = s.db.getPage("https://a.test/old")!;
+    expect(row).toMatchObject({ text: r.text, text_version: PAGE_TEXT_VERSION, fetched_at: fetchedAt.toISOString() });
+    expect(row.content_hash).not.toBe("x");
+
+    // Same version: the stored text is used as is.
+    s.db.savePage({ url: "https://a.test/old", fetchedAt, status: "ok", finalUrl: "https://a.test/old", html: page, text: "kept", textVersion: PAGE_TEXT_VERSION });
+    expect((await politeFetch("https://a.test/old", s.opts)).text).toBe("kept");
+    expect(s.calls).toEqual([]);
+  });
+
+  it("página maior que o teto: texto cortado e marcado, também quando vem do cache", async () => {
+    const rows = Array.from({ length: Math.ceil(PAGE_TEXT_MAX / 100) + 50 }, (_, i) => `<p>${String(i).padStart(6, "0")}${"x".repeat(93)}</p>`);
+    const s = setup({ "https://a.test/big": [ok(`<html><body>${rows.join("")}</body></html>`)] });
+    const first = await politeFetch("https://a.test/big", s.opts);
+    expect(first.truncated).toBe(true);
+    expect(first.text!.length).toBeLessThanOrEqual(PAGE_TEXT_MAX);
+    const cached = await politeFetch("https://a.test/big", s.opts);
+    expect(cached).toMatchObject({ truncated: true, text: first.text });
+    expect(s.calls.filter((u) => u === "https://a.test/big")).toHaveLength(1);
   });
 
   it("página Cloudflare vira challenge", async () => {

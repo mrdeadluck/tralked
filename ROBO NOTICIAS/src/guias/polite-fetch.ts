@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
-import { ACCEPT, extractText, USER_AGENT } from "../collect/index.js";
+import { ACCEPT, USER_AGENT } from "../collect/index.js";
 import { isChallenge } from "../pautas.js";
-import type { GuideDb } from "./db.js";
+import type { GuideDb, PageRow } from "./db.js";
+import { PAGE_TEXT_MAX, PAGE_TEXT_VERSION, pageText } from "./page-text.js";
 
 /**
  * The guide robot's only way to read a web page: cache first (7 days, in the GuideDb `pages` table),
  * robots.txt per host, a minimum interval per host, one retry on 429, and challenge pages reported as such
- * (never worked around).
+ * (never worked around). The text is the guide extractor's (`pageText`: tables kept, no 20,000-char cap); a page
+ * cached by an older extractor gets its text remade from the stored HTML, without a new request.
  */
 
 export type PoliteResult = {
@@ -15,6 +17,8 @@ export type PoliteResult = {
   html?: string;
   finalUrl: string;
   reason?: string;
+  /** The text stopped at `PAGE_TEXT_MAX` (the page is longer). */
+  truncated?: boolean;
 };
 
 export type PoliteState = {
@@ -166,8 +170,11 @@ export async function politeFetch(url: string, opts: PoliteOptions = {}): Promis
   const target = new URL(url);
 
   const cached = db?.getPage(url);
-  if (cached && cached.status === "ok" && now().getTime() - Date.parse(cached.fetched_at) < CACHE_MS) {
-    return { status: "ok", text: cached.text ?? undefined, html: cached.html ?? undefined, finalUrl: cached.final_url };
+  if (db && cached && cached.status === "ok" && now().getTime() - Date.parse(cached.fetched_at) < CACHE_MS) {
+    if (cached.text_version !== PAGE_TEXT_VERSION && cached.html) return retext(db, { ...cached, html: cached.html });
+    // Only a text near the cap can have been cut: then the HTML says whether it was.
+    const truncated = (cached.text?.length ?? 0) >= PAGE_TEXT_MAX * 0.9 && cached.html ? pageText(cached.html).truncated : false;
+    return { status: "ok", text: cached.text ?? undefined, html: cached.html ?? undefined, finalUrl: cached.final_url, truncated };
   }
 
   try {
@@ -180,20 +187,30 @@ export async function politeFetch(url: string, opts: PoliteOptions = {}): Promis
     if (isChallenge(html)) return { status: "challenge", finalUrl, reason: "bot-protection page" };
     if (!response.ok) return { status: "error", finalUrl, reason: `HTTP ${response.status}` };
 
-    const text = extractText(html, finalUrl)?.text ?? "";
-    db?.savePage({
-      url,
-      fetchedAt: now(),
-      status: "ok",
-      finalUrl,
-      text,
-      html,
-      contentHash: createHash("sha256").update(text).digest("hex"),
-    });
-    return { status: "ok", text, html, finalUrl };
+    const { text, truncated } = pageText(html);
+    db?.savePage({ url, fetchedAt: now(), status: "ok", finalUrl, text, html, contentHash: hashOf(text), textVersion: PAGE_TEXT_VERSION });
+    return { status: "ok", text, html, finalUrl, truncated };
   } catch (error) {
     return { status: "error", finalUrl: url, reason: error instanceof Error ? error.message : String(error) };
   }
+}
+
+const hashOf = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/** A cached page whose text came from an older extractor: the text is remade from its HTML (cache age kept). */
+function retext(db: GuideDb, row: PageRow & { html: string }): PoliteResult {
+  const { text, truncated } = pageText(row.html);
+  db.savePage({
+    url: row.url,
+    fetchedAt: new Date(row.fetched_at),
+    status: row.status,
+    finalUrl: row.final_url,
+    text,
+    html: row.html,
+    contentHash: hashOf(text),
+    textVersion: PAGE_TEXT_VERSION,
+  });
+  return { status: "ok", text, html: row.html, finalUrl: row.final_url, truncated };
 }
 
 const IMAGE_MAX_BYTES = 15 * 1024 * 1024;

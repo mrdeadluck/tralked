@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS pages (
   final_url TEXT NOT NULL,
   text TEXT,
   html TEXT,
-  content_hash TEXT
+  content_hash TEXT,
+  text_version INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -64,6 +65,8 @@ export interface PageRow {
   text: string | null;
   html: string | null;
   content_hash: string | null;
+  /** `PAGE_TEXT_VERSION` of the extractor that made `text`; null for pages stored before it existed. */
+  text_version: number | null;
 }
 
 export interface PageInput {
@@ -74,6 +77,7 @@ export interface PageInput {
   text?: string | null;
   html?: string | null;
   contentHash?: string | null;
+  textVersion?: number | null;
 }
 
 export interface RunInput {
@@ -109,6 +113,9 @@ export function openGuideDb(dir: string): GuideDb {
   raw.exec("PRAGMA journal_mode=WAL");
   raw.exec("PRAGMA busy_timeout=5000");
   raw.exec(SCHEMA);
+  // Databases created before `text_version` existed.
+  const pageColumns = raw.prepare("PRAGMA table_info(pages)").all() as unknown as { name: string }[];
+  if (!pageColumns.some((c) => c.name === "text_version")) raw.exec("ALTER TABLE pages ADD COLUMN text_version INTEGER");
 
   const one = <T>(sql: string, ...args: (string | number | null)[]) =>
     raw.prepare(sql).get(...args) as unknown as T | undefined;
@@ -123,11 +130,21 @@ export function openGuideDb(dir: string): GuideDb {
     savePage(page) {
       raw
         .prepare(
-          `INSERT INTO pages (url, fetched_at, status, final_url, text, html, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO pages (url, fetched_at, status, final_url, text, html, content_hash, text_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(url) DO UPDATE SET fetched_at = excluded.fetched_at, status = excluded.status,
-             final_url = excluded.final_url, text = excluded.text, html = excluded.html, content_hash = excluded.content_hash`,
+             final_url = excluded.final_url, text = excluded.text, html = excluded.html, content_hash = excluded.content_hash,
+             text_version = excluded.text_version`,
         )
-        .run(page.url, page.fetchedAt.toISOString(), page.status, page.finalUrl, page.text ?? null, page.html ?? null, page.contentHash ?? null);
+        .run(
+          page.url,
+          page.fetchedAt.toISOString(),
+          page.status,
+          page.finalUrl,
+          page.text ?? null,
+          page.html ?? null,
+          page.contentHash ?? null,
+          page.textVersion ?? null,
+        );
     },
 
     recordRun(run) {

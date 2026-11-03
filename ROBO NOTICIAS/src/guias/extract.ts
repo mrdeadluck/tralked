@@ -50,8 +50,16 @@ function joinChapters(parts: LlmFacts[]): Chapter[] {
   return out;
 }
 
+/**
+ * A long page is read in parts, and the author's "covers all N achievements" can sit in any of them (the title at
+ * the top, the full trophy table at the end), as can a "still writing this" note. Complete = some part claims it
+ * and no part says it is unfinished.
+ */
+export function mergeComplete(parts: Pick<LlmFacts, "claimsComplete" | "workInProgress">[]): boolean {
+  return parts.some((p) => p.claimsComplete) && !parts.some((p) => p.workInProgress);
+}
+
 function merge(source: SourceRef, parts: LlmFacts[]): ExtractedFacts {
-  const first = parts[0]!;
   const chapters = joinChapters(parts).map((c, i) => ({ ...c, order: i + 1 }));
   const seen = new Set<string>();
   const achievements = parts
@@ -77,8 +85,7 @@ function merge(source: SourceRef, parts: LlmFacts[]): ExtractedFacts {
     ...(roadmap.length ? { roadmap } : {}),
     ...(trophyListSize !== undefined ? { trophyListSize } : {}),
     platform: parts.find((p) => p.platform !== "unknown")?.platform ?? "unknown",
-    // The "work in progress / covers 100%" notice sits at the top of the page, i.e. in the first part.
-    complete: first.complete,
+    complete: mergeComplete(parts),
   };
 }
 

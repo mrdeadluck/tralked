@@ -50,15 +50,23 @@ function descriptionsCompatible(a?: string | null, b?: string | null): boolean {
   return shared / (x.size + y.size - shared) >= 0.5;
 }
 
-export type SteamEntry = { apiName: string; name: string; nameEn?: string; description?: string | null };
+export type SteamEntry = {
+  apiName: string;
+  name: string;
+  nameEn?: string;
+  description?: string | null;
+  /** The achievement's name in other Steam languages (guides in Chinese or Russian cite it so). Exact match only. */
+  aliases?: string[];
+};
 export type OtherEntry = { nameEn: string; description?: string | null };
 
 /**
- * Index of the entry of `other` that is this Steam achievement, or -1. Exact normalized name first;
- * otherwise the most similar name (>= 0.9) whose description is also compatible.
+ * Index of the entry of `other` that is this Steam achievement, or -1. Exact normalized name first (the English
+ * name or one of the localized `aliases`); otherwise the most similar English name (>= 0.9) whose description is
+ * also compatible.
  */
 export function findMatch(steam: SteamEntry, other: OtherEntry[]): number {
-  const names = [steam.nameEn ?? steam.name, steam.name].map(normalizeName);
+  const names = [steam.nameEn ?? steam.name, steam.name, ...(steam.aliases ?? [])].map(normalizeName);
   const exact = other.findIndex((o) => names.includes(normalizeName(o.nameEn)));
   if (exact >= 0) return exact;
   let best = -1;

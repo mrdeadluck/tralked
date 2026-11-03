@@ -5,11 +5,12 @@ import { guidePatchSchema, guidePayloadSchema } from "@/lib/content/guide-schema
 import type { GameSearchHit, GuideApi, GuideRequest, GuideRequestReport } from "../../src/guias/api.js";
 import type { GuidePayloadV2 } from "../../src/guias/contract.js";
 import { openGuideDb, type GuideDb } from "../../src/guias/db.js";
-import type { GuideDossierSource, SteamAchievement } from "../../src/guias/dossier.js";
+import type { GuideDossier, GuideDossierSource, SteamAchievement } from "../../src/guias/dossier.js";
 import type { ExtractedFacts, LlmFacts } from "../../src/guias/facts.js";
 import { runGuideRequest, type GuidePipelineDeps, type GuideStages } from "../../src/guias/pipeline.js";
-import { buildReport } from "../../src/guias/report.js";
+import { buildReport, type RobotReport } from "../../src/guias/report.js";
 import type { FetchPage, SourceRef } from "../../src/guias/sources.js";
+import { steamAliasUrl } from "../../src/guias/steam-aliases.js";
 import { TralkedError } from "../../src/tralked-http.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
 
@@ -326,7 +327,7 @@ describe("runGuideRequest", () => {
   it("teto de gasto → failed", async () => {
     const { api, calls } = fakeApi();
     // Real createAi + guideSpend: every call costs US$ 2 (1M Sonnet input tokens), the cap is US$ 1.
-    const facts: LlmFacts = { chapters: [], achievements: [], platform: "steam", complete: true };
+    const facts: LlmFacts = { chapters: [], achievements: [], platform: "steam", claimsComplete: true, workInProgress: false };
     const parse = vi.fn(async () => ({
       model: "claude-sonnet-5-5",
       usage: { input_tokens: 1_000_000, output_tokens: 0 },
@@ -481,6 +482,43 @@ describe("runGuideRequest", () => {
     await runGuideRequest(makeDeps({ db, stages: second }));
     expect(first.calls.extractFacts).toHaveLength(1);
     expect(second.calls.extractFacts).toBeUndefined();
+  });
+
+  it("guia russo cita as conquistas pelo nome russo: a lista da Steam em russo faz casar", async () => {
+    const { api, calls } = fakeApi();
+    const ruText = "Конец: пройдите сюжет до финала. Золотое перо: заберитесь на старую башню в первой главе.".repeat(2);
+    const xml =
+      '<?xml version="1.0" encoding="UTF-8"?><playerstats><achievements>' +
+      "<achievement><name><![CDATA[Конец]]></name><apiname><![CDATA[ach_end]]></apiname></achievement>" +
+      "</achievements></playerstats>";
+    const asked: string[] = [];
+    const pages: FetchPage = async (url) => {
+      asked.push(url);
+      if (url === STEAM_GUIDE.url) return { status: "ok", text: ruText, html: STEAM_GUIDE_HTML, finalUrl: url, truncated: true };
+      if (url === steamAliasUrl(4115450, "russian")) return { status: "ok", text: "", html: xml, finalUrl: url };
+      return { status: "error", finalUrl: url, reason: "HTTP 404" };
+    };
+    const stages = fakeStages({
+      extractFacts: async (_page, source) => ({
+        ...fact("x", "roteiro_steam", { achievements: [ach("Конец")], chapters: [chapter("Глава 1", [item("Золотое перо")])] }),
+        source,
+      }),
+    });
+    const deps = makeDeps({ api, stages, fetchPage: pages });
+
+    expect(await runGuideRequest(deps)).toBe("review");
+    expect(asked).toContain(steamAliasUrl(4115450, "russian"));
+    const dossier = deps.db.getDossier(REQUEST.id) as GuideDossier;
+    expect(dossier.achievements[0]).toMatchObject({ apiName: "ACH_END", sources: [STEAM_GUIDE.name], steamSourced: true });
+    const report = calls.reports.at(-1)!.body.report as RobotReport;
+    expect(report.sourcesRead).toContainEqual({ name: "Steam: nomes das conquistas (russian)", url: steamAliasUrl(4115450, "russian"), ok: true });
+    // A page over the text limit is read, and the report says only its start was.
+    expect(report.sourcesRead).toContainEqual({
+      name: STEAM_GUIDE.name,
+      url: STEAM_GUIDE.url,
+      ok: true,
+      reason: expect.stringContaining("400.000"),
+    });
   });
 });
 

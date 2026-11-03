@@ -9,7 +9,7 @@ import { extractFacts } from "../../src/guias/extract.js";
 // guard ("Streaming is required...") is exercised, which mocked clients never do.
 
 const config = loadConfig({ ANTHROPIC_API_KEY: "test", TRALKED_API_KEY: "test" });
-const FACTS = JSON.stringify({ chapters: [], achievements: [], platform: "unknown", complete: true });
+const FACTS = JSON.stringify({ chapters: [], achievements: [], platform: "unknown", claimsComplete: true, workInProgress: false });
 const usage = { input_tokens: 10, output_tokens: 5 };
 
 const message = {

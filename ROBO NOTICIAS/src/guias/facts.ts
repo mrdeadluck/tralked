@@ -50,11 +50,19 @@ export const llmFactsSchema = z.object({
   roadmap: z.array(z.object({ title: z.string(), summary: z.string() })).optional(),
   trophyListSize: z.number().optional(),
   platform: z.enum(["psn", "steam", "unknown"]),
-  /** The author says the page covers 100% and is not a work in progress. */
-  complete: z.boolean(),
+  /** This part of the page presents the guide as covering every trophy/achievement of the game. */
+  claimsComplete: z.boolean(),
+  /** This part of the page says the guide is unfinished (WIP, still being written). */
+  workInProgress: z.boolean(),
 });
 
-export const extractedFactsSchema = llmFactsSchema.extend({ source: sourceRefSchema });
+/**
+ * The facts of a whole page. `complete` joins the parts: some part claims 100% and no part says it is a work in
+ * progress (`mergeComplete` in extract.ts).
+ */
+export const extractedFactsSchema = llmFactsSchema
+  .omit({ claimsComplete: true, workInProgress: true })
+  .extend({ source: sourceRefSchema, complete: z.boolean() });
 
 export type LlmFacts = z.infer<typeof llmFactsSchema>;
 export type ExtractedFacts = z.infer<typeof extractedFactsSchema>;

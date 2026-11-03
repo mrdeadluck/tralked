@@ -10,4 +10,6 @@ export type FetchPage = (url: string) => Promise<{
   html?: string;
   finalUrl: string;
   reason?: string;
+  /** The text stopped at `PAGE_TEXT_MAX`: only the start of the page was read. */
+  truncated?: boolean;
 }>;

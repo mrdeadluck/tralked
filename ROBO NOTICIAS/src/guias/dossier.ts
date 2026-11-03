@@ -38,8 +38,13 @@ export type DossierItem = {
   location: string;
   missable: boolean;
   missableUntil?: string;
-  /** Title of the chapter the `missableUntil` milestone points to. */
+  /** Title of the chapter the `missableUntil` milestone points to (or its own chapter, see `deadlineAssumed`). */
   deadlineChapter?: string;
+  /**
+   * R20: no source gives a milestone that points to a chapter, so the deadline is the item's own chapter ("pegue
+   * agora" before leaving it). The item goes to review.
+   */
+  deadlineAssumed?: boolean;
   returnLater: boolean;
   /** apiName of the Steam achievement this item is (matched). */
   achievement?: string;
@@ -71,6 +76,8 @@ export type DossierAchievement = {
   missable: boolean;
   missableUntil?: string;
   deadlineChapter?: string;
+  /** R20: the deadline is the chapter of the item that is this achievement (no milestone points to a chapter). */
+  deadlineAssumed?: boolean;
   bugged: boolean;
   bugNote?: string;
   online: boolean;
@@ -98,6 +105,9 @@ export type DossierAchievement = {
   /** Sources contradict each other on missable / until. Task 8 maps it to `review = true`. */
   conflict?: string;
 };
+
+/** apiName -> the achievement's names in other Steam languages (`steam-aliases.ts`). */
+export type AchievementAliases = Record<string, string[]>;
 
 export type Scalar<T> = { value: T; sources: string[]; agreed: boolean };
 
@@ -166,6 +176,11 @@ function chapterForMilestone(milestone: string | undefined, chapters: DossierCha
       }
     }
   }
+  // "Crimson Forest region main boss": the first chapter of the region it names.
+  for (const chapter of chapters) {
+    const region = normalizeName(chapter.region ?? "");
+    if (region.length >= 3 && wanted.includes(region)) return chapter.title;
+  }
   return undefined;
 }
 
@@ -203,6 +218,7 @@ export function buildDossier(
   rawFacts: ExtractedFacts[],
   groups: string[][],
   unreadSources: GuideDossier["unreadSources"] = [],
+  aliases: AchievementAliases = {},
 ): GuideDossier {
   // `?all=1` returns the rows of every platform; the master list is the Steam ones only.
   const steamList = fullList.filter((s) => s.platform === "steam");
@@ -216,6 +232,7 @@ export function buildDossier(
     apiName: s.apiName,
     name: s.name,
     description: s.description,
+    aliases: aliases[s.apiName] ?? [],
   }));
   const steamBy = new Map(steamList.map((s) => [s.apiName, s]));
   const apiNameCache = new Map<string, string | undefined>();
@@ -228,15 +245,15 @@ export function buildDossier(
   const chapterMap = new Map<string, { title: string; region?: string; order: number; items: Map<string, Acc> }>();
   for (const fact of facts) {
     for (const chapter of [...fact.chapters].sort((a, b) => a.order - b.order)) {
-      const chapterKey = normalizeName(chapter.title);
+      // Title and region: "First Visit" of Crimson Forest and "First Visit" of Meigu Lake are different chapters.
+      const chapterKey = `${normalizeName(chapter.title)}|${normalizeName(chapter.region ?? "")}`;
       let target = chapterMap.get(chapterKey);
       if (!target) {
         target = { title: chapter.title, region: chapter.region, order: chapterMap.size + 1, items: new Map() };
         chapterMap.set(chapterKey, target);
       }
-      target.region ??= chapter.region;
       for (const item of chapter.items) {
-        const id = alignId(chapter.title, item);
+        const id = alignId(chapterKey, item);
         let acc = target.items.get(id);
         if (!acc) {
           acc = {
@@ -286,8 +303,14 @@ export function buildDossier(
     }
   }
 
+  // A title shared by chapters of different regions gets the region, so every chapter title stays unique.
+  const titleCount = new Map<string, number>();
+  for (const c of chapterMap.values()) titleCount.set(normalizeName(c.title), (titleCount.get(normalizeName(c.title)) ?? 0) + 1);
+  const shownTitle = (c: { title: string; region?: string }) =>
+    c.region && (titleCount.get(normalizeName(c.title)) ?? 0) > 1 ? `${c.title} — ${c.region}` : c.title;
+
   const chapters: DossierChapter[] = [...chapterMap.values()].map((c) => ({
-    title: c.title,
+    title: shownTitle(c),
     region: c.region,
     order: c.order,
     items: [...c.items.values()].map((acc): DossierItem => {
@@ -312,6 +335,11 @@ export function buildDossier(
   for (const chapter of chapters) {
     for (const item of chapter.items) {
       if (item.missableUntil) item.deadlineChapter = chapterForMilestone(item.missableUntil, chapters);
+      // R20: a missable whose milestone points to no chapter is picked up in its own chapter (and reviewed).
+      if (item.missable && !item.deadlineChapter) {
+        item.deadlineChapter = chapter.title;
+        item.deadlineAssumed = true;
+      }
     }
   }
 
@@ -458,6 +486,14 @@ export function buildDossier(
   });
   for (const a of achievements) {
     if (a.missableUntil) a.deadlineChapter = chapterForMilestone(a.missableUntil, chapters);
+    if (a.missable && !a.deadlineChapter) {
+      // R20: the chapter of the item that is this achievement. A loose one stays without deadline (gate rule d).
+      const own = chapters.find((c) => c.items.some((i) => i.achievement === a.apiName));
+      if (own) {
+        a.deadlineChapter = own.title;
+        a.deadlineAssumed = true;
+      }
+    }
   }
 
   // --- compat -------------------------------------------------------------------------------------------------
