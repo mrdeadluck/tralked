@@ -20,12 +20,12 @@ export const GUIDE_LOCK_STALE_MS = 3 * 60 * 60 * 1000;
 export const PROBE_DEFAULT_CHAPTERS = 2;
 
 export type GuiaArgs =
-  | { dryRun: false; direct?: { appId: number; update: boolean; probe?: { chapters: number } }; draft?: undefined }
+  | { dryRun: false; direct?: { appId: number; update: boolean; updatePsn?: boolean; probe?: { chapters: number } }; draft?: undefined }
   | { dryRun: false; draft: { requestId: string; dataDir?: string } }
   | { dryRun: true; appId?: number; requestId?: string; dataDir?: string };
 
 /**
- * `pnpm guia` runs one request; `pnpm guia -- --appid <n> [--atualizar] [--sonda [--capitulos N]]` runs a game without a
+ * `pnpm guia` runs one request; `pnpm guia -- --appid <n> [--atualizar | --atualizar-psn] [--sonda [--capitulos N]]` runs a game without a
  * request (the probe writes only the frame and N chapters); `pnpm guia -- --ensaio --appid <n> | --pedido <id>
  * [--dados <dir>]` is the free dry run; `pnpm guia -- --rascunho <pedido> [--dados <dir>]` shows the last draft.
  */
@@ -43,7 +43,8 @@ export function parseGuiaArgs(argv: string[]): GuiaArgs {
     return { dryRun: false, draft: { requestId, ...(dataDir !== undefined ? { dataDir } : {}) } };
   }
   if (!args.includes("--ensaio")) {
-    if (args.includes("--appid") || args.includes("--atualizar") || args.includes("--sonda")) {
+    const updatePsn = args.includes("--atualizar-psn");
+    if (args.includes("--appid") || args.includes("--atualizar") || updatePsn || args.includes("--sonda")) {
       if (appId === undefined || !/^\d+$/.test(appId)) throw new Error(`appid inválido ou ausente: ${appId ?? "(nenhum)"}; use --appid <n>`);
       const chapters = value("--capitulos") ?? String(PROBE_DEFAULT_CHAPTERS);
       if (args.includes("--sonda") && (!/^\d+$/.test(chapters) || Number(chapters) < 1)) {
@@ -53,7 +54,8 @@ export function parseGuiaArgs(argv: string[]): GuiaArgs {
         dryRun: false,
         direct: {
           appId: Number(appId),
-          update: args.includes("--atualizar"),
+          update: args.includes("--atualizar") || updatePsn,
+          ...(updatePsn ? { updatePsn: true } : {}),
           ...(args.includes("--sonda") ? { probe: { chapters: Number(chapters) } } : {}),
         },
       };

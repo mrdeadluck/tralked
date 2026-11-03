@@ -100,15 +100,17 @@ export type GuidePipelineDeps = {
    * Direct mode (`pnpm guia -- --appid <n>`): no request is claimed and none is reported to the site. The run uses the
    * synthetic request `direto-<appid>` for spend cap, caches and logs; an existing robot guide is updated only with `update`.
    * `probe` (Task 20, `--sonda`): write only the frame and the first `chapters` chapters, check them once, save and print
-   * the problems, and stop (nothing sent, no images, no soundtrack).
+   * the problems, and stop (nothing sent, no images, no soundtrack). `updatePsn` (`--atualizar-psn`, Task 25 review):
+   * an update may go out by the PSN list (otherwise an update whose Steam gate fails stops before writing).
    */
-  direct?: { appId: number; update: boolean; probe?: { chapters: number } };
+  direct?: { appId: number; update: boolean; updatePsn?: boolean; probe?: { chapters: number } };
   /** Where each run's report file goes (`relatorios/<request>-<attempt>.json`); default the GuideDb's folder. */
   reportDir?: string;
 };
 
 export const BUDGET_REASON = "teto de gasto";
 export const DEADLINE_BEFORE_WRITING = "tempo esgotado antes da escrita";
+export const UPDATE_NOT_BY_PSN = "o gate da Steam não passou; a atualização não reenvia o guia pela lista da PSN";
 export const directRequestId = (appId: number) => `direto-${appId}`;
 const REASON_MAX = 2000;
 /** Problems the direct mode prints (the whole list is in the report file). */
@@ -421,8 +423,9 @@ async function processRequest(run: Run): Promise<Final> {
   // Steps 4–5: read each page, then extract its facts (cached by content: a retry only pays for what changed).
   const unread: GuideDossier["unreadSources"] = [];
   const read: { source: SourceRef; text: string; html?: string }[] = [];
-  const notRead = (s: SourceRef, reason: string) => {
-    unread.push({ name: s.name, url: s.url, reason });
+  const notRead = (s: SourceRef, reason: string, blocked = false) => {
+    // Task 25 review: the role, and whether no retry can ever read it (R39 needs both).
+    unread.push({ name: s.name, url: s.url, reason, role: s.role, ...(blocked ? { blocked } : {}) });
     progress.sourcesRead.push({ name: s.name, url: s.url, ok: false, reason });
   };
   const facts: ExtractedFacts[] = [];
@@ -430,7 +433,7 @@ async function processRequest(run: Run): Promise<Final> {
   for (const s of sources) {
     const page = await deps.fetchPage(s.url);
     if (page.status !== "ok" || !page.text?.trim()) {
-      notRead(s, unreadReason(page));
+      notRead(s, unreadReason(page), page.status === "challenge" || page.status === "blocked");
       continue;
     }
     try {
@@ -475,6 +478,19 @@ async function processRequest(run: Run): Promise<Final> {
         status: "waiting_sources",
         reason: `${missing.length} ${missing.length === 1 ? "lacuna" : "lacunas"}: ${head}${more}`,
         report: run.report({ missing }),
+      };
+    }
+    // Task 25 review: an update exists to complete the guide by the Steam list; sending the PSN version again would pay
+    // the whole writing for a guide already up by that list. Stop before any writing, unless asked on purpose.
+    if (existing && !deps.direct?.updatePsn) {
+      progress.scope = null;
+      const head = verdict.missing.slice(0, 3).join(" ");
+      const more = verdict.missing.length > 3 ? ` (e mais ${verdict.missing.length - 3})` : "";
+      deps.log(`guia: ${UPDATE_NOT_BY_PSN} (use --atualizar-psn para isso de propósito)`);
+      return {
+        status: "waiting_sources",
+        reason: `${UPDATE_NOT_BY_PSN}: ${verdict.missing.length} ${verdict.missing.length === 1 ? "lacuna" : "lacunas"} da Steam: ${head}${more}`,
+        report: run.report({ missing: verdict.missing }),
       };
     }
     ({ dossier: toWrite, scope } = psnScope(dossier, source.achievements));

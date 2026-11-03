@@ -13,7 +13,7 @@ import {
   singularPhrase,
   type FragmentRule,
 } from "./crossref.js";
-import { COMPLETE_SHARE, labelNamesType, totalKind, type StatedTotal } from "./completeness.js";
+import { COMPLETE_SHARE, labelNamesType, partsTotalOf, type StatedTotal } from "./completeness.js";
 import type { ExtractedFacts } from "./facts.js";
 import { computeCompat, matchAchievements, normalizeName, similarity, steamApiNameFor, type SteamEntry } from "./match.js";
 import type { SourceRole } from "./sources.js";
@@ -261,8 +261,17 @@ export type GuideDossier = {
    * entries, or under the total of a type a "collect N" counts). Each one is a gap of the gate. Absent on old dossiers.
    */
   extractionGaps?: string[];
-  unreadSources: { name: string; url: string; reason: string }[];
+  /**
+   * Pages that could not be read or extracted. Task 25 review: with the source's role, and `blocked` when the page can
+   * never be read (a challenge page, robots.txt): only then is a missing piece truly "not mapped" by the sources (R39).
+   */
+  unreadSources: UnreadSource[];
 };
+
+export type UnreadSource = { name: string; url: string; reason: string; role?: SourceRole; blocked?: boolean };
+
+/** An unread page that no retry can read (challenge page, robots.txt); older dossiers only have the reason. */
+export const blockedForGood = (u: UnreadSource) => u.blocked ?? /^(página de desafio|bloqueada pelo)/.test(u.reason);
 
 const ROLE_ORDER: Record<SourceRole, number> = { roteiro_psn: 0, roteiro_steam: 1, coletaveis: 2, confirmacao: 3 };
 
@@ -1302,25 +1311,39 @@ export function buildDossier(
       conflict: a && a.conflicts.length > 0 ? a.conflicts.join('; ') : undefined,
     };
   });
-  // R39: a count short by less than one whole unit passes when a source states a game total that reaches N.
+  // R39: a count short by less than one whole unit passes when a source states a game total that reaches N. Only a
+  // total of the thing's parts can be short by less than one unit, and the guide speaks in those parts ("38 de 40
+  // shards", never "9,5 de 10"); it needs the rule saying how many parts make one.
+  // Task 25 review: not when a page that may map the missing parts was not read: any page of the primary script's
+  // site, or a script page elsewhere that a retry could read (a challenge page or robots.txt never can).
   const sourceOfUrl = new Map(facts.map((f) => [f.source.url, nameOf(f)] as const));
+  const primaryHosts = new Set(primary.map((f) => hostOf(f.source.url)));
+  const mayMap = unreadSources.filter(
+    (u) => primaryHosts.has(hostOf(u.url)) || ((u.role === "roteiro_psn" || u.role === "roteiro_steam") && !blockedForGood(u)),
+  );
   for (const a of achievements) {
     const c = a.collect;
     const noun = goals.get(a.apiName)?.noun;
     if (!c || !noun || !(c.counted < c.target - 1e-6 && c.target - c.counted < 1 - 1e-6)) continue;
     const steam = steamList.find((x) => x.apiName === a.apiName)!;
     const perUnit = perUnitOf(steam, singularName(noun));
+    if (perUnit === undefined) continue;
     for (const [url, totals] of Object.entries(statedTotals)) {
       const source = sourceOfUrl.get(url);
       if (!source) continue;
-      const found = totals.flatMap((t) => {
-        const kind = totalKind(t.label, noun);
-        if (kind === "whole") return [{ t, units: t.total, located: c.counted }];
-        // Parts: only with a rule saying how many make one (the numbers are the parts': "38 de 40 shards").
-        if (kind === "part" && perUnit !== undefined) return [{ t, units: t.total / perUnit, located: Math.round(c.counted * perUnit * 1000) / 1000 }];
-        return [];
-      }).find((x) => x.units >= c.target - 1e-6 && x.located < x.t.total);
+      const found = totals
+        .filter((t) => partsTotalOf(t.label, noun))
+        .map((t) => ({ t, units: t.total / perUnit, located: Math.round(c.counted * perUnit * 1000) / 1000 }))
+        .find((x) => x.units >= c.target - 1e-6 && x.located < x.t.total);
       if (!found) continue;
+      if (mayMap.length > 0) {
+        divergences.push(
+          `"${a.nameEn}" (${a.apiName}): contagem incompleta não aceita (R39) — as fontes localizam ${found.located} de ${found.t.total} ${found.t.label}, ` +
+            `mas ${mayMap.length === 1 ? "uma página que pode mapear o resto não foi lida" : `${mayMap.length} páginas que podem mapear o resto não foram lidas`}: ` +
+            `${mayMap.map((u) => `${u.name} (${u.reason})`).join("; ")}.`,
+        );
+        break;
+      }
       const missing = Math.round((found.t.total - found.located) * 1000) / 1000;
       c.shortfallAccepted = { located: found.located, stated: found.t.total, missing, label: found.t.label, source };
       divergences.push(

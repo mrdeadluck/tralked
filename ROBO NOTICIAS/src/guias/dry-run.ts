@@ -4,7 +4,7 @@ import { DEFAULT_EXTRACT_EFFORT, type DryRunConfig } from "./config.js";
 import { independentGroups } from "./crossref.js";
 import { carriedDraft, resumableDraft } from "./drafts.js";
 import type { GuideDb } from "./db.js";
-import { buildDossier, UNPLACED_MARK, type DossierAchievement, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "./dossier.js";
+import { blockedForGood, buildDossier, UNPLACED_MARK, type DossierAchievement, type GuideDossier, type GuideDossierSource, type SteamAchievement } from "./dossier.js";
 import { completeness, withVerdict } from "./completeness.js";
 import { extractedFactsSchema, type ExtractedFacts } from "./facts.js";
 import { gate } from "./gate.js";
@@ -189,7 +189,8 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   log(`ensaio (sem IA, sem rede, só o cache): pedido ${context.requestId}${context.steamAppId ? `, appid ${context.steamAppId}` : ""}, ${context.game.name}`);
   if (note) log(`  aviso: ${note}`);
   const extractEffort = config.EXTRACT_EFFORT ?? DEFAULT_EXTRACT_EFFORT;
-  const extraction = `(${config.MODEL_EXTRACT}, esforço ${extractEffort})`;
+  // Only medium is measured (EXTRACT_OUTPUT_RATIO); the other efforts are scaled from it.
+  const extraction = `(${config.MODEL_EXTRACT}, esforço ${extractEffort}${extractEffort === DEFAULT_EXTRACT_EFFORT ? "" : ", estimativa grosseira"})`;
   log(
     `modelos: extração ${config.MODEL_EXTRACT} (esforço ${extractEffort}), busca na web ${config.MODEL_EXTRACT}, ` +
       `escrita ${config.MODEL_WRITER} (esforço ${WRITER_EFFORT}), checagem ${config.MODEL_CHECK} (esforço ${config.CHECK_EFFORT}), imagens ${config.MODEL_FAST}`,
@@ -206,11 +207,18 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
   let reextractChars = 0;
   /** Characters of the pages a real run would read again in parts (their extraction came back short). */
   let rereadChars = 0;
+  // Task 25 review: a page out of the cache keeps what the last real run saw (a challenge page is never read): R39.
+  const lastSeen = new Map(((db.getDossier(context.requestId) as GuideDossier | undefined)?.unreadSources ?? []).map((u) => [u.url, u] as const));
   log(`fontes (${context.sources.length}):`);
   for (const source of context.sources) {
     const page = await fetchPage(source.url);
     if (page.status !== "ok" || !page.text?.trim()) {
-      unread.push({ name: source.name, url: source.url, reason: page.reason ?? "fora do cache" });
+      const seen = lastSeen.get(source.url);
+      unread.push(
+        seen
+          ? { name: source.name, url: source.url, reason: seen.reason, role: source.role, blocked: blockedForGood(seen) }
+          : { name: source.name, url: source.url, reason: page.reason ?? "fora do cache", role: source.role },
+      );
       log(`  - ${source.name}: página fora do cache`);
       continue;
     }
@@ -220,7 +228,7 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
     if (!found) {
       missing++;
       reextractChars += page.text.length;
-      unread.push({ name: source.name, url: source.url, reason: "sem extração no cache" });
+      unread.push({ name: source.name, url: source.url, reason: "sem extração no cache", role: source.role });
       log(`  - ${source.name}: sem extração no cache (a execução real pagaria a extração)`);
       continue;
     }

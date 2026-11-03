@@ -81,16 +81,16 @@ export function statedGameTotals(text: string): StatedTotal[] {
 }
 
 /**
- * How a stated total's label relates to the thing a "collect N" names: "whole" ("Sha-Chi Ambers" for "Sha-Chi
- * Ambers"), "part" ("Sha-Chi Amber Shards": parts of it), or undefined (something else). A label that joins two
- * things ("80 Accessories & Medicine") counts more than the one thing: never a total of it.
+ * Whether a stated total's label counts the parts of the thing a "collect N" names: "Sha-Chi Amber Shards" for
+ * "Sha-Chi Ambers" (every word of the thing, plus the part word, nothing else). "Amber Shards" is not (a word of the
+ * thing is missing), nor is a label that joins two things ("80 Accessories & Medicine").
  */
-export function totalKind(label: string, noun: string): "whole" | "part" | undefined {
+export function partsTotalOf(label: string, noun: string): boolean {
   const parts = labelParts(label);
-  if (parts.length !== 1) return undefined;
-  const isPart = parts[0]!.includes("fragment");
-  if (isPart) return names(label, `${noun} fragment`) ? "part" : undefined;
-  return names(label, noun) ? "whole" : undefined;
+  if (parts.length !== 1) return false;
+  const words = new Set(parts[0]);
+  const thing = [...canonical(noun)];
+  return words.has("fragment") && thing.every((w) => words.has(w)) && words.size === new Set([...thing, "fragment"]).size;
 }
 
 /** The things the numbered entries name: "#30 & #31 – Memory Flower / Sha-Chi Amber Fragment" is two. */

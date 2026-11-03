@@ -31,9 +31,10 @@ function lead(shards: number): ExtractedFacts {
   });
 }
 
-const build = (shards: number, summary: string | null = SUMMARY) => {
+type Unread = Parameters<typeof buildDossier>[3];
+const build = (shards: number, summary: string | null = SUMMARY, unread: Unread = []) => {
   const f = lead(shards);
-  return buildDossier(STEAM, [f], [[f.source.url]], [], {}, {}, summary ? { [f.source.url]: statedGameTotals(summary) } : {});
+  return buildDossier(STEAM, [f], [[f.source.url]], unread, {}, {}, summary ? { [f.source.url]: statedGameTotals(summary) } : {});
 };
 
 describe("statedGameTotals", () => {
@@ -91,6 +92,49 @@ describe("R39: contagem quase completa com o total declarado por uma fonte", () 
 
   it("o total de outra coisa (Blackstone Shards) não vale para os Sha-Chi Ambers", () => {
     const d = build(38, SUMMARY.replace("40 Sha-Chi Amber Shards, ", ""));
+    expect(d.achievements[0]!.collect!.shortfallAccepted).toBeUndefined();
+    expect(gate(d, STEAM).ok).toBe(false);
+  });
+});
+
+describe("R39, revisão 1: só o que as fontes legíveis não mapeiam", () => {
+  const region = { name: "PowerPyx (Crimson Forest)", url: "https://example.com/powerpyx-crimson-forest", reason: "HTTP 500", role: "coletaveis" as const };
+
+  it("38/40 com uma página de região do PowerPyx (mesmo site do roteiro principal) não lida → não aceita, gate reprova", () => {
+    for (const reason of ["HTTP 500", "extração falhou: timeout", "página de desafio (proteção contra robôs), não contornada"]) {
+      const d = build(38, SUMMARY, [{ ...region, reason }]);
+      expect(d.achievements[0]!.collect!.shortfallAccepted).toBeUndefined();
+      expect(gate(d, STEAM).ok).toBe(false);
+      expect(d.divergences.some((x) => x.includes("contagem incompleta não aceita (R39)") && x.includes("PowerPyx (Crimson Forest)"))).toBe(true);
+    }
+  });
+
+  it("fonte de roteiro de outro site não lida por falha que pode passar → não aceita", () => {
+    const tsa = { name: "TrueSteamAchievements", url: "https://www.truesteamachievements.com/x", reason: "HTTP 503", role: "roteiro_steam" as const };
+    const d = build(38, SUMMARY, [tsa]);
+    expect(d.achievements[0]!.collect!.shortfallAccepted).toBeUndefined();
+    expect(gate(d, STEAM).ok).toBe(false);
+  });
+
+  it("fonte de roteiro de outro site que nunca pode ser lida (desafio, robots.txt) e fonte só de coletáveis → aceita", () => {
+    const blocked = [
+      { name: "PSNProfiles", url: "https://psnprofiles.com/trophies/1", reason: "página de desafio (proteção contra robôs), não contornada", role: "roteiro_psn" as const, blocked: true },
+      { name: "TrueSteamAchievements", url: "https://www.truesteamachievements.com/x", reason: "bloqueada pelo robots.txt", role: "roteiro_steam" as const, blocked: true },
+      { name: "Mobalytics", url: "https://mobalytics.gg/x", reason: "HTTP 500", role: "coletaveis" as const },
+    ];
+    const d = build(38, SUMMARY, blocked);
+    expect(d.achievements[0]!.collect!.shortfallAccepted).toMatchObject({ located: 38, stated: 40 });
+    expect(gate(d, STEAM).ok).toBe(true);
+  });
+
+  it("total em unidades inteiras ('10 Sha-Chi Ambers') com contagem fracionária → não aceita (nunca '9,5 de 10')", () => {
+    const d = build(38, "The game contains 100 Collectibles Locations (10 Sha-Chi Ambers, 90 Bells).");
+    expect(d.achievements[0]!.collect!.shortfallAccepted).toBeUndefined();
+    expect(gate(d, STEAM).ok).toBe(false);
+  });
+
+  it("o rótulo do total de partes precisa ter todas as palavras da coisa ('Amber Shards' não é 'Sha-Chi Amber')", () => {
+    const d = build(38, "The game contains 100 Collectibles Locations (40 Amber Shards, 60 Bells).");
     expect(d.achievements[0]!.collect!.shortfallAccepted).toBeUndefined();
     expect(gate(d, STEAM).ok).toBe(false);
   });

@@ -636,6 +636,44 @@ describe("scope psn: a Steam não fecha, a lista da PSN do PowerPyx fecha (R22)"
       'O guia pela lista da PSN também não sai (1 lacuna): O troféu "Only On PlayStation" da lista da PSN não casa com nenhuma conquista da Steam.',
     );
   });
+
+  describe("Task 25 revisão 1: uma atualização não reenvia o guia pela lista da PSN", () => {
+    const botGuide = { id: "guide-bot", source: "bot", status: "published" } as unknown as NonNullable<GameSearchHit["guide"]>;
+    const hit: GameSearchHit = { id: "game-1", slug: "phantom-test", name: "Phantom Test", steamAppId: 4115450, igdbId: null, aliases: [], guide: botGuide };
+    const extract: GuideStages["extractFacts"] = async (_page, source) => (source.url === POWERPYX.url ? powerpyxFacts(source) : steamFacts(source));
+    const run = (direct?: GuidePipelineDeps["direct"]) => {
+      const { api, calls } = fakeApi({ hit, dossier: vi.fn(async () => ({ ...DOSSIER_SOURCE, achievements: STEAM_PLUS })) });
+      const stages = fakeStages({ extractFacts: extract });
+      const deps = makeDeps({ api, stages, fetchPage: pages, ...(direct ? { direct } : {}) });
+      return { api, calls, stages, deps };
+    };
+
+    it("--atualizar, Steam reprova e PSN aprova → para antes da escrita: nenhuma chamada ao escritor, nenhum PATCH", async () => {
+      const { calls, stages, deps } = run({ appId: 4115450, update: true });
+      expect(await runGuideRequest(deps)).toBe("waiting_sources");
+      expect(stages.calls.writeAndCheckGuide).toBeUndefined();
+      expect(calls.patched).toEqual([]);
+      expect(calls.created).toEqual([]);
+      expect(deps.lines.some((l) => l.includes("o gate da Steam não passou; a atualização não reenvia o guia pela lista da PSN"))).toBe(true);
+    });
+
+    it("pedido da fila para um jogo com guia do robô: o mesmo, com as lacunas da Steam no relato", async () => {
+      const { calls, stages, deps } = run();
+      expect(await runGuideRequest(deps)).toBe("waiting_sources");
+      expect(stages.calls.writeAndCheckGuide).toBeUndefined();
+      expect(calls.patched).toEqual([]);
+      const last = calls.reports.at(-1)!.body;
+      expect(last.reason).toContain("a atualização não reenvia o guia pela lista da PSN");
+      expect((last.report as { missing: string[] }).missing).toContain('A conquista "Arena Master" (ACH_ARENA) da Steam não aparece em nenhuma fonte.');
+    });
+
+    it("--atualizar-psn: de propósito, a atualização sai pela lista da PSN", async () => {
+      const { calls, stages, deps } = run({ appId: 4115450, update: true, updatePsn: true });
+      expect(await runGuideRequest(deps)).toBe("review");
+      expect(stages.calls.writeAndCheckGuide).toHaveLength(1);
+      expect(calls.patched).toHaveLength(1);
+    });
+  });
 });
 
 describe("erro interno do escritor", () => {

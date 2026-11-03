@@ -128,6 +128,8 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
     expect(parseGuiaArgs(["--", "--appid", "4115450"])).toEqual({ dryRun: false, direct: { appId: 4115450, update: false } });
     expect(parseGuiaArgs(["--appid", "4115450", "--atualizar"])).toEqual({ dryRun: false, direct: { appId: 4115450, update: true } });
     expect(() => parseGuiaArgs(["--atualizar"])).toThrow(/appid/);
+    // Task 25 review: an update by the PSN list only on purpose.
+    expect(parseGuiaArgs(["--appid", "4115450", "--atualizar-psn"])).toEqual({ dryRun: false, direct: { appId: 4115450, update: true, updatePsn: true } });
     expect(() => parseGuiaArgs(["--appid", "abc"])).toThrow(/appid/);
     expect(parseGuiaArgs(["--", "--ensaio", "--appid", "4115450"])).toEqual({ dryRun: true, appId: 4115450 });
     expect(parseGuiaArgs(["--ensaio", "--pedido", "abc", "--dados", "/tmp/copia"])).toEqual({ dryRun: true, requestId: "abc", dataDir: "/tmp/copia" });
@@ -195,7 +197,8 @@ describe("Task 25: o ensaio mostra modelos e esforços, o custo da extração po
         "checagem claude-opus-5-5 (esforço high), imagens claude-haiku-5-5",
     );
     // The cache holds the Sonnet reading: the Opus run extracts again, priced with Opus at high.
-    expect(out).toMatch(/extração a refazer na execução real: 1 página\(s\), ~\d+ KiB de texto, ~US\$ \d+\.\d\d \(claude-opus-5-5, esforço high\)/);
+    // Task 25 review: only medium is measured; the other efforts are scaled from it ("estimativa grosseira").
+    expect(out).toMatch(/extração a refazer na execução real: 1 página\(s\), ~\d+ KiB de texto, ~US\$ \d+\.\d\d \(claude-opus-5-5, esforço high, estimativa grosseira\)/);
     expect(out).toContain("gate steam: passa");
     expect(out).toContain(
       'R39: "Complete Mastery" (ACH_043) passa com a contagem incompleta: as fontes localizam 38 de 40 Sha-Chi Amber Shards (PowerPyx); 2 sem mapa → nota no guia e revisão',
@@ -204,7 +207,9 @@ describe("Task 25: o ensaio mostra modelos e esforços, o custo da extração po
 
   it("mais esforço, extração mais cara na estimativa", async () => {
     const usdOf = (out: string) => Number(/extração a refazer na execução real: .*?~US\$ (\d+\.\d\d)/.exec(out)![1]);
-    const medium = usdOf(await run({ MODEL_EXTRACT: "claude-opus-5-5" }));
+    const mediumOut = await run({ MODEL_EXTRACT: "claude-opus-5-5" });
+    expect(mediumOut).toMatch(/\(claude-opus-5-5, esforço medium\)/);
+    const medium = usdOf(mediumOut);
     const high = usdOf(await run({ MODEL_EXTRACT: "claude-opus-5-5", EXTRACT_EFFORT: "high" }));
     expect(high).toBeGreaterThan(medium);
   });
