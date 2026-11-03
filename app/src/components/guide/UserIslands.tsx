@@ -1,9 +1,11 @@
 import { cache } from "react";
 import { GameHead } from "@/components/games/GameHead";
+import { isStaffRole } from "@/lib/admin/access";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import {
   applyGuideUserState,
+  loadGuideReport,
   loadGuideUserState,
   type GameDetail,
   type GuideDetail,
@@ -12,6 +14,7 @@ import { AchievementList } from "./AchievementList";
 import { CommunityTips } from "./CommunityTips";
 import { GuideSidebar } from "./GuideSidebar";
 import { Roadmap } from "./Roadmap";
+import { WalkthroughPage } from "./walk/WalkthroughPage";
 
 /**
  * Per-visitor "islands". The page renders the public guide from cache (static shell) and wraps
@@ -62,4 +65,22 @@ export async function TipsIsland({ guide, returnTo }: { guide: GuideDetail; retu
 export async function SidebarIsland({ guide, returnTo }: { guide: GuideDetail; returnTo: string }) {
   const { loggedIn, view } = await viewFor(guide);
   return <GuideSidebar guide={view} loggedIn={loggedIn} returnTo={returnTo} />;
+}
+
+/**
+ * A walkthrough (format 2) with the visitor's ticks and Steam progress; staff (admin, editor) also
+ * get the robot report, which never leaves the server for anyone else.
+ */
+export async function WalkthroughIsland({ guide }: { guide: GuideDetail }) {
+  const user = await sessionUser();
+  const state = await guideState(guide);
+  if (!user || !state) return <WalkthroughPage guide={guide} viewer={null} />;
+  const staff = isStaffRole(user.role);
+  const report = staff && guide.walk ? await loadGuideReport(guide.walk.guideId) : null;
+  return (
+    <WalkthroughPage
+      guide={{ ...applyGuideUserState(guide, state), report }}
+      viewer={{ id: user.id, handle: user.handle, staff }}
+    />
+  );
 }

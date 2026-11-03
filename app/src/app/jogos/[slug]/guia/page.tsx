@@ -22,7 +22,9 @@ import {
   RoadmapIsland,
   SidebarIsland,
   TipsIsland,
+  WalkthroughIsland,
 } from "@/components/guide/UserIslands";
+import { WalkthroughPage } from "@/components/guide/walk/WalkthroughPage";
 import { guideIdCached } from "@/lib/community/cached";
 import { listGameSlugs } from "@/lib/queries/games";
 import { getAchievementsOnlyCached, getGameCached, getGuideCached } from "@/lib/queries/games-cached";
@@ -66,6 +68,26 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
   const returnTo = `/jogos/${slug}/guia`;
   const now = guide.game.generatedAt;
   const guideId = await guideIdCached(guide.game.id);
+  const community = guideId ? (
+    <>
+      <ReactionBar targetType="guide" targetId={guideId} prompt="Este guia ajudou?" what="este guia" returnTo={returnTo} />
+      <GuideModeration guideId={guideId} gameName={guide.game.name} returnTo={returnTo} />
+      <Comments targetType="guide" targetId={guideId} />
+    </>
+  ) : null;
+
+  if (guide.format === 2 && guide.walkthrough) {
+    // The walkthrough of the guide robot; the visitor's ticks and progress stream in.
+    return (
+      <>
+        <JsonLd data={howToJsonLd(guide)} />
+        <Suspense fallback={<WalkthroughPage guide={guide} viewer={null} />}>
+          <WalkthroughIsland guide={guide} />
+        </Suspense>
+        <div className="mt-14 flex flex-col gap-14">{community}</div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -102,17 +124,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
           </Suspense>
           <Revisions revisions={guide.revisions} now={now} />
           <Sources sources={guide.sources} />
-          {guideId ? (
-            <ReactionBar
-              targetType="guide"
-              targetId={guideId}
-              prompt="Este guia ajudou?"
-              what="este guia"
-              returnTo={returnTo}
-            />
-          ) : null}
-          {guideId ? <GuideModeration guideId={guideId} gameName={guide.game.name} returnTo={returnTo} /> : null}
-          {guideId ? <Comments targetType="guide" targetId={guideId} /> : null}
+          {community}
         </div>
         <Suspense
           fallback={<GuideSidebar guide={guide} loggedIn={false} returnTo={returnTo} pending />}
