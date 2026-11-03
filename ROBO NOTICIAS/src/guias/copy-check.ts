@@ -4,7 +4,8 @@ import { targetNames, type GuideDossier } from "./dossier.js";
 
 /**
  * Deterministic checks of the written guide, run before the LLM checker: copied runs of 9+ words (the manual allows
- * at most 8 equal words in a row) and the vocabulary ("Tralked", never "platina").
+ * at most 8 equal words in a row) and the vocabulary ("Tralked", never "platina"; voice v2: no phrase that hands the
+ * doubt to the reader, `DOUBT_PHRASES`).
  */
 
 const words = (text: string) =>
@@ -183,18 +184,70 @@ export function guideProse(p: GuidePayloadV2): { where: string; key: string | nu
   ].filter((x) => x.text.trim().length > 0);
 }
 
-/** Copy (9+ equal words) and vocabulary ("platina") problems, in Portuguese, one per finding, with their key. */
+/**
+ * Voice v2 (Lucas, 2026-11-03): the guide never hands its uncertainty to the reader. These phrases are banned from
+ * every text the reader sees (the style manual lists the same ones); a source conflict becomes the safest correct
+ * instruction, and the `review` flag tells the editor.
+ */
+export const DOUBT_PHRASES = [
+  "confira no jogo",
+  "confirme no jogo",
+  "as fontes divergem",
+  "só uma fonte",
+  "uma fonte diz",
+  "não há certeza",
+  "segundo as fontes",
+  "em revisão",
+] as const;
+
+const DOUBT_WORDS = DOUBT_PHRASES.map((phrase) => ({ phrase, words: ` ${words(phrase).join(" ")} ` }));
+
+/** The banned phrases in `text`, as whole words (case, accents, punctuation and markup ignored), in list order. */
+export function doubtPhrases(text: string): string[] {
+  const w = ` ${words(text).join(" ")} `;
+  return DOUBT_WORDS.filter((d) => w.includes(d.words)).map((d) => d.phrase);
+}
+
+/**
+ * Reader-facing texts the model may write that `guideProse` leaves out (it skips names on purpose): the roadmap
+ * phase titles and the names of the items that are not achievements (an achievement's name is the dossier's). Only
+ * the doubt check reads them.
+ */
+function shownNames(p: GuidePayloadV2): { where: string; key: string | null; text: string }[] {
+  return [
+    ...p.steps.map((s) => ({ where: `a etapa ${s.key ?? s.title}`, key: null, text: s.title })),
+    ...p.walkthrough.chapters.flatMap((c) =>
+      c.steps.flatMap((s) => s.items.filter((i) => !i.achievement).map((i) => ({ where: `o item ${i.key}`, key: i.key, text: i.name }))),
+    ),
+  ];
+}
+
+/**
+ * Copy (9+ equal words), vocabulary ("platina") and doubt-phrase problems, in Portuguese, one per finding, with their
+ * key (the writer's scope of the part that rewrites it).
+ */
 export function deterministicProblems(
   p: GuidePayloadV2,
   sources: readonly string[],
   names: readonly string[] = [],
 ): { text: string; key: string | null; kind: "copia" | "vocabulario" }[] {
   const problems: { text: string; key: string | null; kind: "copia" | "vocabulario" }[] = [];
+  const doubt = (where: string, key: string | null, text: string) => {
+    for (const phrase of doubtPhrases(text)) {
+      problems.push({
+        key,
+        kind: "vocabulario",
+        text: `Em ${where}, o texto passa a dúvida para o leitor ("${phrase}"). Escreva a instrução certa e mais segura, sem citar fontes, dúvida nem revisão.`,
+      });
+    }
+  };
   for (const { where, key, text } of guideProse(p)) {
     for (const run of copiedRuns(text, sources, 9, names)) {
       problems.push({ key, kind: "copia", text: `Trecho copiado de uma fonte em ${where}: "${run}". Reescreva com palavras próprias (no máximo 8 palavras seguidas iguais).` });
     }
     if (/platin/i.test(text)) problems.push({ key, kind: "vocabulario", text: `Em ${where}, use "Tralked" no lugar de "platina".` });
+    doubt(where, key, text);
   }
+  for (const { where, key, text } of shownNames(p)) doubt(where, key, text);
   return problems;
 }

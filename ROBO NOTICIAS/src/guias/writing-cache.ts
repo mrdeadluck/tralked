@@ -18,9 +18,10 @@ export type CachedWriting = { payload: GuidePayloadV2; internalErrors: string[];
 
 /**
  * Bump this number whenever the writer (frameMessage, jobMessage, assemble), the checker (its prompts), the
- * skeleton or the guide contract change: a writing cached by older code must not be reused.
+ * skeleton or the guide contract change: a writing cached by older code must not be reused. v7: the guide voice v2
+ * (2026-11-03: new manual, no code callout per missable step, the doubt-phrase ban, the checker's new defects).
  */
-export const WRITER_CACHE_VERSION = 6;
+export const WRITER_CACHE_VERSION = 7;
 
 /**
  * Task 21: the writer versions before drafts kept their base key (`writingBaseKey`), with the sha256 of the style

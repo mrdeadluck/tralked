@@ -12,7 +12,7 @@ import { deterministicProblems, dossierTexts, knownNames } from "./copy-check.js
 import { steamOnlyApiNames, type DossierAchievement, type GuideDossier, type GuideDossierSource } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
 import type { PsnWriteScope } from "./scope.js";
-import { anchoredIn, buildSkeleton, isMissable, placeableIn, untilOf, writeJobs, type GuideSkeleton, type SkelItem, type WriteJob } from "./skeleton.js";
+import { anchoredIn, buildSkeleton, isMissable, placeableIn, writeJobs, type GuideSkeleton, type SkelItem, type WriteJob } from "./skeleton.js";
 
 export { copiedRuns } from "./copy-check.js";
 
@@ -111,7 +111,7 @@ export const ChapterTextSchema = z.object({
     .array(
       z.object({
         key: z.string().describe("Uma das keys de passo dadas"),
-        blocos: z.array(BlockSchema).describe("O texto do passo, na ordem de leitura; aviso de perdível antes do ponto de não retorno"),
+        blocos: z.array(BlockSchema).describe("O texto do passo, na ordem de leitura; o risco de um perdível antes do ponto de não retorno, uma vez"),
         conquistas: z.array(z.string()).describe("apiNames das conquistas sem lugar fixo que destravam neste passo"),
       }),
     )
@@ -121,7 +121,7 @@ export const ChapterTextSchema = z.object({
       z.object({
         key: z.string().describe("Uma das keys de item ou de conquista dadas"),
         nome: z.string().describe("Até 80 caracteres"),
-        local: z.string().describe("Onde fica e como pegar, até 400 caracteres"),
+        local: z.string().describe("O caminho desde o ponto anterior até o item, para que serve e, se perdível, o risco; até 400 caracteres"),
         spoiler: z.boolean(),
       }),
     )
@@ -349,7 +349,7 @@ function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource
   const next = skel.chapters[at + 1];
   const loose = placeableIn(skel, chapter);
   const anchored = anchoredInJob(skel, job).map((l) => l.ach!);
-  // The code may warn a missable of these steps, or of a loose one the writer places here.
+  // The page warns a missable of these steps (or a loose one the writer places here); the code, the anchored ones.
   const missables = anchored.length > 0 || steps.some((s) => s.items.some(isMissable)) || loose.some(isMissable);
   return [
     `Escreva o texto dos passos abaixo, do capítulo "${body(chapter.title)}" do guia de ${body(game.game.name)}.`,
@@ -369,8 +369,8 @@ function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource
       : "",
     missables
       ? [
-          "## Avisos de perdível que o sistema põe",
-          'O sistema põe sozinho o aviso de cada perdível de um passo que o seu texto não avisar ("Perdível: pegue … agora, antes de seguir.") e, no primeiro passo do capítulo, o aviso das conquistas perdíveis que as fontes ligam a ele. Esses avisos já estão no lugar: não os repita nem os amplie ("começam nesta região", "também começa aqui"). Seu texto diz só o que o dossiê traz sobre cada passo.',
+          "## Avisos de perdível que a página mostra",
+          'Antes de cada passo com perdível, a página mostra sozinha uma caixa "⚠ Perdível no próximo passo: <nomes>. Pegue agora: depois não dá para voltar. Prazo: <prazo do capítulo>." e marca o item com a etiqueta "PERDÍVEL · PEGUE AGORA". Não escreva aviso que só repete "pegue X agora": explique o risco uma vez, como causa e consequência ("se você derrotar X com a missão aberta, ela falha e você perde a conquista Y nesta jogada"), no `local` do item, ou num único `aviso` do passo quando o risco vale para vários itens dele. No primeiro passo do capítulo, o sistema põe o aviso das conquistas perdíveis que as fontes ligam a ele. Esses avisos já estão no lugar: não os repita nem os amplie ("começam nesta região", "também começa aqui"). Seu texto diz só o que o dossiê traz sobre cada passo.',
           ...(anchored.length > 0 ? [`No passo ${steps[0]!.key}: "${body(anchorWarning(anchored))}"`] : []),
         ].join("\n")
       : "",
@@ -476,20 +476,6 @@ function inline(text: string | null | undefined, max: number): string {
     .trim();
   return closeSpoilers(truncate(t, max));
 }
-
-/** Text compared for a mention: no markup, lowercase, no accents. */
-const comparable = (text: string) =>
-  text
-    .replace(/[*|]/g, "")
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-
-/** `name` appears in `text` as whole words ("old lantern" is not in "old lanternkeeper"); both `comparable`. */
-const mentions = (text: string, name: string) =>
-  name.length > 0 && new RegExp(`(^|[^\\p{L}\\p{N}])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\p{L}\\p{N}])`, "u").test(text);
 
 /** Text without **bold** / *italic* markers and line breaks. */
 const unmark = (text: string) =>
@@ -690,19 +676,6 @@ async function draft(
  * warning callouts the code wrote (Task 21: the checker gets them apart, with their basis, and does not judge them).
  */
 export type WrittenGuide = { payload: GuidePayloadV2; repairs: GuideProblem[]; codeWarnings: CodeWarning[] };
-
-/** The dossier facts behind the code's warning of a missable item or achievement of a step. */
-function stepWarningBase(x: SkelItem, name: string): Record<string, unknown> {
-  const until = untilOf(x.item, x.ach);
-  return {
-    key: x.key,
-    nome: name,
-    ...(x.ach ? { apiName: x.ach.apiName, oculta: x.ach.hidden } : {}),
-    perdivel: true,
-    ...(until ? { ate: until } : {}),
-    ...(x.item?.deadlineAssumed || x.ach?.deadlineAssumed ? { prazo_suposto: true } : {}),
-  };
-}
 
 /** The dossier facts behind the code's warning at a chapter's start: why the code anchored the achievement there. */
 function anchorWarningBase(a: DossierAchievement): Record<string, unknown> {
@@ -929,32 +902,16 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
         const text = x.ach ? countNote(x.ach) : undefined;
         return text ? [{ a: x.ach!, text }] : [];
       });
-      // Room for the code's missable warnings, count notes and "later" note within the site's 20 blocks. A writer's
+      // Room for the code's anchor warning, count notes and "later" note within the site's 20 blocks. A writer's
       // block that only repeats a code text (the job message shows the anchor's text) is dropped: never shown twice.
+      // Voice v2: no code warning for a step's missables: the page shows its own box before the step ("⚠ Perdível no
+      // próximo passo", the names and the chapter's deadline) and tags the item; the writer explains the consequence.
       let blocks = (stepBlocks.get(s.key) ?? [])
         .filter((b) => !sameText(b, anchorText) && !counts.some((c) => sameText(b, c.text)))
-        .slice(0, Math.max(1, (anchor ? 17 : 18) - counts.length));
+        .slice(0, Math.max(1, (anchor ? 18 : 19) - counts.length));
       if (blocks.length === 0) {
         repairs.push({ scope: scopeOfStep(s.key), text: `O passo ${s.key} do capítulo "${c.title}" ficou sem texto; escreva o caminho deste passo.` });
         blocks = [{ type: "paragraph", text: walkItems.length > 0 ? `Neste ponto: ${walkItems.map((i) => i.name).join(", ")}.` : "Siga em frente pela história." }];
-      }
-      // The missable warning comes first in the step, before the text that leads past the point of no return.
-      // Task 20 review: a writer's "aviso" about something else does not replace it; an item the writer's warnings
-      // already cite (by its name or its English name) needs no second one.
-      const warnings = blocks.filter((b) => b.type === "callout" && b.tone === "aviso").map((b) => comparable((b as { text: string }).text));
-      const cited = (i: WalkItem) => [i.name, i.nameEn].some((n) => n && warnings.some((w) => mentions(w, comparable(n))));
-      // Only what the dossier marks missable is warned, each by its name (Task 21: never "o item deste passo").
-      const warn = items.filter((x) => isMissable(x) && !x.item?.returnLater);
-      const unwarned = walkItems.flatMap((i) => {
-        const x = warn.find((w) => w.key === i.key);
-        return x && !cited(i) ? [{ i, x }] : [];
-      });
-      if (unwarned.length > 0) {
-        const names = joinPt(unwarned.map(({ i, x }) => warnedName(i.name, i.spoiler, x.ach)));
-        // No milestone here: it often names a boss (spoiler). The chapter's `deadline` carries it.
-        const text = inline(`Perdível: pegue ${names} agora, antes de seguir.`, 2000);
-        blocks = [{ type: "callout", tone: "aviso", text }, ...blocks.filter((b) => !sameText(b, text))];
-        codeWarnings.push({ step: s.key, text, base: unwarned.map(({ i, x }) => stepWarningBase(x, i.name)) });
       }
       if (anchorText) {
         const text = anchorText;
