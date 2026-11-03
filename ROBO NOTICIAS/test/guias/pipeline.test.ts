@@ -1133,7 +1133,10 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
         texts,
         payload: writtenPayload(),
         problems,
-        repairs: [{ text: "O sistema pôs a conquista X.", scope: "cap-1", kind: "nota" }],
+        repairs: [
+          { text: "O sistema pôs a conquista X.", scope: "cap-1", kind: "nota" },
+          { text: "O chefe é o do dossiê.", scope: "cap-1", kind: "checador-correto" },
+        ],
         internalErrors: [],
         pending: [],
       };
@@ -1156,7 +1159,12 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
     const file = JSON.parse(readFileSync(join(db.dir, "relatorios", `${REQUEST.id}-1.json`), "utf8"));
     expect(file).toMatchObject({ requestId: REQUEST.id, attempt: 1, status: "failed" });
     expect(file.problems).toEqual(scoped(3));
-    expect(file.repairs).toEqual([{ text: "O sistema pôs a conquista X.", scope: "cap-1", kind: "nota" }]);
+    // Task 21 review: what the checker listed as right is in the report file too (audit), never a problem.
+    expect(file.repairs).toEqual([
+      { text: "O sistema pôs a conquista X.", scope: "cap-1", kind: "nota" },
+      { text: "O chefe é o do dossiê.", scope: "cap-1", kind: "checador-correto" },
+    ]);
+    expect(draft.repairs[1]!.kind).toBe("checador-correto");
     expect(file.report.problems).toEqual(scoped(3).map((p) => p.text));
     // The queue mode still sends the problems to the site.
     expect((calls.reports.at(-1)!.body.report as RobotReport).problems).toEqual(scoped(3).map((p) => p.text));

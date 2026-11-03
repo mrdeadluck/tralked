@@ -194,7 +194,7 @@ export function describeDraft(d: SavedDraft): string[] {
     `textos salvos: ${d.texts ? `moldura ${d.texts.frame ? "sim" : "não"}, ${plural(jobs, "trecho", "trechos")}` : "nenhum"}; chave ${d.writingKey}`,
     ...groupProblems(d.problems),
     ...(d.pending.length > 0 ? [`pendentes de antes, fora da sonda (${d.pending.length}):`, ...groupProblems(d.pending).slice(1).map((l) => `  ${l}`)] : []),
-    ...(d.repairs.length > 0 ? [`notas e reparos do código (${d.repairs.length}):`, ...groupProblems(d.repairs).slice(1).map((l) => `  ${l}`)] : []),
+    ...(d.repairs.length > 0 ? [`notas e reparos do código e do checador, não bloqueiam (${d.repairs.length}):`, ...groupProblems(d.repairs).slice(1).map((l) => `  ${l}`)] : []),
     ...(d.internalErrors.length > 0 ? [`erros internos do escritor (${d.internalErrors.length}):`, ...d.internalErrors.map((e) => `  - ${e}`)] : []),
   ];
 }

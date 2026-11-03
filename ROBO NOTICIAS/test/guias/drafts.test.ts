@@ -82,7 +82,7 @@ describe("rascunhos no GuideDb", () => {
     const text = describeDraft(latestDraft(db, "direto-1")!).join("\n");
     expect(text).toContain("rascunho de direto-1, tentativa 3, rodada 1 (sonda), 2026-11-03T11:00:00.000Z: reprovado");
     expect(text).toContain("3 problemas");
-    expect(text).toContain("notas e reparos do código (1)");
+    expect(text).toContain("notas e reparos do código e do checador, não bloqueiam (1)");
   });
 
   it("o relatório vai para relatorios/<pedido>-<tentativa>.json", () => {

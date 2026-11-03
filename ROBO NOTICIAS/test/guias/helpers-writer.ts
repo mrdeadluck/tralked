@@ -51,12 +51,12 @@ export function goodChapter(prompt: string, variant = 0) {
   };
 }
 
-/** One entry of the checker's list (Task 21): `ok` true is a point the checker found right, not a defect. */
-export type CheckEntry = { ok: boolean; defeito: string };
-/** A plain string is a defect (`ok: false`); `ok` at the top is ignored (the checker's verdict is its defects). */
+/** One entry of the checker's list (Task 21): `tipo: "correto"` is a point the checker found right, not a defect. */
+export type CheckEntry = { tipo: "defeito" | "correto"; texto: string };
+/** A plain string is a defect; `ok` at the top is ignored (the checker's verdict is its defects). */
 export type Verdict = { ok?: boolean; problems: (string | CheckEntry)[] };
 export const OK: Verdict = { ok: true, problems: [] };
-const asAnswer = (v: Verdict) => ({ problems: v.problems.map((p) => (typeof p === "string" ? { ok: false, defeito: p } : p)) });
+const asAnswer = (v: Verdict) => ({ problems: v.problems.map((p) => (typeof p === "string" ? { tipo: "defeito" as const, texto: p } : p)) });
 
 export type Fake = {
   /** The checker's answer to each call (the check prompt and the call's number). */

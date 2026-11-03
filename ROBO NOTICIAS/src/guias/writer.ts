@@ -4,7 +4,7 @@ import type { Ai } from "../ai/client.js";
 import { escapeAttr, escapeText } from "../ai/escape.js";
 import type { SpendBucket } from "../db.js";
 import type { ContentBlock } from "../tralked.js";
-import { CHECK_DUE, checkScopes, FRAME_SCOPE, jobSteps, type CheckContext, type CodeWarning, type GuideProblem } from "./checker.js";
+import { CHECK_DUE, CHECKER_RIGHT, checkScopes, FRAME_SCOPE, jobSteps, type CheckContext, type CodeWarning, type GuideProblem } from "./checker.js";
 import { chronologyProblems } from "./chronology.js";
 import type { GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
@@ -295,8 +295,11 @@ function warnedName(name: string, spoiler: boolean, achievement: { hidden: boole
  */
 function anchorWarning(anchored: DossierAchievement[]): string {
   const names = anchored.map((a) => (a.hidden ? warnedName(plain(achName(a), 80), true, a) : `**${plain(achName(a), 80)}**`));
-  return inline(`Perdível: as fontes ligam ${joinPt(names)} a esta região; fique atento a partir daqui.`, 2000);
+  return inline(`Perdível: as fontes ligam ${joinPt(names)} a este capítulo; fique atento a partir daqui.`, 2000);
 }
+
+/** A block whose text is exactly `text` (a writer's copy of a code warning). */
+const sameText = (b: ContentBlock, text: string | undefined) => text !== undefined && "text" in b && b.text === text;
 
 /** The loose missables the code warns at the start of the job (only the job holding the chapter's first step). */
 const anchoredInJob = (skel: GuideSkeleton, job: WriteJob) => (job.steps[0] === job.chapter.steps[0] ? anchoredIn(skel, job.chapter) : []);
@@ -829,8 +832,10 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     const walkSteps = steps.map(({ s, items }, n) => {
       const walkItems = items.map((item) => buildItem(item, s.key));
       const anchor = n === 0 && anchored.length > 0;
-      // Room for the code's missable warnings and "later" note within the site's 20 blocks.
-      let blocks = (stepBlocks.get(s.key) ?? []).slice(0, anchor ? 17 : 18);
+      const anchorText = anchor ? anchorWarning(anchored) : undefined;
+      // Room for the code's missable warnings and "later" note within the site's 20 blocks. A writer's block that only
+      // repeats a code warning (the job message shows the anchor's text) is dropped: the warning is not shown twice.
+      let blocks = (stepBlocks.get(s.key) ?? []).filter((b) => !sameText(b, anchorText)).slice(0, anchor ? 17 : 18);
       if (blocks.length === 0) {
         repairs.push({ scope: scopeOfStep(s.key), text: `O passo ${s.key} do capítulo "${c.title}" ficou sem texto; escreva o caminho deste passo.` });
         blocks = [{ type: "paragraph", text: walkItems.length > 0 ? `Neste ponto: ${walkItems.map((i) => i.name).join(", ")}.` : "Siga em frente pela história." }];
@@ -850,11 +855,11 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
         const names = joinPt(unwarned.map(({ i, x }) => warnedName(i.name, i.spoiler, x.ach)));
         // No milestone here: it often names a boss (spoiler). The chapter's `deadline` carries it.
         const text = inline(`Perdível: pegue ${names} agora, antes de seguir.`, 2000);
-        blocks = [{ type: "callout", tone: "aviso", text }, ...blocks];
+        blocks = [{ type: "callout", tone: "aviso", text }, ...blocks.filter((b) => !sameText(b, text))];
         codeWarnings.push({ step: s.key, text, base: unwarned.map(({ i, x }) => stepWarningBase(x, i.name)) });
       }
-      if (anchor) {
-        const text = anchorWarning(anchored);
+      if (anchorText) {
+        const text = anchorText;
         blocks = [{ type: "callout", tone: "aviso", text }, ...blocks];
         codeWarnings.push({ step: s.key, text, base: anchored.map(anchorWarningBase) });
       }
@@ -1197,10 +1202,12 @@ export async function writeAndCheckGuide(
             text: `O trecho ${j.id} mudou com a sonda (um item foi posto nele ou saiu dele) e precisa ser checado de novo.`,
           }))
       : [];
-    const found = [
-      ...blocking(written),
-      ...(await checkScopes(ai, written.payload, dossier, ctx.skel, { frame: next.redone.frame, jobs: recheck }, { ...checkOpts, codeWarnings: written.codeWarnings })),
-    ].filter((p) => inScope(p.scope));
+    const checked = (
+      await checkScopes(ai, written.payload, dossier, ctx.skel, { frame: next.redone.frame, jobs: recheck }, { ...checkOpts, codeWarnings: written.codeWarnings })
+    ).filter((p) => inScope(p.scope));
+    // What the checker listed as right is recorded with the notes (auditable), never a reason to rewrite.
+    const right = checked.filter((p) => p.kind === CHECKER_RIGHT);
+    const found = [...blocking(written).filter((p) => inScope(p.scope)), ...checked.filter((p) => p.kind !== CHECKER_RIGHT)];
     last = {
       round,
       ok: found.length === 0,
@@ -1208,7 +1215,7 @@ export async function writeAndCheckGuide(
       texts: toSaved(next.texts),
       payload: written.payload,
       problems: found,
-      repairs: written.repairs.filter((r) => inScope(r.scope)),
+      repairs: [...written.repairs.filter((r) => inScope(r.scope)), ...right],
       internalErrors: internalOf(written),
       pending: [...pending, ...owed],
     };
