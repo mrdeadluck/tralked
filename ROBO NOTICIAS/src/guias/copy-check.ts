@@ -202,29 +202,114 @@ export const DOUBT_PHRASES = [
   "as fontes",
 ] as const;
 
-const DOUBT_WORDS = DOUBT_PHRASES.map((phrase) => ({ phrase, words: ` ${words(phrase).join(" ")} ` }));
-/** Longest first: an occurrence inside a longer phrase ("segundo as fontes") is not counted again ("as fontes"). */
-const LONGEST_FIRST = [...DOUBT_WORDS].sort((a, b) => b.words.length - a.words.length);
+/** A text's words as written (`raw`) and as compared (`norm`: lowercase, no accents), in order. */
+function tokens(text: string): { raw: string; norm: string }[] {
+  return text
+    .normalize("NFC")
+    .split(/[^\p{L}\p{N}\p{M}]+/u)
+    .filter(Boolean)
+    .map((raw) => ({ raw, norm: raw.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase() }));
+}
 
-/** The banned phrases in `text`, as whole words (case, accents, punctuation and markup ignored), in list order. */
-export function doubtPhrases(text: string): string[] {
-  let w = ` ${words(text).join(" ")} `;
+/** Longest first: an occurrence inside a longer phrase ("segundo as fontes") is not counted again ("as fontes"). */
+const DOUBT_WORDS = DOUBT_PHRASES.map((phrase) => ({ phrase, words: words(phrase) })).sort((a, b) => b.words.length - a.words.length);
+
+/**
+ * Review 2: the game sense of "fonte" (a hot spring; a fountain, a source of light, energy or power in the game) is not
+ * source talk.
+ */
+const FONTE_GAME = new Set(["termal", "termais"]);
+const FONTE_GAME_OF = new Set(["agua", "luz", "energia", "poder"]);
+/** "revisita", "revisitar" (a revisit chapter) and "revistar" (to search) are game words, not "revisão". */
+const REVIS_GAME = /^(revisit|revist)/;
+/** "confira no jogo", "verifique no jogo", "confere no jogo"... */
+const CHECK_IN_GAME = /^(confir|verifi|confer)/;
+
+/**
+ * Review 2: the expressions in `text` that hand the doubt to the reader or talk about sources: the `DOUBT_PHRASES`
+ * (list order), then, by position, any other "fonte"/"fontes" (not the game sense), "revis…" (not a revisit),
+ * "confir… / verifi… / confer… no jogo" and the names of the sites the run read (`sites`, lowercase: `sourceSites`).
+ * As written in the text (lowercase), without repeats; whole words, case and accents ignored.
+ */
+export function bannedExpressions(text: string, sites: readonly string[] = []): string[] {
+  const t = tokens(text);
+  const used = t.map(() => false);
+  /** "fonte termal", "fontes termais", "fonte de água / luz / energia / poder": the game sense. */
+  const gameFonte = (i: number) => {
+    const next = t[i + 1]?.norm;
+    const of = next === "de" || next === "da" || next === "do";
+    return (next !== undefined && FONTE_GAME.has(next)) || (of && FONTE_GAME_OF.has(t[i + 2]?.norm ?? ""));
+  };
   const found = new Set<string>();
-  for (const d of LONGEST_FIRST) {
-    if (!w.includes(d.words)) continue;
-    found.add(d.phrase);
-    w = w.replaceAll(d.words, " | ");
+  for (const d of DOUBT_WORDS) {
+    for (let i = 0; i + d.words.length <= t.length; i++) {
+      if (d.words.every((w, k) => t[i + k]!.norm === w && !used[i + k] && !(w.startsWith("fonte") && gameFonte(i + k)))) {
+        found.add(d.phrase);
+        for (let k = 0; k < d.words.length; k++) used[i + k] = true;
+      }
+    }
   }
-  return DOUBT_PHRASES.filter((p) => found.has(p));
+  const extra: string[] = [];
+  const site = new Set(sites);
+  for (let i = 0; i < t.length; i++) {
+    if (used[i]) continue;
+    const w = t[i]!.norm;
+    const next = t[i + 1]?.norm;
+    if (w === "fonte" || w === "fontes") {
+      if (!gameFonte(i)) extra.push(t[i]!.raw.toLowerCase());
+    } else if (w.startsWith("revis") && !REVIS_GAME.test(w)) {
+      extra.push(t[i]!.raw.toLowerCase());
+    } else if (CHECK_IN_GAME.test(w) && next === "no" && t[i + 2]?.norm === "jogo") {
+      extra.push(`${t[i]!.raw.toLowerCase()} no jogo`);
+      i += 2;
+    } else if (site.has(w)) {
+      extra.push(t[i]!.raw);
+    }
+  }
+  return [...new Set([...DOUBT_PHRASES.filter((p) => found.has(p)), ...extra])];
+}
+
+/** The banned phrases (`DOUBT_PHRASES`) in `text`, in list order: `bannedExpressions` without the other words. */
+export function doubtPhrases(text: string): string[] {
+  const listed = new Set<string>(DOUBT_PHRASES);
+  return bannedExpressions(text).filter((x) => listed.has(x));
+}
+
+/** Second-level suffixes under a country code ("tecmundo.com.br", "game8.co.jp"): the site's label is the one before. */
+const SECOND_LEVEL = new Set(["com", "net", "org", "gov", "edu", "co", "ac", "gg"]);
+
+/**
+ * Review 2: the sites the dossier's facts come from, one lowercase word each: the main label of every source link's
+ * host ("www.powerpyx.com" → "powerpyx", "phantombladezero.wiki.fextralife.com" → "fextralife", "www.tecmundo.com.br"
+ * → "tecmundo"). Only hosts: a source's name may be a common word ("Guia"). Never Steam (the platform the guide talks
+ * about), never a short or common word.
+ */
+export function sourceSites(dossier: Pick<GuideDossier, "chapters" | "achievements">): string[] {
+  const links = [...dossier.chapters.flatMap((c) => c.items.flatMap((i) => i.sourceLinks)), ...dossier.achievements.flatMap((a) => a.sourceLinks)];
+  const out = new Set<string>();
+  for (const l of links) {
+    let labels: string[];
+    try {
+      labels = new URL(l.url).hostname.toLowerCase().split(".").filter(Boolean);
+    } catch {
+      continue;
+    }
+    let at = labels.length - 2;
+    if (at > 0 && labels.at(-1)!.length === 2 && SECOND_LEVEL.has(labels[at]!)) at--;
+    const label = labels[Math.max(0, at)];
+    if (label) out.add(label);
+  }
+  return [...out].filter((s) => s.length >= 4 && !s.startsWith("steam") && !STOPWORDS.has(s) && !/^\d+$/.test(s));
 }
 
 /**
- * Reader-facing texts the model may write that `guideProse` leaves out (it skips names on purpose): the roadmap
- * phase titles and the names of the items that are not achievements (an achievement's name is the dossier's). Only
- * the doubt check reads them.
+ * Reader-facing texts the model may write that `guideProse` leaves out (it skips names on purpose): the cover's call
+ * labels, the roadmap phase titles and the names of the items that are not achievements (an achievement's name is the
+ * dossier's). Only the banned-expression check reads them.
  */
 function shownNames(p: GuidePayloadV2): { where: string; key: string | null; text: string }[] {
   return [
+    ...p.walkthrough.cover.calls.map((c) => ({ where: "a capa", key: null, text: c.label })),
     ...p.steps.map((s) => ({ where: `a etapa ${s.key ?? s.title}`, key: null, text: s.title })),
     ...p.walkthrough.chapters.flatMap((c) =>
       c.steps.flatMap((s) => s.items.filter((i) => !i.achievement).map((i) => ({ where: `o item ${i.key}`, key: i.key, text: i.name }))),
@@ -233,22 +318,20 @@ function shownNames(p: GuidePayloadV2): { where: string; key: string | null; tex
 }
 
 /**
- * Copy (9+ equal words), vocabulary ("platina") and doubt-phrase problems, in Portuguese, one per finding, with their
- * key (the writer's scope of the part that rewrites it).
+ * Copy (9+ equal words), vocabulary ("platina") and banned-expression problems (`bannedExpressions`, with the run's
+ * `sites`), in Portuguese, one per finding, with their key (the writer's scope of the part that rewrites it).
  */
 export function deterministicProblems(
   p: GuidePayloadV2,
   sources: readonly string[],
   names: readonly string[] = [],
+  sites: readonly string[] = [],
 ): { text: string; key: string | null; kind: "copia" | "vocabulario" }[] {
   const problems: { text: string; key: string | null; kind: "copia" | "vocabulario" }[] = [];
+  // Review 2: a neutral message (it repeats neither the doubt nor the source talk to the writer).
   const doubt = (where: string, key: string | null, text: string) => {
-    for (const phrase of doubtPhrases(text)) {
-      problems.push({
-        key,
-        kind: "vocabulario",
-        text: `Em ${where}, o texto passa a dúvida para o leitor ("${phrase}"). Escreva a instrução certa e mais segura, sem citar fontes, dúvida nem revisão.`,
-      });
+    for (const expression of bannedExpressions(text, sites)) {
+      problems.push({ key, kind: "vocabulario", text: `Em ${where}, não use a expressão "${expression}" no texto do guia.` });
     }
   };
   for (const { where, key, text } of guideProse(p)) {

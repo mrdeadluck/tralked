@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { carriedDraft, describeDraft, groupProblems, latestDraft, problemHistory, resumableDraft, saveDraft, writeReportFile } from "../../src/guias/drafts.js";
 import { openGuideDb } from "../../src/guias/db.js";
+import { MIN_CARRIED_VERSION, WRITER_CACHE_VERSION } from "../../src/guias/writing-cache.js";
 import type { DraftRound } from "../../src/guias/writer.js";
 
 const frame = {
@@ -133,22 +134,33 @@ describe("rascunhos no GuideDb", () => {
       expect(carriedDraft(db, keys)).toBeUndefined();
     });
 
-    it("Task 22: um rascunho salvo com a chave de base antiga (com o Haiku do checador) é carregado", () => {
+    it("voz v2: um rascunho v6 das mesmas entradas não é carregado (reescrita completa); um v7 é", () => {
+      expect(MIN_CARRIED_VERSION).toBe(7);
       const db = openGuideDb(":memory:");
-      saveDraft(db, { requestId: "direto-1", attempt: 3, writingKey: "escrita:v5-haiku", baseKey: "base:antiga", draft: older({ probe: true }), at: new Date() });
+      saveDraft(db, { requestId: "a", attempt: 1, writingKey: "escrita:v6", baseKey: "base:x", writerVersion: 6, draft: older(), at: new Date() });
       expect(carriedDraft(db, keys)).toBeUndefined();
-      const carried = carriedDraft(db, { ...keys, earlierBaseKeys: ["base:antiga"] })!;
-      expect(carried).toMatchObject({ requestId: "direto-1", attempt: 3, baseKey: "base:antiga" });
-      expect(carried.texts).toEqual({ frame: null, jobs: { "cap-4": job, "cap-5": job } });
-      expect(carried.problems.map((p) => p.kind)).toEqual(["checagem-devida", "checagem-devida"]);
+      saveDraft(db, { requestId: "b", attempt: 1, writingKey: "escrita:v7-outro-manual", baseKey: "base:x", writerVersion: 7, draft: older(), at: new Date() });
+      const carried = carriedDraft(db, keys)!;
+      expect(carried).toMatchObject({ requestId: "b", writerVersion: 7 });
+      expect(Object.keys(carried.texts.jobs)).toEqual(["cap-4", "cap-5"]);
+      // A newer v6 draft does not hide the v7 one.
+      saveDraft(db, { requestId: "c", attempt: 1, writingKey: "escrita:v6", baseKey: "base:x", writerVersion: 6, draft: older(), at: new Date() });
+      expect(carriedDraft(db, keys)).toMatchObject({ requestId: "b" });
     });
 
-    it("um rascunho de antes da chave de base é achado pela chave que a versão de então daria", () => {
+    it("voz v2: um rascunho sem versão gravada (salvo antes dela) nunca é carregado, nem pelas chaves antigas", () => {
       const db = openGuideDb(":memory:");
-      saveDraft(db, { requestId: "direto-1", attempt: 2, writingKey: "escrita:v4", draft: older(), at: new Date() });
-      expect(carriedDraft(db, keys)).toBeUndefined();
-      const carried = carriedDraft(db, { ...keys, earlierKeys: ["escrita:v4"] })!;
-      expect(Object.keys(carried.texts.jobs)).toEqual(["cap-4", "cap-5"]);
+      // A row as the code before v7 wrote it: no writer_version.
+      db.raw
+        .prepare("INSERT INTO drafts (request_id, attempt, writing_key, created_at, round, ok, probe, payload_json, problems_json, repairs_json, internal_errors_json, texts_json, base_key) VALUES ('d', 1, 'escrita:v5-haiku', '2026-11-03', 1, 0, 1, '{}', '[]', '[]', '[]', ?, 'base:antiga')")
+        .run(JSON.stringify({ frame: null, jobs: { "cap-4": job } }));
+      expect(carriedDraft(db, { ...keys, earlierBaseKeys: ["base:antiga"], earlierKeys: ["escrita:v5-haiku"] })).toBeUndefined();
+    });
+
+    it("o rascunho da mesma chave continua sendo retomado, com a versão gravada", () => {
+      const db = openGuideDb(":memory:");
+      saveDraft(db, { requestId: "a", attempt: 1, writingKey: "escrita:nova", baseKey: "base:x", draft: older(), at: new Date() });
+      expect(resumableDraft(db, "escrita:nova")).toMatchObject({ requestId: "a", writerVersion: WRITER_CACHE_VERSION });
     });
   });
 });

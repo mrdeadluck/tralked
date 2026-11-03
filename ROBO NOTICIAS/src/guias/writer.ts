@@ -8,7 +8,7 @@ import { CHECK_DUE, CHECKER_RIGHT, checkScopes, FRAME_SCOPE, jobSteps, type Chec
 import { chronologyProblems } from "./chronology.js";
 import { DEFAULT_CHECK_EFFORT, DEFAULT_MODEL_CHECK, type GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
-import { deterministicProblems, dossierTexts, knownNames } from "./copy-check.js";
+import { deterministicProblems, dossierTexts, knownNames, sourceSites } from "./copy-check.js";
 import { steamOnlyApiNames, type DossierAchievement, type GuideDossier, type GuideDossierSource } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
 import type { PsnWriteScope } from "./scope.js";
@@ -221,7 +221,7 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
       `- Capítulos do detonado: ${ficha.chapters}; regiões: ${ficha.regions}`,
       `- Horas até o Tralked: ${ficha.hours ? `${ficha.hours.min} a ${ficha.hours.max}` : "sem dado (não cite horas)"}`,
       `- Zeradas mínimas: ${f.playthroughs ? `${f.playthroughs.value.min} (${body(f.playthroughs.value.note)})` : "sem dado"}`,
-      `- Dificuldade segundo as fontes (escala delas): ${f.difficulty ? `${f.difficulty.value.value} (${body(f.difficulty.value.note)})` : "sem dado"}`,
+      `- Dificuldade no dossiê (escala de origem, só como pista): ${f.difficulty ? `${f.difficulty.value.value} (${body(f.difficulty.value.note)})` : "sem dado"}`,
       `- Compatibilidade: ${f.compat}`,
       `- Mais raras na Steam: ${rarest.map((a) => `${a.apiName} ${pct(a.globalPct)}`).join(", ") || "sem dado"}`,
     ].join("\n"),
@@ -244,7 +244,7 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
       }),
     ].join("\n"),
     ["## Conquistas da Steam", ...dossier.achievements.map((a) => achievementLine(a))].join("\n"),
-    dossier.divergences.length > 0 ? ["## Divergências entre as fontes", ...dossier.divergences.map((d) => `- ${body(d)}`)].join("\n") : "",
+    dossier.divergences.length > 0 ? ["## Divergências (não cite ao leitor: escreva a instrução mais segura, só com o dossiê)", ...dossier.divergences.map((d) => `- ${body(d)}`)].join("\n") : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -375,7 +375,7 @@ function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource
     missables
       ? [
           "## Avisos de perdível que a página mostra",
-          'Antes de cada passo com perdível, a página mostra sozinha uma caixa "⚠ Perdível no próximo passo: <nomes>. Pegue agora: depois não dá para voltar. Prazo: <prazo do capítulo>." e marca o item com a etiqueta "PERDÍVEL · PEGUE AGORA". Não escreva aviso que só repete "pegue X agora": explique o risco uma vez, como causa e consequência ("se você derrotar X com a missão aberta, ela falha e você perde a conquista Y nesta jogada"), no `local` do item, ou num único `aviso` do passo quando o risco vale para vários itens dele. No primeiro passo do capítulo, o sistema põe o aviso das conquistas perdíveis que as fontes ligam a ele. Esses avisos já estão no lugar: não os repita nem os amplie ("começam nesta região", "também começa aqui"). Seu texto diz só o que o dossiê traz sobre cada passo.',
+          'Antes de cada passo com perdível, a página mostra sozinha uma caixa "⚠ Perdível no próximo passo: <nomes>. Pegue agora: depois não dá para voltar. Prazo: <prazo do capítulo>." e marca o item com a etiqueta "PERDÍVEL · PEGUE AGORA". Não escreva aviso que só repete "pegue X agora": explique o risco uma vez, como causa e consequência ("se você derrotar X com a missão aberta, ela falha e você perde a conquista Y nesta jogada"), no `local` do item, ou num único `aviso` do passo quando o risco vale para vários itens dele. No primeiro passo do capítulo, o sistema põe o aviso das conquistas que podem ser perdidas a partir dele. Esses avisos já estão no lugar: não os repita nem os amplie ("começam nesta região", "também começa aqui"). Seu texto diz só o que o dossiê traz sobre cada passo.',
           ...(anchored.length > 0 ? [`No passo ${steps[0]!.key}: "${body(anchorWarning(anchored))}"`] : []),
         ].join("\n")
       : "",
@@ -742,6 +742,8 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     return undefined;
   };
   const placement = new Map<string, string>(); // loose apiName -> step key
+  /** Loose achievements whose text is the placing job's own (its rewrite owns it), not the cleanup job's. */
+  const placedText = new Set<string>();
   // The first job (in reading order) that puts a loose achievement in one of its steps wins, with its text.
   for (const { job, text } of answered) {
     if (job.chapter.cleanup) continue;
@@ -771,7 +773,10 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
         placement.set(apiName, step.key);
         stepsOf.get(step.key)!.push(l);
         const own = text.itens.find((i) => i.key === l.key);
-        if (own) itemText.set(l.key, own);
+        if (own) {
+          itemText.set(l.key, own);
+          placedText.add(l.key);
+        }
       }
     }
   }
@@ -834,12 +839,21 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       nameEn = name.toLowerCase() !== en.toLowerCase() ? plain(en, 80) || undefined : undefined;
     }
     const location = inline(t?.local, ITEM_LOCATION_MAX);
+    // Task 20: a loose achievement's text is the cleanup job's (a chapter that places it may write its own): that
+    // job is asked for it.
+    const owner = placedText.has(s.key) ? stepKey : (cleanupStepOf.get(s.key) ?? stepKey);
     if (!location) {
-      // Task 20: a loose achievement's text is the cleanup job's (a chapter that places it may write its own): that
-      // job is asked for it. No fallback text: the sources' own sentences (location, how-to) would fail the copy check
-      // in another job's scope, and a guide with this repair never goes out anyway.
-      const owner = cleanupStepOf.get(s.key) ?? stepKey;
+      // No fallback text: the sources' own sentences (location, how-to) would fail the copy check in another job's
+      // scope, and a guide with this repair never goes out anyway.
       repairs.push({ scope: scopeOfStep(owner), text: `O item "${name}" (${s.key}) ficou sem texto próprio de local; escreva onde fica e como pegar.` });
+    }
+    // Review 2: a `local` over the site's limit is rewritten, never cut silently (the payload still carries it cut).
+    const fullLength = inline(t?.local, Number.MAX_SAFE_INTEGER).length;
+    if (fullLength > ITEM_LOCATION_MAX) {
+      repairs.push({
+        scope: scopeOfStep(owner),
+        text: `O local do item "${name}" (${s.key}) passou de ${ITEM_LOCATION_MAX} caracteres (${fullLength}); encurte-o sem perder o caminho nem o risco.`,
+      });
     }
     const index = i?.index;
     const total = i?.total;
@@ -1205,6 +1219,8 @@ export async function writeAndCheckGuide(
   const sources = opts.sourceTexts ?? dossierTexts(dossier);
   // Task 23: the proper names the guide must cite never count as copy.
   const names = knownNames(dossier);
+  // Review 2: the sites the dossier read never appear in the guide's text.
+  const sites = sourceSites(dossier);
   // The ficha counts the frame writer was told to cite (the frame message's "## Ficha").
   const ficha = fichaOf(ctx.skel, dossier, game, ctx.scope);
   const checkContext: CheckContext = {
@@ -1236,7 +1252,7 @@ export async function writeAndCheckGuide(
   /** The copy and vocabulary findings, scoped. */
   const textChecks = (written: WrittenGuide): GuideProblem[] => {
     const scopeOf = scoper(written);
-    return deterministicProblems(written.payload, sources, names).map((p) => ({ text: p.text, scope: scopeOf(p.key), kind: p.kind }));
+    return deterministicProblems(written.payload, sources, names, sites).map((p) => ({ text: p.text, scope: scopeOf(p.key), kind: p.kind }));
   };
   const blocking = (written: WrittenGuide): GuideProblem[] => {
     const scopeOf = scoper(written);

@@ -1346,6 +1346,17 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
     expect(deps.lines.some((l) => l.includes("rascunho de uma versão anterior do escritor"))).toBe(true);
   });
 
+  it("voz v2: um rascunho das mesmas entradas escrito antes da v7 não é carregado: a escrita recomeça do zero", async () => {
+    const db = openGuideDb(":memory:");
+    const job = { passos: [], itens: [], depois: null };
+    const texts: SavedTexts = { frame: savedTexts.frame, jobs: { "cap-1": job, "cap-2": job } };
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: failingWriter(scoped(1), texts) }) }));
+    db.raw.prepare("UPDATE drafts SET writing_key = 'escrita:v6', writer_version = 6").run();
+    const writerB = failingWriter(scoped(1));
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writerB }) }));
+    expect((writerB.mock.calls[0]![4] as WriteAndCheckOpts).resume).toBeUndefined();
+  });
+
   it("sonda: escreve só a moldura e N capítulos, salva e imprime os problemas agrupados, não envia nada", async () => {
     const { api, calls } = fakeApi();
     const db = tempDb();

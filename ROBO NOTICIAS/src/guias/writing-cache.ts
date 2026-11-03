@@ -24,6 +24,13 @@ export type CachedWriting = { payload: GuidePayloadV2; internalErrors: string[];
 export const WRITER_CACHE_VERSION = 7;
 
 /**
+ * Voice v2: the oldest writer version whose drafts may be carried to another writing key (drafts.ts `carriedDraft`).
+ * Texts written in the older voice ("confira no jogo", the code's per-step callout) are never a starting point: the
+ * v7 bump is a full rewrite. Raise it with the version when a change must not reuse any earlier text.
+ */
+export const MIN_CARRIED_VERSION = 7;
+
+/**
  * Task 21: the writer versions before drafts kept their base key (`writingBaseKey`), with the sha256 of the style
  * manual (guia-estilo.md) they read, as checked out on Windows (CRLF, where the probe of 2026-11-03 ran) and as the
  * repository stores it (LF). Their drafts are found by the key they were saved under (`earlierDraftKeys`).

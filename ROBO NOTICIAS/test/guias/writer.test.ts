@@ -125,6 +125,18 @@ describe("guia-estilo.md", () => {
     ]) {
       expect(style).toContain(part);
     }
+    // Review 2: the new rules never push invention.
+    for (const phrase of [
+      "nunca invente a ligação",
+      "o marco mais próximo que o dossiê dá",
+      "só com fatos do dossiê",
+      "nunca contradiz os números do sistema",
+      "se não estiver junto à ponte, olhe no baú atrás da cabana",
+      "`nome_pt`",
+    ]) {
+      expect(style).toContain(phrase);
+    }
+    expect(style).not.toContain("que as fontes ligam");
     // Every forbidden phrase is listed in the manual (the deterministic check bans the same list).
     for (const phrase of DOUBT_PHRASES) expect(style).toContain(`"${phrase}"`);
     // The v1 rules that handed the doubt to the reader are gone.
@@ -1358,6 +1370,7 @@ describe("Task 21: os avisos do código nomeiam o que avisam e não são julgado
     expect(weeping.user).toContain("causa e consequência");
     expect(weeping.user).not.toContain("antes de seguir.");
     expect(weeping.user).not.toContain("Avisos de perdível que o sistema põe");
+    expect(weeping.user).not.toContain("que as fontes ligam");
   });
 
   it("revisão: o que o checador achou correto não bloqueia, mas fica no rascunho como nota 'checador-correto'", async () => {
@@ -1604,7 +1617,7 @@ describe("voz v2: frase que passa a dúvida para o leitor faz reescrever a parte
     const retry = of("guide-write-chapter-retry");
     expect(retry).toHaveLength(1);
     expect(retry[0]!.user).toContain('<passo key="crimson-forest-1">');
-    expect(retry[0]!.user).toContain("passa a dúvida para o leitor");
+    expect(retry[0]!.user).toContain('não use a expressão "confira no jogo" no texto do guia');
     expect(result.ok).toBe(true);
     expect(JSON.stringify(result.payload)).not.toMatch(/confira no jogo/i);
   });
@@ -1647,8 +1660,71 @@ describe("voz v2: o checador aponta os defeitos novos", () => {
     expect(system).toContain('"nos arredores de"');
     expect(system).toContain("perdível cuja consequência o texto não explica");
     expect(system).toContain("aviso repetido");
+    expect(system).toContain("qualquer menção a fontes, sites ou guias consultados, ou a revisão");
     expect(system).toContain("PERDÍVEL · PEGUE AGORA");
     // It never asks the text to disclose a single-source or a divergent fact.
     expect(system).not.toMatch(/avise do ponto em dúvida|uma fonte só/);
+  });
+});
+
+describe("voz v2, revisão 2: fala de fontes, sites e revisão no texto do escritor; local longo demais", () => {
+  const FIRST = (prompt: string) => !prompt.includes("## Correções obrigatórias");
+  const crimsonItem = (local: string) =>
+    fakeAi({
+      chapter: (out, prompt) => {
+        if (!FIRST(prompt) || !prompt.includes('<passo key="crimson-forest-1">')) return;
+        out.itens.find((i) => i.key === keysIn(prompt, "item")[0])!.local = local;
+      },
+    });
+
+  it("o nome de uma fonte do dossiê (PowerPyx) e a palavra \"fonte\" no local fazem reescrever o trecho, com mensagem neutra", async () => {
+    const { ai, of } = crimsonItem("Como mostra o PowerPyx, uma fonte cita a arena.");
+    const dossier = makeDossier();
+    dossier.chapters[0]!.items[0]!.sourceLinks.push({ name: "PowerPyx", url: "https://www.powerpyx.com/phantom-test-walkthrough/" });
+    const rounds: DraftRound[] = [];
+    await writeAndCheckGuide(ai, dossier, GAME, "live", { onRound: (r) => rounds.push(r) });
+    expect(rounds[0]!.problems).toEqual([
+      expect.objectContaining({ scope: "crimson-forest-1", kind: "vocabulario", text: expect.stringContaining('não use a expressão "PowerPyx" no texto do guia') }),
+      expect.objectContaining({ scope: "crimson-forest-1", kind: "vocabulario", text: expect.stringContaining('não use a expressão "fonte" no texto do guia') }),
+    ]);
+    expect(of("guide-write-chapter-retry")).toHaveLength(1);
+    expect(rounds.at(-1)!.ok).toBe(true);
+  });
+
+  it("o rótulo de uma chamada da capa também passa pela lista", async () => {
+    let first = true;
+    const { ai } = fakeAi({
+      frame: (out) => {
+        if (first) out.capa.chamadas[0]!.rotulo = "Perdível em revisão";
+        first = false;
+      },
+    });
+    const rounds: DraftRound[] = [];
+    await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { onRound: (r) => rounds.push(r) });
+    expect(rounds[0]!.problems).toContainEqual(expect.objectContaining({ scope: "frame", kind: "vocabulario", text: expect.stringContaining('"em revisão"') }));
+  });
+
+  it("um local acima de 800 caracteres vira reparo (reescrita do trecho), não corte silencioso", async () => {
+    const { ai, of } = crimsonItem(`Desça a escada. ${"Siga a trilha. ".repeat(60)}`);
+    const rounds: DraftRound[] = [];
+    await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { onRound: (r) => rounds.push(r) });
+    expect(rounds[0]!.problems).toContainEqual(
+      expect.objectContaining({ scope: "crimson-forest-1", kind: "reparo", text: expect.stringContaining("passou de 800 caracteres") }),
+    );
+    // What is sent still fits the site.
+    for (const { i } of itemsOf(rounds[0]!.payload)) expect((i.location ?? "").length).toBeLessThanOrEqual(800);
+    expect(of("guide-write-chapter-retry")).toHaveLength(1);
+    expect(rounds.at(-1)!.ok).toBe(true);
+  });
+
+  it("a mensagem da moldura não pede para citar fontes", async () => {
+    const { ai, of } = fakeAi();
+    const dossier = makeDossier();
+    dossier.divergences.push("total 2 numa fonte e 3 em SteamGuide");
+    await writeGuide(ai, dossier, GAME, "live");
+    const frame = of("guide-write-frame")[0]!.user;
+    expect(frame).not.toContain("Divergências entre as fontes");
+    expect(frame).not.toContain("segundo as fontes");
+    expect(frame).toContain("não cite ao leitor");
   });
 });
