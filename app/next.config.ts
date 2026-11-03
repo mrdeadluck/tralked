@@ -8,6 +8,17 @@ const nextConfig: NextConfig = {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },
   cacheComponents: true,
+  /*
+   * `feed`: public lists whose writes already invalidate their tags (news, forum, gallery,
+   * highscores, player headers: publishing, posting, moderation and the daily snapshot call
+   * revalidateTag/updateTag). Time only refreshes what no write marks: view counts, "há 5 min",
+   * XP rankings. 15 min instead of the built-in `minutes` (1 min) cut background re-renders of the
+   * home, the news and the forum sections up to 15 times, and the 1-day expiry (instead of 1 h)
+   * keeps long-tail pages (old articles, game forum sections) cached between crawler visits.
+   */
+  cacheLife: {
+    feed: { stale: 300, revalidate: 900, expire: 86_400 },
+  },
   partialPrefetching: false,
   // No preload `Link` headers from React: Next replays a prerendered route's headers on its
   // prefetch responses too, so every page prefetching "/" (the logo) or a game page downloaded that

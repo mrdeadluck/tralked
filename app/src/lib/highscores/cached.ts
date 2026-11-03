@@ -6,12 +6,12 @@ import { getBoardView, TOP_SIZE, type BoardView } from "./queries";
 export const HIGHSCORES_TAG = "highscores";
 
 /**
- * The public top of one board with its rank arrows, cached for a few minutes: rankings move with
+ * The public top of one board with its rank arrows, cached for 15 min (`feed`): rankings move with
  * every sync, so a short life keeps them fresh without a query per visit. Keyed by `boardKey`.
  */
 export async function getBoardCached(key: string): Promise<BoardView> {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(HIGHSCORES_TAG);
   const board = boardFromKey(key);
   if (!board) return { key, rows: [], snapshotDay: null };

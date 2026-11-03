@@ -44,7 +44,7 @@ const LATEST_SHOWN = 10;
  */
 async function homeNews() {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(NEWS_TAG);
 
   const [{ hero, latest }, ranking, press] = await Promise.all([
@@ -68,7 +68,7 @@ async function homeNews() {
 /** The headline and the latest news. */
 async function NewsSection() {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(NEWS_TAG);
 
   const { hero, latest, press } = await homeNews();
@@ -100,7 +100,7 @@ async function NewsSection() {
 /** "Em circulação": only the press's headlines, since the newsroom's stories are already above. */
 async function WireSection() {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(NEWS_TAG);
 
   const items = buildWireItems([], await getWireHeadlines(10), new Date());
@@ -135,7 +135,7 @@ async function ReleasesSection() {
 /** "Mais lidas" across the page, under the news it does not repeat. */
 async function MostReadSection() {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(NEWS_TAG);
 
   const { mostRead, mostReadTitle } = await homeNews();
@@ -146,7 +146,7 @@ async function MostReadSection() {
 
 async function RankingSection() {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
 
   return <CommunityRanking players={await getTopPlayers(5)} />;
 }

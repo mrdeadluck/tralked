@@ -39,7 +39,7 @@ const DATE_FORMAT = new Intl.DateTimeFormat("pt-BR", {
 
 async function loadArticle(slug: string): Promise<ArticleFull | null> {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(NEWS_TAG, articleTag(slug));
   return getArticle(slug);
 }
@@ -50,7 +50,7 @@ async function loadArticle(slug: string): Promise<ArticleFull | null> {
  */
 async function loadArticleEnd(id: string, publishedAtIso: string) {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(NEWS_TAG);
   const [next, ranking] = await Promise.all([
     getNextArticle({ id, publishedAt: new Date(publishedAtIso) }),

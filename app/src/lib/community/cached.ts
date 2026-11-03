@@ -22,7 +22,7 @@ export const threadTag = (id: string) => `thread:${id}`;
 
 export async function listPhotosCached(gameSlug: string | null, page: number) {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(GALLERY_TAG);
   return listPhotos({ gameSlug, page });
 }
@@ -59,7 +59,7 @@ export async function getPhotoCached(id: string) {
 
 export async function forumIndexCached() {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(FORUM_TAG);
   const [categories, games, recent] = await Promise.all([
     listCategories(),
@@ -78,7 +78,7 @@ export async function findSectionCached(segment: string): Promise<ForumSection |
 
 export async function listSectionThreadsCached(section: ForumSection, page: number) {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(FORUM_TAG);
   return listSectionThreads(section, page);
 }

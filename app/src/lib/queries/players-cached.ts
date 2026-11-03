@@ -11,7 +11,7 @@ export const playerTag = (handle: string) => `player:${handle.toLowerCase()}`;
  */
 export async function getPlayerHeaderCached(handle: string) {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(playerTag(handle));
   return getPlayerHeader(handle);
 }

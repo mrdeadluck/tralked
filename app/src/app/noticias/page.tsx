@@ -36,7 +36,7 @@ const PAGE_SIZE = 20;
 /** The page's single headline: the newest article, cached. */
 async function loadHeadline() {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(NEWS_TAG);
   const [article] = await getLatestArticles(1);
   if (!article) return null;
@@ -49,7 +49,7 @@ async function loadHeadline() {
  */
 async function FrontSection() {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(NEWS_TAG);
 
   const [headline, external] = await Promise.all([loadHeadline(), getWireHeadlines(10)]);
@@ -75,7 +75,7 @@ async function FrontSection() {
 
 async function loadIndex(category: ArticleCategory | null, page: number) {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(NEWS_TAG);
   const index = await getNewsIndex({ category, page, pageSize: PAGE_SIZE });
   const now = new Date();
@@ -90,7 +90,7 @@ async function loadIndex(category: ArticleCategory | null, page: number) {
 /** Latest press headlines of an area for its archive filter (Plan 4 F7), cached. */
 async function loadPress(area: PressArea) {
   "use cache";
-  cacheLife("minutes");
+  cacheLife("feed");
   cacheTag(NEWS_TAG);
   const now = new Date();
   return (await getAreaHeadlines(area, 10)).map((h) => headlineStory(h, now));
