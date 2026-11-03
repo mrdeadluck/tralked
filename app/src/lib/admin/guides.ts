@@ -3,6 +3,7 @@ import { Prisma } from "@/generated/prisma/client";
 import {
   collectiblesData,
   noteData,
+  assignEdition,
   normalizeVersion,
   saveGuideVersion,
   stepData,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/content/guide-schema";
 import { contentBlocksSchema, parseStoredBlocks, plainText, type ContentBlock } from "@/lib/content/schema";
 import { prisma } from "@/lib/db";
+import { describePending, parseReport, reportSummary, type GuideReport } from "./guide-report";
 
 /**
  * Newsroom side of guides: list, review queue, creating a draft guide for a game without one,
@@ -156,6 +158,7 @@ export async function saveGuide(
           data: { guideId: guide.id, version, summary: input.changeSummary, authorId: editorId, createdAt: now },
         });
       }
+      if (publishing) await assignEdition(tx, guide.id);
       const saved = await tx.guideStep.findMany({ where: { guideId: guide.id }, orderBy: { order: "asc" }, select: { id: true } });
       return { revision: await saveGuideVersion(tx, guide.id, editorId), stepIds: saved.map((s) => s.id) };
     },
@@ -235,6 +238,7 @@ export async function setGuideStatus(
       where: { id: input.id },
       data: { status: input.status, ...(publishing ? { publishedAt: now } : {}) },
     });
+    if (publishing) await assignEdition(tx, input.id);
     await saveGuideVersion(tx, input.id, editorId);
   });
   return { ok: true, gameSlug: guide.game.slug };
@@ -253,6 +257,8 @@ export type AdminGuideRow = {
   version: string;
   revisions: number;
   updatedAt: Date;
+  /** One line of the robot's report (sources read, divergences, coverage), for bot guides. */
+  reportLine: string | null;
 };
 
 const rowSelect = {
@@ -261,6 +267,7 @@ const rowSelect = {
   source: true,
   version: true,
   updatedAt: true,
+  report: true,
   game: { select: { name: true, slug: true } },
   author: { select: { handle: true } },
   botKey: { select: { name: true } },
@@ -278,6 +285,7 @@ const toRow = (g: Prisma.GuideGetPayload<{ select: typeof rowSelect }>): AdminGu
   version: g.version,
   revisions: g._count.versions,
   updatedAt: g.updatedAt,
+  reportLine: reportSummary(parseReport(g.report)),
 });
 
 export async function listAdminGuides(filter: { status?: GuideStatus | null; q?: string | null }) {
@@ -303,6 +311,33 @@ export async function guidesInReview(): Promise<AdminGuideRow[]> {
   });
   return rows.map(toRow).sort((a, b) => Number(b.source === "bot") - Number(a.source === "bot"));
 }
+
+export type PendingGuideUpdateRow = { id: string; guideId: string; gameName: string; createdAt: Date; botKeyName: string | null; changes: string[] };
+
+/** Updates of published guides waiting for an editor (the review queue), oldest first. */
+export async function pendingGuideUpdates(): Promise<PendingGuideUpdateRow[]> {
+  const rows = await prisma.guidePendingUpdate.findMany({
+    orderBy: { createdAt: "asc" },
+    take: 100,
+    select: {
+      id: true,
+      payload: true,
+      createdAt: true,
+      botKey: { select: { name: true } },
+      guide: { select: { id: true, walkthrough: true, game: { select: { name: true } } } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    guideId: r.guide.id,
+    gameName: r.guide.game.name,
+    createdAt: r.createdAt,
+    botKeyName: r.botKey?.name ?? null,
+    changes: describePending(r.guide.walkthrough, r.payload),
+  }));
+}
+
+export const pendingUpdateSchema = z.strictObject({ id: ID });
 
 export type GuideStepForEdit = { id: string; title: string; hours: string; body: ContentBlock[]; achievements: string[] };
 
@@ -334,6 +369,11 @@ export type GuideForEdit = {
   /** Achievements of the game (every platform), for the step and note fields. */
   achievementNames: { apiName: string; name: string; platform: string }[];
   versions: { version: number; createdAt: Date; author: string | null }[];
+  format: number;
+  /** The robot's report, when the guide came with one. */
+  report: GuideReport | null;
+  /** Updates of this (published) guide waiting for an editor, oldest first. */
+  pending: { id: string; createdAt: Date; botKeyName: string | null; changes: string[] }[];
 };
 
 /** Plain text of a step written before blocks existed, as paragraphs (split on blank lines). */
@@ -360,6 +400,7 @@ export async function getGuideForEdit(guideId: string): Promise<GuideForEdit | n
       steps: { orderBy: { order: "asc" } },
       botKey: { select: { name: true } },
       versions: { orderBy: { version: "desc" }, take: 10, select: { version: true, createdAt: true, author: { select: { handle: true } } } },
+      pending: { orderBy: { createdAt: "asc" }, select: { id: true, payload: true, createdAt: true, botKey: { select: { name: true } } } },
     },
   });
   if (!g) return null;
@@ -411,5 +452,13 @@ export async function getGuideForEdit(guideId: string): Promise<GuideForEdit | n
     sources,
     achievementNames: g.game.achievements,
     versions: g.versions.map((v) => ({ version: v.version, createdAt: v.createdAt, author: v.author?.handle ?? null })),
+    format: g.format,
+    report: parseReport(g.report),
+    pending: g.pending.map((p) => ({
+      id: p.id,
+      createdAt: p.createdAt,
+      botKeyName: p.botKey?.name ?? null,
+      changes: describePending(g.walkthrough, p.payload),
+    })),
   };
 }

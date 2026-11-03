@@ -11,6 +11,8 @@ import { slugSchema } from "@/lib/content/guide-schema";
 const MIN_PLAYTIME_SAMPLE = 3;
 const RAREST_COUNT = 5;
 const DOSSIER_ACHIEVEMENT_CAP = 500;
+/** With `all` the robot needs every achievement (its completeness gate), so the cap is far higher. */
+const DOSSIER_ALL_CAP = 5000;
 
 /**
  * Distinct users with a library row for the game (one user can own it on several platforms),
@@ -102,12 +104,24 @@ export type GameDossier = {
     achievementCount: number;
   };
   tralked: { players: number; avgPlaytimeMin: number | null; completedPlayers: number };
-  /** Every visible achievement, rarest first, unknown rarity last (at most 500). */
-  achievements: { platform: string; apiName: string; name: string; description: string | null; globalPct: number | null }[];
+  /**
+   * Every visible achievement, rarest first, unknown rarity last (at most 500). With `all`, the
+   * hidden ones too, flagged, with the PT-BR name and description (at most 5000).
+   */
+  achievements: {
+    platform: string;
+    apiName: string;
+    name: string;
+    description: string | null;
+    globalPct: number | null;
+    hidden?: boolean;
+    namePt?: string | null;
+    descriptionPt?: string | null;
+  }[];
 };
 
 /** Full dossier of the game for evergreen pieces, or null when the slug is malformed or unknown. */
-export async function gameDossier(slug: string): Promise<GameDossier | null> {
+export async function gameDossier(slug: string, { all = false }: { all?: boolean } = {}): Promise<GameDossier | null> {
   const parsed = slugSchema.safeParse(slug);
   if (!parsed.success) return null;
   const game = await prisma.game.findUnique({
@@ -134,10 +148,17 @@ export async function gameDossier(slug: string): Promise<GameDossier | null> {
     playerStats(game.id),
     prisma.user.count({ where: { games: { some: { gameId: game.id, completedAt: { not: null } } } } }),
     prisma.achievement.findMany({
-      where: { gameId: game.id, hidden: false },
+      where: { gameId: game.id, ...(all ? {} : { hidden: false }) },
       orderBy: [{ globalPct: { sort: "asc", nulls: "last" } }, { name: "asc" }, { apiName: "asc" }],
-      take: DOSSIER_ACHIEVEMENT_CAP,
-      select: { platform: true, apiName: true, name: true, description: true, globalPct: true },
+      take: all ? DOSSIER_ALL_CAP : DOSSIER_ACHIEVEMENT_CAP,
+      select: {
+        platform: true,
+        apiName: true,
+        name: true,
+        description: true,
+        globalPct: true,
+        ...(all ? { hidden: true, namePt: true, descriptionPt: true } : {}),
+      },
     }),
   ]);
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { guidePatchSchema, guidePayloadSchema } from "@/lib/content/guide-schema";
+import { EXAMPLE_GUIDE, EXAMPLE_GUIDE_V2 } from "./examples";
 import { articlePatchSchema, articlePayloadSchema } from "./article-schema";
 import { ERROR_STATUS } from "./errors";
 import { API_SCOPES } from "./keys";
@@ -175,9 +176,21 @@ export function openApiDocument(): JsonSchema {
         post: {
           tags: ["Guias"],
           summary: "Criar o guia de um jogo",
-          description: "Escopo guides:write (publicar direto: publish). Um guia por jogo.",
+          description:
+            "Escopo guides:write (publicar direto: publish). Um guia por jogo. format 1 = guia clássico; format 2 = roteiro do robô (walkthrough), que exige key em toda etapa, cobertura de todas as conquistas Steam e facts.missables igual aos itens perdíveis do tipo achievement.",
           parameters: [idempotencyParam],
-          requestBody: { required: true, content: json(ref("GuidePayload")) },
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: ref("GuidePayload"),
+                examples: {
+                  formato1: { summary: "Guia clássico (format 1)", value: EXAMPLE_GUIDE },
+                  formato2: { summary: "Roteiro do robô (format 2)", value: EXAMPLE_GUIDE_V2 },
+                },
+              },
+            },
+          },
           responses: {
             "201": { description: "Guia criado (versão 1).", headers: writeHeaders, content: json(ref("WriteResult")) },
             ...writeErrors,
@@ -203,6 +216,10 @@ export function openApiDocument(): JsonSchema {
           requestBody: { required: true, content: json(ref("GuidePatch")) },
           responses: {
             "200": { description: "Guia atualizado.", content: json(ref("WriteResult")) },
+            "202": {
+              description: "O guia já está publicado e a chave não tem publish: a atualização espera um editor e o guia no ar não muda.",
+              content: json(ref("PendingResult")),
+            },
             "404": errorResponse("Não existe ou foi criado por outra chave."),
             ...writeErrors,
           },
@@ -295,6 +312,15 @@ export function openApiDocument(): JsonSchema {
             status: { type: "string", enum: ["draft", "review", "published", "archived"] },
             url: { type: "string", format: "uri" },
             revision: { type: "integer", description: "Só guias: número da versão salva." },
+          },
+        },
+        PendingResult: {
+          type: "object",
+          required: ["id", "status", "pendingId"],
+          properties: {
+            id: { type: "string" },
+            status: { type: "string", enum: ["pending_review"] },
+            pendingId: { type: "string" },
           },
         },
         ArticleStatus: {

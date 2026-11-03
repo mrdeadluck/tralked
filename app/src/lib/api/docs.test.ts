@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { guidePayloadSchema } from "@/lib/content/guide-schema";
 import { CALLOUT_TONES, contentBlockSchema } from "@/lib/content/schema";
 import { articlePayloadSchema } from "./article-schema";
-import { EXAMPLE_ARTICLE, EXAMPLE_GUIDE } from "./examples";
+import { EXAMPLE_ARTICLE, EXAMPLE_GUIDE, EXAMPLE_GUIDE_V2 } from "./examples";
 import { articleJsonSchema, guideJsonSchema, openApiDocument } from "./openapi";
 
 const ROBOS_MD = fileURLToPath(new URL("../../../../docs/robos.md", import.meta.url));
@@ -31,9 +31,13 @@ describe("documented examples", () => {
     expect(guidePayloadSchema.safeParse(EXAMPLE_GUIDE).success).toBe(true);
     expect(Object.keys(EXAMPLE_GUIDE).sort()).toEqual(
       Object.keys(guidePayloadSchema.shape)
-        .filter((k) => !["status", "format", "walkthrough"].includes(k))
+        .filter((k) => !["status", "format", "walkthrough", "report"].includes(k))
         .sort(),
     );
+  });
+
+  it("the format-2 guide example validates", () => {
+    expect(guidePayloadSchema.safeParse(EXAMPLE_GUIDE_V2).success).toBe(true);
   });
 
   it("docs/robos.md carries the same payloads", () => {

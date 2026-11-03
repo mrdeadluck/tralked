@@ -194,6 +194,9 @@ function checkWalkthrough(
   });
 }
 
+/** The robot's report (sources read, divergences, completeness): stored as sent, shown to staff only. */
+const guideReportSchema = z.record(z.string(), z.unknown());
+
 export const guidePayloadSchema = z
   .strictObject({
     game: gameRefSchema,
@@ -201,6 +204,7 @@ export const guidePayloadSchema = z
     /** 1 = classic guide (steps + notes); 2 = walkthrough (the guide robot). */
     format: guideFormatSchema.default(1),
     walkthrough: walkthroughSchema.optional(),
+    report: guideReportSchema.optional(),
     overview: guideFields.overview.default([]),
     warnings: guideFields.warnings.default([]),
     body: guideFields.body.optional(),
@@ -215,7 +219,7 @@ export const guidePayloadSchema = z
   });
 
 export const guidePatchSchema = z
-  .strictObject({ ...guideFields, format: guideFormatSchema, walkthrough: walkthroughSchema })
+  .strictObject({ ...guideFields, format: guideFormatSchema, walkthrough: walkthroughSchema, report: guideReportSchema })
   .partial()
   .superRefine((patch, ctx) => {
     if (Object.keys(patch).length === 0) {

@@ -1,0 +1,425 @@
+{
+  "cover": {
+    "calls": [
+      {
+        "value": "5/10",
+        "label": "Dificuldade"
+      },
+      {
+        "value": "30–40 h",
+        "label": "Tempo até o Tralked"
+      },
+      {
+        "value": "66",
+        "label": "Conquistas"
+      }
+    ],
+    "sealHours": "30–40 h",
+    "headline": "O caminho até o Tralked",
+    "deck": "Todos os coletáveis e as 66 conquistas da Steam, na ordem em que você passa por eles."
+  },
+  "extraFacts": {
+    "buggedCount": 0,
+    "hardest": {
+      "apiName": "ACH_TRUE_ENDING"
+    },
+    "playthroughsNote": "NG+ existe, mas é opcional, só para limpeza.",
+    "difficultyNote": "4/10 no Fácil, 6/10 no Normal. Nenhuma conquista pede dificuldade."
+  },
+  "compat": "steam_only",
+  "readFirst": [
+    {
+      "title": "Saves manuais",
+      "text": "Faça um save manual **no começo e no fim de cada região**. Se perder uma missão, você volta sem refazer o jogo.",
+      "tone": "aviso",
+      "spoiler": false
+    },
+    {
+      "title": "Final verdadeiro",
+      "text": "Antes de entrar na **região 9**, conclua **todas as missões com ícone roxo** no Diário.",
+      "tone": "aviso",
+      "spoiler": true
+    },
+    {
+      "title": "A região 1 tem prazo",
+      "text": "Quatro missões do Posto Avançado falham depois do **chefe principal da Crimson Forest** (região 2), e uma depois de **Jing Ye**. Faça tudo antes de seguir.",
+      "tone": "aviso",
+      "spoiler": false
+    },
+    {
+      "title": "Pode voltar depois",
+      "text": "Depois do chefe final, você volta ao mundo livre para pegar coletáveis que faltaram. Missões perdidas não voltam.",
+      "tone": "info",
+      "spoiler": false
+    }
+  ],
+  "chapters": [
+    {
+      "key": "regiao-1-weeping-creek",
+      "phaseKey": "ate-mirage-estate",
+      "title": "Weeping Creek Valley",
+      "region": "Região 1 de 9",
+      "hours": "3 a 4 h",
+      "deadline": "Antes do chefe principal da Crimson Forest",
+      "steps": [
+        {
+          "key": "r1-1",
+          "body": [
+            {
+              "type": "paragraph",
+              "text": "O primeiro sino, **The Beginning**, vem com a história. Siga até o andaime e desça a escada da direita para chegar ao sino **The Lady's Rift**."
+            }
+          ],
+          "items": [
+            {
+              "key": "sino-lady-rift",
+              "kind": "collectible",
+              "name": "Sino · The Lady's Rift",
+              "missable": false,
+              "returnLater": false,
+              "spoiler": false,
+              "countsFor": [],
+              "alsoOn": [],
+              "sources": [
+                {
+                  "name": "PowerPyx",
+                  "url": "https://www.powerpyx.com/"
+                },
+                {
+                  "name": "Grindnstrat",
+                  "url": "https://grindnstrat.com/"
+                }
+              ],
+              "review": false,
+              "collectibleType": "sino",
+              "index": 2,
+              "total": 22
+            }
+          ]
+        },
+        {
+          "key": "r1-2",
+          "body": [
+            {
+              "type": "paragraph",
+              "text": "Ao lado do sino tem uma estátua. Interaja para aceitar a missão **Triple Threat**, mas **não tente terminar agora**: o chefe é forte demais para o começo do jogo."
+            }
+          ],
+          "items": [
+            {
+              "key": "missao-triple-threat",
+              "kind": "mission",
+              "name": "Missão · Triple Threat",
+              "missable": false,
+              "returnLater": true,
+              "spoiler": false,
+              "countsFor": [],
+              "alsoOn": [],
+              "sources": [
+                {
+                  "name": "PowerPyx",
+                  "url": "https://www.powerpyx.com/"
+                }
+              ],
+              "review": false,
+              "location": "O detonado avisa quando você estiver forte o bastante."
+            }
+          ]
+        },
+        {
+          "key": "r1-3",
+          "body": [
+            {
+              "type": "paragraph",
+              "text": "Do sino The Lady's Rift, suba a escada e atravesse a corrente. O inimigo que espera do outro lado deixa cair um acessório."
+            }
+          ],
+          "items": [
+            {
+              "key": "acessorio-hunters-insight",
+              "kind": "collectible",
+              "name": "Acessório · Hunter's Insight",
+              "missable": false,
+              "returnLater": true,
+              "spoiler": false,
+              "countsFor": [
+                "ACH_ACCESSORY_COLLECTOR"
+              ],
+              "alsoOn": [],
+              "sources": [
+                {
+                  "name": "PowerPyx",
+                  "url": "https://www.powerpyx.com/"
+                },
+                {
+                  "name": "Grindnstrat",
+                  "url": "https://grindnstrat.com/"
+                }
+              ],
+              "review": false,
+              "nameEn": "Hunter's Insight",
+              "collectibleType": "acessório",
+              "index": 1,
+              "total": 30,
+              "location": "Conta para \"Anotações de Colecionador\" (30 acessórios).",
+              "image": {
+                "url": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4115450/1cd52ca84a3d974c4206e9cb90231956324c5999/library_hero.jpg",
+                "credit": "Steam",
+                "sourceName": "Steam",
+                "sourceUrl": "https://store.steampowered.com/app/4115450/"
+              }
+            }
+          ]
+        },
+        {
+          "key": "r1-4",
+          "body": [
+            {
+              "type": "paragraph",
+              "text": "Fale com **Yu'er**: a missão **Flesh Lily** começa sozinha. Ela é a primeira das três que formam a conquista abaixo. Logo depois de Yu'er, na base da cachoeira, examine a rocha com a arma."
+            }
+          ],
+          "items": [
+            {
+              "key": "conquista-legado-curandeira",
+              "kind": "achievement",
+              "name": "Legado da Curandeira",
+              "missable": true,
+              "returnLater": false,
+              "spoiler": false,
+              "countsFor": [],
+              "alsoOn": [],
+              "sources": [
+                {
+                  "name": "Steam (descrição oficial)",
+                  "url": "https://store.steampowered.com/app/4115450/"
+                },
+                {
+                  "name": "PowerPyx",
+                  "url": "https://www.powerpyx.com/"
+                }
+              ],
+              "review": false,
+              "nameEn": "Healer's Legacy",
+              "achievement": "ACH_HEALER_LEGACY",
+              "location": "Conclua [Lírio Carnal], [Curandeira Aprendiz] e [Misericórdia da Cura]. Começa aqui e termina mais tarde."
+            },
+            {
+              "key": "arma-sanguine-twin",
+              "kind": "other",
+              "name": "Arma · Sanguine Twin",
+              "missable": false,
+              "returnLater": true,
+              "spoiler": false,
+              "countsFor": [],
+              "alsoOn": [],
+              "sources": [
+                {
+                  "name": "PowerPyx",
+                  "url": "https://www.powerpyx.com/"
+                },
+                {
+                  "name": "Grindnstrat",
+                  "url": "https://grindnstrat.com/"
+                }
+              ],
+              "review": false
+            }
+          ]
+        },
+        {
+          "key": "r1-5",
+          "body": [
+            {
+              "type": "paragraph",
+              "text": "Suba a escada ao lado da cachoeira (sino **First Meeting with Yu'er**) e atravesse a ponte. Dois guerreiros mascarados estão lutando: derrube **o da espada grande**."
+            }
+          ],
+          "items": [
+            {
+              "key": "acessorio-battle-wraps",
+              "kind": "collectible",
+              "name": "Acessório · Battle Wraps",
+              "missable": false,
+              "returnLater": true,
+              "spoiler": false,
+              "countsFor": [
+                "ACH_ACCESSORY_COLLECTOR"
+              ],
+              "alsoOn": [],
+              "sources": [
+                {
+                  "name": "PowerPyx",
+                  "url": "https://www.powerpyx.com/"
+                },
+                {
+                  "name": "Grindnstrat",
+                  "url": "https://grindnstrat.com/"
+                }
+              ],
+              "review": false,
+              "collectibleType": "acessório",
+              "index": 2,
+              "total": 30
+            }
+          ]
+        },
+        {
+          "key": "r1-6",
+          "body": [
+            {
+              "type": "paragraph",
+              "text": "Para abrir a **barreira de fio vermelho**, derrote o inimigo que a protege. O baú ao lado dele guarda o primeiro fragmento de âmbar."
+            }
+          ],
+          "items": [
+            {
+              "key": "fragmento-ambar-1",
+              "kind": "collectible",
+              "name": "Fragmento de Âmbar de Sha-Chi 1/4 da região",
+              "missable": false,
+              "returnLater": true,
+              "spoiler": false,
+              "countsFor": [
+                "ACH_TOTAL_DOMINION"
+              ],
+              "alsoOn": [],
+              "sources": [
+                {
+                  "name": "PowerPyx",
+                  "url": "https://www.powerpyx.com/"
+                },
+                {
+                  "name": "Grindnstrat",
+                  "url": "https://grindnstrat.com/"
+                }
+              ],
+              "review": true,
+              "collectibleType": "fragmento de âmbar",
+              "index": 1,
+              "total": 4,
+              "location": "Ligado a \"Domínio Total\" (10 Âmbares de Sha-Chi). Em revisão: as fontes falam em fragmentos e a conquista em âmbares."
+            }
+          ]
+        },
+        {
+          "key": "r1-7",
+          "body": [
+            {
+              "type": "paragraph",
+              "text": "Chegando ao **Posto Avançado**, pare. Esta é a parte mais importante da região."
+            },
+            {
+              "type": "callout",
+              "tone": "aviso",
+              "text": "**Perdíveis do Posto Avançado.** Faça tudo isto **antes de vencer o chefe principal da Crimson Forest** (a próxima região)."
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                "**Purge the Sect**: fale com o arqueiro velho no telhado do Posto.",
+                "**Festering Secrets**: começa sozinha quando você se aproxima dos guardas, depois de falar com o ferreiro.",
+                "**Feather Bow**: leve o arco quebrado ao mesmo arqueiro.",
+                "**Converse com o homem atrás das caixas**, no prédio à direita do arqueiro, até ele falar de um túmulo perto dos estábulos."
+              ]
+            }
+          ],
+          "items": [
+            {
+              "key": "acessorio-boulderguard",
+              "kind": "collectible",
+              "name": "Acessório · Boulderguard",
+              "missable": true,
+              "returnLater": false,
+              "spoiler": false,
+              "countsFor": [],
+              "alsoOn": [],
+              "sources": [
+                {
+                  "name": "PowerPyx",
+                  "url": "https://www.powerpyx.com/"
+                }
+              ],
+              "review": true,
+              "collectibleType": "acessório",
+              "location": "Depois da conversa acima, interaja com o túmulo no fim da passarela, saindo do sino The Axemaster's Holding Cell."
+            }
+          ]
+        },
+        {
+          "key": "r1-8",
+          "body": [
+            {
+              "type": "paragraph",
+              "text": "Do sino do Posto, siga reto e suba a escada até um pátio: um corpo ali carrega a **Chave da Cela**. Volte ao portão do Posto, desça a rampa até uma caverna pequena e abra a grade com a chave."
+            }
+          ],
+          "items": [
+            {
+              "key": "fragmento-pedra-negra-1",
+              "kind": "collectible",
+              "name": "Fragmento de Pedra Negra 1/4 da região",
+              "missable": false,
+              "returnLater": true,
+              "spoiler": false,
+              "countsFor": [
+                "ACH_EVERY_STONE"
+              ],
+              "alsoOn": [],
+              "sources": [
+                {
+                  "name": "PowerPyx",
+                  "url": "https://www.powerpyx.com/"
+                },
+                {
+                  "name": "Grindnstrat",
+                  "url": "https://grindnstrat.com/"
+                }
+              ],
+              "review": false,
+              "collectibleType": "fragmento de pedra negra",
+              "index": 1,
+              "total": 4,
+              "location": "Ligado a \"Revire Cada Pedra\" (10 Pedras Negras), que só 3,3% dos jogadores têm na Steam."
+            }
+          ]
+        },
+        {
+          "key": "r1-9",
+          "body": [
+            {
+              "type": "paragraph",
+              "text": "Do primeiro andar da torre de Sha-Chi, contorne a torre pela direita, escorregue pela ponte de madeira no buraco e siga a trilha à esquerda até o fim. Ali você enfrenta **Hua, a Noiva Mortal**."
+            }
+          ],
+          "items": [
+            {
+              "key": "boss-hua-noiva-mortal",
+              "kind": "boss",
+              "name": "Chefe opcional · Hua, a Noiva Mortal",
+              "missable": false,
+              "returnLater": false,
+              "spoiler": true,
+              "countsFor": [],
+              "alsoOn": [],
+              "sources": [
+                {
+                  "name": "PowerPyx",
+                  "url": "https://www.powerpyx.com/"
+                },
+                {
+                  "name": "Grindnstrat",
+                  "url": "https://grindnstrat.com/"
+                }
+              ],
+              "review": false,
+              "achievement": "ACH_SCARLET_SPECTRAL_BLADE",
+              "location": "Conquista oculta \"Lâmina Espectral Escarlate\". A vitória também dá a arma."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

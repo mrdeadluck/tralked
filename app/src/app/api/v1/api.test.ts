@@ -775,14 +775,14 @@ describe("guides", () => {
     expect(snapshot).toMatchObject({ steps: [{ key: "novo" }, { key: "um" }] });
   });
 
-  it("PATCH of a published guide needs the publish scope", async () => {
+  it("PATCH of a published guide without publish waits for an editor (202, guide untouched)", async () => {
     await prisma.guide.update({ where: { id: guideId }, data: { status: "published" } });
     const response = await guideById.PATCH(
       call("PATCH", `/api/v1/guides/${guideId}`, { key: keys.guides, body: { warnings: [] } }),
       params(guideId),
     );
-    expect(response.status).toBe(409);
-    expect((await json(response)).error?.code).toBe("published_locked");
+    expect(response.status).toBe(202);
+    expect(await json(response)).toMatchObject({ id: guideId, status: "pending_review", pendingId: expect.any(String) });
   });
 });
 

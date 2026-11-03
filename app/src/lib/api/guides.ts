@@ -8,9 +8,11 @@ import {
   type GuidePatch,
   type GuideStepPayload,
 } from "@/lib/content/guide-schema";
+import { walkAchievementRefs, walkItemKeys, walkthroughSchema, type Walkthrough } from "@/lib/content/walkthrough-schema";
 import { prisma } from "@/lib/db";
 import { gameTag } from "@/lib/queries/games-cached";
 import { toPointer, type ApiIssue } from "./errors";
+import { queuePendingUpdate } from "./guide-pending";
 import { findGame, guideUrl } from "./games";
 import type { ApiKeyRecord } from "./keys";
 import { parseBody } from "./parse";
@@ -121,7 +123,7 @@ async function snapshot(tx: Tx, guideId: string): Promise<Prisma.InputJsonValue>
   });
   const achievementById = new Map(achievements.map((a) => [a.id, a]));
   return {
-    format: 1,
+    format: guide.format,
     game: game.slug,
     status: guide.status,
     version: guide.version,
@@ -155,6 +157,7 @@ async function snapshot(tx: Tx, guideId: string): Promise<Prisma.InputJsonValue>
     })),
     collectibles: guide.collectibles,
     sources: guide.sources,
+    ...(guide.format === 2 ? { walkthrough: guide.walkthrough, compat: guide.compat, edition: guide.edition } : {}),
   } as Prisma.InputJsonValue;
 }
 
@@ -173,6 +176,78 @@ export async function saveGuideVersion(tx: Tx, guideId: string, authorId: string
 
 const saveVersion = (tx: Tx, guideId: string) => saveGuideVersion(tx, guideId);
 
+const MISSING_LIST_CAP = 20;
+
+/**
+ * Format 2 rules that need the catalog (422 with the exact path): every reference is a Steam
+ * achievement of the game, every Steam achievement (hidden ones included) is covered by some
+ * item, every chapter points at a roadmap step, and facts.missables counts the missable
+ * achievement items. `stepKeys` / `missables` come from the payload or, for a partial PATCH,
+ * from the stored guide.
+ */
+async function walkthroughIssues(
+  gameId: string,
+  walkthrough: Walkthrough,
+  stepKeys: (string | undefined)[],
+  missables: number,
+): Promise<ApiIssue[]> {
+  const issues: ApiIssue[] = [];
+  const steam = await prisma.achievement.findMany({ where: { gameId, platform: "steam" }, select: { apiName: true } });
+  const known = new Set(steam.map((a) => a.apiName));
+  for (const ref of walkAchievementRefs(walkthrough)) {
+    if (!known.has(ref.apiName)) {
+      issues.push({ path: `/walkthrough${ref.path}`, message: `Conquista Steam "${ref.apiName}" não existe neste jogo` });
+    }
+  }
+  const covered = new Set<string>();
+  let missableCount = 0;
+  for (const chapter of walkthrough.chapters) {
+    for (const step of chapter.steps) {
+      for (const item of step.items) {
+        if (item.achievement) covered.add(item.achievement);
+        if (item.missable && item.kind === "achievement") missableCount++;
+      }
+    }
+  }
+  const missing = [...known].filter((apiName) => !covered.has(apiName)).sort();
+  if (missing.length > 0) {
+    const shown = missing.slice(0, MISSING_LIST_CAP).join(", ");
+    const more = missing.length > MISSING_LIST_CAP ? ` e mais ${missing.length - MISSING_LIST_CAP}` : "";
+    issues.push({
+      path: "/walkthrough",
+      message: `Faltam ${missing.length} conquistas Steam (ocultas incluídas) em algum item.achievement: ${shown}${more}`,
+    });
+  }
+  const keys = new Set(stepKeys);
+  walkthrough.chapters.forEach((chapter, i) => {
+    if (!keys.has(chapter.phaseKey)) {
+      issues.push({ path: `/walkthrough/chapters/${i}/phaseKey`, message: `phaseKey sem etapa com essa key: ${chapter.phaseKey}` });
+    }
+  });
+  if (missables !== missableCount) {
+    issues.push({
+      path: "/facts/missables",
+      message: `facts.missables é ${missables}, mas o walkthrough tem ${missableCount} itens perdíveis do tipo achievement`,
+    });
+  }
+  return issues;
+}
+
+/** Format 2 roadmap steps must carry a key (chapters point at them). */
+const keylessStepIssues = (steps: { key?: string }[]): ApiIssue[] =>
+  steps.flatMap((step, i) => (step.key === undefined ? [{ path: `/steps/${i}/key`, message: "Guia formato 2 exige key em todas as fases" }] : []));
+
+/**
+ * Gives a format-2 guide its edition number (max + 1) on its first publication. Runs inside the
+ * transaction that moves the guide to published; a guide that has an edition keeps it.
+ */
+export async function assignEdition(tx: Tx, guideId: string): Promise<void> {
+  const guide = await tx.guide.findUniqueOrThrow({ where: { id: guideId }, select: { format: true, edition: true } });
+  if (guide.format !== 2 || guide.edition !== null) return;
+  const top = await tx.guide.aggregate({ _max: { edition: true } });
+  await tx.guide.update({ where: { id: guideId }, data: { edition: (top._max.edition ?? 0) + 1 } });
+}
+
 export async function createGuide(ctx: WriteContext): Promise<WriteSuccess | WriteFailure> {
   const parsed = parseBody(guidePayloadSchema, ctx.body);
   if (!parsed.ok) return parsed;
@@ -190,7 +265,11 @@ export async function createGuide(ctx: WriteContext): Promise<WriteSuccess | Wri
   if (existing) return guideExists(existing.id);
 
   const { noteIds, issues } = await resolveAchievements(game.id, payload.steps, payload.achievementNotes);
-  if (issues.length > 0) return fail("validation_failed", "Há conquistas que não existem neste jogo.", issues);
+  if (payload.format === 2 && payload.walkthrough) {
+    // Step keys: the schema already checked every chapter's phaseKey against them.
+    issues.push(...(await walkthroughIssues(game.id, payload.walkthrough, payload.steps.map((s) => s.key), payload.facts.missables)));
+  }
+  if (issues.length > 0) return fail("validation_failed", "O guia não passou na validação.", issues);
 
   try {
     return await prisma.$transaction(async (tx) => {
@@ -198,6 +277,10 @@ export async function createGuide(ctx: WriteContext): Promise<WriteSuccess | Wri
         data: {
           gameId: game.id,
           status,
+          format: payload.format,
+          walkthrough: payload.walkthrough ? (payload.walkthrough as Prisma.InputJsonValue) : undefined,
+          compat: payload.walkthrough?.compat,
+          report: payload.report ? (payload.report as Prisma.InputJsonValue) : undefined,
           version: normalizeVersion(payload.version ?? "v1.0"),
           difficulty: payload.facts.difficulty,
           hoursMin: payload.facts.hoursMin,
@@ -222,6 +305,7 @@ export async function createGuide(ctx: WriteContext): Promise<WriteSuccess | Wri
       await tx.guideAchievementNote.createMany({
         data: payload.achievementNotes.map((note, i) => ({ guideId: guide.id, ...noteData(note, noteIds[i]) })),
       });
+      if (status === "published") await assignEdition(tx, guide.id);
       const revision = await saveVersion(tx, guide.id);
       const success: WriteSuccess = {
         ok: true,
@@ -262,6 +346,9 @@ function ownGuide(key: ApiKeyRecord, id: string) {
       createdAt: true,
       updatedAt: true,
       gameId: true,
+      format: true,
+      walkthrough: true,
+      missables: true,
       game: { select: { slug: true, name: true } },
       _count: { select: { steps: true } },
     },
@@ -345,6 +432,99 @@ async function planBotSteps(
   };
 }
 
+type PatchTarget = { id: string; status: string; format: number; walkthrough: Prisma.JsonValue; missables: number; gameId: string };
+
+/**
+ * Validates a patch against the stored guide and the game's achievements: the classic rules plus,
+ * for format 2, the walkthrough rules. A walkthrough-only patch is checked against the STORED
+ * step keys, and a steps-only patch against the stored walkthrough.
+ */
+export async function patchIssues(
+  guide: PatchTarget,
+  patch: GuidePatch,
+): Promise<{ noteIds: string[]; issues: ApiIssue[] }> {
+  const { noteIds, issues } = await resolveAchievements(guide.gameId, patch.steps, patch.achievementNotes);
+  const format = patch.format ?? guide.format;
+  if (guide.format === 2 && format === 1) {
+    issues.push({ path: "/format", message: "Um guia formato 2 não volta para o formato 1" });
+  }
+  if (format === 2 && (patch.walkthrough || patch.steps || patch.facts)) {
+    let walkthrough: Walkthrough | undefined = patch.walkthrough;
+    if (!walkthrough) {
+      const stored = walkthroughSchema.safeParse(guide.walkthrough);
+      walkthrough = stored.success ? stored.data : undefined;
+    }
+    if (patch.steps) issues.push(...keylessStepIssues(patch.steps));
+    if (walkthrough) {
+      const stepKeys = patch.steps
+        ? patch.steps.map((s) => s.key)
+        : (await prisma.guideStep.findMany({ where: { guideId: guide.id }, select: { key: true } })).map((s) => s.key ?? undefined);
+      issues.push(...(await walkthroughIssues(guide.gameId, walkthrough, stepKeys, patch.facts?.missables ?? guide.missables)));
+    }
+  }
+  return { noteIds, issues };
+}
+
+/**
+ * Writes a validated patch to a guide inside `tx` and saves the next GuideVersion. Shared by the
+ * direct update and by approving a pending update. Returns a failure (nothing written) when the
+ * steps do not match the stored ones.
+ */
+export async function applyGuidePatch(
+  tx: Tx,
+  guide: { id: string; status: string },
+  patch: GuidePatch,
+  noteIds: string[],
+  options: { status: string; authorId: string | null },
+): Promise<{ ok: true; revision: number } | WriteFailure> {
+  const id = guide.id;
+  const publishing = options.status === "published" && guide.status !== "published";
+  let stepPlan: StepWrite[] | null = null;
+  if (patch.steps) {
+    // Planned before any write: a refusal leaves the guide untouched.
+    const planned = await planBotSteps(tx, id, patch.steps);
+    if (!planned.ok) return fail("validation_failed", "As etapas não batem com as do guia.", [planned.issue], id);
+    stepPlan = planned.plan;
+  }
+  await tx.guide.update({
+    where: { id },
+    data: {
+      status: options.status,
+      version: patch.version === undefined ? undefined : normalizeVersion(patch.version),
+      ...(patch.facts ?? {}),
+      overview: patch.overview,
+      warnings: patch.warnings,
+      collectibles: patch.collectibles ? collectiblesData(patch.collectibles) : undefined,
+      sources: patch.sources,
+      format: patch.format,
+      walkthrough: patch.walkthrough ? (patch.walkthrough as Prisma.InputJsonValue) : undefined,
+      compat: patch.walkthrough?.compat,
+      report: patch.report ? (patch.report as Prisma.InputJsonValue) : undefined,
+      blocks:
+        patch.body === undefined
+          ? undefined
+          : patch.body.length > 0
+            ? (patch.body as Prisma.InputJsonValue)
+            : Prisma.DbNull,
+      ...(publishing ? { publishedAt: new Date() } : {}),
+    },
+  });
+  if (stepPlan) await writeSteps(tx, id, stepPlan);
+  if (patch.achievementNotes) {
+    const notes = patch.achievementNotes;
+    await tx.guideAchievementNote.deleteMany({ where: { guideId: id } });
+    await tx.guideAchievementNote.createMany({
+      data: notes.map((note, i) => ({ guideId: id, ...noteData(note, noteIds[i]) })),
+    });
+  }
+  if (patch.walkthrough) {
+    // Readers' ticks hang on item keys: an item that is gone loses only its own tick.
+    await tx.guideItemProgress.deleteMany({ where: { guideId: id, itemKey: { notIn: walkItemKeys(patch.walkthrough) } } });
+  }
+  if (publishing) await assignEdition(tx, id);
+  return { ok: true, revision: await saveGuideVersion(tx, id, options.authorId) };
+}
+
 export async function updateGuide(ctx: WriteContext, id: string): Promise<WriteSuccess | WriteFailure> {
   const guide = await ownGuide(ctx.key, id);
   if (!guide) return fail("not_found", "Guia não encontrado para esta chave.");
@@ -353,63 +533,37 @@ export async function updateGuide(ctx: WriteContext, id: string): Promise<WriteS
   if (!parsed.ok) return { ...parsed, resultId: id };
   const patch = parsed.data;
 
-  if (guide.status === "published" && !canPublish(ctx.key)) {
-    return fail(
-      "published_locked",
-      "O guia já foi publicado pela redação; só chaves com o escopo publish podem alterá-lo.",
-      [],
-      id,
-    );
-  }
-  if (patch.status === "published" && !canPublish(ctx.key)) return publishForbidden(id);
+  // A published guide only changes when an editor approves: without publish the patch waits.
+  const pending = guide.status === "published" && !canPublish(ctx.key);
+  if (!pending && patch.status === "published" && !canPublish(ctx.key)) return publishForbidden(id);
 
-  const { noteIds, issues } = await resolveAchievements(guide.gameId, patch.steps, patch.achievementNotes);
-  if (issues.length > 0) return fail("validation_failed", "Há conquistas que não existem neste jogo.", issues, id);
-
-  const status = patch.status ?? guide.status;
-  const publishing = status === "published" && guide.status !== "published";
+  const { noteIds, issues } = await patchIssues(guide, patch);
+  if (issues.length > 0) return fail("validation_failed", "O guia não passou na validação.", issues, id);
 
   try {
-    return await prisma.$transaction(async (tx): Promise<WriteSuccess | WriteFailure> => {
-      let stepPlan: StepWrite[] | null = null;
-      if (patch.steps) {
-        // Planned before any write: a refusal leaves the guide untouched.
-        const planned = await planBotSteps(tx, id, patch.steps);
-        if (!planned.ok) return fail("validation_failed", "As etapas não batem com as do guia.", [planned.issue], id);
-        stepPlan = planned.plan;
-      }
-      await tx.guide.update({
-        where: { id },
-        data: {
-          status,
-          version: patch.version === undefined ? undefined : normalizeVersion(patch.version),
-          ...(patch.facts ?? {}),
-          overview: patch.overview,
-          warnings: patch.warnings,
-          collectibles: patch.collectibles ? collectiblesData(patch.collectibles) : undefined,
-          sources: patch.sources,
-          blocks:
-            patch.body === undefined
-              ? undefined
-              : patch.body.length > 0
-                ? (patch.body as Prisma.InputJsonValue)
-                : Prisma.DbNull,
-          ...(publishing ? { publishedAt: new Date() } : {}),
-        },
+    if (pending) {
+      return await prisma.$transaction(async (tx): Promise<WriteSuccess | WriteFailure> => {
+        const { pendingId } = await queuePendingUpdate(tx, id, ctx.key.id, ctx.body as Prisma.InputJsonValue);
+        const success: WriteSuccess = {
+          ok: true,
+          httpStatus: 202,
+          body: { id, status: "pending_review", pendingId },
+          resultId: id,
+          logStatus: "updated",
+        };
+        await ctx.record(tx, success);
+        return success;
       });
-      if (stepPlan) await writeSteps(tx, id, stepPlan);
-      if (patch.achievementNotes) {
-        const notes = patch.achievementNotes;
-        await tx.guideAchievementNote.deleteMany({ where: { guideId: id } });
-        await tx.guideAchievementNote.createMany({
-          data: notes.map((note, i) => ({ guideId: id, ...noteData(note, noteIds[i]) })),
-        });
-      }
-      const revision = await saveVersion(tx, id);
+    }
+
+    const status = patch.status ?? guide.status;
+    return await prisma.$transaction(async (tx): Promise<WriteSuccess | WriteFailure> => {
+      const written = await applyGuidePatch(tx, guide, patch, noteIds, { status, authorId: null });
+      if (!written.ok) return written;
       const success: WriteSuccess = {
         ok: true,
         httpStatus: 200,
-        body: { id, status, url: guideUrl(guide.game.slug), revision },
+        body: { id, status, url: guideUrl(guide.game.slug), revision: written.revision },
         resultId: id,
         logStatus: "updated",
         after:
