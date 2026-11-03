@@ -48,10 +48,15 @@ export async function loadSteamPlayers(gameId: string, now: Date = new Date()): 
   return steamPlayersView(row, now);
 }
 
-/** Cached apart from the game profile (hours): the worker writes every hour, nothing revalidates it. */
+/**
+ * Cached apart from the game profile (hours): the worker writes every hour, nothing revalidates it.
+ * Expires after a day, not 2 h: the shortest expiry inside a page is the page's, and 2 h made every
+ * game page a full re-render (80–290 ms of CPU) for crawlers walking the catalog's long tail. A
+ * page idle for hours shows the older count once while the new one renders.
+ */
 export async function getSteamPlayers(gameId: string): Promise<SteamPlayersView | null> {
   "use cache";
-  cacheLife({ stale: 300, revalidate: 900, expire: 7_200 });
+  cacheLife({ stale: 300, revalidate: 900, expire: 86_400 });
   cacheTag(`steam-players:${gameId}`);
   return loadSteamPlayers(gameId);
 }
