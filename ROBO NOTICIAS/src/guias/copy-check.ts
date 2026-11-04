@@ -225,15 +225,41 @@ const REVIS_GAME = /^(revisit|revist)/;
 /** "confira no jogo", "verifique no jogo", "confere no jogo"... */
 const CHECK_IN_GAME = /^(confir|verifi|confer)/;
 
+/** The word sequences of the known names (`knownNames`), one-word names included, computed once per list. */
+const nameWordsCache = new WeakMap<readonly string[], string[][]>();
+function nameWords(names: readonly string[]): string[][] {
+  let out = nameWordsCache.get(names);
+  if (!out) {
+    const seen = new Map<string, string[]>();
+    for (const n of names) {
+      const w = words(n);
+      if (w.length > 0) seen.set(w.join(" "), w);
+    }
+    nameWordsCache.set(names, (out = [...seen.values()]));
+  }
+  return out;
+}
+
+/** Options of the ban check: the known names to mask, and the fountain sense of "fonte" (the dossier names one). */
+export type BanOpts = { names?: readonly string[]; fountain?: boolean };
+
 /**
  * Review 2: the expressions in `text` that hand the doubt to the reader or talk about sources: the `DOUBT_PHRASES`
  * (list order), then, by position, any other "fonte"/"fontes" (not the game sense), "revis…" (not a revisit),
  * "confir… / verifi… / confer… no jogo" and the names of the sites the run read (`sites`, lowercase: `sourceSites`).
  * As written in the text (lowercase), without repeats; whole words, case and accents ignored.
+ * Final review: the words of a known name (`names`: an achievement, item or place the guide must cite, "Fonte da
+ * Juventude") never count; with `fountain` (the dossier itself names a fountain for this part), "fonte"/"fontes" and
+ * "as fontes" are the game sense.
  */
-export function bannedExpressions(text: string, sites: readonly string[] = []): string[] {
+export function bannedExpressions(text: string, sites: readonly string[] = [], opts: BanOpts = {}): string[] {
   const t = tokens(text);
   const used = t.map(() => false);
+  for (const name of opts.names ? nameWords(opts.names) : []) {
+    for (let i = 0; i + name.length <= t.length; i++) {
+      if (name.every((w, k) => t[i + k]!.norm === w)) for (let k = 0; k < name.length; k++) used[i + k] = true;
+    }
+  }
   /** "fonte termal", "fontes termais", "fonte de água / luz / energia / poder": the game sense. */
   const gameFonte = (i: number) => {
     const next = t[i + 1]?.norm;
@@ -242,6 +268,7 @@ export function bannedExpressions(text: string, sites: readonly string[] = []): 
   };
   const found = new Set<string>();
   for (const d of DOUBT_WORDS) {
+    if (opts.fountain && d.phrase === "as fontes") continue;
     for (let i = 0; i + d.words.length <= t.length; i++) {
       if (d.words.every((w, k) => t[i + k]!.norm === w && !used[i + k] && !(w.startsWith("fonte") && gameFonte(i + k)))) {
         found.add(d.phrase);
@@ -256,7 +283,7 @@ export function bannedExpressions(text: string, sites: readonly string[] = []): 
     const w = t[i]!.norm;
     const next = t[i + 1]?.norm;
     if (w === "fonte" || w === "fontes") {
-      if (!gameFonte(i)) extra.push(t[i]!.raw.toLowerCase());
+      if (!opts.fountain && !gameFonte(i)) extra.push(t[i]!.raw.toLowerCase());
     } else if (w.startsWith("revis") && !REVIS_GAME.test(w)) {
       extra.push(t[i]!.raw.toLowerCase());
     } else if (CHECK_IN_GAME.test(w) && next === "no" && t[i + 2]?.norm === "jogo") {
@@ -299,8 +326,20 @@ export function sourceSites(dossier: Pick<GuideDossier, "chapters" | "achievemen
     const label = labels[Math.max(0, at)];
     if (label) out.add(label);
   }
-  return [...out].filter((s) => s.length >= 4 && !s.startsWith("steam") && !STOPWORDS.has(s) && !/^\d+$/.test(s));
+  return [...out].filter((s) => s.length >= 4 && !s.startsWith("steam") && !STOPWORDS.has(s) && !GENERIC_HOSTS.has(s) && !/^\d+$/.test(s));
 }
+
+/**
+ * Final review: host labels that are platforms, hosting sites or common words ("games", "wiki", "guia"): never a
+ * banned site name, only the distinctive ones are (powerpyx, fextralife, allthings...).
+ */
+const GENERIC_HOSTS = new Set([
+  "game", "games", "gaming", "gamer", "gamers", "jogo", "jogos", "wiki", "wikis", "fandom", "youtube", "youtu", "twitch",
+  "playstation", "xbox", "nintendo", "reddit", "google", "facebook", "twitter", "discord", "blog", "blogs", "news",
+  "noticias", "forum", "forums", "guide", "guides", "guia", "guias", "trophy", "trophies", "trofeu", "trofeus",
+  "achievement", "achievements", "conquista", "conquistas", "store", "loja", "play", "online", "world", "mundo", "site",
+  "home", "help", "info", "official", "oficial", "walkthrough", "detonado", "fonte", "fontes", "revisao", "dicas",
+]);
 
 /**
  * Reader-facing texts the model may write that `guideProse` leaves out (it skips names on purpose): the cover's call
@@ -318,29 +357,82 @@ function shownNames(p: GuidePayloadV2): { where: string; key: string | null; tex
 }
 
 /**
+ * Final review: every text the reader sees, one by one (a chapter's title and deadline apart), with where it is and its
+ * walkthrough key: what the ban check reads. A code-owned text among them (`codeTexts`) is left to `bannedInCode`.
+ */
+function readerTexts(p: GuidePayloadV2): { where: string; key: string | null; text: string }[] {
+  const w = p.walkthrough;
+  return [
+    { where: "a capa", key: null, text: w.cover.headline },
+    { where: "a capa", key: null, text: w.cover.deck },
+    { where: "a ficha", key: null, text: w.extraFacts.playthroughsNote },
+    { where: "a ficha", key: null, text: w.extraFacts.difficultyNote },
+    ...(p.overview ?? []).map((text) => ({ where: "a visão geral", key: null, text })),
+    ...w.readFirst.flatMap((r) => [
+      { where: `o "leia antes" "${r.title}"`, key: null, text: r.title },
+      { where: `o "leia antes" "${r.title}"`, key: null, text: r.text },
+    ]),
+    ...p.steps.flatMap((s) => s.body.map((b) => ({ where: `a etapa ${s.key ?? s.title}`, key: null, text: blockText(b) }))),
+    ...w.chapters.flatMap((c) => [
+      { where: `o capítulo ${c.key}`, key: null, text: c.title },
+      { where: `o capítulo ${c.key}`, key: null, text: c.deadline ?? "" },
+      ...c.steps.flatMap((s) => [
+        ...s.body.map((b) => ({ where: `o passo ${s.key}`, key: s.key, text: blockText(b) })),
+        ...s.items.map((i) => ({ where: `o item ${i.key}`, key: i.key, text: i.location ?? "" })),
+      ]),
+    ]),
+    ...shownNames(p),
+  ].filter((x) => x.text.trim().length > 0);
+}
+
+/** Options of the deterministic checks besides the copy check's (final review). */
+export type DeterministicOpts = {
+  /** Texts the code wrote (its warnings, notes and fallbacks): never a writer problem (`bannedInCode`). */
+  codeTexts?: ReadonlySet<string>;
+  /** Walkthrough keys (items and steps) whose dossier facts name a fountain: "fonte" there is the game sense. */
+  fountainKeys?: ReadonlySet<string>;
+};
+
+/**
  * Copy (9+ equal words), vocabulary ("platina") and banned-expression problems (`bannedExpressions`, with the run's
- * `sites`), in Portuguese, one per finding, with their key (the writer's scope of the part that rewrites it).
+ * `sites` and the known `names` masked; kind "expressao"), in Portuguese, one per finding, with their key (the writer's
+ * scope of the part that rewrites it). The code's own texts are never the writer's problem (`codeTexts`).
  */
 export function deterministicProblems(
   p: GuidePayloadV2,
   sources: readonly string[],
   names: readonly string[] = [],
   sites: readonly string[] = [],
-): { text: string; key: string | null; kind: "copia" | "vocabulario" }[] {
-  const problems: { text: string; key: string | null; kind: "copia" | "vocabulario" }[] = [];
-  // Review 2: a neutral message (it repeats neither the doubt nor the source talk to the writer).
-  const doubt = (where: string, key: string | null, text: string) => {
-    for (const expression of bannedExpressions(text, sites)) {
-      problems.push({ key, kind: "vocabulario", text: `Em ${where}, não use a expressão "${expression}" no texto do guia.` });
-    }
-  };
+  opts: DeterministicOpts = {},
+): { text: string; key: string | null; kind: "copia" | "vocabulario" | "expressao" }[] {
+  const problems: { text: string; key: string | null; kind: "copia" | "vocabulario" | "expressao" }[] = [];
   for (const { where, key, text } of guideProse(p)) {
     for (const run of copiedRuns(text, sources, 9, names)) {
       problems.push({ key, kind: "copia", text: `Trecho copiado de uma fonte em ${where}: "${run}". Reescreva com palavras próprias (no máximo 8 palavras seguidas iguais).` });
     }
     if (/platin/i.test(text)) problems.push({ key, kind: "vocabulario", text: `Em ${where}, use "Tralked" no lugar de "platina".` });
-    doubt(where, key, text);
   }
-  for (const { where, key, text } of shownNames(p)) doubt(where, key, text);
+  // Review 2: a neutral message (it repeats neither the doubt nor the source talk to the writer).
+  for (const { where, key, text } of readerTexts(p)) {
+    if (opts.codeTexts?.has(text)) continue;
+    const fountain = key !== null && Boolean(opts.fountainKeys?.has(key));
+    for (const expression of bannedExpressions(text, sites, { names, fountain })) {
+      problems.push({ key, kind: "expressao", text: `Em ${where}, não use a expressão "${expression}" no texto do guia.` });
+    }
+  }
   return problems;
+}
+
+/**
+ * Final review: a banned expression in a text the code wrote (an anchor warning, an R39 note, a deadline or name from
+ * the dossier, a fallback) is a robot bug, not the writer's: an internal error each, never a rewrite.
+ */
+export function bannedInCode(codeTexts: Iterable<string>, sites: readonly string[] = [], names: readonly string[] = []): string[] {
+  const out: string[] = [];
+  for (const text of new Set(codeTexts)) {
+    for (const expression of bannedExpressions(text, sites, { names })) {
+      out.push(`texto do código com expressão proibida "${expression}": "${text.length > 120 ? `${text.slice(0, 119)}…` : text}"`);
+    }
+  }
+  return out;
 }

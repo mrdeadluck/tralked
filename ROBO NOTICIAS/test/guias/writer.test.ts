@@ -1612,7 +1612,7 @@ describe("voz v2: frase que passa a dúvida para o leitor faz reescrever a parte
     });
     const rounds: DraftRound[] = [];
     const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { onRound: (r) => rounds.push(r) });
-    expect(rounds[0]!.problems.filter((p) => p.kind === "vocabulario")).toEqual([
+    expect(rounds[0]!.problems.filter((p) => p.kind === "expressao")).toEqual([
       expect.objectContaining({ scope: "crimson-forest-1", text: expect.stringContaining('"confira no jogo"') }),
       expect.objectContaining({ scope: "crimson-forest-1", text: expect.stringContaining('"só uma fonte"') }),
     ]);
@@ -1634,7 +1634,7 @@ describe("voz v2: frase que passa a dúvida para o leitor faz reescrever a parte
     });
     const rounds: DraftRound[] = [];
     await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { onRound: (r) => rounds.push(r) });
-    expect(rounds[0]!.problems).toContainEqual(expect.objectContaining({ scope: "frame", kind: "vocabulario", text: expect.stringContaining('"segundo as fontes"') }));
+    expect(rounds[0]!.problems).toContainEqual(expect.objectContaining({ scope: "frame", kind: "expressao", text: expect.stringContaining('"segundo as fontes"') }));
     expect(of("guide-write-frame-retry")).toHaveLength(1);
     expect(rounds.at(-1)!.ok).toBe(true);
   });
@@ -1648,7 +1648,7 @@ describe("voz v2: frase que passa a dúvida para o leitor faz reescrever a parte
     });
     const rounds: DraftRound[] = [];
     await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { onRound: (r) => rounds.push(r) });
-    expect(rounds[0]!.problems).toEqual([expect.objectContaining({ scope: "weeping-creek-1", kind: "vocabulario", text: expect.stringContaining('"em revisão"') })]);
+    expect(rounds[0]!.problems).toEqual([expect.objectContaining({ scope: "weeping-creek-1", kind: "expressao", text: expect.stringContaining('"em revisão"') })]);
     expect(rounds.at(-1)!.problems).toEqual([]);
   });
 });
@@ -1686,8 +1686,8 @@ describe("voz v2, revisão 2: fala de fontes, sites e revisão no texto do escri
     const rounds: DraftRound[] = [];
     await writeAndCheckGuide(ai, dossier, GAME, "live", { onRound: (r) => rounds.push(r) });
     expect(rounds[0]!.problems).toEqual([
-      expect.objectContaining({ scope: "crimson-forest-1", kind: "vocabulario", text: expect.stringContaining('não use a expressão "PowerPyx" no texto do guia') }),
-      expect.objectContaining({ scope: "crimson-forest-1", kind: "vocabulario", text: expect.stringContaining('não use a expressão "fonte" no texto do guia') }),
+      expect.objectContaining({ scope: "crimson-forest-1", kind: "expressao", text: expect.stringContaining('não use a expressão "PowerPyx" no texto do guia') }),
+      expect.objectContaining({ scope: "crimson-forest-1", kind: "expressao", text: expect.stringContaining('não use a expressão "fonte" no texto do guia') }),
     ]);
     expect(of("guide-write-chapter-retry")).toHaveLength(1);
     expect(rounds.at(-1)!.ok).toBe(true);
@@ -1703,7 +1703,7 @@ describe("voz v2, revisão 2: fala de fontes, sites e revisão no texto do escri
     });
     const rounds: DraftRound[] = [];
     await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { onRound: (r) => rounds.push(r) });
-    expect(rounds[0]!.problems).toContainEqual(expect.objectContaining({ scope: "frame", kind: "vocabulario", text: expect.stringContaining('"em revisão"') }));
+    expect(rounds[0]!.problems).toContainEqual(expect.objectContaining({ scope: "frame", kind: "expressao", text: expect.stringContaining('"em revisão"') }));
   });
 
   it("um local acima de 800 caracteres vira reparo (reescrita do trecho), não corte silencioso", async () => {
@@ -1800,5 +1800,61 @@ describe("Task 5: trechos das fontes no escritor e no checador", () => {
     expect(style).toContain("nunca cite os trechos");
     // §12: the excerpts are research material too.
     expect(style).toContain("os trechos das fontes");
+  });
+});
+
+describe("revisão final: a lista de expressões proibidas não cobra do escritor o que ele não escreveu", () => {
+  const FIRST = (prompt: string) => !prompt.includes("## Correções obrigatórias");
+
+  it("um nome conhecido do dossiê com palavra proibida (\"Fonte dos Sinos\") não é problema", async () => {
+    const dossier = makeDossier();
+    dossier.achievements.find((a) => a.apiName === "ACH_BELLS")!.namePt = "Fonte dos Sinos";
+    const { ai } = fakeAi({
+      chapter: (out, prompt) => {
+        if (!FIRST(prompt) || !prompt.includes('<passo key="weeping-creek-1">')) return;
+        out.itens.find((i) => i.key === keysIn(prompt, "item")[0])!.local = "Toque o sino e ganhe Fonte dos Sinos.";
+      },
+    });
+    const rounds: DraftRound[] = [];
+    await writeAndCheckGuide(ai, dossier, GAME, "live", { onRound: (r) => rounds.push(r) });
+    expect(rounds[0]!.problems).toEqual([]);
+  });
+
+  it("onde o dossiê cita uma fonte d'água, \"fonte\" no texto do item passa; em outro item, não", async () => {
+    const dossier = makeDossier();
+    dossier.chapters[0]!.items.find((i) => i.name === "Old Lantern")!.location = "Shrine behind the fountain";
+    const { ai } = fakeAi({
+      chapter: (out, prompt) => {
+        if (!FIRST(prompt)) return;
+        for (const key of keysIn(prompt, "item")) {
+          const it = out.itens.find((i) => i.key === key)!;
+          if (key === "weeping-creek-old-lantern") it.local = "Atrás da fonte do santuário.";
+          if (key.startsWith("ashen-peak")) it.local = "Uma fonte cita o cume.";
+        }
+      },
+    });
+    const rounds: DraftRound[] = [];
+    await writeAndCheckGuide(ai, dossier, GAME, "live", { onRound: (r) => rounds.push(r) });
+    expect(rounds[0]!.problems.map((p) => [p.scope, p.kind])).toEqual([["ashen-peak-1", "expressao"]]);
+  });
+
+  it("uma expressão proibida num texto do código (nota R39) vira erro interno, nunca problema do escritor", async () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_ENDING")!, {
+      collect: {
+        target: 10,
+        counted: 9.5,
+        from: "texto",
+        exact: false,
+        conflictingTotals: [],
+        withoutLocation: [],
+        indexProblems: [],
+        shortfallAccepted: { located: 38, stated: 40, missing: 2, label: "Fontes Antigas", source: "PowerPyx" },
+      },
+    });
+    const result = await writeAndCheckGuide(fakeAi().ai, dossier, GAME, "live");
+    expect(result.ok).toBe(true);
+    expect(result.draft!.problems).toEqual([]);
+    expect(result.internalErrors).toEqual([expect.stringContaining('texto do código com expressão proibida "fontes"')]);
   });
 });

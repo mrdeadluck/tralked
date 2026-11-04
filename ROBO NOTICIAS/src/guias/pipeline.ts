@@ -118,7 +118,7 @@ export type GuidePipelineDeps = {
    * the problems, and stop (nothing sent, no images, no soundtrack). `updatePsn` (`--atualizar-psn`, Task 25 review):
    * an update may go out by the PSN list (otherwise an update whose Steam gate fails stops before writing).
    * `acceptPending` (`--aceitar-pendencias N`, R44): a guide left with at most N problems after the rewrite, all of
-   * them the LLM checker's, still goes out (review / pending as always), its parts marked for review and the problems
+   * them the LLM checker's or the ban check's (kind `expressao`), still goes out (review / pending as always), its parts marked for review and the problems
    * listed in the report.
    */
   direct?: { appId: number; update: boolean; updatePsn?: boolean; acceptPending?: number; probe?: { chapters: number } };
@@ -628,7 +628,8 @@ async function processRequest(run: Run): Promise<Final> {
   }
   const internalErrors = written.internalErrors ?? [];
   if (internalErrors.length > 0) deps.log(`guia: erro interno do escritor (ordem do código): ${internalErrors.join(" | ")}`);
-  // R44: with --aceitar-pendencias N, at most N leftovers, all of the LLM checker's, go out with the guide for review.
+  // R44: with --aceitar-pendencias N, at most N leftovers, all of the LLM checker's (final review: or of the ban check),
+  // go out with the guide for review.
   const leftovers = written.ok ? [] : (written.draft?.problems ?? []);
   const accept = deps.direct?.acceptPending;
   if (
@@ -636,7 +637,7 @@ async function processRequest(run: Run): Promise<Final> {
     accept !== undefined &&
     leftovers.length > 0 &&
     leftovers.length <= accept &&
-    leftovers.every((p) => p.kind === "checador") &&
+    leftovers.every((p) => p.kind === "checador" || p.kind === "expressao") &&
     (written.draft?.pending.length ?? 0) === 0
   ) {
     markForReview(written.payload, leftovers, writeJobs(skeleton));
