@@ -1,10 +1,11 @@
 import type { GuideCompat } from "@/lib/content/walkthrough-schema";
 
 /*
- * Platform seal of a walkthrough. The Steam list is the master list: "APENAS STEAM" (amber) when
- * the other platforms' lists differ, with both sizes when the robot report has them; otherwise
- * which other lists it also covers (lime). A guide written from the PSN list (scope psn, R22)
- * shows PsnListSeal instead (PSN blue), with how many Steam achievements are left without a route.
+ * Platform seal of a walkthrough. The Steam list is the master list. When the PlayStation list
+ * differs and the robot report has its size, the guide reads as Steam or PlayStation (versions.tsx):
+ * "STEAM E PLAYSTATION" with both sizes (lime). Without that size: "APENAS STEAM" (amber). When the
+ * lists match: which other lists it also covers (lime). A guide written from the PSN list (scope
+ * psn, R22) shows PsnListSeal instead (PSN blue), with how many Steam achievements are left without a route.
  */
 
 const COMPATIBLE: Record<Exclude<GuideCompat, "steam_only">, { title: string; note: string }> = {
@@ -15,21 +16,29 @@ const COMPATIBLE: Record<Exclude<GuideCompat, "steam_only">, { title: string; no
 
 type CompatSealProps = {
   compat: GuideCompat;
-  /** Steam and PlayStation list sizes (robot report), for "APENAS STEAM". */
+  /** Steam and PlayStation list sizes (robot report): with them, a Steam-only guide covers both versions. */
   counts: { steam: number; psn: number } | null;
 };
 
 export function CompatSeal({ compat, counts }: CompatSealProps) {
+  if (compat === "steam_only" && counts) {
+    return (
+      <p className="wk-compat ok">
+        <i aria-hidden="true">✓</i>
+        <b>STEAM E PLAYSTATION</b>
+        <span>
+          {counts.steam} conquistas na Steam · {counts.psn} troféus no PlayStation. Os passos marcam quais valem nas
+          duas.
+        </span>
+      </p>
+    );
+  }
   if (compat === "steam_only") {
     return (
       <p className="wk-compat">
         <i aria-hidden="true">!</i>
         <b>APENAS STEAM</b>
-        <span>
-          {counts
-            ? `Steam tem ${counts.steam} conquistas; a lista do PlayStation tem ${counts.psn}. Os passos marcam quais valem nas duas.`
-            : "A lista de outras plataformas é diferente. Os passos marcam o que vale em cada uma."}
-        </span>
+        <span>A lista de outras plataformas é diferente. Os passos marcam o que vale em cada uma.</span>
       </p>
     );
   }

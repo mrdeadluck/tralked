@@ -71,7 +71,7 @@ type ResumeState = {
   sync: () => Promise<void>;
   /** Scrolls to an item's row (a gated one stays gated) and highlights it. */
   goTo: (ref: string) => void;
-  /** Scrolls to the last chapter (the guide is done). */
+  /** Scrolls to the last chapter the version being read shows (the guide is done). */
   goToEnd: () => void;
 };
 
@@ -95,7 +95,7 @@ export function ResumeProvider({ children }: { children: ReactNode }) {
 
   const goTo = useCallback((ref: string) => bringIntoView(document.getElementById(`item-${ref}`), true), []);
   const goToEnd = useCallback(() => {
-    const last = chapters.at(-1);
+    const last = chapters.findLast((c) => !c.hidden);
     if (last) bringIntoView(document.getElementById(`cap-${last.key}`), false);
   }, [chapters]);
 

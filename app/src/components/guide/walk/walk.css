@@ -940,3 +940,53 @@ body:has(.wk-hero) {
     text-align: left;
   }
 }
+
+/* ---------- Steam / PlayStation (versions.tsx, version-state.tsx) ---------- */
+/* The root's data-versao picks the version: what the other one shows is not drawn. */
+.wk[data-versao="playstation"] .wk-steam-only,
+.wk:not([data-versao="playstation"]) .wk-ps-only,
+.wk-jr > li[hidden],
+.wk-segs > i[hidden] {
+  display: none !important;
+}
+.wk-compat-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-top: 14px;
+}
+.wk-compat-row .wk-compat {
+  margin-top: 0;
+}
+.wk-ver {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.wk-ver button {
+  padding: 8px 13px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.wk-ver button:hover {
+  color: var(--text);
+}
+.wk-ver button:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: -2px;
+}
+.wk-ver button.steam[aria-pressed="true"] {
+  background: var(--acc);
+  color: var(--acc-ink);
+}
+.wk-ver button.ps[aria-pressed="true"] {
+  background: var(--ps);
+  color: var(--acc-ink);
+}

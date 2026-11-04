@@ -28,7 +28,8 @@ export function WalkJourney() {
   useEffect(() => {
     const nav = navRef.current;
     if (!nav) return;
-    const sections = chapters.map((c) => document.getElementById(`cap-${c.key}`));
+    // A chapter the version being read leaves out is not on screen: it is never the current one.
+    const sections = chapters.map((c) => (c.hidden ? null : document.getElementById(`cap-${c.key}`)));
     let frame = 0;
     const update = () => {
       frame = 0;
@@ -76,6 +77,7 @@ export function WalkJourney() {
             {chapters.map((c, i) => (
               <i
                 key={c.key}
+                hidden={c.hidden}
                 className={i === current ? "c" : undefined}
                 style={{ "--p": `${c.refs.length > 0 ? (counts[i] / c.refs.length) * 100 : 0}%` } as CSSProperties}
               />

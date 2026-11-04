@@ -6,6 +6,7 @@ import { loginHref, pctText } from "@/components/guide/format";
 import { useWalkProgress } from "./progress";
 import { walkInline } from "./inline";
 import { revealedInline, SpoilerGate, useGatedItem } from "./spoilers";
+import { withSteamOnly } from "./versions";
 import { locationScope, type ItemImage, type ItemSource, type ItemView } from "./view";
 
 /*
@@ -213,7 +214,10 @@ export function WalkItemRow({ item }: { item: ItemView }) {
   );
 
   return (
-    <div id={`item-${item.ref}`} className={`wk-item${done ? " done" : ""}${achievement ? " ach" : ""}`}>
+    <div
+      id={`item-${item.ref}`}
+      className={withSteamOnly(`wk-item${done ? " done" : ""}${achievement ? " ach" : ""}`, item.steamOnly)}
+    >
       <button
         type="button"
         role="checkbox"

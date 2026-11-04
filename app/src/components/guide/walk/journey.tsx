@@ -1,12 +1,14 @@
 "use client";
 
-import { createContext, useContext, type MouseEvent, type ReactNode, type Ref } from "react";
+import { createContext, useContext, useMemo, type MouseEvent, type ReactNode, type Ref } from "react";
+import { useVersion } from "./version-state";
 
 /*
  * The chapters of the journey, sent to the browser once (JourneyProvider) and read by every row of
  * diamonds: the big row under the page's top (WalkJourney) and the timeline before each chapter
  * (ChapterTimeline), which only carries its own number. The resume point (resume-state.tsx) reads
- * them too.
+ * them too. They follow the version being read (version-state.tsx): in the PlayStation version a
+ * chapter counts only the items it shows, and a chapter it leaves out is not drawn.
  */
 
 /** A missable of the chapter: its name, or null while it is behind the spoiler gate. */
@@ -24,12 +26,35 @@ export type JourneyChapter = {
   missables: JourneyMissable[];
   /** The robot's cleanup chapter (resume.ts). */
   cleanup: boolean;
+  /** The PlayStation version leaves the whole chapter out (view.ts). */
+  steamOnly?: boolean;
+  /** Left out of the version being read: its diamond is not drawn (it keeps its place and number). */
+  hidden?: boolean;
 };
 
 const JourneyContext = createContext<JourneyChapter[]>([]);
 
+/** The chapter as a version shows it: only the refs it shows, counted again per step. */
+function shownChapter(chapter: JourneyChapter, shownRefs: (refs: readonly string[]) => readonly string[]): JourneyChapter {
+  const shown = new Set(shownRefs(chapter.refs));
+  let at = 0;
+  const steps = chapter.steps.map((count) => chapter.refs.slice(at, (at += count)).filter((ref) => shown.has(ref)).length);
+  return {
+    ...chapter,
+    refs: chapter.refs.filter((ref) => shown.has(ref)),
+    steps,
+    missables: chapter.missables.filter((m) => shown.has(m.ref)),
+    hidden: Boolean(chapter.steamOnly),
+  };
+}
+
 export function JourneyProvider({ chapters, children }: { chapters: JourneyChapter[]; children: ReactNode }) {
-  return <JourneyContext value={chapters}>{children}</JourneyContext>;
+  const { version, shownRefs } = useVersion();
+  const shown = useMemo(
+    () => (version === "playstation" ? chapters.map((c) => shownChapter(c, shownRefs)) : chapters),
+    [chapters, version, shownRefs],
+  );
+  return <JourneyContext value={shown}>{children}</JourneyContext>;
 }
 
 export const useJourney = () => useContext(JourneyContext);
@@ -67,19 +92,21 @@ export function JourneyRow({ chapters, counts, user, current, passed = false, cu
       {chapters.map((c, i) => {
         const full = c.refs.length > 0 && counts[i] === c.refs.length;
         const here = lit?.here?.chapter === i ? lit.here : null;
+        const before = chapters.slice(0, i).findLast((b) => !b.hidden);
         const cls = [
           "wk-hn",
           i === current ? "c" : "",
           passed && i < current ? "p" : "",
           full ? "f" : "",
-          i > 0 && c.phase !== chapters[i - 1].phase ? "ph" : "",
+          before && c.phase !== before.phase ? "ph" : "",
           lit?.passed.has(i) ? "lit" : "",
           here ? "here" : "",
         ]
           .filter(Boolean)
           .join(" ");
         return (
-          <li key={c.key} className={cls}>
+          // A hidden chapter keeps its <li>: the rows find a chapter's diamond by its index.
+          <li key={c.key} className={cls} hidden={c.hidden}>
             <a
               href={here ? `#item-${here.ref}` : `#cap-${c.key}`}
               aria-current={i === current ? currentAs : undefined}

@@ -26,6 +26,7 @@ import {
   SpoilerSpan,
 } from "./spoilers";
 import { SpoilerToggle } from "./SpoilerToggle";
+import { VersionProvider, VersionSwitch } from "./version-state";
 import { WalkItemRow } from "./WalkItemRow";
 import { WalkJourney } from "./WalkJourney";
 
@@ -132,6 +133,8 @@ export const CLIENT = new Set<unknown>([
   WalkProgressProvider,
   WalkUserSeed,
   WalkUserAnon,
+  VersionProvider,
+  VersionSwitch,
   ResumeProvider,
   ResumeButton,
   ResumeMarker,

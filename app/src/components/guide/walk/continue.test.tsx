@@ -92,7 +92,8 @@ describe("botão da capa", () => {
   it("enquanto a sessão chega: um esqueleto, sem botão", () => {
     const { container } = render(<WalkthroughPage guide={guide()} />);
     expect(container.querySelector(".wk-resume-sk")).not.toBeNull();
-    expect(within(cover()).queryByRole("button")).toBeNull();
+    // The cover's other buttons (Steam | PlayStation) are not the resume button.
+    expect(within(cover()).queryByRole("button", { name: /detonado|parou|concluído|Sincronizar/ })).toBeNull();
   });
 
   it("visitante anônimo: convite para entrar que volta ao guia, sem capítulo aceso", async () => {
