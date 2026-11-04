@@ -3,6 +3,7 @@ import { BackToTop } from "@/components/guide/BackToTop";
 import type { GuideDetail } from "@/lib/queries/games";
 import { BackdropFader } from "./BackdropFader";
 import { FichaGrid } from "./FichaGrid";
+import { creditsOf, GuideCredits } from "./GuideCredits";
 import { GuideHero } from "./GuideHero";
 import { PhaseRoadmap } from "./PhaseRoadmap";
 import { WalkProgressProvider } from "./progress";
@@ -26,7 +27,7 @@ import "./walk-chapters.css";
  * Page of a format-2 guide (the guide robot's walkthrough). Top: magazine cover and hero, the
  * ficha, overview, "leia antes" and the roadmap beside the sidebar; then the journey, the chapters
  * along the green line, the Steam-only achievements of a guide written from the PSN list
- * (scope psn), the robot report (staff) and the soundtrack player, over the animated
+ * (scope psn), the robot report (staff), the credits and the soundtrack player, over the animated
  * backdrop. Spoilers start off for everyone and are not in the page at all (view.ts).
  *
  * The page is the public guide, the same for everyone (cached). What is per visitor streams into
@@ -125,6 +126,7 @@ export function WalkthroughPage({ guide, user = null, report = null, preview = f
                 <SteamOnlyList achievements={view.steamOnly} />
                 {report}
               </section>
+              <GuideCredits credits={creditsOf(guide.sources, items)} />
               {walkthrough.soundtrack ? <SoundtrackPlayer soundtrack={walkthrough.soundtrack} /> : null}
               <BackToTop />
             </ResumeProvider>
