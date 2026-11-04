@@ -49,7 +49,7 @@ export const walkItemSchema = z
     /** "2 of 22": position in its count. Both or none. */
     index: z.number().int().min(1).optional(),
     total: z.number().int().min(1).optional(),
-    location: inlineText(400).optional(),
+    location: inlineText(800).optional(),
     missable: z.boolean(),
     returnLater: z.boolean(),
     spoiler: z.boolean(),

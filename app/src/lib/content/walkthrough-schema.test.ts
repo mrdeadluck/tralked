@@ -25,6 +25,14 @@ describe("walkthroughSchema", () => {
     expect(fixture().chapters[0].steps).toHaveLength(9);
   });
 
+  it("o local de um item vai até 800 caracteres (voz v2: caminho, para que serve e o risco)", () => {
+    const w = fixture();
+    w.chapters[0].steps[0].items[0].location = "a".repeat(800);
+    expect(walkthroughSchema.safeParse(w).error?.issues).toBeUndefined();
+    w.chapters[0].steps[0].items[0].location = "a".repeat(801);
+    expect(pointers(walkthroughSchema.safeParse(w))).toEqual(["/chapters/0/steps/0/items/0/location"]);
+  });
+
   it("recusa chave repetida entre item e capítulo", () => {
     const w = fixture();
     w.chapters[0].steps[0].items[0].key = w.chapters[0].key;

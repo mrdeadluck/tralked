@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CHECK_DUE, FRAME_SCOPE, type GuideProblem } from "./checker.js";
 import type { GuideDb } from "./db.js";
+import { MIN_CARRIED_VERSION, WRITER_CACHE_VERSION } from "./writing-cache.js";
 import { addProblems, parseSavedTexts, type DraftRound, type ProblemHistory, type SavedTexts } from "./writer.js";
 
 /**
@@ -21,6 +22,8 @@ export type SavedDraft = {
   writingKey: string;
   /** Task 21: `writingBaseKey` of the inputs (null for drafts saved before it). */
   baseKey: string | null;
+  /** Voice v2: `WRITER_CACHE_VERSION` of the writer that saved it (null for drafts saved before v7). */
+  writerVersion: number | null;
   createdAt: string;
   round: number;
   ok: boolean;
@@ -50,17 +53,18 @@ type DraftRow = {
   texts_json: string | null;
   pending_json: string | null;
   base_key: string | null;
+  writer_version: number | null;
 };
 
 export function saveDraft(
   db: GuideDb,
-  input: { requestId: string; attempt: number; writingKey: string; baseKey?: string; draft: DraftInput; at: Date },
+  input: { requestId: string; attempt: number; writingKey: string; baseKey?: string; writerVersion?: number; draft: DraftInput; at: Date },
 ): void {
   const d = input.draft;
   db.raw
     .prepare(
       `INSERT INTO drafts (request_id, attempt, writing_key, created_at, round, ok, probe, payload_json, problems_json, repairs_json,
-         internal_errors_json, texts_json, pending_json, base_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         internal_errors_json, texts_json, pending_json, base_key, writer_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.requestId,
@@ -77,6 +81,7 @@ export function saveDraft(
       d.texts ? JSON.stringify(d.texts) : null,
       JSON.stringify(d.pending),
       input.baseKey ?? null,
+      input.writerVersion ?? WRITER_CACHE_VERSION,
     );
 }
 
@@ -96,6 +101,7 @@ function fromRow(row: DraftRow): SavedDraft {
     attempt: row.attempt,
     writingKey: row.writing_key,
     baseKey: row.base_key ?? null,
+    writerVersion: row.writer_version ?? null,
     createdAt: row.created_at,
     round: row.round,
     ok: row.ok === 1,
@@ -136,6 +142,9 @@ export function resumableDraft(db: GuideDb, writingKey: string): (SavedDraft & {
  * Its frame and every part its checker failed or still owed (problems and pending, any kind) are dropped: written
  * again. Only the job texts the checker accepted carry over, and the new checker checks each again before any is used
  * (`checagem-devida`): a rewrite only if it rejects it. Undefined when no accepted job text is left.
+ * Voice v2: only a draft of writer version `MIN_CARRIED_VERSION` or later is carried: texts written in the older voice
+ * are never a starting point (a full rewrite). Drafts saved before v7 have no version: `earlierBaseKeys` / `earlierKeys`
+ * (the v4 and v5 drafts they find) can no longer match anything carried.
  */
 export function carriedDraft(
   db: GuideDb,
@@ -146,10 +155,11 @@ export function carriedDraft(
   const list = (values: string[]) => values.map(() => "?").join(", ") || "NULL";
   const row = db.raw
     .prepare(
-      `SELECT * FROM drafts WHERE writing_key != ? AND (base_key IN (${list(bases)}) OR (base_key IS NULL AND writing_key IN (${list(earlier)})))
+      `SELECT * FROM drafts WHERE writing_key != ? AND writer_version >= ?
+         AND (base_key IN (${list(bases)}) OR (base_key IS NULL AND writing_key IN (${list(earlier)})))
        ORDER BY id DESC LIMIT 1`,
     )
-    .get(keys.writingKey, ...bases, ...earlier) as unknown as DraftRow | undefined;
+    .get(keys.writingKey, MIN_CARRIED_VERSION, ...bases, ...earlier) as unknown as DraftRow | undefined;
   if (!row) return undefined;
   const draft = fromRow(row);
   if (!draft.texts) return undefined;

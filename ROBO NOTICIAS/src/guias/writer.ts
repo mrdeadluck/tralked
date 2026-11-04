@@ -8,11 +8,23 @@ import { CHECK_DUE, CHECKER_RIGHT, checkScopes, FRAME_SCOPE, jobSteps, type Chec
 import { chronologyProblems } from "./chronology.js";
 import { DEFAULT_CHECK_EFFORT, DEFAULT_MODEL_CHECK, type GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
-import { deterministicProblems, dossierTexts, knownNames } from "./copy-check.js";
+import { deterministicProblems, dossierTexts, knownNames, sourceSites } from "./copy-check.js";
+import {
+  excerptSection,
+  excerptsFor,
+  foldPages,
+  frameExcerpts,
+  itemNames,
+  JOB_EXCERPT_CAP,
+  rankOf,
+  withoutExcerpt,
+  type Excerpt,
+  type SourcePage,
+} from "./excerpts.js";
 import { steamOnlyApiNames, type DossierAchievement, type GuideDossier, type GuideDossierSource } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
 import type { PsnWriteScope } from "./scope.js";
-import { anchoredIn, buildSkeleton, isMissable, placeableIn, untilOf, writeJobs, type GuideSkeleton, type SkelItem, type WriteJob } from "./skeleton.js";
+import { anchoredIn, buildSkeleton, isMissable, placeableIn, writeJobs, type GuideSkeleton, type SkelItem, type WriteJob } from "./skeleton.js";
 
 export { copiedRuns } from "./copy-check.js";
 
@@ -35,10 +47,16 @@ export const WRITER_EFFORT = "high" as const;
 export type GuideModels = Pick<GuideConfig, "MODEL_WRITER" | "MODEL_CHECK" | "CHECK_EFFORT">;
 export const DEFAULT_GUIDE_MODELS: GuideModels = { MODEL_WRITER: "claude-opus-5-5", MODEL_CHECK: DEFAULT_MODEL_CHECK, CHECK_EFFORT: DEFAULT_CHECK_EFFORT };
 
-const WRITER_MAX_TOKENS = 16000;
+/**
+ * Task 5 review (probe attempt 20: the frame stopped at max_tokens): voice v2 and the excerpts make longer answers, and
+ * the writer thinks at effort high. Above the client's `MAX_NONSTREAMING_TOKENS`: streamed.
+ */
+export const WRITER_MAX_TOKENS = 48_000;
 const CONCURRENCY = 3;
 const MAX_ITEMS_PER_STEP = 40;
 const HOURS_MAX = 5000;
+/** The site's limit for an item's `location` (walkthrough-schema.ts; voice v2: the way, what it is for, the risk). */
+const ITEM_LOCATION_MAX = 800;
 /** What the guide shows where there is no source for a number. */
 const NO_DATA = "—";
 
@@ -111,7 +129,7 @@ export const ChapterTextSchema = z.object({
     .array(
       z.object({
         key: z.string().describe("Uma das keys de passo dadas"),
-        blocos: z.array(BlockSchema).describe("O texto do passo, na ordem de leitura; aviso de perdível antes do ponto de não retorno"),
+        blocos: z.array(BlockSchema).describe("O texto do passo, na ordem de leitura; o risco de um perdível antes do ponto de não retorno, uma vez"),
         conquistas: z.array(z.string()).describe("apiNames das conquistas sem lugar fixo que destravam neste passo"),
       }),
     )
@@ -121,7 +139,7 @@ export const ChapterTextSchema = z.object({
       z.object({
         key: z.string().describe("Uma das keys de item ou de conquista dadas"),
         nome: z.string().describe("Até 80 caracteres"),
-        local: z.string().describe("Onde fica e como pegar, até 400 caracteres"),
+        local: z.string().describe("O caminho desde o ponto anterior até o item, para que serve e, se perdível, o risco; até 800 caracteres"),
         spoiler: z.boolean(),
       }),
     )
@@ -183,10 +201,10 @@ function fichaOf(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierS
 export const NAMES_RULE =
   "## Nomes\n" +
   'Se `nome_pt` for nulo (vazio, `nome_pt=""`), use só o nome em inglês da conquista, sem tradução. ' +
-  "Não traduza nem nomeie lugares, chefes ou marcos que o dossiê só traz em outro idioma: cite o marco como " +
-  "'o ponto indicado pela fonte' ou use o nome em inglês que aparece no dossiê.";
+  "Não traduza nem nomeie lugares, chefes ou marcos que o dossiê só traz em outro idioma: cite o marco pelo " +
+  "que ele é no jogo ('o próximo sino', 'a ponte de pedra') ou use o nome em inglês que aparece no dossiê, sem falar de fontes.";
 
-function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource, scope?: PsnWriteScope): string {
+function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource, scope?: PsnWriteScope, excerpts: readonly Excerpt[] = []): string {
   const ficha = fichaOf(skel, dossier, game, scope);
   const f = dossier.facts;
   const rarest = [...dossier.achievements]
@@ -219,14 +237,14 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
       `- Capítulos do detonado: ${ficha.chapters}; regiões: ${ficha.regions}`,
       `- Horas até o Tralked: ${ficha.hours ? `${ficha.hours.min} a ${ficha.hours.max}` : "sem dado (não cite horas)"}`,
       `- Zeradas mínimas: ${f.playthroughs ? `${f.playthroughs.value.min} (${body(f.playthroughs.value.note)})` : "sem dado"}`,
-      `- Dificuldade segundo as fontes (escala delas): ${f.difficulty ? `${f.difficulty.value.value} (${body(f.difficulty.value.note)})` : "sem dado"}`,
+      `- Dificuldade no dossiê (escala de origem, só como pista): ${f.difficulty ? `${f.difficulty.value.value} (${body(f.difficulty.value.note)})` : "sem dado"}`,
       `- Compatibilidade: ${f.compat}`,
       `- Mais raras na Steam: ${rarest.map((a) => `${a.apiName} ${pct(a.globalPct)}`).join(", ") || "sem dado"}`,
     ].join("\n"),
     ficha.psn
       ? [
           "## Escopo: guia pela lista da PSN",
-          `Nenhuma fonte explica ainda as ${ficha.psn.steamOnly} conquistas que só existem na Steam, então este guia segue a lista de troféus da PSN (${ficha.psn.trophies} troféus). Diga isso com franqueza na capa ou no "leia antes": o roteiro cobre a lista da PSN, e as conquistas só da Steam ficam num bloco à parte, sem roteiro ainda. Nunca explique como fazer uma conquista que não está nesta lista.`,
+          `Ainda não há roteiro para as ${ficha.psn.steamOnly} conquistas que só existem na Steam, então este guia segue a lista de troféus da PSN (${ficha.psn.trophies} troféus). Diga isso com franqueza na capa ou no "leia antes", sem falar de fontes: o roteiro cobre a lista da PSN, e as conquistas só da Steam ficam num bloco à parte, sem roteiro ainda. Nunca explique como fazer uma conquista que não está nesta lista.`,
         ].join("\n")
       : "",
     [
@@ -242,7 +260,9 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
       }),
     ].join("\n"),
     ["## Conquistas da Steam", ...dossier.achievements.map((a) => achievementLine(a))].join("\n"),
-    dossier.divergences.length > 0 ? ["## Divergências entre as fontes", ...dossier.divergences.map((d) => `- ${body(d)}`)].join("\n") : "",
+    dossier.divergences.length > 0 ? ["## Divergências (não cite ao leitor: escreva a instrução mais segura, só com o dossiê)", ...dossier.divergences.map((d) => `- ${body(d)}`)].join("\n") : "",
+    // Task 5: the roadmap page around the missables and the tales (what fails and when).
+    excerptSection(excerpts),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -253,21 +273,22 @@ const missableAttr = (missable: boolean, until?: string) => `perdivel="${missabl
 /** A number as the guide prints it (pt-BR decimal comma). */
 const numPt = (n: number) => String(n).replace(".", ",");
 
-/** R39: "as fontes localizam 38 de 40 Sha-Chi Amber Shards; 2 sem mapa", the dossier's numbers only. */
+/** R39: "o guia mapeia 38 de 40 Sha-Chi Amber Shards; 2 sem local conhecido", the dossier's numbers only. */
 const countFacts = (c: NonNullable<NonNullable<DossierAchievement["collect"]>["shortfallAccepted"]>) =>
-  `as fontes localizam ${numPt(c.located)} de ${numPt(c.stated)} ${c.label}; ${numPt(c.missing)} sem mapa`;
+  `o guia mapeia ${numPt(c.located)} de ${numPt(c.stated)} ${c.label}; ${numPt(c.missing)} sem local conhecido`;
 
 /**
- * R39: the code's note on a "collect N" the gate accepted short by less than one unit: how many the sources locate,
- * of the total a source states, and how many are not mapped yet. Named (a step may hold several items).
+ * R39: the code's note on a "collect N" the gate accepted short by less than one unit: how many the guide maps, of
+ * the total a source states, and how many have no known place yet. Named (a step may hold several items). Voice v2:
+ * it never talks about sources to the reader.
  */
 export function countNote(a: DossierAchievement): string | undefined {
   const c = a.collect?.shortfallAccepted;
   if (!c) return undefined;
   const name = plain(achName(a), 80);
   const shown = a.hidden ? `||${name}||` : `**${name}**`;
-  const rest = c.missing === 1 ? "ainda não foi mapeado" : "ainda não foram mapeados";
-  return inline(`${shown} — As fontes localizam ${numPt(c.located)} de ${numPt(c.stated)} ${c.label}; ${numPt(c.missing)} ${rest}.`, 2000);
+  const rest = c.missing === 1 ? "o que falta ainda não tem local conhecido" : `os outros ${numPt(c.missing)} ainda não têm local conhecido`;
+  return inline(`${shown} — Este guia mapeia ${numPt(c.located)} de ${numPt(c.stated)} ${c.label}; ${rest}.`, 2000);
 }
 
 /** An achievement with everything the writer needs to explain it (howTo included). */
@@ -329,11 +350,13 @@ function warnedName(name: string, spoiler: boolean, achievement: { hidden: boole
 
 /**
  * Task 18/21: the warning at a chapter's first step for the loose missables the sources link to it (`warnChapter`).
- * Only what the dossier says: the sources link them here; where each is done is the step that holds it.
+ * Only what the dossier says: they can be lost from here on; where each is done is the step that holds it. Voice v2:
+ * the window is stated plainly, never as what "the sources" say; every name is "a conquista …".
  */
 function anchorWarning(anchored: DossierAchievement[]): string {
-  const names = anchored.map((a) => (a.hidden ? warnedName(plain(achName(a), 80), true, a) : `**${plain(achName(a), 80)}**`));
-  return inline(`Perdível: as fontes ligam ${joinPt(names)} a este capítulo; fique atento a partir daqui.`, 2000);
+  const names = anchored.map((a) => warnedName(plain(achName(a), 80), a.hidden, a));
+  const todo = anchored.length === 1 ? "Faça no passo dela, sem deixar para depois." : "Faça cada uma no passo dela, sem deixar para depois.";
+  return inline(`Perdível: a partir deste capítulo dá para perder ${joinPt(names)}. ${todo}`, 2000);
 }
 
 /** A block whose text is exactly `text` (a writer's copy of a code warning). */
@@ -342,14 +365,14 @@ const sameText = (b: ContentBlock, text: string | undefined) => text !== undefin
 /** The loose missables the code warns at the start of the job (only the job holding the chapter's first step). */
 const anchoredInJob = (skel: GuideSkeleton, job: WriteJob) => (job.steps[0] === job.chapter.steps[0] ? anchoredIn(skel, job.chapter) : []);
 
-function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource): string {
+function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource, excerpts: readonly Excerpt[] = []): string {
   const { chapter, steps } = job;
   const at = skel.chapters.indexOf(chapter);
   const prev = skel.chapters[at - 1];
   const next = skel.chapters[at + 1];
   const loose = placeableIn(skel, chapter);
   const anchored = anchoredInJob(skel, job).map((l) => l.ach!);
-  // The code may warn a missable of these steps, or of a loose one the writer places here.
+  // The page warns a missable of these steps (or a loose one the writer places here); the code, the anchored ones.
   const missables = anchored.length > 0 || steps.some((s) => s.items.some(isMissable)) || loose.some(isMissable);
   return [
     `Escreva o texto dos passos abaixo, do capítulo "${body(chapter.title)}" do guia de ${body(game.game.name)}.`,
@@ -369,11 +392,13 @@ function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource
       : "",
     missables
       ? [
-          "## Avisos de perdível que o sistema põe",
-          'O sistema põe sozinho o aviso de cada perdível de um passo que o seu texto não avisar ("Perdível: pegue … agora, antes de seguir.") e, no primeiro passo do capítulo, o aviso das conquistas perdíveis que as fontes ligam a ele. Esses avisos já estão no lugar: não os repita nem os amplie ("começam nesta região", "também começa aqui"). Seu texto diz só o que o dossiê traz sobre cada passo.',
+          "## Avisos de perdível que a página mostra",
+          'Antes de cada passo com perdível, a página mostra sozinha uma caixa "⚠ Perdível no próximo passo: <nomes>. Pegue agora: depois não dá para voltar. Prazo: <prazo do capítulo>." e marca o item com a etiqueta "PERDÍVEL · PEGUE AGORA". Não escreva aviso que só repete "pegue X agora": explique o risco uma vez, como causa e consequência ("se você derrotar X com a missão aberta, ela falha e você perde a conquista Y nesta jogada"), no `local` do item, ou num único `aviso` do passo quando o risco vale para vários itens dele. No primeiro passo do capítulo, o sistema põe o aviso das conquistas que podem ser perdidas a partir dele. Esses avisos já estão no lugar: não os repita nem os amplie ("começam nesta região", "também começa aqui"). Seu texto diz só o que o dossiê traz sobre cada passo.',
           ...(anchored.length > 0 ? [`No passo ${steps[0]!.key}: "${body(anchorWarning(anchored))}"`] : []),
         ].join("\n")
       : "",
+    // Task 5: the source windows that mention this job's items (purpose, who asks, what fails, the way).
+    excerptSection(excerpts),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -477,20 +502,6 @@ function inline(text: string | null | undefined, max: number): string {
   return closeSpoilers(truncate(t, max));
 }
 
-/** Text compared for a mention: no markup, lowercase, no accents. */
-const comparable = (text: string) =>
-  text
-    .replace(/[*|]/g, "")
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-
-/** `name` appears in `text` as whole words ("old lantern" is not in "old lanternkeeper"); both `comparable`. */
-const mentions = (text: string, name: string) =>
-  name.length > 0 && new RegExp(`(^|[^\\p{L}\\p{N}])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\p{L}\\p{N}])`, "u").test(text);
-
 /** Text without **bold** / *italic* markers and line breaks. */
 const unmark = (text: string) =>
   text
@@ -572,7 +583,54 @@ export type WriteGuideOpts = {
   scope?: PsnWriteScope;
   /** Server-side fallbacks; defaults to `bucket === "live"`. */
   fallbacks?: boolean;
+  /** Task 5: the pages the run read (the pipeline's `read`): the excerpts of each item come from them. */
+  pages?: SourcePage[];
+  /** Task 5 review: where the run's line on the excerpts goes (the pipeline's log). */
+  log?: (line: string) => void;
 };
+
+/**
+ * Task 5: the source windows of the frame and of each write job (by job id), and per job how many of its items got
+ * no window (`without`, of `items`).
+ */
+export type WritingExcerpts = { frame: Excerpt[]; jobs: Map<string, Excerpt[]>; coverage: Map<string, { without: number; items: number }> };
+
+/**
+ * The excerpts of the frame and of every job; none without pages. A job reads its steps' items, the loose
+ * achievements it may place and the ones its first step warns about (review 1). The pages fold once here.
+ * Pure: the same pages and dossier give the same.
+ */
+export function writingExcerpts(skel: GuideSkeleton, dossier: GuideDossier, pages: readonly SourcePage[] = []): WritingExcerpts {
+  if (pages.length === 0) return { frame: [], jobs: new Map(), coverage: new Map() };
+  const folded = foldPages(pages);
+  const rank = rankOf(pages, dossier);
+  const jobs = new Map<string, Excerpt[]>();
+  const coverage = new Map<string, { without: number; items: number }>();
+  for (const job of writeJobs(skel)) {
+    const seen = new Set<string>();
+    const items = [...job.steps.flatMap((s) => s.items), ...anchoredInJob(skel, job), ...placeableIn(skel, job.chapter)]
+      .filter((x) => !seen.has(x.key) && Boolean(seen.add(x.key)))
+      .map(itemNames);
+    const excerpts = excerptsFor(pages, items, { cap: JOB_EXCERPT_CAP, rank, folded });
+    jobs.set(job.id, excerpts);
+    coverage.set(job.id, { without: withoutExcerpt(items, excerpts).length, items: items.length });
+  }
+  return { frame: frameExcerpts(pages, dossier, folded), jobs, coverage };
+}
+
+/** The run's line on the excerpts: windows, characters and, per job, the items left without one. */
+export function excerptSummary(ex: WritingExcerpts): string {
+  const all = [ex.frame, ...ex.jobs.values()].flat();
+  const chars = all.reduce((n, e) => n + e.text.length, 0);
+  const cov = [...ex.coverage];
+  const without = cov.reduce((n, [, c]) => n + c.without, 0);
+  const items = cov.reduce((n, [, c]) => n + c.items, 0);
+  const per = cov.filter(([, c]) => c.without > 0).map(([id, c]) => `${id}: ${c.without} de ${c.items}`);
+  return (
+    `trechos das fontes: ${all.length} janelas (~${Math.round(chars / 1000)}k caracteres); itens sem trecho: ${without} de ${items}` +
+    ` (${per.length > 0 ? `por trecho: ${per.join(", ")}` : "nenhum"})`
+  );
+}
 
 type Ctx = {
   ai: Ai;
@@ -584,6 +642,7 @@ type Ctx = {
   skel: GuideSkeleton;
   jobs: WriteJob[];
   scope?: PsnWriteScope;
+  excerpts: WritingExcerpts;
 };
 
 /** The model's texts: the frame and one answer per write job (by job id). */
@@ -617,6 +676,8 @@ const NO_TEXT: ChapterText = { passos: [], itens: [], depois: null };
 
 function context(ai: Ai, dossier: GuideDossier, game: GuideDossierSource, bucket: SpendBucket, opts: WriteGuideOpts): Ctx {
   const skel = buildSkeleton(dossier);
+  const excerpts = writingExcerpts(skel, dossier, opts.pages);
+  if (opts.pages && opts.pages.length > 0) opts.log?.(`guia: ${excerptSummary(excerpts)}`);
   return {
     ai,
     dossier,
@@ -627,6 +688,7 @@ function context(ai: Ai, dossier: GuideDossier, game: GuideDossierSource, bucket
     skel,
     jobs: writeJobs(skel),
     scope: opts.scope,
+    excerpts,
   };
 }
 
@@ -665,14 +727,15 @@ async function draft(
   const [frame, answers] = await Promise.all([
     redoFrame
       ? abortOnError(
-          call("guide-write-frame", Boolean(previous?.frame), frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope), FrameSchema, FRAME_SCOPE),
+          call("guide-write-frame", Boolean(previous?.frame), frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope, ctx.excerpts.frame), FrameSchema, FRAME_SCOPE),
           abort,
         )
       : Promise.resolve(previous!.frame!),
     inPool(
       redoJobs,
       CONCURRENCY,
-      (job) => call("guide-write-chapter", Boolean(previous?.jobs.has(job.id)), jobMessage(ctx.skel, job, ctx.game), ChapterTextSchema, job.id),
+      (job) =>
+        call("guide-write-chapter", Boolean(previous?.jobs.has(job.id)), jobMessage(ctx.skel, job, ctx.game, ctx.excerpts.jobs.get(job.id)), ChapterTextSchema, job.id),
       abort,
     ),
   ]);
@@ -690,19 +753,6 @@ async function draft(
  * warning callouts the code wrote (Task 21: the checker gets them apart, with their basis, and does not judge them).
  */
 export type WrittenGuide = { payload: GuidePayloadV2; repairs: GuideProblem[]; codeWarnings: CodeWarning[] };
-
-/** The dossier facts behind the code's warning of a missable item or achievement of a step. */
-function stepWarningBase(x: SkelItem, name: string): Record<string, unknown> {
-  const until = untilOf(x.item, x.ach);
-  return {
-    key: x.key,
-    nome: name,
-    ...(x.ach ? { apiName: x.ach.apiName, oculta: x.ach.hidden } : {}),
-    perdivel: true,
-    ...(until ? { ate: until } : {}),
-    ...(x.item?.deadlineAssumed || x.ach?.deadlineAssumed ? { prazo_suposto: true } : {}),
-  };
-}
 
 /** The dossier facts behind the code's warning at a chapter's start: why the code anchored the achievement there. */
 function anchorWarningBase(a: DossierAchievement): Record<string, unknown> {
@@ -764,6 +814,8 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     return undefined;
   };
   const placement = new Map<string, string>(); // loose apiName -> step key
+  /** Loose achievements whose text is the placing job's own (its rewrite owns it), not the cleanup job's. */
+  const placedText = new Set<string>();
   // The first job (in reading order) that puts a loose achievement in one of its steps wins, with its text.
   for (const { job, text } of answered) {
     if (job.chapter.cleanup) continue;
@@ -793,7 +845,10 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
         placement.set(apiName, step.key);
         stepsOf.get(step.key)!.push(l);
         const own = text.itens.find((i) => i.key === l.key);
-        if (own) itemText.set(l.key, own);
+        if (own) {
+          itemText.set(l.key, own);
+          placedText.add(l.key);
+        }
       }
     }
   }
@@ -855,13 +910,22 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       name = plain(t?.nome, 80) || plain(en, 80) || "Item";
       nameEn = name.toLowerCase() !== en.toLowerCase() ? plain(en, 80) || undefined : undefined;
     }
-    const location = inline(t?.local, 400);
+    const location = inline(t?.local, ITEM_LOCATION_MAX);
+    // Task 20: a loose achievement's text is the cleanup job's (a chapter that places it may write its own): that
+    // job is asked for it.
+    const owner = placedText.has(s.key) ? stepKey : (cleanupStepOf.get(s.key) ?? stepKey);
     if (!location) {
-      // Task 20: a loose achievement's text is the cleanup job's (a chapter that places it may write its own): that
-      // job is asked for it. No fallback text: the sources' own sentences (location, how-to) would fail the copy check
-      // in another job's scope, and a guide with this repair never goes out anyway.
-      const owner = cleanupStepOf.get(s.key) ?? stepKey;
+      // No fallback text: the sources' own sentences (location, how-to) would fail the copy check in another job's
+      // scope, and a guide with this repair never goes out anyway.
       repairs.push({ scope: scopeOfStep(owner), text: `O item "${name}" (${s.key}) ficou sem texto próprio de local; escreva onde fica e como pegar.` });
+    }
+    // Review 2: a `local` over the site's limit is rewritten, never cut silently (the payload still carries it cut).
+    const fullLength = inline(t?.local, Number.MAX_SAFE_INTEGER).length;
+    if (fullLength > ITEM_LOCATION_MAX) {
+      repairs.push({
+        scope: scopeOfStep(owner),
+        text: `O local do item "${name}" (${s.key}) passou de ${ITEM_LOCATION_MAX} caracteres (${fullLength}); encurte-o sem perder o caminho nem o risco.`,
+      });
     }
     const index = i?.index;
     const total = i?.total;
@@ -929,32 +993,16 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
         const text = x.ach ? countNote(x.ach) : undefined;
         return text ? [{ a: x.ach!, text }] : [];
       });
-      // Room for the code's missable warnings, count notes and "later" note within the site's 20 blocks. A writer's
+      // Room for the code's anchor warning, count notes and "later" note within the site's 20 blocks. A writer's
       // block that only repeats a code text (the job message shows the anchor's text) is dropped: never shown twice.
+      // Voice v2: no code warning for a step's missables: the page shows its own box before the step ("⚠ Perdível no
+      // próximo passo", the names and the chapter's deadline) and tags the item; the writer explains the consequence.
       let blocks = (stepBlocks.get(s.key) ?? [])
         .filter((b) => !sameText(b, anchorText) && !counts.some((c) => sameText(b, c.text)))
-        .slice(0, Math.max(1, (anchor ? 17 : 18) - counts.length));
+        .slice(0, Math.max(1, (anchor ? 18 : 19) - counts.length));
       if (blocks.length === 0) {
         repairs.push({ scope: scopeOfStep(s.key), text: `O passo ${s.key} do capítulo "${c.title}" ficou sem texto; escreva o caminho deste passo.` });
         blocks = [{ type: "paragraph", text: walkItems.length > 0 ? `Neste ponto: ${walkItems.map((i) => i.name).join(", ")}.` : "Siga em frente pela história." }];
-      }
-      // The missable warning comes first in the step, before the text that leads past the point of no return.
-      // Task 20 review: a writer's "aviso" about something else does not replace it; an item the writer's warnings
-      // already cite (by its name or its English name) needs no second one.
-      const warnings = blocks.filter((b) => b.type === "callout" && b.tone === "aviso").map((b) => comparable((b as { text: string }).text));
-      const cited = (i: WalkItem) => [i.name, i.nameEn].some((n) => n && warnings.some((w) => mentions(w, comparable(n))));
-      // Only what the dossier marks missable is warned, each by its name (Task 21: never "o item deste passo").
-      const warn = items.filter((x) => isMissable(x) && !x.item?.returnLater);
-      const unwarned = walkItems.flatMap((i) => {
-        const x = warn.find((w) => w.key === i.key);
-        return x && !cited(i) ? [{ i, x }] : [];
-      });
-      if (unwarned.length > 0) {
-        const names = joinPt(unwarned.map(({ i, x }) => warnedName(i.name, i.spoiler, x.ach)));
-        // No milestone here: it often names a boss (spoiler). The chapter's `deadline` carries it.
-        const text = inline(`Perdível: pegue ${names} agora, antes de seguir.`, 2000);
-        blocks = [{ type: "callout", tone: "aviso", text }, ...blocks.filter((b) => !sameText(b, text))];
-        codeWarnings.push({ step: s.key, text, base: unwarned.map(({ i, x }) => stepWarningBase(x, i.name)) });
       }
       if (anchorText) {
         const text = anchorText;
@@ -1114,19 +1162,23 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
 
 /**
  * The writer's calls without calling anything (the dry run's cost estimate): the system prompt, the frame message
- * and each write job's message, with the job's step and item counts.
+ * and each write job's message (with the excerpts of `pages`), with the job's step and item counts, and the line on
+ * the excerpts (`excerptSummary`; null without pages).
  */
 export function writerPlan(
   dossier: GuideDossier,
   game: GuideDossierSource,
   scope?: PsnWriteScope,
-): { system: string; frame: string; jobs: { message: string; steps: number; items: number }[] } {
+  pages?: SourcePage[],
+): { system: string; frame: string; jobs: { message: string; steps: number; items: number }[]; excerpts: string | null } {
   const skel = buildSkeleton(dossier);
+  const excerpts = writingExcerpts(skel, dossier, pages);
   return {
+    excerpts: pages && pages.length > 0 ? excerptSummary(excerpts) : null,
     system: loadGuideStyle(),
-    frame: frameMessage(skel, dossier, game, scope),
+    frame: frameMessage(skel, dossier, game, scope, excerpts.frame),
     jobs: writeJobs(skel).map((job) => ({
-      message: jobMessage(skel, job, game),
+      message: jobMessage(skel, job, game, excerpts.jobs.get(job.id)),
       steps: job.steps.length,
       items: job.steps.reduce((n, s) => n + s.items.length, 0),
     })),
@@ -1243,6 +1295,8 @@ export async function writeAndCheckGuide(
   const sources = opts.sourceTexts ?? dossierTexts(dossier);
   // Task 23: the proper names the guide must cite never count as copy.
   const names = knownNames(dossier);
+  // Review 2: the sites the dossier read never appear in the guide's text.
+  const sites = sourceSites(dossier);
   // The ficha counts the frame writer was told to cite (the frame message's "## Ficha").
   const ficha = fichaOf(ctx.skel, dossier, game, ctx.scope);
   const checkContext: CheckContext = {
@@ -1258,7 +1312,8 @@ export async function writeAndCheckGuide(
       ...(ficha.psn ? { trofeusPsn: ficha.psn.trophies, conquistasSteam: ficha.psn.steam, soNaSteam: ficha.psn.steamOnly } : {}),
     },
   };
-  const checkOpts = { bucket, model: ctx.models.MODEL_CHECK, effort: ctx.models.CHECK_EFFORT, context: checkContext };
+  // Task 5: the checker reads the same excerpts as the writer of each part.
+  const checkOpts = { bucket, model: ctx.models.MODEL_CHECK, effort: ctx.models.CHECK_EFFORT, context: checkContext, excerpts: ctx.excerpts };
 
   // The probe: the frame and the jobs of the first N story chapters; problems of other parts are not its own.
   const probed = opts.probe ? new Set(ctx.skel.chapters.filter((c) => !c.cleanup).slice(0, Math.max(1, opts.probe.chapters))) : undefined;
@@ -1274,7 +1329,7 @@ export async function writeAndCheckGuide(
   /** The copy and vocabulary findings, scoped. */
   const textChecks = (written: WrittenGuide): GuideProblem[] => {
     const scopeOf = scoper(written);
-    return deterministicProblems(written.payload, sources, names).map((p) => ({ text: p.text, scope: scopeOf(p.key), kind: p.kind }));
+    return deterministicProblems(written.payload, sources, names, sites).map((p) => ({ text: p.text, scope: scopeOf(p.key), kind: p.kind }));
   };
   const blocking = (written: WrittenGuide): GuideProblem[] => {
     const scopeOf = scoper(written);

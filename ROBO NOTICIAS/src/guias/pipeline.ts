@@ -584,6 +584,10 @@ async function processRequest(run: Run): Promise<Final> {
     written = await stages.writeAndCheckGuide(run.ai, toWrite, source, "backfill", {
       models,
       sourceTexts: read.map((r) => r.text),
+      // Task 5: the pages themselves, for the source excerpts of each item.
+      pages: read.map((r) => ({ url: r.source.url, name: r.source.name, role: r.source.role, text: r.text })),
+      // Task 5 review: the line on the excerpts (windows, items without one per job).
+      log: deps.log,
       ...(scope ? { scope } : {}),
       ...(previous ? { resume: { texts: previous.texts, problems: previous.problems } } : {}),
       // Task 30: every problem already pointed at in this request's rounds of the same inputs (never the writing key).

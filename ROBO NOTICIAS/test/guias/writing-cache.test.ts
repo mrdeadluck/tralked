@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDossier, type GuideDossierSource } from "../../src/guias/dossier.js";
-import { WRITER_CACHE_VERSION, earlierBaseKeys, earlierDraftKeys, writingBaseKey, writingKey } from "../../src/guias/writing-cache.js";
+import { MIN_CARRIED_VERSION, WRITER_CACHE_VERSION, earlierBaseKeys, earlierDraftKeys, writingBaseKey, writingKey } from "../../src/guias/writing-cache.js";
 import { ach, chapter, fact, item, steamAch } from "./helpers-dossier.js";
 
 const MODELS = { MODEL_WRITER: "claude-opus-5-5", MODEL_CHECK: "claude-sonnet-5-5", CHECK_EFFORT: "high" as const };
@@ -42,8 +42,10 @@ describe("chave do cache da escrita", () => {
     expect(key({ models: { ...MODELS, MODEL_CHECK: "claude-haiku-5-5" } })).not.toBe(base);
     expect(key({ models: { ...MODELS, CHECK_EFFORT: "xhigh" } })).not.toBe(base);
     expect(key({ version: WRITER_CACHE_VERSION + 1 })).not.toBe(base);
-    // Task 25 review: v6 (R39 count notes in assemble, code callouts of any tone out of the checked text).
-    expect(WRITER_CACHE_VERSION).toBe(6);
+    // Task 25 review: v6 (R39 count notes in assemble, code callouts of any tone out of the checked text). Voice v2: v7.
+    expect(WRITER_CACHE_VERSION).toBe(9);
+    // Task 5: the source excerpts are part of what the writing depends on; the drafts of v7 (attempt 19) are never carried.
+    expect(MIN_CARRIED_VERSION).toBe(9);
     // A rarity that crosses a band (1% → 30%) is a different "rarest" list: it changes.
     expect(key({ dossier: dossier(0.5) })).not.toBe(key({ dossier: dossier(30) }));
   });

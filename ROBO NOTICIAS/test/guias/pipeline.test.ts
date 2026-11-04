@@ -306,8 +306,12 @@ describe("runGuideRequest", () => {
     expect(calls.reports.at(-1)!.body.guideId).toBe("guide-new");
 
     // The writer got the raw text of the pages read, for the copy check.
-    const writerOpts = stages.calls.writeAndCheckGuide![0]![4] as { sourceTexts: string[]; scope?: unknown };
+    const writerOpts = stages.calls.writeAndCheckGuide![0]![4] as { sourceTexts: string[]; scope?: unknown; pages?: { url: string; name: string; text: string }[] };
     expect(writerOpts.sourceTexts).toEqual([STEAM_GUIDE_TEXT]);
+    // Task 5: and the pages themselves (url, name, text), for the excerpts of each item.
+    // Task 5 review: and a log for the excerpt counts.
+    expect(typeof (writerOpts as { log?: unknown }).log).toBe("function");
+    expect(writerOpts.pages).toEqual([expect.objectContaining({ text: STEAM_GUIDE_TEXT, url: expect.stringMatching(/^https:/), name: expect.any(String) })]);
     // The Steam gate passed: the guide covers the Steam list.
     expect(writerOpts.scope).toBeUndefined();
 
@@ -1344,6 +1348,17 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
       problems: [{ scope: "cap-2", kind: "checagem-devida", text: "O trecho cap-2 vem de uma versão anterior do escritor e precisa ser checado de novo." }],
     });
     expect(deps.lines.some((l) => l.includes("rascunho de uma versão anterior do escritor"))).toBe(true);
+  });
+
+  it("voz v2: um rascunho das mesmas entradas escrito antes da v7 não é carregado: a escrita recomeça do zero", async () => {
+    const db = openGuideDb(":memory:");
+    const job = { passos: [], itens: [], depois: null };
+    const texts: SavedTexts = { frame: savedTexts.frame, jobs: { "cap-1": job, "cap-2": job } };
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: failingWriter(scoped(1), texts) }) }));
+    db.raw.prepare("UPDATE drafts SET writing_key = 'escrita:v6', writer_version = 6").run();
+    const writerB = failingWriter(scoped(1));
+    await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writerB }) }));
+    expect((writerB.mock.calls[0]![4] as WriteAndCheckOpts).resume).toBeUndefined();
   });
 
   it("sonda: escreve só a moldura e N capítulos, salva e imprime os problemas agrupados, não envia nada", async () => {
