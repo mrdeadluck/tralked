@@ -109,8 +109,6 @@ function ChapterBox({ chapter, items }: { chapter: ChapterView; items: ItemView[
 type WalkChaptersProps = { chapters: ChapterView[]; screenshots: string[] };
 
 export function WalkChapters({ chapters, screenshots }: WalkChaptersProps) {
-  // The PlayStation version numbers its own chapters ("Capítulo 2 de 18").
-  const psCount = chapters.some((c) => c.steamOnly) ? chapters.filter((c) => !c.steamOnly).length : null;
   return (
     <div className="wk-walk">
       {chapters.map((chapter, i) => {
@@ -124,13 +122,7 @@ export function WalkChapters({ chapters, screenshots }: WalkChaptersProps) {
             aria-labelledby={`cap-${chapter.key}-h`}
           >
             {i > 0 ? <ChapterTimeline at={i} /> : null}
-            <ChapterScene
-              chapter={chapter}
-              index={i}
-              count={chapters.length}
-              ps={psCount === null ? undefined : { index: chapters.slice(0, i).filter((c) => !c.steamOnly).length, count: psCount }}
-              image={image}
-            />
+            <ChapterScene chapter={chapter} index={i} count={chapters.length} image={image} />
             <div className="wk-cols">
               <div className="wk-col">
                 <GreenTrail>

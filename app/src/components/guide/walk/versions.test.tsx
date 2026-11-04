@@ -495,7 +495,7 @@ describe("rodada 1 da revisão", () => {
     expect(journey.querySelectorAll("li")[0]).not.toHaveClass("c");
   });
 
-  it("índice e Capítulo X de N contam os capítulos que a versão mostra", () => {
+  it("o índice conta os capítulos que a versão mostra; Capítulo X de N segue a numeração do guia", () => {
     const guide = variant((w) => {
       for (const c of w.chapters) delete c.region;
     });
@@ -504,7 +504,8 @@ describe("rodada 1 da revisão", () => {
     expect(shown(toc.querySelector("small")!, "steam")).toBe("3 cap.");
     expect(shown(toc.querySelector("small")!, "playstation")).toBe("2 cap.");
     const where = document.querySelector("#cap-limpeza .wk-scene .wk-lbl")!;
-    expect(shown(where, "steam")).toBe("Etapa 1 · Capítulo 3 de 3");
-    expect(shown(where, "playstation")).toBe("Etapa 1 · Capítulo 2 de 2");
+    // Same numbering as the steps (3.1), the slim bar and the journey: PlayStation skips a number, never renumbers.
+    expect(where.querySelector(".wk-steam-only, .wk-ps-only")).toBeNull();
+    expect(where).toHaveTextContent(/^Etapa 1 · Capítulo 3 de 3$/);
   });
 });
