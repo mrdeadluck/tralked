@@ -272,3 +272,51 @@ Commit: `feat(guia): versão Steam ou PlayStation no mesmo guia`
    - counts.
 
    Report the spend.
+
+## Task 5: Ground the writing in source excerpts (robot)
+
+Origin: the voice v2 probe (2 PBZ chapters, attempt 19, US$ 2.12) got 15 checker problems. Most of them are the
+writer stating purpose or consequence facts the **dossier** lacks, even though the **source pages** say them. Example:
+the PowerPyx roadmap says "Apprentice Healer: collect the 3 herbs: Blood-Stopper Vine, Congealeaf, Blemish Goldweed…
+complete it before defeating Jing Ye or you'll fail the tale", but the dossier does not link Congealeaf to the tale. The
+approved voice (purpose, next step, consequence, a path from the previous point) needs those facts.
+
+Worktree from rg/t40 (Task 1's head). Files:
+- `src/guias/writer.ts` (job and frame messages);
+- `src/guias/checker.ts`;
+- a new `src/guias/excerpts.ts` + test;
+- `src/guias/pipeline.ts` (pass the read source texts, already available as `read` / `sourceTexts`);
+- `prompts/guia-estilo.md` §5.
+
+Requirements:
+1. **`excerpts.ts`**: given the read source pages (url, name, text) and a job's items (name, nameEn, aliases from the
+   dossier/skeleton), return per item the source windows that mention it (case- and accent-insensitive whole-name
+   match), each window about ±500 characters around the mention.
+   - Merge overlapping windows, dedupe across items, and order by source then position.
+   - Cap a job at ~14,000 characters total, preferring at least one window per item and the primary script's pages
+     first.
+   - For the frame: the windows of the roadmap/trophy-guide page around the missable and tale/achievement names, capped
+     at ~10,000.
+   - The function is pure and deterministic, and must stay deterministic under the writing cache (the excerpts derive
+     from the dossier + stored pages).
+2. **Writer prompt**: each job message gets a section "## Trechos das fontes (material de apuração, em inglês ou outra
+   língua; não copie)" with the windows, tagged per source by `<trecho fonte="N">`, where N is an index, not the site
+   name. The manual §5 becomes "todo fato sai do dossiê **ou dos trechos**". Facts in the excerpts can be used: purpose,
+   who asks for it, what fails and when, the path from the previous point. The copy rule (8 words) still applies; the
+   checker already catches copies. Never cite the excerpts or sources to the reader (ban list stays).
+3. **Checker**: it gets the same excerpts for the job it checks, and its rules say that a fact present in the dossier
+   OR in the excerpts is grounded. Invented means "in neither". Keep everything else.
+4. **Writing cache**: the excerpts are part of what the writing depends on.
+   - Include a hash of the job and frame excerpts in `inputsOf` (writing-cache.ts), or bump `WRITER_CACHE_VERSION` to 8
+     and MIN_CARRIED_VERSION to 8. Choose the bump: the probe drafts of attempt 19 must not be carried.
+   - Same-key resume keeps working.
+5. **Tests**:
+   - excerpt selection: a mention found across pages; the cap respected with at least one window per item;
+     accent/case-insensitive; no partial-word matches;
+   - the job prompt contains the section;
+   - the checker prompt contains the excerpts and the grounding rule;
+   - the cache key changes.
+
+   Then the robot suite and typecheck. No AI calls, no `pnpm guia`.
+
+Commit: `feat(robo-guias): the writer and the checker read the source excerpts of each item`
