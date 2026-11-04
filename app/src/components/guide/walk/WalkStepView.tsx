@@ -1,14 +1,17 @@
 import type { ReactNode } from "react";
 import { Blocks } from "@/lib/content/render";
 import { walkInline } from "./inline";
+import { ResumeMarker } from "./ResumeMarker";
 import { SpoilerCallout, SpoilerItemName } from "./spoilers";
+import { Both, Separator, STEAM_ONLY, withSteamOnly } from "./versions";
 import type { BlockView, ItemView, StepView } from "./view";
 import { WalkItemRow } from "./WalkItemRow";
 
 /*
  * One step of a chapter: its number on the green line, what to do (in the order the player moves),
  * and the items found there. A step holding a missable item is preceded by its warning, never
- * followed: the reader learns what is lost before reaching the point of no return.
+ * followed: the reader learns what is lost before reaching the point of no return. A step the
+ * PlayStation version leaves out goes with its warning; a Steam-only missable leaves the warning.
  */
 
 /** One body block; `scope` names its inline spoiler spans (view.ts). */
@@ -71,24 +74,44 @@ function StepBlock({ block, scope }: { block: BlockView; scope: string }) {
   }
 }
 
-/** The warning before a step with missables: what is lost, and the chapter's deadline. */
-function MissableWarning({ items, deadline }: { items: ItemView[]; deadline: ReactNode }) {
+/**
+ * The warning before a step with missables: what is lost, and the chapter's deadline. A missable the
+ * player can still come back for (returnLater) is named with "dá para voltar depois", never with
+ * "não dá para voltar".
+ */
+type MissableWarningProps = {
+  items: ItemView[];
+  deadline: ReactNode;
+  /** The PlayStation version leaves the step out (and the warning with it). */
+  steamOnly: boolean;
+};
+
+function MissableWarning({ items, deadline, steamOnly }: MissableWarningProps) {
+  const lost = items.some((item) => !item.returnLater);
+  const psLost = items.some((item) => !item.returnLater && !item.steamOnly);
+  const gone = steamOnly || items.every((i) => i.steamOnly);
+  const closing = (noReturn: boolean) => (
+    <>
+      {noReturn ? "Pegue agora: depois não dá para voltar." : "Vale pegar agora."}
+      {noReturn && deadline ? <> Prazo: {deadline}.</> : null}
+    </>
+  );
   return (
-    <aside className="wk-callout wk-warn" aria-label="Aviso de perdível">
+    <aside className={withSteamOnly("wk-callout wk-warn", gone)} aria-label="Aviso de perdível">
       <p>
         <b>⚠ Perdível no próximo passo:</b>{" "}
         {items.map((item, i) => (
-          <span key={item.ref}>
-            {i > 0 ? ", " : null}
+          <span key={item.ref} className={item.steamOnly ? STEAM_ONLY : undefined}>
+            <Separator items={items} index={i} />
             {item.gated ? (
               <SpoilerItemName id={`aviso-${item.ref}`} itemRef={item.ref} what="o perdível" />
             ) : (
               <strong>{item.name}</strong>
             )}
+            {item.returnLater ? " (dá para voltar depois)" : null}
           </span>
         ))}
-        . Pegue agora: depois não dá para voltar.
-        {deadline ? <> Prazo: {deadline}.</> : null}
+        . <Both steam={closing(lost)} ps={gone || psLost === lost ? undefined : closing(psLost)} />
       </p>
     </aside>
   );
@@ -99,12 +122,13 @@ export function WalkStepView({ step, deadline }: { step: StepView; deadline: Rea
   const missables = step.items.filter((item) => item.missable);
   return (
     <>
-      {missables.length > 0 ? <MissableWarning items={missables} deadline={deadline} /> : null}
-      <article className="wk-step" aria-label={`Passo ${step.number}`}>
+      {missables.length > 0 ? <MissableWarning items={missables} deadline={deadline} steamOnly={step.steamOnly} /> : null}
+      <article className={withSteamOnly("wk-step", step.steamOnly)} aria-label={`Passo ${step.number}`}>
         <span className="num" aria-hidden="true">
           {step.number}
         </span>
         <div className="wk-step-b">
+          <ResumeMarker step={step.number} />
           {step.body.map((block, i) => (
             <StepBlock key={i} block={block} scope={`${step.scope}.${i}`} />
           ))}

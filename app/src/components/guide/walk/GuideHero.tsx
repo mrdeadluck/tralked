@@ -9,12 +9,16 @@ import type { GuideDetail, WalkExtras } from "@/lib/queries/games";
 import { CompatSeal, PsnListSeal } from "./CompatSeal";
 import { editionLabel, MagazineCover } from "./MagazineCover";
 import { ProgressRing } from "./ProgressBits";
+import { ResumeButton } from "./ResumeButton";
+import { VersionSwitch } from "./version-state";
+import { Both } from "./versions";
 
 /*
  * Head of a walkthrough page: the magazine cover on the left, the game on the right (official
  * logo when the catalog has one, else its name), the platform and "Treina…" chips, the compat
- * seal, edition and sources, and the visitor's progress ring (streamed in, see progress.tsx). The
- * wide official art is behind.
+ * seal (with "Steam | PlayStation" beside it when the guide has both versions), edition and
+ * sources, "Continuar de onde parou" and the visitor's progress ring (streamed in, see progress.tsx).
+ * The wide official art is behind.
  */
 
 const isPlatform = (value: string): value is Platform => value in PLATFORM_COLOR;
@@ -25,9 +29,15 @@ function sourceNames(guide: GuideDetail, walkthrough: Walkthrough): string[] {
   return [...new Set([...guide.sources.map((s) => s.title), ...cited])].slice(0, 4);
 }
 
-type GuideHeroProps = { guide: GuideDetail; walkthrough: Walkthrough; walk: WalkExtras };
+type GuideHeroProps = {
+  guide: GuideDetail;
+  walkthrough: Walkthrough;
+  walk: WalkExtras;
+  /** The guide reads as Steam or PlayStation (versions.tsx). */
+  versions?: boolean;
+};
 
-export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
+export function GuideHero({ guide, walkthrough, walk, versions = false }: GuideHeroProps) {
   const { game } = guide;
   const chapters = walkthrough.chapters.length;
   const byRegion = walkthrough.chapters.every((c) => c.region);
@@ -51,7 +61,9 @@ export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
       ) : null}
       <div className="wk-hero-in">
         <p className="wk-hero-top" aria-hidden="true">
-          <span className="wk-lbl">Manual · Guia Tralked · Steam</span>
+          <span className="wk-lbl">
+            Manual · Guia Tralked · <Both steam="Steam" ps={versions ? "PlayStation" : undefined} />
+          </span>
           <span className="wk-lbl">Tralked</span>
         </p>
 
@@ -100,6 +112,11 @@ export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
           </div>
           {psnList ? (
             <PsnListSeal trophies={psnList.total} steamOnly={walkthrough.steamOnly?.length ?? 0} />
+          ) : versions && guide.compat ? (
+            <div className="wk-compat-row">
+              <CompatSeal compat={guide.compat} counts={walk.compatCounts} />
+              <VersionSwitch />
+            </div>
           ) : guide.compat ? (
             <CompatSeal compat={guide.compat} counts={walk.compatCounts} />
           ) : null}
@@ -112,6 +129,7 @@ export function GuideHero({ guide, walkthrough, walk }: GuideHeroProps) {
               Página do jogo →
             </Link>
           </p>
+          <ResumeButton />
         </div>
 
         <ProgressRing achievementCount={game.achievementCount} />

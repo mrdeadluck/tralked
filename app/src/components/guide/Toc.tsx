@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
-export type TocItem = { id: string; label: string; count?: string | number };
+export type TocItem = { id: string; label: string; count?: ReactNode };
 
 /** "Neste guia" table of contents: smooth-scrolls to a section and highlights the one in view. */
 export function Toc({ items }: { items: TocItem[] }) {

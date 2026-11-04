@@ -124,8 +124,10 @@ describe("linha do tempo antes de cada capítulo", () => {
     expect(items[2]).not.toHaveClass("p");
     expect(items[2]).toHaveClass("ph");
     expect(within(items[2]).getByRole("link")).toHaveAttribute("aria-current", "step");
+    // The visitor's resume point is in chapter 1: its diamond goes there, not to the chapter start.
+    await waitFor(() => expect(items[0]).toHaveClass("here"));
     expect([...before3.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual([
-      "#cap-cap-1",
+      "#item-missao-triple-threat",
       "#cap-cap-2",
       "#cap-cap-3",
     ]);

@@ -4,6 +4,7 @@ import { loginHref } from "@/components/guide/format";
 import { Ring } from "@/components/ui/Ring";
 import { formatCompact } from "@/lib/xp-format";
 import { useWalkProgress } from "./progress";
+import { useVersion } from "./version-state";
 
 /*
  * The small parts of a walkthrough page that show the visitor's own progress: the ring of the hero,
@@ -28,8 +29,9 @@ export function ProgressRing({ achievementCount }: { achievementCount: number })
 type ProgressCardProps = { achievementCount: number; collectibleRefs: string[] };
 
 /** "Seu progresso": Steam achievements, ticked collectibles and the XP still on the table. */
-export function ProgressCard({ achievementCount, collectibleRefs }: ProgressCardProps) {
+export function ProgressCard({ achievementCount, collectibleRefs: all }: ProgressCardProps) {
   const { user, doneCount, returnTo } = useWalkProgress();
+  const collectibleRefs = useVersion().shownRefs(all);
   return (
     <div className="wk-card">
       <h2>Seu progresso</h2>
@@ -67,9 +69,10 @@ export function ProgressCard({ achievementCount, collectibleRefs }: ProgressCard
   );
 }
 
-/** "3 / 61": ticked items of a chapter. */
-export function DoneCount({ refs }: { refs: string[] }) {
+/** "3 / 61": ticked items of a chapter (those the version being read shows). */
+export function DoneCount({ refs: all }: { refs: string[] }) {
   const { doneCount } = useWalkProgress();
+  const refs = useVersion().shownRefs(all);
   return (
     <b>
       {doneCount(refs)} / {refs.length}

@@ -18,7 +18,7 @@ import { CommunityTips } from "./CommunityTips";
 import { GuideSidebar } from "./GuideSidebar";
 import { Roadmap } from "./Roadmap";
 import { GuideUnavailable } from "./walk/GuideUnavailable";
-import { WalkUserSeed } from "./walk/progress";
+import { WalkUserAnon, WalkUserSeed } from "./walk/progress";
 import { RobotReport } from "./walk/RobotReport";
 import { walkGatedKeys } from "./walk/view";
 import { WalkthroughPage } from "./walk/WalkthroughPage";
@@ -76,11 +76,12 @@ export async function SidebarIsland({ guide, returnTo }: { guide: GuideDetail; r
 
 /**
  * The signed-in visitor's ticks and Steam progress on a walkthrough (format 2): a few ids the page's
- * client state takes over (WalkUserSeed). Nothing for an anonymous visitor.
+ * client state takes over (WalkUserSeed). For an anonymous visitor, only that nobody is signed in
+ * (WalkUserAnon: the cover invites them to sign in).
  */
 export async function WalkUserIsland({ guide }: { guide: GuideDetail }) {
   const state = await guideState(guide);
-  if (!state || !guide.walkthrough || !guide.walk) return null;
+  if (!state || !guide.walkthrough || !guide.walk) return <WalkUserAnon />;
   const view = applyGuideUserState(guide, state);
   const gated = new Set(walkGatedKeys(guide.walkthrough, guide.walk));
   return (

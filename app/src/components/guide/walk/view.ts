@@ -2,6 +2,7 @@ import { itemRef } from "@/lib/content/walk-refs";
 import { INLINE_SPOILER, type ContentBlock } from "@/lib/content/schema";
 import type { Walkthrough, WalkItem, WalkItemKind } from "@/lib/content/walkthrough-schema";
 import type { WalkAchievementView, WalkExtras } from "@/lib/queries/games";
+import { steamOnlyStep, steamOnlyTest } from "./versions";
 
 /*
  * What the walkthrough page renders, with every spoiler taken out (R13, R16): notes, step callouts
@@ -39,6 +40,8 @@ export type ItemView = {
   sources: ItemSource[];
   review: boolean;
   achievement: AchView | null;
+  /** Left out of the PlayStation version (versions.tsx); false when the guide has one version. */
+  steamOnly: boolean;
 };
 
 /** A body block, or a spoiler callout reduced to its id (the text comes on reveal). */
@@ -50,6 +53,8 @@ export type StepView = {
   scope: string;
   body: BlockView[];
   items: ItemView[];
+  /** Left out of the PlayStation version: only Steam-only items and no story of its own. */
+  steamOnly: boolean;
 };
 
 export type ChapterView = {
@@ -64,6 +69,8 @@ export type ChapterView = {
   deadline: string | null;
   deadlineScope: string;
   steps: StepView[];
+  /** Left out of the PlayStation version: every step is. */
+  steamOnly: boolean;
 };
 
 export type NoteView = { title: string; tone: "aviso" | "info"; spoiler: boolean; text: string | null };
@@ -159,7 +166,7 @@ function imageOf(item: WalkItem): ItemImage | null {
   return item.image ? { ...item.image, sourceUrl: item.image.sourceUrl ?? null } : null;
 }
 
-function itemView(item: WalkItem, achievements: WalkExtras["achievements"]): ItemView {
+function itemView(item: WalkItem, achievements: WalkExtras["achievements"], steamOnly: boolean): ItemView {
   const achievement = item.achievement ? achievements[item.achievement] : undefined;
   const gated = isGated(item, Boolean(achievement?.hidden));
   return {
@@ -179,6 +186,7 @@ function itemView(item: WalkItem, achievements: WalkExtras["achievements"]): Ite
     sources: item.sources.map((s) => ({ name: s.name, url: gated ? null : s.url })),
     review: item.review,
     achievement: achievement ? achView(achievement, gated) : null,
+    steamOnly,
   };
 }
 
@@ -187,29 +195,42 @@ function blockView(block: ContentBlock, id: string): BlockView {
   return mapBlockTexts(block, maskSpans);
 }
 
-/** The masked page: what every component of the walkthrough renders from. */
+/**
+ * The masked page: what every component of the walkthrough renders from. `versions`: the guide has
+ * a PlayStation version (versions.tsx), so what it leaves out is marked.
+ */
 export function walkView(
   walkthrough: Walkthrough,
   walk: WalkExtras,
   phases: (PhaseText & { key: string | null })[],
+  versions = false,
 ): WalkView {
   const phaseKeys = phases.map((p) => p.key);
-  const chapters = walkthrough.chapters.map<ChapterView>((chapter, c) => ({
-    key: chapter.key,
-    phase: phaseKeys.indexOf(chapter.phaseKey) + 1,
-    title: chapter.title,
-    region: chapter.region ?? null,
-    hours: chapter.hours,
-    sceneImage: chapter.sceneImage ?? null,
-    deadline: chapter.deadline ? maskSpans(chapter.deadline) : null,
-    deadlineScope: deadlineScope(c),
-    steps: chapter.steps.map((step, s) => ({
-      number: `${c + 1}.${s + 1}`,
-      scope: `${c}.${s}`,
-      body: step.body.map((block, b) => blockView(block, calloutId(c, s, b))),
-      items: step.items.map((item) => itemView(item, walk.achievements)),
-    })),
-  }));
+  const isSteamOnly = versions ? steamOnlyTest(walkthrough) : () => false;
+  const chapters = walkthrough.chapters.map<ChapterView>((chapter, c) => {
+    const steps = chapter.steps.map<StepView>((step, s) => {
+      const items = step.items.map((item) => itemView(item, walk.achievements, isSteamOnly(item)));
+      return {
+        number: `${c + 1}.${s + 1}`,
+        scope: `${c}.${s}`,
+        body: step.body.map((block, b) => blockView(block, calloutId(c, s, b))),
+        items,
+        steamOnly: steamOnlyStep(step.body, items),
+      };
+    });
+    return {
+      key: chapter.key,
+      phase: phaseKeys.indexOf(chapter.phaseKey) + 1,
+      title: chapter.title,
+      region: chapter.region ?? null,
+      hours: chapter.hours,
+      sceneImage: chapter.sceneImage ?? null,
+      deadline: chapter.deadline ? maskSpans(chapter.deadline) : null,
+      deadlineScope: deadlineScope(c),
+      steps,
+      steamOnly: steps.every((step) => step.steamOnly),
+    };
+  });
   return {
     notes: walkthrough.readFirst.map((note) => ({
       title: note.title,

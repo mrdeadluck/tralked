@@ -1,18 +1,20 @@
 import { walkInline } from "./inline";
 import { SpoilerItemName, SpoilerNote } from "./spoilers";
+import { Both, withSteamOnly } from "./versions";
 import { noteScope, type MissableView, type NoteView } from "./view";
 
 /*
  * "Leia isto para não perder nada": the walkthrough's read-first notes (amber for warnings, lime
  * for information), then every missable item as a chip with the chapter it belongs to. Notes and
  * items behind the spoiler gate (and hidden Steam achievements) arrive masked (view.ts) and fetch
- * their text only when the reader opens them.
+ * their text only when the reader opens them. The PlayStation version leaves out the Steam-only
+ * missables (versions.tsx).
  */
 
 function MissableChip({ item, chapter }: MissableView) {
   const icon = item.achievement?.iconUrl;
   return (
-    <li className="wk-mi">
+    <li className={withSteamOnly("wk-mi", item.steamOnly)}>
       {icon ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={icon} alt="" width={30} height={30} loading="lazy" />
@@ -29,7 +31,10 @@ function MissableChip({ item, chapter }: MissableView) {
 
 type ReadFirstProps = { notes: NoteView[]; missables: MissableView[] };
 
+const missablesLabel = (n: number) => (n === 1 ? "O perdível" : `Os ${n} perdíveis`);
+
 export function ReadFirst({ notes, missables }: ReadFirstProps) {
+  const ps = missables.filter((m) => !m.item.steamOnly).length;
   return (
     <section id="g-leia" className="wk-sec" aria-labelledby="g-leia-h">
       <p className="wk-lbl">Antes de começar</p>
@@ -48,10 +53,10 @@ export function ReadFirst({ notes, missables }: ReadFirstProps) {
       </ul>
       {missables.length > 0 ? (
         <>
-          <p className="wk-lbl" style={{ marginTop: 18 }}>
-            {missables.length === 1 ? "O perdível" : `Os ${missables.length} perdíveis`}
+          <p className={withSteamOnly("wk-lbl", ps === 0)} style={{ marginTop: 18 }}>
+            <Both steam={missablesLabel(missables.length)} ps={ps > 0 ? missablesLabel(ps) : undefined} />
           </p>
-          <ul className="wk-miss">
+          <ul className={withSteamOnly("wk-miss", ps === 0)}>
             {missables.map((m) => (
               <MissableChip key={m.item.ref} {...m} />
             ))}

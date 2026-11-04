@@ -108,10 +108,11 @@ describe("WalkthroughPage (topo)", () => {
     expect(await within(field).findByText("Nome Revelado")).toBeInTheDocument();
   });
 
-  it("selo APENAS STEAM", () => {
+  it("selo STEAM E PLAYSTATION quando o guia tem as duas listas", () => {
     render(<WalkthroughPage guide={pbzGuide()} />);
-    expect(screen.getByText("APENAS STEAM")).toBeInTheDocument();
-    expect(screen.getByText(/Steam tem 66 conquistas; a lista do PlayStation tem 36/)).toBeInTheDocument();
+    expect(screen.getByText("STEAM E PLAYSTATION")).toBeInTheDocument();
+    expect(screen.queryByText("APENAS STEAM")).toBeNull();
+    expect(screen.getByText(/66 conquistas na Steam · 36 troféus no PlayStation\. Os passos marcam quais valem nas duas\./)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/PS5/);
   });
 
@@ -124,7 +125,7 @@ describe("WalkthroughPage (topo)", () => {
     expect(screen.getByText("COMPATÍVEL COM XBOX")).toBeInTheDocument();
     rerender(<CompatSeal compat="steam_only" counts={null} />);
     expect(screen.getByText("APENAS STEAM")).toBeInTheDocument();
-    expect(screen.queryByText(/a lista do PlayStation tem/)).toBeNull();
+    expect(screen.queryByText(/troféus no PlayStation/)).toBeNull();
   });
 
   it("leia antes: aviso com spoiler fica fechado até o leitor tocar", async () => {
@@ -252,10 +253,13 @@ describe("página /jogos/[slug]/guia", () => {
     const { Overview } = await import("@/components/guide/Overview");
     const { FactsStrip } = await import("@/components/games/FactsStrip");
     const tree = await GuidePage({ params: Promise.resolve({ slug: "hollow-knight" }) } as never);
+    const { BackToTop } = await import("@/components/guide/BackToTop");
     const types = typesIn(tree);
     expect(types).toContain(Overview);
     expect(types).toContain(FactsStrip);
     expect(types).not.toContain(WalkthroughPage);
+    // "Voltar ao topo" is on the classic guide too.
+    expect(types).toContain(BackToTop);
   });
 
   it("formato 2 renderiza o detonado", async () => {

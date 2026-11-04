@@ -9,8 +9,12 @@ import { BackdropFader } from "./BackdropFader";
 import { ChapterTimeline } from "./ChapterTimeline";
 import { GreenTrail } from "./GreenTrail";
 import { JourneyProvider } from "./journey";
-import { WalkProgressProvider, WalkUserSeed } from "./progress";
+import { BackToTop } from "@/components/guide/BackToTop";
+import { WalkProgressProvider, WalkUserAnon, WalkUserSeed } from "./progress";
 import { DoneCount, ProgressCard, ProgressRing } from "./ProgressBits";
+import { ResumeProvider } from "./resume-state";
+import { ResumeButton } from "./ResumeButton";
+import { ResumeMarker } from "./ResumeMarker";
 import { SoundtrackPlayer } from "./SoundtrackPlayer";
 import {
   SpoilerAchievement,
@@ -22,6 +26,7 @@ import {
   SpoilerSpan,
 } from "./spoilers";
 import { SpoilerToggle } from "./SpoilerToggle";
+import { VersionProvider, VersionSwitch } from "./version-state";
 import { WalkItemRow } from "./WalkItemRow";
 import { WalkJourney } from "./WalkJourney";
 
@@ -127,6 +132,13 @@ export const CLIENT = new Set<unknown>([
   SpoilerToggle,
   WalkProgressProvider,
   WalkUserSeed,
+  WalkUserAnon,
+  VersionProvider,
+  VersionSwitch,
+  ResumeProvider,
+  ResumeButton,
+  ResumeMarker,
+  BackToTop,
   ProgressRing,
   ProgressCard,
   DoneCount,

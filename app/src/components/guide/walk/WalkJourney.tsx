@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { JourneyRow, useJourney } from "./journey";
 import { useWalkProgress } from "./progress";
+import { useJourneyLit } from "./resume-state";
 import { SpoilerToggle } from "./SpoilerToggle";
+import { STEAM_ONLY } from "./versions";
 
 /*
  * Journey of chapters under the page's top: a diamond per chapter with the visitor's ticks and the
@@ -18,6 +20,7 @@ const READ_LINE = 0.55;
 export function WalkJourney() {
   const chapters = useJourney();
   const { doneCount, user } = useWalkProgress();
+  const lit = useJourneyLit();
   const navRef = useRef<HTMLElement>(null);
   const [slim, setSlim] = useState(false);
   const [top, setTop] = useState(0);
@@ -26,7 +29,8 @@ export function WalkJourney() {
   useEffect(() => {
     const nav = navRef.current;
     if (!nav) return;
-    const sections = chapters.map((c) => document.getElementById(`cap-${c.key}`));
+    // A chapter the version being read leaves out is not on screen: it is never the current one.
+    const sections = chapters.map((c) => (c.hidden ? null : document.getElementById(`cap-${c.key}`)));
     let frame = 0;
     const update = () => {
       frame = 0;
@@ -36,7 +40,8 @@ export function WalkJourney() {
       setTop(headerBottom);
       setSlim(nav.getBoundingClientRect().bottom < headerBottom);
       const line = window.innerHeight * READ_LINE;
-      let at = 0;
+      // Before any chapter reaches the line, the first one the version shows is the current one.
+      let at = Math.max(0, chapters.findIndex((c) => !c.hidden));
       sections.forEach((section, i) => {
         if (section && section.getBoundingClientRect().top < line) at = i;
       });
@@ -63,7 +68,7 @@ export function WalkJourney() {
     <>
       <nav ref={navRef} className="wk-journey" aria-label="Capítulos do detonado">
         <div className="wk-jr-in">
-          <JourneyRow chapters={chapters} counts={counts} user={Boolean(user)} current={current} currentAs="location" />
+          <JourneyRow chapters={chapters} counts={counts} user={Boolean(user)} current={current} currentAs="location" lit={lit} />
           <SpoilerToggle />
         </div>
       </nav>
@@ -74,7 +79,8 @@ export function WalkJourney() {
             {chapters.map((c, i) => (
               <i
                 key={c.key}
-                className={i === current ? "c" : undefined}
+                hidden={c.hidden}
+                className={[i === current ? "c" : "", c.steamOnly ? STEAM_ONLY : ""].filter(Boolean).join(" ") || undefined}
                 style={{ "--p": `${c.refs.length > 0 ? (counts[i] / c.refs.length) * 100 : 0}%` } as CSSProperties}
               />
             ))}
