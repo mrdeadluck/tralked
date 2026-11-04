@@ -197,8 +197,6 @@ describe("versão PlayStation", () => {
     }
     const step = (n: string) => screen.getByRole("article", { name: `Passo ${n}` });
     expect(step("1.10")).toHaveClass("wk-steam-only");
-    // Its warning goes with it.
-    expect(step("1.10").previousElementSibling).toHaveClass("wk-steam-only");
     // A story step keeps its text even when its only item goes.
     expect(step("1.6")).not.toHaveClass("wk-steam-only");
     expect(step("1.9")).not.toHaveClass("wk-steam-only");

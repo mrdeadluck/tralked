@@ -111,9 +111,9 @@ describe("guia-estilo.md", () => {
       "é uma das 3 ervas",
       "A dúvida nunca vai para o leitor",
       "a instrução mais segura",
-      // One warning per missable: the page shows its own box and tag.
-      "Perdível no próximo passo",
+      // One warning per missable: the page shows the tag and the chapter's list; no box before the step.
       "PERDÍVEL · PEGUE AGORA",
+      "Tudo que é perdível aqui fecha",
     ]) {
       expect(style).toContain(phrase);
     }
@@ -1365,8 +1365,9 @@ describe("Task 21: os avisos do código nomeiam o que avisam e não são julgado
     await writeGuide(ai, makeDossier(), GAME, "live");
     const weeping = of("guide-write-chapter").find((c) => c.user.includes('<passo key="weeping-creek-1">'))!;
     expect(weeping.user).toContain("## Avisos de perdível que a página mostra");
-    expect(weeping.user).toContain("⚠ Perdível no próximo passo");
+    expect(weeping.user).not.toContain("Perdível no próximo passo");
     expect(weeping.user).toContain("PERDÍVEL · PEGUE AGORA");
+    expect(weeping.user).toContain("Tudo que é perdível aqui fecha");
     expect(weeping.user).toContain("causa e consequência");
     expect(weeping.user).not.toContain("antes de seguir.");
     expect(weeping.user).not.toContain("Avisos de perdível que o sistema põe");

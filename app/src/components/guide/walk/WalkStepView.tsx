@@ -1,17 +1,17 @@
-import type { ReactNode } from "react";
 import { Blocks } from "@/lib/content/render";
 import { walkInline } from "./inline";
 import { ResumeMarker } from "./ResumeMarker";
-import { SpoilerCallout, SpoilerItemName } from "./spoilers";
-import { Both, Separator, STEAM_ONLY, withSteamOnly } from "./versions";
-import type { BlockView, ItemView, StepView } from "./view";
+import { SpoilerCallout } from "./spoilers";
+import { withSteamOnly } from "./versions";
+import type { BlockView, StepView } from "./view";
 import { WalkItemRow } from "./WalkItemRow";
 
 /*
  * One step of a chapter: its number on the green line, what to do (in the order the player moves),
- * and the items found there. A step holding a missable item is preceded by its warning, never
- * followed: the reader learns what is lost before reaching the point of no return. A step the
- * PlayStation version leaves out goes with its warning; a Steam-only missable leaves the warning.
+ * and the items found there. A missable is said once: the item's tag ("perdível · pegue agora") and
+ * the robot's one sentence of cause and consequence. The chapter box lists the chapter's missables
+ * and its deadline. A step box before each missable step ("⚠ Perdível no próximo passo") repeated
+ * all of it, step after step (reader feedback, 2026-11-03), and was removed.
  */
 
 /** One body block; `scope` names its inline spoiler spans (view.ts). */
@@ -74,69 +74,21 @@ function StepBlock({ block, scope }: { block: BlockView; scope: string }) {
   }
 }
 
-/**
- * The warning before a step with missables: what is lost, and the chapter's deadline. A missable the
- * player can still come back for (returnLater) is named with "dá para voltar depois", never with
- * "não dá para voltar".
- */
-type MissableWarningProps = {
-  items: ItemView[];
-  deadline: ReactNode;
-  /** The PlayStation version leaves the step out (and the warning with it). */
-  steamOnly: boolean;
-};
-
-function MissableWarning({ items, deadline, steamOnly }: MissableWarningProps) {
-  const lost = items.some((item) => !item.returnLater);
-  const psLost = items.some((item) => !item.returnLater && !item.steamOnly);
-  const gone = steamOnly || items.every((i) => i.steamOnly);
-  const closing = (noReturn: boolean) => (
-    <>
-      {noReturn ? "Pegue agora: depois não dá para voltar." : "Vale pegar agora."}
-      {noReturn && deadline ? <> Prazo: {deadline}.</> : null}
-    </>
-  );
+export function WalkStepView({ step }: { step: StepView }) {
   return (
-    <aside className={withSteamOnly("wk-callout wk-warn", gone)} aria-label="Aviso de perdível">
-      <p>
-        <b>⚠ Perdível no próximo passo:</b>{" "}
-        {items.map((item, i) => (
-          <span key={item.ref} className={item.steamOnly ? STEAM_ONLY : undefined}>
-            <Separator items={items} index={i} />
-            {item.gated ? (
-              <SpoilerItemName id={`aviso-${item.ref}`} itemRef={item.ref} what="o perdível" />
-            ) : (
-              <strong>{item.name}</strong>
-            )}
-            {item.returnLater ? " (dá para voltar depois)" : null}
-          </span>
+    <article className={withSteamOnly("wk-step", step.steamOnly)} aria-label={`Passo ${step.number}`}>
+      <span className="num" aria-hidden="true">
+        {step.number}
+      </span>
+      <div className="wk-step-b">
+        <ResumeMarker step={step.number} />
+        {step.body.map((block, i) => (
+          <StepBlock key={i} block={block} scope={`${step.scope}.${i}`} />
         ))}
-        . <Both steam={closing(lost)} ps={gone || psLost === lost ? undefined : closing(psLost)} />
-      </p>
-    </aside>
-  );
-}
-
-/** `deadline`: the chapter's point of no return, already rendered (its spoiler spans gated). */
-export function WalkStepView({ step, deadline }: { step: StepView; deadline: ReactNode }) {
-  const missables = step.items.filter((item) => item.missable);
-  return (
-    <>
-      {missables.length > 0 ? <MissableWarning items={missables} deadline={deadline} steamOnly={step.steamOnly} /> : null}
-      <article className={withSteamOnly("wk-step", step.steamOnly)} aria-label={`Passo ${step.number}`}>
-        <span className="num" aria-hidden="true">
-          {step.number}
-        </span>
-        <div className="wk-step-b">
-          <ResumeMarker step={step.number} />
-          {step.body.map((block, i) => (
-            <StepBlock key={i} block={block} scope={`${step.scope}.${i}`} />
-          ))}
-          {step.items.map((item) => (
-            <WalkItemRow key={item.ref} item={item} />
-          ))}
-        </div>
-      </article>
-    </>
+        {step.items.map((item) => (
+          <WalkItemRow key={item.ref} item={item} />
+        ))}
+      </div>
+    </article>
   );
 }
