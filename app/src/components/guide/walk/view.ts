@@ -40,6 +40,11 @@ export type ItemView = {
   sources: ItemSource[];
   review: boolean;
   achievement: AchView | null;
+  /**
+   * Database ids of the Steam achievements the item counts toward (countsFor). Empty when it counts
+   * toward none, or when one of them is not in the game's list (it could never be complete).
+   */
+  countsFor: string[];
   /** Left out of the PlayStation version (versions.tsx); false when the guide has one version. */
   steamOnly: boolean;
 };
@@ -186,8 +191,15 @@ function itemView(item: WalkItem, achievements: WalkExtras["achievements"], stea
     sources: item.sources.map((s) => ({ name: s.name, url: gated ? null : s.url })),
     review: item.review,
     achievement: achievement ? achView(achievement, gated) : null,
+    countsFor: countsForIds(item, achievements),
     steamOnly,
   };
+}
+
+/** Ids of the achievements an item counts toward; none when one of them is not in the game's list. */
+function countsForIds(item: WalkItem, achievements: WalkExtras["achievements"]): string[] {
+  const ids = item.countsFor.map((apiName) => achievements[apiName]?.id);
+  return ids.every((id) => id !== undefined) ? (ids as string[]) : [];
 }
 
 function blockView(block: ContentBlock, id: string): BlockView {

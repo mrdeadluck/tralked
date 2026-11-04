@@ -13,6 +13,7 @@ const item = (ref: string, chapter: number, step: string, over: Partial<ResumeIt
   cleanup: false,
   loose: false,
   achievementId: null,
+  countsFor: [],
   ...over,
 });
 
@@ -124,6 +125,57 @@ describe("resumeOf", () => {
   it("capítulo com tudo feito acende mesmo depois do retorno", () => {
     expect(run(["a1", "z1", "z2"]).passedChapters).toEqual([2]);
   });
+
+  describe("itens que só contam para uma conquista (countsFor)", () => {
+    /*
+     * Chapter 0: three herbs (h2 missable) for the quest achievement "ach-q", which the quest item q
+     * is; chapter 1: c1 and c2 count toward "collect all" (ach-all) and toward ach-q + ach-all.
+     */
+    const HERBS: ResumeItem[] = [
+      item("h1", 0, "1.1", { countsFor: ["ach-q"] }),
+      item("h2", 0, "1.2", { countsFor: ["ach-q"], missable: true }),
+      item("h3", 0, "1.3", { countsFor: ["ach-q"] }),
+      item("q", 0, "1.4", { achievementId: "ach-q" }),
+      item("b1", 1, "2.1"),
+      item("c1", 1, "2.2", { countsFor: ["ach-all"] }),
+      item("c2", 1, "2.3", { countsFor: ["ach-q", "ach-all"] }),
+      item("b2", 1, "2.4"),
+    ];
+    const herbs = (ticked: string[], unlocked: string[]) =>
+      resumeOf(HERBS, { isTicked: (ref) => ticked.includes(ref), isUnlocked: (id) => unlocked.includes(id) });
+
+    it("com a conquista desbloqueada as ervas contam como feitas: nada para trás, nada talvez perdido", () => {
+      const r = herbs(["b1"], ["ach-q"]);
+      expect(r.resume?.ref).toBe("c1");
+      expect(r.behind).toEqual([]);
+      expect(r.possiblyMissed).toEqual([]);
+      expect(r.passedChapters).toEqual([0]);
+    });
+
+    it('feito só pelo countsFor não mexe no mais adiante ("colete todos" desbloqueado não joga para frente)', () => {
+      const r = herbs([], ["ach-all"]);
+      expect(r.furthest).toBeNull();
+      expect(r.evidence).toBe("nenhum");
+      expect(r.resume?.ref).toBe("h1");
+      // c1 is done (its only achievement is unlocked); c2 needs ach-q too.
+      expect(herbs(["b1"], ["ach-all"]).resume?.ref).toBe("c2");
+    });
+
+    it("todas as conquistas de countsFor são precisas, e countsFor vazio nunca conta", () => {
+      const r = herbs(["q", "b1"], ["ach-all"]);
+      expect(r.resume?.ref).toBe("c2");
+      expect(r.behind).toEqual(["h1", "h2", "h3"]);
+      expect(r.possiblyMissed).toEqual(["h2"]);
+      expect(herbs(["q"], ["ach-q", "ach-all"]).resume?.ref).toBe("b1");
+    });
+
+    it("lista filtrada (versão PlayStation): o mesmo predicado por item", () => {
+      const ps = HERBS.filter((i) => i.ref !== "c1");
+      const r = resumeOf(ps, { isTicked: (ref) => ref === "b1", isUnlocked: (id) => id === "ach-q" });
+      expect(r.resume?.ref).toBe("c2");
+      expect(r.behind).toEqual([]);
+    });
+  });
 });
 
 describe("resumeItems", () => {
@@ -132,10 +184,14 @@ describe("resumeItems", () => {
     { key: "limpeza", refs: ["z1"], steps: [1], missables: [], cleanup: true },
   ];
 
-  it("lista os itens em ordem com passo, perdível, limpeza e conquista", () => {
-    const items = resumeItems(chapters, (ref) => (ref === "z1" ? "ach-z1" : null));
+  it("lista os itens em ordem com passo, perdível, limpeza, conquista e countsFor", () => {
+    const items = resumeItems(
+      chapters,
+      (ref) => (ref === "z1" ? "ach-z1" : null),
+      (ref) => (ref === "a1" ? ["ach-q"] : []),
+    );
     expect(items).toEqual([
-      item("a1", 0, "1.1"),
+      item("a1", 0, "1.1", { countsFor: ["ach-q"] }),
       item("a2", 0, "1.1", { missable: true }),
       item("a3", 0, "1.2"),
       item("z1", 1, "2.1", { cleanup: true, loose: true, achievementId: "ach-z1" }),

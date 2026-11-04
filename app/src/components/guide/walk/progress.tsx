@@ -10,8 +10,10 @@ import { announceReward, announceToast } from "@/components/fx/reward-bus";
  * WalkUserIsland once the session is read) fills it with the visitor's ticks and Steam unlocks.
  * Item rows, the journey, the slim bar, the ring and the sidebar all read it.
  *
- * An item is done when the visitor ticked it or has its Steam achievement: `isDone` and
- * `doneCount` say so everywhere, so a synced achievement counts like a tick in every count.
+ * An item is done when the visitor ticked it, has its Steam achievement, or has every achievement
+ * it counts toward (countsFor: an herb of a quest whose achievement is unlocked was picked up):
+ * `isDone` and `doneCount` say so everywhere, so a synced achievement counts like a tick in every
+ * count.
  */
 
 /** What the server knows about the signed-in visitor. Item refs, never raw keys of gated items. */
@@ -44,13 +46,17 @@ type WalkProgress = {
   session: WalkSession;
   /** Ticked by the visitor (what toggleItem stores). */
   isTicked: (ref: string) => boolean;
-  /** Ticked, or its Steam achievement unlocked. */
+  /** Ticked, or confirmed by Steam (isConfirmed). */
   isDone: (ref: string) => boolean;
+  /** Its own Steam achievement unlocked, or every achievement it counts toward. */
+  isConfirmed: (ref: string) => boolean;
   doneCount: (refs: readonly string[]) => number;
   setDone: (ref: string, done: boolean) => void;
   isUnlocked: (achievementId: string) => boolean;
   /** Database id of the Steam achievement an item is (null: not an achievement). */
   achievementOf: (ref: string) => string | null;
+  /** Database ids of the achievements an item counts toward (empty: none). */
+  countsForOf: (ref: string) => readonly string[];
   /**
    * Asks Steam for this game's achievements (checkGameAchievements). New unlocks are marked on the
    * page and announced ("TRALKED!" and the XP Steam's confirmation paid).
@@ -70,10 +76,14 @@ type ProviderProps = {
   preview?: boolean;
   /** Item ref → database id of the Steam achievement the item is. */
   achievements?: Record<string, string>;
+  /** Item ref → database ids of the achievements it counts toward (items toward none left out). */
+  countsFor?: Record<string, string[]>;
   children: ReactNode;
 };
 
 const NO_ACHIEVEMENTS: Record<string, string> = {};
+const NO_COUNTS: Record<string, string[]> = {};
+const TOWARD_NONE: readonly string[] = [];
 
 export function WalkProgressProvider({
   guideId,
@@ -81,6 +91,7 @@ export function WalkProgressProvider({
   returnTo,
   preview = false,
   achievements = NO_ACHIEVEMENTS,
+  countsFor = NO_COUNTS,
   children,
 }: ProviderProps) {
   const [user, setUser] = useState<WalkProgress["user"]>(null);
@@ -126,13 +137,16 @@ export function WalkProgressProvider({
   );
 
   const achievementOf = useCallback((ref: string) => achievements[ref] ?? null, [achievements]);
+  const countsForOf = useCallback((ref: string) => countsFor[ref] ?? TOWARD_NONE, [countsFor]);
 
   const value = useMemo<WalkProgress>(() => {
-    const isDone = (ref: string) => {
-      if (done.has(ref)) return true;
+    const isConfirmed = (ref: string) => {
       const id = achievements[ref];
-      return id !== undefined && unlocked.has(id);
+      if (id !== undefined && unlocked.has(id)) return true;
+      const toward = countsFor[ref];
+      return toward !== undefined && toward.length > 0 && toward.every((a) => unlocked.has(a));
     };
+    const isDone = (ref: string) => done.has(ref) || isConfirmed(ref);
     return {
       guideId,
       gameId,
@@ -142,13 +156,30 @@ export function WalkProgressProvider({
       session,
       isTicked: (ref) => done.has(ref),
       isDone,
+      isConfirmed,
       doneCount: (refs) => refs.reduce((n, ref) => n + (isDone(ref) ? 1 : 0), 0),
       setDone,
       isUnlocked: (id) => unlocked.has(id),
       achievementOf,
+      countsForOf,
       check,
     };
-  }, [guideId, gameId, returnTo, preview, user, session, done, setDone, unlocked, achievements, achievementOf, check]);
+  }, [
+    guideId,
+    gameId,
+    returnTo,
+    preview,
+    user,
+    session,
+    done,
+    setDone,
+    unlocked,
+    achievements,
+    countsFor,
+    achievementOf,
+    countsForOf,
+    check,
+  ]);
   return (
     <SeedContext.Provider value={seeds}>
       <WalkProgressContext.Provider value={value}>{children}</WalkProgressContext.Provider>

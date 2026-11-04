@@ -72,6 +72,8 @@ export function WalkthroughPage({ guide, user = null, report = null, preview = f
   });
   // Item ref → the Steam achievement it is: an unlocked achievement marks its items as done.
   const achievements = Object.fromEntries(items.flatMap((i) => (i.achievement ? [[i.ref, i.achievement.id]] : [])));
+  // Item ref → the achievements it counts toward: with all of them unlocked, the item was picked up.
+  const countsFor = Object.fromEntries(items.flatMap((i) => (i.countsFor.length > 0 ? [[i.ref, i.countsFor]] : [])));
 
   return (
     <VersionProvider steamOnly={steamOnly}>
@@ -81,6 +83,7 @@ export function WalkthroughPage({ guide, user = null, report = null, preview = f
         returnTo={returnTo}
         preview={preview}
         achievements={achievements}
+        countsFor={countsFor}
       >
         <SpoilerProvider guideId={walk.guideId}>
           <JourneyProvider chapters={journey}>
