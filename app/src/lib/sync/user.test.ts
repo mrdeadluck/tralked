@@ -58,6 +58,8 @@ type FakeGame = {
   playtimeMin?: number;
   /** Library name (default `Jogo de Teste <appid>`; null: none). */
   name?: string | null;
+  /** Steam's rtime_last_played (absent: Steam gives none, as for Phantom Blade Zero on 2026-11-03). */
+  lastPlayedAt?: Date;
 };
 
 type FakeSteam = {
@@ -94,6 +96,7 @@ function fakeSteam(games: Record<number, FakeGame>): FakeSteam {
         // Steam's include_appinfo name; `null` plays an app Steam lists without one.
         ...(g.name !== null && { name: g.name ?? `Jogo de Teste ${appId}` }),
         playtimeMin: g.playtimeMin ?? 600,
+        lastPlayedAt: g.lastPlayedAt ?? null,
       }));
     },
     async getSchemaForGame(appId) {
@@ -864,6 +867,51 @@ describe.skipIf(!reachable)("syncUser", () => {
     ).toBe(0);
     // Next sync: nothing new, the game at 0 is not read again.
     expect(await syncUser(user.id)).toMatchObject({ status: "ok", newUnlocks: 0 });
+  });
+
+  it("a game Steam lists without a last-played date still gets one: newest unlock, then hours that grew", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { getRecentlyPlayed } = await import("@/lib/library/queries");
+    const noDate = newAppId();
+    const dated = newAppId();
+    const steamDate = new Date("2024-06-01T12:00:00Z");
+    const fake = fakeSteam({
+      [noDate]: {
+        pcts: pctsOf(3),
+        playtimeMin: 1080,
+        unlocks: { A0: new Date("2024-05-01T10:00:00Z"), A1: new Date("2024-05-03T10:00:00Z") },
+      },
+      [dated]: { pcts: pctsOf(2), playtimeMin: 120, lastPlayedAt: steamDate, unlocks: { A0: new Date("2024-05-02T10:00:00Z") } },
+    });
+    steamState.api = fake.api;
+    const user = await newUser();
+    const rowOf = async (appId: number) => {
+      const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+      return prisma.userGame.findUniqueOrThrow({
+        where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
+      });
+    };
+
+    await syncUser(user.id);
+    // No date from Steam: the newest unlock. Steam's own date is kept as it is.
+    expect((await rowOf(noDate)).lastPlayedAt).toEqual(new Date("2024-05-03T10:00:00Z"));
+    expect((await rowOf(dated)).lastPlayedAt).toEqual(steamDate);
+    expect((await getRecentlyPlayed(user.id)).map((g) => g.name)).toEqual([
+      `Jogo de Teste ${dated}`,
+      `Jogo de Teste ${noDate}`,
+    ]);
+
+    // Same hours, still no date: the date is not erased.
+    await syncUser(user.id);
+    expect((await rowOf(noDate)).lastPlayedAt).toEqual(new Date("2024-05-03T10:00:00Z"));
+
+    // More hours, still no date: played now, so it comes first.
+    fake.games.get(noDate)!.playtimeMin = 1140;
+    const before = Date.now();
+    await syncUser(user.id);
+    expect((await rowOf(noDate)).lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect((await getRecentlyPlayed(user.id))[0].name).toBe(`Jogo de Teste ${noDate}`);
   });
 
   it("asks once about games other players own that Steam leaves out of the list (Family Sharing)", async () => {
