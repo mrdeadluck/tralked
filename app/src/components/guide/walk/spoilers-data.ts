@@ -1,5 +1,6 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { walkthroughSchema } from "@/lib/content/walkthrough-schema";
+import { quietSources } from "@/lib/content/source-talk";
 import { safeImageUrl } from "@/lib/content/url";
 import { prisma } from "@/lib/db";
 import { gameTag } from "@/lib/queries/games-cached";
@@ -36,7 +37,8 @@ async function spoilersOf(guide: { gameId: string; walkthrough: unknown; steps: 
       hidden: a.hidden,
     };
   }
-  return walkSpoilers(walkthrough.data, achievements, guide.steps);
+  // The same fixes the page reads the text through (source-talk.ts), so the spans line up.
+  return walkSpoilers(quietSources(walkthrough.data), achievements, quietSources(guide.steps));
 }
 
 /** Spoilers of a published walkthrough, cached; null when the guide is not published (or not a walkthrough). */

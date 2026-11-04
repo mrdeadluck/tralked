@@ -1031,3 +1031,30 @@ body:has(.wk-hero) {
   background: var(--ps);
   color: var(--acc-ink);
 }
+
+/* "Créditos": the pages the guide was written from, once, at the end (GuideCredits.tsx). */
+.wk-credits-note {
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 72ch;
+  line-height: 1.55;
+}
+.wk-credits ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.wk-credits a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wk-credits a:hover {
+  color: var(--text);
+}

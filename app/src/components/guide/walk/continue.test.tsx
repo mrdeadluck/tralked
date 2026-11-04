@@ -562,14 +562,20 @@ describe("voltar ao topo", () => {
   });
 });
 
-describe("fontes na linha do item", () => {
-  it('o público vê as fontes com crédito, sem "em revisão" nem a contagem', () => {
+describe("fontes: só nos créditos, no fim do guia", () => {
+  it("o público não vê fonte nenhuma na linha do item; os créditos listam cada página uma vez, com link", () => {
     const { container } = render(<WalkthroughPage guide={guide()} user={<WalkUserAnon />} />);
     const amber = document.getElementById("item-fragmento-ambar-1")!;
-    expect(amber.querySelector(".src")).toHaveTextContent(/^Fontes: /);
-    expect(within(amber).getAllByRole("link").length).toBeGreaterThan(0);
+    expect(amber.querySelector(".src")).toBeNull();
+    expect(amber.textContent).not.toMatch(/Fontes?:/);
     expect(container.textContent).not.toContain("em revisão");
     expect(container.textContent).not.toMatch(/[●✓] \d+ fontes?/);
+
+    const credits = screen.getByRole("region", { name: "Créditos" });
+    const names = within(credits).getAllByRole("listitem").map((li) => li.textContent);
+    expect(names[0]).toBe("PowerPyx");
+    expect(new Set(names).size).toBe(names.length);
+    expect(within(credits).getByRole("link", { name: "PowerPyx" })).toHaveAttribute("href", "https://www.powerpyx.com/");
   });
 
   it('a prévia da equipe ainda mostra "em revisão"', () => {
