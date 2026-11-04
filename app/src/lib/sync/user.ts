@@ -231,6 +231,20 @@ async function recordGame(
         ...(fromLibrary && { checkedPlaytimeMin: playtimeMin }),
       },
     });
+    // The game was played at least when its newest achievement unlocked: a game Steam lists
+    // without a last-played date (see lastPlayedOf) still shows in "Jogou recentemente".
+    if (unlocks.length > 0) {
+      const newest = new Date(Math.max(...unlocks.map((u) => u.unlockedAt.getTime())));
+      await tx.userGame.updateMany({
+        where: {
+          userId,
+          gameId: game.id,
+          platform: "steam",
+          OR: [{ lastPlayedAt: null }, { lastPlayedAt: { lt: newest } }],
+        },
+        data: { lastPlayedAt: newest },
+      });
+    }
 
     const created = await tx.userAchievement.createMany({
       data: rows
@@ -274,6 +288,25 @@ async function recordGame(
     await tx.xpLedgerEntry.createMany({ data: ledger, skipDuplicates: true });
     return created.count;
   }, TRANSACTION_OPTIONS);
+}
+
+/**
+ * When the game was last played. Steam's date wins when it gives one. Some games come in the list
+ * without it (rtime_last_played 0: Phantom Blade Zero for a player with 18 h, 2026-11-03), and the
+ * profile's "Jogou recentemente" then left them out. Without Steam's date: hours that grew since the
+ * last sync mean it was played now; otherwise the stored date stays (the achievements pass may have
+ * set it from the newest unlock, see recordGame), so a sync never erases a date.
+ */
+function lastPlayedOf(
+  steamDate: Date | null,
+  before: { playtimeMin: number; lastPlayedAt: Date | null; playtimeUpdatedAt: Date | null } | undefined,
+  playtimeMin: number,
+  playtimeKnown: boolean,
+  now: Date,
+): Date | null {
+  if (steamDate) return steamDate;
+  const grew = playtimeKnown && before?.playtimeUpdatedAt != null && playtimeMin > before.playtimeMin;
+  return grew ? now : (before?.lastPlayedAt ?? null);
 }
 
 /** What the library sync knows of an owned game. */
@@ -326,10 +359,11 @@ async function recordLibrary(
     if (!gameId) continue;
     const before = stored.get(gameId);
     result.set(game.appId, { gameId, checkedPlaytimeMin: before?.checkedPlaytimeMin ?? null });
+    const playtimeMin = Math.max(0, game.playtimeMin);
     const fields = {
-      playtimeMin: Math.max(0, game.playtimeMin),
+      playtimeMin,
       playtime2WeeksMin: game.playtime2WeeksMin ?? null,
-      lastPlayedAt: game.lastPlayedAt ?? null,
+      lastPlayedAt: lastPlayedOf(game.lastPlayedAt ?? null, before, playtimeMin, playtimeKnown, now),
       playtimeUpdatedAt: now,
     };
     if (!before) {
