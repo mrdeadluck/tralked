@@ -52,7 +52,8 @@ export const FRAME_SCOPE = "frame";
  * checks, or the chronology check. "checagem-devida": a probe changed how a job outside its chapters renders (a loose
  * achievement moved there): the next run checks that job again, and rewrites it only if the checker rejects it.
  */
-export type ProblemKind = "checador" | "reparo" | "nota" | "copia" | "vocabulario" | "cronologia" | "checagem-devida" | "checador-correto";
+/** "expressao": a banned expression (doubt or source talk) in the writer's text (copy-check.ts `bannedExpressions`). */
+export type ProblemKind = "checador" | "reparo" | "nota" | "copia" | "vocabulario" | "expressao" | "cronologia" | "checagem-devida" | "checador-correto";
 export const CHECK_DUE: ProblemKind = "checagem-devida";
 /**
  * Task 21: an entry the checker listed as right (`tipo: "correto"`): never a problem, kept with the draft's notes

@@ -1296,6 +1296,20 @@ describe("Task 20: nenhuma escrita paga se perde", () => {
       expect(log).toContain("[torre] Mirage Estate não está no dossiê.");
     });
 
+    it("revisão final: sobras da lista de expressões proibidas (expressao) contam em N e vão junto", async () => {
+      const { api, calls } = fakeApi();
+      const problems: GuideProblem[] = [leftovers[0]!, { text: 'Em o item x, não use a expressão "fonte" no texto do guia.', scope: "torre", kind: "expressao" }];
+      const deps = makeDeps({ api, direct: { ...direct, acceptPending: 2 }, stages: fakeStages({ writeAndCheckGuide: failingWriter(problems) }) });
+      expect(await runGuideRequest(deps)).toBe("review");
+      expect(calls.created).toHaveLength(1);
+      expect((calls.created[0]!.payload.report as RobotReport).pendencias).toHaveLength(2);
+      // They count toward N.
+      const { api: api1, calls: calls1 } = fakeApi();
+      const one = makeDeps({ api: api1, direct: { ...direct, acceptPending: 1 }, stages: fakeStages({ writeAndCheckGuide: failingWriter(problems) }) });
+      expect(await runGuideRequest(one)).toBe("failed");
+      expect(calls1.created).toEqual([]);
+    });
+
     it("um problema de cópia (ou de outro tipo) entre as sobras → não envia", async () => {
       for (const kind of ["copia", "vocabulario", "cronologia", "reparo"] as const) {
         const { api, calls } = fakeApi();

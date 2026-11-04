@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bannedExpressions, DOUBT_PHRASES, doubtPhrases, sourceSites } from "../../src/guias/copy-check.js";
+import { bannedExpressions, bannedInCode, DOUBT_PHRASES, doubtPhrases, sourceSites } from "../../src/guias/copy-check.js";
 import type { GuideDossier } from "../../src/guias/dossier.js";
 
 describe("voz v2: a dúvida nunca vai para o leitor (lista de frases proibidas)", () => {
@@ -101,5 +101,54 @@ describe("voz v2, revisão 2: o texto do guia nunca fala de fontes, sites consul
       ],
     } as unknown as GuideDossier;
     expect(sourceSites(dossier)).toEqual(["powerpyx", "fextralife", "tecmundo"]);
+  });
+});
+
+describe("revisão final: a lista de expressões proibidas nunca deixa uma parte sem conserto", () => {
+  it("as palavras de um nome conhecido do dossiê não contam", () => {
+    expect(bannedExpressions("Pegue a Fonte da Juventude no altar.")).toEqual(["fonte"]);
+    expect(bannedExpressions("Pegue a Fonte da Juventude no altar.", [], { names: ["Fonte da Juventude"] })).toEqual([]);
+    expect(bannedExpressions("Ganhe Em Revisão depois do chefe.", [], { names: ["Em Revisão"] })).toEqual([]);
+    // Only the name's own words: the rest of the text is still read.
+    expect(bannedExpressions("A Fonte da Juventude, segundo as fontes, fica ali.", [], { names: ["Fonte da Juventude"] })).toEqual(["segundo as fontes"]);
+  });
+
+  it("com o sentido de fonte d'água (o dossiê cita uma fonte), \"fonte\" e \"as fontes\" passam; as frases de dúvida não", () => {
+    expect(bannedExpressions("Beba da fonte no pátio; as fontes do jardim também.", [], { fountain: true })).toEqual([]);
+    expect(bannedExpressions("Beba da fonte no pátio; as fontes do jardim também.")).toEqual(["as fontes", "fonte"]);
+    expect(bannedExpressions("Segundo as fontes, a fonte fica no pátio.", [], { fountain: true })).toEqual(["segundo as fontes"]);
+  });
+
+  it("os sites genéricos (plataformas, wikis, vídeo, palavras comuns) nunca viram nome banido; os distintos sim", () => {
+    const link = (url: string) => ({ name: "x", url });
+    const dossier = {
+      chapters: [
+        {
+          items: [
+            {
+              sourceLinks: [
+                "https://phantom-blade-zero.fandom.com/wiki/Bells",
+                "https://www.youtube.com/watch?v=1",
+                "https://www.playstation.com/pt-br/games/x/",
+                "https://www.xbox.com/x",
+                "https://www.reddit.com/r/x",
+                "https://games.example.org/x",
+                "https://www.guias.com.br/x",
+                "https://allthings.how/x",
+                "https://www.thegamer.com/x",
+              ].map(link),
+            },
+          ],
+        },
+      ],
+      achievements: [],
+    } as unknown as GuideDossier;
+    expect(sourceSites(dossier)).toEqual(["example", "allthings", "thegamer"]);
+  });
+
+  it("uma expressão proibida num texto do código vira erro interno, com o texto", () => {
+    expect(bannedInCode(["**X** — Este guia mapeia 2 de 3 Fontes Antigas; o que falta ainda não tem local conhecido.", "Siga em frente."])).toEqual([
+      'texto do código com expressão proibida "fontes": "**X** — Este guia mapeia 2 de 3 Fontes Antigas; o que falta ainda não tem local conhecido."',
+    ]);
   });
 });

@@ -8,7 +8,7 @@ import { CHECK_DUE, CHECKER_RIGHT, checkScopes, FRAME_SCOPE, jobSteps, type Chec
 import { chronologyProblems } from "./chronology.js";
 import { DEFAULT_CHECK_EFFORT, DEFAULT_MODEL_CHECK, type GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
-import { deterministicProblems, dossierTexts, knownNames, sourceSites } from "./copy-check.js";
+import { bannedInCode, deterministicProblems, dossierTexts, knownNames, sourceSites } from "./copy-check.js";
 import {
   excerptSection,
   excerptsFor,
@@ -752,7 +752,16 @@ async function draft(
  * The payload plus what the code had to fill or correct, as problems scoped to the call that should fix it, and the
  * warning callouts the code wrote (Task 21: the checker gets them apart, with their basis, and does not judge them).
  */
-export type WrittenGuide = { payload: GuidePayloadV2; repairs: GuideProblem[]; codeWarnings: CodeWarning[] };
+export type WrittenGuide = {
+  payload: GuidePayloadV2;
+  repairs: GuideProblem[];
+  codeWarnings: CodeWarning[];
+  /**
+   * Final review: every text the code wrote into the payload (its warnings and notes, the dossier's deadline, names
+   * and titles it fell back to, its fallback sentences): the ban check never makes them the writer's problem.
+   */
+  codeTexts: string[];
+};
 
 /** The dossier facts behind the code's warning at a chapter's start: why the code anchored the achievement there. */
 function anchorWarningBase(a: DossierAchievement): Record<string, unknown> {
@@ -773,6 +782,12 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   const frame = texts.frame;
   const repairs: GuideProblem[] = [];
   const codeWarnings: CodeWarning[] = [];
+  const codeTexts: string[] = [];
+  /** A text the code wrote: recorded, then used. */
+  const byCode = (text: string) => {
+    codeTexts.push(text);
+    return text;
+  };
   const jobOfStep = new Map(jobs.flatMap((j) => j.steps.map((s) => [s.key, j.id] as const)));
   const scopeOfStep = (stepKey: string) => jobOfStep.get(stepKey) ?? FRAME_SCOPE;
   const steamApiNames = new Set(dossier.achievements.map((a) => a.apiName));
@@ -907,7 +922,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       nameEn = a.namePt && a.namePt !== a.nameEn ? plain(a.nameEn, 80) : undefined;
     } else {
       const en = i!.nameEn ?? i!.name;
-      name = plain(t?.nome, 80) || plain(en, 80) || "Item";
+      name = plain(t?.nome, 80) || byCode(plain(en, 80) || "Item");
       nameEn = name.toLowerCase() !== en.toLowerCase() ? plain(en, 80) || undefined : undefined;
     }
     const location = inline(t?.local, ITEM_LOCATION_MAX);
@@ -980,7 +995,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     let deadline = c.deadlines.length > 0 ? plainWithSpoilers(meta?.prazo, 200) : "";
     if (c.deadlines.length > 0 && !deadline) {
       repairs.push({ scope: FRAME_SCOPE, text: `O capítulo "${c.title}" (${c.key}) tem perdíveis, mas ficou sem o prazo (ponto de não retorno).` });
-      deadline = plain(c.deadlines.join("; "), 200);
+      deadline = byCode(plain(c.deadlines.join("; "), 200));
     }
     // Task 18: loose missables anchored here are warned at the chapter's start (they may be done later).
     const anchored = anchoredIn(skel, c).map((l) => l.ach!);
@@ -1002,7 +1017,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
         .slice(0, Math.max(1, (anchor ? 18 : 19) - counts.length));
       if (blocks.length === 0) {
         repairs.push({ scope: scopeOfStep(s.key), text: `O passo ${s.key} do capítulo "${c.title}" ficou sem texto; escreva o caminho deste passo.` });
-        blocks = [{ type: "paragraph", text: walkItems.length > 0 ? `Neste ponto: ${walkItems.map((i) => i.name).join(", ")}.` : "Siga em frente pela história." }];
+        blocks = [{ type: "paragraph", text: byCode(walkItems.length > 0 ? `Neste ponto: ${walkItems.map((i) => i.name).join(", ")}.` : "Siga em frente pela história.") }];
       }
       if (anchorText) {
         const text = anchorText;
@@ -1027,7 +1042,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     chapters.push({
       key: c.key,
       phaseKey,
-      title: plain(meta?.titulo, 80) || plain(c.title, 80) || "Capítulo",
+      title: plain(meta?.titulo, 80) || byCode(plain(c.title, 80) || "Capítulo"),
       ...(c.region && plain(c.region, 120) ? { region: plain(c.region, 120) } : {}),
       // The dossier has no per-chapter time: no source, no number.
       hours: NO_DATA,
@@ -1044,7 +1059,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
     let blocks = t ? toBlocks(t.blocos) : [];
     if (blocks.length === 0) {
       repairs.push({ scope: FRAME_SCOPE, text: `A etapa "${p.title}" (${p.key}) do roadmap ficou sem texto.` });
-      blocks = [{ type: "paragraph", text: "Siga os capítulos desta etapa, na ordem." }];
+      blocks = [{ type: "paragraph", text: byCode("Siga os capítulos desta etapa, na ordem.") }];
     }
     const achievements = [
       ...new Set(chapters.filter((c) => c.phaseKey === p.key).flatMap((c) => c.steps.flatMap((s) => s.items.flatMap((i) => (i.achievement ? [i.achievement] : []))))),
@@ -1106,8 +1121,10 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   if (readFirst.length === 0) {
     repairs.push({ scope: FRAME_SCOPE, text: 'O "leia antes" ficou vazio.' });
     readFirst.push({
-      title: "Antes de começar",
-      text: missables > 0 ? `Este guia tem ${missables} conquistas perdíveis. Os avisos aparecem antes de cada ponto de não retorno.` : "Nenhuma conquista é perdível: dá para voltar depois e pegar o que faltar.",
+      title: byCode("Antes de começar"),
+      text: byCode(
+        missables > 0 ? `Este guia tem ${missables} conquistas perdíveis. Os avisos aparecem antes de cada ponto de não retorno.` : "Nenhuma conquista é perdível: dá para voltar depois e pegar o que faltar.",
+      ),
       tone: missables > 0 ? "aviso" : "info",
       spoiler: false,
     });
@@ -1116,7 +1133,7 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
   const need = (text: string, fallback: string, what: string) => {
     if (text) return text;
     repairs.push({ scope: FRAME_SCOPE, text: `Faltou ${what}.` });
-    return fallback;
+    return byCode(fallback);
   };
 
   const payload: GuidePayloadV2 = {
@@ -1153,7 +1170,9 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
       chapters,
     },
   };
-  return { payload, repairs: repairs.map((r) => ({ ...r, kind: r.kind ?? "reparo" })), codeWarnings };
+  // The code's warnings and notes are its own texts too.
+  for (const w of codeWarnings) codeTexts.push(w.text);
+  return { payload, repairs: repairs.map((r) => ({ ...r, kind: r.kind ?? "reparo" })), codeWarnings, codeTexts };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1267,6 +1286,26 @@ function jobSignature(payload: GuidePayloadV2, job: WriteJob): string {
   return JSON.stringify(jobSteps(payload, job));
 }
 
+const FOUNTAIN = /\b(fontes?|fountains?)\b/i;
+
+/** Final review: the keys of the items whose dossier facts name a fountain ("fonte", "fountain"), and of their steps. */
+function fountainKeysOf(skel: GuideSkeleton): Set<string> {
+  const out = new Set<string>();
+  const names = (x: SkelItem) => [x.item?.name, x.item?.nameEn, x.item?.location, x.ach?.nameEn, x.ach?.namePt, x.ach?.howTo, x.ach?.description, x.ach?.descriptionPt];
+  const named = (x: SkelItem) => names(x).some((t) => typeof t === "string" && FOUNTAIN.test(t));
+  for (const c of skel.chapters) {
+    for (const s of c.steps) {
+      for (const x of s.items) {
+        if (!named(x)) continue;
+        out.add(x.key);
+        out.add(s.key);
+      }
+    }
+  }
+  for (const l of skel.loose) if (named(l)) out.add(l.key);
+  return out;
+}
+
 /** A frame with no text: only to render a saved draft whose frame is unusable, to compare its jobs. */
 const BLANK_FRAME: Frame = {
   capa: { chamadas: [], manchete: "", linhaFina: "" },
@@ -1326,10 +1365,16 @@ export async function writeAndCheckGuide(
     const stepOfItem = new Map(written.payload.walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items.map((i) => [i.key, s.key] as const))));
     return (key: string | null) => (key === null ? FRAME_SCOPE : (jobOfStep.get(stepOfItem.get(key) ?? key) ?? FRAME_SCOPE));
   };
-  /** The copy and vocabulary findings, scoped. */
+  // Final review: the items (and their steps) whose dossier facts name a fountain: "fonte" there is the game sense.
+  const fountainKeys = fountainKeysOf(ctx.skel);
+  /** The copy, vocabulary and banned-expression findings, scoped (the code's own texts left out). */
   const textChecks = (written: WrittenGuide): GuideProblem[] => {
     const scopeOf = scoper(written);
-    return deterministicProblems(written.payload, sources, names, sites).map((p) => ({ text: p.text, scope: scopeOf(p.key), kind: p.kind }));
+    return deterministicProblems(written.payload, sources, names, sites, { codeTexts: new Set(written.codeTexts), fountainKeys }).map((p) => ({
+      text: p.text,
+      scope: scopeOf(p.key),
+      kind: p.kind,
+    }));
   };
   const blocking = (written: WrittenGuide): GuideProblem[] => {
     const scopeOf = scoper(written);
@@ -1343,9 +1388,11 @@ export async function writeAndCheckGuide(
       ...byWriter,
     ];
   };
-  /** The code's own chronology violations: reported, never sent to the model. */
-  const internalOf = (written: WrittenGuide) =>
-    chronologyProblems(written.payload, ctx.skel, ctx.dossier).filter((p) => p.owner === "code").map((p) => p.text);
+  /** The code's own chronology violations, and banned expressions in its own texts: reported, never sent to the model. */
+  const internalOf = (written: WrittenGuide) => [
+    ...chronologyProblems(written.payload, ctx.skel, ctx.dossier).filter((p) => p.owner === "code").map((p) => p.text),
+    ...bannedInCode(written.codeTexts, sites, names),
+  ];
 
   let texts: PartialTexts | undefined = opts.resume ? fromSaved(opts.resume.texts) : undefined;
   let problems: GuideProblem[] = opts.resume ? opts.resume.problems.filter((p) => inScope(p.scope)) : [];
@@ -1363,7 +1410,7 @@ export async function writeAndCheckGuide(
   if (before && texts) {
     const written = new Set([...(texts.frame ? [FRAME_SCOPE] : []), ...texts.jobs.keys()]);
     problems = [
-      ...problems.filter((p) => p.kind !== "copia" && p.kind !== "vocabulario"),
+      ...problems.filter((p) => p.kind !== "copia" && p.kind !== "vocabulario" && p.kind !== "expressao"),
       ...textChecks(before).filter((p) => written.has(p.scope) && inScope(p.scope)),
     ];
   }
