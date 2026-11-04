@@ -588,8 +588,8 @@ async function processRequest(run: Run): Promise<Final> {
       );
     }
     let rounds = 0;
-    const saveRound = (draft: Parameters<typeof saveDraft>[1]["draft"]) =>
-      saveDraft(db, { requestId: request.id, attempt: request.attempts, writingKey: cacheKey, baseKey, draft, at: deps.now() });
+    const saveRound = (draft: Parameters<typeof saveDraft>[1]["draft"], checked = true) =>
+      saveDraft(db, { requestId: request.id, attempt: request.attempts, writingKey: cacheKey, baseKey, checked, draft, at: deps.now() });
     written = await stages.writeAndCheckGuide(run.ai, toWrite, source, "backfill", {
       models,
       sourceTexts: read.map((r) => r.text),
@@ -607,7 +607,7 @@ async function processRequest(run: Run): Promise<Final> {
         saveRound(round);
       },
       // PBZ attempt 22: the written texts are saved before the check, so a failure while checking loses no writing.
-      onWritten: (round) => saveRound(round),
+      onWritten: (round) => saveRound(round, false),
     });
     // A stage that reported no round (a test fake) is still saved, without texts to resume from.
     if (rounds === 0) {
@@ -909,7 +909,7 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
       try {
         target = await stages.locateTarget(ai, bytes, item.nameEn ?? item.name, { model: deps.config.MODEL_FAST, bucket: "backfill" });
       } catch (error) {
-        if (error instanceof BudgetExceededError) throw error;
+        if (error instanceof BudgetExceededError || isOutOfCredit(error)) throw error;
         unringed++;
         deps.log(`guia: imagem de "${item.name}" vai sem a marcação do item: ${messageOf(error)}`);
       }
@@ -923,6 +923,12 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
       if (error instanceof BudgetExceededError) {
         run.progress.notes.push(`teto de gasto atingido nas imagens: elas pararam em ${added}, o guia saiu assim`);
         deps.log(`guia: ${error.message}; imagens interrompidas`);
+        report();
+        return;
+      }
+      if (isOutOfCredit(error)) {
+        run.progress.notes.push(`${OUT_OF_CREDIT_REASON} nas imagens: elas pararam em ${added}, o guia saiu assim`);
+        deps.log(`guia: ${OUT_OF_CREDIT_REASON}; imagens interrompidas`);
         report();
         return;
       }
@@ -963,6 +969,11 @@ async function addSoundtrack(run: Run, payload: GuidePayloadV2, source: GuideDos
     if (error instanceof BudgetExceededError) {
       run.progress.notes.push("teto de gasto atingido na busca da trilha sonora: o guia saiu sem música");
       run.deps.log(`guia: ${error.message}; trilha interrompida`);
+      return;
+    }
+    if (isOutOfCredit(error)) {
+      run.progress.notes.push(`${OUT_OF_CREDIT_REASON} na busca da trilha sonora: o guia saiu sem música`);
+      run.deps.log(`guia: ${OUT_OF_CREDIT_REASON}; trilha interrompida`);
       return;
     }
     run.deps.log(`guia: a busca da trilha falhou: ${messageOf(error)}`);

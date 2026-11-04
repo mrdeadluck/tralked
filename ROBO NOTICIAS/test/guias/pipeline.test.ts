@@ -1629,3 +1629,73 @@ describe("PBZ tentativa 22: sem crédito na API", () => {
     expect(deps.lines.some((l) => l.includes("sem crédito na API da Anthropic"))).toBe(true);
   });
 });
+
+describe("sem crédito, revisão 1", () => {
+  const credit = () => Object.assign(new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}'), { status: 400 });
+
+  it("na descoberta: para ali, sem salvar uma descoberta envenenada", async () => {
+    const { discoverSources } = await import("../../src/guias/discover.js");
+    const deps = makeDeps({
+      stages: fakeStages({
+        discoverSources: (game, d) =>
+          discoverSources(game, {
+            ...d,
+            search: async () => {
+              throw credit();
+            },
+          }),
+      }),
+    });
+    expect(await runGuideRequest(deps)).toBe("failed");
+    expect(loadRunContext(deps.db, REQUEST.id)).toBeUndefined();
+    expect(deps.lines.some((l) => l.includes("sem crédito na API da Anthropic"))).toBe(true);
+  });
+
+  it("nas imagens e na trilha: param como no teto de gasto, e o guia sai", async () => {
+    const { api, calls } = fakeApi();
+    const stages = fakeStages({
+      locateTarget: async () => {
+        throw credit();
+      },
+      findSoundtrack: async () => {
+        throw credit();
+      },
+    });
+    expect(await runGuideRequest(makeDeps({ api, stages }))).toBe("review");
+    const { payload } = calls.created[0]!;
+    expect(payload.walkthrough.chapters[0]!.steps[0]!.items[0]!.image).toBeUndefined();
+    expect(payload.walkthrough.soundtrack).toBeUndefined();
+    // The soundtrack runs first, then the images.
+    expect((payload.report as RobotReport).notes).toEqual([
+      "sem crédito na API da Anthropic na busca da trilha sonora: o guia saiu sem música",
+      "sem crédito na API da Anthropic nas imagens: elas pararam em 0, o guia saiu assim",
+    ]);
+  });
+
+  it("a retomada no pipeline: a tentativa seguinte recomeça do rascunho pré-checagem (resumableDraft)", async () => {
+    const db = openGuideDb(":memory:");
+    const job = { passos: [], itens: [], depois: null };
+    const due = [{ scope: "cap-1", kind: "checagem-devida" as const, text: "O trecho cap-1 foi escrito e ainda não foi checado." }];
+    const first = vi.fn(async (...args: unknown[]) => {
+      (args[4] as WriteAndCheckOpts).onWritten?.({
+        round: 1,
+        ok: false,
+        probe: false,
+        texts: { frame: null, jobs: { "cap-1": job } },
+        payload: writtenPayload(),
+        problems: due,
+        repairs: [],
+        internalErrors: [],
+        pending: [],
+      });
+      throw credit();
+    });
+    expect(await runGuideRequest(makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: first as never }) }))).toBe("failed");
+    const second = vi.fn(async () => ({ ok: true as const, payload: writtenPayload() }));
+    const deps = makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: second as never }) });
+    expect(await runGuideRequest(deps)).toBe("review");
+    const opts = (second.mock.calls[0] as unknown[])[4] as WriteAndCheckOpts;
+    expect(opts.resume).toEqual({ texts: { frame: null, jobs: { "cap-1": job } }, problems: due });
+    expect(deps.lines.some((l) => l.includes("rascunho anterior reaproveitado"))).toBe(true);
+  });
+});

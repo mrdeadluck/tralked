@@ -188,3 +188,25 @@ describe("Task 30: histórico de problemas por trecho (mesmo pedido, mesma chave
     expect(problemHistory(db, { requestId: "direto-9", baseKey: "base:x" }).size).toBe(0);
   });
 });
+
+describe("salvar antes da checagem: as linhas de antes da checagem saem quando a rodada checada chega", () => {
+  it("a rodada checada apaga as linhas pré-checagem mais antigas do mesmo pedido e chave; as outras ficam", () => {
+    const db = openGuideDb(":memory:");
+    const at = new Date("2026-11-03T10:00:00Z");
+    const save = (requestId: string, writingKey: string, checked: boolean) => saveDraft(db, { requestId, attempt: 1, writingKey, checked, draft: round(), at });
+    save("a", "escrita:x", false);
+    save("a", "escrita:y", false);
+    save("b", "escrita:x", false);
+    save("a", "escrita:x", true);
+    const rows = () => db.raw.prepare("SELECT request_id, writing_key, checked FROM drafts ORDER BY id").all() as { request_id: string; writing_key: string; checked: number }[];
+    expect(rows().map((r) => [r.request_id, r.writing_key, r.checked])).toEqual([
+      ["a", "escrita:y", 0],
+      ["b", "escrita:x", 0],
+      ["a", "escrita:x", 1],
+    ]);
+    // A newer pre-check row (the next round, written) stays, and resumes over the checked one.
+    save("a", "escrita:x", false);
+    expect(rows().filter((r) => r.request_id === "a" && r.writing_key === "escrita:x").map((r) => r.checked)).toEqual([1, 0]);
+    expect(resumableDraft(db, "escrita:x")!.requestId).toBe("a");
+  });
+});

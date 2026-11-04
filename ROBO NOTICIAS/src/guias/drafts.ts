@@ -58,13 +58,23 @@ type DraftRow = {
 
 export function saveDraft(
   db: GuideDb,
-  input: { requestId: string; attempt: number; writingKey: string; baseKey?: string; writerVersion?: number; draft: DraftInput; at: Date },
+  input: {
+    requestId: string;
+    attempt: number;
+    writingKey: string;
+    baseKey?: string;
+    writerVersion?: number;
+    /** False for a round saved before its check (`onWritten`); a checked round prunes them (`saveDraft`). */
+    checked?: boolean;
+    draft: DraftInput;
+    at: Date;
+  },
 ): void {
   const d = input.draft;
   db.raw
     .prepare(
       `INSERT INTO drafts (request_id, attempt, writing_key, created_at, round, ok, probe, payload_json, problems_json, repairs_json,
-         internal_errors_json, texts_json, pending_json, base_key, writer_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         internal_errors_json, texts_json, pending_json, base_key, writer_version, checked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.requestId,
@@ -82,7 +92,14 @@ export function saveDraft(
       JSON.stringify(d.pending),
       input.baseKey ?? null,
       input.writerVersion ?? WRITER_CACHE_VERSION,
+      input.checked === false ? 0 : 1,
     );
+  // A checked round holds everything its pre-check rows held: those of the same request and writing key go.
+  if (input.checked !== false) {
+    db.raw
+      .prepare("DELETE FROM drafts WHERE request_id = ? AND writing_key = ? AND checked = 0 AND id < (SELECT MAX(id) FROM drafts)")
+      .run(input.requestId, input.writingKey);
+  }
 }
 
 const parse = <T>(json: string | null, fallback: T): T => {

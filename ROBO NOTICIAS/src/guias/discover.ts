@@ -1,5 +1,5 @@
 import { parseHTML } from "linkedom";
-import { BudgetExceededError } from "../ai/client.js";
+import { BudgetExceededError, isOutOfCredit } from "../ai/client.js";
 import type { SearchHit } from "./websearch.js";
 import type { FetchPage, SourceRef, SourceRole } from "./sources.js";
 
@@ -15,7 +15,8 @@ export interface DiscoverDeps {
 
 /** Budget and credential errors must stop the run: swallowing them would look like "no sources found". */
 function isFatalSearchError(err: unknown): boolean {
-  if (err instanceof BudgetExceededError) return true;
+  // Out of credit: every other search fails the same way, and a discovery of failed searches must never be saved.
+  if (err instanceof BudgetExceededError || isOutOfCredit(err)) return true;
   const e = err as { status?: number; name?: string } | null;
   return e?.status === 401 || e?.status === 403 || e?.name === "AuthenticationError" || e?.name === "PermissionDeniedError";
 }
