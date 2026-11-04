@@ -204,17 +204,14 @@ describe("WalkItemRow", () => {
 });
 
 describe("WalkthroughPage (detonado)", () => {
-  it("item perdível mostra selo e o aviso vem antes do passo", () => {
+  it("item perdível é avisado uma vez: o selo da linha; o prazo fica na caixa do capítulo, sem caixa a cada passo", () => {
     render(<WalkthroughPage guide={guide()} />);
     const row = screen.getByRole("checkbox", { name: /Boulderguard/ }).closest(".wk-item") as HTMLElement;
     expect(row).toHaveTextContent("perdível · pegue agora");
-    const step = row.closest("article")!;
-    const warning = screen
-      .getAllByRole("complementary", { name: "Aviso de perdível" })
-      .find((w) => w.textContent?.includes("Boulderguard"))!;
-    expect(warning).toHaveTextContent("Prazo: Antes do chefe principal da Crimson Forest");
-    expect(warning.compareDocumentPosition(step) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(step.contains(warning)).toBe(false);
+    expect(screen.queryByRole("complementary", { name: "Aviso de perdível" })).toBeNull();
+    expect(document.body).not.toHaveTextContent("Perdível no próximo passo");
+    const chapter = row.closest(".wk-chap") as HTMLElement;
+    expect(chapter).toHaveTextContent("Tudo que é perdível aqui fecha: Antes do chefe principal da Crimson Forest");
   });
 
   it("jornada conta os itens marcados do visitante", async () => {

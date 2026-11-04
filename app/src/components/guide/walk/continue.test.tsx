@@ -398,13 +398,9 @@ describe("aviso de perdível que dá para voltar depois", () => {
     later.chapters[0].steps.flatMap((s) => s.items).find((i) => i.key === "acessorio-boulderguard")!.returnLater = true;
     render(<WalkthroughPage guide={{ ...g, walkthrough: later }} />);
     const chapter = document.getElementById("cap-cap-1")!;
-    const warnings = within(chapter).getAllByRole("complementary", { name: "Aviso de perdível" });
-    const boulder = warnings.find((w) => w.textContent?.includes("Boulderguard"))!;
-    expect(boulder).toHaveTextContent("(dá para voltar depois)");
-    expect(boulder).not.toHaveTextContent("não dá para voltar");
-    expect(boulder).not.toHaveTextContent("Prazo");
-    const legado = warnings.find((w) => w.textContent?.includes("Legado"))!;
-    expect(legado).toHaveTextContent("Pegue agora: depois não dá para voltar.");
+    const boulder = document.getElementById("item-acessorio-boulderguard")!;
+    expect(boulder).toHaveTextContent("perdível · dá para voltar depois");
+    expect(boulder).not.toHaveTextContent("pegue agora");
     // End of the chapter: under "Dá para voltar depois", not under "Não volta".
     const end = within(chapter).getByRole("complementary", { name: "O que dá para pegar depois" });
     const lost = [...end.querySelectorAll("p")].find((p) => p.textContent?.startsWith("Não volta"))!;
