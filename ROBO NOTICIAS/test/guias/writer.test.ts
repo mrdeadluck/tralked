@@ -640,7 +640,7 @@ describe("copiedRuns", () => {
 });
 
 describe("checkGuide", () => {
-  it("usa o modelo do checador (Sonnet, esforço alto, sem stream) por padrão, uma chamada por trecho, e devolve os problemas sem repetir", async () => {
+  it("usa o modelo do checador (Sonnet, esforço alto, com stream) por padrão, uma chamada por trecho, e devolve os problemas sem repetir", async () => {
     const { ai, of } = fakeAi({ verdict: () => ({ ok: false, problems: [" A ficha diz 2 perdíveis. ", ""] }) });
     const payload = await writeGuide(ai, makeDossier(), GAME, "live");
     const verdict = await checkGuide(ai, payload, makeDossier());
@@ -649,9 +649,9 @@ describe("checkGuide", () => {
     const checks = of("guide-check");
     expect(checks).toHaveLength(5); // frame + Weeping Creek + Crimson Forest + Ashen Peak + cleanup
     for (const c of checks) {
-      // Task 22: Sonnet with high effort; room for its thinking, under the non-streaming limit.
-      expect(c).toMatchObject({ model: "claude-sonnet-5-5", effort: "high", maxTokens: 16000 });
-      expect(c.maxTokens!).toBeLessThanOrEqual(MAX_NONSTREAMING_TOKENS);
+      // Task 22: Sonnet with high effort. Task 5 review: room for its thinking over the excerpts too (streamed).
+      expect(c).toMatchObject({ model: "claude-sonnet-5-5", effort: "high", maxTokens: 32000 });
+      expect(c.maxTokens!).toBeGreaterThan(MAX_NONSTREAMING_TOKENS);
       expect(c.user).toContain("<numeros_do_codigo>");
       expect(c.user).toContain("<dossie>");
       expect(c.user).toContain("<guia>");
@@ -1419,8 +1419,10 @@ describe("Task 22: o checador roda no modelo e no esforço do config", () => {
       expect(c).toMatchObject({ model: "modelo-do-checador", effort: "xhigh" });
       expect(c.maxTokens!).toBeGreaterThan(MAX_NONSTREAMING_TOKENS);
     }
-    // The writer keeps its own model and effort.
-    for (const w of of("guide-write")) expect(w).toMatchObject({ model: "claude-opus-5-5", effort: "high" });
+    // The writer keeps its own model and effort. Task 5 review: 48k of output (voice v2 + excerpts), streamed.
+    for (const w of of("guide-write")) expect(w).toMatchObject({ model: "claude-opus-5-5", effort: "high", maxTokens: 48000 });
+    for (const w of of("guide-write")) expect(w.maxTokens!).toBeGreaterThan(MAX_NONSTREAMING_TOKENS);
+    for (const c of checks) expect(c.maxTokens).toBe(64000);
   });
 });
 
@@ -1769,13 +1771,34 @@ describe("Task 5: trechos das fontes no escritor e no checador", () => {
     expect(weeping.user).toContain("<trechos>");
     expect(weeping.user.split("<trechos>")[1]!.split("</trechos>")[0]).toContain("opens the shrine door for the Lantern Keeper tale");
     expect(weeping.system).toContain("Um fato que está no dossiê ou nos <trechos> tem base; inventado é o que não está em nenhum dos dois.");
+    expect(weeping.system).toContain("quando o dossiê ou os <trechos> dão o marco");
+    expect(weeping.system).toContain("com o que o dossiê ou os <trechos> trazem");
     const frameCheck = calls.find((c) => c.purpose === "guide-check" && c.user.includes('"leiaAntes"'))!;
     expect(frameCheck.user).toContain("or the tale fails");
+  });
+
+  it("revisão: as conquistas sem lugar fixo e as avisadas no início do capítulo também têm seus trechos no trecho do capítulo", async () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_ENDING")!, { missable: true, warnChapter: "Crimson Forest", doneChapter: "Ashen Peak" });
+    const pages = [{ url: "https://example.com/r", name: "R", text: `${pad(30)} The End: watch the final cutscene without skipping. ${pad(30)}` }];
+    const { ai, of } = fakeAi();
+    await writeGuide(ai, dossier, GAME, "live", { pages });
+    const crimson = of("guide-write-chapter").find((c) => c.user.includes('<passo key="crimson-forest-1">'))!.user;
+    expect(crimson).toContain("watch the final cutscene without skipping");
+  });
+
+  it("revisão: a execução diz quantos itens ficaram sem trecho, por trecho", async () => {
+    const lines: string[] = [];
+    await writeGuide(fakeAi().ai, makeDossier(), GAME, "live", { pages: PAGES, log: (l) => lines.push(l) });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^guia: trechos das fontes: \d+ janelas \(~\d+k caracteres\); itens sem trecho: \d+ de \d+ \(.*weeping-creek-1: \d+/);
   });
 
   it("o manual: todo fato sai do dossiê ou dos trechos, que nunca são citados ao leitor", () => {
     const style = loadGuideStyle();
     expect(style).toContain("sai do dossiê **ou dos trechos**");
     expect(style).toContain("nunca cite os trechos");
+    // §12: the excerpts are research material too.
+    expect(style).toContain("os trechos das fontes");
   });
 });

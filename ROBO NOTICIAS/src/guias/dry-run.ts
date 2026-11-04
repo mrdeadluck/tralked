@@ -173,7 +173,17 @@ function writerCost(
   const write = cost(models.MODEL_WRITER, writeIn, writeOut);
   const check = cost(models.MODEL_CHECK, checkIn, checkOut);
   const onePass = write !== undefined && check !== undefined ? write + check : undefined;
-  return { calls: calls.length, writeIn, writeOut, checkIn, checkOut, check, onePass, worst: onePass === undefined ? undefined : onePass * 2 };
+  return {
+    calls: calls.length,
+    writeIn,
+    writeOut,
+    checkIn,
+    checkOut,
+    check,
+    onePass,
+    worst: onePass === undefined ? undefined : onePass * 2,
+    excerpts: plan.excerpts,
+  };
 }
 
 /**
@@ -479,6 +489,8 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
     );
   }
   const writer = writerCost(toWrite, { game: context.game, tralked: { players: 0, avgPlaytimeMin: null, completedPlayers: 0 }, achievements: context.steamList }, config, scope, read.map((r) => ({ url: r.source.url, name: r.source.name, role: r.source.role, text: r.text })));
+  // Task 5 review: the excerpts the writer would read, and the items left without one.
+  log(writer.excerpts ?? "trechos das fontes: nenhuma página no cache");
   log(
     `custo estimado da escrita: ${writer.calls} chamadas de ${config.MODEL_WRITER} (~${Math.round(writer.writeIn / 1000)}k tokens de entrada, ` +
       `~${Math.round(writer.writeOut / 1000)}k de saída) + checagem em ${config.MODEL_CHECK} (estimativa grosseira): ` +

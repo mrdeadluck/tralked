@@ -1,6 +1,6 @@
 import { escapeAttr, escapeText } from "../ai/escape.js";
 import type { GuideDossier } from "./dossier.js";
-import type { SkelItem } from "./skeleton.js";
+import { isMissable, type SkelItem } from "./skeleton.js";
 import type { SourceRole } from "./sources.js";
 
 /**
@@ -12,21 +12,32 @@ import type { SourceRole } from "./sources.js";
 
 /** A page the run read: what the pipeline keeps as `read` (source + text). */
 export type SourcePage = { url: string; name: string; text: string; role?: SourceRole };
-/** What to look for: an item's key and its names (PT, English). */
-export type ExcerptItem = { key: string; names: string[] };
+/**
+ * What to look for: an item's key and its names (PT, English). `need`: the item's text depends on what the pages say
+ * (a missable, a mission or tale, a part of an achievement): its window comes before the others' (review 1).
+ */
+export type ExcerptItem = { key: string; names: string[]; need?: boolean };
 /** A window of a page: `source` is the page's 1-based index among the pages given (never its site name). */
 export type Excerpt = { source: number; text: string; keys: string[] };
+/** A page folded for comparison (`foldPages`): fold the pages once per run and pass them to every call. */
+export type FoldedPage = { s: string; map: number[] };
 
 /** Characters around a mention. */
 export const EXCERPT_RADIUS = 500;
 /** A write job's excerpts, at most (characters of page text). */
-export const JOB_EXCERPT_CAP = 14_000;
+export const JOB_EXCERPT_CAP = 24_000;
 /** The frame's excerpts, at most. */
-export const FRAME_EXCERPT_CAP = 10_000;
-/** A name shorter than this (folded) is too generic to look for. */
+export const FRAME_EXCERPT_CAP = 12_000;
+/** A name shorter than this (folded) is never looked for. */
 const MIN_NAME = 3;
+/**
+ * A one-word name this short ("Key", "Orb") is a common word: looked for only when the item has no other name.
+ */
+const SHORT_WORD = 3;
 /** Mentions kept per item (in priority order): enough for the round-robin, bounded for generic names ("Bell"). */
 const MAX_MENTIONS = 30;
+/** The kinds of item whose text needs the pages: missions and tales (PT and EN). */
+const STORY_KIND = /quest|tale|miss|conto|hist[oó]ria/i;
 
 const LETTER = /[\p{L}\p{N}]/u;
 
@@ -40,21 +51,8 @@ function foldChar(ch: string): string {
   return ch.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 }
 
-/** Pages fold once per run, not once per write job (a job's excerpts read every page). */
-const FOLDED_KEEP = 64;
-const foldedCache = new Map<string, { s: string; map: number[] }>();
-
 /** The folded text and, for each of its characters, the index of the original character it came from. */
-function fold(text: string): { s: string; map: number[] } {
-  const hit = foldedCache.get(text);
-  if (hit) return hit;
-  const out = foldText(text);
-  if (foldedCache.size >= FOLDED_KEEP) foldedCache.delete(foldedCache.keys().next().value!);
-  foldedCache.set(text, out);
-  return out;
-}
-
-function foldText(text: string): { s: string; map: number[] } {
+function foldText(text: string): FoldedPage {
   const parts: string[] = [];
   const map: number[] = [];
   let space = false;
@@ -74,10 +72,21 @@ function foldText(text: string): { s: string; map: number[] } {
   return { s: parts.join(""), map };
 }
 
-const foldName = (name: string) => fold(name.trim()).s.trim();
+/** The pages folded for comparison, in the same order. */
+export const foldPages = (pages: readonly SourcePage[]): FoldedPage[] => pages.map((p) => foldText(p.text));
+
+const foldName = (name: string) => foldText(name.trim()).s.trim();
+
+/** The folded names to look for: no name under `MIN_NAME`; a short one-word name only when it is the only one. */
+function searchNames(names: readonly string[]): string[] {
+  const all = [...new Set(names.map(foldName).filter((n) => n.length >= MIN_NAME))];
+  const short = (n: string) => !n.includes(" ") && n.length <= SHORT_WORD;
+  const long = all.filter((n) => !short(n));
+  return long.length > 0 ? long : all;
+}
 
 /** The first `limit` whole-name mentions of `name` (folded) in a folded page: [start, end) in the original text. */
-function mentions(page: { s: string; map: number[] }, name: string, textLength: number, limit: number): [number, number][] {
+function mentions(page: FoldedPage, name: string, textLength: number, limit: number): [number, number][] {
   const out: [number, number][] = [];
   for (let at = page.s.indexOf(name); at >= 0 && out.length < limit; at = page.s.indexOf(name, at + 1)) {
     const before = page.s[at - 1];
@@ -108,18 +117,18 @@ const length = (list: Interval[]) => merge(list).reduce((n, [s, e]) => n + e - s
 /**
  * The windows (±`radius` characters) of the pages that mention each item, as whole names, case and accents ignored.
  * Overlapping windows merge (one window may serve several items); the result is ordered by page, then position.
- * At most `cap` characters: one window per item first (round-robin, in the items' order), the `primary` pages' first,
- * then more windows while they fit.
+ * At most `cap` characters, round-robin: every item's first window before any second; in each round the items that
+ * `need` the pages first, then the rest (each group in the items' order); mentions on the best-ranked pages first
+ * (`rank`: lower first, `rankOf`). `folded`: the pages already folded (`foldPages`, once per run).
  */
 export function excerptsFor(
   pages: readonly SourcePage[],
   items: readonly ExcerptItem[],
-  opts: { cap: number; primary?: (page: SourcePage) => boolean; radius?: number },
+  opts: { cap: number; rank?: (page: SourcePage) => number; radius?: number; folded?: readonly FoldedPage[] },
 ): Excerpt[] {
   const radius = opts.radius ?? EXCERPT_RADIUS;
-  const folded = pages.map((p) => fold(p.text));
-  // Primary pages first, then the given order.
-  const order = pages.map((p, n) => ({ n, rank: opts.primary?.(p) ? 0 : 1 })).sort((a, b) => a.rank - b.rank || a.n - b.n);
+  const folded = opts.folded ?? foldPages(pages);
+  const order = pages.map((p, n) => ({ n, rank: opts.rank?.(p) ?? 0 })).sort((a, b) => a.rank - b.rank || a.n - b.n);
 
   // Items share names ("Bell"): each name is looked for once per page, and only its first mentions are kept.
   const byName = new Map<string, [number, number][]>();
@@ -131,34 +140,36 @@ export function excerptsFor(
   };
   /** Per item: its first `MAX_MENTIONS` mentions in priority order (page, start, end). */
   const found = items.map((item) => {
-    const names = [...new Set(item.names.map(foldName).filter((n) => n.length >= MIN_NAME))];
+    const names = searchNames(item.names);
     const all: { page: number; start: number; end: number }[] = [];
     for (const { n } of order) {
       if (all.length >= MAX_MENTIONS) break;
       const at = names.flatMap((name) => mentionsOf(n, name)).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
       for (const [start, end] of at) all.push({ page: n, start, end });
     }
-    return { key: item.key, mentions: all.slice(0, MAX_MENTIONS) };
+    return { key: item.key, need: Boolean(item.need), mentions: all.slice(0, MAX_MENTIONS) };
   });
+  // Review 1: need first, in every round (stable: each group keeps the items' order).
+  const turn = [...found.filter((f) => f.need), ...found.filter((f) => !f.need)];
 
   const chosen = new Map<number, Interval[]>();
   const total = () => [...chosen.values()].reduce((n, list) => n + length(list), 0);
   const covered = (page: number, start: number, end: number) => (chosen.get(page) ?? []).some(([s, e]) => s <= start && end <= e);
-  const next = found.map(() => 0);
+  const next = new Map(turn.map((f) => [f, 0]));
   for (let round = 0; round < MAX_MENTIONS; round++) {
     let more = false;
-    found.forEach((f, k) => {
-      const m = f.mentions[next[k]!];
-      if (!m) return;
+    for (const f of turn) {
+      const at = next.get(f)!;
+      const m = f.mentions[at];
+      if (!m) continue;
       more = true;
-      next[k]!++;
-      if (covered(m.page, m.start, m.end)) return;
+      next.set(f, at + 1);
+      if (covered(m.page, m.start, m.end)) continue;
       const window: Interval = [Math.max(0, m.start - radius), Math.min(pages[m.page]!.text.length, m.end + radius)];
       const list = chosen.get(m.page) ?? [];
-      const before = total();
-      const after = before - length(list) + length([...list, window]);
+      const after = total() - length(list) + length([...list, window]);
       if (after <= opts.cap) chosen.set(m.page, [...list, window]);
-    });
+    }
     if (!more) break;
   }
 
@@ -174,10 +185,23 @@ export function excerptsFor(
   return out;
 }
 
-/** An item's names to look for: its name and English name, or an achievement's English and PT-BR names. */
+/** The keys of the items no excerpt covers (review 1: counted per job, in the run log and the dry run). */
+export function withoutExcerpt(items: readonly ExcerptItem[], excerpts: readonly Excerpt[]): string[] {
+  const covered = new Set(excerpts.flatMap((e) => e.keys));
+  return items.map((i) => i.key).filter((k) => !covered.has(k));
+}
+
+/**
+ * An item's names to look for (its name and English name, or an achievement's English and PT-BR names) and whether
+ * its text needs the pages: a missable, a mission or tale, an item that is or counts toward an achievement, an
+ * achievement (anchored or loose ones included).
+ */
 export function itemNames(s: SkelItem): ExcerptItem {
   const names = [s.item?.name, s.item?.nameEn, s.ach?.nameEn, s.ach?.namePt].filter((n): n is string => Boolean(n));
-  return { key: s.key, names };
+  const i = s.item;
+  const need =
+    isMissable(s) || (i ? STORY_KIND.test(i.kind) || (i.countsFor?.length ?? 0) > 0 || Boolean(i.achievement) : s.ach !== null);
+  return { key: s.key, names, need };
 }
 
 const hostOf = (url: string) => {
@@ -188,28 +212,36 @@ const hostOf = (url: string) => {
   }
 };
 
-/** The pages of the primary script's site (the page named as the primary script, and the pages of its host). */
-export function primaryOf(pages: readonly SourcePage[], dossier: Pick<GuideDossier, "primaryScript">): (page: SourcePage) => boolean {
+/**
+ * The pages' rank for the excerpts: 0 the page named as the primary script, 1 the other pages of its site (the region
+ * pages), 2 the rest.
+ */
+export function rankOf(pages: readonly SourcePage[], dossier: Pick<GuideDossier, "primaryScript">): (page: SourcePage) => number {
   const name = dossier.primaryScript?.name;
-  const hosts = new Set(pages.filter((p) => name !== undefined && p.name === name).map((p) => hostOf(p.url)).filter(Boolean));
-  return (page) => hosts.has(hostOf(page.url));
+  const named = pages.filter((p) => name !== undefined && p.name === name);
+  const hosts = new Set(named.map((p) => hostOf(p.url)).filter(Boolean));
+  return (page) => (name !== undefined && page.name === name ? 0 : hosts.has(hostOf(page.url)) ? 1 : 2);
 }
 
 /**
  * The frame's excerpts: the windows of the roadmap / trophy-guide pages (the primary script's site, else the script
  * pages, else all) around the missables (items and achievements) and the missions/tales.
  */
-export function frameExcerpts(pages: readonly SourcePage[], dossier: Pick<GuideDossier, "primaryScript" | "chapters" | "achievements">): Excerpt[] {
-  const primary = primaryOf(pages, dossier);
+export function frameExcerpts(
+  pages: readonly SourcePage[],
+  dossier: Pick<GuideDossier, "primaryScript" | "chapters" | "achievements">,
+  folded: readonly FoldedPage[] = foldPages(pages),
+): Excerpt[] {
+  const rank = rankOf(pages, dossier);
   const pick = (keep: (p: SourcePage) => boolean) => pages.map((p, n) => ({ p, n })).filter(({ p }) => keep(p));
-  let chosen = pick(primary);
+  let chosen = pick((p) => rank(p) < 2);
   if (chosen.length === 0) chosen = pick((p) => p.role === "roteiro_psn" || p.role === "roteiro_steam");
   if (chosen.length === 0) chosen = pick(() => true);
   const items: ExcerptItem[] = [
     ...dossier.achievements.filter((a) => a.missable).map((a) => ({ key: a.apiName, names: [a.nameEn, ...(a.namePt ? [a.namePt] : [])] })),
     ...dossier.chapters.flatMap((c) =>
       c.items
-        .filter((i) => i.missable || /quest|tale|miss/i.test(i.kind))
+        .filter((i) => i.missable || STORY_KIND.test(i.kind))
         .map((i) => ({ key: i.id, names: [i.name, ...(i.nameEn ? [i.nameEn] : [])] })),
     ),
   ];
@@ -217,7 +249,7 @@ export function frameExcerpts(pages: readonly SourcePage[], dossier: Pick<GuideD
   const windows = excerptsFor(
     chosen.map(({ p }) => p),
     items,
-    { cap: FRAME_EXCERPT_CAP },
+    { cap: FRAME_EXCERPT_CAP, rank, folded: chosen.map(({ n }) => folded[n]!) },
   );
   return windows.map((w) => ({ ...w, source: chosen[w.source - 1]!.n + 1 }));
 }

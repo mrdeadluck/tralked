@@ -9,7 +9,18 @@ import { chronologyProblems } from "./chronology.js";
 import { DEFAULT_CHECK_EFFORT, DEFAULT_MODEL_CHECK, type GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
 import { deterministicProblems, dossierTexts, knownNames, sourceSites } from "./copy-check.js";
-import { excerptSection, excerptsFor, frameExcerpts, itemNames, JOB_EXCERPT_CAP, primaryOf, type Excerpt, type SourcePage } from "./excerpts.js";
+import {
+  excerptSection,
+  excerptsFor,
+  foldPages,
+  frameExcerpts,
+  itemNames,
+  JOB_EXCERPT_CAP,
+  rankOf,
+  withoutExcerpt,
+  type Excerpt,
+  type SourcePage,
+} from "./excerpts.js";
 import { steamOnlyApiNames, type DossierAchievement, type GuideDossier, type GuideDossierSource } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
 import type { PsnWriteScope } from "./scope.js";
@@ -36,7 +47,11 @@ export const WRITER_EFFORT = "high" as const;
 export type GuideModels = Pick<GuideConfig, "MODEL_WRITER" | "MODEL_CHECK" | "CHECK_EFFORT">;
 export const DEFAULT_GUIDE_MODELS: GuideModels = { MODEL_WRITER: "claude-opus-5-5", MODEL_CHECK: DEFAULT_MODEL_CHECK, CHECK_EFFORT: DEFAULT_CHECK_EFFORT };
 
-const WRITER_MAX_TOKENS = 16000;
+/**
+ * Task 5 review (probe attempt 20: the frame stopped at max_tokens): voice v2 and the excerpts make longer answers, and
+ * the writer thinks at effort high. Above the client's `MAX_NONSTREAMING_TOKENS`: streamed.
+ */
+export const WRITER_MAX_TOKENS = 48_000;
 const CONCURRENCY = 3;
 const MAX_ITEMS_PER_STEP = 40;
 const HOURS_MAX = 5000;
@@ -570,21 +585,51 @@ export type WriteGuideOpts = {
   fallbacks?: boolean;
   /** Task 5: the pages the run read (the pipeline's `read`): the excerpts of each item come from them. */
   pages?: SourcePage[];
+  /** Task 5 review: where the run's line on the excerpts goes (the pipeline's log). */
+  log?: (line: string) => void;
 };
 
-/** Task 5: the source windows of the frame and of each write job (by job id). */
-export type WritingExcerpts = { frame: Excerpt[]; jobs: Map<string, Excerpt[]> };
+/**
+ * Task 5: the source windows of the frame and of each write job (by job id), and per job how many of its items got
+ * no window (`without`, of `items`).
+ */
+export type WritingExcerpts = { frame: Excerpt[]; jobs: Map<string, Excerpt[]>; coverage: Map<string, { without: number; items: number }> };
 
-/** The excerpts of the frame and of every job; none without pages. Pure: the same pages and dossier give the same. */
+/**
+ * The excerpts of the frame and of every job; none without pages. A job reads its steps' items, the loose
+ * achievements it may place and the ones its first step warns about (review 1). The pages fold once here.
+ * Pure: the same pages and dossier give the same.
+ */
 export function writingExcerpts(skel: GuideSkeleton, dossier: GuideDossier, pages: readonly SourcePage[] = []): WritingExcerpts {
-  if (pages.length === 0) return { frame: [], jobs: new Map() };
-  const primary = primaryOf(pages, dossier);
-  return {
-    frame: frameExcerpts(pages, dossier),
-    jobs: new Map(
-      writeJobs(skel).map((job) => [job.id, excerptsFor(pages, job.steps.flatMap((s) => s.items.map(itemNames)), { cap: JOB_EXCERPT_CAP, primary })]),
-    ),
-  };
+  if (pages.length === 0) return { frame: [], jobs: new Map(), coverage: new Map() };
+  const folded = foldPages(pages);
+  const rank = rankOf(pages, dossier);
+  const jobs = new Map<string, Excerpt[]>();
+  const coverage = new Map<string, { without: number; items: number }>();
+  for (const job of writeJobs(skel)) {
+    const seen = new Set<string>();
+    const items = [...job.steps.flatMap((s) => s.items), ...anchoredInJob(skel, job), ...placeableIn(skel, job.chapter)]
+      .filter((x) => !seen.has(x.key) && Boolean(seen.add(x.key)))
+      .map(itemNames);
+    const excerpts = excerptsFor(pages, items, { cap: JOB_EXCERPT_CAP, rank, folded });
+    jobs.set(job.id, excerpts);
+    coverage.set(job.id, { without: withoutExcerpt(items, excerpts).length, items: items.length });
+  }
+  return { frame: frameExcerpts(pages, dossier, folded), jobs, coverage };
+}
+
+/** The run's line on the excerpts: windows, characters and, per job, the items left without one. */
+export function excerptSummary(ex: WritingExcerpts): string {
+  const all = [ex.frame, ...ex.jobs.values()].flat();
+  const chars = all.reduce((n, e) => n + e.text.length, 0);
+  const cov = [...ex.coverage];
+  const without = cov.reduce((n, [, c]) => n + c.without, 0);
+  const items = cov.reduce((n, [, c]) => n + c.items, 0);
+  const per = cov.filter(([, c]) => c.without > 0).map(([id, c]) => `${id}: ${c.without} de ${c.items}`);
+  return (
+    `trechos das fontes: ${all.length} janelas (~${Math.round(chars / 1000)}k caracteres); itens sem trecho: ${without} de ${items}` +
+    ` (${per.length > 0 ? `por trecho: ${per.join(", ")}` : "nenhum"})`
+  );
 }
 
 type Ctx = {
@@ -631,6 +676,8 @@ const NO_TEXT: ChapterText = { passos: [], itens: [], depois: null };
 
 function context(ai: Ai, dossier: GuideDossier, game: GuideDossierSource, bucket: SpendBucket, opts: WriteGuideOpts): Ctx {
   const skel = buildSkeleton(dossier);
+  const excerpts = writingExcerpts(skel, dossier, opts.pages);
+  if (opts.pages && opts.pages.length > 0) opts.log?.(`guia: ${excerptSummary(excerpts)}`);
   return {
     ai,
     dossier,
@@ -641,7 +688,7 @@ function context(ai: Ai, dossier: GuideDossier, game: GuideDossierSource, bucket
     skel,
     jobs: writeJobs(skel),
     scope: opts.scope,
-    excerpts: writingExcerpts(skel, dossier, opts.pages),
+    excerpts,
   };
 }
 
@@ -1115,17 +1162,19 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
 
 /**
  * The writer's calls without calling anything (the dry run's cost estimate): the system prompt, the frame message
- * and each write job's message (with the excerpts of `pages`), with the job's step and item counts.
+ * and each write job's message (with the excerpts of `pages`), with the job's step and item counts, and the line on
+ * the excerpts (`excerptSummary`; null without pages).
  */
 export function writerPlan(
   dossier: GuideDossier,
   game: GuideDossierSource,
   scope?: PsnWriteScope,
   pages?: SourcePage[],
-): { system: string; frame: string; jobs: { message: string; steps: number; items: number }[] } {
+): { system: string; frame: string; jobs: { message: string; steps: number; items: number }[]; excerpts: string | null } {
   const skel = buildSkeleton(dossier);
   const excerpts = writingExcerpts(skel, dossier, pages);
   return {
+    excerpts: pages && pages.length > 0 ? excerptSummary(excerpts) : null,
     system: loadGuideStyle(),
     frame: frameMessage(skel, dossier, game, scope, excerpts.frame),
     jobs: writeJobs(skel).map((job) => ({

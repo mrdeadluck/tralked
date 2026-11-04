@@ -134,17 +134,17 @@ describe("rascunhos no GuideDb", () => {
       expect(carriedDraft(db, keys)).toBeUndefined();
     });
 
-    it("um rascunho de versão abaixo de MIN_CARRIED_VERSION (v7) não é carregado (reescrita completa); um v8 é", () => {
-      expect(MIN_CARRIED_VERSION).toBe(8);
+    it("um rascunho de versão abaixo de MIN_CARRIED_VERSION (v8) não é carregado (reescrita completa); um v9 é", () => {
+      expect(MIN_CARRIED_VERSION).toBe(9);
       const db = openGuideDb(":memory:");
-      saveDraft(db, { requestId: "a", attempt: 1, writingKey: "escrita:v7", baseKey: "base:x", writerVersion: 7, draft: older(), at: new Date() });
+      saveDraft(db, { requestId: "a", attempt: 1, writingKey: "escrita:v8", baseKey: "base:x", writerVersion: 8, draft: older(), at: new Date() });
       expect(carriedDraft(db, keys)).toBeUndefined();
-      saveDraft(db, { requestId: "b", attempt: 1, writingKey: "escrita:v8-outro-manual", baseKey: "base:x", writerVersion: 8, draft: older(), at: new Date() });
+      saveDraft(db, { requestId: "b", attempt: 1, writingKey: "escrita:v9-outro-manual", baseKey: "base:x", writerVersion: 9, draft: older(), at: new Date() });
       const carried = carriedDraft(db, keys)!;
-      expect(carried).toMatchObject({ requestId: "b", writerVersion: 8 });
+      expect(carried).toMatchObject({ requestId: "b", writerVersion: 9 });
       expect(Object.keys(carried.texts.jobs)).toEqual(["cap-4", "cap-5"]);
-      // A newer v7 draft does not hide the v8 one.
-      saveDraft(db, { requestId: "c", attempt: 1, writingKey: "escrita:v7", baseKey: "base:x", writerVersion: 7, draft: older(), at: new Date() });
+      // A newer v8 draft does not hide the v9 one.
+      saveDraft(db, { requestId: "c", attempt: 1, writingKey: "escrita:v8", baseKey: "base:x", writerVersion: 8, draft: older(), at: new Date() });
       expect(carriedDraft(db, keys)).toMatchObject({ requestId: "b" });
     });
 

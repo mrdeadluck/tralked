@@ -89,6 +89,8 @@ describe("ensaio grátis (pnpm guia -- --ensaio)", () => {
     expect(out).toMatch(/falta \(steam\): /);
     expect(out).toMatch(/limites do site: 7\/60 capítulos \(com a limpeza\), .* → cabe/);
     expect(out).toMatch(/tamanho estimado do guia: ~\d+ KiB sem imagens, ~\d+ KiB com imagens \(limite 1024 KiB\)/);
+    // Task 5 review: the excerpts the writer would read, and the items left without one.
+    expect(out).toMatch(/trechos das fontes: \d+ janelas \(~\d+k caracteres\); itens sem trecho: \d+ de \d+/);
     expect(out).toMatch(/custo estimado da escrita: \d+ chamadas de claude-opus-5-5 .* ~US\$ \d+\.\d\d numa passada, até ~US\$ \d+\.\d\d com a reescrita/);
     // Task 22: the checking on its own model and effort, priced apart.
     expect(out).toMatch(/checagem em claude-sonnet-5-5 \(esforço high\): \d+ chamadas, ~\d+k tokens de entrada, ~\d+k de saída com o pensamento: ~US\$ \d+\.\d\d numa passada/);

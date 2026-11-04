@@ -43,9 +43,9 @@ describe("chave do cache da escrita", () => {
     expect(key({ models: { ...MODELS, CHECK_EFFORT: "xhigh" } })).not.toBe(base);
     expect(key({ version: WRITER_CACHE_VERSION + 1 })).not.toBe(base);
     // Task 25 review: v6 (R39 count notes in assemble, code callouts of any tone out of the checked text). Voice v2: v7.
-    expect(WRITER_CACHE_VERSION).toBe(8);
+    expect(WRITER_CACHE_VERSION).toBe(9);
     // Task 5: the source excerpts are part of what the writing depends on; the drafts of v7 (attempt 19) are never carried.
-    expect(MIN_CARRIED_VERSION).toBe(8);
+    expect(MIN_CARRIED_VERSION).toBe(9);
     // A rarity that crosses a band (1% → 30%) is a different "rarest" list: it changes.
     expect(key({ dossier: dossier(0.5) })).not.toBe(key({ dossier: dossier(30) }));
   });
