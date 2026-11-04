@@ -9,6 +9,7 @@ import { chronologyProblems } from "./chronology.js";
 import { DEFAULT_CHECK_EFFORT, DEFAULT_MODEL_CHECK, type GuideConfig } from "./config.js";
 import { WALK_ITEM_KINDS, type GuidePayloadV2, type WalkChapter, type WalkItem, type WalkItemKind, type WalkSource } from "./contract.js";
 import { deterministicProblems, dossierTexts, knownNames, sourceSites } from "./copy-check.js";
+import { excerptSection, excerptsFor, frameExcerpts, itemNames, JOB_EXCERPT_CAP, primaryOf, type Excerpt, type SourcePage } from "./excerpts.js";
 import { steamOnlyApiNames, type DossierAchievement, type GuideDossier, type GuideDossierSource } from "./dossier.js";
 import { abortOnError, inPool, type Abort } from "./pool.js";
 import type { PsnWriteScope } from "./scope.js";
@@ -188,7 +189,7 @@ export const NAMES_RULE =
   "Não traduza nem nomeie lugares, chefes ou marcos que o dossiê só traz em outro idioma: cite o marco pelo " +
   "que ele é no jogo ('o próximo sino', 'a ponte de pedra') ou use o nome em inglês que aparece no dossiê, sem falar de fontes.";
 
-function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource, scope?: PsnWriteScope): string {
+function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDossierSource, scope?: PsnWriteScope, excerpts: readonly Excerpt[] = []): string {
   const ficha = fichaOf(skel, dossier, game, scope);
   const f = dossier.facts;
   const rarest = [...dossier.achievements]
@@ -245,6 +246,8 @@ function frameMessage(skel: GuideSkeleton, dossier: GuideDossier, game: GuideDos
     ].join("\n"),
     ["## Conquistas da Steam", ...dossier.achievements.map((a) => achievementLine(a))].join("\n"),
     dossier.divergences.length > 0 ? ["## Divergências (não cite ao leitor: escreva a instrução mais segura, só com o dossiê)", ...dossier.divergences.map((d) => `- ${body(d)}`)].join("\n") : "",
+    // Task 5: the roadmap page around the missables and the tales (what fails and when).
+    excerptSection(excerpts),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -347,7 +350,7 @@ const sameText = (b: ContentBlock, text: string | undefined) => text !== undefin
 /** The loose missables the code warns at the start of the job (only the job holding the chapter's first step). */
 const anchoredInJob = (skel: GuideSkeleton, job: WriteJob) => (job.steps[0] === job.chapter.steps[0] ? anchoredIn(skel, job.chapter) : []);
 
-function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource): string {
+function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource, excerpts: readonly Excerpt[] = []): string {
   const { chapter, steps } = job;
   const at = skel.chapters.indexOf(chapter);
   const prev = skel.chapters[at - 1];
@@ -379,6 +382,8 @@ function jobMessage(skel: GuideSkeleton, job: WriteJob, game: GuideDossierSource
           ...(anchored.length > 0 ? [`No passo ${steps[0]!.key}: "${body(anchorWarning(anchored))}"`] : []),
         ].join("\n")
       : "",
+    // Task 5: the source windows that mention this job's items (purpose, who asks, what fails, the way).
+    excerptSection(excerpts),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -563,7 +568,24 @@ export type WriteGuideOpts = {
   scope?: PsnWriteScope;
   /** Server-side fallbacks; defaults to `bucket === "live"`. */
   fallbacks?: boolean;
+  /** Task 5: the pages the run read (the pipeline's `read`): the excerpts of each item come from them. */
+  pages?: SourcePage[];
 };
+
+/** Task 5: the source windows of the frame and of each write job (by job id). */
+export type WritingExcerpts = { frame: Excerpt[]; jobs: Map<string, Excerpt[]> };
+
+/** The excerpts of the frame and of every job; none without pages. Pure: the same pages and dossier give the same. */
+export function writingExcerpts(skel: GuideSkeleton, dossier: GuideDossier, pages: readonly SourcePage[] = []): WritingExcerpts {
+  if (pages.length === 0) return { frame: [], jobs: new Map() };
+  const primary = primaryOf(pages, dossier);
+  return {
+    frame: frameExcerpts(pages, dossier),
+    jobs: new Map(
+      writeJobs(skel).map((job) => [job.id, excerptsFor(pages, job.steps.flatMap((s) => s.items.map(itemNames)), { cap: JOB_EXCERPT_CAP, primary })]),
+    ),
+  };
+}
 
 type Ctx = {
   ai: Ai;
@@ -575,6 +597,7 @@ type Ctx = {
   skel: GuideSkeleton;
   jobs: WriteJob[];
   scope?: PsnWriteScope;
+  excerpts: WritingExcerpts;
 };
 
 /** The model's texts: the frame and one answer per write job (by job id). */
@@ -618,6 +641,7 @@ function context(ai: Ai, dossier: GuideDossier, game: GuideDossierSource, bucket
     skel,
     jobs: writeJobs(skel),
     scope: opts.scope,
+    excerpts: writingExcerpts(skel, dossier, opts.pages),
   };
 }
 
@@ -656,14 +680,15 @@ async function draft(
   const [frame, answers] = await Promise.all([
     redoFrame
       ? abortOnError(
-          call("guide-write-frame", Boolean(previous?.frame), frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope), FrameSchema, FRAME_SCOPE),
+          call("guide-write-frame", Boolean(previous?.frame), frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope, ctx.excerpts.frame), FrameSchema, FRAME_SCOPE),
           abort,
         )
       : Promise.resolve(previous!.frame!),
     inPool(
       redoJobs,
       CONCURRENCY,
-      (job) => call("guide-write-chapter", Boolean(previous?.jobs.has(job.id)), jobMessage(ctx.skel, job, ctx.game), ChapterTextSchema, job.id),
+      (job) =>
+        call("guide-write-chapter", Boolean(previous?.jobs.has(job.id)), jobMessage(ctx.skel, job, ctx.game, ctx.excerpts.jobs.get(job.id)), ChapterTextSchema, job.id),
       abort,
     ),
   ]);
@@ -1090,19 +1115,21 @@ function assemble(ctx: Ctx, texts: Texts): WrittenGuide {
 
 /**
  * The writer's calls without calling anything (the dry run's cost estimate): the system prompt, the frame message
- * and each write job's message, with the job's step and item counts.
+ * and each write job's message (with the excerpts of `pages`), with the job's step and item counts.
  */
 export function writerPlan(
   dossier: GuideDossier,
   game: GuideDossierSource,
   scope?: PsnWriteScope,
+  pages?: SourcePage[],
 ): { system: string; frame: string; jobs: { message: string; steps: number; items: number }[] } {
   const skel = buildSkeleton(dossier);
+  const excerpts = writingExcerpts(skel, dossier, pages);
   return {
     system: loadGuideStyle(),
-    frame: frameMessage(skel, dossier, game, scope),
+    frame: frameMessage(skel, dossier, game, scope, excerpts.frame),
     jobs: writeJobs(skel).map((job) => ({
-      message: jobMessage(skel, job, game),
+      message: jobMessage(skel, job, game, excerpts.jobs.get(job.id)),
       steps: job.steps.length,
       items: job.steps.reduce((n, s) => n + s.items.length, 0),
     })),
@@ -1236,7 +1263,8 @@ export async function writeAndCheckGuide(
       ...(ficha.psn ? { trofeusPsn: ficha.psn.trophies, conquistasSteam: ficha.psn.steam, soNaSteam: ficha.psn.steamOnly } : {}),
     },
   };
-  const checkOpts = { bucket, model: ctx.models.MODEL_CHECK, effort: ctx.models.CHECK_EFFORT, context: checkContext };
+  // Task 5: the checker reads the same excerpts as the writer of each part.
+  const checkOpts = { bucket, model: ctx.models.MODEL_CHECK, effort: ctx.models.CHECK_EFFORT, context: checkContext, excerpts: ctx.excerpts };
 
   // The probe: the frame and the jobs of the first N story chapters; problems of other parts are not its own.
   const probed = opts.probe ? new Set(ctx.skel.chapters.filter((c) => !c.cleanup).slice(0, Math.max(1, opts.probe.chapters))) : undefined;

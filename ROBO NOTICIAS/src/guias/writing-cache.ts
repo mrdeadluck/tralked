@@ -19,16 +19,18 @@ export type CachedWriting = { payload: GuidePayloadV2; internalErrors: string[];
 /**
  * Bump this number whenever the writer (frameMessage, jobMessage, assemble), the checker (its prompts), the
  * skeleton or the guide contract change: a writing cached by older code must not be reused. v7: the guide voice v2
- * (2026-11-03: new manual, no code callout per missable step, the doubt-phrase ban, the checker's new defects).
+ * (2026-11-03: new manual, no code callout per missable step, the doubt-phrase ban, the checker's new defects). v8
+ * (Task 5): the writer and the checker read the source excerpts of each item; the excerpts come from the pages read,
+ * which the key does not hash, so the bump is what keeps a v7 writing (the attempt 19 probe) from being reused.
  */
-export const WRITER_CACHE_VERSION = 7;
+export const WRITER_CACHE_VERSION = 8;
 
 /**
  * Voice v2: the oldest writer version whose drafts may be carried to another writing key (drafts.ts `carriedDraft`).
- * Texts written in the older voice ("confira no jogo", the code's per-step callout) are never a starting point: the
- * v7 bump is a full rewrite. Raise it with the version when a change must not reuse any earlier text.
+ * Texts written in the older voice ("confira no jogo", the code's per-step callout; v7: without the source excerpts)
+ * are never a starting point: the v7 and v8 bumps are full rewrites. Raise it with the version when a change must not reuse any earlier text.
  */
-export const MIN_CARRIED_VERSION = 7;
+export const MIN_CARRIED_VERSION = 8;
 
 /**
  * Task 21: the writer versions before drafts kept their base key (`writingBaseKey`), with the sha256 of the style

@@ -306,8 +306,10 @@ describe("runGuideRequest", () => {
     expect(calls.reports.at(-1)!.body.guideId).toBe("guide-new");
 
     // The writer got the raw text of the pages read, for the copy check.
-    const writerOpts = stages.calls.writeAndCheckGuide![0]![4] as { sourceTexts: string[]; scope?: unknown };
+    const writerOpts = stages.calls.writeAndCheckGuide![0]![4] as { sourceTexts: string[]; scope?: unknown; pages?: { url: string; name: string; text: string }[] };
     expect(writerOpts.sourceTexts).toEqual([STEAM_GUIDE_TEXT]);
+    // Task 5: and the pages themselves (url, name, text), for the excerpts of each item.
+    expect(writerOpts.pages).toEqual([expect.objectContaining({ text: STEAM_GUIDE_TEXT, url: expect.stringMatching(/^https:/), name: expect.any(String) })]);
     // The Steam gate passed: the guide covers the Steam list.
     expect(writerOpts.scope).toBeUndefined();
 

@@ -15,6 +15,7 @@ import { extractionKey, pageTotals, readCachedFacts } from "./pipeline.js";
 import { buildReport, STAGE_ONLY_TITLE, UNPLACED_TITLE } from "./report.js";
 import { latestRunContext, loadRunContext, type RunContext } from "./run-context.js";
 import { psnScope, type PsnWriteScope } from "./scope.js";
+import type { SourcePage } from "./excerpts.js";
 import { buildSkeleton, isMissable, type GuideSkeleton } from "./skeleton.js";
 import type { FetchPage, SourceRef } from "./sources.js";
 import { readSteamAliases, steamLanguagesIn } from "./steam-aliases.js";
@@ -150,8 +151,15 @@ const CHECK_THINKING: Record<Effort, number> = { low: 500, medium: 1_500, high: 
  * the output again); each call checked once on MODEL_CHECK at CHECK_EFFORT (its answer plus the thinking the effort
  * buys, `CHECK_THINKING`). Worst case: all of it a second time (the rewrite).
  */
-function writerCost(dossier: GuideDossier, game: GuideDossierSource, models: DryRunInput["config"], scope?: PsnWriteScope) {
-  const plan = writerPlan(dossier, game, scope);
+function writerCost(
+  dossier: GuideDossier,
+  game: GuideDossierSource,
+  models: DryRunInput["config"],
+  scope?: PsnWriteScope,
+  pages?: SourcePage[],
+) {
+  // Task 5: the messages carry the source excerpts of each item.
+  const plan = writerPlan(dossier, game, scope, pages);
   const system = tokens(plan.system.length);
   const calls = [
     { input: tokens(plan.frame.length), output: 4_000 },
@@ -470,7 +478,7 @@ export async function dryRun(input: DryRunInput): Promise<{ ok: boolean }> {
           : "rascunho para recomeçar: nenhum (a escrita começa do zero)",
     );
   }
-  const writer = writerCost(toWrite, { game: context.game, tralked: { players: 0, avgPlaytimeMin: null, completedPlayers: 0 }, achievements: context.steamList }, config, scope);
+  const writer = writerCost(toWrite, { game: context.game, tralked: { players: 0, avgPlaytimeMin: null, completedPlayers: 0 }, achievements: context.steamList }, config, scope, read.map((r) => ({ url: r.source.url, name: r.source.name, role: r.source.role, text: r.text })));
   log(
     `custo estimado da escrita: ${writer.calls} chamadas de ${config.MODEL_WRITER} (~${Math.round(writer.writeIn / 1000)}k tokens de entrada, ` +
       `~${Math.round(writer.writeOut / 1000)}k de saída) + checagem em ${config.MODEL_CHECK} (estimativa grosseira): ` +

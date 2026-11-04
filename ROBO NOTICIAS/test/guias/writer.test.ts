@@ -1728,3 +1728,54 @@ describe("voz v2, revisão 2: fala de fontes, sites e revisão no texto do escri
     expect(frame).toContain("não cite ao leitor");
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Task 5: the writer and the checker read the source excerpts of each item
+// ---------------------------------------------------------------------------------------------
+
+describe("Task 5: trechos das fontes no escritor e no checador", () => {
+  const pad = (n: number) => "Some other text about the valley. ".repeat(n);
+  const PAGES = [
+    {
+      url: "https://example.com/powerpyx",
+      name: "PowerPyx",
+      role: "roteiro_psn" as const,
+      text: `${pad(40)} Old Lantern: it opens the shrine door for the Lantern Keeper tale; grab it before Crimson Forest or the tale fails. ${pad(40)}`,
+    },
+    { url: "https://example.com/wiki", name: "Wiki", text: `${pad(30)} The Ash Feather is given to the old smith on the summit. ${pad(30)}` },
+  ];
+
+  it("a mensagem de cada trecho traz a seção com as janelas das fontes, marcadas pelo índice", async () => {
+    const { ai, of } = fakeAi();
+    await writeGuide(ai, makeDossier(), GAME, "live", { pages: PAGES });
+    const weeping = of("guide-write-chapter").find((c) => c.user.includes('<passo key="weeping-creek-1">'))!.user;
+    expect(weeping).toContain("## Trechos das fontes (material de apuração, em inglês ou outra língua; não copie)");
+    expect(weeping).toMatch(/<trecho fonte="1">[^<]*opens the shrine door for the Lantern Keeper tale/);
+    expect(weeping).not.toContain("The Ash Feather is given");
+    const ashen = of("guide-write-chapter").find((c) => c.user.includes('<passo key="ashen-peak-1">'))!.user;
+    expect(ashen).toMatch(/<trecho fonte="2">[^<]*The Ash Feather is given to the old smith/);
+    // The frame reads the primary script's page around the missables.
+    expect(of("guide-write-frame")[0]!.user).toContain("or the tale fails");
+    // Without pages, no section.
+    const bare = fakeAi();
+    await writeGuide(bare.ai, makeDossier(), GAME, "live");
+    for (const c of bare.of("guide-write")) expect(c.user).not.toContain("## Trechos das fontes");
+  });
+
+  it("o checador recebe os mesmos trechos do trecho que checa, e a regra: tem base o que está no dossiê ou nos trechos", async () => {
+    const { ai, calls } = fakeAi();
+    await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { pages: PAGES });
+    const weeping = jobCheck(calls, "weeping-creek-1");
+    expect(weeping.user).toContain("<trechos>");
+    expect(weeping.user.split("<trechos>")[1]!.split("</trechos>")[0]).toContain("opens the shrine door for the Lantern Keeper tale");
+    expect(weeping.system).toContain("Um fato que está no dossiê ou nos <trechos> tem base; inventado é o que não está em nenhum dos dois.");
+    const frameCheck = calls.find((c) => c.purpose === "guide-check" && c.user.includes('"leiaAntes"'))!;
+    expect(frameCheck.user).toContain("or the tale fails");
+  });
+
+  it("o manual: todo fato sai do dossiê ou dos trechos, que nunca são citados ao leitor", () => {
+    const style = loadGuideStyle();
+    expect(style).toContain("sai do dossiê **ou dos trechos**");
+    expect(style).toContain("nunca cite os trechos");
+  });
+});
