@@ -1585,3 +1585,47 @@ describe("Task 28: imagens por item, únicas e de fontes variadas", () => {
     expect(items.every((i) => i.image?.sourceUrl === STEAM_GUIDE.url)).toBe(true);
   });
 });
+
+describe("PBZ tentativa 22: sem crédito na API", () => {
+  const credit = () =>
+    Object.assign(new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}'), {
+      status: 400,
+    });
+
+  it("o que foi escrito antes da checagem fica salvo no rascunho; a execução para com uma linha clara", async () => {
+    const db = openGuideDb(":memory:");
+    const job = { passos: [], itens: [], depois: null };
+    const writer = vi.fn(async (...args: unknown[]) => {
+      const opts = args[4] as WriteAndCheckOpts;
+      opts.onWritten?.({
+        round: 1,
+        ok: false,
+        probe: false,
+        texts: { frame: null, jobs: { "cap-1": job } },
+        payload: writtenPayload(),
+        problems: [{ scope: "cap-1", kind: "checagem-devida", text: "O trecho cap-1 foi escrito e ainda não foi checado." }],
+        repairs: [],
+        internalErrors: [],
+        pending: [],
+      });
+      throw credit();
+    });
+    const deps = makeDeps({ db, stages: fakeStages({ writeAndCheckGuide: writer as never }) });
+    expect(await runGuideRequest(deps)).toBe("failed");
+    const rows = db.raw.prepare("SELECT texts_json, problems_json FROM drafts").all() as { texts_json: string; problems_json: string }[];
+    expect(rows).toHaveLength(1);
+    expect(JSON.parse(rows[0]!.texts_json).jobs["cap-1"]).toEqual(job);
+    expect(JSON.parse(rows[0]!.problems_json)[0].kind).toBe("checagem-devida");
+    expect(deps.lines.some((l) => l.includes("sem crédito na API da Anthropic"))).toBe(true);
+  });
+
+  it("na extração, sem crédito para tudo na primeira página (não tenta cada uma)", async () => {
+    const extract = vi.fn(async () => {
+      throw credit();
+    });
+    const deps = makeDeps({ stages: fakeStages({ extractFacts: extract as never }) });
+    expect(await runGuideRequest(deps)).toBe("failed");
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(deps.lines.some((l) => l.includes("sem crédito na API da Anthropic"))).toBe(true);
+  });
+});

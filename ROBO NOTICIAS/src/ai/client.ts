@@ -32,6 +32,18 @@ export interface UsageLike {
   cache_creation_input_tokens?: number | null;
 }
 
+/**
+ * PBZ attempt 22: the Anthropic account ran out of credit ("400 invalid_request_error: Your credit balance is too low
+ * to access the Anthropic API"). The SDK never retries a 400; every further call fails the same way, so a run stops at
+ * the first one instead of trying page after page.
+ */
+export function isOutOfCredit(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { status?: unknown; message?: unknown; error?: { error?: { message?: unknown } } };
+  const text = [e.message, e.error?.error?.message].filter((m): m is string => typeof m === "string").join(" ");
+  return e.status === 400 && /credit balance is too low/i.test(text);
+}
+
 export class BudgetExceededError extends Error {
   constructor(
     readonly bucket: SpendBucket,
