@@ -2,6 +2,8 @@ import { Toc, type TocItem } from "@/components/guide/Toc";
 import type { Walkthrough } from "@/lib/content/walkthrough-schema";
 import type { GuideDetail } from "@/lib/queries/games";
 import { ProgressCard } from "./ProgressBits";
+import { Both } from "./versions";
+import type { ChapterView } from "./view";
 
 /*
  * Sticky column of a walkthrough: the visitor's progress (Steam achievements, ticked
@@ -13,14 +15,23 @@ type WalkSidebarProps = {
   walkthrough: Walkthrough;
   /** Refs of the walkthrough's collectibles (view.ts), to count the visitor's ticks. */
   collectibleRefs: string[];
+  /** The page's chapters (view.ts): the PlayStation version counts only those it shows. */
+  chapters?: ChapterView[];
 };
 
-export function WalkSidebar({ guide, walkthrough, collectibleRefs }: WalkSidebarProps) {
+export function WalkSidebar({ guide, walkthrough, collectibleRefs, chapters = [] }: WalkSidebarProps) {
+  const psChapters = chapters.some((c) => c.steamOnly) ? chapters.filter((c) => !c.steamOnly).length : undefined;
   const toc: TocItem[] = [
     ...(guide.overview.length > 0 ? [{ id: "g-visao", label: "Visão geral" }] : []),
     { id: "g-leia", label: "Antes de começar" },
     ...(guide.steps.length > 0 ? [{ id: "g-roadmap", label: "Roadmap", count: `${guide.steps.length} etapas` }] : []),
-    { id: "g-detonado", label: "Detonado", count: `${walkthrough.chapters.length} cap.` },
+    {
+      id: "g-detonado",
+      label: "Detonado",
+      count: (
+        <Both steam={`${walkthrough.chapters.length} cap.`} ps={psChapters === undefined ? undefined : `${psChapters} cap.`} />
+      ),
+    },
   ];
 
   return (

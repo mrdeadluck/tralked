@@ -5,6 +5,7 @@ import { JourneyRow, useJourney } from "./journey";
 import { useWalkProgress } from "./progress";
 import { useJourneyLit } from "./resume-state";
 import { SpoilerToggle } from "./SpoilerToggle";
+import { STEAM_ONLY } from "./versions";
 
 /*
  * Journey of chapters under the page's top: a diamond per chapter with the visitor's ticks and the
@@ -39,7 +40,8 @@ export function WalkJourney() {
       setTop(headerBottom);
       setSlim(nav.getBoundingClientRect().bottom < headerBottom);
       const line = window.innerHeight * READ_LINE;
-      let at = 0;
+      // Before any chapter reaches the line, the first one the version shows is the current one.
+      let at = Math.max(0, chapters.findIndex((c) => !c.hidden));
       sections.forEach((section, i) => {
         if (section && section.getBoundingClientRect().top < line) at = i;
       });
@@ -78,7 +80,7 @@ export function WalkJourney() {
               <i
                 key={c.key}
                 hidden={c.hidden}
-                className={i === current ? "c" : undefined}
+                className={[i === current ? "c" : "", c.steamOnly ? STEAM_ONLY : ""].filter(Boolean).join(" ") || undefined}
                 style={{ "--p": `${c.refs.length > 0 ? (counts[i] / c.refs.length) * 100 : 0}%` } as CSSProperties}
               />
             ))}

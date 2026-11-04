@@ -5,17 +5,49 @@ import type { GuideDetail, WalkExtras } from "@/lib/queries/games";
 import { timeTo100Label } from "@/lib/queries/time-to-100";
 import { formatCompact } from "@/lib/xp-format";
 import { SpoilerAchievement } from "./spoilers";
-import { Both, hasVersions } from "./versions";
-import type { ItemView } from "./view";
+import { Both, hasVersions, withSteamOnly } from "./versions";
+import type { AchView, ItemView } from "./view";
 
 /*
  * "A tabelinha": the 8 numbers of a walkthrough (difficulty, time to the Tralked, achievements,
  * minimum playthroughs, missables, online, bugged, the hardest) and, under them, the guide's XP.
  * The hardest achievement's name stays blurred while spoilers are off. In a guide with a PlayStation
- * version (versions.tsx), the achievements and the missables count that version's too.
+ * version (versions.tsx), the achievements and the missables count that version's too, and the
+ * hardest is one that also exists on PlayStation.
  */
 
-type Field = { label: string; value: ReactNode; note: ReactNode; warn?: boolean; extra?: ReactNode; name?: boolean };
+type Field = {
+  label: string;
+  value: ReactNode;
+  note: ReactNode;
+  warn?: boolean;
+  extra?: ReactNode;
+  name?: boolean;
+  /** The PlayStation version has nothing to show here. */
+  steamOnly?: boolean;
+};
+
+type Hardest = Pick<AchView, "id" | "name" | "globalPct">;
+
+/**
+ * The PlayStation version's hardest: the Steam one when it is also on the PSN list, else the rarest
+ * (lowest Steam rarity) of the achievements on both lists; null when none has a rarity.
+ */
+function psHardest(hardest: Hardest | null, items: ItemView[]): Hardest | null {
+  const shared = items.flatMap((i) => (i.achievement && !i.steamOnly ? [i.achievement] : []));
+  if (hardest && shared.some((a) => a.id === hardest.id)) return hardest;
+  return shared.reduce<Hardest | null>(
+    (best, a) => (a.globalPct !== null && (best === null || a.globalPct < best.globalPct!) ? a : best),
+    null,
+  );
+}
+
+function hardestName(a: Hardest | null, id: string) {
+  return a ? <SpoilerAchievement id={id} achievementId={a.id} name={a.name} what="a conquista mais difícil" /> : "—";
+}
+
+const hardestNote = (a: Hardest | null) =>
+  a ? `${pctText(a.globalPct)} dos jogadores na Steam` : "Sem raridade da Steam ainda.";
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
@@ -46,6 +78,8 @@ export function FichaGrid({ guide, walkthrough, walk, items = [] }: FichaGridPro
   const psMissables = psn
     ? Math.max(0, facts.missables - items.filter((i) => i.steamOnly && i.missable && i.kind === "achievement").length)
     : undefined;
+  const psHard = psn ? psHardest(hardest, items) : undefined;
+  const sameHardest = psHard !== undefined && psHard?.id === hardest?.id;
   const missablesNote = (n: number) => (n > 0 ? "Avisadas no caminho, antes do ponto sem volta." : "Nada fica para trás.");
 
   const fields: Field[] = [
@@ -121,17 +155,14 @@ export function FichaGrid({ guide, walkthrough, walk, items = [] }: FichaGridPro
     {
       label: "Mais difícil",
       name: true,
-      value: hardest ? (
-        <SpoilerAchievement
-          id="ficha-hardest"
-          achievementId={hardest.id}
-          name={hardest.name}
-          what="a conquista mais difícil"
+      value: (
+        <Both
+          steam={hardestName(hardest, "ficha-hardest")}
+          ps={psHard && !sameHardest ? hardestName(psHard, "ficha-hardest-ps") : undefined}
         />
-      ) : (
-        "—"
       ),
-      note: hardest ? `${pctText(hardest.globalPct)} dos jogadores na Steam` : "Sem raridade da Steam ainda.",
+      note: <Both steam={hardestNote(hardest)} ps={psHard && !sameHardest ? hardestNote(psHard) : undefined} />,
+      steamOnly: psHard === null,
     },
   ];
 
@@ -139,7 +170,7 @@ export function FichaGrid({ guide, walkthrough, walk, items = [] }: FichaGridPro
     <section className="wk-ficha tk-cut" aria-label="Ficha do guia">
       <dl>
         {fields.map((f) => (
-          <div key={f.label} className={f.warn ? "wk-f warn" : "wk-f"}>
+          <div key={f.label} className={withSteamOnly(f.warn ? "wk-f warn" : "wk-f", Boolean(f.steamOnly))}>
             <dt className="wk-lbl">{f.label}</dt>
             <dd>
               <span className={f.name ? "v name" : "v"}>{f.value}</span>

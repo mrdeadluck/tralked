@@ -26,6 +26,9 @@ function names(items: ItemView[], prefix: string) {
   ));
 }
 
+/** "Acessórios": the kind's name for `n`, capitalized. */
+const kindName = (kind: string, n: number) => kindLabel(kind, n).replace(/^./, (c) => c.toUpperCase());
+
 /** Every item is Steam only: the PlayStation version leaves the whole line out. */
 const allSteamOnly = (items: ItemView[]) => items.every((i) => i.steamOnly);
 
@@ -73,7 +76,9 @@ function ChapterBox({ chapter, items }: { chapter: ChapterView; items: ItemView[
           const ps = items.filter((i) => i.kind === "collectible" && i.collectibleType === kind && !i.steamOnly).length;
           return (
             <p key={kind} className={withSteamOnly("wk-cnt", ps === 0)}>
-              <span>{kindLabel(kind, n).replace(/^./, (c) => c.toUpperCase())}</span>
+              <span>
+                <Both steam={kindName(kind, n)} ps={ps ? kindName(kind, ps) : undefined} />
+              </span>
               <b>
                 <Both steam={n} ps={ps || undefined} />
               </b>
@@ -104,6 +109,8 @@ function ChapterBox({ chapter, items }: { chapter: ChapterView; items: ItemView[
 type WalkChaptersProps = { chapters: ChapterView[]; screenshots: string[] };
 
 export function WalkChapters({ chapters, screenshots }: WalkChaptersProps) {
+  // The PlayStation version numbers its own chapters ("Capítulo 2 de 18").
+  const psCount = chapters.some((c) => c.steamOnly) ? chapters.filter((c) => !c.steamOnly).length : null;
   return (
     <div className="wk-walk">
       {chapters.map((chapter, i) => {
@@ -117,7 +124,13 @@ export function WalkChapters({ chapters, screenshots }: WalkChaptersProps) {
             aria-labelledby={`cap-${chapter.key}-h`}
           >
             {i > 0 ? <ChapterTimeline at={i} /> : null}
-            <ChapterScene chapter={chapter} index={i} count={chapters.length} image={image} />
+            <ChapterScene
+              chapter={chapter}
+              index={i}
+              count={chapters.length}
+              ps={psCount === null ? undefined : { index: chapters.slice(0, i).filter((c) => !c.steamOnly).length, count: psCount }}
+              image={image}
+            />
             <div className="wk-cols">
               <div className="wk-col">
                 <GreenTrail>

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useMemo, type MouseEvent, type ReactNode, type Ref } from "react";
 import { useVersion } from "./version-state";
+import { STEAM_ONLY } from "./versions";
 
 /*
  * The chapters of the journey, sent to the browser once (JourneyProvider) and read by every row of
@@ -101,6 +102,8 @@ export function JourneyRow({ chapters, counts, user, current, passed = false, cu
           before && c.phase !== before.phase ? "ph" : "",
           lit?.passed.has(i) ? "lit" : "",
           here ? "here" : "",
+          // Hidden by the root's CSS from the first paint; `hidden` follows once the client reads the choice.
+          c.steamOnly ? STEAM_ONLY : "",
         ]
           .filter(Boolean)
           .join(" ");

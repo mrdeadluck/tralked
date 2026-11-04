@@ -390,3 +390,121 @@ describe("a escolha fica lembrada", () => {
     container.remove();
   });
 });
+
+describe("rodada 1 da revisão", () => {
+  /** psGuide with its walkthrough edited. */
+  function variant(edit: (w: Walkthrough) => void): GuideDetail {
+    const w = structuredClone(psWalkthrough());
+    edit(w);
+    return psGuide({ walkthrough: walkthroughSchema.parse(w) });
+  }
+  const itemOf = (w: Walkthrough, key: string) => w.chapters.flatMap((c) => c.steps.flatMap((s) => s.items)).find((i) => i.key === key)!;
+
+  it("um passo com só um item da Steam e uma dica (callout info) fica: a dica é texto dele", () => {
+    const guide = variant((w) => {
+      w.chapters[0].steps[9].body = [{ type: "callout", tone: "info", text: "Dica: vale a pena." }];
+    });
+    render(<WalkthroughPage guide={guide} />);
+    expect(screen.getByRole("article", { name: "Passo 1.10" })).not.toHaveClass("wk-steam-only");
+    expect(document.getElementById("item-conquista-dominio")).toHaveClass("wk-steam-only");
+  });
+
+  it("um título e um spoiler também são texto do passo; só o aviso, não", () => {
+    const heading = variant((w) => {
+      w.chapters[0].steps[9].body = [{ type: "heading", level: 3, text: "O baú" }];
+    });
+    render(<WalkthroughPage guide={heading} />);
+    expect(screen.getByRole("article", { name: "Passo 1.10" })).not.toHaveClass("wk-steam-only");
+    cleanup();
+    const spoiler = variant((w) => {
+      w.chapters[0].steps[9].body = [{ type: "callout", tone: "spoiler", text: "O chefe volta." }];
+    });
+    render(<WalkthroughPage guide={spoiler} />);
+    expect(screen.getByRole("article", { name: "Passo 1.10" })).not.toHaveClass("wk-steam-only");
+  });
+
+  it("o capítulo fora da versão PlayStation já vem marcado na jornada e na barra fina", () => {
+    render(<WalkthroughPage guide={psGuide()} />);
+    const journey = screen.getByRole("navigation", { name: "Capítulos do detonado" });
+    expect(journey.querySelectorAll("li")[1]).toHaveClass("wk-steam-only");
+    expect(journey.querySelectorAll("li")[0]).not.toHaveClass("wk-steam-only");
+    const segs = document.querySelectorAll(".wk-segs i");
+    expect(segs[1]).toHaveClass("wk-steam-only");
+    expect(segs[2]).not.toHaveClass("wk-steam-only");
+  });
+
+  it("caixa do capítulo: o nome do tipo segue a contagem da versão", () => {
+    const guide = variant((w) => {
+      itemOf(w, "acessorio-battle-wraps").countsFor = ["ACH_TOTAL_DOMINION"];
+      itemOf(w, "acessorio-hunters-insight").countsFor = ["ACH_TOTAL_DOMINION"];
+    });
+    render(<WalkthroughPage guide={guide} />);
+    const box = screen.getByRole("complementary", { name: "Resumo de Weeping Creek Valley" });
+    const row = within(box).getByText((_, el) => el?.tagName === "P" && /^Acessór/.test(el.textContent ?? ""));
+    const label = row.querySelector(":scope > span")!;
+    expect(shown(label, "steam")).toBe("Acessórios");
+    expect(shown(label, "playstation")).toBe("Acessório");
+    expect(shown(row.querySelector("b")!, "steam")).toBe("3");
+    expect(shown(row.querySelector("b")!, "playstation")).toBe("1");
+  });
+
+  it("a mesma conquista: se um item dela está na lista da PSN, nenhum item dela some", () => {
+    const guide = variant((w) => {
+      w.chapters[2].steps[0].items.push(item("legado-de-novo", { name: "Legado de novo", achievement: "ACH_HEALER_LEGACY" }));
+    });
+    render(<WalkthroughPage guide={guide} />);
+    expect(document.getElementById("item-legado-de-novo")).not.toHaveClass("wk-steam-only");
+  });
+
+  it("Mais difícil na versão PlayStation: a mais rara das que existem nas duas listas", () => {
+    render(<WalkthroughPage guide={psGuide()} />);
+    const field = screen.getByText("Mais difícil").closest("div")!;
+    expect(field).not.toHaveClass("wk-steam-only");
+    // Steam: the robot's pick (only on Steam); PlayStation: the rarest one shared with PSN.
+    const ps = field.querySelector(".v .wk-ps-only")!;
+    expect(ps.querySelector('[data-spoiler="hidden"]')).not.toBeNull();
+    expect(shown(field.querySelector(".d")!, "steam")).toBe("4,7% dos jogadores na Steam");
+    expect(shown(field.querySelector(".d")!, "playstation")).toBe("13,9% dos jogadores na Steam");
+    fireEvent.click(within(ps as HTMLElement).getByRole("button", { name: /mostrar/i }));
+    expect(within(ps as HTMLElement).getByText("Legado da Curandeira")).toBeInTheDocument();
+  });
+
+  it("Mais difícil: a mesma nas duas quando ela está na PSN; some quando nenhuma conquista é das duas", () => {
+    const base = psGuide();
+    const legado = base.walk!.achievements.ACH_HEALER_LEGACY;
+    render(<WalkthroughPage guide={{ ...base, walk: { ...base.walk!, hardest: legado } }} />);
+    const field = screen.getByText("Mais difícil").closest("div")!;
+    expect(field.querySelector(".wk-ps-only")).toBeNull();
+    cleanup();
+    const none = variant((w) => {
+      itemOf(w, "conquista-legado-curandeira").alsoOn = [];
+    });
+    render(<WalkthroughPage guide={none} />);
+    expect(screen.getByText("Mais difícil").closest("div")).toHaveClass("wk-steam-only");
+  });
+
+  it("jornada: sem capítulo na linha de leitura, o atual é o primeiro que a versão mostra", () => {
+    const guide = variant((w) => {
+      w.chapters = [w.chapters[1], w.chapters[0], w.chapters[2]];
+    });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({ top: 5000, bottom: 5000 } as DOMRect);
+    render(<WalkthroughPage guide={guide} />);
+    choose("PlayStation");
+    const journey = screen.getByRole("navigation", { name: "Capítulos do detonado" });
+    expect(journey.querySelectorAll("li")[1]).toHaveClass("c");
+    expect(journey.querySelectorAll("li")[0]).not.toHaveClass("c");
+  });
+
+  it("índice e Capítulo X de N contam os capítulos que a versão mostra", () => {
+    const guide = variant((w) => {
+      for (const c of w.chapters) delete c.region;
+    });
+    render(<WalkthroughPage guide={guide} />);
+    const toc = screen.getByRole("button", { name: /Detonado/ });
+    expect(shown(toc.querySelector("small")!, "steam")).toBe("3 cap.");
+    expect(shown(toc.querySelector("small")!, "playstation")).toBe("2 cap.");
+    const where = document.querySelector("#cap-limpeza .wk-scene .wk-lbl")!;
+    expect(shown(where, "steam")).toBe("Etapa 1 · Capítulo 3 de 3");
+    expect(shown(where, "playstation")).toBe("Etapa 1 · Capítulo 2 de 2");
+  });
+});

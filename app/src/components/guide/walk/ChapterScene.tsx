@@ -48,12 +48,22 @@ function Meta({ items, test, word, className }: MetaProps) {
   );
 }
 
-type ChapterSceneProps = { chapter: ChapterView; index: number; count: number; image: string | null };
+type ChapterSceneProps = {
+  chapter: ChapterView;
+  index: number;
+  count: number;
+  /** Its place among the chapters the PlayStation version shows, when that version leaves some out. */
+  ps?: { index: number; count: number };
+  image: string | null;
+};
 
-export function ChapterScene({ chapter, index, count, image }: ChapterSceneProps) {
+export function ChapterScene({ chapter, index, count, ps, image }: ChapterSceneProps) {
   const items = chapter.steps.flatMap((s) => s.items);
   const [lead, ...rest] = chapter.title.trim().split(/\s+/);
-  const where = chapter.region ?? `Capítulo ${index + 1} de ${count}`;
+  const label = (at: number, of: number) => {
+    const where = chapter.region ?? `Capítulo ${at + 1} de ${of}`;
+    return chapter.phase > 0 ? `Etapa ${chapter.phase} · ${where}` : where;
+  };
 
   return (
     <header className="wk-scene tk-cut">
@@ -61,7 +71,9 @@ export function ChapterScene({ chapter, index, count, image }: ChapterSceneProps
         // eslint-disable-next-line @next/next/no-img-element
         <img className="wk-scene-bg" src={image} alt="" loading="lazy" decoding="async" />
       ) : null}
-      <p className="wk-lbl">{chapter.phase > 0 ? `Etapa ${chapter.phase} · ${where}` : where}</p>
+      <p className="wk-lbl">
+        <Both steam={label(index, count)} ps={ps ? label(ps.index, ps.count) : undefined} />
+      </p>
       <h3 id={`cap-${chapter.key}-h`} className="big">
         {rest.length > 0 ? (
           <>

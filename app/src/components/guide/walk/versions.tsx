@@ -45,18 +45,36 @@ export function steamOnlyTest(walkthrough: Walkthrough): (item: WalkItem) => boo
   const items = walkthrough.chapters.flatMap((c) => c.steps.flatMap((s) => s.items));
   const onPsn = new Set(items.flatMap((i) => (i.achievement && i.alsoOn.includes("psn") ? [i.achievement] : [])));
   const steamOnly = new Set(items.flatMap((i) => (i.achievement && !onPsn.has(i.achievement) ? [i.achievement] : [])));
+  // By apiName: an achievement on the PSN list keeps every item that is it.
   return (item) =>
     item.achievement
-      ? !item.alsoOn.includes("psn")
+      ? !onPsn.has(item.achievement)
       : item.countsFor.length > 0 && item.countsFor.every((apiName) => steamOnly.has(apiName));
 }
 
-/** Blocks that are a step's own story: a step holding one stays even when all its items go. */
-const STORY: ReadonlySet<string> = new Set<ContentBlock["type"]>(["paragraph", "list", "quote", "table"]);
+/**
+ * A block of the step's own text: a step holding one stays even when all its items go. Only a
+ * warning (callout "aviso", about the items) and the blocks without text (image, video, divider,
+ * achievement) are not.
+ */
+function ownText(block: ContentBlock): boolean {
+  switch (block.type) {
+    case "paragraph":
+    case "list":
+    case "quote":
+    case "table":
+    case "heading":
+      return true;
+    case "callout":
+      return block.tone !== "aviso";
+    default:
+      return false;
+  }
+}
 
-/** A step the PlayStation version leaves out: it had items, all Steam only, and no story of its own. */
-export function steamOnlyStep(body: readonly { type: string }[], items: readonly { steamOnly: boolean }[]): boolean {
-  return items.length > 0 && items.every((i) => i.steamOnly) && !body.some((b) => STORY.has(b.type));
+/** A step the PlayStation version leaves out: it had items, all Steam only, and no text of its own. */
+export function steamOnlyStep(body: readonly ContentBlock[], items: readonly { steamOnly: boolean }[]): boolean {
+  return items.length > 0 && items.every((i) => i.steamOnly) && !body.some(ownText);
 }
 
 /** Class of what the PlayStation version leaves out. */

@@ -113,6 +113,7 @@ export function WalkthroughPage({ guide, user = null, report = null, preview = f
                   guide={guide}
                   walkthrough={walkthrough}
                   collectibleRefs={items.filter((i) => i.kind === "collectible").map((i) => i.ref)}
+                  chapters={view.chapters}
                 />
               </div>
               <section id="g-detonado" className="wk-detonado" aria-label="Detonado">
