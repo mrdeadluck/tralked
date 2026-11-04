@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { loginHref } from "@/components/guide/format";
 import { useWalkProgress } from "./progress";
 import { useResume } from "./resume-state";
@@ -44,6 +45,50 @@ function SyncControl() {
   );
 }
 
+/**
+ * "Recomeçar o guia": for a member with ticks, clears them all after an inline confirmation (no
+ * browser dialog). Steam unlocks stay done; the resume point then follows them alone.
+ */
+function ResetControl() {
+  const { user, tickedCount, resetTicks } = useWalkProgress();
+  const [state, setState] = useState<"idle" | "confirm" | "busy" | "done" | "error">("idle");
+  if (!user) return null;
+  if (state === "done") return <small role="status">Marcações apagadas. O guia recomeça do início.</small>;
+  if (tickedCount === 0) return null;
+  if (state === "idle") {
+    return (
+      <button type="button" className="wk-reset" onClick={() => setState("confirm")}>
+        Recomeçar o guia
+      </button>
+    );
+  }
+  const run = async () => {
+    setState("busy");
+    try {
+      const result = await resetTicks();
+      setState(result.status === "ok" ? "done" : "error");
+    } catch {
+      setState("error");
+    }
+  };
+  const busy = state === "busy";
+  return (
+    <div className="wk-reset-q" role="group" aria-label="Recomeçar o guia">
+      <p>
+        Apagar {tickedCount === 1 ? "a 1 marcação" : `as ${tickedCount} marcações`} que você fez neste guia? As
+        conquistas que a Steam confirmou continuam marcadas.
+      </p>
+      <button type="button" className="wk-reset-yes" onClick={() => void run()} disabled={busy} aria-busy={busy}>
+        {busy ? "Apagando…" : "Apagar marcações"}
+      </button>
+      <button type="button" className="wk-reset" onClick={() => setState("idle")} disabled={busy}>
+        Cancelar
+      </button>
+      {state === "error" ? <small className="err">Não foi possível apagar agora. Tente de novo.</small> : null}
+    </div>
+  );
+}
+
 export function ResumeButton() {
   const { session, at, chapters, goTo, goToEnd } = useResume();
   const { returnTo } = useWalkProgress();
@@ -67,6 +112,7 @@ export function ResumeButton() {
         </button>
         <SyncControl />
         <BehindLink refs={at.behind} />
+        <ResetControl />
       </div>
     );
   }
@@ -82,6 +128,7 @@ export function ResumeButton() {
           {chapter.title} · passo {point.step}
         </small>
       ) : null}
+      <ResetControl />
     </div>
   );
 }

@@ -189,6 +189,47 @@ body:has(.wk-hero) {
   font-size: 12.5px;
   color: var(--muted);
 }
+/* "Recomeçar o guia": a quiet text link, then an inline confirmation (never a browser dialog). */
+.wk-resume button.wk-reset {
+  padding: 0;
+  background: none;
+  color: var(--text-2);
+  font-stretch: normal;
+  font-weight: 400;
+  font-size: 13px;
+  letter-spacing: normal;
+  text-transform: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.wk-resume button.wk-reset:hover,
+.wk-resume button.wk-reset:focus-visible {
+  color: var(--text);
+  box-shadow: none;
+}
+.wk-reset-q {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  font-size: 13px;
+}
+.wk-reset-q p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-2);
+}
+.wk-resume button.wk-reset-yes {
+  background: var(--warn);
+  color: var(--acc-ink);
+}
+.wk-resume button.wk-reset-yes:hover,
+.wk-resume button.wk-reset-yes:focus-visible {
+  box-shadow: 0 0 16px oklch(0.78 0.15 60 / 0.45);
+}
 .wk-resume-sk {
   display: block;
   width: 230px;

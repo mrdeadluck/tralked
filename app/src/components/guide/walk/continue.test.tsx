@@ -2,7 +2,7 @@ import "../../../../vitest.db-guard";
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkGameAchievements, toggleItem } from "@/app/jogos/[slug]/guia/actions";
+import { checkGameAchievements, resetGuideProgress, toggleItem } from "@/app/jogos/[slug]/guia/actions";
 import { BackToTop } from "@/components/guide/BackToTop";
 import { gatedRef } from "@/lib/content/walk-refs";
 import type { Walkthrough } from "@/lib/content/walkthrough-schema";
@@ -11,7 +11,11 @@ import { walkView } from "./view";
 import { pbzGuide, walkthrough } from "./walk.test-util";
 import { WalkthroughPage } from "./WalkthroughPage";
 
-vi.mock("@/app/jogos/[slug]/guia/actions", () => ({ toggleItem: vi.fn(), checkGameAchievements: vi.fn() }));
+vi.mock("@/app/jogos/[slug]/guia/actions", () => ({
+  toggleItem: vi.fn(),
+  checkGameAchievements: vi.fn(),
+  resetGuideProgress: vi.fn(),
+}));
 vi.mock("@/components/fx/reward-bus", () => ({ announceReward: vi.fn(), announceToast: vi.fn() }));
 vi.mock("@/components/guide/reveal-achievement", () => ({ revealAchievement: vi.fn(async () => null) }));
 vi.mock("./reveal-spoilers", () => ({ revealWalkSpoilers: vi.fn(async () => null) }));
@@ -85,6 +89,55 @@ afterEach(() => {
   delete (Element.prototype as Partial<Element>).scrollIntoView;
   if (SCROLL_Y) Object.defineProperty(window, "scrollY", SCROLL_Y);
   else delete (window as { scrollY?: number }).scrollY;
+});
+
+describe("recomeçar o guia", () => {
+  const cover = () => screen.getByRole("region", { name: /Guia Tralked de/ });
+
+  it("apaga as marcações depois de confirmar; o ponto de continuar volta ao início", async () => {
+    vi.mocked(resetGuideProgress).mockResolvedValue({ status: "ok", cleared: 12 });
+    const g = guide();
+    render(<WalkthroughPage guide={g} user={LINEAR} />);
+    await within(cover()).findByRole("button", { name: "Continuar de onde parou" });
+    fireEvent.click(within(cover()).getByRole("button", { name: "Recomeçar o guia" }));
+    // Inline confirmation first: nothing is cleared yet.
+    expect(resetGuideProgress).not.toHaveBeenCalled();
+    const ask = within(cover()).getByRole("group", { name: "Recomeçar o guia" });
+    expect(ask).toHaveTextContent("Apagar as 12 marcações que você fez neste guia?");
+    expect(ask).toHaveTextContent("As conquistas que a Steam confirmou continuam marcadas.");
+    fireEvent.click(within(ask).getByRole("button", { name: "Apagar marcações" }));
+    expect(await within(cover()).findByRole("status")).toHaveTextContent("Marcações apagadas.");
+    expect(resetGuideProgress).toHaveBeenCalledWith(g.walk!.guideId);
+    expect(within(cover()).getByRole("button", { name: "Começar o detonado" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("checkbox", { checked: true })).toHaveLength(0);
+    expect(screen.getAllByRole("checkbox").length).toBeGreaterThan(0);
+  });
+
+  it("cancelar não apaga nada; sem marcações, a opção não aparece; anônimo não a vê", async () => {
+    render(<WalkthroughPage guide={guide()} user={seed(["sino-lady-rift"])} />);
+    fireEvent.click(await within(cover()).findByRole("button", { name: "Recomeçar o guia" }));
+    expect(within(cover()).getByRole("group", { name: "Recomeçar o guia" })).toHaveTextContent("Apagar a 1 marcação");
+    fireEvent.click(within(cover()).getByRole("button", { name: "Cancelar" }));
+    expect(resetGuideProgress).not.toHaveBeenCalled();
+    expect(within(cover()).getByRole("button", { name: "Recomeçar o guia" })).toBeInTheDocument();
+    cleanup();
+    render(<WalkthroughPage guide={guide()} user={seed([])} />);
+    await within(cover()).findByRole("button", { name: "Começar o detonado" });
+    expect(within(cover()).queryByRole("button", { name: "Recomeçar o guia" })).toBeNull();
+    cleanup();
+    render(<WalkthroughPage guide={guide()} user={<WalkUserAnon />} />);
+    await within(cover()).findByRole("link", { name: "Entre para continuar de onde parou" });
+    expect(within(cover()).queryByRole("button", { name: "Recomeçar o guia" })).toBeNull();
+  });
+
+  it("se o servidor falha, as marcações ficam e o aviso pede para tentar de novo", async () => {
+    vi.mocked(resetGuideProgress).mockResolvedValue({ status: "unauthenticated" });
+    render(<WalkthroughPage guide={guide()} user={LINEAR} />);
+    fireEvent.click(await within(cover()).findByRole("button", { name: "Recomeçar o guia" }));
+    fireEvent.click(within(cover()).getByRole("button", { name: "Apagar marcações" }));
+    expect(await within(cover()).findByText("Não foi possível apagar agora. Tente de novo.")).toBeInTheDocument();
+    expect(within(cover()).getByRole("button", { name: "Continuar de onde parou" })).toBeInTheDocument();
+  });
 });
 
 describe("botão da capa", () => {

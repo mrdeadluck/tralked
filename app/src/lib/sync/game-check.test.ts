@@ -342,6 +342,24 @@ describe.skipIf(!reachable)("single-game Steam check", () => {
       expect(await toggleItem(guide.id, key)).toEqual({ status: "unauthenticated" });
     });
 
+    it("resetGuideProgress apaga só as marcações do usuário neste guia", async () => {
+      const { prisma } = await import("@/lib/db");
+      const { toggleItem, resetGuideProgress } = await import("@/app/jogos/[slug]/guia/actions");
+      const { guide, key } = await publishedGuide();
+      const other = await newUser();
+      expect(await toggleItem(guide.id, key)).toEqual({ status: "ok", done: true });
+      const user = await newUser();
+      expect(await toggleItem(guide.id, key)).toEqual({ status: "ok", done: true });
+      const { gatedRef } = await import("@/lib/content/walk-refs");
+      expect(await toggleItem(guide.id, gatedRef("boss-hua-noiva-mortal"))).toEqual({ status: "ok", done: true });
+      expect(await resetGuideProgress(guide.id)).toEqual({ status: "ok", cleared: 2 });
+      expect(await prisma.guideItemProgress.count({ where: { userId: user.id } })).toBe(0);
+      expect(await prisma.guideItemProgress.count({ where: { userId: other.id, guideId: guide.id } })).toBe(1);
+      expect(await resetGuideProgress("nao-existe")).toEqual({ status: "not_found" });
+      session.userId = null;
+      expect(await resetGuideProgress(guide.id)).toEqual({ status: "unauthenticated" });
+    });
+
     it("toggleItem aceita a ref opaca de um item com spoiler e grava a chave real", async () => {
       const { prisma } = await import("@/lib/db");
       const { toggleItem } = await import("@/app/jogos/[slug]/guia/actions");
