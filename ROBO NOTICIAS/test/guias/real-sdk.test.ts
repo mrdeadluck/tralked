@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createAi, MAX_NONSTREAMING_TOKENS } from "../../src/ai/client.js";
+import { createAi, isOutOfCredit, MAX_NONSTREAMING_TOKENS } from "../../src/ai/client.js";
 import { loadConfig } from "../../src/config.js";
 import { openDb } from "../../src/db.js";
 import { extractFacts } from "../../src/guias/extract.js";
@@ -90,5 +90,21 @@ describe("chamadas longas no SDK real", () => {
     expect(bodies).toHaveLength(2);
     expect(bodies[0]!.stream).toBeUndefined();
     expect(bodies[1]!.stream).toBe(true);
+  });
+});
+
+describe("erro sem nova tentativa", () => {
+  it("400 de crédito insuficiente: uma chamada só, e o erro é reconhecido", async () => {
+    const body = { type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits." } };
+    const fetch = vi.fn(async () => new Response(JSON.stringify(body), { status: 400, headers: { "content-type": "application/json" } }));
+    // The default retries (2) of the SDK: a 400 is never retried.
+    const client = new Anthropic({ apiKey: "test", fetch: fetch as never });
+    const ai = createAi({ client, db, config });
+    const schema = (await import("../../src/guias/facts.js")).llmFactsSchema;
+    const call = ai.structured({ bucket: "backfill", purpose: "t", model: "claude-sonnet-5-5", effort: "low", system: "s", user: "u", schema, maxTokens: 48_000 });
+    const error = await call.catch((e: unknown) => e);
+    expect(isOutOfCredit(error)).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(isOutOfCredit(new Error("overloaded"))).toBe(false);
   });
 });

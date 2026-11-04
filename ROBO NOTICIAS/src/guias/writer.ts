@@ -643,6 +643,7 @@ type Ctx = {
   jobs: WriteJob[];
   scope?: PsnWriteScope;
   excerpts: WritingExcerpts;
+  log?: (line: string) => void;
 };
 
 /** The model's texts: the frame and one answer per write job (by job id). */
@@ -689,6 +690,7 @@ function context(ai: Ai, dossier: GuideDossier, game: GuideDossierSource, bucket
     jobs: writeJobs(skel),
     scope: opts.scope,
     excerpts,
+    log: opts.log,
   };
 }
 
@@ -706,6 +708,7 @@ async function draft(
   problems: GuideProblem[] = [],
   only?: Set<string>,
   history: ProblemHistory = new Map(),
+  onFailure?: (partial: PartialTexts, finished: Redone, redone: Redone) => void,
 ): Promise<{ texts: Texts; redone: Redone }> {
   const own = (scope: string) => [...new Set(problems.filter((p) => p.scope === scope).map((p) => p.text))];
   const call = <T>(purpose: string, retry: boolean, user: string, schema: z.ZodType<T>, scope: string) =>
@@ -724,21 +727,59 @@ async function draft(
   const redoFrame = !previous?.frame || own(FRAME_SCOPE).length > 0;
   const redoJobs = ctx.jobs.filter((j) => (!only || only.has(j.id)) && (!previous?.jobs.has(j.id) || own(j.id).length > 0));
   const abort: Abort = { aborted: false };
-  const [frame, answers] = await Promise.all([
-    redoFrame
-      ? abortOnError(
-          call("guide-write-frame", Boolean(previous?.frame), frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope, ctx.excerpts.frame), FrameSchema, FRAME_SCOPE),
-          abort,
-        )
-      : Promise.resolve(previous!.frame!),
-    inPool(
-      redoJobs,
-      CONCURRENCY,
-      (job) =>
-        call("guide-write-chapter", Boolean(previous?.jobs.has(job.id)), jobMessage(ctx.skel, job, ctx.game, ctx.excerpts.jobs.get(job.id)), ChapterTextSchema, job.id),
-      abort,
-    ),
-  ]);
+  // PBZ attempt 22: what each call already wrote, kept as it lands, so a failure in the middle loses none of it.
+  const landed: { frame?: Frame; jobs: Map<string, ChapterText> } = { jobs: new Map() };
+  const inFlight = new Set<Promise<unknown>>();
+  const track = <T>(promise: Promise<T>): Promise<T> => {
+    inFlight.add(promise);
+    const forget = () => inFlight.delete(promise);
+    promise.then(forget, forget);
+    return promise;
+  };
+  let frame: Frame;
+  let answers: ChapterText[];
+  try {
+    [frame, answers] = await Promise.all([
+      redoFrame
+        ? abortOnError(
+            track(
+              call("guide-write-frame", Boolean(previous?.frame), frameMessage(ctx.skel, ctx.dossier, ctx.game, ctx.scope, ctx.excerpts.frame), FrameSchema, FRAME_SCOPE),
+            ).then((f) => (landed.frame = f)),
+            abort,
+          )
+        : Promise.resolve(previous!.frame!),
+      inPool(
+        redoJobs,
+        CONCURRENCY,
+        (job) =>
+          track(
+            call("guide-write-chapter", Boolean(previous?.jobs.has(job.id)), jobMessage(ctx.skel, job, ctx.game, ctx.excerpts.jobs.get(job.id)), ChapterTextSchema, job.id),
+          ).then((t) => {
+            landed.jobs.set(job.id, t);
+            return t;
+          }),
+        abort,
+      ),
+    ]);
+  } catch (error) {
+    // The calls already running finish (no new one starts after the abort); then what landed is handed over.
+    while (inFlight.size > 0) await Promise.allSettled([...inFlight]);
+    if (onFailure) {
+      const jobs = new Map(previous?.jobs ?? []);
+      for (const [id, text] of landed.jobs) jobs.set(id, text);
+      try {
+        onFailure(
+          { frame: landed.frame ?? previous?.frame ?? null, jobs },
+          { frame: landed.frame !== undefined, jobs: redoJobs.filter((j) => landed.jobs.has(j.id)) },
+          { frame: redoFrame, jobs: redoJobs },
+        );
+      } catch (saveError) {
+        // The run reports the error that stopped the writing, not this one.
+        ctx.log?.(`guia: o que foi escrito antes da falha não pôde ser salvo: ${saveError instanceof Error ? saveError.message : String(saveError)}`);
+      }
+    }
+    throw error;
+  }
   const jobs = new Map(previous?.jobs ?? []);
   redoJobs.forEach((job, n) => jobs.set(job.id, answers[n]!));
   return { texts: { frame, jobs }, redone: { frame: redoFrame, jobs: redoJobs } };
@@ -1244,7 +1285,9 @@ export type DraftRound = {
   internalErrors: string[];
   /**
    * A probe resumed from a failed draft: the earlier problems outside its chapters, still owed (their texts are kept
-   * as they were). Not the probe's verdict; the next run rewrites them. Always empty outside a probe.
+   * as they were). Not the probe's verdict; the next run rewrites them. Outside a probe, empty, except in a round saved
+   * before its check (`onWritten`) that failed while writing: the problems of the parts it had not rewritten yet (kept
+   * apart so the problem history does not count them twice).
    */
   pending: GuideProblem[];
 };
@@ -1271,6 +1314,13 @@ export type WriteAndCheckOpts = WriteGuideOpts & {
   probe?: { chapters: number };
   /** Called after each round is checked (the pipeline saves it at once: a later failure loses nothing paid). */
   onRound?: (round: DraftRound) => void;
+  /**
+   * PBZ attempt 22 (the API ran out of credit while checking, after ~US$ 14 of writing): called with each round's
+   * written texts BEFORE its check, and with what landed when a write call fails. Every part written and not yet
+   * checked is a `checagem-devida` problem: a resume of the same writing key checks it instead of writing it again.
+   * The checked round (`onRound`) saves after it, and the newer row wins.
+   */
+  onWritten?: (round: DraftRound) => void;
   /**
    * Task 30: what the saved rounds of this request and base key already pointed at, per part (drafts.ts
    * `problemHistory`); this run's rounds are added as they are checked. Rewrites see all of it.
@@ -1417,30 +1467,77 @@ export async function writeAndCheckGuide(
   // Task 30: a copy (this run's rounds are added to it, the caller's map stays as it was).
   const history: ProblemHistory = new Map([...(opts.history ?? [])].map(([k, v]) => [k, { problems: [...v.problems], flagged: v.flagged }]));
   let last: DraftRound | undefined;
-  for (let round = 1; round <= (opts.probe ? 1 : 2); round++) {
-    const next = await draft(ctx, texts, problems, only, history);
-    const written = assemble(ctx, next.texts);
-    const recheck = ctx.jobs.filter(
-      (j) =>
-        (!only || only.has(j.id)) &&
-        (next.redone.jobs.includes(j) ||
-          (round === 1 && due.has(j.id)) ||
-          (before !== undefined && jobSignature(before.payload, j) !== jobSignature(written.payload, j))),
-    );
-    // Task 20 review: in a probe, a kept job outside its chapters whose rendering changed (a loose achievement the
-    // probe's rewrite stopped placing went there, with the cleanup's text) is owed a check by the next run.
-    const owed: GuideProblem[] = only
+  /** PBZ attempt 22: a round's texts as written, saved before any check; `toCheck` are the parts owed a check. */
+  const saveWritten = (
+    round: number,
+    partial: PartialTexts,
+    written: WrittenGuide,
+    toCheck: { frame: boolean; jobs: string[] },
+    unwritten: GuideProblem[],
+    owed: GuideProblem[] = [],
+  ) => {
+    if (!opts.onWritten) return;
+    const parts = [...(toCheck.frame ? [FRAME_SCOPE] : []), ...toCheck.jobs];
+    opts.onWritten({
+      round,
+      ok: false,
+      probe: Boolean(opts.probe),
+      texts: toSaved(partial),
+      payload: written.payload,
+      problems: parts.map((scope) => ({ scope, kind: CHECK_DUE, text: `O trecho ${scope} foi escrito e ainda não foi checado.` })),
+      repairs: written.repairs.filter((r) => inScope(r.scope)),
+      internalErrors: internalOf(written),
+      pending: [...pending, ...owed, ...unwritten],
+    });
+  };
+  /** The jobs whose rendering changed since the previous texts (a loose achievement's text moved, e.g.). */
+  const changed = (payload: GuidePayloadV2) => (j: WriteJob) => before !== undefined && jobSignature(before.payload, j) !== jobSignature(payload, j);
+  /** Task 20 review: in a probe, a kept job outside its chapters whose rendering changed is owed a check by the next run. */
+  const owedOf = (texts: PartialTexts, payload: GuidePayloadV2): GuideProblem[] =>
+    only
       ? ctx.jobs
-          .filter((j) => !only.has(j.id) && next.texts.jobs.has(j.id) && !pending.some((p) => p.scope === j.id))
-          .filter((j) => before !== undefined && jobSignature(before.payload, j) !== jobSignature(written.payload, j))
+          .filter((j) => !only.has(j.id) && texts.jobs.has(j.id) && !pending.some((p) => p.scope === j.id))
+          .filter(changed(payload))
           .map((j) => ({
             scope: j.id,
             kind: CHECK_DUE,
             text: `O trecho ${j.id} mudou com a sonda (um item foi posto nele ou saiu dele) e precisa ser checado de novo.`,
           }))
       : [];
+  for (let round = 1; round <= (opts.probe ? 1 : 2); round++) {
+    const dueNow = round === 1 ? due : new Set<string>();
+    const next = await draft(ctx, texts, problems, only, history, (partial, finished, redone) => {
+      // The same rules for the frame and the jobs. Owed a rewrite: a part this round was rewriting that did not land
+      // (its earlier problems, apart). Owed a check: every other part present that landed now, was owed a check
+      // before, or renders differently from the previous texts (a cleanup rewrite moved a text into it).
+      const unlanded = (scope: string) =>
+        scope === FRAME_SCOPE ? redone.frame && !finished.frame : redone.jobs.some((j) => j.id === scope) && !finished.jobs.some((j) => j.id === scope);
+      const written = assemble(ctx, { frame: partial.frame ?? BLANK_FRAME, jobs: partial.jobs });
+      const moved = changed(written.payload);
+      const frame = partial.frame !== null && !unlanded(FRAME_SCOPE) && (finished.frame || dueNow.has(FRAME_SCOPE));
+      const jobs = ctx.jobs.filter(
+        (j) =>
+          (!only || only.has(j.id)) &&
+          partial.jobs.has(j.id) &&
+          !unlanded(j.id) &&
+          (finished.jobs.includes(j) || dueNow.has(j.id) || moved(j)),
+      );
+      const unwritten = problems.filter((p) => unlanded(p.scope));
+      saveWritten(round, partial, written, { frame, jobs: jobs.map((j) => j.id) }, unwritten, owedOf(partial, written.payload));
+    });
+    const written = assemble(ctx, next.texts);
+    const recheck = ctx.jobs.filter((j) => (!only || only.has(j.id)) && (next.redone.jobs.includes(j) || dueNow.has(j.id) || changed(written.payload)(j)));
+    const owed = owedOf(next.texts, written.payload);
+    // A frame written before an earlier run's check failed (`checagem-devida`) is checked now.
+    const checkFrame = next.redone.frame || dueNow.has(FRAME_SCOPE);
+    try {
+      saveWritten(round, next.texts, written, { frame: checkFrame, jobs: recheck.map((j) => j.id) }, [], owed);
+    } catch (saveError) {
+      // A safety net only: the check goes on (the checked round saves the same texts).
+      ctx.log?.(`guia: o texto escrito não pôde ser salvo antes da checagem: ${saveError instanceof Error ? saveError.message : String(saveError)}`);
+    }
     const checked = (
-      await checkScopes(ai, written.payload, dossier, ctx.skel, { frame: next.redone.frame, jobs: recheck }, { ...checkOpts, codeWarnings: written.codeWarnings })
+      await checkScopes(ai, written.payload, dossier, ctx.skel, { frame: checkFrame, jobs: recheck }, { ...checkOpts, codeWarnings: written.codeWarnings })
     ).filter((p) => inScope(p.scope));
     // What the checker listed as right is recorded with the notes (auditable), never a reason to rewrite.
     const right = checked.filter((p) => p.kind === CHECKER_RIGHT);

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
-import { BudgetExceededError, createAi, type Ai, type Effort } from "../ai/client.js";
+import { BudgetExceededError, createAi, isOutOfCredit, type Ai, type Effort } from "../ai/client.js";
 import { TralkedError } from "../tralked-http.js";
 import type { GuideApi, GuideRequest, GuideRequestReport } from "./api.js";
 import { statedSequence } from "./chapter-order.js";
@@ -127,6 +127,8 @@ export type GuidePipelineDeps = {
 };
 
 export const BUDGET_REASON = "teto de gasto";
+/** PBZ attempt 22: the Anthropic account ran out of credit (`isOutOfCredit`). */
+export const OUT_OF_CREDIT_REASON = "sem crédito na API da Anthropic";
 export const DEADLINE_BEFORE_WRITING = "tempo esgotado antes da escrita";
 export const UPDATE_NOT_BY_PSN = "o gate da Steam não passou; a atualização não reenvia o guia pela lista da PSN";
 export const directRequestId = (appId: number) => `direto-${appId}`;
@@ -245,6 +247,12 @@ export async function runGuideRequest(deps: GuidePipelineDeps): Promise<GuideOut
     } else if (error instanceof BudgetExceededError) {
       deps.log(`guia: ${error.message}`);
       final = { status: "failed", reason: BUDGET_REASON, report: safeReport(deps, request, run) };
+    } else if (isOutOfCredit(error)) {
+      deps.log(
+        `guia: sem crédito na API da Anthropic (${messageOf(error)}): a execução parou. O que já foi escrito ficou salvo no rascunho ` +
+          "e a próxima tentativa recomeça dele; recarregue os créditos e rode de novo.",
+      );
+      final = { status: "failed", reason: OUT_OF_CREDIT_REASON, report: safeReport(deps, request, run) };
     } else {
       deps.log(`guia: erro no pedido ${request.id}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
       final = { status: "failed", reason: clip(messageOf(error) || "erro inesperado", REASON_MAX), report: safeReport(deps, request, run) };
@@ -463,7 +471,8 @@ async function processRequest(run: Run): Promise<Final> {
     try {
       facts.push(await extractCached(run, s, { url: s.url, text: page.text, html: page.html }));
     } catch (error) {
-      if (error instanceof BudgetExceededError) throw error;
+      // Out of credit: every other page would fail the same way.
+      if (error instanceof BudgetExceededError || isOutOfCredit(error)) throw error;
       robotErrors.push(messageOf(error));
       notRead(s, `extração falhou: ${messageOf(error)}`);
       continue;
@@ -579,8 +588,8 @@ async function processRequest(run: Run): Promise<Final> {
       );
     }
     let rounds = 0;
-    const saveRound = (draft: Parameters<typeof saveDraft>[1]["draft"]) =>
-      saveDraft(db, { requestId: request.id, attempt: request.attempts, writingKey: cacheKey, baseKey, draft, at: deps.now() });
+    const saveRound = (draft: Parameters<typeof saveDraft>[1]["draft"], checked = true) =>
+      saveDraft(db, { requestId: request.id, attempt: request.attempts, writingKey: cacheKey, baseKey, checked, draft, at: deps.now() });
     written = await stages.writeAndCheckGuide(run.ai, toWrite, source, "backfill", {
       models,
       sourceTexts: read.map((r) => r.text),
@@ -597,6 +606,8 @@ async function processRequest(run: Run): Promise<Final> {
         rounds++;
         saveRound(round);
       },
+      // PBZ attempt 22: the written texts are saved before the check, so a failure while checking loses no writing.
+      onWritten: (round) => saveRound(round, false),
     });
     // A stage that reported no round (a test fake) is still saved, without texts to resume from.
     if (rounds === 0) {
@@ -898,7 +909,7 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
       try {
         target = await stages.locateTarget(ai, bytes, item.nameEn ?? item.name, { model: deps.config.MODEL_FAST, bucket: "backfill" });
       } catch (error) {
-        if (error instanceof BudgetExceededError) throw error;
+        if (error instanceof BudgetExceededError || isOutOfCredit(error)) throw error;
         unringed++;
         deps.log(`guia: imagem de "${item.name}" vai sem a marcação do item: ${messageOf(error)}`);
       }
@@ -912,6 +923,12 @@ async function addImages(run: Run, payload: GuidePayloadV2, pages: PagesInput, b
       if (error instanceof BudgetExceededError) {
         run.progress.notes.push(`teto de gasto atingido nas imagens: elas pararam em ${added}, o guia saiu assim`);
         deps.log(`guia: ${error.message}; imagens interrompidas`);
+        report();
+        return;
+      }
+      if (isOutOfCredit(error)) {
+        run.progress.notes.push(`${OUT_OF_CREDIT_REASON} nas imagens: elas pararam em ${added}, o guia saiu assim`);
+        deps.log(`guia: ${OUT_OF_CREDIT_REASON}; imagens interrompidas`);
         report();
         return;
       }
@@ -952,6 +969,11 @@ async function addSoundtrack(run: Run, payload: GuidePayloadV2, source: GuideDos
     if (error instanceof BudgetExceededError) {
       run.progress.notes.push("teto de gasto atingido na busca da trilha sonora: o guia saiu sem música");
       run.deps.log(`guia: ${error.message}; trilha interrompida`);
+      return;
+    }
+    if (isOutOfCredit(error)) {
+      run.progress.notes.push(`${OUT_OF_CREDIT_REASON} na busca da trilha sonora: o guia saiu sem música`);
+      run.deps.log(`guia: ${OUT_OF_CREDIT_REASON}; trilha interrompida`);
       return;
     }
     run.deps.log(`guia: a busca da trilha falhou: ${messageOf(error)}`);

@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS drafts (
   texts_json TEXT,
   pending_json TEXT,
   base_key TEXT,
-  writer_version INTEGER
+  writer_version INTEGER,
+  checked INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_drafts_request ON drafts(request_id);
 CREATE INDEX IF NOT EXISTS idx_drafts_key ON drafts(writing_key);
@@ -148,6 +149,8 @@ export function openGuideDb(dir: string): GuideDb {
   raw.exec("CREATE INDEX IF NOT EXISTS idx_drafts_base ON drafts(base_key)");
   // Voice v2: the writer version of each draft (null: saved before v7, never carried to another writing key).
   if (!draftColumns.some((c) => c.name === "writer_version")) raw.exec("ALTER TABLE drafts ADD COLUMN writer_version INTEGER");
+  // Save before check: 0 for a round saved before its check (`onWritten`); 1 or null (older rows) for a checked one.
+  if (!draftColumns.some((c) => c.name === "checked")) raw.exec("ALTER TABLE drafts ADD COLUMN checked INTEGER");
 
   const one = <T>(sql: string, ...args: (string | number | null)[]) =>
     raw.prepare(sql).get(...args) as unknown as T | undefined;

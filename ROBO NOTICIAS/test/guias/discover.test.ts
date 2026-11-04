@@ -122,6 +122,15 @@ describe("discoverSources", () => {
       throw Object.assign(new Error("invalid x-api-key"), { status: 401 });
     };
     await expect(discoverSources(game, { fetchPage: fetchPage().fetchPage, search: auth })).rejects.toThrow(/x-api-key/);
+    // Save-before-check review: no credit stops discovery too (never a discovery with every search "failed").
+    const failures: string[] = [];
+    const credit = async (): Promise<SearchHit[]> => {
+      throw Object.assign(new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}'), { status: 400 });
+    };
+    await expect(
+      discoverSources(game, { fetchPage: fetchPage().fetchPage, search: credit, onSearchFailure: (q) => failures.push(q) }),
+    ).rejects.toThrow(/credit balance/);
+    expect(failures).toEqual([]);
   });
 
   it("registra falha comum de uma busca e segue com as outras", async () => {

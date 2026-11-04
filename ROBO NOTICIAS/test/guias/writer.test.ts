@@ -1858,3 +1858,179 @@ describe("revisão final: a lista de expressões proibidas não cobra do escrito
     expect(result.internalErrors).toEqual([expect.stringContaining('texto do código com expressão proibida "fontes"')]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// PBZ attempt 22: the written texts are saved before the check (the API ran out of credit while checking)
+// ---------------------------------------------------------------------------------------------
+
+describe("salvar antes da checagem: o que já foi pago não se perde", () => {
+  const credit = () =>
+    Object.assign(new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}'), {
+      status: 400,
+    });
+  const DUE = "checagem-devida";
+
+  it("o checador cai (sem crédito): os textos escritos ficam salvos com checagem devida; a retomada só checa, sem escrever", async () => {
+    const error = credit();
+    const saved: DraftRound[] = [];
+    const first = fakeAi({
+      verdict: () => {
+        throw error;
+      },
+    });
+    await expect(writeAndCheckGuide(first.ai, makeDossier(), GAME, "live", { onWritten: (r) => saved.push(r) })).rejects.toBe(error);
+    expect(first.of("guide-write")).toHaveLength(5);
+    expect(saved).toHaveLength(1);
+    const pre = saved[0]!;
+    expect(pre.texts.frame).not.toBeNull();
+    expect(Object.keys(pre.texts.jobs).sort()).toEqual(["ashen-peak-1", "crimson-forest-1", "limpeza-1", "weeping-creek-1"]);
+    expect(pre.problems.map((p) => [p.scope, p.kind]).sort()).toEqual(
+      [["frame", DUE], ["weeping-creek-1", DUE], ["crimson-forest-1", DUE], ["ashen-peak-1", DUE], ["limpeza-1", DUE]].sort(),
+    );
+    expect(pre.ok).toBe(false);
+
+    // Same writing key: resumed from the saved texts, nothing written again, every part checked.
+    const second = fakeAi();
+    const result = await writeAndCheckGuide(second.ai, makeDossier(), GAME, "live", { resume: { texts: pre.texts, problems: [...pre.problems, ...pre.pending] } });
+    expect(result.ok).toBe(true);
+    expect(second.of("guide-write")).toEqual([]);
+    expect(second.of("guide-check")).toHaveLength(5);
+  });
+
+  it("um trecho cai no meio da escrita: os que terminaram ficam salvos; a retomada escreve só o que faltou", async () => {
+    const error = credit();
+    const saved: DraftRound[] = [];
+    const first = fakeAi({
+      chapter: (_out, prompt) => {
+        if (prompt.includes('<passo key="ashen-peak-1">')) throw error;
+      },
+    });
+    await expect(writeAndCheckGuide(first.ai, makeDossier(), GAME, "live", { onWritten: (r) => saved.push(r) })).rejects.toBe(error);
+    expect(first.of("guide-check")).toEqual([]);
+    expect(saved).toHaveLength(1);
+    const pre = saved[0]!;
+    const written = Object.keys(pre.texts.jobs).sort();
+    expect(written).toEqual(["crimson-forest-1", "weeping-creek-1"]);
+    expect(pre.texts.frame).not.toBeNull();
+    expect(pre.problems.map((p) => p.scope).sort()).toEqual(["crimson-forest-1", "frame", "weeping-creek-1"]);
+    expect(pre.problems.every((p) => p.kind === DUE)).toBe(true);
+
+    const second = fakeAi();
+    const result = await writeAndCheckGuide(second.ai, makeDossier(), GAME, "live", { resume: { texts: pre.texts, problems: [...pre.problems, ...pre.pending] } });
+    expect(result.ok).toBe(true);
+    const writes = second.of("guide-write");
+    expect(writes.map((w) => w.purpose)).toEqual(["guide-write-chapter", "guide-write-chapter"]);
+    expect(writes.some((w) => w.user.includes('<passo key="ashen-peak-1">'))).toBe(true);
+    expect(writes.some((w) => w.user.includes('<passo key="limpeza-1">'))).toBe(true);
+    expect(second.of("guide-check")).toHaveLength(5);
+  });
+
+  it("na reescrita (rodada 2), um trecho que ainda deve correção e não terminou guarda o problema; o reescrito fica com checagem devida", async () => {
+    const error = credit();
+    const saved: DraftRound[] = [];
+    let failed = false;
+    const { ai } = fakeAi({
+      verdict: (user) => (user.includes('"key":"weeping-creek-1"') || user.includes('"key":"ashen-peak-1"') ? { problems: ["Erro."] } : OK),
+      chapter: (_out, prompt) => {
+        if (prompt.includes("## Correções obrigatórias") && prompt.includes('<passo key="ashen-peak-1">') && !failed) {
+          failed = true;
+          throw error;
+        }
+      },
+    });
+    await expect(writeAndCheckGuide(ai, makeDossier(), GAME, "live", { onWritten: (r) => saved.push(r) })).rejects.toBe(error);
+    // Round 1 was saved before its check, round 2 before failing.
+    expect(saved.map((r) => r.round)).toEqual([1, 2]);
+    const pre = saved[1]!;
+    expect(pre.problems).toEqual([expect.objectContaining({ scope: "weeping-creek-1", kind: DUE })]);
+    expect(pre.pending).toEqual([expect.objectContaining({ scope: "ashen-peak-1", text: "Erro." })]);
+  });
+});
+
+describe("salvar antes da checagem, revisão 1", () => {
+  const credit = () =>
+    Object.assign(new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}'), {
+      status: 400,
+    });
+  const DUE = "checagem-devida";
+  const inGuia = (user: string, key: string) => section(user, "guia").includes(`"key":"${key}"`);
+  /** ACH_SECRET (loose, missable until Crimson Forest): the code puts it in weeping-creek-3, with the cleanup's text. */
+  const missableSecret = () => {
+    const dossier = makeDossier();
+    Object.assign(dossier.achievements.find((a) => a.apiName === "ACH_SECRET")!, { missable: true, missableUntil: "Crimson Forest", deadlineChapter: "Crimson Forest" });
+    return dossier;
+  };
+
+  it("I1: a reescrita da limpeza chega, outro trecho cai; o trecho que mostra o texto novo fica com checagem devida e é checado na retomada", async () => {
+    const error = credit();
+    const saved: DraftRound[] = [];
+    const { ai } = fakeAi({
+      verdict: (user) => (inGuia(user, "limpeza-1") || inGuia(user, "ashen-peak-1") ? { problems: ["Erro."] } : OK),
+      chapter: (out, prompt) => {
+        if (!prompt.includes("## Correções obrigatórias")) return;
+        if (prompt.includes('<passo key="ashen-peak-1">')) throw error;
+        if (prompt.includes("capítulo de limpeza")) out.itens.find((i) => i.key === "conq-ach-secret")!.local = "Texto novo da limpeza.";
+      },
+    });
+    await expect(writeAndCheckGuide(ai, missableSecret(), GAME, "live", { onWritten: (r) => saved.push(r) })).rejects.toBe(error);
+    const pre = saved.find((r) => r.round === 2)!;
+    expect(pre.problems.map((p) => [p.scope, p.kind]).sort()).toEqual([["limpeza-1", DUE], ["weeping-creek-1", DUE]]);
+    expect(pre.pending).toEqual([expect.objectContaining({ scope: "ashen-peak-1", text: "Erro." })]);
+
+    const again = fakeAi();
+    const result = await writeAndCheckGuide(again.ai, missableSecret(), GAME, "live", { resume: { texts: pre.texts, problems: [...pre.problems, ...pre.pending] } });
+    expect(result.ok).toBe(true);
+    const checks = again.of("guide-check");
+    expect(checks.some((c) => inGuia(c.user, "weeping-creek-3") && c.user.includes("Texto novo da limpeza."))).toBe(true);
+    expect(again.of("guide-write").map((w) => w.purpose)).toEqual(["guide-write-chapter-retry"]);
+  });
+
+  it("um trecho retomado com checagem devida que o checador recusa é reescrito na rodada 2", async () => {
+    const saved: DraftRound[] = [];
+    await expect(
+      writeAndCheckGuide(
+        fakeAi({
+          verdict: () => {
+            throw credit();
+          },
+        }).ai,
+        makeDossier(),
+        GAME,
+        "live",
+        { onWritten: (r) => saved.push(r) },
+      ),
+    ).rejects.toThrow(/credit balance/);
+    const pre = saved[0]!;
+    let rejected = false;
+    const { ai, of } = fakeAi({
+      verdict: (user) => {
+        if (!rejected && inGuia(user, "crimson-forest-1")) {
+          rejected = true;
+          return { problems: ["Crimson erra o chefe."] };
+        }
+        return OK;
+      },
+    });
+    const result = await writeAndCheckGuide(ai, makeDossier(), GAME, "live", { resume: { texts: pre.texts, problems: pre.problems } });
+    expect(result.ok).toBe(true);
+    const writes = of("guide-write");
+    expect(writes.map((w) => w.purpose)).toEqual(["guide-write-chapter-retry"]);
+    expect(writes[0]!.user).toContain('<passo key="crimson-forest-1">');
+    expect(writes[0]!.user).toContain("Crimson erra o chefe.");
+  });
+
+  it("se salvar o que foi escrito falhar, o erro que parou a escrita é o que sobe (e a falha do salvamento vai para o log)", async () => {
+    const error = credit();
+    const lines: string[] = [];
+    const { ai } = fakeAi({
+      chapter: (_out, prompt) => {
+        if (prompt.includes('<passo key="ashen-peak-1">')) throw error;
+      },
+    });
+    const onWritten = () => {
+      throw new Error("disco cheio");
+    };
+    await expect(writeAndCheckGuide(ai, makeDossier(), GAME, "live", { onWritten, log: (l) => lines.push(l) })).rejects.toBe(error);
+    expect(lines.some((l) => l.includes("não pôde ser salvo") && l.includes("disco cheio"))).toBe(true);
+  });
+});
