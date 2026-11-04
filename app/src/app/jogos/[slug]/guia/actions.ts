@@ -95,6 +95,28 @@ export async function toggleItem(guideId: string, itemRef: string): Promise<Togg
   return { status: "ok", done: true };
 }
 
+export type ResetGuideProgressResult =
+  | { status: "ok"; cleared: number }
+  | { status: "unauthenticated" }
+  | { status: "not_found" };
+
+/**
+ * "Recomeçar o guia": clears every item the logged-in user ticked on this walkthrough, so the resume
+ * point no longer follows ticks made by mistake. Steam unlocks are the player's own record and stay:
+ * items confirmed by Steam remain done. Requires login.
+ */
+export async function resetGuideProgress(guideId: string): Promise<ResetGuideProgressResult> {
+  const user = await getSessionUser();
+  if (!user) return { status: "unauthenticated" };
+  const guide = await prisma.guide.findFirst({
+    where: { id: guideId, status: "published", format: 2 },
+    select: { id: true },
+  });
+  if (!guide) return { status: "not_found" };
+  const { count } = await prisma.guideItemProgress.deleteMany({ where: { userId: user.id, guideId } });
+  return { status: "ok", cleared: count };
+}
+
 export type CheckGameAchievementsResult = {
   status: "ok" | "private" | "unlinked" | "cooldown" | "error" | "unauthenticated";
   /** `id` is the achievement's database id (the walkthrough page knows hidden ones only by it). */

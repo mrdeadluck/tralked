@@ -1,7 +1,12 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { checkGameAchievements, type CheckGameAchievementsResult } from "@/app/jogos/[slug]/guia/actions";
+import {
+  checkGameAchievements,
+  resetGuideProgress,
+  type CheckGameAchievementsResult,
+  type ResetGuideProgressResult,
+} from "@/app/jogos/[slug]/guia/actions";
 import { announceReward, announceToast } from "@/components/fx/reward-bus";
 
 /*
@@ -46,6 +51,10 @@ type WalkProgress = {
   session: WalkSession;
   /** Ticked by the visitor (what toggleItem stores). */
   isTicked: (ref: string) => boolean;
+  /** How many items the visitor ticked by hand. */
+  tickedCount: number;
+  /** Clears every tick of the visitor on this guide (resetGuideProgress); Steam unlocks stay. */
+  resetTicks: () => Promise<ResetGuideProgressResult>;
   /** Ticked, or confirmed by Steam (isConfirmed). */
   isDone: (ref: string) => boolean;
   /** Its own Steam achievement unlocked, or every achievement it counts toward. */
@@ -136,6 +145,12 @@ export function WalkProgressProvider({
     [gameId],
   );
 
+  const resetTicks = useCallback(async () => {
+    const result = await resetGuideProgress(guideId);
+    if (result.status === "ok") setDoneSet(new Set());
+    return result;
+  }, [guideId]);
+
   const achievementOf = useCallback((ref: string) => achievements[ref] ?? null, [achievements]);
   const countsForOf = useCallback((ref: string) => countsFor[ref] ?? TOWARD_NONE, [countsFor]);
 
@@ -155,6 +170,8 @@ export function WalkProgressProvider({
       user,
       session,
       isTicked: (ref) => done.has(ref),
+      tickedCount: done.size,
+      resetTicks,
       isDone,
       isConfirmed,
       doneCount: (refs) => refs.reduce((n, ref) => n + (isDone(ref) ? 1 : 0), 0),
@@ -173,6 +190,7 @@ export function WalkProgressProvider({
     session,
     done,
     setDone,
+    resetTicks,
     unlocked,
     achievements,
     countsFor,
