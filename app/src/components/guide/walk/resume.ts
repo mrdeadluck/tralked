@@ -6,10 +6,13 @@ import type { JourneyChapter } from "./journey";
  * the ordered item list, so a filtered list (one platform's version of the guide) gives that
  * version's answer.
  *
- * - An item is done when it is ticked or its achievement is unlocked.
+ * - An item is done when it is ticked, its achievement is unlocked, or every achievement it counts
+ *   toward is unlocked (an herb of a quest whose achievement the visitor has).
  * - "Furthest" is the last done item in the guide's order. The cleanup chapter and loose achievements
  *   (no fixed place in the story) are left out of it, so one achievement done out of order does not
- *   throw the visitor ahead; an achievement on several items counts at its first item only.
+ *   throw the visitor ahead; an achievement on several items counts at its first item only. An
+ *   item done only through what it counts toward never moves it either: "collect all N" unlocked
+ *   says nothing about where the visitor is.
  *   Steam-only achievements have no item, so they never count.
  * - "Resume" is the next undone item after the furthest one, anywhere after it (cleanup included).
  *   It never goes back to an item skipped early on: those are "behind".
@@ -28,6 +31,8 @@ export type ResumeItem = {
   loose: boolean;
   /** Database id of the Steam achievement the item is. */
   achievementId: string | null;
+  /** Database ids of the achievements the item counts toward (empty: none). */
+  countsFor: readonly string[];
 };
 
 /** What the resume point is based on. */
@@ -67,7 +72,8 @@ export function resumeOf(items: readonly ResumeItem[], { isTicked, isUnlocked }:
   });
   const unlocked = items.map((item) => item.achievementId !== null && isUnlocked(item.achievementId));
   const ticked = items.map((item) => isTicked(item.ref));
-  const done = items.map((_, i) => ticked[i] || unlocked[i]);
+  const toward = items.map((item) => item.countsFor.length > 0 && item.countsFor.every((id) => isUnlocked(id)));
+  const done = items.map((_, i) => ticked[i] || unlocked[i] || toward[i]);
 
   let furthest: number | null = null;
   let byTicks = false;
@@ -119,6 +125,7 @@ export const cleanupChapter = (key: string, index: number, count: number) =>
 export function resumeItems(
   chapters: readonly Pick<JourneyChapter, "refs" | "steps" | "missables" | "cleanup">[],
   achievementOf: (ref: string) => string | null,
+  countsForOf: (ref: string) => readonly string[] = () => [],
 ): ResumeItem[] {
   return chapters.flatMap((chapter, c) => {
     const missable = new Set(chapter.missables.map((m) => m.ref));
@@ -133,6 +140,7 @@ export function resumeItems(
         cleanup: chapter.cleanup,
         loose: chapter.cleanup && achievementId !== null,
         achievementId,
+        countsFor: countsForOf(ref),
       };
     });
   });

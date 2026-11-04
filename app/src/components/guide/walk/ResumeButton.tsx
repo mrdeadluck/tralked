@@ -61,8 +61,9 @@ export function ResumeButton() {
   if (!point) {
     return (
       <div className="wk-resume">
+        {/* "Concluído" only when nothing was left behind on the way. */}
         <button type="button" className="tk-cut-b" onClick={goToEnd}>
-          Guia concluído
+          {at.behind.length > 0 ? "Você chegou ao fim do detonado" : "Guia concluído"}
         </button>
         <SyncControl />
         <BehindLink refs={at.behind} />

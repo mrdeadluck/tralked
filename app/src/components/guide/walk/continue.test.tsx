@@ -26,7 +26,7 @@ vi.mock("@/lib/auth/session", () => ({ getSessionUser: vi.fn(async () => null) }
 const TITLES = ["Weeping Creek Valley", "Crimson Forest", "Limpeza"];
 const KEYS = ["cap-1", "cap-2", "limpeza"];
 
-function guide({ gatedBoulderguard = false } = {}) {
+function guide({ gatedBoulderguard = false, boulderguardCountsFor = [] as string[] } = {}) {
   const base = pbzGuide();
   const three: Walkthrough = {
     ...walkthrough,
@@ -44,6 +44,7 @@ function guide({ gatedBoulderguard = false } = {}) {
             ...item,
             key: `${item.key}${suffix}`,
             spoiler: item.spoiler || (gatedBoulderguard && item.key === "acessorio-boulderguard"),
+            countsFor: item.key === "acessorio-boulderguard" ? boulderguardCountsFor : item.countsFor,
           })),
         })),
       };
@@ -140,6 +141,19 @@ describe("botão da capa", () => {
     fireEvent.click(await within(cover()).findByRole("button", { name: "Guia concluído" }));
     expect(scrolled()).toEqual(["cap-limpeza"]);
   });
+
+  it('no fim com itens para trás: "Você chegou ao fim do detonado", com o aviso, nunca "Guia concluído"', async () => {
+    const done = refsOf(guide())
+      .flat()
+      .filter((ref) => ref !== "sino-lady-rift");
+    render(<WalkthroughPage guide={guide()} user={seed(done)} />);
+    const button = await within(cover()).findByRole("button", { name: "Você chegou ao fim do detonado" });
+    expect(within(cover()).queryByRole("button", { name: "Guia concluído" })).toBeNull();
+    expect(cover()).toHaveTextContent("1 item ficou para trás.");
+    expect(within(cover()).getByRole("link", { name: "Ver o primeiro" })).toHaveAttribute("href", "#item-sino-lady-rift");
+    fireEvent.click(button);
+    expect(scrolled()).toEqual(["cap-limpeza"]);
+  });
 });
 
 describe('"você está aqui"', () => {
@@ -197,6 +211,32 @@ describe('"Talvez você tenha perdido"', () => {
     ]);
     // The panel sits at the marker (the resume step, 2.1).
     expect(panel.closest("article")).toHaveAttribute("aria-label", "Passo 2.1");
+  });
+
+  it("um item que só conta para a conquista desbloqueada (countsFor) está feito: nem perdido, nem para trás", async () => {
+    // Boulderguard is an herb of The Healer's Legacy quest: with the achievement synced, it was picked up.
+    const g = guide({ boulderguardCountsFor: ["ACH_HEALER_LEGACY"] });
+    const done = refsOf(g)[0].filter((ref) => ref !== "conquista-legado-curandeira" && ref !== "acessorio-boulderguard");
+    render(<WalkthroughPage guide={g} user={seed(done, [LEGADO])} />);
+    const here = await screen.findByRole("complementary", { name: "Você está aqui" });
+    expect(here.closest("article")).toHaveAttribute("aria-label", "Passo 2.1");
+    expect(here).not.toHaveTextContent("ficaram para trás");
+    expect(here).not.toHaveTextContent("ficou para trás");
+    expect(screen.queryByRole("complementary", { name: "Talvez você tenha perdido" })).toBeNull();
+    const row = document.getElementById("item-acessorio-boulderguard")!;
+    expect(row).toHaveClass("done");
+    expect(within(row).getByRole("checkbox")).toHaveAttribute("aria-disabled", "true");
+    const journey = screen.getByRole("navigation", { name: "Capítulos do detonado" });
+    expect(journey.querySelectorAll("li")[0]).toHaveTextContent(/10\/10/);
+    expect(journey.querySelectorAll("li")[0]).toHaveClass("lit");
+  });
+
+  it("sem a conquista, o mesmo item continua talvez perdido", async () => {
+    const g = guide({ boulderguardCountsFor: ["ACH_HEALER_LEGACY"] });
+    const done = refsOf(g)[0].filter((ref) => ref !== "acessorio-boulderguard");
+    render(<WalkthroughPage guide={g} user={seed(done)} />);
+    const panel = await screen.findByRole("complementary", { name: "Talvez você tenha perdido" });
+    expect(panel).toHaveTextContent("Boulderguard");
   });
 });
 
@@ -370,6 +410,24 @@ describe("aviso de perdível que dá para voltar depois", () => {
     const lost = [...end.querySelectorAll("p")].find((p) => p.textContent?.startsWith("Não volta"))!;
     expect(lost).not.toHaveTextContent("Boulderguard");
     expect(lost).toHaveTextContent("Legado");
+  });
+
+  it('o selo da linha é um só: "perdível · dá para voltar depois", sem "pegue agora"', () => {
+    const g = guide();
+    const later = structuredClone(g.walkthrough);
+    later.chapters[0].steps.flatMap((s) => s.items).find((i) => i.key === "acessorio-boulderguard")!.returnLater = true;
+    render(<WalkthroughPage guide={{ ...g, walkthrough: later }} />);
+    const row = document.getElementById("item-acessorio-boulderguard")!;
+    const tags = [...row.querySelectorAll(".wk-tag")].map((t) => t.textContent);
+    expect(tags).toContain("perdível · dá para voltar depois");
+    expect(tags).not.toContain("perdível · pegue agora");
+    expect(tags).not.toContain("dá para voltar depois");
+    expect(row).not.toHaveTextContent("pegue agora");
+    // A missable without returnLater keeps its tag; a returnLater item that is not missable keeps its own.
+    const legado = document.getElementById("item-conquista-legado-curandeira")!;
+    expect([...legado.querySelectorAll(".wk-tag")].map((t) => t.textContent)).toContain("perdível · pegue agora");
+    const hunter = document.getElementById("item-acessorio-hunters-insight")!;
+    expect([...hunter.querySelectorAll(".wk-tag")].map((t) => t.textContent)).toContain("dá para voltar depois");
   });
 });
 

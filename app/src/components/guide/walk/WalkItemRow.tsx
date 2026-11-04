@@ -92,8 +92,12 @@ function Shot({ image, name }: { image: ItemImage; name: string }) {
 function Seals({ item }: { item: ItemView }) {
   return (
     <>
-      {item.missable ? <span className="wk-tag miss">perdível · pegue agora</span> : null}
-      {item.returnLater ? <span className="wk-tag back">dá para voltar depois</span> : null}
+      {/* One tag: a missable the player can come back for never says "pegue agora". */}
+      {item.missable ? (
+        <span className="wk-tag miss">{item.returnLater ? "perdível · dá para voltar depois" : "perdível · pegue agora"}</span>
+      ) : item.returnLater ? (
+        <span className="wk-tag back">dá para voltar depois</span>
+      ) : null}
       {item.index !== null && item.total !== null ? (
         <span className="wk-tag col">
           {item.collectibleType ?? "coletável"} {item.index}/{item.total}
@@ -119,10 +123,11 @@ export function WalkItemRow({ item }: { item: ItemView }) {
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   const achievement = item.achievement;
-  // Done: ticked, or its achievement unlocked on Steam. The box toggles the tick only.
+  // Done: ticked, or confirmed by Steam (its achievement, or every achievement it counts toward,
+  // unlocked). The box toggles the tick only.
   const done = progress.isDone(item.ref);
   const ticked = progress.isTicked(item.ref);
-  const confirmed = achievement ? progress.isUnlocked(achievement.id) : false;
+  const confirmed = progress.isConfirmed(item.ref) || (achievement ? progress.isUnlocked(achievement.id) : false);
 
   const name = item.name ?? revealed?.name ?? null;
   const image = item.image ?? revealed?.image ?? null;

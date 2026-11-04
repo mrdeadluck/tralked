@@ -49,7 +49,11 @@ const WHY: Record<Exclude<Evidence, "nenhum">, string> = {
 /** What the marker (and the announcement after a sync) says about the visitor's place. */
 export function hereText(at: Resume, chapters: JourneyChapter[]): string {
   const point = at.resume;
-  if (!point) return "Guia concluído: você passou por todo o detonado.";
+  if (!point) {
+    const n = at.behind.length;
+    if (n === 0) return "Guia concluído: você passou por todo o detonado.";
+    return `Você chegou ao fim do detonado: ${n === 1 ? "1 item ficou" : `${n} itens ficaram`} para trás.`;
+  }
   const chapter = chapters[point.chapter];
   const where = `${chapter ? `${chapter.title}, ` : ""}passo ${point.step}`;
   if (at.evidence === "nenhum") return `Sua Steam ainda não tem conquistas deste guia: o detonado começa aqui, ${where}.`;
@@ -79,7 +83,7 @@ const ResumeContext = createContext<ResumeState | null>(null);
 
 export function ResumeProvider({ children }: { children: ReactNode }) {
   const chapters = useJourney();
-  const { session, isTicked, isUnlocked, achievementOf, check } = useWalkProgress();
+  const { session, isTicked, isUnlocked, achievementOf, countsForOf, check } = useWalkProgress();
   const [syncs, setSyncs] = useState(0);
   const [synced, setSynced] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
@@ -87,7 +91,10 @@ export function ResumeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => () => clearTimeout(glow.current), []);
 
-  const items = useMemo(() => resumeItems(chapters, achievementOf), [chapters, achievementOf]);
+  const items = useMemo(
+    () => resumeItems(chapters, achievementOf, countsForOf),
+    [chapters, achievementOf, countsForOf],
+  );
   const at = useMemo(
     () => (session === "user" ? resumeOf(items, { isTicked, isUnlocked }) : null),
     [session, items, isTicked, isUnlocked],
