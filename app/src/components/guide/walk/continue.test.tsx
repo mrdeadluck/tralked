@@ -67,6 +67,8 @@ const LINEAR = seed([...CH1, "sino-lady-rift-2", "missao-triple-threat-2"]);
 
 const scroll = vi.fn();
 const scrolled = () => scroll.mock.contexts.map((el) => (el as HTMLElement).id);
+/** jsdom's own window.scrollY, put back after the tests that scroll. */
+const SCROLL_Y = Object.getOwnPropertyDescriptor(window, "scrollY");
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = scroll;
@@ -77,8 +79,11 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   delete (Element.prototype as Partial<Element>).scrollIntoView;
+  if (SCROLL_Y) Object.defineProperty(window, "scrollY", SCROLL_Y);
+  else delete (window as { scrollY?: number }).scrollY;
 });
 
 describe("botão da capa", () => {
@@ -235,44 +240,135 @@ describe("capítulos acesos", () => {
 });
 
 describe("sincronização", () => {
-  it("ao carregar não rola; depois de conferir com novas conquistas, rola até o retorno e diz por quê", async () => {
-    render(<WalkthroughPage guide={guide()} user={LINEAR} />);
+  const UNLOCK = {
+    status: "ok" as const,
+    newUnlocks: [{ id: LEGADO, apiName: "ACH_HEALER_LEGACY", name: "Legado da Curandeira", iconUrl: null }],
+    reward: null,
+  };
+  const live = () => document.querySelector<HTMLElement>(".sr-only[aria-live]")!;
+
+  it("marcar uma conquista que ficou para trás, com a Steam confirmando, não mexe na página", async () => {
+    const behind = CH1.filter((ref) => ref !== "conquista-legado-curandeira");
+    render(<WalkthroughPage guide={guide()} user={seed([...behind, "sino-lady-rift-2", "missao-triple-threat-2"])} />);
     await screen.findByRole("button", { name: "Continuar de onde parou" });
+    vi.mocked(checkGameAchievements).mockResolvedValue(UNLOCK);
+    const legado = document.getElementById("item-conquista-legado-curandeira")!;
+    fireEvent.click(within(legado).getByRole("checkbox"));
+    expect(await within(legado).findByText("✓ Confirmada pela Steam")).toBeInTheDocument();
     await act(async () => {});
     expect(scroll).not.toHaveBeenCalled();
-
-    vi.mocked(checkGameAchievements).mockResolvedValue({
-      status: "ok",
-      newUnlocks: [{ id: LEGADO, apiName: "ACH_HEALER_LEGACY", name: "Legado da Curandeira", iconUrl: null }],
-      reward: null,
-    });
-    const legado2 = document.getElementById("item-conquista-legado-curandeira-2")!;
-    fireEvent.click(within(legado2).getByRole("checkbox"));
-    await waitFor(() => expect(scrolled()).toEqual(["item-arma-sanguine-twin-2"]));
-    const here = screen.getByRole("complementary", { name: "Você está aqui" });
-    expect(here.closest("article")).toHaveAttribute("aria-label", "Passo 2.4");
-    expect(within(here).getByRole("status")).toHaveTextContent("Pelas suas conquistas e pelos itens que você marcou");
+    expect(live()).toBeEmptyDOMElement();
   });
 
-  it("a nova conferência automática (depois de 30 s) não mexe na página", async () => {
+  it("ao carregar não rola; Sincronizar conquistas pergunta à Steam, diz onde você está e leva até lá", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
       render(<WalkthroughPage guide={guide()} user={LINEAR} />);
-      await screen.findByRole("button", { name: "Continuar de onde parou" });
-      const legado2 = document.getElementById("item-conquista-legado-curandeira-2")!;
-      fireEvent.click(within(legado2).getByRole("checkbox"));
-      await waitFor(() => expect(checkGameAchievements).toHaveBeenCalledTimes(1));
-      vi.mocked(checkGameAchievements).mockResolvedValue({
-        status: "ok",
-        newUnlocks: [{ id: LEGADO, apiName: "ACH_HEALER_LEGACY", name: "Legado da Curandeira", iconUrl: null }],
-        reward: null,
-      });
-      await act(() => vi.advanceTimersByTimeAsync(30_000));
-      expect(checkGameAchievements).toHaveBeenCalledTimes(2);
+      const sync = await screen.findByRole("button", { name: "Sincronizar conquistas" });
+      await act(async () => {});
       expect(scroll).not.toHaveBeenCalled();
+
+      vi.mocked(checkGameAchievements).mockResolvedValue(UNLOCK);
+      fireEvent.click(sync);
+      await waitFor(() => expect(scrolled()).toEqual(["item-acessorio-hunters-insight-2"]));
+      expect(checkGameAchievements).toHaveBeenCalledWith("game-pbz");
+      const text =
+        "Pelas suas conquistas e pelos itens que você marcou, você está aqui na história: Crimson Forest, passo 2.3.";
+      expect(live()).toHaveTextContent(text);
+      expect(live()).toHaveAttribute("role", "status");
+      const here = screen.getByRole("complementary", { name: "Você está aqui" });
+      expect(here).toHaveTextContent(text);
+      expect(here).toHaveClass("now");
+      // The new unlock counts as done (the achievement's item of chapter 2).
+      expect(document.getElementById("item-conquista-legado-curandeira-2")).toHaveClass("done");
+
+      // The glow and the announcement go after a few seconds; the marker stays.
+      await act(() => vi.advanceTimersByTimeAsync(5_000));
+      expect(here).not.toHaveClass("now");
+      expect(live()).toBeEmptyDOMElement();
+      expect(screen.getByRole("complementary", { name: "Você está aqui" })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("sem conquista nova a sincronização também diz onde você está e leva até lá", async () => {
+    render(<WalkthroughPage guide={guide()} user={seed([])} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sincronizar conquistas" }));
+    await waitFor(() => expect(scrolled()).toEqual(["item-sino-lady-rift"]));
+    expect(live()).toHaveTextContent(
+      "Sua Steam ainda não tem conquistas deste guia: o detonado começa aqui, Weeping Creek Valley, passo 1.1.",
+    );
+    expect(screen.getByRole("complementary", { name: "Você está aqui" })).toHaveTextContent("o detonado começa aqui");
+  });
+
+  it("reduced motion: a sincronização leva até lá sem animação", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("reduce"), media: query }));
+    render(<WalkthroughPage guide={guide()} user={LINEAR} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sincronizar conquistas" }));
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ behavior: "auto", block: "center" }));
+  });
+
+  it("Steam não ligada: convite para ligar, nada rola", async () => {
+    vi.mocked(checkGameAchievements).mockResolvedValue({ status: "unlinked", newUnlocks: [], reward: null });
+    render(<WalkthroughPage guide={guide()} user={LINEAR} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sincronizar conquistas" }));
+    expect(await screen.findByRole("link", { name: "Ligue sua Steam para sincronizar" })).toHaveAttribute(
+      "href",
+      "/conta/conexoes",
+    );
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it("jogo fora da biblioteca Steam (unlockedCount null): o convite no lugar do botão", async () => {
+    render(
+      <WalkthroughPage
+        guide={guide()}
+        user={<WalkUserSeed doneRefs={CH1} unlockedIds={[]} unlockedCount={null} pendingXp={0} />}
+      />,
+    );
+    expect(await screen.findByRole("link", { name: "Ligue sua Steam para sincronizar" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sincronizar conquistas" })).toBeNull();
+  });
+
+  it("anônimo não vê o botão de sincronizar", async () => {
+    render(<WalkthroughPage guide={guide()} user={<WalkUserAnon />} />);
+    await screen.findByRole("link", { name: "Entre para continuar de onde parou" });
+    expect(screen.queryByRole("button", { name: "Sincronizar conquistas" })).toBeNull();
+  });
+});
+
+describe("linha do item confirmada pela Steam", () => {
+  it("desbloqueada sem marca: a caixa diz que a Steam confirmou e não marca nada", async () => {
+    render(<WalkthroughPage guide={guide()} user={seed([], [LEGADO])} />);
+    const row = document.getElementById("item-conquista-legado-curandeira")!;
+    const box = await within(row).findByRole("checkbox", { name: /confirmada pela Steam/ });
+    expect(box).toHaveAttribute("aria-disabled", "true");
+    expect(box).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(box);
+    expect(toggleItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("aviso de perdível que dá para voltar depois", () => {
+  it('não diz "não dá para voltar" para o item com volta depois', () => {
+    const g = guide();
+    const later = structuredClone(g.walkthrough);
+    later.chapters[0].steps.flatMap((s) => s.items).find((i) => i.key === "acessorio-boulderguard")!.returnLater = true;
+    render(<WalkthroughPage guide={{ ...g, walkthrough: later }} />);
+    const chapter = document.getElementById("cap-cap-1")!;
+    const warnings = within(chapter).getAllByRole("complementary", { name: "Aviso de perdível" });
+    const boulder = warnings.find((w) => w.textContent?.includes("Boulderguard"))!;
+    expect(boulder).toHaveTextContent("(dá para voltar depois)");
+    expect(boulder).not.toHaveTextContent("não dá para voltar");
+    expect(boulder).not.toHaveTextContent("Prazo");
+    const legado = warnings.find((w) => w.textContent?.includes("Legado"))!;
+    expect(legado).toHaveTextContent("Pegue agora: depois não dá para voltar.");
+    // End of the chapter: under "Dá para voltar depois", not under "Não volta".
+    const end = within(chapter).getByRole("complementary", { name: "O que dá para pegar depois" });
+    const lost = [...end.querySelectorAll("p")].find((p) => p.textContent?.startsWith("Não volta"))!;
+    expect(lost).not.toHaveTextContent("Boulderguard");
+    expect(lost).toHaveTextContent("Legado");
   });
 });
 
@@ -301,6 +397,53 @@ describe("voltar ao topo", () => {
     expect(top).toHaveBeenLastCalledWith({ top: 0, behavior: "auto" });
     await scrollTo(200);
     expect(screen.queryByRole("button", { name: "Voltar ao topo" })).toBeNull();
+  });
+
+  it("o foco vai para o título da página", async () => {
+    vi.stubGlobal("innerHeight", 1000);
+    vi.stubGlobal("scrollTo", vi.fn());
+    render(
+      <>
+        <h1>Phantom Blade Zero</h1>
+        <BackToTop />
+      </>,
+    );
+    await scrollTo(2000);
+    fireEvent.click(screen.getByRole("button", { name: "Voltar ao topo" }));
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(document.activeElement).toBe(heading);
+    expect(heading).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("no celular sobe acima do player da trilha; no computador (player à esquerda) fica no canto", async () => {
+    vi.stubGlobal("innerHeight", 1000);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      // The mini player at the bottom left: 358 px wide (most of a phone), 50 px tall, 16 px up.
+      if (this.classList.contains("wk-ost"))
+        return { left: 16, right: 374, top: 934, bottom: 984, width: 358, height: 50 } as DOMRect;
+      return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 } as DOMRect;
+    });
+    vi.stubGlobal("innerWidth", 390);
+    const { unmount } = render(
+      <>
+        <div className="wk-ost" />
+        <BackToTop />
+      </>,
+    );
+    await scrollTo(2000);
+    // 1000 - 934 + 8: clear of the player.
+    expect(screen.getByRole("button", { name: "Voltar ao topo" }).style.bottom).toBe("74px");
+    unmount();
+
+    vi.stubGlobal("innerWidth", 1280);
+    render(
+      <>
+        <div className="wk-ost" />
+        <BackToTop />
+      </>,
+    );
+    await scrollTo(2000);
+    expect(screen.getByRole("button", { name: "Voltar ao topo" }).style.bottom).toBe("16px");
   });
 
   it("também está na página do detonado", async () => {

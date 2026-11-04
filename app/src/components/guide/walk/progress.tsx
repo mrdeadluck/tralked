@@ -32,11 +32,6 @@ export type WalkUserSeedData = {
  */
 export type WalkSession = "pending" | "anon" | "user";
 
-type CheckOptions = {
-  /** A check the page runs by itself (a recheck after a tick): it never moves the page. */
-  quiet?: boolean;
-};
-
 type WalkProgress = {
   guideId: string;
   gameId: string;
@@ -60,9 +55,7 @@ type WalkProgress = {
    * Asks Steam for this game's achievements (checkGameAchievements). New unlocks are marked on the
    * page and announced ("TRALKED!" and the XP Steam's confirmation paid).
    */
-  check: (options?: CheckOptions) => Promise<CheckGameAchievementsResult>;
-  /** Checks the visitor asked for that brought new unlocks: the page follows each to the resume point. */
-  syncs: number;
+  check: () => Promise<CheckGameAchievementsResult>;
 };
 
 const WalkProgressContext = createContext<WalkProgress | null>(null);
@@ -94,7 +87,6 @@ export function WalkProgressProvider({
   const [session, setSession] = useState<WalkSession>("pending");
   const [done, setDoneSet] = useState<ReadonlySet<string>>(() => new Set());
   const [unlocked, setUnlocked] = useState<ReadonlySet<string>>(() => new Set());
-  const [syncs, setSyncs] = useState(0);
 
   const seeds = useMemo<Seed>(
     () => ({
@@ -119,13 +111,12 @@ export function WalkProgressProvider({
   }, []);
 
   const check = useCallback(
-    async ({ quiet = false }: CheckOptions = {}) => {
+    async () => {
       const result = await checkGameAchievements(gameId);
       if (result.status === "ok" && result.newUnlocks.length > 0) {
         const ids = result.newUnlocks.map((u) => u.id);
         setUnlocked((prev) => new Set([...prev, ...ids]));
         setUser((u) => (u && u.unlockedCount !== null ? { ...u, unlockedCount: u.unlockedCount + ids.length } : u));
-        if (!quiet) setSyncs((n) => n + 1);
         if (result.reward) announceReward({ ...result.reward, reason: "TRALKED!" });
         else announceToast({ title: "TRALKED!", text: result.newUnlocks.map((u) => u.name).join(", "), icon: "trophy" });
       }
@@ -156,9 +147,8 @@ export function WalkProgressProvider({
       isUnlocked: (id) => unlocked.has(id),
       achievementOf,
       check,
-      syncs,
     };
-  }, [guideId, gameId, returnTo, preview, user, session, done, setDone, unlocked, achievements, achievementOf, check, syncs]);
+  }, [guideId, gameId, returnTo, preview, user, session, done, setDone, unlocked, achievements, achievementOf, check]);
   return (
     <SeedContext.Provider value={seeds}>
       <WalkProgressContext.Provider value={value}>{children}</WalkProgressContext.Provider>

@@ -27,7 +27,8 @@ function names(items: ItemView[], prefix: string) {
 /** "Dá para voltar depois: … Não volta: …" at the end of a chapter. */
 function ChapterLater({ items }: { items: ItemView[] }) {
   const later = items.filter((i) => i.returnLater);
-  const lost = items.filter((i) => i.missable);
+  // A missable the player can come back for is listed under "Dá para voltar depois" only.
+  const lost = items.filter((i) => i.missable && !i.returnLater);
   if (later.length === 0 && lost.length === 0) return null;
   return (
     <aside className="wk-later" aria-label="O que dá para pegar depois">

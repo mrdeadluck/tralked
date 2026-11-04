@@ -10,7 +10,6 @@ const item = (ref: string, chapter: number, step: string, over: Partial<ResumeIt
   chapter,
   step,
   missable: false,
-  deadlineChapter: null,
   cleanup: false,
   loose: false,
   achievementId: null,
@@ -19,7 +18,7 @@ const item = (ref: string, chapter: number, step: string, over: Partial<ResumeIt
 
 const ITEMS: ResumeItem[] = [
   item("a1", 0, "1.1"),
-  item("a2", 0, "1.2", { missable: true, deadlineChapter: 0 }),
+  item("a2", 0, "1.2", { missable: true }),
   item("a3", 0, "1.3"),
   item("b1", 1, "2.1", { achievementId: "ach-b1" }),
   item("b2", 1, "2.2"),
@@ -92,7 +91,7 @@ describe("resumeOf", () => {
     expect(r.possiblyMissed).toEqual(["a2"]);
   });
 
-  it("perdível não feito antes do ponto de retorno: talvez perdido", () => {
+  it("perdível não feito de um capítulo que ficou para trás: talvez perdido", () => {
     const r = run(["a1", "a3"]);
     expect(r.resume?.ref).toBe("b1");
     expect(r.possiblyMissed).toEqual(["a2"]);
@@ -100,17 +99,17 @@ describe("resumeOf", () => {
     expect(run(["a1"]).possiblyMissed).toEqual([]);
   });
 
-  it("prazo num capítulo anterior ao do retorno também conta", () => {
-    // A missable left in the cleanup (after the resume point in the list) whose deadline is chapter 0.
-    const items = [
-      item("a1", 0, "1.1"),
-      item("b1", 1, "2.1"),
-      item("b2", 1, "2.2"),
-      item("z1", 2, "3.1", { cleanup: true, loose: true, missable: true, deadlineChapter: 0, achievementId: "ach-z1" }),
-    ];
-    const r = resumeOf(items, { isTicked: (ref) => ["a1", "b1"].includes(ref), isUnlocked: () => false });
-    expect(r.resume?.ref).toBe("b2");
-    expect(r.possiblyMissed).toEqual(["z1"]);
+  it("perdível pulado no capítulo atual não é talvez perdido (ainda dá para pegar)", () => {
+    const items = [...ITEMS.slice(0, 3), item("a4", 0, "1.4"), ...ITEMS.slice(3)];
+    const r = resumeOf(items, { isTicked: (ref) => ["a1", "a3"].includes(ref), isUnlocked: () => false });
+    expect(r.resume?.ref).toBe("a4");
+    expect(r.behind).toEqual(["a2"]);
+    expect(r.possiblyMissed).toEqual([]);
+  });
+
+  it("perdível da limpeza não conta enquanto o retorno está na história", () => {
+    const items = [...ITEMS, item("z3", 2, "3.3", { cleanup: true, missable: true })];
+    expect(resumeOf(items, { isTicked: (ref) => ref === "a1" || ref === "a2", isUnlocked: () => false }).possiblyMissed).toEqual([]);
   });
 
   it("feito só pelo desbloqueio: conta como feito e a evidência são as conquistas", () => {
@@ -137,7 +136,7 @@ describe("resumeItems", () => {
     const items = resumeItems(chapters, (ref) => (ref === "z1" ? "ach-z1" : null));
     expect(items).toEqual([
       item("a1", 0, "1.1"),
-      item("a2", 0, "1.1", { missable: true, deadlineChapter: 0 }),
+      item("a2", 0, "1.1", { missable: true }),
       item("a3", 0, "1.2"),
       item("z1", 1, "2.1", { cleanup: true, loose: true, achievementId: "ach-z1" }),
     ]);

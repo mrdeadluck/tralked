@@ -654,6 +654,10 @@ ol.wk-txt {
 .wk-item .chk:focus-visible {
   border-color: var(--acc);
 }
+/* Confirmed by Steam: done for good, nothing to tick. */
+.wk-item .chk[aria-disabled="true"] {
+  cursor: default;
+}
 .wk-item.done .chk {
   background: var(--moss);
   border-color: var(--acc-dim);

@@ -22,8 +22,6 @@ export type ResumeItem = {
   /** Number of the item's step ("2.4"). */
   step: string;
   missable: boolean;
-  /** Chapter after which a missable is lost (null: none known). */
-  deadlineChapter: number | null;
   /** In the cleanup chapter, after the story. */
   cleanup: boolean;
   /** An achievement without a fixed place in the story. */
@@ -44,7 +42,11 @@ export type Resume = {
   resume: ResumePoint | null;
   /** Refs of the undone items before the resume point (cleanup chapter left out). */
   behind: string[];
-  /** Refs of the undone missables whose place or deadline is already behind the resume point. */
+  /**
+   * Refs of the undone missables of the chapters before the resume point's chapter: the visitor
+   * left that chapter, so its point of no return is behind them. A missable of the current chapter
+   * may still be collectable, so it is never listed.
+   */
   possiblyMissed: string[];
   /** Chapters before the resume point's, plus every chapter whose items are all done. */
   passedChapters: number[];
@@ -88,12 +90,7 @@ export function resumeOf(items: readonly ResumeItem[], { isTicked, isUnlocked }:
 
   const behind = items.filter((item, i) => i < end && !done[i] && !item.cleanup).map((item) => item.ref);
   const possiblyMissed = items
-    .filter(
-      (item, i) =>
-        item.missable &&
-        !done[i] &&
-        (i < end || (item.deadlineChapter !== null && item.deadlineChapter < resumeChapter)),
-    )
+    .filter((item, i) => item.missable && !done[i] && item.chapter < resumeChapter)
     .map((item) => item.ref);
 
   const passed = new Set<number>();
@@ -116,8 +113,8 @@ export const cleanupChapter = (key: string, index: number, count: number) =>
   index === count - 1 && /^limpeza(?:-\d+)?$/.test(key);
 
 /**
- * The page's items in walkthrough order, as resumeOf reads them. A missable is lost after its own
- * chapter (the chapter's deadline); the achievements left in the cleanup chapter are the loose ones.
+ * The page's items in walkthrough order, as resumeOf reads them. The achievements left in the
+ * cleanup chapter are the loose ones.
  */
 export function resumeItems(
   chapters: readonly Pick<JourneyChapter, "refs" | "steps" | "missables" | "cleanup">[],
@@ -133,7 +130,6 @@ export function resumeItems(
         chapter: c,
         step: steps[i],
         missable: missable.has(ref),
-        deadlineChapter: missable.has(ref) ? c : null,
         cleanup: chapter.cleanup,
         loose: chapter.cleanup && achievementId !== null,
         achievementId,

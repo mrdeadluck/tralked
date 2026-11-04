@@ -141,8 +141,7 @@ export function WalkItemRow({ item }: { item: ItemView }) {
     if (first) setStatus("checking");
     let result;
     try {
-      // The visitor asked for the first check (the page may follow it); the rechecks stay quiet.
-      result = await latest.current.check({ quiet: !first });
+      result = await latest.current.check();
     } catch {
       setStatus("error");
       return;
@@ -175,6 +174,8 @@ export function WalkItemRow({ item }: { item: ItemView }) {
   }
 
   async function onTick() {
+    // Steam confirmed it: done for good, nothing to tick.
+    if (confirmed) return;
     if (!progress.user) {
       setStatus("login");
       return;
@@ -217,7 +218,8 @@ export function WalkItemRow({ item }: { item: ItemView }) {
         type="button"
         role="checkbox"
         aria-checked={done}
-        aria-label={`Marcar ${label} como feito`}
+        aria-disabled={confirmed || undefined}
+        aria-label={confirmed ? `${label}: confirmada pela Steam` : `Marcar ${label} como feito`}
         className="chk"
         onClick={() => void onTick()}
       />

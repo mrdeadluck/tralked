@@ -252,10 +252,13 @@ describe("página /jogos/[slug]/guia", () => {
     const { Overview } = await import("@/components/guide/Overview");
     const { FactsStrip } = await import("@/components/games/FactsStrip");
     const tree = await GuidePage({ params: Promise.resolve({ slug: "hollow-knight" }) } as never);
+    const { BackToTop } = await import("@/components/guide/BackToTop");
     const types = typesIn(tree);
     expect(types).toContain(Overview);
     expect(types).toContain(FactsStrip);
     expect(types).not.toContain(WalkthroughPage);
+    // "Voltar ao topo" is on the classic guide too.
+    expect(types).toContain(BackToTop);
   });
 
   it("formato 2 renderiza o detonado", async () => {

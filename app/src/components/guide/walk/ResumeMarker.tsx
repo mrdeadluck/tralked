@@ -2,22 +2,15 @@
 
 import type { MouseEvent } from "react";
 import type { JourneyChapter } from "./journey";
-import type { Evidence } from "./resume";
-import { useResume } from "./resume-state";
+import { hereText, useResume } from "./resume-state";
 import { SpoilerItemName } from "./spoilers";
 
 /*
  * "Você está aqui": a callout on the signed-in visitor's resume step that says why the guide brought
  * them there (their Steam achievements, the items they ticked, or both), what they left behind, and
- * the missables they may have missed ("talvez": they may have done one without ticking it). Item
- * names behind the spoiler gate stay masked, as everywhere.
+ * the missables of the chapters already left that they may have missed ("talvez": they may have
+ * done one without ticking it). Item names behind the spoiler gate stay masked, as everywhere.
  */
-
-const WHY: Record<Exclude<Evidence, "nenhum">, string> = {
-  conquistas: "De acordo com suas conquistas, você está aqui na história",
-  itens: "Pelos itens que você marcou, você está aqui",
-  ambos: "Pelas suas conquistas e pelos itens que você marcou, você está aqui na história",
-};
 
 /** A link that takes the page to an item's row (scroll and highlight) instead of jumping. */
 function ItemLink({ itemRef, children }: { itemRef: string; children: string }) {
@@ -72,19 +65,19 @@ function MissedPanel({ refs, chapters }: { refs: string[]; chapters: JourneyChap
   );
 }
 
-/** Rendered in every step; shows only on the visitor's resume step, once they have some progress. */
+/**
+ * Rendered in every step; shows only on the visitor's resume step, once they have some progress (or
+ * right after a sync, which always says where the visitor is). It glows for a few seconds after a sync.
+ */
 export function ResumeMarker({ step }: { step: string }) {
   const { at, chapters, synced } = useResume();
   const point = at?.resume;
-  if (!at || !point || point.step !== step || at.evidence === "nenhum") return null;
-  const chapter = chapters[point.chapter];
+  if (!at || !point || point.step !== step || (at.evidence === "nenhum" && !synced)) return null;
   return (
     <>
       <aside className={synced ? "wk-here now tk-cut" : "wk-here tk-cut"} aria-label="Você está aqui">
         <b className="wk-lbl">Você está aqui</b>
-        <p role={synced ? "status" : undefined}>
-          {WHY[at.evidence]}: {chapter ? `${chapter.title}, ` : null}passo {step}.
-        </p>
+        <p>{hereText(at, chapters)}</p>
         <BehindLink refs={at.behind} />
       </aside>
       <MissedPanel refs={at.possiblyMissed} chapters={chapters} />

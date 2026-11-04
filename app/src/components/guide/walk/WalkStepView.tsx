@@ -72,8 +72,13 @@ function StepBlock({ block, scope }: { block: BlockView; scope: string }) {
   }
 }
 
-/** The warning before a step with missables: what is lost, and the chapter's deadline. */
+/**
+ * The warning before a step with missables: what is lost, and the chapter's deadline. A missable the
+ * player can still come back for (returnLater) is named with "dá para voltar depois", never with
+ * "não dá para voltar".
+ */
 function MissableWarning({ items, deadline }: { items: ItemView[]; deadline: ReactNode }) {
+  const lost = items.some((item) => !item.returnLater);
   return (
     <aside className="wk-callout wk-warn" aria-label="Aviso de perdível">
       <p>
@@ -86,10 +91,11 @@ function MissableWarning({ items, deadline }: { items: ItemView[]; deadline: Rea
             ) : (
               <strong>{item.name}</strong>
             )}
+            {item.returnLater ? " (dá para voltar depois)" : null}
           </span>
         ))}
-        . Pegue agora: depois não dá para voltar.
-        {deadline ? <> Prazo: {deadline}.</> : null}
+        . {lost ? "Pegue agora: depois não dá para voltar." : "Vale pegar agora."}
+        {lost && deadline ? <> Prazo: {deadline}.</> : null}
       </p>
     </aside>
   );
