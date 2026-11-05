@@ -418,6 +418,25 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     }
   });
 
+  it("a full resync in passes (skipTitles) does not ask again the minutes already asked", async () => {
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    await syncPlatformAccount(user.id, "xbox");
+    const spy = vi.spyOn(getXbox(), "getMinutesPlayed");
+    try {
+      // Every title was asked: a pass of the finish resync moves on (more than 250 titles would
+      // otherwise keep every pass partial).
+      await expect(syncPlatformAccount(user.id, "xbox", { full: true, skipTitles: new Set() })).resolves.toMatchObject({ partial: false });
+      expect(spy).not.toHaveBeenCalled();
+      // A plain full sync still asks them all.
+      await syncPlatformAccount(user.id, "xbox", { full: true });
+      expect([...spy.mock.calls[0][1]].sort()).toEqual(["90000001", "90000003", "90000005"]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("unlinking Xbox clears the titles already asked (a relink asks them again); deleting the account removes them", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncPlatformAccount } = await import("./platform-user");

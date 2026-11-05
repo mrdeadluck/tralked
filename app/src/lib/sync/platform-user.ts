@@ -49,7 +49,9 @@ export type SyncPlatformOptions = {
   full?: boolean;
   /**
    * Titles (platform ids) not read this run, as if up to date: the next pass of a `full` resync
-   * cut short skips those an earlier pass recorded (lib/trophies/finish.ts).
+   * cut short skips those an earlier pass recorded (lib/trophies/finish.ts). With it, a `full`
+   * Xbox read still leaves out the minutes already asked (LinkedAccount.minutesChecked), so the
+   * passes move through more than MAX_MINUTES_TITLES titles.
    */
   skipTitles?: ReadonlySet<string>;
 };
@@ -670,7 +672,10 @@ export async function syncPlatformAccount(
     { externalId: account.externalId, handle: account.handle },
     {
       stored: options.full ? undefined : await storedProgress(userId, platform, await rememberedTitles(snapshot, account.id)),
-      checkedTitles: options.full || platform !== "xbox" ? undefined : checkedTitlesOf(account.minutesChecked),
+      // A resync in passes (skipTitles) keeps the titles whose minutes were asked: over 250 titles
+      // (MAX_MINUTES_TITLES a run), a plain full read would leave every pass partial.
+      checkedTitles:
+        platform !== "xbox" || (options.full && !options.skipTitles) ? undefined : checkedTitlesOf(account.minutesChecked),
       linkedAccountId: platform === "psn" ? account.id : undefined,
       deadline: readDeadline,
       maxTitles: options.maxTitles,

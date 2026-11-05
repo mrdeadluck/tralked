@@ -54,9 +54,13 @@ export function busyPairs(busy: Set<string>): { platform: ImportLane; userId: st
 /**
  * Changes the lease's account list under a row lock: `edit` gets the keys a valid lease holds now
  * and returns the new list. The lease ends when no key remains; otherwise it is renewed for
- * IMPORT_WORKER_LEASE_MS (`renew`) or keeps its current end. For a one-off job beside the worker (lib/trophies/finish.ts), which adds
- * and removes only its own keys. The worker itself overwrites the whole list (holdImportLease):
- * such a job renews its keys at least every few minutes, as the worker does.
+ * IMPORT_WORKER_LEASE_MS (`renew`) or keeps its current end. For a one-off job beside the worker
+ * (lib/trophies/finish.ts), which adds and removes only its own keys. The worker itself overwrites
+ * (or wipes) the whole list without reading it (holdImportLease, releaseImportLease): such a job
+ * puts its keys back often (finish: every 30 s and before each account).
+ *
+ * A renewal extends the whole lease, so the keys of a worker that died stay in it while the job
+ * runs (harmless: the cron only skips those accounts until the job ends and the lease expires).
  */
 async function editImportLease(edit: (busy: Set<string>) => Set<string>, now: number, renew: boolean): Promise<void> {
   await prisma.$transaction(async (tx) => {

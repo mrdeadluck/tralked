@@ -30,6 +30,11 @@ describe.skipIf(!reachable)("first imports", () => {
     const { prisma } = await import("@/lib/db");
     const { releaseImportLease } = await import("./import-lease");
     await prisma.user.deleteMany({ where: { handle: { startsWith: HANDLE_PREFIX } } });
+    // Games the PSN fixture library has and the seeded catalog does not (Astro Bot, Jornada
+    // Submersa): the imports create them; left behind, they break db.test.ts's seed counts.
+    await prisma.game.deleteMany({
+      where: { platformLinks: { some: { platform: "psn", externalId: { in: ["NPWR90004_00", "PPSA90005_00"] } } } },
+    });
     await releaseImportLease();
   }
 

@@ -9,6 +9,12 @@
  * Production: use the direct URL (DATABASE_URL_UNPOOLED), not the pooled one. Take a pg_dump and
  * a `trophy-lists:snapshot` first.
  *
+ * Disable the platform-import workflow (.github/workflows/platform-import.yml) and the crons
+ * (cron.yml) for the whole run, and check no run of them is in progress. The import worker
+ * rewrites the lease without reading it: finish puts its keys back every 30 s and before each
+ * account, but in between a cron could still take one of its accounts. After reserving, finish
+ * waits 60 s for a cron run already in flight.
+ *
  *   DATABASE_URL=$DATABASE_URL_UNPOOLED pnpm trophy-lists:finish --dry-run   # read-only
  *   DATABASE_URL=$DATABASE_URL_UNPOOLED pnpm trophy-lists:finish             # resync + writes
  *
@@ -97,7 +103,8 @@ try {
   const count = (action: string) => report.games.filter((g) => g.action === action).length;
   log.info(
     `Games with list-less rows: ${report.games.length} (${count("deleted")} deleted, ${count("kept")} kept, ` +
-      `${count("would-delete")} would delete). Rows deleted: ${report.deleted.achievements}, unlocks: ${report.deleted.unlocks}.`,
+      `${count("would-delete")} would delete). Rows deleted: ${report.deleted.achievements}, unlocks: ${report.deleted.unlocks}, ` +
+      `ledger entries voided with them: ${report.ledgerVoided}.`,
   );
   log.info(
     `Guide notes: ${report.notes.moved} ${dryRun ? "would move" : "moved"}, ${report.notes.replacedByExisting} replaced by an ` +

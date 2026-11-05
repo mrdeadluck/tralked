@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db";
 import { rebuildListXp } from "@/lib/progression/list-xp";
-import { RECENT_ATTEMPT_MS } from "@/lib/sync/first-import";
 import { importKey, releaseImportKeys, renewImportKeys, reserveImportKeys } from "@/lib/sync/import-lease";
 import { syncPlatformAccount } from "@/lib/sync/platform-user";
 import { describeError } from "@/lib/worker/errors";
@@ -15,8 +14,9 @@ import { userNumbers, type UserNumbers } from "./numbers";
  *    next one (the lists already recorded are skipped), up to `maxPasses`;
  * 2. guide notes on list-less rows of those games move to the row of the same apiName in the
  *    game's canonical list (the next oldest list that has the apiName when it does not);
- * 3. the list-less rows are deleted (their unlocks cascade): only when every account holding
- *    unlocks on them finished its resync complete and read every list of that game;
+ * 3. the list-less rows are deleted (their unlocks cascade, their valid ledger entries are voided):
+ *    only when every account holding unlocks on them finished its resync complete, read every list
+ *    of that game, and holds each of those unlocks again on a list row (same apiName);
  * 4. the XP of every user is rebuilt from the lists (rebuildListXp; Steam is not touched);
  * 5. per-user numbers before and after.
  */
@@ -27,10 +27,18 @@ const PLATFORMS: readonly FinishPlatform[] = ["psn", "xbox"];
 /** Time limit of one resync pass of one account. */
 export const PASS_BUDGET_MS = 30 * 60_000;
 export const MAX_PASSES = 10;
-/** The lease is renewed this often (it lasts IMPORT_WORKER_LEASE_MS, 15 min). */
-const LEASE_RENEW_MS = 4 * 60_000;
-/** Failure id of the played-games list (play time and concepts), not a trophy list. */
-const PLAYED_GAMES = "played-games";
+/**
+ * The lease is renewed this often, and again right before each account: the import worker rewrites
+ * (or wipes) the whole lease without reading it, so our keys must come back quickly.
+ */
+const LEASE_RENEW_MS = 30_000;
+/**
+ * Wait after reserving the accounts, before the first resync: a cron run that took one of them
+ * just before the reservation finishes within its 50 s budget.
+ */
+export const CRON_SETTLE_MS = 60_000;
+/** Failure ids of account-wide lists (PSN played games, Xbox minutes), not trophy lists. */
+const ACCOUNT_LISTS = ["played-games", "minutes-played"];
 
 export type FinishOptions = {
   /** No resync and no writes: reports what would move and be deleted, and the current numbers. */
@@ -101,12 +109,14 @@ export type FinishReport = {
    */
   notes: { moved: number; replacedByExisting: number; withoutTarget: number };
   deleted: { achievements: number; unlocks: number };
+  /** Valid `achievement` ledger entries keyed by a deleted row, voided with it. */
+  ledgerVoided: number;
   rebuilt: { userId: string; handle: string; paid: number; voided: number }[];
   before: UserNumbers[];
   after: UserNumbers[];
 };
 
-type Account = { userId: string; handle: string; platform: FinishPlatform; lastSyncAttemptAt: Date | null };
+type Account = { userId: string; handle: string; platform: FinishPlatform };
 
 export async function finishTrophyLists(options: FinishOptions = {}): Promise<FinishReport> {
   const {
@@ -130,6 +140,7 @@ export async function finishTrophyLists(options: FinishOptions = {}): Promise<Fi
     kept: [],
     notes: { moved: 0, replacedByExisting: 0, withoutTarget: 0 },
     deleted: { achievements: 0, unlocks: 0 },
+    ledgerVoided: 0,
     rebuilt: [],
     before,
     after: before,
@@ -138,14 +149,14 @@ export async function finishTrophyLists(options: FinishOptions = {}): Promise<Fi
   const accounts: Account[] = (
     await prisma.linkedAccount.findMany({
       where: { platform: { in: [...platforms] }, linkedAt: { not: null }, userId: { in: userIds } },
-      select: { userId: true, platform: true, lastSyncAttemptAt: true },
+      select: { userId: true, platform: true },
     })
   )
     .map((a) => ({ ...a, platform: a.platform as FinishPlatform, handle: handles.get(a.userId) ?? a.userId }))
     .sort((a, b) => PLATFORMS.indexOf(a.platform) - PLATFORMS.indexOf(b.platform) || a.handle.localeCompare(b.handle));
 
   if (dryRun) {
-    report.games = await cleanUp(report, { dryRun, gameIds: options.gameIds, handles, platforms, resyncs: new Map(), log });
+    report.games = await cleanUp(report, { dryRun, gameIds: options.gameIds, handles, platforms, resyncs: new Map(), log, now });
     return report;
   }
 
@@ -155,17 +166,26 @@ export async function finishTrophyLists(options: FinishOptions = {}): Promise<Fi
   const { taken, held } = await reserveImportKeys(keys, now());
   const heldKeys = new Set(held);
   let renewing = Promise.resolve();
-  const renew = setInterval(() => {
-    renewing = renewing.then(() => renewImportKeys(taken, now())).catch((error) => log(`Could not renew the import lease: ${describeError(error)}`));
-  }, LEASE_RENEW_MS);
+  const reassert = () => {
+    renewing = renewing
+      .then(() => (taken.length > 0 ? renewImportKeys(taken, now()) : undefined))
+      .catch((error) => log(`Could not renew the import lease: ${describeError(error)}`));
+    return renewing;
+  };
+  const renew = setInterval(() => void reassert(), LEASE_RENEW_MS);
   renew.unref?.();
   try {
+    if (taken.length > 0) {
+      log(`Accounts reserved; waiting ${CRON_SETTLE_MS / 1000} s for a cron run already in flight`);
+      await sleep(CRON_SETTLE_MS);
+    }
     const resyncs = new Map<string, AccountResync>();
     for (const account of accounts) {
       const key = importKey(account.platform, account.userId);
+      if (!heldKeys.has(key)) await reassert();
       const result = heldKeys.has(key)
         ? busy(account)
-        : await resync(account, { passBudgetMs, maxPasses, maxTitles: options.maxTitlesPerPass, log, now, sleep });
+        : await resync(account, { passBudgetMs, maxPasses, maxTitles: options.maxTitlesPerPass, log, now });
       resyncs.set(key, result);
       report.accounts.push(result);
       log(
@@ -175,7 +195,7 @@ export async function finishTrophyLists(options: FinishOptions = {}): Promise<Fi
       );
     }
 
-    report.games = await cleanUp(report, { dryRun, gameIds: options.gameIds, handles, platforms, resyncs, log });
+    report.games = await cleanUp(report, { dryRun, gameIds: options.gameIds, handles, platforms, resyncs, log, now });
 
     for (const userId of userIds) {
       const r = await rebuildListXp(userId, new Date(now()));
@@ -214,7 +234,6 @@ async function resync(
     maxTitles?: number;
     log: (message: string) => void;
     now: () => number;
-    sleep: (ms: number) => Promise<void>;
   },
 ): Promise<AccountResync> {
   const out: AccountResync = {
@@ -226,14 +245,6 @@ async function resync(
     newUnlocks: 0,
     failedTitles: [],
   };
-  // A cron run that started on this account before the reservation may still be writing: its
-  // attempt is recent. Wait it out, as the import worker does.
-  const attempt = account.lastSyncAttemptAt?.getTime();
-  if (attempt !== undefined && opts.now() - attempt < RECENT_ATTEMPT_MS) {
-    const wait = attempt + RECENT_ATTEMPT_MS - opts.now();
-    opts.log(`${account.platform} ${account.handle}: synced moments ago, waiting ${Math.ceil(wait / 1000)} s`);
-    await opts.sleep(wait);
-  }
   const recorded = new Set<string>();
   const failed = new Set<string>();
   let retriedFailures = false;
@@ -255,14 +266,14 @@ async function resync(
         recorded.add(id);
         failed.delete(id);
       }
-      failed.delete(PLAYED_GAMES);
+      for (const id of ACCOUNT_LISTS) failed.delete(id);
       for (const id of r.failedTitles ?? []) failed.add(id);
       opts.log(
         `${account.platform} ${account.handle}: pass ${out.passes} read ${r.titles?.read ?? 0} titles` +
           `${r.partial ? " (cut short)" : ""}${r.failedTitles?.length ? `, ${r.failedTitles.length} failed` : ""}`,
       );
+      out.outcome = r.partial ? "partial" : "done";
       if (r.partial) continue;
-      out.outcome = "done";
       // Failed titles (an outage of a moment) are tried once more.
       if (failed.size > 0 && !retriedFailures && out.passes < opts.maxPasses) {
         retriedFailures = true;
@@ -297,6 +308,7 @@ async function cleanUp(
     handles: Map<string, string>;
     platforms: readonly FinishPlatform[];
     resyncs: Map<string, AccountResync>;
+    now: () => number;
     log: (message: string) => void;
   },
 ): Promise<CollapsedGame[]> {
@@ -412,10 +424,33 @@ async function cleanGame(
     const unread = resync.failedTitles.filter((id) => gameLists.has(id));
     if (unread.length > 0) return keep(`${handle}: could not read ${unread.join(", ")}`);
   }
+  // And each holder holds every one of those unlocks again on a list row of the game (same
+  // apiName): a list Sony no longer returns (hidden), read back empty, without earned trophies, or
+  // resolved to another game leaves unlocks that only the list-less rows have.
+  if (holders.length > 0) {
+    const uncovered = await prisma.$queryRaw<{ userId: string; count: bigint }[]>`
+      SELECT ua."userId", COUNT(*) AS count
+      FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId"
+      WHERE a."gameId" = ${gameId} AND a.platform = ${platform} AND a."listId" IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM "UserAchievement" ub JOIN "Achievement" b ON b.id = ub."achievementId"
+          WHERE ub."userId" = ua."userId" AND b."gameId" = a."gameId" AND b.platform = a.platform
+            AND b."listId" IS NOT NULL AND b."apiName" = a."apiName"
+        )
+      GROUP BY ua."userId"
+      ORDER BY ua."userId"`;
+    const first = uncovered.find((u) => Number(u.count) > 0);
+    if (first) return keep(`${ctx.handles.get(first.userId) ?? first.userId}: ${Number(first.count)} unlocks not on a list`);
+  }
   if (withoutTarget > 0) return keep(`${withoutTarget} guide note(s) without a list row of the same apiName`);
 
+  const planned = new Set(plans.map((n) => n.id));
   const result = await prisma.$transaction(
     async (tx) => {
+      // A note written on those rows since the plan would cascade away: keep the game instead.
+      const current = await tx.guideAchievementNote.findMany({ where: { achievementId: { in: rowIds } }, select: { id: true } });
+      const unplanned = current.filter((c) => !planned.has(c.id)).length;
+      if (unplanned > 0) return { unplanned };
       let moved = 0;
       let replaced = 0;
       for (const n of plans) {
@@ -432,19 +467,26 @@ async function cleanGame(
         }
       }
       const unlockCount = await tx.userAchievement.count({ where: { achievementId: { in: rowIds } } });
+      // Entries keyed by a deleted row could never be found (and voided) by a settle again.
+      const voided = await tx.xpLedgerEntry.updateMany({
+        where: { source: "achievement", sourceKey: { in: rowIds }, voidedAt: null },
+        data: { voidedAt: new Date(ctx.now()) },
+      });
       const deleted = await tx.achievement.deleteMany({ where: { id: { in: rowIds }, listId: null } });
-      return { moved, replaced, unlockCount, deleted: deleted.count };
+      return { moved, replaced, unlockCount, deleted: deleted.count, voided: voided.count };
     },
     { timeout: 60_000, maxWait: 10_000 },
   );
+  if ("unplanned" in result) return keep(`${result.unplanned} guide note(s) written during the run`);
   report.notes.moved += result.moved;
   report.notes.replacedByExisting += result.replaced;
   report.deleted.achievements += result.deleted;
   report.deleted.unlocks += result.unlockCount;
+  report.ledgerVoided += result.voided;
   entry.action = "deleted";
   ctx.log(
     `deleted: ${game.slug} ${platform} ${result.deleted} list-less rows, ${result.unlockCount} unlocks; ` +
-      `${result.moved} notes moved, ${result.replaced} replaced by an existing note`,
+      `${result.moved} notes moved, ${result.replaced} replaced by an existing note; ${result.voided} ledger entries voided`,
   );
   return entry;
 }

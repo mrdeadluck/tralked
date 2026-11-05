@@ -6,7 +6,8 @@
  * Production: use the direct URL (DATABASE_URL_UNPOOLED), not the pooled one.
  *
  *   DATABASE_URL=$DATABASE_URL_UNPOOLED pnpm trophy-lists:snapshot --label a-antes
- *       -> C:\Users\luck_\tralked-backups\snapshot-a-antes.json
+ *       -> C:\Users\luck_\tralked-backups\snapshot-a-antes.json (refuses an existing label
+ *          unless --force)
  *   pnpm trophy-lists:snapshot --compare a-antes a-depois
  *       -> prints the differences (no database); exits 1 when a Steam number differs
  */
@@ -21,7 +22,11 @@ const fileOf = (label: string) => join(BACKUPS, `snapshot-${label}.json`);
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  options: { label: { type: "string" }, compare: { type: "boolean", default: false } },
+  options: {
+    label: { type: "string" },
+    compare: { type: "boolean", default: false },
+    force: { type: "boolean", default: false },
+  },
 });
 
 if (values.compare) {
@@ -53,6 +58,11 @@ if (!values.label || !LABEL.test(values.label)) {
   process.exit(2);
 }
 const label = values.label;
+// A "before" snapshot overwritten by mistake would leave nothing to compare against.
+if (existsSync(fileOf(label)) && !values.force) {
+  console.error(`${fileOf(label)} exists already: pick another label, or pass --force to overwrite it.`);
+  process.exit(2);
+}
 
 const { requireDatabaseUrl } = await import("./lib/run");
 const db = requireDatabaseUrl();
