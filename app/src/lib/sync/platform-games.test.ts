@@ -86,4 +86,16 @@ describe.skipIf(!reachable)("resolvePlatformGame", () => {
     expect(xboxGame.platforms).toEqual(["XBOX"]);
     expect(xboxGame.consoles).toEqual([]);
   });
+
+  it("a game created from a multi-console PSN label records every console", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadNameIndex, resolvePlatformGame } = await import("./platform-games");
+    const names = await loadNameIndex();
+    const both = await resolvePlatformGame("psn", { externalId: "TESTRESOLVE_7", name: "Jogo Dois Console Resolve", platformLabel: "PS4,PS5" }, names, { igdb: false });
+    const created = await prisma.game.findUniqueOrThrow({ where: { id: both } });
+    expect(created.platforms).toEqual(["PLAYSTATION"]);
+    expect(created.consoles).toEqual(["ps4", "ps5"]);
+    const old = await resolvePlatformGame("psn", { externalId: "TESTRESOLVE_8", name: "Jogo Antigo Console Resolve", platformLabel: "PS3,PSVITA" }, names, { igdb: false });
+    expect((await prisma.game.findUniqueOrThrow({ where: { id: old } })).consoles).toEqual(["ps3", "psvita"]);
+  });
 });

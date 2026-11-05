@@ -16,6 +16,7 @@
  */
 import { parseArgs } from "node:util";
 import { loadKeysIntoEnv } from "./lib/keys";
+import { IGDB_PAGE_ORDER, igdbPageWhere, type IgdbCursor } from "./lib/igdb-pages";
 import { createRunLog, requireDatabaseUrl } from "./lib/run";
 
 const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false } } });
@@ -60,17 +61,18 @@ async function normalizeLabels(): Promise<number> {
 /** Step 2: the consoles IGDB lists for each game with an IGDB id. */
 async function fillFromIgdb(): Promise<{ games: number; updated: number; unknown: number }> {
   const igdb = createIgdbClient({ clientId: process.env.IGDB_CLIENT_ID!, clientSecret: process.env.IGDB_CLIENT_SECRET! });
-  let after = 0;
+  let cursor: IgdbCursor | null = null;
   const total = { games: 0, updated: 0, unknown: 0 };
   for (;;) {
-    const batch = await prisma.game.findMany({
-      where: { igdbId: { gt: after } },
+    const batch: { id: string; igdbId: number | null; consoles: string[] }[] = await prisma.game.findMany({
+      where: igdbPageWhere(cursor),
       select: { id: true, igdbId: true, consoles: true },
-      orderBy: { igdbId: "asc" },
+      orderBy: IGDB_PAGE_ORDER,
       take: BATCH,
     });
     if (batch.length === 0) return total;
-    after = batch[batch.length - 1].igdbId!;
+    const last = batch[batch.length - 1];
+    cursor = { igdbId: last.igdbId!, id: last.id };
     // Several catalog games may carry one IGDB id: the platforms are asked once per id.
     const platforms = await igdb.getGamePlatforms([...new Set(batch.map((g) => g.igdbId!))]);
     const changes = batch.flatMap((g) => {
@@ -89,7 +91,7 @@ async function fillFromIgdb(): Promise<{ games: number; updated: number; unknown
       await prisma.$executeRaw`
         UPDATE "Game" AS g SET consoles = v.cons FROM (VALUES ${values}) AS v(id, cons) WHERE g.id = v.id`;
     }
-    log.info(`IGDB ids up to ${after}: ${total.games} games read, ${total.updated} ${dryRun ? "would change" : "updated"}, ${total.unknown} unknown to IGDB`);
+    log.info(`IGDB ids up to ${cursor.igdbId}: ${total.games} games read, ${total.updated} ${dryRun ? "would change" : "updated"}, ${total.unknown} unknown to IGDB`);
   }
 }
 

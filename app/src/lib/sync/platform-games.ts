@@ -62,10 +62,13 @@ async function linkPlatform(gameId: string, platform: string, externalId: string
  * console ("Xbox") gives the family only. Retro labels ("Mega Drive") stay as written.
  */
 function platformsOfLabel(platform: string, label: string): { platforms: string[]; consoles: string[] } {
-  const family = platform === "psn" || platform === "xbox" ? familyOfLabel(label) : null;
+  if (platform !== "psn" && platform !== "xbox") return { platforms: [label], consoles: [] };
+  // A PSN list may span consoles ("PS4,PS5"): every one of them is recorded.
+  const parts = label.split(/[,+]/).map((part) => part.trim()).filter(Boolean);
+  const family = parts.map(familyOfLabel).find(Boolean) ?? null;
   if (!family) return { platforms: [label], consoles: [] };
-  const console = consoleOfLabel(label);
-  return { platforms: [family], consoles: console ? [console] : [] };
+  const consoles = [...new Set(parts.map(consoleOfLabel).filter((c): c is string => c !== null))];
+  return { platforms: [family], consoles };
 }
 
 export type ResolveOptions = {
