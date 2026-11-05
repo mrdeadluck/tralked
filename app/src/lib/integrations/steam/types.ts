@@ -72,6 +72,11 @@ export interface SteamApi {
     steamId: string,
     appId: number,
   ): Promise<SteamPlayerAchievement[] | "private">;
+  /**
+   * Games played in the last two weeks (IPlayerService/GetRecentlyPlayedGames), Family Sharing
+   * ones included, which GetOwnedGames leaves out. No last-played date. Keyed adapter only.
+   */
+  getRecentlyPlayedGames?(steamId: string): Promise<SteamOwnedGame[] | "private">;
   /** The player's wishlist (IWishlistService/GetWishlist); `'private'` when it is not public. */
   getWishlist(steamId: string): Promise<SteamWishlistItem[] | "private">;
   /** One page of the store's game list; `'unsupported'` without an API key. */

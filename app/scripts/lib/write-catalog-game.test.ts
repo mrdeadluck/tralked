@@ -185,4 +185,45 @@ describe.skipIf(!reachable)("writeCatalogGame", () => {
     // Skills are only set while the game has none: the manual one stays alone.
     expect(game.skills.map((s) => s.skill)).toEqual(["rpg"]);
   });
+  it("Steam achievements belong to the game's Steam list", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { writeCatalogGame } = await import("./write-catalog-game");
+    const appId = APP_BASE + 3;
+    await writeCatalogGame(input(appId));
+    const game = await snapshot(appId);
+    const list = await prisma.trophyList.findUniqueOrThrow({
+      where: { platform_externalId: { platform: "steam", externalId: String(appId) } },
+    });
+    expect(list).toMatchObject({ gameId: game.id, console: "PC", name: `Writer Test ${appId}`, trophyCount: 2 });
+    expect(game.achievements.map((a) => a.listId)).toEqual([list.id, list.id]);
+
+    // An empty or failed schema read keeps the count and leaves the rows alone.
+    await writeCatalogGame(input(appId, { schema: [], percentages: {} }));
+    expect((await prisma.trophyList.findUniqueOrThrow({ where: { id: list.id } })).trophyCount).toBe(2);
+    expect(await prisma.achievement.count({ where: { listId: list.id } })).toBe(2);
+  });
+
+  it("attaches the rows of a game that already had achievements without a list", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { writeCatalogGame } = await import("./write-catalog-game");
+    const appId = APP_BASE + 4;
+    await prisma.game.create({
+      data: {
+        slug: `legacy-${appId}`,
+        name: "Legacy",
+        steamAppId: appId,
+        platforms: ["PC"],
+        achievementCount: 2,
+        achievements: { create: [
+          { platform: "steam", apiName: "CHARMED", name: "Charmed" },
+          { platform: "steam", apiName: "SEED_ONLY", name: "Seed only" },
+        ] },
+      },
+    });
+    await writeCatalogGame(input(appId));
+    const game = await snapshot(appId);
+    expect(game.achievements.map((a) => a.apiName)).toEqual(["CHARMED", "FK_DEFEAT", "SEED_ONLY"]);
+    expect(new Set(game.achievements.map((a) => a.listId)).size).toBe(1);
+    expect(game.achievements.every((a) => a.listId !== null)).toBe(true);
+  });
 });

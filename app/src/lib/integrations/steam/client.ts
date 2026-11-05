@@ -22,6 +22,8 @@ type PlayerSummariesResponse = {
 type OwnedGamesResponse = {
   response?: {
     game_count?: number;
+    /** GetRecentlyPlayedGames' count. */
+    total_count?: number;
     games?: {
       appid: number;
       name?: string;
@@ -175,6 +177,22 @@ export function createSteamClient({
       }));
     },
 
+    async getRecentlyPlayedGames(steamId) {
+      const data = await getJson<OwnedGamesResponse>("/IPlayerService/GetRecentlyPlayedGames/v1/", {
+        steamid: steamId,
+        format: "json",
+      });
+      // Private game details answer `{"response":{}}`; nothing played lately carries total_count 0.
+      if (!data.response?.games && data.response?.total_count === undefined) return "private";
+      return (data.response?.games ?? []).map((g) => ({
+        appId: g.appid,
+        playtimeMin: g.playtime_forever ?? 0,
+        name: g.name?.trim() || undefined,
+        playtime2WeeksMin: g.playtime_2weeks ?? 0,
+        lastPlayedAt: null,
+      }));
+    },
+
     async getWishlist(steamId) {
       const path = "/IWishlistService/GetWishlist/v1/";
       const res = await request(path, { steamid: steamId });
@@ -209,10 +227,13 @@ export function createSteamClient({
     },
 
     async getGlobalAchievementPercentages(appId) {
-      const data = await getJson<GlobalPercentagesResponse>(
-        "/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/",
-        { gameid: appId },
-      );
+      const path = "/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/";
+      const res = await request(path, { gameid: appId });
+      // 403: Steam keeps this app's global stats private (it answers so on every call): no data,
+      // not an error (34 rarity errors in four days, 2026-11-01..05, were all this).
+      if (res.status === 403) return {};
+      if (!res.ok) throw new Error(`Steam API ${path} failed with HTTP ${res.status}`);
+      const data = (await res.json()) as GlobalPercentagesResponse;
       const result: Record<string, number> = {};
       for (const a of data.achievementpercentages?.achievements ?? []) {
         result[a.name] = Number(a.percent);

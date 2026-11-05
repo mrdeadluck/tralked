@@ -31,8 +31,9 @@ const CSS = `
 /* Breaks only between words; the size is capped so the longest word (--longest, in em) fits the column. */
 .gps-title { font-weight: 900; font-stretch: 125%; font-size: min(clamp(40px, 6vw, 84px), calc(100cqi / var(--longest, 1))); line-height: .88; letter-spacing: -0.04em; text-transform: uppercase; overflow-wrap: normal; word-break: normal; hyphens: manual; text-shadow: 0 4px 30px rgba(0,0,0,.6); }
 .gps-title:focus { outline: none; }
-/* The official logo in a fixed box: nothing moves when it loads. */
-.gps-logo { width: min(420px, 100%); }
+/* The official logo in a fixed box: nothing moves when it loads. 620px lets very wide logos
+   (Phantom Blade Zero, about 12:1) grow; logos under about 4:1 still stop at the box height. */
+.gps-logo { width: min(620px, 100%); }
 .gps-logo img { display: block; width: 100%; height: clamp(110px, 12vw, 170px); object-fit: contain; object-position: left center; filter: drop-shadow(0 6px 20px rgba(0,0,0,.7)); }
 .gps-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 12px; }
 .gps-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; background: var(--hover-2); color: var(--text-2); font-stretch: 80%; font-weight: 750; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }

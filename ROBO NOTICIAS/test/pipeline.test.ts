@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { BudgetExceededError, type Ai, type StructuredOpts } from "../src/ai/client.js";
+import { BudgetExceededError, UsageLimitError, type Ai, type StructuredOpts } from "../src/ai/client.js";
 import type { Draft } from "../src/ai/writer.js";
 import { inSlotWindow, localDay } from "../src/clock.js";
 import { loadConfig, type Source } from "../src/config.js";
@@ -281,7 +281,7 @@ function harness(start = local("2026-10-31T10:00")) {
       clock.now = d;
     },
     coleta: () => runColeta(deps),
-    publica: (over: { rand?: () => number; agora?: boolean; foraDoHorario?: boolean; ignorarLimite?: boolean } = {}) =>
+    publica: (over: { rand?: () => number; agora?: boolean; foraDoHorario?: boolean; ignorarLimite?: boolean; revisao?: boolean } = {}) =>
       runPublica({ ...deps, sleep, rand: over.rand ?? (() => 0.5), ...over }),
   };
 }
@@ -406,13 +406,14 @@ describe("publica: slot window", () => {
 describe("publica: command flags", () => {
   it("parses the flags; --fora-do-horario implies --agora; unknown flags throw", async () => {
     const { parsePublicaArgs } = await import("../src/commands/publica.js");
-    expect(parsePublicaArgs([])).toEqual({ agora: false, foraDoHorario: false, ignorarLimite: false });
-    expect(parsePublicaArgs(["--agora"])).toEqual({ agora: true, foraDoHorario: false, ignorarLimite: false });
-    expect(parsePublicaArgs(["--fora-do-horario"])).toEqual({ agora: true, foraDoHorario: true, ignorarLimite: false });
-    expect(parsePublicaArgs(["--agora", "--fora-do-horario", "--ignorar-limite"])).toEqual({
+    expect(parsePublicaArgs([])).toEqual({ agora: false, foraDoHorario: false, ignorarLimite: false, revisao: false });
+    expect(parsePublicaArgs(["--agora"])).toEqual({ agora: true, foraDoHorario: false, ignorarLimite: false, revisao: false });
+    expect(parsePublicaArgs(["--fora-do-horario"])).toEqual({ agora: true, foraDoHorario: true, ignorarLimite: false, revisao: false });
+    expect(parsePublicaArgs(["--agora", "--fora-do-horario", "--ignorar-limite", "--revisao"])).toEqual({
       agora: true,
       foraDoHorario: true,
       ignorarLimite: true,
+      revisao: true,
     });
     expect(() => parsePublicaArgs(["--fora-de-horario"])).toThrow();
   });
@@ -835,6 +836,27 @@ describe("failures", () => {
     expect(status(first)).toBe("queued");
     expect(status(second)).toBe("queued");
     expect(h.db.alerts().map((a) => a.kind)).toContain("orcamento");
+  });
+
+  it("the subscription limit stops publishing like the budget: story queued, limit alert, reason says so", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    const id = seedQueued(h, "Primeira", { score: 90 });
+    h.fake.state.writeError = new UsageLimitError("Mon 12:00am");
+
+    const result = await h.publica();
+    expect(result.published).toBeNull();
+    expect(result.reason).toMatch(/limite da assinatura do Claude \(Mon 12:00am\)/);
+    expect(stories(h.db).find((s) => s.id === id)!.status).toBe("queued");
+    const alert = h.db.alerts().find((a) => a.kind === "orcamento")!;
+    expect(JSON.stringify(alert)).toMatch(/limite da assinatura/i);
+  });
+
+  it("--revisao sends the article as a draft (status review)", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    seedQueued(h, "Primeira", { score: 90 });
+    const result = await h.publica({ revisao: true });
+    expect(result.published).not.toBeNull();
+    expect(h.site.created[0]!.payload.status).toBe("review");
   });
 
   it("a failed check drops the story, raises an alert and tries the next ones, up to 4 rejections an hour", async () => {

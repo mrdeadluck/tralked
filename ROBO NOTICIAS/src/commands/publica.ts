@@ -3,15 +3,16 @@ import { sendPendingAlerts } from "../alerts.js";
 import { runPublica } from "../pipeline.js";
 import { runIfMain } from "./run.js";
 
-export const PUBLICA_USAGE = "uso: pnpm publica [--agora] [--fora-do-horario] [--ignorar-limite]";
+export const PUBLICA_USAGE = "uso: pnpm publica [--agora] [--fora-do-horario] [--ignorar-limite] [--revisao]";
 
-export type PublicaFlags = { agora: boolean; foraDoHorario: boolean; ignorarLimite: boolean };
+export type PublicaFlags = { agora: boolean; foraDoHorario: boolean; ignorarLimite: boolean; revisao: boolean };
 
 /**
  * The flags of `pnpm publica`. Unknown flags throw (a typo must not publish with the wrong rules).
  * - `--agora`: skip the 0–12 min jitter (manual run).
  * - `--fora-do-horario`: publish even outside SLOT_FIRST_HOUR–SLOT_LAST_HOUR; implies `--agora`.
  * - `--ignorar-limite`: also skip MAX_PER_DAY and the one-per-hour rule. The daily budget always applies.
+ * - `--revisao`: the article goes to the site as a draft (admin, `status: "review"`) for Lucas to check.
  */
 export function parsePublicaArgs(args: string[]): PublicaFlags {
   const { values } = parseArgs({
@@ -20,15 +21,21 @@ export function parsePublicaArgs(args: string[]): PublicaFlags {
       agora: { type: "boolean", default: false },
       "fora-do-horario": { type: "boolean", default: false },
       "ignorar-limite": { type: "boolean", default: false },
+      revisao: { type: "boolean", default: false },
     },
     strict: true,
     allowPositionals: false,
   });
   const foraDoHorario = values["fora-do-horario"] === true;
-  return { agora: values.agora === true || foraDoHorario, foraDoHorario, ignorarLimite: values["ignorar-limite"] === true };
+  return {
+    agora: values.agora === true || foraDoHorario,
+    foraDoHorario,
+    ignorarLimite: values["ignorar-limite"] === true,
+    revisao: values.revisao === true,
+  };
 }
 
-/** `pnpm publica [--agora] [--fora-do-horario] [--ignorar-limite]`: hourly 06–23 (São Paulo) from the scheduler. */
+/** `pnpm publica [--agora] [--fora-do-horario] [--ignorar-limite] [--revisao]`: hourly 06–23 (São Paulo) from the scheduler. */
 async function main(): Promise<void> {
   let flags: PublicaFlags;
   try {
@@ -47,7 +54,7 @@ async function main(): Promise<void> {
       rand: Math.random,
       ...flags,
     });
-    const outcome = result.published ? `publicada ${result.published}` : "nada publicado";
+    const outcome = result.published ? `${flags.revisao ? "rascunho" : "publicada"} ${result.published}` : "nada publicado";
     console.log(`publica ${new Date().toISOString()}: ${outcome} (${result.reason})`);
   } finally {
     await sendPendingAlerts(deps.db, deps.config, deps.fetchFn);

@@ -20,9 +20,13 @@ export async function generateMetadata({ params }: PageProps<"/forum/[categoria]
   const { categoria } = await params;
   const section = await findSectionCached(categoria);
   if (!section) return { title: "Seção não encontrada | Tralked" };
+  // A game's section without topics (nearly every catalog game) is an empty list: out of the
+  // index, as robots.txt keeps crawlers off it (lib/seo/robots.ts EMPTY_LISTING_PATHS).
+  const empty = section.kind === "game" && (await listSectionThreadsCached(section, 1)).total === 0;
   return {
     title: section.kind === "game" ? `Fórum de ${section.name} | Tralked` : `${section.name} | Fórum Tralked`,
     description: section.description,
+    ...(empty && { robots: { index: false, follow: true } }),
   };
 }
 

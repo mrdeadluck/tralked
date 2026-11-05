@@ -788,13 +788,23 @@ export async function getGameProfileForUser(slug: string, userId: string): Promi
   const completionPlatinums = split.byPlatform.filter((p) => p.completed && !p.platinumTrophy).length;
 
   // XP and skill points this game paid (voided entries never count).
+  // Entries are keyed by any Achievement of the game (PSN: the canonical list's copy of a trophy,
+  // which may not be the one the player unlocked) and platinums by gameId (Steam), the legacy
+  // `${platform}:${gameId}` or any `<version>:${gameId}` (psn:<console>, <platform>:<externalId>).
+  const gameAchievementIds = (await prisma.achievement.findMany({ where: { gameId }, select: { id: true } })).map((a) => a.id);
   const ledger = await prisma.xpLedgerEntry.findMany({
     where: {
       userId,
       voidedAt: null,
       OR: [
-        { source: "achievement", sourceKey: { in: unlocks.map((u) => u.achievementId) } },
-        { source: "platinum", sourceKey: { in: PLATFORM_ORDER.map((p) => platinumSourceKey(p, gameId)) } },
+        { source: "achievement", sourceKey: { in: [...new Set([...gameAchievementIds, ...unlocks.map((u) => u.achievementId)])] } },
+        {
+          source: "platinum",
+          OR: [
+            { sourceKey: { in: PLATFORM_ORDER.map((p) => platinumSourceKey(p, gameId)) } },
+            { sourceKey: { endsWith: `:${gameId}` } },
+          ],
+        },
         // Hours milestones of this game on every platform.
         {
           source: "playtime",

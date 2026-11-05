@@ -160,6 +160,22 @@ describe("steam client", () => {
     await expect(client.getOwnedGames("765")).resolves.toEqual([]);
   });
 
+  it("getRecentlyPlayedGames maps the last two weeks' games (no date); {response:{}} is private", async () => {
+    const { client, lastUrl } = setup({
+      response: {
+        total_count: 1,
+        games: [{ appid: 4115450, name: " Phantom Blade Zero ", playtime_2weeks: 148, playtime_forever: 148 }],
+      },
+    });
+    await expect(client.getRecentlyPlayedGames!("765")).resolves.toEqual([
+      { appId: 4115450, name: "Phantom Blade Zero", playtimeMin: 148, playtime2WeeksMin: 148, lastPlayedAt: null },
+    ]);
+    expect(lastUrl().pathname).toBe("/IPlayerService/GetRecentlyPlayedGames/v1/");
+    expect(lastUrl().searchParams.get("steamid")).toBe("765");
+    await expect(setup({ response: { total_count: 0 } }).client.getRecentlyPlayedGames!("1")).resolves.toEqual([]);
+    await expect(setup({ response: {} }).client.getRecentlyPlayedGames!("1")).resolves.toBe("private");
+  });
+
   it("passes a timeout signal to every request", async () => {
     const { client, fetchMock } = setup({ response: { game_count: 0 } });
     await client.getOwnedGames("765");
@@ -211,6 +227,11 @@ describe("steam client", () => {
     const url = lastUrl();
     expect(url.pathname).toBe("/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/");
     expect(url.searchParams.get("gameid")).toBe("367520");
+  });
+
+  it("getGlobalAchievementPercentages: HTTP 403 (no public global stats) is no data, other errors throw", async () => {
+    await expect(setup({}, 403).client.getGlobalAchievementPercentages(1789480)).resolves.toEqual({});
+    await expect(setup({}, 500).client.getGlobalAchievementPercentages(1)).rejects.toThrow(/HTTP 500/);
   });
 
   it("getPlayerAchievements maps unlock times (0 = locked)", async () => {

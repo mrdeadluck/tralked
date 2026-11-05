@@ -5,7 +5,7 @@ import { findBursts, isSpeedPlatinum } from "@/lib/engine/fraud";
 import type { SkillId } from "@/lib/engine/types";
 import { SKILLS } from "@/lib/engine/types";
 import { platinumBonus, xpForAchievement } from "@/lib/engine/xp";
-import { getSteam, type SteamOwnedGame } from "@/lib/integrations";
+import { getSteam, type SteamApi, type SteamOwnedGame } from "@/lib/integrations";
 import { recomputeUser } from "@/lib/progression/recompute";
 import { syncGame } from "./catalog";
 import { busyImports, busyPairs } from "./import-lease";
@@ -231,6 +231,20 @@ async function recordGame(
         ...(fromLibrary && { checkedPlaytimeMin: playtimeMin }),
       },
     });
+    // The game was played at least when its newest achievement unlocked: a game Steam lists
+    // without a last-played date (see lastPlayedOf) still shows in "Jogou recentemente".
+    if (unlocks.length > 0) {
+      const newest = new Date(Math.max(...unlocks.map((u) => u.unlockedAt.getTime())));
+      await tx.userGame.updateMany({
+        where: {
+          userId,
+          gameId: game.id,
+          platform: "steam",
+          OR: [{ lastPlayedAt: null }, { lastPlayedAt: { lt: newest } }],
+        },
+        data: { lastPlayedAt: newest },
+      });
+    }
 
     const created = await tx.userAchievement.createMany({
       data: rows
@@ -275,6 +289,33 @@ async function recordGame(
     return created.count;
   }, TRANSACTION_OPTIONS);
 }
+
+/**
+ * When the game was last played. Steam's date wins when it gives one. Some games come in the list
+ * without it (rtime_last_played 0: Phantom Blade Zero for a player with 18 h, 2026-11-03), and the
+ * profile's "Jogou recentemente" then left them out. Without Steam's date: hours that grew since the
+ * last sync mean it was played now; otherwise the stored date stays (the achievements pass may have
+ * set it from the newest unlock, see recordGame), so a sync never erases a date. Hours in the last
+ * two weeks (playtime_2weeks) also mean it was played within them: without a stored date from those
+ * two weeks, "now" is the closest date there is (Castlevania: Belmont's Curse for a player with
+ * 307 min in two weeks and no Steam date, 2026-11-05; borrowed games, which never carry one).
+ */
+function lastPlayedOf(
+  steamDate: Date | null,
+  before: { playtimeMin: number; lastPlayedAt: Date | null; playtimeUpdatedAt: Date | null } | undefined,
+  playtimeMin: number,
+  playtimeKnown: boolean,
+  now: Date,
+  playtime2WeeksMin = 0,
+): Date | null {
+  if (steamDate) return steamDate;
+  const grew = playtimeKnown && before?.playtimeUpdatedAt != null && playtimeMin > before.playtimeMin;
+  const stored = before?.lastPlayedAt ?? null;
+  const playedLately = playtime2WeeksMin > 0 && (!stored || stored.getTime() < now.getTime() - TWO_WEEKS_MS);
+  return grew || playedLately ? now : stored;
+}
+
+const TWO_WEEKS_MS = 14 * 86_400_000;
 
 /** What the library sync knows of an owned game. */
 type LibraryEntry = { gameId: string; checkedPlaytimeMin: number | null };
@@ -326,10 +367,18 @@ async function recordLibrary(
     if (!gameId) continue;
     const before = stored.get(gameId);
     result.set(game.appId, { gameId, checkedPlaytimeMin: before?.checkedPlaytimeMin ?? null });
+    const playtimeMin = Math.max(0, game.playtimeMin);
     const fields = {
-      playtimeMin: Math.max(0, game.playtimeMin),
+      playtimeMin,
       playtime2WeeksMin: game.playtime2WeeksMin ?? null,
-      lastPlayedAt: game.lastPlayedAt ?? null,
+      lastPlayedAt: lastPlayedOf(
+        game.lastPlayedAt ?? null,
+        before,
+        playtimeMin,
+        playtimeKnown,
+        now,
+        game.playtime2WeeksMin ?? 0,
+      ),
       playtimeUpdatedAt: now,
     };
     if (!before) {
@@ -395,6 +444,26 @@ const weekOf = (ms: number) => Math.floor(ms / PROBE_RECHECK_MS);
  * never synced, when a new 7-day period began since the last sync (so every library game is
  * re-checked at least weekly), or when its catalog data changed since then (refresh, rarity).
  */
+/**
+ * Games played in the last two weeks that GetOwnedGames leaves out (Family Sharing: Phantom Blade
+ * Zero for a player with 148 min, 2026-11-05), with their hours. They are read like owned games,
+ * whatever the borrowed probe remembered of them. Best effort: a failure only leaves them out.
+ */
+async function recentBorrowed(steam: SteamApi, steamId: string, owned: SteamOwnedGame[]): Promise<SteamOwnedGame[]> {
+  if (!steam.getRecentlyPlayedGames) return [];
+  try {
+    const recent = await steam.getRecentlyPlayedGames(steamId);
+    if (recent === "private") return [];
+    const listed = new Set(owned.map((g) => g.appId));
+    return recent
+      .filter((g) => !listed.has(g.appId) && g.playtimeMin > 0)
+      .map((g) => ({ ...g, lastPlayedAt: null }));
+  } catch (error) {
+    console.warn(`Sync: could not read the recently played Steam games of ${steamId}`, error);
+    return [];
+  }
+}
+
 /** Games other players own that one sync asks Steam about for this user (see borrowedCandidates). */
 const BORROWED_PER_SYNC = 80;
 const borrowedKey = (userId: string) => `steam-borrowed:${userId}`;
@@ -555,8 +624,12 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
   });
   if (!summary.profilePublic) return privateResult();
 
-  const library = await steam.getOwnedGames(steamId);
-  if (library === "private") return privateResult();
+  const ownedList = await steam.getOwnedGames(steamId);
+  if (ownedList === "private") return privateResult();
+  // The library list leaves out games played through Family Sharing; the recently played list
+  // has them with their hours, so they enter like owned ones (hours, date, achievements).
+  const library =
+    ownedList === "unsupported" ? ownedList : [...ownedList, ...(await recentBorrowed(steam, steamId, ownedList))];
   // Without a library list (no API key) the catalog's games are probed one by one instead.
   const probing = library === "unsupported";
   const unlinked = (): SyncUserResult => ({

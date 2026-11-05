@@ -557,9 +557,6 @@ ol.wk-txt {
 .wk-callout.s > b {
   color: var(--text-2);
 }
-.wk-warn {
-  margin: 18px 0 0;
-}
 
 /* ---------- "você está aqui" and "talvez você tenha perdido" (signed in, resume step) ---------- */
 .wk-here,

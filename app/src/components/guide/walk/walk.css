@@ -92,7 +92,9 @@ body:has(.wk-hero) {
 }
 .wk-logo {
   display: block;
-  max-width: min(420px, 100%);
+  /* As the game page (.gps-logo): very wide logos (Phantom Blade Zero, ~12:1) grow up to 620px;
+     the others stop at max-height first. */
+  max-width: min(620px, 100%);
   max-height: 150px;
   width: auto;
   height: auto;
@@ -188,6 +190,47 @@ body:has(.wk-hero) {
   flex-basis: 100%;
   font-size: 12.5px;
   color: var(--muted);
+}
+/* "Recomeçar o guia": a quiet text link, then an inline confirmation (never a browser dialog). */
+.wk-resume button.wk-reset {
+  padding: 0;
+  background: none;
+  color: var(--text-2);
+  font-stretch: normal;
+  font-weight: 400;
+  font-size: 13px;
+  letter-spacing: normal;
+  text-transform: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.wk-resume button.wk-reset:hover,
+.wk-resume button.wk-reset:focus-visible {
+  color: var(--text);
+  box-shadow: none;
+}
+.wk-reset-q {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  font-size: 13px;
+}
+.wk-reset-q p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-2);
+}
+.wk-resume button.wk-reset-yes {
+  background: var(--warn);
+  color: var(--acc-ink);
+}
+.wk-resume button.wk-reset-yes:hover,
+.wk-resume button.wk-reset-yes:focus-visible {
+  box-shadow: 0 0 16px oklch(0.78 0.15 60 / 0.45);
 }
 .wk-resume-sk {
   display: block;
@@ -989,4 +1032,31 @@ body:has(.wk-hero) {
 .wk-ver button.ps[aria-pressed="true"] {
   background: var(--ps);
   color: var(--acc-ink);
+}
+
+/* "Créditos": the pages the guide was written from, once, at the end (GuideCredits.tsx). */
+.wk-credits-note {
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 72ch;
+  line-height: 1.55;
+}
+.wk-credits ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.wk-credits a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wk-credits a:hover {
+  color: var(--text);
 }

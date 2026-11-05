@@ -334,6 +334,31 @@ describe("saveGuide", () => {
     expect(await saveGuide(guideInput({ steps: foreign }), editor.id, NOW)).toMatchObject({ ok: false, field: "steps.0" });
     expect(await prisma.guideVersion.count({ where: { guideId } })).toBe(4);
   });
+
+  it("a note on a trophy of several lists goes to the canonical list's row", async () => {
+    // Written in this order so the canonical row is neither the first nor the last one read.
+    const newer = await prisma.trophyList.create({
+      data: { gameId, platform: "psn", externalId: `${PREFIX}-L2`, console: "PS5", name: "Lista", createdAt: new Date("2026-02-01T00:00:00Z") },
+    });
+    const older = await prisma.trophyList.create({
+      data: { gameId, platform: "psn", externalId: `${PREFIX}-L1`, console: "PS4", name: "Lista", createdAt: new Date("2026-01-01T00:00:00Z") },
+    });
+    const row = (listId: string | null) =>
+      prisma.achievement.create({ data: { gameId, platform: "psn", listId, apiName: "PSN_NOTE", name: "Nota" } });
+    await row(newer.id);
+    const canonical = await row(older.id);
+    await row(null);
+    try {
+      const notes = [{ apiName: "PSN_NOTE", platform: "psn", category: "historia", tip: body("Dica.") }];
+      const steps = [{ title: "X", hours: "1 h", body: body("x") }];
+      expect((await saveGuide(guideInput({ steps, notes, changeSummary: "" }), editor.id, NOW)).ok).toBe(true);
+      const saved = await prisma.guideAchievementNote.findMany({ where: { guideId }, select: { achievementId: true } });
+      expect(saved).toEqual([{ achievementId: canonical.id }]);
+    } finally {
+      await prisma.achievement.deleteMany({ where: { gameId, apiName: "PSN_NOTE" } });
+      await prisma.trophyList.deleteMany({ where: { id: { in: [newer.id, older.id] } } });
+    }
+  });
 });
 
 describe("createGuideForGame", () => {

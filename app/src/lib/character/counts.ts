@@ -1,6 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { RarityTier } from "@/lib/engine/types";
+import { versionKey } from "@/lib/trophies/lists";
 
 /*
  * The player's headline counters, each computed in one place so the character sheet, the Troféus
@@ -11,26 +12,68 @@ import type { RarityTier } from "@/lib/engine/types";
 type Db = Prisma.TransactionClient;
 
 const key = (c: { gameId: string; platform: string }) => `${c.gameId}:${c.platform}`;
+const nativeKey = (c: { gameId: string; platform: string; versionKey?: string }) =>
+  `${key(c)}:${c.versionKey ?? ""}`;
 
 /**
- * Platinums across every platform (Glória's rule): each native platinum trophy (PSN), plus each
- * valid 100% on a platform without one (Steam, Xbox, RetroAchievements, small PSN games). A game
- * finished on two platforms is two platinums; "Jogos 100%" counts it once.
+ * Platinums across every platform (Glória's rule): each native platinum trophy (PSN) once per
+ * version (PS4 and PS5 are two, two regions of one console are one), plus each valid 100% on a
+ * platform without one (Steam, Xbox, RetroAchievements, small PSN games). A game finished on two
+ * platforms is two platinums; "Jogos 100%" counts it once.
  */
 export function platinumCount(
-  nativePlatinum: Iterable<{ gameId: string; platform: string }>,
+  nativePlatinum: Iterable<{ gameId: string; platform: string; versionKey?: string }>,
   completions: { gameId: string; platform: string }[],
 ): number {
-  const native = new Set([...nativePlatinum].map(key));
-  return native.size + completions.filter((c) => !native.has(key(c))).length;
+  const natives = [...nativePlatinum];
+  const covered = new Set(natives.map(key));
+  return new Set(natives.map(nativeKey)).size + completions.filter((c) => !covered.has(key(c))).length;
 }
 
-/** Game and platform of each native platinum trophy the player unlocked (valid unlocks). */
-export function nativePlatinums(userId: string, db: Db = prisma) {
-  return db.$queryRaw<{ gameId: string; platform: string }[]>`
-    SELECT DISTINCT a."gameId", a.platform
-    FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId"
-    WHERE ua."userId" = ${userId} AND ua.suspicious = false AND a."trophyTier" = 'platinum'`;
+const listOf = { select: { platform: true, console: true, externalId: true } } as const;
+
+/** Valid platinum unlocks with their list (list-less rows carry no list). */
+function platinumUnlocks(userId: string, db: Db) {
+  return db.userAchievement.findMany({
+    where: { userId, suspicious: false, achievement: { trophyTier: "platinum" } },
+    select: {
+      unlockedAt: true,
+      achievement: { select: { gameId: true, platform: true, listId: true, list: listOf } },
+    },
+  });
+}
+
+const versionOf = (a: { platform: string; list: { platform: string; console: string | null; externalId: string } | null }) =>
+  a.list ? versionKey(a.list) : a.platform;
+
+/**
+ * Game, platform and version of each native platinum trophy the player unlocked (valid unlocks),
+ * distinct per (gameId, platform, versionKey): PS4 + PS5 = 2, two PS5 regions = 1.
+ */
+export async function nativePlatinums(userId: string, db: Db = prisma) {
+  const out = new Map<string, { gameId: string; platform: string; versionKey: string }>();
+  for (const u of await platinumUnlocks(userId, db)) {
+    const row = { gameId: u.achievement.gameId, platform: u.achievement.platform, versionKey: versionOf(u.achievement) };
+    out.set(nativeKey(row), row);
+  }
+  return [...out.values()];
+}
+
+/**
+ * PSN platinum trophies unlocked in lists beyond the first unlocked one of each version
+ * ("Listas regionais extras": they are shown but earn no XP).
+ */
+export async function regionalExtras(userId: string, db: Db = prisma): Promise<number> {
+  const lists = new Map<string, Set<string>>();
+  for (const u of await platinumUnlocks(userId, db)) {
+    const a = u.achievement;
+    if (a.platform !== "psn" || !a.listId) continue;
+    const k = nativeKey({ gameId: a.gameId, platform: a.platform, versionKey: versionOf(a) });
+    lists.set(k, (lists.get(k) ?? new Set()).add(a.listId));
+  }
+  let extras = 0;
+  for (const ids of lists.values()) extras += ids.size - 1;
+  return extras;
 }
 
 /**

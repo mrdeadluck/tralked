@@ -16,6 +16,8 @@ import { levelFromXp } from "@/lib/engine/xp";
 import { notifyLevelUp, notifyMissionDone } from "@/lib/notifications/progress";
 import { dailyPeriodKey, isoWeekKey, weeklyPeriodKey } from "./periods";
 import { skillPointTotals, skillsFromLedger, type LedgerSkillEntry } from "./skills-from-ledger";
+import { countedUnlocks } from "@/lib/trophies/counted";
+import { isListPlatform, LIST_PLATFORMS, platinumGameId, platinumSourceKey, refreshGameCompletion, settleListXp } from "./list-xp";
 
 const DAY_MS = 86_400_000;
 // Longest period start we may need (the Monday of the current ISO week) is under 7 days back.
@@ -25,15 +27,8 @@ const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
 type SkillMap = Record<SkillId, SkillState>;
 
-/**
- * sourceKey of a `platinum` entry: the gameId for Steam (Plan 1 entries) and
- * `${platform}:${gameId}` for the other platforms, so one game can be completed once per platform.
- */
-export const platinumSourceKey = (platform: string, gameId: string) =>
-  platform === "steam" ? gameId : `${platform}:${gameId}`;
-
-/** Game of a `platinum` entry (inverse of `platinumSourceKey`; cuids never contain ":"). */
-export const platinumGameId = (sourceKey: string) => sourceKey.slice(sourceKey.indexOf(":") + 1);
+// The `platinum` keys moved with the version rule (list-xp.ts); re-exported for existing imports.
+export { platinumGameId, platinumSourceKey };
 
 /**
  * Current skills of the games behind `achievement` (sourceKey = achievementId), `platinum`
@@ -120,31 +115,60 @@ function topSkillsOf(skills: SkillMap): SkillId[] {
 }
 
 async function loadUnlockEvents(userId: string, from: Date, to?: Date) {
-  const rows = await prisma.userAchievement.findMany({
-    where: { userId, unlockedAt: { gte: from, ...(to && { lte: to }) } },
-    select: {
-      unlockedAt: true,
-      suspicious: true,
-      achievementId: true,
-      achievement: {
-        select: {
-          gameId: true,
-          globalPct: true,
-          game: { select: { skills: { select: { skill: true } } } },
-        },
+  const select = {
+    unlockedAt: true,
+    suspicious: true,
+    achievementId: true,
+    achievement: {
+      select: {
+        gameId: true,
+        platform: true,
+        apiName: true,
+        globalPct: true,
+        list: { select: { platform: true, console: true, externalId: true } },
+        game: { select: { skills: { select: { skill: true } } } },
       },
     },
+  } as const;
+  const inWindow = await prisma.userAchievement.findMany({
+    where: { userId, unlockedAt: { gte: from, ...(to && { lte: to }) } },
+    select,
   });
-  return rows.map(
-    (r): UnlockEvent => ({
-      achievementId: r.achievementId,
-      gameId: r.achievement.gameId,
-      globalPct: r.achievement.globalPct,
-      skills: r.achievement.game.skills.map((s) => s.skill as SkillId),
-      unlockedAt: r.unlockedAt,
-      suspicious: r.suspicious,
-    }),
-  );
+  // Once per console: a PSN trophy first earned in another regional list before the window is no
+  // new event, so the earlier copies of the window's PSN trophies are looked up too.
+  const psn = inWindow.filter((r) => r.achievement.platform === "psn" && !r.suspicious);
+  const earlier = psn.length
+    ? await prisma.userAchievement.findMany({
+        where: {
+          userId,
+          suspicious: false,
+          unlockedAt: { lt: from },
+          achievement: {
+            platform: "psn",
+            gameId: { in: [...new Set(psn.map((r) => r.achievement.gameId))] },
+            apiName: { in: [...new Set(psn.map((r) => r.achievement.apiName))] },
+          },
+        },
+        select,
+      })
+    : [];
+  // Suspicious unlocks stay events (they carry the flag); only clean copies dedupe each other.
+  const counted = new Set([
+    ...countedUnlocks([...inWindow, ...earlier].filter((r) => !r.suspicious)),
+    ...inWindow.filter((r) => r.suspicious),
+  ]);
+  return inWindow
+    .filter((r) => counted.has(r))
+    .map(
+      (r): UnlockEvent => ({
+        achievementId: r.achievementId,
+        gameId: r.achievement.gameId,
+        globalPct: r.achievement.globalPct,
+        skills: r.achievement.game.skills.map((s) => s.skill as SkillId),
+        unlockedAt: r.unlockedAt,
+        suspicious: r.suspicious,
+      }),
+    );
 }
 
 /**
@@ -242,7 +266,14 @@ function loadValidUnlocks(userId: string) {
       unlockedAt: true,
       hardcore: true,
       achievement: {
-        select: { gameId: true, platform: true, globalPct: true, trophyTier: true },
+        select: {
+          gameId: true,
+          platform: true,
+          apiName: true,
+          globalPct: true,
+          trophyTier: true,
+          list: { select: { platform: true, console: true, externalId: true } },
+        },
       },
     },
   });
@@ -362,8 +393,12 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
     skills = skillsFromLedger(entries);
   }
 
-  const unlocks = await loadValidUnlocks(userId);
-  const days = [...new Set(unlocks.map((u) => toLocalDay(u.unlockedAt)))];
+  // Once per console: the same PSN trophy in two regional lists counts one time in attributes and
+  // rank stats. Streak and active days take every valid unlock: playing is playing (as hours are),
+  // so a day whose only unlock is a second region's copy is still an active day.
+  const valid = await loadValidUnlocks(userId);
+  const unlocks = countedUnlocks(valid);
+  const days = [...new Set(valid.map((u) => toLocalDay(u.unlockedAt)))];
   const streak = computeStreak(days, toLocalDay(now));
   const attributes = computeAttributes(
     await attributeInput(
@@ -468,11 +503,16 @@ export async function revalidateMissions(userId: string, days: string[], now: Da
 }
 
 /**
- * Confirmed fraud: voids the user's ledger entries of these achievements and the platinum bonus
- * of every game they belong to, marks the unlocks suspicious (so no later sync pays them again),
- * clears those games' completion on that platform (no Coleção/Glória for a tainted 100%), voids
- * the rewards of missions that are no longer complete without them, then recomputes. Entries are
- * never deleted, so the decision stays auditable. Returns how many ledger entries were voided.
+ * Confirmed fraud: marks the unlocks suspicious (so no later sync pays them again) and clears the
+ * completion they taint (no Coleção/Glória for a tainted 100%), voids the ledger entries that
+ * depended on them, voids the rewards of missions that are no longer complete without them, then
+ * recomputes. Entries are never deleted, so the decision stays auditable. Returns how many ledger
+ * entries were voided.
+ * - Steam: the entries of these achievements and the platinum bonus of every game they belong to.
+ * - PSN/Xbox/RA: the completion of the lists holding them is cleared (the game's becomes the
+ *   earliest clean list's, or none), then settleListXp reconciles the affected games: what the
+ *   version rule no longer wants (their trophies, unless also earned cleanly in another regional
+ *   list, and the version's platinum) is voided.
  */
 export async function voidFraudEntries(
   userId: string,
@@ -482,9 +522,13 @@ export async function voidFraudEntries(
   if (achievementIds.length === 0) return 0;
   const achievements = await prisma.achievement.findMany({
     where: { id: { in: achievementIds } },
-    select: { gameId: true, platform: true },
+    select: { id: true, gameId: true, platform: true, listId: true },
   });
-  const platinumKeys = [...new Set(achievements.map((a) => platinumSourceKey(a.platform, a.gameId)))];
+  const listed = achievements.filter((a) => isListPlatform(a.platform));
+  const listedIds = new Set(listed.map((a) => a.id));
+  const steam = achievements.filter((a) => !listedIds.has(a.id));
+  const steamIds = achievementIds.filter((id) => !listedIds.has(id));
+  const platinumKeys = [...new Set(steam.map((a) => platinumSourceKey(a.platform, a.gameId)))];
   const unlocks = await prisma.userAchievement.findMany({
     where: { userId, achievementId: { in: achievementIds } },
     select: { unlockedAt: true },
@@ -495,24 +539,37 @@ export async function voidFraudEntries(
       where: { userId, achievementId: { in: achievementIds } },
       data: { suspicious: true },
     });
-    for (const a of achievements) {
+    for (const a of steam) {
       await tx.userGame.updateMany({
         where: { userId, gameId: a.gameId, platform: a.platform },
         data: { completedAt: null },
       });
     }
-    const { count } = await tx.xpLedgerEntry.updateMany({
-      where: {
-        userId,
-        voidedAt: null,
-        OR: [
-          { source: "achievement", sourceKey: { in: achievementIds } },
-          { source: "platinum", sourceKey: { in: platinumKeys } },
-        ],
-      },
-      data: { voidedAt: now },
-    });
-    return count;
+    const { count } = steamIds.length
+      ? await tx.xpLedgerEntry.updateMany({
+          where: {
+            userId,
+            voidedAt: null,
+            OR: [
+              { source: "achievement", sourceKey: { in: steamIds } },
+              { source: "platinum", sourceKey: { in: platinumKeys } },
+            ],
+          },
+          data: { voidedAt: now },
+        })
+      : { count: 0 };
+
+    let listedVoided = 0;
+    const listIds = [...new Set(listed.flatMap((a) => (a.listId ? [a.listId] : [])))];
+    if (listIds.length > 0) {
+      await tx.userTrophyList.updateMany({ where: { userId, listId: { in: listIds } }, data: { completedAt: null } });
+    }
+    for (const platform of LIST_PLATFORMS) {
+      const gameIds = [...new Set(listed.filter((a) => a.platform === platform).map((a) => a.gameId))];
+      for (const gameId of gameIds) await refreshGameCompletion(tx, userId, platform, gameId);
+      listedVoided += (await settleListXp(tx, userId, platform, gameIds, now)).voided;
+    }
+    return count + listedVoided;
   }, TRANSACTION_OPTIONS);
 
   const days = [...new Set(unlocks.map((u) => toLocalDay(u.unlockedAt)))];

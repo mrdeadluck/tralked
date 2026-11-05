@@ -15,6 +15,7 @@ import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
 import { foldQueryInDb } from "@/lib/search/normalize";
 import { achievementTotal } from "@/lib/games/achievement-total";
 import { parseReport, type GuideReport } from "@/lib/admin/guide-report";
+import { quietSources } from "@/lib/content/source-talk";
 import { GUIDE_COMPAT, walkthroughSchema, type GuideCompat, type Walkthrough } from "@/lib/content/walkthrough-schema";
 import { loadTimeTo100, type TimeTo100 } from "./time-to-100";
 
@@ -658,7 +659,8 @@ async function buildGuide(game: GameDetail, meta: GuideMeta): Promise<GuideDetai
   }));
 
   const parsedWalk = guide.format === 2 ? walkthroughSchema.safeParse(guide.walkthrough) : null;
-  const walkthrough = parsedWalk?.success ? parsedWalk.data : null;
+  // The robot's older text still talks about its sources to the reader (source-talk.ts).
+  const walkthrough = parsedWalk?.success ? quietSources(parsedWalk.data) : null;
   if (parsedWalk && !parsedWalk.success) {
     // The page shows "guia indisponível" (never the classic layout over a walkthrough's data).
     console.error(
@@ -687,10 +689,10 @@ async function buildGuide(game: GameDetail, meta: GuideMeta): Promise<GuideDetai
       missables: guide.missables,
       online: guide.online,
     },
-    overview: guide.overview,
+    overview: guide.format === 2 ? quietSources(guide.overview) : guide.overview,
     warnings: guide.warnings,
     collectibles: parseCollectibles(guide.collectibles),
-    steps,
+    steps: guide.format === 2 ? quietSources(steps) : steps,
     achievements,
     tips: guide.tips.map((tip) => ({
       id: tip.id,

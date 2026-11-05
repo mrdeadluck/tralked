@@ -1,4 +1,4 @@
-import { timeoutSignal } from "../http";
+import { timeoutSignal, XBOX_FETCH_TIMEOUT_MS } from "../http";
 import type { XboxAchievement, XboxApi, XboxProfile, XboxTitle } from "./types";
 
 /**
@@ -12,6 +12,13 @@ const BASE = "https://xbl.io/api/v2";
 export type XboxClientConfig = {
   apiKey: string;
   fetch?: typeof fetch;
+  /**
+   * Read Xbox 360 titles on OpenXBL's 360 route. Off by default: read live on 2026-11-05 it listed
+   * only the earned achievements (21 titles, every record unlocked; GTA IV showed 1 of 50), so each
+   * 360 list would look complete. Until the full list of a 360 title is known, 360 titles stay on
+   * the player route, as before the trophy lists.
+   */
+  x360Route?: boolean;
 };
 
 type Setting = { id: string; value: string };
@@ -27,6 +34,8 @@ type TitleRecord = {
     progressPercentage?: number;
   };
   titleHistory?: { lastTimePlayed?: string };
+  /** Devices the title runs on (`Xbox360`, `XboxOne`, `XboxSeries`, `PC`, `Win32`, ...). */
+  devices?: unknown;
 };
 
 type AchievementRecord = {
@@ -39,6 +48,21 @@ type AchievementRecord = {
   progression?: { timeUnlocked?: string };
   mediaAssets?: { type?: string; url?: string }[];
   rewards?: { type?: string; value?: string | number }[];
+  rarity?: { currentPercentage?: number };
+};
+
+/** Xbox 360 achievement of OpenXBL's `/achievements/x360/{xuid}/title/{titleId}` (the 360 service's shape). */
+type X360AchievementRecord = {
+  id: string | number;
+  name: string;
+  description?: string;
+  lockedDescription?: string;
+  isSecret?: boolean;
+  unlocked?: boolean;
+  unlockedOnline?: boolean;
+  gamerscore?: number | string;
+  imageId?: number | string;
+  timeUnlocked?: string;
   rarity?: { currentPercentage?: number };
 };
 
@@ -91,9 +115,35 @@ const dateOrNull = (value: string | undefined) => {
   return Number.isNaN(date.getTime()) || date.getUTCFullYear() < 2000 ? null : date;
 };
 
+/** A record is usable only with an id and a non-empty name (else it would become the id "undefined"). */
+const validRecord = (a: { id?: unknown; name?: unknown } | null): boolean =>
+  !!a && (typeof a.id === "string" || typeof a.id === "number") && typeof a.name === "string" && a.name.trim() !== "";
+
+/** An Xbox 360 achievement in the app's shape; the icon is the 360 image CDN's (title and image ids in hex). */
+function x360Achievement(a: X360AchievementRecord, titleId: string): XboxAchievement {
+  const unlocked = a.unlocked === true || a.unlockedOnline === true;
+  const title = Number(titleId);
+  const image = Number(a.imageId);
+  return {
+    id: String(a.id),
+    name: a.name,
+    description: a.description || a.lockedDescription || null,
+    iconUrl:
+      Number.isInteger(title) && Number.isInteger(image) && a.imageId !== undefined
+        ? `https://image-ssl.xboxlive.com/global/t.${title.toString(16)}/ach/0/${image.toString(16)}`
+        : null,
+    hidden: a.isSecret ?? false,
+    gamerscore: Number(a.gamerscore ?? 0) || 0,
+    unlocked,
+    unlockedAt: unlocked ? dateOrNull(a.timeUnlocked) : null,
+    rarityPct: a.rarity?.currentPercentage ?? null,
+  };
+}
+
 export function createXboxClient({
   apiKey,
   fetch: fetchImpl = globalThis.fetch,
+  x360Route = false,
 }: XboxClientConfig): XboxApi {
   async function get<T>(path: string, what: string, body?: unknown): Promise<T | "private" | null> {
     const res = await fetchImpl(`${BASE}${path}`, {
@@ -105,7 +155,7 @@ export function createXboxClient({
         ...(body !== undefined && { "Content-Type": "application/json" }),
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
-      signal: timeoutSignal(),
+      signal: timeoutSignal(XBOX_FETCH_TIMEOUT_MS),
     });
     if (res.status === 403 || res.status === 404) {
       // What OpenXBL answered (its error text, no personal data) tells a typo from an outage.
@@ -135,6 +185,35 @@ export function createXboxClient({
       bio: settings.get("Bio") ?? "",
       avatarUrl: settings.get("GameDisplayPicRaw") ?? null,
     };
+  }
+
+  /**
+   * The player route. Only a 200 whose `achievements` is an array can say a title is empty: a 404 or
+   * a body of another shape is unknown and throws, so the title is a failure (retried), not "empty".
+   */
+  async function playerAchievements(xuid: string, titleId: string): Promise<XboxAchievement[] | "private"> {
+    const body = await get<{ achievements?: AchievementRecord[] }>(
+      `/achievements/player/${encodeURIComponent(xuid)}/${encodeURIComponent(titleId)}`,
+      "achievements",
+    );
+    if (body === "private") return "private";
+    if (body === null) throw new Error("Xbox achievements: title not found (HTTP 404)");
+    if (!Array.isArray(body.achievements)) throw new Error("Xbox achievements: unexpected answer");
+    return body.achievements.filter(validRecord).map((a) => {
+      const unlocked = a.progressState === "Achieved";
+      const score = a.rewards?.find((r) => r.type === "Gamerscore")?.value;
+      return {
+        id: String(a.id),
+        name: a.name,
+        description: a.description || a.lockedDescription || null,
+        iconUrl: a.mediaAssets?.find((m) => m.type === "Icon")?.url ?? null,
+        hidden: a.isSecret ?? false,
+        gamerscore: Number(score ?? 0) || 0,
+        unlocked,
+        unlockedAt: unlocked ? dateOrNull(a.progression?.timeUnlocked) : null,
+        rarityPct: a.rarity?.currentPercentage ?? null,
+      };
+    });
   }
 
   return {
@@ -181,30 +260,24 @@ export function createXboxClient({
         totalGamerscore: t.achievement?.totalGamerscore ?? 0,
         progress: t.achievement?.progressPercentage ?? 0,
         lastPlayed: dateOrNull(t.titleHistory?.lastTimePlayed),
+        devices: Array.isArray(t.devices) ? t.devices.filter((d): d is string => typeof d === "string") : [],
       }));
     },
 
-    async getAchievements(xuid, titleId): Promise<XboxAchievement[] | "private"> {
-      const body = await get<{ achievements?: AchievementRecord[] }>(
-        `/achievements/player/${encodeURIComponent(xuid)}/${encodeURIComponent(titleId)}`,
-        "achievements",
-      );
-      if (body === "private") return "private";
-      return (body?.achievements ?? []).map((a) => {
-        const unlocked = a.progressState === "Achieved";
-        const score = a.rewards?.find((r) => r.type === "Gamerscore")?.value;
-        return {
-          id: String(a.id),
-          name: a.name,
-          description: a.description || a.lockedDescription || null,
-          iconUrl: a.mediaAssets?.find((m) => m.type === "Icon")?.url ?? null,
-          hidden: a.isSecret ?? false,
-          gamerscore: Number(score ?? 0) || 0,
-          unlocked,
-          unlockedAt: unlocked ? dateOrNull(a.progression?.timeUnlocked) : null,
-          rarityPct: a.rarity?.currentPercentage ?? null,
-        };
-      });
+    async getAchievements(xuid, titleId, devices = []): Promise<XboxAchievement[] | "private"> {
+      // Xbox 360 titles answer empty on the player route; the 360 route (only with x360Route, see
+      // XboxClientConfig) lists them. An empty 360 answer still falls back to the player route.
+      if (x360Route && devices.includes("Xbox360")) {
+        const x360 = await get<{ achievements?: X360AchievementRecord[] } | X360AchievementRecord[]>(
+          `/achievements/x360/${encodeURIComponent(xuid)}/title/${encodeURIComponent(titleId)}`,
+          "360 achievements",
+        );
+        if (x360 === "private") return "private";
+        const raw = Array.isArray(x360) ? x360 : x360?.achievements;
+        const records = Array.isArray(raw) ? raw.filter(validRecord) : [];
+        if (records.length > 0) return records.map((a) => x360Achievement(a, titleId));
+      }
+      return playerAchievements(xuid, titleId);
     },
 
     async getMinutesPlayed(xuid, titleIds): Promise<Map<string, number> | "private"> {

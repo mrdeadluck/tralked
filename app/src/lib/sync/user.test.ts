@@ -58,6 +58,10 @@ type FakeGame = {
   playtimeMin?: number;
   /** Library name (default `Jogo de Teste <appid>`; null: none). */
   name?: string | null;
+  /** Steam's rtime_last_played (absent: Steam gives none, as for Phantom Blade Zero on 2026-11-03). */
+  lastPlayedAt?: Date;
+  /** Steam's playtime_2weeks (absent: 0). */
+  playtime2WeeksMin?: number;
 };
 
 type FakeSteam = {
@@ -94,6 +98,8 @@ function fakeSteam(games: Record<number, FakeGame>): FakeSteam {
         // Steam's include_appinfo name; `null` plays an app Steam lists without one.
         ...(g.name !== null && { name: g.name ?? `Jogo de Teste ${appId}` }),
         playtimeMin: g.playtimeMin ?? 600,
+        playtime2WeeksMin: g.playtime2WeeksMin ?? 0,
+        lastPlayedAt: g.lastPlayedAt ?? null,
       }));
     },
     async getSchemaForGame(appId) {
@@ -866,6 +872,88 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(await syncUser(user.id)).toMatchObject({ status: "ok", newUnlocks: 0 });
   });
 
+  it("a game Steam lists without a last-played date still gets one: newest unlock, then hours that grew", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { getRecentlyPlayed } = await import("@/lib/library/queries");
+    const noDate = newAppId();
+    const dated = newAppId();
+    const steamDate = new Date("2024-06-01T12:00:00Z");
+    const fake = fakeSteam({
+      [noDate]: {
+        pcts: pctsOf(3),
+        playtimeMin: 1080,
+        unlocks: { A0: new Date("2024-05-01T10:00:00Z"), A1: new Date("2024-05-03T10:00:00Z") },
+      },
+      [dated]: { pcts: pctsOf(2), playtimeMin: 120, lastPlayedAt: steamDate, unlocks: { A0: new Date("2024-05-02T10:00:00Z") } },
+    });
+    steamState.api = fake.api;
+    const user = await newUser();
+    const rowOf = async (appId: number) => {
+      const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+      return prisma.userGame.findUniqueOrThrow({
+        where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
+      });
+    };
+
+    await syncUser(user.id);
+    // No date from Steam: the newest unlock. Steam's own date is kept as it is.
+    expect((await rowOf(noDate)).lastPlayedAt).toEqual(new Date("2024-05-03T10:00:00Z"));
+    expect((await rowOf(dated)).lastPlayedAt).toEqual(steamDate);
+    expect((await getRecentlyPlayed(user.id)).map((g) => g.name)).toEqual([
+      `Jogo de Teste ${dated}`,
+      `Jogo de Teste ${noDate}`,
+    ]);
+
+    // Same hours, still no date: the date is not erased.
+    await syncUser(user.id);
+    expect((await rowOf(noDate)).lastPlayedAt).toEqual(new Date("2024-05-03T10:00:00Z"));
+
+    // More hours, still no date: played now, so it comes first.
+    fake.games.get(noDate)!.playtimeMin = 1140;
+    const before = Date.now();
+    await syncUser(user.id);
+    expect((await rowOf(noDate)).lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect((await getRecentlyPlayed(user.id))[0].name).toBe(`Jogo de Teste ${noDate}`);
+  });
+
+  it("a game without a Steam date but with hours in the last two weeks is dated now, once per two weeks", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { getRecentlyPlayed } = await import("@/lib/library/queries");
+    // Castlevania: Belmont's Curse for a player on 2026-11-05: 1,939 min, 307 in two weeks, no
+    // rtime_last_played, hours unchanged since the last sync (so its achievements are not re-read).
+    const recent = newAppId();
+    const old = newAppId();
+    const fake = fakeSteam({
+      [recent]: { pcts: pctsOf(2), playtimeMin: 1939, unlocks: {} },
+      [old]: { pcts: pctsOf(2), playtimeMin: 600, unlocks: {} },
+    });
+    steamState.api = fake.api;
+    const user = await newUser();
+    const rowOf = async (appId: number) => {
+      const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+      return prisma.userGame.findUniqueOrThrow({
+        where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
+      });
+    };
+    await syncUser(user.id);
+    expect((await rowOf(recent)).lastPlayedAt).toBeNull();
+
+    fake.games.get(recent)!.playtime2WeeksMin = 307;
+    const startedAt = Date.now();
+    await syncUser(user.id);
+    const dated = (await rowOf(recent)).lastPlayedAt!;
+    expect(dated.getTime()).toBeGreaterThanOrEqual(startedAt - 1000);
+    // No hours in the last two weeks and no date: nothing to go on.
+    expect((await rowOf(old)).lastPlayedAt).toBeNull();
+    expect((await getRecentlyPlayed(user.id))[0].name).toBe(`Jogo de Teste ${recent}`);
+
+    // Still within the two weeks: the date is not moved on every sync.
+    await syncUser(user.id);
+    expect((await rowOf(recent)).lastPlayedAt).toEqual(dated);
+  });
+
   it("asks once about games other players own that Steam leaves out of the list (Family Sharing)", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");
@@ -888,6 +976,73 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(
       await prisma.userGame.findUnique({ where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } } }),
     ).toMatchObject({ unlockedCount: 1 });
+  });
+
+  it("a borrowed game Steam shows among the recently played enters the library with its hours, even one asked before", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { getRecentlyPlayed } = await import("@/lib/library/queries");
+    const mine = newAppId();
+    const shared = newAppId();
+    const sharedLocked = newAppId();
+    // Phantom Blade Zero through Family Sharing (2026-11-05): not in GetOwnedGames, in
+    // GetRecentlyPlayedGames with 148 min, 5 unlocks Steam answers when asked by appid.
+    const borrowed = fakeSteam({
+      [shared]: { pcts: pctsOf(3), unlocks: { A0: new Date("2024-03-01T10:00:00Z"), A1: new Date("2024-03-02T10:00:00Z") } },
+      [sharedLocked]: { pcts: pctsOf(2), unlocks: {} },
+    });
+    const fake = fakeSteam({
+      [mine]: { pcts: pctsOf(2), playtimeMin: 120, lastPlayedAt: new Date("2024-01-01T10:00:00Z"), unlocks: {} },
+    });
+    const listed = fake.api.getPlayerAchievements;
+    fake.api.getPlayerAchievements = async (steamId, appId) =>
+      appId === mine ? listed(steamId, appId) : borrowed.api.getPlayerAchievements(steamId, appId);
+    const ownSchema = fake.api.getSchemaForGame;
+    fake.api.getSchemaForGame = async (appId, lang) =>
+      appId === mine ? ownSchema(appId, lang) : borrowed.api.getSchemaForGame(appId, lang);
+    fake.api.getGlobalAchievementPercentages = async (appId) =>
+      appId === mine ? { ...pctsOf(2) } : borrowed.api.getGlobalAchievementPercentages(appId);
+    const recent = [
+      { appId: shared, name: "Emprestado Com Conquistas", playtimeMin: 148, playtime2WeeksMin: 148, lastPlayedAt: null },
+      { appId: sharedLocked, name: "Emprestado Sem Conquistas", playtimeMin: 118, playtime2WeeksMin: 118, lastPlayedAt: null },
+      // A recent game that is also owned keeps its library entry (and Steam's date).
+      { appId: mine, name: `Jogo de Teste ${mine}`, playtimeMin: 120, playtime2WeeksMin: 30, lastPlayedAt: null },
+    ];
+    fake.api.getRecentlyPlayedGames = async () => recent;
+    steamState.api = fake.api;
+    const user = await newUser();
+    // Asked once before, when they had no unlocks yet: the borrowed probe never asks again.
+    await prisma.syncCursor.create({ data: { key: `steam-borrowed:${user.id}`, value: [shared, sharedLocked] } });
+    const rowOf = async (appId: number) => {
+      const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+      return prisma.userGame.findUnique({
+        where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
+      });
+    };
+
+    const startedAt = Date.now();
+    await syncUser(user.id);
+    const played = await rowOf(shared);
+    expect(played).toMatchObject({ playtimeMin: 148, playtime2WeeksMin: 148, unlockedCount: 2 });
+    expect(played!.lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(startedAt - 1000);
+    const locked = await rowOf(sharedLocked);
+    expect(locked).toMatchObject({ playtimeMin: 118, unlockedCount: 0 });
+    expect(locked!.lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(startedAt - 1000);
+    expect((await rowOf(mine))!.lastPlayedAt).toEqual(new Date("2024-01-01T10:00:00Z"));
+    expect((await getRecentlyPlayed(user.id)).map((g) => g.name).slice(0, 2).sort()).toEqual([
+      "Emprestado Com Conquistas",
+      "Emprestado Sem Conquistas",
+    ]);
+
+    // Same hours on the next sync: the date stays. More hours: played now.
+    const firstDate = locked!.lastPlayedAt!;
+    await syncUser(user.id);
+    expect((await rowOf(sharedLocked))!.lastPlayedAt).toEqual(firstDate);
+    recent[1] = { ...recent[1], playtimeMin: 178, playtime2WeeksMin: 178 };
+    const later = Date.now();
+    await syncUser(user.id);
+    expect(await rowOf(sharedLocked)).toMatchObject({ playtimeMin: 178 });
+    expect((await rowOf(sharedLocked))!.lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(later - 1000);
   });
 
   it("pays each hours milestone once, only for real playtime, and survives re-syncs", async () => {

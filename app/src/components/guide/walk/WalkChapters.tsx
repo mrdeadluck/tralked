@@ -127,11 +127,7 @@ export function WalkChapters({ chapters, screenshots }: WalkChaptersProps) {
               <div className="wk-col">
                 <GreenTrail>
                   {chapter.steps.map((step) => (
-                    <WalkStepView
-                      key={step.number}
-                      step={step}
-                      deadline={chapter.deadline ? walkPlain(chapter.deadline, chapter.deadlineScope) : null}
-                    />
+                    <WalkStepView key={step.number} step={step} />
                   ))}
                 </GreenTrail>
                 <ChapterLater items={items} />

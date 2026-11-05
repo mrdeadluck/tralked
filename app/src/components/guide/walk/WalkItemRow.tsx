@@ -11,7 +11,7 @@ import { locationScope, type ItemImage, type ItemSource, type ItemView } from ".
 
 /*
  * One item of a step (collectible, achievement, mission...): its seals, location, image with credit
- * and sources, and the box to mark it as done. Marking an achievement asks Steam right away
+ * (its sources only in the staff preview), and the box to mark it as done. Marking an achievement asks Steam right away
  * (checkGameAchievements): confirmed → "TRALKED!" and the XP; not yet → "aguardando", checked again
  * after 30 s and 90 s while the page is open (the regular sync confirms it later otherwise). A manual
  * tick never pays XP. Gated items (spoilers, hidden achievements) show their text only on reveal.
@@ -33,26 +33,18 @@ const STATUS_TEXT: Record<Exclude<SteamStatus, null | "login" | "invite">, strin
 const ALSO_ON: Record<"psn" | "xbox", string> = { psn: "PlayStation", xbox: "Xbox" };
 
 /**
- * The sources an item was written from, credited and linked. How many confirm it and whether an
- * editor still has to look ("em revisão") is for staff: only the staff preview shows that count.
+ * Staff preview only: the sources an item was written from, how many confirm it and whether an
+ * editor still has to look ("em revisão"). Readers see the pages once, in the guide's "Créditos".
  */
-function Sources({ sources, review, staff }: { sources: ItemSource[]; review: boolean; staff: boolean }) {
+function Sources({ sources, review }: { sources: ItemSource[]; review: boolean }) {
   const n = sources.length;
   const confirmed = n >= 2 && !review;
   return (
     <p className="src">
-      {staff ? (
-        <>
-          <span className={confirmed ? "two" : "one"}>
-            {confirmed ? `✓ ${n} fontes` : `● ${n} ${n === 1 ? "fonte" : "fontes"}${review ? " · em revisão" : ""}`}
-          </span>
-          {" · "}
-        </>
-      ) : n === 1 ? (
-        "Fonte: "
-      ) : (
-        "Fontes: "
-      )}
+      <span className={confirmed ? "two" : "one"}>
+        {confirmed ? `✓ ${n} fontes` : `● ${n} ${n === 1 ? "fonte" : "fontes"}${review ? " · em revisão" : ""}`}
+      </span>
+      {" · "}
       {sources.map((s, i) => (
         <span key={i}>
           {i > 0 ? ", " : null}
@@ -259,7 +251,7 @@ export function WalkItemRow({ item }: { item: ItemView }) {
           <p className="d">{revealedInline(revealed.location)}</p>
         ) : null}
         {image && name ? <Shot image={image} name={name} /> : null}
-        <Sources sources={sources} review={item.review} staff={progress.preview} />
+        {progress.preview ? <Sources sources={sources} review={item.review} /> : null}
         {achievement && confirmed && done ? <p className="wk-steam ok">✓ Confirmada pela Steam</p> : null}
         {status && !(confirmed && status !== "login") ? <StatusLine status={status} returnTo={progress.returnTo} /> : null}
       </div>

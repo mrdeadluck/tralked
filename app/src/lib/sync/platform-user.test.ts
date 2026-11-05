@@ -28,7 +28,24 @@ const CREATED_TITLES = [
   { platform: "psn", externalId: "PPSA90005_00" },
   { platform: "xbox", externalId: "90000005" },
   { platform: "retro", externalId: "990001" },
+  // Grand Theft Auto V of the PSN fixture account `Tres-Consoles` (PS3, PS4 and PS5 lists).
+  { platform: "psn", externalId: "NPWR90011_00" },
+  { platform: "psn", externalId: "NPWR90012_00" },
+  { platform: "psn", externalId: "NPWR90013_00" },
+  // An Xbox 360 title and its One title (spied library).
+  { platform: "xbox", externalId: "90000771" },
+  { platform: "xbox", externalId: "90000772" },
+  { platform: "xbox", externalId: "90000781" },
+  { platform: "psn", externalId: "NPWR99901_00" },
+  // The only trophy-list link of the adoption-guard test's game.
+  { platform: "psn", externalId: "NPWR99902_00" },
 ];
+const GTA_LISTS = ["NPWR90011_00", "NPWR90012_00", "NPWR90013_00"];
+// Lists and store title ids of the PSN concept tests (spied library).
+const CONCEPT_IDS = ["NPWR_EN", "NPWR_JP", "PPSA_EN_TEST_00", "PPSA_JP_TEST_00", "CUSA_GTA_TEST_00"];
+CREATED_TITLES.push(...CONCEPT_IDS.map((externalId) => ({ platform: "psn", externalId })));
+const CONCEPT_EN_NAME = "Grand Theft Auto V Conceito Teste";
+const CONCEPT_CATALOG_SLUG = "test-concept-catalog-game";
 
 describe.skipIf(!reachable)("syncPlatformAccount", () => {
   let counter = 0;
@@ -140,7 +157,8 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
       xpForPlatformAchievement({ platform: "psn", globalPct: 4.8, points: null, trophyTier: "gold", hardcore: false }),
     );
     const platinum = ledger.find((e) => e.source === "platinum")!;
-    expect(platinum.sourceKey).toBe(`psn:${hk.id}`);
+    // One platinum per version: the seeded Hollow Knight list is the PS4 one.
+    expect(platinum.sourceKey).toBe(`psn:PS4:${hk.id}`);
     expect(platinum.xp).toBe(
       platinumBonus(
         hkTrophies.map((a) =>
@@ -258,6 +276,9 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
         playtimeMin: 400,
         firstPlayedAt: null,
         lastPlayedAt: new Date("2026-09-20T20:00:00Z"),
+        conceptId: null,
+        conceptTitleIds: [],
+        conceptName: null,
       },
     ]);
     try {
@@ -305,6 +326,71 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     }
   });
 
+  it("an Xbox title that returns no achievements is read once, and not on the next sync", async () => {
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const xbox = getXbox();
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    const titles = await xbox.getTitles("2535400000000002");
+    if (titles === "private") throw new Error("public fixture");
+    const listed = titles.filter((t) => t.currentAchievements > 0).length;
+    expect(listed).toBeGreaterThan(0);
+    const read = vi.spyOn(xbox, "getAchievements").mockResolvedValue([]);
+    try {
+      await syncPlatformAccount(user.id, "xbox");
+      expect(read).toHaveBeenCalledTimes(listed);
+      await syncPlatformAccount(user.id, "xbox");
+      expect(read).toHaveBeenCalledTimes(listed);
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it("a remembered empty Xbox title is read again when its listed count changes", async () => {
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const xbox = getXbox();
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    const titles = await xbox.getTitles("2535400000000002");
+    if (titles === "private") throw new Error("public fixture");
+    const listed = titles.filter((t) => t.currentAchievements > 0);
+    const read = vi.spyOn(xbox, "getAchievements").mockResolvedValue([]);
+    try {
+      await syncPlatformAccount(user.id, "xbox");
+      await syncPlatformAccount(user.id, "xbox");
+      expect(read).toHaveBeenCalledTimes(listed.length);
+      const bumped = vi.spyOn(xbox, "getTitles").mockResolvedValue(
+        titles.map((t) => (t.titleId === listed[0].titleId ? { ...t, currentAchievements: t.currentAchievements + 1 } : t)),
+      );
+      await syncPlatformAccount(user.id, "xbox");
+      expect(read).toHaveBeenCalledTimes(listed.length + 1);
+      expect(read.mock.calls.at(-1)?.[1]).toBe(listed[0].titleId);
+      bumped.mockRestore();
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it("an Xbox title whose read failed (404, unexpected body) is not remembered and is retried", async () => {
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const xbox = getXbox();
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    const titles = await xbox.getTitles("2535400000000002");
+    if (titles === "private") throw new Error("public fixture");
+    const listed = titles.filter((t) => t.currentAchievements > 0).length;
+    const read = vi.spyOn(xbox, "getAchievements").mockRejectedValue(new Error("Xbox achievements: not found"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await syncPlatformAccount(user.id, "xbox").catch(() => {});
+      await syncPlatformAccount(user.id, "xbox").catch(() => {});
+      expect(read).toHaveBeenCalledTimes(listed * 2);
+    } finally {
+      read.mockRestore();
+      errors.mockRestore();
+    }
+  });
+
   it("Xbox titles with minutes left unwritten by the deadline are asked again next run", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncPlatformAccount } = await import("./platform-user");
@@ -331,6 +417,25 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
       expect(await prisma.userGame.count({ where: { userId: user.id, playtimeMin: { gt: 0 } } })).toBe(3);
     } finally {
       minutes.mockRestore();
+    }
+  });
+
+  it("a full resync in passes (skipTitles) does not ask again the minutes already asked", async () => {
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    await syncPlatformAccount(user.id, "xbox");
+    const spy = vi.spyOn(getXbox(), "getMinutesPlayed");
+    try {
+      // Every title was asked: a pass of the finish resync moves on (more than 250 titles would
+      // otherwise keep every pass partial).
+      await expect(syncPlatformAccount(user.id, "xbox", { full: true, skipTitles: new Set() })).resolves.toMatchObject({ partial: false });
+      expect(spy).not.toHaveBeenCalled();
+      // A plain full sync still asks them all.
+      await syncPlatformAccount(user.id, "xbox", { full: true });
+      expect([...spy.mock.calls[0][1]].sort()).toEqual(["90000001", "90000003", "90000005"]);
+    } finally {
+      spy.mockRestore();
     }
   });
 
@@ -387,8 +492,8 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     await syncPlatformAccount(user.id, "xbox");
 
     const re4 = await prisma.game.findUniqueOrThrow({ where: { slug: "resident-evil-4" } });
-    const firm = await prisma.achievement.findUniqueOrThrow({
-      where: { gameId_platform_apiName: { gameId: re4.id, platform: "xbox", apiName: "2" } },
+    const firm = await prisma.achievement.findFirstOrThrow({
+      where: { gameId: re4.id, platform: "xbox", apiName: "2" },
     });
     expect(firm.points).toBe(80);
     const entry = await prisma.xpLedgerEntry.findUniqueOrThrow({
@@ -481,8 +586,8 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     const before = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
 
     const hk = await prisma.game.findUniqueOrThrow({ where: { slug: "hollow-knight" } });
-    const platinumTrophy = await prisma.achievement.findUniqueOrThrow({
-      where: { gameId_platform_apiName: { gameId: hk.id, platform: "psn", apiName: "1" } },
+    const platinumTrophy = await prisma.achievement.findFirstOrThrow({
+      where: { gameId: hk.id, platform: "psn", apiName: "1" },
     });
     const voided = await voidFraudEntries(user.id, [platinumTrophy.id]);
     expect(voided).toBe(2); // the trophy and the game's platinum bonus
@@ -596,6 +701,21 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     }
   });
 
+  it("reports the titles it recorded and those it could not read; skipTitles are not read", async () => {
+    const { syncPlatformAccount } = await import("./platform-user");
+    const fake = await fakePsnLibrary(3, `${FAKE_TITLE_PREFIX}01`);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const user = await userWith("psn", "test-skip-account", "Pula-Teste");
+      const first = await syncPlatformAccount(user.id, "psn", { full: true, skipTitles: new Set([fake.id(2)]) });
+      expect(first).toMatchObject({ status: "ok", partial: false, recordedTitles: [fake.id(0)], failedTitles: [fake.id(1)] });
+      expect(fake.trophies.mock.calls.map((c) => c[1])).toEqual([fake.id(0), fake.id(1)]);
+    } finally {
+      logged.mockRestore();
+      fake.restore();
+    }
+  });
+
   it("a permanently failing title is retried but does not block lastSyncedAt", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncPlatformAccount } = await import("./platform-user");
@@ -666,8 +786,9 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
       await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ status: "ok", partial: false });
       const games = await prisma.userGame.findMany({ where: { userId: user.id, platform: "psn" } });
       expect(games).toHaveLength(1);
-      // The game's count is every trophy unlocked in either list.
-      expect(games[0].unlockedCount).toBe(2);
+      // The game's count is every trophy unlocked in either list: each list keeps its own trophies
+      // (1 on the PS4 list, 2 on the PS5 one).
+      expect(games[0].unlockedCount).toBe(3);
 
       trophies.mockClear();
       await syncPlatformAccount(user.id, "psn");
@@ -680,6 +801,867 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     } finally {
       titles.mockRestore();
       trophies.mockRestore();
+    }
+  });
+
+  it("a game with lists but no UserTrophyList is read once by an incremental sync", async () => {
+    // The state the backfill leaves a multi-list game in for a player not read again by the finish:
+    // empty lists, the unlocks on list-less rows, no UserTrophyList, the listed counts remembered.
+    const { prisma } = await import("@/lib/db");
+    const { getPsn } = await import("@/lib/integrations");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const psn = getPsn();
+    const at = new Date(Date.UTC(2026, 0, 6, 20));
+    const list = (npTitleId: string, platform: string) => ({
+      npTitleId,
+      serviceName: "trophy2" as const,
+      name: "Jogo Curado Teste",
+      platform,
+      progress: 50,
+      trophyCounts: { bronze: 2, silver: 0, gold: 0, platinum: 0 },
+      earnedCounts: { bronze: 1, silver: 0, gold: 0, platinum: 0 },
+      lastPlayed: at,
+    });
+    const ps4 = `${FAKE_TITLE_PREFIX}HEAL4`;
+    const ps5 = `${FAKE_TITLE_PREFIX}HEAL5`;
+    const titles = vi.spyOn(psn, "getTitles").mockResolvedValue([list(ps4, "PS4"), list(ps5, "PS5")]);
+    const trophies = vi.spyOn(psn, "getTrophies").mockImplementation(async () =>
+      ["1", "2"].map((id, i) => ({
+        trophyId: id,
+        name: `Troféu ${id}`,
+        description: null,
+        iconUrl: null,
+        hidden: false,
+        tier: "bronze" as const,
+        earned: i === 0,
+        earnedAt: i === 0 ? at : null,
+        rarityPct: 40,
+      })),
+    );
+    try {
+      const user = await userWith("psn", "test-heal-account", "Cura-Teste");
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ status: "ok", partial: false });
+      const lists = await prisma.trophyList.findMany({ where: { platform: "psn", externalId: { in: [ps4, ps5] } } });
+      expect(lists).toHaveLength(2);
+      const gameId = lists[0].gameId;
+      await prisma.userTrophyList.deleteMany({ where: { userId: user.id } });
+      await prisma.achievement.deleteMany({ where: { listId: { in: lists.map((l) => l.id) } } });
+      const listless = await prisma.achievement.create({ data: { gameId, platform: "psn", apiName: "1", name: "Troféu 1" } });
+      await prisma.userAchievement.create({ data: { userId: user.id, achievementId: listless.id, unlockedAt: at } });
+
+      trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn");
+      expect(trophies.mock.calls.map((c) => c[1]).sort()).toEqual([ps4, ps5]);
+      expect(await prisma.userTrophyList.count({ where: { userId: user.id } })).toBe(2);
+
+      // Healed: the next incremental sync reads nothing.
+      trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn");
+      expect(trophies).not.toHaveBeenCalled();
+    } finally {
+      titles.mockRestore();
+      trophies.mockRestore();
+    }
+  });
+
+  it("a title never takes over the list-less rows of a game whose only list link is another title", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const fake = await fakePsnLibrary(1);
+    try {
+      // Earlier tests' game and list of the same fake title.
+      await prisma.game.deleteMany({ where: { platformLinks: { some: { platform: "psn", externalId: fake.id(0) } } } });
+      await prisma.trophyList.deleteMany({ where: { platform: "psn", externalId: fake.id(0) } });
+      // The game's one trophy-list link is NPWR99902_00; the title read is only linked to it.
+      const game = await prisma.game.create({
+        data: {
+          slug: "test-platform-adoption-guard",
+          name: "Adoção Teste",
+          achievementCount: 0,
+          platforms: ["PS5"],
+          platformLinks: {
+            create: [
+              { platform: "psn", externalId: "NPWR99902_00" },
+              { platform: "psn", externalId: fake.id(0) },
+            ],
+          },
+        },
+      });
+      const listless = await prisma.achievement.create({ data: { gameId: game.id, platform: "psn", apiName: "1", name: "Um" } });
+      const user = await userWith("psn", "test-adoption-account", "Adocao-Teste");
+      await expect(syncPlatformAccount(user.id, "psn", { full: true })).resolves.toMatchObject({ status: "ok" });
+
+      expect((await prisma.achievement.findUniqueOrThrow({ where: { id: listless.id } })).listId).toBeNull();
+      const list = await prisma.trophyList.findUniqueOrThrow({
+        where: { platform_externalId: { platform: "psn", externalId: fake.id(0) } },
+      });
+      expect(list.gameId).toBe(game.id);
+      expect(await prisma.achievement.count({ where: { listId: list.id } })).toBe(2);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a game with PS3, PS4 and PS5 lists keeps every trophy", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const user = await userWith("psn", "9000000000000000005", "Tres-Consoles");
+    await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ status: "ok", partial: false, newUnlocks: 92 });
+
+    const lists = await prisma.trophyList.findMany({
+      where: { platform: "psn", externalId: { in: GTA_LISTS } },
+      orderBy: { externalId: "asc" },
+    });
+    expect(lists.map((l) => [l.externalId, l.console, l.serviceName, l.trophyCount])).toEqual([
+      ["NPWR90011_00", "PS3", "trophy", 59],
+      ["NPWR90012_00", "PS4", "trophy", 77],
+      ["NPWR90013_00", "PS5", "trophy2", 77],
+    ]);
+    const gameIds = [...new Set(lists.map((l) => l.gameId))];
+    expect(gameIds).toHaveLength(1);
+    const [gameId] = gameIds;
+    // Each list keeps its own rows: trophy "5" of the PS4 list is not the PS5 list's "5".
+    expect(await prisma.achievement.count({ where: { gameId, platform: "psn" } })).toBe(59 + 77 + 77);
+    expect(await prisma.achievement.count({ where: { gameId, platform: "psn", listId: null } })).toBe(0);
+    expect(await prisma.userAchievement.count({ where: { userId: user.id, achievement: { gameId, platform: "psn" } } })).toBe(92);
+
+    const game = await prisma.userGame.findUniqueOrThrow({
+      where: { userId_gameId_platform: { userId: user.id, gameId, platform: "psn" } },
+    });
+    expect(game).toMatchObject({ unlockedCount: 92, completedAt: null });
+    const progress = await prisma.userTrophyList.findMany({ where: { userId: user.id }, include: { list: true } });
+    expect(progress.map((p) => [p.list.externalId, p.unlockedCount, p.completedAt]).sort()).toEqual([
+      ["NPWR90011_00", 20, null],
+      ["NPWR90012_00", 46, null],
+      ["NPWR90013_00", 26, null],
+    ]);
+    // Three versions (consoles): every unlock is paid once.
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "achievement", voidedAt: null } })).toBe(92);
+  });
+
+  it("a second sync of that game reads nothing", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getPsn } = await import("@/lib/integrations");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const user = await userWith("psn", "9000000000000000005", "Tres-Consoles");
+    await syncPlatformAccount(user.id, "psn");
+    const ledger = await prisma.xpLedgerEntry.count({ where: { userId: user.id } });
+
+    const reads = vi.spyOn(getPsn(), "getTrophies");
+    try {
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({
+        newUnlocks: 0,
+        titles: { read: 0, upToDate: 3 },
+      });
+      expect(reads).not.toHaveBeenCalled();
+      // Reading every list again changes nothing either.
+      await expect(syncPlatformAccount(user.id, "psn", { full: true })).resolves.toMatchObject({ newUnlocks: 0 });
+      expect(reads).toHaveBeenCalledTimes(3);
+    } finally {
+      reads.mockRestore();
+    }
+    expect(await prisma.userAchievement.count({ where: { userId: user.id } })).toBe(92);
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(ledger);
+  });
+
+  it("unlinking clears the per-list progress: a relink reads the lists again", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { unlink } = await import("@/lib/accounts/link");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const user = await userWith("psn", "9000000000000000005", "Tres-Consoles");
+    await syncPlatformAccount(user.id, "psn");
+    expect(await prisma.userTrophyList.count({ where: { userId: user.id } })).toBe(3);
+
+    expect(await unlink(user.id, "psn")).toBe(true);
+    expect(await prisma.userTrophyList.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.userAchievement.count({ where: { userId: user.id } })).toBe(0);
+
+    await prisma.linkedAccount.update({
+      where: { userId_platform: { userId: user.id, platform: "psn" } },
+      data: { externalId: "9000000000000000005", handle: "Tres-Consoles", linkedAt: new Date() },
+    });
+    await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ titles: { read: 3, upToDate: 0 } });
+    expect(await prisma.userAchievement.count({ where: { userId: user.id } })).toBe(92);
+    expect(await prisma.userTrophyList.count({ where: { userId: user.id } })).toBe(3);
+  });
+
+  /**
+   * GTA V's concept on PSN (one concept, every region and console): an English PS5 list and a
+   * Japanese-named PS5 list, played under two store title ids of the concept.
+   */
+  async function conceptLibrary({ jpDay = 5, readDelayMs = 0 }: { jpDay?: number; readDelayMs?: number } = {}) {
+    const { getPsn } = await import("@/lib/integrations");
+    const psn = getPsn();
+    const at = (day: number) => new Date(Date.UTC(2026, 2, day, 20));
+    const lists = {
+      // By default the Japanese list was played first: it is read (and resolved) first.
+      NPWR_EN: { name: CONCEPT_EN_NAME, day: 10, store: "PPSA_EN_TEST_00" },
+      NPWR_JP: { name: "グランド・セフト・オートV", day: jpDay, store: "PPSA_JP_TEST_00" },
+    };
+    type ListId = keyof typeof lists;
+    const library: ListId[] = [];
+    const title = (id: ListId) => ({
+      npTitleId: id,
+      serviceName: "trophy2" as const,
+      name: lists[id].name,
+      platform: "PS5",
+      progress: 66,
+      trophyCounts: { bronze: 3, silver: 0, gold: 0, platinum: 0 },
+      earnedCounts: { bronze: 2, silver: 0, gold: 0, platinum: 0 },
+      lastPlayed: at(lists[id].day),
+    });
+    const conceptTitleIds = ["CUSA_GTA_TEST_00", "PPSA_EN_TEST_00", "PPSA_JP_TEST_00"];
+    const spies = [
+      vi.spyOn(psn, "getTitles").mockImplementation(async () => library.map(title)),
+      vi.spyOn(psn, "getTrophies").mockImplementation(async (_account, npTitleId) => {
+        if (readDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, readDelayMs));
+        return ["1", "2", "3"].map((id, i) => ({
+          trophyId: id,
+          name: `Troféu ${id}`,
+          description: null,
+          iconUrl: null,
+          hidden: false,
+          tier: "bronze" as const,
+          earned: i < 2,
+          earnedAt: i < 2 ? at(lists[npTitleId as ListId].day + i) : null,
+          rarityPct: 40,
+        }));
+      }),
+      vi.spyOn(psn, "getPlayedGames").mockImplementation(async () =>
+        library.map((id) => ({
+          titleId: lists[id].store,
+          name: lists[id].name,
+          category: "ps5_native_game",
+          playtimeMin: 300,
+          firstPlayedAt: at(lists[id].day - 1),
+          lastPlayedAt: at(lists[id].day + 1),
+          conceptId: 201930,
+          conceptTitleIds,
+          // The concept's own name is the English one, also for the Japanese version.
+          conceptName: CONCEPT_EN_NAME,
+        })),
+      ),
+      vi.spyOn(psn, "getTrophyListsOfTitles").mockImplementation(
+        async (_account, ids) =>
+          new Map(ids.map((id) => [id, (Object.keys(lists) as ListId[]).filter((l) => lists[l].store === id)])),
+      ),
+    ];
+    return { library, mapping: spies[3], restore: () => spies.forEach((s) => s.mockRestore()) };
+  }
+
+  async function removeConceptGames() {
+    const { prisma } = await import("@/lib/db");
+    await prisma.game.deleteMany({ where: { platformLinks: { some: { platform: "psn", externalId: { in: CONCEPT_IDS } } } } });
+    await prisma.game.deleteMany({ where: { slug: CONCEPT_CATALOG_SLUG } });
+  }
+
+  it("a Japanese-named PS5 list of the same concept lands on the same game", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { versionKey } = await import("@/lib/trophies/lists");
+    const { syncPlatformAccount } = await import("./platform-user");
+    await removeConceptGames();
+    const fake = await conceptLibrary();
+    fake.library.push("NPWR_EN", "NPWR_JP");
+    try {
+      const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ status: "ok", newUnlocks: 4 });
+
+      const lists = await prisma.trophyList.findMany({
+        where: { platform: "psn", externalId: { in: ["NPWR_EN", "NPWR_JP"] } },
+        include: { game: true },
+        orderBy: { externalId: "asc" },
+      });
+      expect(lists.map((l) => [l.externalId, l.console, l.region, l.conceptId])).toEqual([
+        ["NPWR_EN", "PS5", null, 201930],
+        ["NPWR_JP", "PS5", "jp", 201930],
+      ]);
+      // One game, named after the English list (resolved first even though read second).
+      expect(new Set(lists.map((l) => l.gameId)).size).toBe(1);
+      expect(lists[0].game.name).toBe("Grand Theft Auto V Conceito Teste");
+      expect(versionKey(lists[0])).toBe(versionKey(lists[1]));
+      // Both played versions add their hours to that game: no second game for the Japanese name.
+      const games = await prisma.userGame.findMany({ where: { userId: user.id, platform: "psn" } });
+      expect(games.map((g) => [g.gameId, g.unlockedCount, g.playtimeMin])).toEqual([[lists[0].gameId, 4, 600]]);
+      expect(
+        await prisma.game.count({ where: { platformLinks: { some: { platform: "psn", externalId: { in: CONCEPT_IDS } } } } }),
+      ).toBe(1);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a regional list of a concept seen in an earlier sync lands on its game", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    await removeConceptGames();
+    const fake = await conceptLibrary();
+    fake.library.push("NPWR_EN");
+    try {
+      const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
+      await syncPlatformAccount(user.id, "psn");
+      // The Japanese version shows up later (a new store title id of the concept, mapped then).
+      fake.library.push("NPWR_JP");
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ newUnlocks: 2, titles: { read: 1, upToDate: 1 } });
+      const lists = await prisma.trophyList.findMany({ where: { platform: "psn", externalId: { in: ["NPWR_EN", "NPWR_JP"] } } });
+      expect(lists).toHaveLength(2);
+      expect(new Set(lists.map((l) => l.gameId)).size).toBe(1);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a list left for a later run keeps the concept learned when its title id was mapped", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    await removeConceptGames();
+    // The Japanese list is the newest: a run of one title reads the English one (oldest first),
+    // while both store title ids are mapped in that first run.
+    const fake = await conceptLibrary({ jpDay: 20 });
+    fake.library.push("NPWR_EN", "NPWR_JP");
+    try {
+      const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
+      await expect(syncPlatformAccount(user.id, "psn", { maxTitles: 1 })).resolves.toMatchObject({ partial: true });
+      expect(await prisma.trophyList.count({ where: { platform: "psn", externalId: "NPWR_JP" } })).toBe(0);
+      fake.mapping.mockClear();
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ titles: { read: 1, upToDate: 1 } });
+      expect(fake.mapping).not.toHaveBeenCalled();
+      const lists = await prisma.trophyList.findMany({ where: { platform: "psn", externalId: { in: ["NPWR_EN", "NPWR_JP"] } } });
+      expect(lists.map((l) => l.conceptId)).toEqual([201930, 201930]);
+      expect(new Set(lists.map((l) => l.gameId)).size).toBe(1);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("no mapping request starts past the read deadline; the sync still records its titles", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    await removeConceptGames();
+    // Reading the one list takes 2 s: the read share of a 3 s budget (1.8 s) is over by then.
+    const fake = await conceptLibrary({ readDelayMs: 2000 });
+    fake.library.push("NPWR_EN");
+    try {
+      const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
+      await expect(syncPlatformAccount(user.id, "psn", { deadline: Date.now() + 3000 })).resolves.toMatchObject({
+        status: "ok",
+        newUnlocks: 2,
+      });
+      expect(fake.mapping).not.toHaveBeenCalled();
+      expect(await prisma.userTrophyList.count({ where: { userId: user.id } })).toBe(1);
+      // Nothing was asked, so nothing is remembered: the next sync maps the title id.
+      await syncPlatformAccount(user.id, "psn");
+      expect(fake.mapping).toHaveBeenCalledTimes(1);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a Japanese list seen first lands on the catalog game named like its concept", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    await removeConceptGames();
+    const catalog = await prisma.game.create({
+      data: { slug: CONCEPT_CATALOG_SLUG, name: CONCEPT_EN_NAME, achievementCount: 0 },
+    });
+    const fake = await conceptLibrary();
+    fake.library.push("NPWR_JP");
+    try {
+      const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
+      await syncPlatformAccount(user.id, "psn");
+      const jp = await prisma.trophyList.findUniqueOrThrow({
+        where: { platform_externalId: { platform: "psn", externalId: "NPWR_JP" } },
+      });
+      expect(jp.gameId).toBe(catalog.id);
+      // Its played version too.
+      const games = await prisma.userGame.findMany({ where: { userId: user.id, platform: "psn" } });
+      expect(games.map((g) => g.gameId)).toEqual([catalog.id]);
+
+      // The English list read later joins it (concept), not a game of its own.
+      fake.library.push("NPWR_EN");
+      await syncPlatformAccount(user.id, "psn");
+      const en = await prisma.trophyList.findUniqueOrThrow({
+        where: { platform_externalId: { platform: "psn", externalId: "NPWR_EN" } },
+      });
+      expect(en.gameId).toBe(catalog.id);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a fresh concept seen only through a Japanese list creates a game named by the concept", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    await removeConceptGames();
+    const fake = await conceptLibrary();
+    fake.library.push("NPWR_JP");
+    try {
+      const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
+      await syncPlatformAccount(user.id, "psn");
+      const jp = await prisma.trophyList.findUniqueOrThrow({
+        where: { platform_externalId: { platform: "psn", externalId: "NPWR_JP" } },
+        include: { game: true },
+      });
+      expect(jp.game.name).toBe(CONCEPT_EN_NAME);
+      expect(jp.region).toBe("jp");
+      expect(await prisma.userGame.count({ where: { userId: user.id, platform: "psn" } })).toBe(1);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a failing concept mapping never fails the sync (trophies still import)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    await removeConceptGames();
+    const fake = await conceptLibrary();
+    fake.library.push("NPWR_EN");
+    fake.mapping.mockRejectedValue(new Error("PSN title trophy lists failed with HTTP 500"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ status: "ok", newUnlocks: 2, partial: false });
+      expect(await prisma.userTrophyList.count({ where: { userId: user.id } })).toBe(1);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      fake.restore();
+    }
+  });
+
+  it("an Xbox 360 title and its One title are two lists of one game", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getXbox } = await import("@/lib/integrations");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const xbox = getXbox();
+    const day = 86_400_000;
+    const start = { "90000771": Date.UTC(2012, 4, 1, 20), "90000772": Date.UTC(2019, 4, 1, 20) };
+    const earned = { "90000771": 2, "90000772": 3 };
+    type Id = keyof typeof earned;
+    const title = (titleId: Id, devices: string[]) => ({
+      titleId,
+      name: "Gears Teste Duplo",
+      currentAchievements: earned[titleId],
+      totalAchievements: 3,
+      currentGamerscore: earned[titleId] * 10,
+      totalGamerscore: 30,
+      progress: Math.round((earned[titleId] / 3) * 100),
+      lastPlayed: new Date(start[titleId] + day * 3),
+      devices,
+    });
+    const titles = vi
+      .spyOn(xbox, "getTitles")
+      .mockResolvedValue([title("90000771", ["Xbox360"]), title("90000772", ["XboxOne", "XboxSeries"])]);
+    const achievements = vi.spyOn(xbox, "getAchievements").mockImplementation(async (_xuid, titleId) =>
+      ["1", "2", "3"].map((id, i) => ({
+        id,
+        name: `Conquista ${id}`,
+        description: null,
+        iconUrl: null,
+        hidden: false,
+        gamerscore: 10,
+        unlocked: i < earned[titleId as Id],
+        unlockedAt: i < earned[titleId as Id] ? new Date(start[titleId as Id] + i * day) : null,
+        rarityPct: 30,
+      })),
+    );
+    try {
+      const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+      await expect(syncPlatformAccount(user.id, "xbox")).resolves.toMatchObject({ status: "ok", newUnlocks: 5 });
+      const lists = await prisma.trophyList.findMany({
+        where: { platform: "xbox", externalId: { in: ["90000771", "90000772"] } },
+        orderBy: { externalId: "asc" },
+      });
+      expect(lists.map((l) => [l.externalId, l.console, l.trophyCount])).toEqual([
+        ["90000771", "360", 3],
+        ["90000772", "ONE", 3],
+      ]);
+      expect(lists[0].gameId).toBe(lists[1].gameId);
+      const gameId = lists[0].gameId;
+      expect(await prisma.achievement.count({ where: { gameId, platform: "xbox" } })).toBe(6);
+
+      const progress = await prisma.userTrophyList.findMany({ where: { userId: user.id, listId: { in: lists.map((l) => l.id) } } });
+      const of = (id: string) => progress.find((p) => p.listId === id);
+      expect(of(lists[0].id)).toMatchObject({ unlockedCount: 2, completedAt: null });
+      const oneCompleted = new Date(start["90000772"] + 2 * day);
+      expect(of(lists[1].id)).toMatchObject({ unlockedCount: 3, completedAt: oneCompleted });
+      // The game: every unlock of both lists, completed when its first list was.
+      await expect(
+        prisma.userGame.findUniqueOrThrow({ where: { userId_gameId_platform: { userId: user.id, gameId, platform: "xbox" } } }),
+      ).resolves.toMatchObject({ unlockedCount: 5, completedAt: oneCompleted });
+      // Two versions: five trophies and the One title's completion.
+      const ledger = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, voidedAt: null, platform: "xbox" } });
+      expect(ledger.filter((e) => e.source === "achievement")).toHaveLength(5);
+      expect(ledger.filter((e) => e.source === "platinum").map((e) => e.sourceKey)).toEqual([`xbox:90000772:${gameId}`]);
+    } finally {
+      titles.mockRestore();
+      achievements.mockRestore();
+    }
+  });
+
+  it("a list-less unlock keeps its verdict and date when its list is recorded", async () => {
+    // Rows written before trophy lists (listId null): the sync records the list's own rows and the
+    // player's unlocks on them keep what was known (sticky suspicious flag, first-seen date).
+    const { prisma } = await import("@/lib/db");
+    const { getPsn } = await import("@/lib/integrations");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const psn = getPsn();
+    const npTitleId = `${FAKE_TITLE_PREFIX}LEGACY`;
+    const firstSeen = new Date("2026-03-03T03:00:00Z");
+    const dated = new Date("2026-03-01T20:00:00Z");
+    const game = await prisma.game.create({
+      data: {
+        slug: `legado-teste-${Date.now()}`,
+        name: "Legado Teste Listas",
+        achievementCount: 0,
+        platformLinks: { create: [{ platform: "psn", externalId: npTitleId }] },
+      },
+    });
+    const legacy = await Promise.all(
+      ["1", "2"].map((apiName) =>
+        prisma.achievement.create({ data: { gameId: game.id, platform: "psn", apiName, name: `Troféu ${apiName}` } }),
+      ),
+    );
+    const user = await userWith("psn", "test-legacy-account", "Legado-Teste");
+    await prisma.userAchievement.createMany({
+      data: [
+        { userId: user.id, achievementId: legacy[0].id, unlockedAt: dated, suspicious: true },
+        { userId: user.id, achievementId: legacy[1].id, unlockedAt: firstSeen },
+      ],
+    });
+    const titles = vi.spyOn(psn, "getTitles").mockResolvedValue([
+      {
+        npTitleId,
+        serviceName: "trophy2" as const,
+        name: "Legado Teste Listas",
+        platform: "PS5",
+        progress: 66,
+        trophyCounts: { bronze: 3, silver: 0, gold: 0, platinum: 0 },
+        earnedCounts: { bronze: 2, silver: 0, gold: 0, platinum: 0 },
+        lastPlayed: dated,
+      },
+    ]);
+    const trophies = vi.spyOn(psn, "getTrophies").mockResolvedValue(
+      ["1", "2", "3"].map((trophyId) => ({
+        trophyId,
+        name: `Troféu ${trophyId}`,
+        description: null,
+        iconUrl: null,
+        hidden: false,
+        tier: "bronze" as const,
+        earned: trophyId !== "3",
+        // PSN dates trophy 1 only.
+        earnedAt: trophyId === "1" ? dated : null,
+        rarityPct: 40,
+      })),
+    );
+    try {
+      await expect(syncPlatformAccount(user.id, "psn", { now: new Date("2026-03-10T12:00:00Z") })).resolves.toMatchObject({
+        status: "ok",
+        newUnlocks: 0,
+      });
+      const unlocks = await prisma.userAchievement.findMany({
+        where: { userId: user.id, achievement: { listId: { not: null } } },
+        include: { achievement: true },
+      });
+      const byApiName = new Map(unlocks.map((u) => [u.achievement.apiName, u]));
+      expect(byApiName.get("1")).toMatchObject({ suspicious: true, unlockedAt: dated });
+      expect(byApiName.get("2")).toMatchObject({ suspicious: false, unlockedAt: firstSeen });
+      // The suspicious one pays nothing; the game counts the list's unlocks once.
+      const paid = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, source: "achievement", voidedAt: null } });
+      expect(paid.map((e) => e.sourceKey)).toEqual([byApiName.get("2")!.achievementId]);
+      await expect(
+        prisma.userGame.findUniqueOrThrow({ where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "psn" } } }),
+      ).resolves.toMatchObject({ unlockedCount: 2 });
+    } finally {
+      titles.mockRestore();
+      trophies.mockRestore();
+    }
+  });
+
+  it("a list-less RetroAchievements row is taken over by its set's list (no duplicate rows)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const user = await userWith("retro", "01JTRALKED00000000000TESTE", "TralkedTeste");
+    await syncPlatformAccount(user.id, "retro");
+    const list = await prisma.trophyList.findUniqueOrThrow({
+      where: { platform_externalId: { platform: "retro", externalId: "990001" } },
+    });
+    const rows = await prisma.achievement.count({ where: { gameId: list.gameId, platform: "retro" } });
+    const unlocks = await prisma.userAchievement.findMany({ where: { userId: user.id }, orderBy: { achievementId: "asc" } });
+    // As written before trophy lists: rows without a list, no per-list progress.
+    await prisma.achievement.updateMany({ where: { listId: list.id }, data: { listId: null } });
+    await prisma.trophyList.delete({ where: { id: list.id } });
+
+    await expect(syncPlatformAccount(user.id, "retro", { full: true })).resolves.toMatchObject({ newUnlocks: 0 });
+    const relisted = await prisma.trophyList.findUniqueOrThrow({
+      where: { platform_externalId: { platform: "retro", externalId: "990001" } },
+    });
+    expect(await prisma.achievement.count({ where: { gameId: list.gameId, platform: "retro" } })).toBe(rows);
+    expect(await prisma.achievement.count({ where: { gameId: list.gameId, platform: "retro", listId: relisted.id } })).toBe(rows);
+    // The same unlock rows, dates and hardcore flags.
+    await expect(prisma.userAchievement.findMany({ where: { userId: user.id }, orderBy: { achievementId: "asc" } })).resolves.toEqual(
+      unlocks,
+    );
+    await expect(
+      prisma.userTrophyList.findUniqueOrThrow({ where: { userId_listId: { userId: user.id, listId: relisted.id } } }),
+    ).resolves.toMatchObject({ unlockedCount: 3, hardcoreCount: 2 });
+  });
+
+  /** Spies the PSN library: each list is `trophies` bronze trophies, the first `earned` earned (a day apart). */
+  async function psnLists(initial: { id: string; name: string; platform: string; trophies: number; earned: number; from: Date }[]) {
+    const { getPsn } = await import("@/lib/integrations");
+    const psn = getPsn();
+    let lists = initial;
+    const day = 86_400_000;
+    const titles = vi.spyOn(psn, "getTitles").mockImplementation(async () =>
+      lists.map((l) => ({
+        npTitleId: l.id,
+        serviceName: "trophy" as const,
+        name: l.name,
+        platform: l.platform,
+        progress: Math.round((l.earned / l.trophies) * 100),
+        trophyCounts: { bronze: l.trophies, silver: 0, gold: 0, platinum: 0 },
+        earnedCounts: { bronze: l.earned, silver: 0, gold: 0, platinum: 0 },
+        lastPlayed: new Date(l.from.getTime() + l.earned * day),
+      })),
+    );
+    const trophies = vi.spyOn(psn, "getTrophies").mockImplementation(async (_account, npTitleId) => {
+      const l = lists.find((x) => x.id === npTitleId)!;
+      return Array.from({ length: l.trophies }, (_, i) => ({
+        trophyId: String(i + 1),
+        name: `Troféu ${i + 1}`,
+        description: null,
+        iconUrl: null,
+        hidden: false,
+        tier: "bronze" as const,
+        earned: i < l.earned,
+        earnedAt: i < l.earned ? new Date(l.from.getTime() + i * day) : null,
+        rarityPct: 40,
+      }));
+    });
+    return {
+      trophies,
+      set: (next: typeof initial) => {
+        lists = next;
+      },
+      restore: () => {
+        titles.mockRestore();
+        trophies.mockRestore();
+      },
+    };
+  }
+
+  /** A catalog game with these PSN links and list-less trophy rows "1".."n" (written before trophy lists). */
+  async function legacyPsnGame(name: string, links: string[], rows: number) {
+    const { prisma } = await import("@/lib/db");
+    const game = await prisma.game.create({
+      data: {
+        slug: `legado-${Date.now()}-${links[0].toLowerCase()}`,
+        name,
+        achievementCount: 0,
+        platformLinks: { create: links.map((externalId) => ({ platform: "psn", externalId })) },
+      },
+    });
+    const achievements = [];
+    for (let i = 1; i <= rows; i++) {
+      achievements.push(
+        await prisma.achievement.create({
+          data: { gameId: game.id, platform: "psn", apiName: String(i), name: `Troféu ${i}`, trophyTier: "bronze", globalPct: 40 },
+        }),
+      );
+    }
+    return { game, achievements };
+  }
+
+  it("a multi-list legacy game: a list completed after another list was read gets its version platinum", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const ps3 = `${FAKE_TITLE_PREFIX}LP3`;
+    const ps4 = `${FAKE_TITLE_PREFIX}LP4`;
+    const { game, achievements } = await legacyPsnGame("Legado Duas Listas", [ps3, ps4], 2);
+    const user = await userWith("psn", "test-legacy-two-lists", "Legado-Duas");
+    await prisma.linkedAccount.updateMany({ where: { userId: user.id }, data: { linkedAt: new Date(Date.now() - 60_000) } });
+    const from = new Date("2026-02-01T20:00:00Z");
+    // What the sync paid before trophy lists: both trophies and the game's platinum (legacy key).
+    await prisma.userAchievement.createMany({
+      data: achievements.map((a, i) => ({ userId: user.id, achievementId: a.id, unlockedAt: new Date(from.getTime() + i * 86_400_000) })),
+    });
+    await prisma.xpLedgerEntry.createMany({
+      data: [
+        ...achievements.map((a) => ({ userId: user.id, source: "achievement", sourceKey: a.id, platform: "psn", xp: 100, skills: [] })),
+        { userId: user.id, source: "platinum", sourceKey: `psn:${game.id}`, platform: "psn", xp: 500, skills: [] },
+      ],
+    });
+    const fake = await psnLists([{ id: ps3, name: "Legado Duas Listas", platform: "PS3", trophies: 2, earned: 1, from }]);
+    try {
+      await syncPlatformAccount(user.id, "psn");
+      fake.set([
+        { id: ps3, name: "Legado Duas Listas", platform: "PS3", trophies: 2, earned: 1, from },
+        { id: ps4, name: "Legado Duas Listas", platform: "PS4", trophies: 2, earned: 2, from },
+      ]);
+      await syncPlatformAccount(user.id, "psn");
+      const platinums = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, source: "platinum", voidedAt: null } });
+      expect(platinums.map((e) => e.sourceKey)).toEqual([`psn:PS4:${game.id}`]);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a completed list stays completed when the platform adds trophies; finishing them pays nothing twice", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const id = `${FAKE_TITLE_PREFIX}DLC`;
+    const from = new Date("2026-04-01T20:00:00Z");
+    const fake = await psnLists([{ id, name: "Jogo Com DLC Teste", platform: "PS5", trophies: 2, earned: 2, from }]);
+    try {
+      const user = await userWith("psn", "test-dlc-account", "Dlc-Teste");
+      await syncPlatformAccount(user.id, "psn");
+      const list = await prisma.trophyList.findUniqueOrThrow({ where: { platform_externalId: { platform: "psn", externalId: id } } });
+      const progress = () =>
+        prisma.userTrophyList.findUniqueOrThrow({ where: { userId_listId: { userId: user.id, listId: list.id } } });
+      const completedAt = (await progress()).completedAt;
+      expect(completedAt).toEqual(new Date(from.getTime() + 86_400_000));
+      const platinum = await prisma.xpLedgerEntry.findFirstOrThrow({ where: { userId: user.id, source: "platinum" } });
+
+      // A DLC adds two trophies: the list is 2 of 4 now, the completion and its bonus stay.
+      fake.set([{ id, name: "Jogo Com DLC Teste", platform: "PS5", trophies: 4, earned: 2, from }]);
+      await syncPlatformAccount(user.id, "psn", { full: true });
+      expect((await progress()).completedAt).toEqual(completedAt);
+      await expect(
+        prisma.userGame.findUniqueOrThrow({
+          where: { userId_gameId_platform: { userId: user.id, gameId: list.gameId, platform: "psn" } },
+        }),
+      ).resolves.toMatchObject({ completedAt });
+      await expect(prisma.xpLedgerEntry.findUniqueOrThrow({ where: { id: platinum.id } })).resolves.toMatchObject({ voidedAt: null });
+
+      // The player finishes the DLC: the two trophies are paid, nothing is voided or paid twice.
+      fake.set([{ id, name: "Jogo Com DLC Teste", platform: "PS5", trophies: 4, earned: 4, from }]);
+      await syncPlatformAccount(user.id, "psn");
+      expect((await progress()).completedAt).toEqual(completedAt);
+      expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, voidedAt: { not: null } } })).toBe(0);
+      expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "platinum" } })).toBe(1);
+      expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "achievement" } })).toBe(4);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a single-list legacy PSN game re-read keeps its Achievement ids and ledger keys", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const npTitleId = "NPWR99901_00";
+    const { game, achievements } = await legacyPsnGame("Legado Uma Lista", [npTitleId, "PPSA99901_00"], 3);
+    const user = await userWith("psn", "test-legacy-one-list", "Legado-Uma");
+    const from = new Date("2026-05-01T20:00:00Z");
+    await prisma.userAchievement.createMany({
+      data: achievements
+        .slice(0, 2)
+        .map((a, i) => ({ userId: user.id, achievementId: a.id, unlockedAt: new Date(from.getTime() + i * 86_400_000) })),
+    });
+    await prisma.xpLedgerEntry.createMany({
+      data: achievements.slice(0, 2).map((a) => ({ userId: user.id, source: "achievement", sourceKey: a.id, platform: "psn", xp: 100, skills: [] })),
+    });
+    const fake = await psnLists([{ id: npTitleId, name: "Legado Uma Lista", platform: "PS4", trophies: 3, earned: 2, from }]);
+    try {
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ newUnlocks: 0 });
+      const list = await prisma.trophyList.findUniqueOrThrow({
+        where: { platform_externalId: { platform: "psn", externalId: npTitleId } },
+      });
+      const rows = await prisma.achievement.findMany({ where: { gameId: game.id, platform: "psn" }, orderBy: { apiName: "asc" } });
+      expect(rows.map((r) => [r.id, r.listId])).toEqual(achievements.map((a) => [a.id, list.id]));
+      // The same entries, still valid, nothing new.
+      const ledger = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id } });
+      expect(ledger.map((e) => e.sourceKey).sort()).toEqual(achievements.slice(0, 2).map((a) => a.id).sort());
+      expect(ledger.every((e) => e.voidedAt === null && e.xp === 100)).toBe(true);
+    } finally {
+      fake.restore();
+      await prisma.game.delete({ where: { id: game.id } });
+    }
+  });
+
+  it("a game recorded on one of its lists still reads its other lists once", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount, titleMemoryKey } = await import("./platform-user");
+    const p4 = `${FAKE_TITLE_PREFIX}RP4`;
+    const p5 = `${FAKE_TITLE_PREFIX}RP5`;
+    const { game } = await legacyPsnGame("Legado Lembrado", [p4, p5], 0);
+    const user = await userWith("psn", "test-remembered-lists", "Lembrado-Teste");
+    const account = await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: user.id, platform: "psn" } } });
+    // Before trophy lists: one UserGame row and the counts each list showed when last recorded.
+    await prisma.userGame.create({ data: { userId: user.id, gameId: game.id, platform: "psn", playtimeMin: 0, unlockedCount: 2 } });
+    await prisma.syncCursor.create({
+      data: {
+        key: titleMemoryKey(account.id),
+        value: { externalId: account.externalId, linkedAt: account.linkedAt!.toISOString(), titles: { [p4]: [1], [p5]: [2] } },
+      },
+    });
+    const from = new Date("2026-06-01T20:00:00Z");
+    const fake = await psnLists([
+      { id: p4, name: "Legado Lembrado", platform: "PS4", trophies: 3, earned: 2, from },
+      { id: p5, name: "Legado Lembrado", platform: "PS5", trophies: 3, earned: 2, from },
+    ]);
+    try {
+      // The PS4 list has a new trophy; the PS5 list matches its remembered count.
+      await syncPlatformAccount(user.id, "psn");
+      expect(fake.trophies.mock.calls.map((c) => c[1])).toEqual([p4]);
+      // Now the game is on lists: its PS5 list (no per-list progress yet) is read once.
+      fake.trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn");
+      expect(fake.trophies.mock.calls.map((c) => c[1])).toEqual([p5]);
+      fake.trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn");
+      expect(fake.trophies).not.toHaveBeenCalled();
+      expect(await prisma.userTrophyList.count({ where: { userId: user.id } })).toBe(2);
+    } finally {
+      fake.restore();
+      await prisma.syncCursor.deleteMany({ where: { key: titleMemoryKey(account.id) } });
+    }
+  });
+
+  it("a title whose listed count differs from what its list holds is not read on every sync", async () => {
+    // Xbox's title list can count an unlock its achievement list does not show (and RA's hardcore
+    // count can differ from the sticky flags): the listed count remembered for the title still
+    // marks it up to date.
+    const { prisma } = await import("@/lib/db");
+    const { getXbox } = await import("@/lib/integrations");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const xbox = getXbox();
+    const titles = vi.spyOn(xbox, "getTitles").mockResolvedValue([
+      {
+        titleId: "90000781",
+        name: "Contagem Diferente Teste",
+        currentAchievements: 3,
+        totalAchievements: 3,
+        currentGamerscore: 30,
+        totalGamerscore: 30,
+        progress: 100,
+        lastPlayed: new Date("2026-07-01T20:00:00Z"),
+        devices: ["XboxSeries"],
+      },
+    ]);
+    const achievements = vi.spyOn(xbox, "getAchievements").mockImplementation(async () =>
+      ["1", "2", "3"].map((id, i) => ({
+        id,
+        name: `Conquista ${id}`,
+        description: null,
+        iconUrl: null,
+        hidden: false,
+        gamerscore: 10,
+        unlocked: i < 2,
+        unlockedAt: i < 2 ? new Date(Date.UTC(2026, 6, 1 + i, 20)) : null,
+        rarityPct: 30,
+      })),
+    );
+    try {
+      const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+      await syncPlatformAccount(user.id, "xbox");
+      expect(achievements).toHaveBeenCalledTimes(1);
+      await expect(syncPlatformAccount(user.id, "xbox")).resolves.toMatchObject({ titles: { read: 0, upToDate: 1 } });
+      expect(achievements).toHaveBeenCalledTimes(1);
+      expect(await prisma.userAchievement.count({ where: { userId: user.id } })).toBe(2);
+    } finally {
+      titles.mockRestore();
+      achievements.mockRestore();
     }
   });
 

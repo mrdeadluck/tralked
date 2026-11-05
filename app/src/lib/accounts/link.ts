@@ -456,6 +456,9 @@ export async function releaseAccount(
     where: { userId, suspicious: false, achievement: { platform } },
   });
   await tx.userGame.deleteMany({ where: { userId, platform } });
+  // Per-list progress goes with the unlocks: a relink reads those lists again (the sync skips a
+  // list whose stored count matches the platform's).
+  await tx.userTrophyList.deleteMany({ where: { userId, list: { platform } } });
   if (platform === "steam") await tx.user.update({ where: { id: userId }, data: { steamId: null, lastSyncedAt: null } });
   return { days: [...new Set(gone.map((u) => toLocalDay(u.unlockedAt)))] };
 }

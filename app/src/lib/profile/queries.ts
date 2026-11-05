@@ -8,6 +8,7 @@ import { getPlaytimeTotals, getUserLibrary, type PlaytimeTotals } from "@/lib/li
 import { validCompletions } from "@/lib/progression/completions";
 import { GAME_ART_SELECT, gameArtUrls } from "@/lib/queries/game-art";
 import { PLATFORM_ORDER, type CharacterPlatform } from "@/lib/character/sheet";
+import { BACKDROP_GAMES, pickBackdrops } from "./backdrops";
 
 /**
  * Reads of the full profile (Plano 4, F3): header, achievements (paginated in the database),
@@ -40,8 +41,11 @@ export type ProfileSummary = {
   wishlist: number;
   /** Active connections, in the order Steam, PSN, Xbox, RetroAchievements. */
   platforms: CharacterPlatform[];
-  /** Wide art of the most played game, behind the header; null when there is none. */
-  backdropUrl: string | null;
+  /**
+   * Art behind the header, taking turns: the wide art of the last games played (lib/profile/
+   * backdrops.ts), at most BACKDROP_GAMES; empty when there is none.
+   */
+  backdropUrls: string[];
 };
 
 /** Playtime over every platform (minutes): the "Horas jogadas" of the profile header. */
@@ -52,7 +56,7 @@ export async function getTotalPlaytimeMin(userId: string): Promise<number> {
 
 /** The header of every profile tab (avatar, level, XP, platforms, hours, tab counts). */
 export async function getProfileSummary(userId: string): Promise<ProfileSummary | null> {
-  const [user, playtimeMin, owned, achievements, wishlist, accounts, top] = await Promise.all([
+  const [user, playtimeMin, owned, achievements, wishlist, accounts, recent, top] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -70,16 +74,24 @@ export async function getProfileSummary(userId: string): Promise<ProfileSummary 
       where: { userId, linkedAt: { not: null } },
       select: { platform: true, handle: true, verifiedAt: true },
     }),
-    // The most played game (its biggest platform copy), else the one with most unlocks.
-    prisma.userGame.findFirst({
+    // The last games played (rows per platform: a few more than needed, one per game is kept).
+    prisma.userGame.findMany({
+      where: { userId, lastPlayedAt: { not: null } },
+      orderBy: { lastPlayedAt: "desc" },
+      take: BACKDROP_GAMES * 4,
+      select: { gameId: true, game: { select: GAME_ART_SELECT } },
+    }),
+    // The most played games (their biggest platform copy), else the ones with most unlocks.
+    prisma.userGame.findMany({
       where: { userId, OR: [{ playtimeMin: { gt: 0 } }, { unlockedCount: { gt: 0 } }] },
       orderBy: [{ playtimeMin: "desc" }, { unlockedCount: "desc" }],
-      select: { game: { select: GAME_ART_SELECT } },
+      take: BACKDROP_GAMES * 2,
+      select: { gameId: true, game: { select: GAME_ART_SELECT } },
     }),
   ]);
   if (!user) return null;
   const byPlatform = new Map(accounts.map((a) => [a.platform, a]));
-  const art = top ? gameArtUrls(top.game) : null;
+  const withArt = (rows: typeof recent) => rows.map((r) => ({ gameId: r.gameId, art: gameArtUrls(r.game) }));
   return {
     userId,
     handle: user.handle,
@@ -96,7 +108,7 @@ export async function getProfileSummary(userId: string): Promise<ProfileSummary 
       const account = byPlatform.get(platform);
       return account ? [{ platform, handle: account.handle, verified: account.verifiedAt !== null }] : [];
     }),
-    backdropUrl: art ? (art.heroUrl ?? art.coverUrl) : null,
+    backdropUrls: pickBackdrops(withArt(recent), withArt(top)),
   };
 }
 

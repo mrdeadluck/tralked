@@ -30,6 +30,11 @@ describe.skipIf(!reachable)("first imports", () => {
     const { prisma } = await import("@/lib/db");
     const { releaseImportLease } = await import("./import-lease");
     await prisma.user.deleteMany({ where: { handle: { startsWith: HANDLE_PREFIX } } });
+    // Games the PSN fixture library has and the seeded catalog does not (Astro Bot, Jornada
+    // Submersa): the imports create them; left behind, they break db.test.ts's seed counts.
+    await prisma.game.deleteMany({
+      where: { platformLinks: { some: { platform: "psn", externalId: { in: ["NPWR90004_00", "PPSA90005_00"] } } } },
+    });
     await releaseImportLease();
   }
 
@@ -72,6 +77,29 @@ describe.skipIf(!reachable)("first imports", () => {
     ]);
     expect(await busyImports(now + IMPORT_WORKER_LEASE_MS + 1)).toEqual(new Set());
     await releaseImportLease();
+    expect(await busyImports(now)).toEqual(new Set());
+  });
+
+  it("a job reserves its own keys beside the worker's and releases only those", async () => {
+    const { busyImports, holdImportLease, importKey, releaseImportKeys, releaseImportLease, renewImportKeys, reserveImportKeys } =
+      await import("./import-lease");
+    const now = Date.now();
+    const worker = importKey("psn", "u1");
+    await holdImportLease([worker], now);
+    await expect(reserveImportKeys([worker, importKey("xbox", "u1")], now)).resolves.toEqual({
+      taken: [importKey("xbox", "u1")],
+      held: [worker],
+    });
+    expect(await busyImports(now)).toEqual(new Set([worker, importKey("xbox", "u1")]));
+    // The worker rewrites the lease with its own list: the job's renewal puts its key back.
+    await holdImportLease([worker], now);
+    await renewImportKeys([importKey("xbox", "u1")], now);
+    expect(await busyImports(now)).toEqual(new Set([worker, importKey("xbox", "u1")]));
+    await releaseImportKeys([importKey("xbox", "u1")], now);
+    expect(await busyImports(now)).toEqual(new Set([worker]));
+    await releaseImportLease();
+    await reserveImportKeys([importKey("psn", "u2")], now);
+    await releaseImportKeys([importKey("psn", "u2")], now);
     expect(await busyImports(now)).toEqual(new Set());
   });
 

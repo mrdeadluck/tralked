@@ -96,6 +96,22 @@ describe.skipIf(!reachable)("RetroAchievements lists on demand", () => {
     expect(await prisma.achievement.count({ where: { gameId, platform: "retro" } })).toBe(3);
   });
 
+  it("an RA set read on demand gets its own list", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncRetroAchievements } = await import("./retro-achievements");
+    // A row a player's sync wrote earlier, without a list.
+    await prisma.achievement.create({ data: { gameId, platform: "retro", apiName: "1", name: "old" } });
+    const read = api({ [RA + 1]: [ach("1"), ach("2")] });
+    await syncRetroAchievements(gameId, read.api);
+    const list = await prisma.trophyList.findUniqueOrThrow({
+      where: { platform_externalId: { platform: "retro", externalId: String(RA + 1) } },
+    });
+    expect(list).toMatchObject({ gameId, console: "SNES", name: "Retro Achievements Test", trophyCount: 2 });
+    const rows = await prisma.achievement.findMany({ where: { gameId, platform: "retro" } });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.listId === list.id)).toBe(true);
+  });
+
   it("gives the claim back when RA fails, so the next open tries again", async () => {
     const { prisma } = await import("@/lib/db");
     const { hasRetroAchievementsDue, syncRetroAchievements } = await import("./retro-achievements");

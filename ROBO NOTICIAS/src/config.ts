@@ -6,7 +6,17 @@ const blankToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === 
 const opt = <T extends z.ZodType>(schema: T) => z.preprocess(blankToUndefined, schema);
 
 const ConfigSchema = z.object({
-  ANTHROPIC_API_KEY: opt(z.string({ error: "ANTHROPIC_API_KEY is required" }).min(1)),
+  /**
+   * Where the AI runs: "claude-code" (default since 05/11/2026: `claude -p` on Lucas's PC, billed to his
+   * subscription) or "api" (Anthropic API credits; needs ANTHROPIC_API_KEY).
+   */
+  AI_BACKEND: opt(z.enum(["claude-code", "api"]).default("claude-code")),
+  ANTHROPIC_API_KEY: opt(z.string().min(1).optional()),
+  /** The Claude Code executable (absolute path when the scheduler's PATH does not have it). */
+  CLAUDE_BIN: opt(z.string().min(1).default("claude")),
+  CLAUDE_TIMEOUT_MS: opt(z.coerce.number().int().positive().default(600_000)),
+  /** The robot stops once this share of the weekly subscription window is used (the rest is Lucas's). */
+  CLAUDE_WEEKLY_STOP: opt(z.coerce.number().gt(0).max(1).default(0.9)),
   TRALKED_API_URL: opt(z.string().url().default("https://tralked.com")),
   TRALKED_API_KEY: opt(z.string({ error: "TRALKED_API_KEY is required" }).min(1)),
   MODEL_WRITER: opt(z.string().default("claude-opus-5-5")),
@@ -25,6 +35,10 @@ const ConfigSchema = z.object({
   RESEND_API_KEY: opt(z.string().min(1).optional()),
   ALERT_EMAIL: opt(z.string().min(1).optional()),
   DATA_DIR: opt(z.string().default("./data")),
+}).superRefine((c, ctx) => {
+  if (c.AI_BACKEND === "api" && !c.ANTHROPIC_API_KEY) {
+    ctx.addIssue({ code: "custom", path: ["ANTHROPIC_API_KEY"], message: "ANTHROPIC_API_KEY is required" });
+  }
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
