@@ -227,10 +227,13 @@ export function createSteamClient({
     },
 
     async getGlobalAchievementPercentages(appId) {
-      const data = await getJson<GlobalPercentagesResponse>(
-        "/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/",
-        { gameid: appId },
-      );
+      const path = "/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/";
+      const res = await request(path, { gameid: appId });
+      // 403: Steam keeps this app's global stats private (it answers so on every call): no data,
+      // not an error (34 rarity errors in four days, 2026-11-01..05, were all this).
+      if (res.status === 403) return {};
+      if (!res.ok) throw new Error(`Steam API ${path} failed with HTTP ${res.status}`);
+      const data = (await res.json()) as GlobalPercentagesResponse;
       const result: Record<string, number> = {};
       for (const a of data.achievementpercentages?.achievements ?? []) {
         result[a.name] = Number(a.percent);

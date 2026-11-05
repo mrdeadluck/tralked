@@ -229,6 +229,11 @@ describe("steam client", () => {
     expect(url.searchParams.get("gameid")).toBe("367520");
   });
 
+  it("getGlobalAchievementPercentages: HTTP 403 (no public global stats) is no data, other errors throw", async () => {
+    await expect(setup({}, 403).client.getGlobalAchievementPercentages(1789480)).resolves.toEqual({});
+    await expect(setup({}, 500).client.getGlobalAchievementPercentages(1)).rejects.toThrow(/HTTP 500/);
+  });
+
   it("getPlayerAchievements maps unlock times (0 = locked)", async () => {
     const { client, lastUrl } = setup({
       playerstats: {
