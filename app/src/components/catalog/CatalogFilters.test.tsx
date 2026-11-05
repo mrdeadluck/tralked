@@ -81,6 +81,15 @@ describe("CatalogFilters", () => {
     expect(group.getByRole("button", { name: "Só exclusivos" })).not.toHaveAttribute("aria-disabled");
   });
 
+  it("the toggles group looks like the other chip groups (no accent outline)", () => {
+    setup();
+    const toggles = screen.getAllByRole("group", { name: "Recortes do catálogo" })[0];
+    const chips = screen.getAllByRole("group", { name: "Ordenar jogos" })[0];
+    expect(toggles.className).not.toMatch(/0_0_0_1px_var\(--acc\)/);
+    expect(toggles.className).toContain("shadow-[inset_0_0_0_1px_var(--border)]");
+    expect(chips.className).toContain("shadow-[inset_0_0_0_1px_var(--border)]");
+  });
+
   it('PC label reads "PC · Steam"', () => {
     setup();
     expect(bar().queryByRole("link", { name: "Steam / PC" })).not.toBeInTheDocument();

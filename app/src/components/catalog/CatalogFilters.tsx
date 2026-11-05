@@ -75,7 +75,7 @@ function CutToggles({ toggles, nintendo, hintId }: { toggles: Toggles; nintendo:
     <div
       role="group"
       aria-label="Recortes do catálogo"
-      className="flex w-fit max-w-full flex-wrap items-center gap-x-0.5 gap-y-1 bg-bg shadow-[inset_0_0_0_1px_var(--border),0_0_0_1px_var(--acc)]"
+      className="flex w-fit max-w-full flex-wrap items-center gap-x-0.5 gap-y-1 bg-bg shadow-[inset_0_0_0_1px_var(--border)]"
     >
       <Link
         href={toggles.exclusiveHref}
