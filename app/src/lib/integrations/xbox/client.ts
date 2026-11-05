@@ -12,6 +12,13 @@ const BASE = "https://xbl.io/api/v2";
 export type XboxClientConfig = {
   apiKey: string;
   fetch?: typeof fetch;
+  /**
+   * Read Xbox 360 titles on OpenXBL's 360 route. Off by default: read live on 2026-11-05 it listed
+   * only the earned achievements (21 titles, every record unlocked; GTA IV showed 1 of 50), so each
+   * 360 list would look complete. Until the full list of a 360 title is known, 360 titles stay on
+   * the player route, as before the trophy lists.
+   */
+  x360Route?: boolean;
 };
 
 type Setting = { id: string; value: string };
@@ -136,6 +143,7 @@ function x360Achievement(a: X360AchievementRecord, titleId: string): XboxAchieve
 export function createXboxClient({
   apiKey,
   fetch: fetchImpl = globalThis.fetch,
+  x360Route = false,
 }: XboxClientConfig): XboxApi {
   async function get<T>(path: string, what: string, body?: unknown): Promise<T | "private" | null> {
     const res = await fetchImpl(`${BASE}${path}`, {
@@ -257,9 +265,9 @@ export function createXboxClient({
     },
 
     async getAchievements(xuid, titleId, devices = []): Promise<XboxAchievement[] | "private"> {
-      // Xbox 360 titles are not on the player route (it answers empty for them): they have a route of
-      // their own. An empty 360 answer still falls back to the player route (a title listed for both).
-      if (devices.includes("Xbox360")) {
+      // Xbox 360 titles answer empty on the player route; the 360 route (only with x360Route, see
+      // XboxClientConfig) lists them. An empty 360 answer still falls back to the player route.
+      if (x360Route && devices.includes("Xbox360")) {
         const x360 = await get<{ achievements?: X360AchievementRecord[] } | X360AchievementRecord[]>(
           `/achievements/x360/${encodeURIComponent(xuid)}/title/${encodeURIComponent(titleId)}`,
           "360 achievements",

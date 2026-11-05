@@ -11,11 +11,11 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function setup(handler: (url: URL) => Response) {
+function setup(handler: (url: URL) => Response, options: { x360Route?: boolean } = { x360Route: true }) {
   const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
     async (input) => handler(new URL(String(input))),
   );
-  const client = createXboxClient({ apiKey: KEY, fetch: fetchMock as unknown as typeof fetch });
+  const client = createXboxClient({ apiKey: KEY, fetch: fetchMock as unknown as typeof fetch, ...options });
   return { client, fetchMock };
 }
 
@@ -232,6 +232,16 @@ describe("xbox client (OpenXBL)", () => {
     );
     const titles = await client.getTitles("2535");
     expect(titles === "private" ? [] : titles.map((t) => t.devices)).toEqual([["Xbox360"], ["XboxOne", "XboxSeries", "PC"], []]);
+  });
+
+  it("by default a 360 title is read on the player route only (the 360 route lists only earned achievements)", async () => {
+    const seen: string[] = [];
+    const { client } = setup((url) => {
+      seen.push(url.pathname);
+      return json({ achievements: [] });
+    }, {});
+    await expect(client.getAchievements("2535", "11", ["Xbox360"])).resolves.toEqual([]);
+    expect(seen).toEqual(["/api/v2/achievements/player/2535/11"]);
   });
 
   it("a 360 title reads achievements from the 360 route", async () => {
