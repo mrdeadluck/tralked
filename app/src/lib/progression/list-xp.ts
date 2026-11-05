@@ -240,8 +240,10 @@ const entryKey = (source: string, sourceKey: string) => `${source}\n${sourceKey}
  * confirmed fraud, replaced legacy key) is never paid again, except through `restore`. XP of
  * existing entries is never rewritten. Runs inside the caller's transaction.
  *
- * A wanted key with no row is not created either when what it replaces exists only voided (so XP
- * voided under the pre-version keys, e.g. by an unlink, is not paid again under the new key):
+ * A wanted key with no row is not created either when what it replaces exists only voided, and
+ * voided before the current link of the platform (so XP voided under the pre-version keys by an
+ * unlink is not paid again under the new key after a relink; a predecessor voided under the
+ * current link, e.g. by an earlier settle of another list of the game, does not block):
  * - a version platinum, when the game's legacy `${platform}:${gameId}` platinum is voided and the
  *   game has no other version platinum row (in any state);
  * - a trophy, when the own-id `achievement` entries of the unlocks behind it exist and are all voided.
@@ -297,17 +299,22 @@ export async function settleListXp(
   const existingByKey = new Map(existing.map((e) => [entryKey(e.source, e.sourceKey), e]));
   const restore = new Set(options.restore ?? []);
   const linkedAt =
-    restore.size > 0
-      ? ((await tx.linkedAccount.findUnique({ where: { userId_platform: { userId, platform } }, select: { linkedAt: true } }))
-          ?.linkedAt ?? null)
-      : null;
+    (await tx.linkedAccount.findUnique({ where: { userId_platform: { userId, platform } }, select: { linkedAt: true } }))
+      ?.linkedAt ?? null;
   /** Voided under the current link: a fraud release may bring it back. */
   const restorable = (row: { voidedAt: Date | null }) =>
     row.voidedAt !== null && linkedAt !== null && row.voidedAt.getTime() >= linkedAt.getTime();
-  /** Rows exist and none is valid. */
-  const onlyVoided = (rows: ({ voidedAt: Date | null } | undefined)[]) => {
+  /**
+   * Rows exist and every one was voided before the current link (an unlink; with no link, any
+   * void). A predecessor voided under the current link (a settle moving it to a version key)
+   * never blocks its replacement.
+   */
+  const voidedBeforeLink = (rows: ({ voidedAt: Date | null } | undefined)[]) => {
     const found = rows.filter((r) => r !== undefined);
-    return found.length > 0 && found.every((r) => r.voidedAt !== null);
+    return (
+      found.length > 0 &&
+      found.every((r) => r.voidedAt !== null && (linkedAt === null || r.voidedAt.getTime() < linkedAt.getTime()))
+    );
   };
 
   const toVoid: string[] = [];
@@ -344,8 +351,8 @@ export async function settleListXp(
         d.source === "platinum"
           ? d.sourceKey !== legacyKey &&
             versionPlatinums.length === 0 &&
-            onlyVoided([existingByKey.get(entryKey("platinum", legacyKey))])
-          : onlyVoided(origin.map((id) => existingByKey.get(entryKey("achievement", id))));
+            voidedBeforeLink([existingByKey.get(entryKey("platinum", legacyKey))])
+          : voidedBeforeLink(origin.map((id) => existingByKey.get(entryKey("achievement", id))));
       if (!replacesVoided) toCreate.push({ userId, ...d });
     }
   }

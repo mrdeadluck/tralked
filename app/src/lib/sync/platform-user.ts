@@ -144,9 +144,19 @@ async function recordTitle(
     });
     // A list never moves between games (ensureTrophyList): its rows and progress stay with its game.
     const listGameId = list.gameId;
-    if (platform === "retro") {
-      // RetroAchievements ids are unique across sets: list-less rows of the game written before
-      // trophy lists are this set's own rows (as the game page's writer does, lib/sync/retro-achievements.ts).
+    // List-less rows of the game written before trophy lists are this list's own rows (kept in
+    // place, ids and ledger keys too) when the game has only this list on the platform (one PSN
+    // `NPWR` link; one Xbox/RA link) and always on RetroAchievements, whose ids are unique across
+    // sets (as the game page's writer does, lib/sync/retro-achievements.ts). Rows of a game with
+    // several lists mixed those lists' trophies: they stay as they are (the phase finish removes
+    // them) and the list gets rows of its own.
+    const listLinks =
+      platform === "retro"
+        ? 1
+        : await tx.gamePlatformLink.count({
+            where: { gameId: listGameId, platform, ...(platform === "psn" && { externalId: { startsWith: "NPWR" } }) },
+          });
+    if (listLinks === 1) {
       const own = await tx.achievement.findMany({ where: { listId: list.id }, select: { apiName: true } });
       const held = new Set(own.map((r) => r.apiName));
       await tx.achievement.updateMany({
@@ -183,8 +193,10 @@ async function recordTitle(
     const unlocked = title.achievements.flatMap((a) => {
       const achievementId = idOf.get(a.apiName);
       if (!achievementId || !a.unlocked) return [];
+      // The list-less row of the same game and apiName: on a game with several lists it stands for
+      // every one of them, so its verdict carries over to that trophy in each list of the game.
       const listless = known.legacy.get(`${listGameId}:${a.apiName}`);
-      // A list-less row this list just took over (RetroAchievements) is the same row: same unlock.
+      // A list-less row this list just took over is the same row: same unlock.
       const before =
         known.byList.get(listKey(list.id, a.apiName)) ?? (listless?.achievementId === achievementId ? listless : undefined);
       const legacy = before ? undefined : listless;
@@ -217,10 +229,16 @@ async function recordTitle(
       ? new Date(Math.max(...verdicts.map((v) => v.unlockedAt.getTime())))
       : null;
 
+    // A completion is sticky (as on Steam): trophies added to the list later (DLC, a revised RA
+    // set) do not undo it. Only a suspicious unlock in the list clears it (anti-fraud).
+    const prior = await tx.userTrophyList.findUnique({
+      where: { userId_listId: { userId, listId: list.id } },
+      select: { completedAt: true },
+    });
     const progress = {
       unlockedCount: verdicts.length,
       hardcoreCount: verdicts.filter((v) => v.hardcore).length,
-      completedAt,
+      completedAt: verdicts.some((v) => v.suspicious) ? null : (prior?.completedAt ?? completedAt),
     };
     await tx.userTrophyList.upsert({
       where: { userId_listId: { userId, listId: list.id } },
@@ -457,10 +475,12 @@ async function rememberTitles(
 
 /**
  * Per-title progress already in the database, keyed by the platform's title id: the counts of the
- * user's UserTrophyList of that list; for a title without one (recorded before trophy lists), the
- * counts remembered for it when it was last recorded (a game with several lists), else its
- * game's UserGame unlock count (and, for RetroAchievements, the game's hardcore unlock count).
- * Persistent, so a run cut short by the budget resumes where it stopped.
+ * user's UserTrophyList of that list (with the listed counts remembered for it, see
+ * StoredProgress.listed); a list without one of a game that has per-list progress gets no entry
+ * (read once); a title of a game recorded only before trophy lists, the counts remembered for it
+ * when it was last recorded (a game with several lists), else its game's UserGame unlock count
+ * (and, for RetroAchievements, the game's hardcore unlock count). Persistent, so a run cut short
+ * by the budget resumes where it stopped.
  */
 async function storedProgress(
   userId: string,
@@ -495,8 +515,13 @@ async function storedProgress(
     hardcoreByGame.set(h.achievement.gameId, (hardcoreByGame.get(h.achievement.gameId) ?? 0) + 1);
   }
   const byGame = new Map(games.map((g) => [g.gameId, g]));
+  // A game with per-list progress counts by list only: its game count adds every list up, so a
+  // list of it without progress yet has no entry and is read (once: reading it records its row).
+  const onLists = new Set(lists.map((p) => p.list.gameId));
   const stored = new Map<string, StoredProgress>(
-    links.map((l) => {
+    links
+      .filter((l) => !onLists.has(l.gameId))
+      .map((l) => {
       const game = byGame.get(l.gameId);
       const counts = remembered.get(l.externalId);
       return [
@@ -510,12 +535,12 @@ async function storedProgress(
       ];
     }),
   );
-  // A list's own counts are exact (the game's add every list up): they win.
   for (const p of lists) {
     const game = byGame.get(p.list.gameId);
     stored.set(p.list.externalId, {
       unlocked: p.unlockedCount,
       hardcore: p.hardcoreCount,
+      listed: remembered.get(p.list.externalId),
       playtimeSynced: game?.playtimeUpdatedAt != null,
       lastPlayedAt: game?.lastPlayedAt ?? null,
     });

@@ -240,6 +240,36 @@ describe("settleListXp", () => {
     expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(3);
   });
 
+  it("a legacy platinum voided by a settle under the current link does not block a later version platinum", async () => {
+    // Multi-list legacy game: the PS3 list is read first (incomplete), which voids the legacy
+    // platinum; the PS4 list read later is complete and its version platinum is paid.
+    const user = await newUser();
+    await prisma.linkedAccount.create({
+      data: { userId: user.id, platform: "psn", externalId: `${PREFIX}-acc-${counter}`, handle: "Teste", linkedAt: T0 },
+    });
+    const game = await newGame();
+    await prisma.xpLedgerEntry.create({
+      data: { userId: user.id, source: "platinum", sourceKey: `psn:${game.id}`, platform: "psn", xp: 99, skills: ["rpg"], createdAt: at(1) },
+    });
+    const ps3 = await newList(game.id, "PS3", at(2));
+    const ps3Trophies = await newTrophies(game.id, ps3.id);
+    await prisma.userAchievement.create({ data: { userId: user.id, achievementId: ps3Trophies[1].id, unlockedAt: at(3) } });
+    await prisma.userTrophyList.create({ data: { userId: user.id, listId: ps3.id, unlockedCount: 1 } });
+    await settle(user.id, [game.id], at(20));
+    expect((await valid(user.id)).filter((e) => e.source === "platinum")).toEqual([]);
+
+    const ps4 = await newList(game.id, "PS4", at(21));
+    const ps4Trophies = await newTrophies(game.id, ps4.id);
+    await prisma.userAchievement.createMany({
+      data: ps4Trophies.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(22 + i) })),
+    });
+    await prisma.userTrophyList.create({ data: { userId: user.id, listId: ps4.id, unlockedCount: 2, completedAt: at(23) } });
+    await settle(user.id, [game.id], at(30));
+    expect((await valid(user.id)).filter((e) => e.source === "platinum").map((e) => e.sourceKey)).toEqual([
+      `psn:PS4:${game.id}`,
+    ]);
+  });
+
   it("once the game has a list, entries of list-less rows are voided and the list pays", async () => {
     const user = await newUser();
     const game = await newGame();

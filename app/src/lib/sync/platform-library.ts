@@ -69,6 +69,13 @@ export type PlaytimeTitle = {
 export type StoredProgress = {
   unlocked: number;
   hardcore: number;
+  /**
+   * The counts the platform's title list showed when the title was last recorded (remembered by the
+   * sync). A title whose listed counts equal these is up to date too: the title list and the
+   * trophy list can disagree (an Xbox unlock the achievement list does not show, RA's sticky
+   * hardcore flags), and the title must not be read again on every sync for it.
+   */
+  listed?: { unlocked: number; hardcore?: number };
   /** The row's playtime was written by a Plano 4 sync (`playtimeUpdatedAt`). */
   playtimeSynced?: boolean;
   lastPlayedAt?: Date | null;
@@ -123,10 +130,13 @@ type Listed<T> = {
   carriesPlaytime?: boolean;
 };
 
+const sameCounts = (listed: Listed<unknown>, counts: { unlocked: number; hardcore?: number }) =>
+  counts.unlocked === listed.unlocked && (listed.hardcore === undefined || counts.hardcore === listed.hardcore);
+
+/** Stored counts (or the listed counts remembered for the title) match the list; play time read. */
 const upToDate = (listed: Listed<unknown>, stored: StoredProgress | undefined) =>
   stored !== undefined &&
-  stored.unlocked === listed.unlocked &&
-  (listed.hardcore === undefined || stored.hardcore === listed.hardcore) &&
+  (sameCounts(listed, stored) || (stored.listed !== undefined && sameCounts(listed, stored.listed))) &&
   (!listed.carriesPlaytime || stored.playtimeSynced === true);
 
 async function collect<T>(
