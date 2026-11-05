@@ -324,6 +324,26 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     }
   });
 
+  it("an Xbox title that returns no achievements is read once, and not on the next sync", async () => {
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const xbox = getXbox();
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    const titles = await xbox.getTitles("2535400000000002");
+    if (titles === "private") throw new Error("public fixture");
+    const listed = titles.filter((t) => t.currentAchievements > 0).length;
+    expect(listed).toBeGreaterThan(0);
+    const read = vi.spyOn(xbox, "getAchievements").mockResolvedValue([]);
+    try {
+      await syncPlatformAccount(user.id, "xbox");
+      expect(read).toHaveBeenCalledTimes(listed);
+      await syncPlatformAccount(user.id, "xbox");
+      expect(read).toHaveBeenCalledTimes(listed);
+    } finally {
+      read.mockRestore();
+    }
+  });
+
   it("Xbox titles with minutes left unwritten by the deadline are asked again next run", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncPlatformAccount } = await import("./platform-user");

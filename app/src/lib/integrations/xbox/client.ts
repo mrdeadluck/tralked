@@ -44,6 +44,21 @@ type AchievementRecord = {
   rarity?: { currentPercentage?: number };
 };
 
+/** Xbox 360 achievement of OpenXBL's `/achievements/x360/{xuid}/title/{titleId}` (the 360 service's shape). */
+type X360AchievementRecord = {
+  id: string | number;
+  name: string;
+  description?: string;
+  lockedDescription?: string;
+  isSecret?: boolean;
+  unlocked?: boolean;
+  unlockedOnline?: boolean;
+  gamerscore?: number | string;
+  imageId?: number | string;
+  timeUnlocked?: string;
+  rarity?: { currentPercentage?: number };
+};
+
 type StatsResponse = {
   statlistscollection?: {
     stats?: { name?: string; titleid?: string | number; value?: string | number }[];
@@ -93,6 +108,27 @@ const dateOrNull = (value: string | undefined) => {
   return Number.isNaN(date.getTime()) || date.getUTCFullYear() < 2000 ? null : date;
 };
 
+/** An Xbox 360 achievement in the app's shape; the icon is the 360 image CDN's (title and image ids in hex). */
+function x360Achievement(a: X360AchievementRecord, titleId: string): XboxAchievement {
+  const unlocked = a.unlocked === true || a.unlockedOnline === true;
+  const title = Number(titleId);
+  const image = Number(a.imageId);
+  return {
+    id: String(a.id),
+    name: a.name,
+    description: a.description || a.lockedDescription || null,
+    iconUrl:
+      Number.isInteger(title) && Number.isInteger(image) && a.imageId !== undefined
+        ? `https://image-ssl.xboxlive.com/global/t.${title.toString(16)}/ach/0/${image.toString(16)}`
+        : null,
+    hidden: a.isSecret ?? false,
+    gamerscore: Number(a.gamerscore ?? 0) || 0,
+    unlocked,
+    unlockedAt: unlocked ? dateOrNull(a.timeUnlocked) : null,
+    rarityPct: a.rarity?.currentPercentage ?? null,
+  };
+}
+
 export function createXboxClient({
   apiKey,
   fetch: fetchImpl = globalThis.fetch,
@@ -137,6 +173,29 @@ export function createXboxClient({
       bio: settings.get("Bio") ?? "",
       avatarUrl: settings.get("GameDisplayPicRaw") ?? null,
     };
+  }
+
+  async function playerAchievements(xuid: string, titleId: string): Promise<XboxAchievement[] | "private"> {
+    const body = await get<{ achievements?: AchievementRecord[] }>(
+      `/achievements/player/${encodeURIComponent(xuid)}/${encodeURIComponent(titleId)}`,
+      "achievements",
+    );
+    if (body === "private") return "private";
+    return (body?.achievements ?? []).map((a) => {
+      const unlocked = a.progressState === "Achieved";
+      const score = a.rewards?.find((r) => r.type === "Gamerscore")?.value;
+      return {
+        id: String(a.id),
+        name: a.name,
+        description: a.description || a.lockedDescription || null,
+        iconUrl: a.mediaAssets?.find((m) => m.type === "Icon")?.url ?? null,
+        hidden: a.isSecret ?? false,
+        gamerscore: Number(score ?? 0) || 0,
+        unlocked,
+        unlockedAt: unlocked ? dateOrNull(a.progression?.timeUnlocked) : null,
+        rarityPct: a.rarity?.currentPercentage ?? null,
+      };
+    });
   }
 
   return {
@@ -187,27 +246,19 @@ export function createXboxClient({
       }));
     },
 
-    async getAchievements(xuid, titleId): Promise<XboxAchievement[] | "private"> {
-      const body = await get<{ achievements?: AchievementRecord[] }>(
-        `/achievements/player/${encodeURIComponent(xuid)}/${encodeURIComponent(titleId)}`,
-        "achievements",
-      );
-      if (body === "private") return "private";
-      return (body?.achievements ?? []).map((a) => {
-        const unlocked = a.progressState === "Achieved";
-        const score = a.rewards?.find((r) => r.type === "Gamerscore")?.value;
-        return {
-          id: String(a.id),
-          name: a.name,
-          description: a.description || a.lockedDescription || null,
-          iconUrl: a.mediaAssets?.find((m) => m.type === "Icon")?.url ?? null,
-          hidden: a.isSecret ?? false,
-          gamerscore: Number(score ?? 0) || 0,
-          unlocked,
-          unlockedAt: unlocked ? dateOrNull(a.progression?.timeUnlocked) : null,
-          rarityPct: a.rarity?.currentPercentage ?? null,
-        };
-      });
+    async getAchievements(xuid, titleId, devices = []): Promise<XboxAchievement[] | "private"> {
+      // Xbox 360 titles are not on the player route (it answers empty for them): they have a route of
+      // their own. An empty 360 answer still falls back to the player route (a title listed for both).
+      if (devices.includes("Xbox360")) {
+        const x360 = await get<{ achievements?: X360AchievementRecord[] } | X360AchievementRecord[]>(
+          `/achievements/x360/${encodeURIComponent(xuid)}/title/${encodeURIComponent(titleId)}`,
+          "360 achievements",
+        );
+        if (x360 === "private") return "private";
+        const records = Array.isArray(x360) ? x360 : (x360?.achievements ?? []);
+        if (records.length > 0) return records.map((a) => x360Achievement(a, titleId));
+      }
+      return playerAchievements(xuid, titleId);
     },
 
     async getMinutesPlayed(xuid, titleIds): Promise<Map<string, number> | "private"> {

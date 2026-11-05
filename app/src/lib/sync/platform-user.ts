@@ -480,7 +480,7 @@ async function rememberedTitles(account: AccountSnapshot, accountId: string): Pr
 async function rememberTitles(
   account: AccountSnapshot,
   accountId: string,
-  titles: readonly LibraryTitle[],
+  titles: readonly { externalId: string; listed?: RememberedCounts }[],
 ): Promise<void> {
   const counts = titles.flatMap((t) => (t.listed ? [[t.externalId, t.listed] as const] : []));
   if (counts.length === 0) return;
@@ -525,7 +525,7 @@ async function storedProgress(
       select: { unlockedCount: true, hardcoreCount: true, list: { select: { externalId: true, gameId: true } } },
     }),
   ]);
-  if (games.length === 0 && lists.length === 0) return new Map();
+  if (games.length === 0 && lists.length === 0 && remembered.size === 0) return new Map();
   const [links, hardcore] = await Promise.all([
     prisma.gamePlatformLink.findMany({
       where: { platform, gameId: { in: games.map((g) => g.gameId) } },
@@ -572,6 +572,14 @@ async function storedProgress(
       playtimeSynced: game?.playtimeUpdatedAt != null,
       lastPlayedAt: game?.lastPlayedAt ?? null,
     });
+  }
+  // Titles read that had no achievements have no list, game or link: only their remembered counts
+  // stand for them (and, for RetroAchievements, which carries play time, nothing more to wait for).
+  // A linked title missing here is a list of a game on lists still to be read once: left alone.
+  const linked = new Set(links.map((l) => l.externalId));
+  for (const [id, counts] of remembered) {
+    if (stored.has(id) || linked.has(id)) continue;
+    stored.set(id, { unlocked: -1, hardcore: -1, listed: counts, playtimeSynced: platform === "retro" });
   }
   return stored;
 }
@@ -747,7 +755,7 @@ export async function syncPlatformAccount(
       throw error;
     }
   }
-  await rememberTitles(snapshot, account.id, resolved.map((r) => r.title));
+  await rememberTitles(snapshot, account.id, [...resolved.map((r) => r.title), ...library.empty]);
   let playtime: { partial: boolean; written: Set<string> };
   try {
     playtime = await recordPlaytime(snapshot, library.playtime, names, startedAt, options.deadline, Date.now, conceptOptions);

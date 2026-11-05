@@ -40,8 +40,11 @@ export interface XboxApi {
   getProfile(xuid: string): Promise<XboxProfile | null>;
   /** `'private'` when the player's achievements are hidden from the service account. */
   getTitles(xuid: string): Promise<XboxTitle[] | "private">;
-  /** Every achievement of the title (unlocked or not) with the player's progress. */
-  getAchievements(xuid: string, titleId: string): Promise<XboxAchievement[] | "private">;
+  /**
+   * Every achievement of the title (unlocked or not) with the player's progress. `devices` (from the
+   * title history) routes Xbox 360 titles to OpenXBL's 360 route.
+   */
+  getAchievements(xuid: string, titleId: string, devices?: string[]): Promise<XboxAchievement[] | "private">;
   /**
    * Minutes played per title (the titles' `MinutesPlayed` stat); titles Xbox has no number for
    * are left out. `'private'` when the player's stats are hidden.

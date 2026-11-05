@@ -134,6 +134,11 @@ export type LibraryResult = {
   partial: boolean;
   /** Titles already up to date (not read). */
   upToDate: number;
+  /**
+   * Titles read that came back with no achievements: nothing to record, but their listed counts are
+   * remembered so they are not read again until those counts change.
+   */
+  empty: { externalId: string; listed: { unlocked: number; hardcore?: number } }[];
   /** Current handle on the platform, when the sync learned it (RA usernames can change). */
   handle?: string;
   /** Play time of the games played (PSN, Xbox); RA play time comes with each title instead. */
@@ -180,6 +185,7 @@ async function collect<T>(
     failures: [],
     partial: false,
     upToDate: items.length - pending.length,
+    empty: [],
     playtime: [],
   };
   // Sequential on purpose: the unofficial APIs rate-limit aggressively.
@@ -194,6 +200,7 @@ async function collect<T>(
       const title = await read(item);
       if (title === "private") return "private";
       if (title && title.achievements.length > 0) result.titles.push({ ...title, listed: { unlocked, hardcore } });
+      else if (title) result.empty.push({ externalId: id, listed: { unlocked, hardcore } });
     } catch (error) {
       result.failures.push({ externalId: id, error });
     }
@@ -305,7 +312,7 @@ async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<
     .filter((t) => t.currentAchievements > 0)
     .map((t) => ({ item: t, id: t.titleId, lastUpdated: t.lastPlayed, unlocked: t.currentAchievements }));
   const result = await collect(played, options, async (t) => {
-    const list = await xbox.getAchievements(account.externalId, t.titleId);
+    const list = await xbox.getAchievements(account.externalId, t.titleId, t.devices);
     if (list === "private") return "private";
     return {
       externalId: t.titleId,

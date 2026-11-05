@@ -220,6 +220,62 @@ describe("xbox client (OpenXBL)", () => {
     ]);
   });
 
+  it("parses devices of the title history", async () => {
+    const { client } = setup(() =>
+      json({
+        titles: [
+          { titleId: "1096157000", name: "Halo 3", devices: ["Xbox360"], achievement: { currentAchievements: 4, totalAchievements: 50 } },
+          { titleId: "219630713", name: "Halo MCC", devices: ["XboxOne", "XboxSeries", "PC"], achievement: { currentAchievements: 1 } },
+          { titleId: "7", name: "No devices" },
+        ],
+      }),
+    );
+    const titles = await client.getTitles("2535");
+    expect(titles === "private" ? [] : titles.map((t) => t.devices)).toEqual([["Xbox360"], ["XboxOne", "XboxSeries", "PC"], []]);
+  });
+
+  it("a 360 title reads achievements from the 360 route", async () => {
+    // Recorded shape of OpenXBL's /achievements/x360/{xuid}/title/{titleId} (ids masked).
+    const { client, fetchMock } = setup((url) => {
+      if (url.pathname === "/api/v2/achievements/x360/2535000000000001/title/1096157000") {
+        return json({
+          achievements: [
+            { id: 1, titleId: 1096157000, name: "Skull", description: "Find it", lockedDescription: "Secret", isSecret: false, unlocked: true, unlockedOnline: true, gamerscore: 20, imageId: 255, timeUnlocked: "2010-05-04T12:00:00.0000000Z", rarity: { currentPercentage: 12.5 } },
+            { id: 2, titleId: 1096157000, name: "Hidden one", lockedDescription: "Play more", isSecret: true, unlocked: false, unlockedOnline: false, gamerscore: 10, imageId: 256, timeUnlocked: "0001-01-01T00:00:00.0000000Z" },
+          ],
+        });
+      }
+      return json({ achievements: [] });
+    });
+    const list = await client.getAchievements("2535000000000001", "1096157000", ["Xbox360"]);
+    if (list === "private") throw new Error("private");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(list.map((a) => [a.id, a.name, a.unlocked, a.gamerscore, a.hidden])).toEqual([
+      ["1", "Skull", true, 20, false],
+      ["2", "Hidden one", false, 10, true],
+    ]);
+    expect(list[0].unlockedAt).toEqual(new Date("2010-05-04T12:00:00Z"));
+    expect(list[1].unlockedAt).toBeNull();
+    expect(list[1].description).toBe("Play more");
+    expect(list[0].rarityPct).toBe(12.5);
+  });
+
+  it("a non-360 title keeps the player route, and an empty 360 answer falls back to it", async () => {
+    const seen: string[] = [];
+    const { client } = setup((url) => {
+      seen.push(url.pathname);
+      return url.pathname.includes("/x360/")
+        ? json({ achievements: [] })
+        : json({ achievements: [{ id: "9", name: "A", progressState: "Achieved", progression: { timeUnlocked: "2021-01-01T00:00:00Z" } }] });
+    });
+    await client.getAchievements("2535", "10", ["XboxOne"]);
+    expect(seen).toEqual(["/api/v2/achievements/player/2535/10"]);
+    seen.length = 0;
+    const back = await client.getAchievements("2535", "11", ["Xbox360", "XboxOne"]);
+    expect(seen).toEqual(["/api/v2/achievements/x360/2535/title/11", "/api/v2/achievements/player/2535/11"]);
+    expect(back === "private" ? 0 : back.length).toBe(1);
+  });
+
   it("reports private data and keeps the key out of errors", async () => {
     const privateClient = setup(() => json({}, 403)).client;
     await expect(privateClient.getTitles("1")).resolves.toBe("private");
