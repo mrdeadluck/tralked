@@ -69,14 +69,27 @@ describe("ensureTrophyList", () => {
     expect(again.gameId).toBe(gameA);
   });
 
-  it("works inside a transaction and survives a concurrent create", async () => {
+  it("inside a transaction, an existing row is updated and the transaction stays usable", async () => {
     const externalId = `${PREFIX}-NPWR5`;
+    const first = await ensureTrophyList(prisma, base({ externalId }));
+    const out = await prisma.$transaction(async (tx) => {
+      const again = await ensureTrophyList(tx, base({ externalId, name: "Renamed", trophyCount: 33 }));
+      const count = await tx.trophyList.count({ where: { externalId } });
+      return { again, count };
+    });
+    expect(out.again.id).toBe(first.id);
+    expect(out.count).toBe(1);
+    const row = await prisma.trophyList.findUniqueOrThrow({ where: { id: first.id } });
+    expect([row.name, row.trophyCount]).toEqual(["Renamed", 33]);
+  });
+
+  it("concurrent calls for a new list end up with one row", async () => {
+    const externalId = `${PREFIX}-NPWR6`;
     const [x, y] = await Promise.all([
       ensureTrophyList(prisma, base({ externalId })),
       ensureTrophyList(prisma, base({ externalId })),
     ]);
     expect(x.id).toBe(y.id);
-    const viaTx = await prisma.$transaction((tx) => ensureTrophyList(tx, base({ externalId })));
-    expect(viaTx.id).toBe(x.id);
+    expect(await prisma.trophyList.count({ where: { externalId } })).toBe(1);
   });
 });

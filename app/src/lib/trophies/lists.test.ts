@@ -104,4 +104,7 @@ describe("canonicalList", () => {
     ];
     expect(canonicalList(l).externalId).toBe("B");
   });
+  it("throws on an empty version", () => {
+    expect(() => canonicalList([])).toThrow(/at least one list/);
+  });
 });

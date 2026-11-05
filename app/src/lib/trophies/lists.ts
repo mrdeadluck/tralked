@@ -1,4 +1,4 @@
-import { Prisma, type PrismaClient } from "@/generated/prisma/client";
+import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 
 // Trophy lists: one TrophyList per (platform, externalId). A "version" groups the lists a player
 // counts once (a PSN console, an Xbox title, ...); see versionKey.
@@ -83,6 +83,7 @@ export function regionLabels(
 
 /** The oldest list (tie: externalId ascending). */
 export function canonicalList<T extends Orderable>(lists: T[]): T {
+  if (lists.length === 0) throw new Error("canonicalList: a version always has at least one list");
   return [...lists].sort(byCreation)[0];
 }
 
@@ -126,11 +127,11 @@ export async function ensureTrophyList(
       select: SELECT,
     });
 
-  const existing = await db.trophyList.findUnique({ where });
-  if (existing) return update(existing);
-  try {
-    return await db.trophyList.create({
-      data: {
+  // ON CONFLICT DO NOTHING never aborts a surrounding transaction (a P2002 would, with 25P02),
+  // so this is safe inside interactive transactions and under concurrent creates.
+  await db.trophyList.createMany({
+    data: [
+      {
         gameId: input.gameId,
         platform: input.platform,
         externalId: input.externalId,
@@ -141,15 +142,8 @@ export async function ensureTrophyList(
         region,
         trophyCount: input.trophyCount,
       },
-      select: SELECT,
-    });
-  } catch (error) {
-    // Lost the create race: the row exists now. (Inside a transaction Postgres aborts it after a
-    // unique violation, so callers that share a transaction should not race on one list.)
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const row = await db.trophyList.findUniqueOrThrow({ where });
-      return update(row);
-    }
-    throw error;
-  }
+    ],
+    skipDuplicates: true,
+  });
+  return update(await db.trophyList.findUniqueOrThrow({ where }));
 }
