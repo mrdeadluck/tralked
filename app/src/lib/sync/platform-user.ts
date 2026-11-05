@@ -217,6 +217,14 @@ async function recordTitle(
         await tx.achievement.deleteMany({
           where: { id: { in: extra.filter((id) => !kept.has(id)) }, listId: list.id, unlocks: { none: {} }, notes: { none: {} } },
         });
+        // Rows that stay keep the list apart from Sony's (it is read again every sync): say so.
+        const left = await tx.achievement.findMany({ where: { id: { in: extra } }, select: { apiName: true } });
+        if (left.length > 0) {
+          console.warn(
+            `Platform sync: psn list ${title.externalId} keeps ${left.length} row(s) Sony does not have (unlocked, noted or in the ledger): ` +
+              `${left.map((r) => r.apiName).sort().join(", ")}. See pnpm trophy-lists:repair-psn.`,
+          );
+        }
       }
     }
     const rows = await tx.achievement.findMany({

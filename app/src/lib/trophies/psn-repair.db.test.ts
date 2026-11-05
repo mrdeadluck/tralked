@@ -41,7 +41,7 @@ function sonyTrophies(over: Partial<PsnTrophy> = {}): PsnTrophy[] {
   }));
 }
 
-function fakePsn(trophies: () => PsnTrophy[]): PsnApi & { calls: string[] } {
+function fakePsn(trophies: () => PsnTrophy[], titles?: PsnTitle[]): PsnApi & { calls: string[] } {
   const calls: string[] = [];
   const title: PsnTitle = {
     npTitleId: LIST,
@@ -63,7 +63,7 @@ function fakePsn(trophies: () => PsnTrophy[]): PsnApi & { calls: string[] } {
     getTrophyListsOfTitles: unused,
     async getTitles(accountId) {
       calls.push(`titles:${accountId}`);
-      return [title];
+      return titles ?? [title];
     },
     async getTrophies(accountId, npTitleId, serviceName) {
       calls.push(`trophies:${accountId}:${npTitleId}:${serviceName}`);
@@ -240,6 +240,68 @@ describe("repairPsnLists", () => {
     expect(report.status).toBe("unreadable");
     expect(report.reason).toMatch(/icons of NPWR14350_00/);
     expect((await prisma.trophyList.findUniqueOrThrow({ where: { id: s.list.id } })).trophyCount).toBe(5);
+  });
+
+  it("leaves a list whose defined counts are unknown as unreadable, unless forced", async () => {
+    // The reading account's title list does not show the list: only the icons could judge Sony's answer.
+    const [report] = await repairPsnLists(fakePsn(() => sonyTrophies(), []), [LIST], { now: NOW });
+    expect(report.status).toBe("unreadable");
+    expect(report.reason).toMatch(/counts .*unknown.*--force/);
+    expect((await prisma.trophyList.findUniqueOrThrow({ where: { id: s.list.id } })).trophyCount).toBe(5);
+    const [forced] = await repairPsnLists(fakePsn(() => sonyTrophies(), []), [LIST], { now: NOW, force: true });
+    expect(forced).toMatchObject({ status: "repaired", trophyCount: [5, 4] });
+  });
+
+  it("a completion is sticky: a repair that adds a trophy keeps it and its platinum entry, with a warning", async () => {
+    // A second list, correct but missing trophy "2" (a DLC Sony added): holder c completed it.
+    const other = "NPWR99511_00";
+    const list = await prisma.trophyList.create({
+      data: { gameId: s.game.id, platform: "psn", externalId: other, console: "PS5", name: "Canhões PS5", serviceName: "trophy2", trophyCount: 2 },
+    });
+    const c = await prisma.user.create({
+      data: {
+        handle: `${PREFIX}-c`,
+        displayName: "c",
+        linkedAccounts: { create: { platform: "psn", externalId: `${PREFIX}-acc-c`, handle: "c", linkedAt: LINKED_AT } },
+      },
+    });
+    const otherIcon = (id: string) => `https://psnobj.prod.dl.playstation.net/psnobj/${other}/${id}.png`;
+    for (const apiName of ["0", "1"]) {
+      const row = await prisma.achievement.create({
+        data: { gameId: s.game.id, platform: "psn", listId: list.id, apiName, name: `Certo ${apiName}`, description: `Descrição ${apiName}`, iconUrl: otherIcon(apiName), trophyTier: "bronze", globalPct: 50 },
+      });
+      await prisma.userAchievement.create({ data: { userId: c.id, achievementId: row.id, unlockedAt: UNLOCKED } });
+    }
+    await prisma.userTrophyList.create({ data: { userId: c.id, listId: list.id, unlockedCount: 2, completedAt: UNLOCKED } });
+    await prisma.userGame.create({ data: { userId: c.id, gameId: s.game.id, platform: "psn", unlockedCount: 2, playtimeMin: 0, completedAt: UNLOCKED } });
+    await prisma.$transaction((tx) => settleListXp(tx, c.id, "psn", [s.game.id], PAID_AT));
+    const platinum = () => prisma.xpLedgerEntry.findMany({ where: { userId: c.id, source: "platinum" }, select: { sourceKey: true, xp: true, voidedAt: true } });
+    const paid = await platinum();
+    expect(paid).toEqual([expect.objectContaining({ sourceKey: `psn:PS5:${s.game.id}`, voidedAt: null })]);
+
+    const answer = ["0", "1", "2"].map((id) => ({ ...sonyTrophies()[0], trophyId: id, name: `Certo ${id}`, description: `Descrição ${id}`, iconUrl: otherIcon(id), rarityPct: 50 }));
+    const title: PsnTitle = {
+      npTitleId: other,
+      serviceName: "trophy2",
+      name: "Canhões PS5",
+      platform: "PS5",
+      progress: 66,
+      trophyCounts: { bronze: 3, silver: 0, gold: 0, platinum: 0 },
+      earnedCounts: { bronze: 2, silver: 0, gold: 0, platinum: 0 },
+      lastPlayed: UNLOCKED,
+    };
+    const [report] = await repairPsnLists(fakePsn(() => answer, [title]), [other], { now: NOW });
+    expect(report).toMatchObject({ status: "repaired", rows: { updated: 0, replaced: 0, created: 1, removed: 0 }, trophyCount: [2, 3] });
+    expect(report.users).toEqual([expect.objectContaining({ handle: `${PREFIX}-c`, unlocked: [2, 2], completed: [true, true] })]);
+    // The platinum stays paid as it was (its key did not change; the ledger never rewrites XP), as
+    // when the sync sees a DLC: the repair says so.
+    expect(report.warnings).toEqual([
+      `${PREFIX}-c: completion kept (sticky) at 2/3 trophies: judge it by hand`,
+      expect.stringMatching(new RegExp(`^${PREFIX}-c: platinum psn:PS5:${s.game.id} stays paid at ${paid[0].xp} XP`)),
+    ]);
+    const progress = await prisma.userTrophyList.findUniqueOrThrow({ where: { userId_listId: { userId: c.id, listId: list.id } } });
+    expect(progress.completedAt).toEqual(UNLOCKED);
+    expect(await platinum()).toEqual(paid);
   });
 
   it("reports a list it does not know", async () => {

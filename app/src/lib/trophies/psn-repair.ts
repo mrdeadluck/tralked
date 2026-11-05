@@ -4,7 +4,7 @@ import { xpForPlatformAchievement, type TrophyTier } from "@/lib/engine/trophies
 import type { PsnApi, PsnServiceName, PsnTitle, PsnTrophy } from "@/lib/integrations/psn/types";
 import { desiredListEntries, refreshGameCompletion, settleListXp } from "@/lib/progression/list-xp";
 import { recomputeUser } from "@/lib/progression/recompute";
-import { definitionsProblem } from "./psn-definitions";
+import { definitionsProblem, knownCounts } from "./psn-definitions";
 
 // Repair of PSN trophy lists stored with definitions that are not Sony's (the Guns, Gore and
 // Cannoli list held The Crew 2's trophies): reads the list's definitions again, validated like the
@@ -18,6 +18,11 @@ export type RepairOptions = {
   /** Runs everything in a transaction that is rolled back: shows before -> after, writes nothing. */
   dryRun?: boolean;
   now?: Date;
+  /**
+   * Repairs a list whose defined counts are unknown (the reading account's title list does not
+   * show it): Sony's answer is then judged by its icons only.
+   */
+  force?: boolean;
 };
 
 /** [before, after]. */
@@ -132,7 +137,7 @@ export async function repairPsnLists(psn: PsnApi, externalIds: string[], options
   const titlesOf = new Map<string, PsnTitle[] | "private">();
   const out: ListRepair[] = [];
   for (const externalId of externalIds) {
-    out.push(await repairOne(psn, externalId, now, options.dryRun ?? false, titlesOf));
+    out.push(await repairOne(psn, externalId, now, options.dryRun ?? false, options.force ?? false, titlesOf));
   }
   return out;
 }
@@ -142,6 +147,7 @@ async function repairOne(
   externalId: string,
   now: Date,
   dryRun: boolean,
+  force: boolean,
   titlesOf: Map<string, PsnTitle[] | "private">,
 ): Promise<ListRepair> {
   const report: ListRepair = { externalId, status: "unchanged", rows: emptyRows(), trophyCount: [0, 0], users: [], warnings: [] };
@@ -170,6 +176,14 @@ async function repairOne(
   const sony = await psn.getTrophies(reader.externalId, externalId, serviceName);
   if (sony === "private") return { ...report, status: "unreadable", reason: "the reading account's trophies are private" };
   if (sony.length === 0) return { ...report, status: "unreadable", reason: "Sony returned no trophies" };
+  // Without Sony's counts only the icons could judge the answer: not enough unless forced.
+  if (!knownCounts(title?.trophyCounts) && !force) {
+    return {
+      ...report,
+      status: "unreadable",
+      reason: "Sony's defined counts for this list are unknown (the reading account's title list does not show it); --force judges the answer by its icons only",
+    };
+  }
   const problem = definitionsProblem(externalId, title?.trophyCounts ?? null, sony);
   if (problem) return { ...report, status: "unreadable", reason: `Sony's answer is not this list's: ${problem}` };
   report.trophyCount = [list.trophyCount, sony.length];
@@ -217,7 +231,10 @@ async function repairOne(
       for (const h of holders) staleBefore.set(h.id, await staleEntries(tx, h.id, list.gameId));
       await applyPlan(tx, list, p);
       await tx.trophyList.update({ where: { id: list.id }, data: { trophyCount: sony.length } });
-      for (const h of holders) await settleHolder(tx, h.id, list, sony.length, now);
+      for (const h of holders) {
+        const below = await settleHolder(tx, h.id, list, sony.length, now);
+        if (below) report.warnings.push(`${h.handle}: completion kept (sticky) at ${below.unlocked}/${below.count} trophies: judge it by hand`);
+      }
       // The replaced rows, detached for the settle above (which voided their entries), go.
       await tx.achievement.deleteMany({ where: { id: { in: p.replaces.map((r) => r.row.id) }, listId: null } });
       const after = await numbersOf(tx, list.id, holders.map((h) => h.id));
@@ -344,9 +361,10 @@ async function applyPlan(tx: Prisma.TransactionClient, list: { id: string; gameI
 }
 
 /**
- * The holder's progress on the list against Sony's count (as the sync computes it: complete when
- * every trophy is unlocked and none is suspicious; a stored completion stays while that holds),
- * the game's UserGame on PSN, then the game's XP (settleListXp).
+ * The holder's progress on the list against Sony's count, as the sync computes it: complete when
+ * every trophy is unlocked; a completion is sticky (trophies added later do not undo it) and only a
+ * suspicious unlock in the list clears it. Then the game's UserGame on PSN and its XP
+ * (settleListXp). Returns the counts when a kept completion is now below 100%.
  */
 async function settleHolder(
   tx: Prisma.TransactionClient,
@@ -354,17 +372,18 @@ async function settleHolder(
   list: { id: string; gameId: string },
   trophyCount: number,
   now: Date,
-) {
+): Promise<{ unlocked: number; count: number } | null> {
   const unlocks = await tx.userAchievement.findMany({
     where: { userId, achievement: { listId: list.id } },
     select: { unlockedAt: true, suspicious: true, hardcore: true },
   });
   const prior = await tx.userTrophyList.findUnique({ where: { userId_listId: { userId, listId: list.id } }, select: { completedAt: true } });
-  const complete = unlocks.length > 0 && unlocks.length >= trophyCount && unlocks.every((u) => !u.suspicious);
+  const complete = unlocks.length > 0 && unlocks.length >= trophyCount;
+  const latest = () => new Date(Math.max(...unlocks.map((u) => u.unlockedAt.getTime())));
   const progress = {
     unlockedCount: unlocks.length,
     hardcoreCount: unlocks.filter((u) => u.hardcore).length,
-    completedAt: complete ? (prior?.completedAt ?? new Date(Math.max(...unlocks.map((u) => u.unlockedAt.getTime())))) : null,
+    completedAt: unlocks.some((u) => u.suspicious) ? null : (prior?.completedAt ?? (complete ? latest() : null)),
   };
   await tx.userTrophyList.upsert({
     where: { userId_listId: { userId, listId: list.id } },
@@ -377,6 +396,7 @@ async function settleHolder(
   await tx.userGame.updateMany({ where: { userId, gameId: list.gameId, platform: "psn" }, data: { unlockedCount } });
   await refreshGameCompletion(tx, userId, "psn", list.gameId);
   await settleListXp(tx, userId, "psn", [list.gameId], now);
+  return progress.completedAt && !complete ? { unlocked: unlocks.length, count: trophyCount } : null;
 }
 
 /**

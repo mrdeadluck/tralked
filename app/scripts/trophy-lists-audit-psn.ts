@@ -21,7 +21,7 @@ const { values } = parseArgs({ options: { user: { type: "string" } } });
 const db = requireDatabaseUrl();
 const npsso = readKeys().get("PSN_NPSSO");
 if (!npsso) {
-  console.error("No PSN_NPSSO in C:\projetos\Nova pasta\.env.chaves.");
+  console.error("No PSN_NPSSO in C:\\projetos\\Nova pasta\\.env.chaves.");
   process.exit(2);
 }
 
