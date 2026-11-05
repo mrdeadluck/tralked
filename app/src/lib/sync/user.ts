@@ -295,9 +295,10 @@ async function recordGame(
  * without it (rtime_last_played 0: Phantom Blade Zero for a player with 18 h, 2026-11-03), and the
  * profile's "Jogou recentemente" then left them out. Without Steam's date: hours that grew since the
  * last sync mean it was played now; otherwise the stored date stays (the achievements pass may have
- * set it from the newest unlock, see recordGame), so a sync never erases a date. A borrowed game
- * (`recent`: only GetRecentlyPlayedGames lists it) seen with hours for the first time was played in
- * the last two weeks, and "now" is the closest date there is.
+ * set it from the newest unlock, see recordGame), so a sync never erases a date. Hours in the last
+ * two weeks (playtime_2weeks) also mean it was played within them: without a stored date from those
+ * two weeks, "now" is the closest date there is (Castlevania: Belmont's Curse for a player with
+ * 307 min in two weeks and no Steam date, 2026-11-05; borrowed games, which never carry one).
  */
 function lastPlayedOf(
   steamDate: Date | null,
@@ -305,13 +306,16 @@ function lastPlayedOf(
   playtimeMin: number,
   playtimeKnown: boolean,
   now: Date,
-  recent = false,
+  playtime2WeeksMin = 0,
 ): Date | null {
   if (steamDate) return steamDate;
   const grew = playtimeKnown && before?.playtimeUpdatedAt != null && playtimeMin > before.playtimeMin;
-  const firstRecent = recent && before?.playtimeUpdatedAt == null;
-  return grew || firstRecent ? now : (before?.lastPlayedAt ?? null);
+  const stored = before?.lastPlayedAt ?? null;
+  const playedLately = playtime2WeeksMin > 0 && (!stored || stored.getTime() < now.getTime() - TWO_WEEKS_MS);
+  return grew || playedLately ? now : stored;
 }
+
+const TWO_WEEKS_MS = 14 * 86_400_000;
 
 /** What the library sync knows of an owned game. */
 type LibraryEntry = { gameId: string; checkedPlaytimeMin: number | null };
@@ -367,7 +371,14 @@ async function recordLibrary(
     const fields = {
       playtimeMin,
       playtime2WeeksMin: game.playtime2WeeksMin ?? null,
-      lastPlayedAt: lastPlayedOf(game.lastPlayedAt ?? null, before, playtimeMin, playtimeKnown, now, game.recent),
+      lastPlayedAt: lastPlayedOf(
+        game.lastPlayedAt ?? null,
+        before,
+        playtimeMin,
+        playtimeKnown,
+        now,
+        game.playtime2WeeksMin ?? 0,
+      ),
       playtimeUpdatedAt: now,
     };
     if (!before) {
@@ -446,7 +457,7 @@ async function recentBorrowed(steam: SteamApi, steamId: string, owned: SteamOwne
     const listed = new Set(owned.map((g) => g.appId));
     return recent
       .filter((g) => !listed.has(g.appId) && g.playtimeMin > 0)
-      .map((g) => ({ ...g, lastPlayedAt: null, recent: true }));
+      .map((g) => ({ ...g, lastPlayedAt: null }));
   } catch (error) {
     console.warn(`Sync: could not read the recently played Steam games of ${steamId}`, error);
     return [];

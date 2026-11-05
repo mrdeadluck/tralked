@@ -15,11 +15,6 @@ export type SteamOwnedGame = {
   playtime2WeeksMin?: number;
   /** `rtime_last_played`; null when Steam does not say (0). */
   lastPlayedAt?: Date | null;
-  /**
-   * Listed by GetRecentlyPlayedGames (played in the last two weeks) though not by GetOwnedGames:
-   * a game played through Family Sharing. Steam gives no date for it.
-   */
-  recent?: boolean;
 };
 
 export type SteamSchemaLang = "english" | "brazilian";

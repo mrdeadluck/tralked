@@ -60,6 +60,8 @@ type FakeGame = {
   name?: string | null;
   /** Steam's rtime_last_played (absent: Steam gives none, as for Phantom Blade Zero on 2026-11-03). */
   lastPlayedAt?: Date;
+  /** Steam's playtime_2weeks (absent: 0). */
+  playtime2WeeksMin?: number;
 };
 
 type FakeSteam = {
@@ -96,6 +98,7 @@ function fakeSteam(games: Record<number, FakeGame>): FakeSteam {
         // Steam's include_appinfo name; `null` plays an app Steam lists without one.
         ...(g.name !== null && { name: g.name ?? `Jogo de Teste ${appId}` }),
         playtimeMin: g.playtimeMin ?? 600,
+        playtime2WeeksMin: g.playtime2WeeksMin ?? 0,
         lastPlayedAt: g.lastPlayedAt ?? null,
       }));
     },
@@ -912,6 +915,43 @@ describe.skipIf(!reachable)("syncUser", () => {
     await syncUser(user.id);
     expect((await rowOf(noDate)).lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
     expect((await getRecentlyPlayed(user.id))[0].name).toBe(`Jogo de Teste ${noDate}`);
+  });
+
+  it("a game without a Steam date but with hours in the last two weeks is dated now, once per two weeks", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { getRecentlyPlayed } = await import("@/lib/library/queries");
+    // Castlevania: Belmont's Curse for a player on 2026-11-05: 1,939 min, 307 in two weeks, no
+    // rtime_last_played, hours unchanged since the last sync (so its achievements are not re-read).
+    const recent = newAppId();
+    const old = newAppId();
+    const fake = fakeSteam({
+      [recent]: { pcts: pctsOf(2), playtimeMin: 1939, unlocks: {} },
+      [old]: { pcts: pctsOf(2), playtimeMin: 600, unlocks: {} },
+    });
+    steamState.api = fake.api;
+    const user = await newUser();
+    const rowOf = async (appId: number) => {
+      const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+      return prisma.userGame.findUniqueOrThrow({
+        where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
+      });
+    };
+    await syncUser(user.id);
+    expect((await rowOf(recent)).lastPlayedAt).toBeNull();
+
+    fake.games.get(recent)!.playtime2WeeksMin = 307;
+    const startedAt = Date.now();
+    await syncUser(user.id);
+    const dated = (await rowOf(recent)).lastPlayedAt!;
+    expect(dated.getTime()).toBeGreaterThanOrEqual(startedAt - 1000);
+    // No hours in the last two weeks and no date: nothing to go on.
+    expect((await rowOf(old)).lastPlayedAt).toBeNull();
+    expect((await getRecentlyPlayed(user.id))[0].name).toBe(`Jogo de Teste ${recent}`);
+
+    // Still within the two weeks: the date is not moved on every sync.
+    await syncUser(user.id);
+    expect((await rowOf(recent)).lastPlayedAt).toEqual(dated);
   });
 
   it("asks once about games other players own that Steam leaves out of the list (Family Sharing)", async () => {
