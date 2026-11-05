@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseStoreReviews } from "@/lib/integrations/steam/store";
 import { steamReviewLabel } from "./steam-reviews";
 
+// Parsing the store's review totals (GetItems summary_filtered) is covered in
+// lib/integrations/steam/store.test.ts.
 describe("steamReviewLabel", () => {
   it("follows the store's thresholds", () => {
     expect(steamReviewLabel(9_600, 10_000)).toBe("Extremamente positivas");
@@ -14,13 +15,5 @@ describe("steamReviewLabel", () => {
     expect(steamReviewLabel(50, 1_000)).toBe("Extremamente negativas");
     expect(steamReviewLabel(3, 20)).toBe("Negativas");
     expect(steamReviewLabel(4, 4)).toBe("4 análises");
-  });
-
-  it("reads the totals of an appreviews answer", () => {
-    expect(parseStoreReviews({ success: 1, query_summary: { total_positive: 90, total_negative: 10, total_reviews: 100 } })).toEqual({
-      positive: 90,
-      total: 100,
-    });
-    expect(parseStoreReviews({ success: 2 })).toBeNull();
   });
 });
