@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { RetroCatalogApi } from "@/lib/integrations/retro/catalog";
+import { ensureTrophyList } from "@/lib/trophies/lists";
 
 /**
  * RetroAchievements achievement lists, read on demand (item 15): the RetroCatalogGame import only
@@ -11,7 +12,13 @@ import type { RetroCatalogApi } from "@/lib/integrations/retro/catalog";
  * request to RA.
  */
 
-type SetRow = { id: number; achievementCount: number; setModifiedAt: Date | null; achievementsSyncedAt: Date | null };
+type SetRow = {
+  id: number;
+  title: string;
+  consoleName: string;
+  achievementCount: number; setModifiedAt: Date | null;
+  achievementsSyncedAt: Date | null;
+};
 
 const due = (r: SetRow) =>
   r.achievementCount > 0 &&
@@ -24,7 +31,7 @@ async function setsOf(gameId: string): Promise<SetRow[]> {
   if (ids.length === 0) return [];
   return prisma.retroCatalogGame.findMany({
     where: { id: { in: ids } },
-    select: { id: true, achievementCount: true, setModifiedAt: true, achievementsSyncedAt: true },
+    select: { id: true, title: true, consoleName: true, achievementCount: true, setModifiedAt: true, achievementsSyncedAt: true },
   });
 }
 
@@ -64,7 +71,7 @@ export async function syncRetroAchievements(
     try {
       const list = await api.getGameAchievements(set.id);
       if (list === null) throw new Error(`RetroAchievements game ${set.id} not found`);
-      result.written += await writeSet(gameId, list);
+      result.written += await writeSet(gameId, set, list);
       result.sets++;
     } catch (error) {
       result.failed++;
@@ -78,6 +85,7 @@ export async function syncRetroAchievements(
 /** Writes the set's Achievement rows like the RA player sync does; returns how many were new or changed. */
 async function writeSet(
   gameId: string,
+  set: SetRow,
   list: { id: string; name: string; description: string | null; iconUrl: string | null; points: number; rarityPct: number | null }[],
 ): Promise<number> {
   const fields = (a: (typeof list)[number]) => ({
@@ -87,13 +95,28 @@ async function writeSet(
     points: a.points,
     globalPct: a.rarityPct,
   });
+  const trophyList = await ensureTrophyList(prisma, {
+    gameId,
+    platform: "retro",
+    externalId: String(set.id),
+    console: set.consoleName,
+    name: set.title,
+    trophyCount: list.length,
+  });
+  // Rows a player's sync wrote before lists existed take this set's list (RA ids are unique across sets).
+  await prisma.achievement.updateMany({
+    where: { gameId, platform: "retro", listId: null, apiName: { in: list.map((a) => a.id) } },
+    data: { listId: trophyList.id },
+  });
   const existing = await prisma.achievement.findMany({
-    where: { gameId, platform: "retro", apiName: { in: list.map((a) => a.id) } },
+    where: { listId: trophyList.id, apiName: { in: list.map((a) => a.id) } },
     select: { id: true, apiName: true, name: true, description: true, iconUrl: true, points: true, globalPct: true },
   });
   const byApiName = new Map(existing.map((r) => [r.apiName, r]));
   const created = await prisma.achievement.createMany({
-    data: list.filter((a) => !byApiName.has(a.id)).map((a) => ({ gameId, platform: "retro", apiName: a.id, ...fields(a) })),
+    data: list
+      .filter((a) => !byApiName.has(a.id))
+      .map((a) => ({ gameId, platform: "retro", listId: trophyList.id, apiName: a.id, ...fields(a) })),
     skipDuplicates: true,
   });
   let changed = 0;

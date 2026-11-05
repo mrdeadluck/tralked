@@ -2,6 +2,7 @@ import { Prisma, type Game } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getIgdb, getRawg, getSgdb, getSteam, mapToSkills } from "@/lib/integrations";
 import { IgdbRateLimitError } from "@/lib/integrations/igdb/client";
+import { ensureTrophyList } from "@/lib/trophies/lists";
 import { isPlaceholderName, placeholderSteamName, slugAfterPlaceholder } from "./steam-games";
 
 const IGDB_COVER_URL = "https://images.igdb.com/igdb/image/upload/t_cover_big";
@@ -118,7 +119,21 @@ export async function syncGame(appId: number): Promise<Game | null> {
         });
       }
 
-      const rows = await tx.achievement.findMany({ where: { gameId: game.id, platform: "steam" } });
+      const storedList = await tx.trophyList.findUnique({
+        where: { platform_externalId: { platform: "steam", externalId: String(appId) } },
+        select: { trophyCount: true },
+      });
+      const list = await ensureTrophyList(tx, {
+        gameId: game.id,
+        platform: "steam",
+        externalId: String(appId),
+        console: "PC",
+        name: game.name,
+        trophyCount: schema.length > 0 ? schema.length : (storedList?.trophyCount ?? 0),
+      });
+      await tx.achievement.updateMany({ where: { gameId: game.id, platform: "steam", listId: null }, data: { listId: list.id } });
+
+      const rows = await tx.achievement.findMany({ where: { listId: list.id } });
       const byApiName = new Map(rows.map((r) => [r.apiName, r]));
       const fields = (a: (typeof schema)[number]) => ({
         name: a.name,
@@ -134,7 +149,7 @@ export async function syncGame(appId: number): Promise<Game | null> {
       await tx.achievement.createMany({
         data: schema
           .filter((a) => !byApiName.has(a.apiName))
-          .map((a) => ({ gameId: game.id, platform: "steam", apiName: a.apiName, ...fields(a) })),
+          .map((a) => ({ gameId: game.id, platform: "steam", listId: list.id, apiName: a.apiName, ...fields(a) })),
         skipDuplicates: true,
       });
       for (const a of schema) {
