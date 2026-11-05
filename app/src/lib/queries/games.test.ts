@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
 import { isAlmostComplete, isRealAccount, realRevisions } from "./games";
 
@@ -197,5 +197,79 @@ describe.skipIf(!reachable)("listGames (seeded database)", () => {
     } finally {
       await prisma.game.deleteMany({ where: { slug: { startsWith: tag } } });
     }
+  });
+});
+
+describe.skipIf(!reachable)("catalogWhere (exclusives and with-trophies filters)", () => {
+  const tag = `cw${Date.now().toString(36)}`;
+  type Seed = { key: string; data: Record<string, unknown>; list?: { platform: string; trophyCount: number }; retroLink?: boolean };
+  const seeds: Seed[] = [
+    { key: "ps-both", data: { platforms: ["PLAYSTATION"], consoles: ["ps4", "ps5"], achievementCount: 0 } },
+    { key: "ps-then-steam", data: { platforms: ["PLAYSTATION", "PC"], consoles: ["ps4", "pc"], achievementCount: 12, steamAppId: 910000001 } },
+    { key: "ps3-2007", data: { platforms: ["PLAYSTATION"], consoles: ["ps3"], achievementCount: 0, releaseDate: new Date("2007-06-01T00:00:00Z") } },
+    { key: "ps3-2009", data: { platforms: ["PLAYSTATION"], consoles: ["ps3"], achievementCount: 0, releaseDate: new Date("2009-06-01T00:00:00Z") } },
+    { key: "zelda", data: { platforms: ["NINTENDO"], consoles: ["switch"], achievementCount: 0 } },
+    { key: "pc-epic", data: { platforms: ["PC"], consoles: ["pc"], achievementCount: 0 } },
+    { key: "pc-steam", data: { platforms: ["PC"], consoles: ["pc"], achievementCount: 30, steamAppId: 910000002 } },
+    { key: "ps-list", data: { platforms: ["PLAYSTATION"], consoles: [], achievementCount: 0 }, list: { platform: "psn", trophyCount: 40 } },
+  ];
+  const slugs = async (filter: Parameters<typeof import("./games").catalogWhere>[0]) => {
+    const { prisma } = await import("@/lib/db");
+    const { catalogWhere } = await import("./games");
+    const rows = await prisma.game.findMany({ where: { AND: [{ slug: { startsWith: tag } }, catalogWhere(filter)] }, select: { slug: true } });
+    return rows.map((r) => r.slug.slice(tag.length + 1)).sort();
+  };
+
+  beforeAll(async () => {
+    const { prisma } = await import("@/lib/db");
+    for (const s of seeds) {
+      await prisma.game.create({
+        data: {
+          slug: `${tag}-${s.key}`,
+          name: `${tag} ${s.key}`,
+          ...s.data,
+          ...(s.list
+            ? { trophyLists: { create: { platform: s.list.platform, externalId: `${tag}-${s.key}`, name: s.key, trophyCount: s.list.trophyCount } } }
+            : {}),
+        } as never,
+      });
+    }
+  });
+  afterAll(async () => {
+    const { prisma } = await import("@/lib/db");
+    await prisma.game.deleteMany({ where: { slug: { startsWith: tag } } });
+    await prisma.$disconnect();
+  });
+
+  it("PS4+PS5 game is a PlayStation exclusive", async () => {
+    const got = await slugs({ platform: "PLAYSTATION", exclusive: true });
+    expect(got).toContain("ps-both");
+    expect(got).toContain("ps3-2009");
+    expect(got).not.toContain("zelda");
+  });
+
+  it("a game later on Steam is not exclusive", async () => {
+    expect(await slugs({ platform: "PLAYSTATION" })).toContain("ps-then-steam");
+    expect(await slugs({ platform: "PLAYSTATION", exclusive: true })).not.toContain("ps-then-steam");
+    expect(await slugs({ platform: "PC", exclusive: true })).not.toContain("ps-then-steam");
+  });
+
+  it("a 2007 PS3 game without a known list has no trophies, a 2009 one has", async () => {
+    const got = await slugs({ platform: "PLAYSTATION", withTrophies: true });
+    expect(got).not.toContain("ps3-2007");
+    expect(got).toContain("ps3-2009");
+    expect(got).toContain("ps-both");
+    expect(got).toContain("ps-list");
+  });
+
+  it("Nintendo with trophies returns nothing", async () => {
+    expect(await slugs({ platform: "NINTENDO" })).toEqual(["zelda"]);
+    expect(await slugs({ platform: "NINTENDO", withTrophies: true })).toEqual([]);
+  });
+
+  it("PC filter keeps only games with a Steam appid", async () => {
+    const got = await slugs({ platform: "PC" });
+    expect(got).toEqual(["pc-steam", "ps-then-steam"]);
+    expect(await slugs({ platform: "PC", withTrophies: true })).toEqual(["pc-steam", "ps-then-steam"]);
   });
 });
