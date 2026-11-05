@@ -113,10 +113,28 @@ Este documento é para quem continua o trabalho num chat novo. Leia-o inteiro an
    - apagar a pasta do SDD;
    - limpar o container docker `tralked-rehearsal` (porta 5434, bancos de ensaio) e o banco `gamelog_trophy_shadow`.
 
+## Ordem decidida pelo Lucas em 05/11 (vale sobre a ordem da lista acima)
+
+- **A fase (d) fica para o fim**, depois de (b), (c) e (e).
+- **Três frentes em paralelo, cada uma na sua worktree saída de `origin/main`:**
+  - **Frente (b):** B0 mockup, que espera a aprovação, depois B1, B2, B3 e B4.
+  - **Frente (c):** C1 e C2 já. C3 (botões) só depois do mockup B0 aprovado, porque usa o quadro 3. Depois C4.
+  - **Frente (e):** E0 primeiro (pesquisa e pergunta ao Lucas). Depois do "sim", E1. **E2 só depois que B2 estiver na `main`**, porque mexe na mesma página do jogo.
+- **Regras para as frentes não se atrapalharem:**
+  - Quem implementa nunca roda em paralelo **dentro** da mesma frente.
+  - **Produção sobe em fila, uma frente por vez, na ordem (b), (c), (e).** Cada uma passa por backup, pelo "ok" do Lucas e pela espera da Vercel.
+  - Antes do merge, a frente que vem depois atualiza seu branch com a `main` nova e reroda a suíte.
+  - Migrations (C1, E1): a segunda a subir é refeita em cima da `main` atualizada (timestamp posterior, `prisma migrate deploy` limpo no `gamelog_test`).
+  - **`gamelog_test` é um banco só.** Para as suítes de frentes diferentes não se pisarem, cada frente cria e usa o seu banco: `gamelog_test_b`, `gamelog_test_c` e `gamelog_test_e`, no mesmo container `gamelog-db`, com `prisma migrate deploy`. Antes de cada merge, a suíte roda no `gamelog_test`.
+- **Efeitos de deixar a (d) para o fim, já aceitos pelo Lucas:**
+  - o GTA V da Steam continua num jogo separado das listas PSN;
+  - "Só exclusivos" pode marcar como exclusivo um jogo cujo PC está num duplicado;
+  - duplicados aparecem como duas capas no perfil.
+
 ## Enquanto a fase (b) não entra
 
 A página do jogo e a biblioteca somam todas as listas da PSN num número só. Um jogo com PS4 + PS5 pode mostrar "PLATINA" com porcentagem abaixo de 100%. É esperado: as linhas por versão são a fase (b).
 
 ## Prompt para colar no chat novo
 
-> Continue a unificação de troféus do Tralked. Leia primeiro `C:\projetos\tralked-trophy-lists\docs\handoff-2026-11-05-unificacao-trofeus.md`, depois o ledger em `.superpowers\sdd\2026-11-05-unificacao-trofeus\progress.md` da mesma worktree. A fase (a) está no ar. Siga com a fase (b) a partir da tarefa B0 (mockup para eu aprovar), usando superpowers:subagent-driven-development, e respeite todas as regras do handoff.
+O prompt completo está na resposta do chat de 05/11. Em resumo: ler este handoff e o ledger, deixar a fase (d) para o fim e rodar (b), (c) e (e) em paralelo, conforme a seção "Ordem decidida pelo Lucas".
