@@ -22,7 +22,7 @@ import { SectionHead } from "@/components/ui/SectionHead";
 import { Panel, PANEL_LINK } from "@/components/character/Panel";
 import { RareShowcase } from "@/components/profile/RareShowcase";
 import { getShelfGames } from "@/lib/library/shelf";
-import { getSessionUser } from "@/lib/auth/session";
+import { profileAccess } from "@/lib/profile/access";
 import { ProfileModeration } from "@/components/moderation/ProfileModeration";
 import { canModerate } from "@/lib/moderation/permissions";
 import { pendingDespertar } from "@/lib/character/despertar";
@@ -87,10 +87,11 @@ function SheetSkeleton() {
 }
 
 async function PlayerSheet({ header }: { header: PlayerHeader }) {
-  const viewer = await getSessionUser();
-  const isOwner = viewer?.id === header.id;
+  // Visibility read fresh, as on the other tabs: the cached header can still say "public" for
+  // minutes after a sync outside Next (the GitHub import worker) found the Steam profile private.
+  const { viewer, isOwner, visible } = await profileAccess(header);
 
-  if (!header.profilePublic && !isOwner) {
+  if (!visible) {
     return (
       <Card className="mx-auto max-w-xl text-center">
         <span className="tk-lbl">Personagem</span>
