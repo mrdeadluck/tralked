@@ -21,7 +21,7 @@ const SLUG_PREFIX = "test-resolve-";
 describe.skipIf(!reachable)("resolvePlatformGame", () => {
   async function cleanup() {
     const { prisma } = await import("@/lib/db");
-    await prisma.game.deleteMany({ where: { slug: { startsWith: SLUG_PREFIX } } });
+    await prisma.game.deleteMany({ where: { OR: [{ slug: { startsWith: SLUG_PREFIX } }, { name: { endsWith: " Console Resolve" } }] } });
     await prisma.gamePlatformLink.deleteMany({ where: { externalId: { startsWith: "TESTRESOLVE_" } } });
   }
 
@@ -70,5 +70,20 @@ describe.skipIf(!reachable)("resolvePlatformGame", () => {
     await game("Jogo Duplo Resolve!", true);
     await game("Jogo Duplo: Resolve", true);
     expect(await findStubByName("Jogo Duplo Resolve")).toBeNull();
+  });
+
+  it("a PSN-created game is PLAYSTATION with console ps5", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadNameIndex, resolvePlatformGame } = await import("./platform-games");
+    const names = await loadNameIndex();
+    const id = await resolvePlatformGame("psn", title("5", "Jogo Novo Console Resolve"), names, { igdb: false });
+    const created = await prisma.game.findUniqueOrThrow({ where: { id } });
+    expect(created.platforms).toEqual(["PLAYSTATION"]);
+    expect(created.consoles).toEqual(["ps5"]);
+    // Xbox titles name no single console: the family only.
+    const xbox = await resolvePlatformGame("xbox", { externalId: "TESTRESOLVE_6", name: "Jogo Xbox Console Resolve", platformLabel: "Xbox" }, names, { igdb: false });
+    const xboxGame = await prisma.game.findUniqueOrThrow({ where: { id: xbox } });
+    expect(xboxGame.platforms).toEqual(["XBOX"]);
+    expect(xboxGame.consoles).toEqual([]);
   });
 });

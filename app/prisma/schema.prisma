@@ -219,6 +219,9 @@ model Game {
   /// are not asked again for a while (lib/sync/media.ts).
   mediaCheckedAt        DateTime?
   platforms             String[]
+  /// Consoles the game is on, as IGDB platform slugs: ps3 ps4 ps5 psvita xbox360 xboxone series-x-s
+  /// switch pc ... (lib/releases/platforms IGDB_PLATFORM_CONSOLE). Empty when unknown.
+  consoles              String[]  @default([])
   /// Steam achievement count (other platforms count their Achievement rows).
   achievementCount      Int
   /// Last catalog/rarity refresh attempt (success or failure); cron rotates on this.
@@ -270,6 +273,8 @@ model Game {
   /// Catalog listing ("Popular" and "Nome" orders, stubs left out).
   @@index([stub, popularity(sort: Desc), name])
   @@index([stub, name])
+  /// Console filter of /jogos: `consoles && ARRAY[...]` uses the GIN index.
+  @@index([consoles], type: Gin)
 }
 
 /// The game's id on a platform (PSN npCommunicationId, Xbox titleId, RA game id, Steam appid).

@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:generate": "prisma generate",
+    "igdb:consoles": "tsx scripts/igdb-consoles-backfill.ts",
     "trophy-lists:backfill": "tsx scripts/trophy-lists-backfill.ts",
     "trophy-lists:finish": "tsx scripts/trophy-lists-finish.ts",
     "trophy-lists:snapshot": "tsx scripts/trophy-lists-snapshot.ts",

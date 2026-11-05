@@ -1,7 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { IgdbCatalogGame } from "@/lib/integrations/igdb/catalog-types";
-import { familiesOf, familyOfLabel, type ReleasePlatform } from "@/lib/releases/platforms";
+import { consolesOf, familiesOf, familyOfLabel, type ReleasePlatform } from "@/lib/releases/platforms";
 import { slugify } from "./catalog";
 
 // Moved to lib/releases/platforms (client-safe); re-exported for the sync modules.
@@ -20,8 +20,8 @@ import { CATALOG_CREATE_LOCK, ensureSteamGames, steamGameIds } from "./steam-gam
  *    (sameGame); two such games make the name ambiguous and the IGDB game is skipped;
  * 4. otherwise, a name-only stub (name, platforms, IGDB id, first release, cover), out of the
  *    listings until the IGDB details step fills it in (lib/sync/igdb-catalog.ts).
- * Matched games get the IGDB id (when they had none), the platform families and the first release
- * date (when they had none). Creation runs under an advisory lock, so two jobs never create the
+ * Matched games get the IGDB id (when they had none), the platform families, the consoles (IGDB
+ * platform slugs: `Game.consoles`) and the first release date (when they had none). Creation runs under an advisory lock, so two jobs never create the
  * same IGDB game twice.
  */
 
@@ -129,21 +129,22 @@ export function sameGame(
   return igdb.families.some((f) => families.has(f));
 }
 
-/** Writes IGDB id (if missing), platform families and first release (if missing) on matched games. */
-async function enrich(rows: { id: string; igdbId: number; families: string[]; releaseDate: Date | null }[]) {
+/** Writes IGDB id (if missing), platform families, consoles and first release (if missing) on matched games. */
+async function enrich(rows: { id: string; igdbId: number; families: string[]; consoles: string[]; releaseDate: Date | null }[]) {
   for (let i = 0; i < rows.length; i += CHUNK) {
     const part = rows.slice(i, i + CHUNK);
     const values = Prisma.join(
-      part.map((r) => Prisma.sql`(${r.id}, ${r.igdbId}::int, ${r.families}::text[], ${r.releaseDate}::timestamp)`),
+      part.map((r) => Prisma.sql`(${r.id}, ${r.igdbId}::int, ${r.families}::text[], ${r.consoles}::text[], ${r.releaseDate}::timestamp)`),
     );
     await prisma.$executeRaw`
       UPDATE "Game" AS g SET
         "igdbId" = COALESCE(g."igdbId", v.igdb),
         platforms = ARRAY(SELECT DISTINCT p FROM unnest(g.platforms || v.fams) AS p ORDER BY p),
+        consoles = ARRAY(SELECT DISTINCT c FROM unnest(g.consoles || v.cons) AS c ORDER BY c),
         "releaseDate" = COALESCE(g."releaseDate", v.rd)
-      FROM (VALUES ${values}) AS v(id, igdb, fams, rd)
+      FROM (VALUES ${values}) AS v(id, igdb, fams, cons, rd)
       WHERE g.id = v.id
-        AND (g."igdbId" IS NULL OR NOT (g.platforms @> v.fams) OR (g."releaseDate" IS NULL AND v.rd IS NOT NULL))`;
+        AND (g."igdbId" IS NULL OR NOT (g.platforms @> v.fams) OR NOT (g.consoles @> v.cons) OR (g."releaseDate" IS NULL AND v.rd IS NOT NULL))`;
   }
 }
 
@@ -155,6 +156,7 @@ export async function resolveIgdbGames(
   const result: IgdbResolveResult = { ids: new Map(), created: 0, matched: 0, skipped: 0 };
   if (games.length === 0) return result;
   const families = (g: IgdbCatalogGame) => familiesOf(g.platforms, extraFamilies);
+  const consoles = (g: IgdbCatalogGame) => consolesOf(g.platforms);
   const releaseOf = (g: IgdbCatalogGame) =>
     g.firstReleaseDate !== undefined ? new Date(g.firstReleaseDate * 1000) : null;
   const matched: { id: string; game: IgdbCatalogGame }[] = [];
@@ -209,7 +211,7 @@ export async function resolveIgdbGames(
   }
 
   result.matched = matched.length;
-  await enrich(matched.map(({ id, game }) => ({ id, igdbId: game.igdbId, families: families(game), releaseDate: releaseOf(game) })));
+  await enrich(matched.map(({ id, game }) => ({ id, igdbId: game.igdbId, families: families(game), consoles: consoles(game), releaseDate: releaseOf(game) })));
 
   if (!create) {
     result.skipped += unknown.length;
@@ -251,6 +253,7 @@ export async function resolveIgdbGames(
           name: cleanIgdbName(g.name),
           igdbId: g.igdbId,
           platforms: families(g),
+          consoles: consoles(g),
           releaseDate: releaseOf(g),
           coverUrl: g.coverImageId && /^[a-z0-9]+$/i.test(g.coverImageId) ? `${IGDB_COVER_URL}/${g.coverImageId}.jpg` : null,
           achievementCount: 0,
@@ -271,7 +274,7 @@ export async function resolveIgdbGames(
       result.ids.set(igdbId, id);
       result.matched++;
       const game = part.find((g) => g.igdbId === igdbId)!;
-      await enrich([{ id, igdbId, families: families(game), releaseDate: releaseOf(game) }]);
+      await enrich([{ id, igdbId, families: families(game), consoles: consoles(game), releaseDate: releaseOf(game) }]);
     }
     result.created += created.count;
   }
