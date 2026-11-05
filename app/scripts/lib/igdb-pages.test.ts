@@ -47,4 +47,20 @@ describe.skipIf(!reachable)("igdbPageWhere", () => {
     }
     expect(seen.filter((s) => s.startsWith(tag)).sort()).toEqual([0, 1, 2, 3, 4].map((i) => `${tag}-${i}`));
   });
+
+  it("leaves stubs out", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { igdbPageWhere } = await import("./igdb-pages");
+    await prisma.game.createMany({
+      data: [
+        { slug: `${tag}-stub`, name: `${tag} stub`, platforms: ["PC"], achievementCount: 0, igdbId: 2_000_000_001, stub: true },
+        { slug: `${tag}-real`, name: `${tag} real`, platforms: ["PC"], achievementCount: 0, igdbId: 2_000_000_001 },
+      ],
+    });
+    const found = await prisma.game.findMany({ where: { AND: [igdbPageWhere(null), { slug: { startsWith: tag } }] }, select: { slug: true } });
+    expect(found.map((g) => g.slug)).toContain(`${tag}-real`);
+    expect(found.map((g) => g.slug)).not.toContain(`${tag}-stub`);
+    const next = await prisma.game.findMany({ where: { AND: [igdbPageWhere({ igdbId: 2_000_000_000, id: "" }), { slug: { startsWith: tag } }] }, select: { slug: true } });
+    expect(next.map((g) => g.slug)).not.toContain(`${tag}-stub`);
+  });
 });

@@ -86,7 +86,7 @@ describe("Header", () => {
   it("offers an Entrar button to the Tralked login when there is no user (never Steam)", () => {
     render(<Header />);
     expect(screen.getByRole("link", { name: "Entrar" })).toHaveAttribute("href", "/entrar?returnTo=%2Fjogador%2Fme");
-    // ("Steam / PC" in the Jogos menu is a catalog filter, not a way in.)
+    // ("PC · Steam" in the Jogos menu is a catalog filter, not a way in.)
     expect(screen.queryByRole("link", { name: /Steam/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Steam/ })).not.toBeInTheDocument();
   });
@@ -161,7 +161,7 @@ describe("Header", () => {
       ["Guias 100%", "/jogos?guia=1"],
     ] as const;
     const PLATFORMS = [
-      ["Steam / PC", "/jogos?plataforma=PC"],
+      ["PC · Steam", "/jogos?plataforma=PC"],
       ["PlayStation", "/jogos?plataforma=PLAYSTATION"],
       ["Xbox", "/jogos?plataforma=XBOX"],
       ["Nintendo", "/jogos?plataforma=NINTENDO"],

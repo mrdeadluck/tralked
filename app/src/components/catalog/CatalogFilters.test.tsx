@@ -81,6 +81,27 @@ describe("CatalogFilters", () => {
     expect(group.getByRole("button", { name: "Só exclusivos" })).not.toHaveAttribute("aria-disabled");
   });
 
+  it("Só exclusivos is disabled on Retro with a hint; trophies stay clickable; links stay nofollow", () => {
+    setup("todos", "RETRO", { exclusive: true });
+    const group = within(screen.getAllByRole("group", { name: "Recortes do catálogo" })[0]);
+    const exclusive = group.getByRole("button", { name: "Só exclusivos" });
+    expect(exclusive).toHaveAttribute("aria-disabled", "true");
+    expect(exclusive).not.toHaveAttribute("href");
+    expect(exclusive).toHaveAttribute("aria-describedby");
+    expect(screen.getAllByText("Exclusivos valem para PC, PlayStation, Xbox e Nintendo.").length).toBeGreaterThan(0);
+    const trophies = group.getByRole("button", { name: "Só com troféus" });
+    expect(trophies).not.toHaveAttribute("aria-disabled");
+    expect(trophies).toHaveAttribute("rel", "nofollow");
+    expect(screen.queryByText("Jogos da Nintendo não têm troféus nem conquistas.")).not.toBeInTheDocument();
+  });
+
+  it("the toggle links carry rel=nofollow", () => {
+    setup("todos", "PC");
+    const group = within(screen.getAllByRole("group", { name: "Recortes do catálogo" })[0]);
+    expect(group.getByRole("button", { name: "Só exclusivos" })).toHaveAttribute("rel", "nofollow");
+    expect(group.getByRole("button", { name: "Só com troféus" })).toHaveAttribute("rel", "nofollow");
+  });
+
   it("the toggles group looks like the other chip groups (no accent outline)", () => {
     setup();
     const toggles = screen.getAllByRole("group", { name: "Recortes do catálogo" })[0];

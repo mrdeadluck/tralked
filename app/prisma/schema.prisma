@@ -273,8 +273,6 @@ model Game {
   /// Catalog listing ("Popular" and "Nome" orders, stubs left out).
   @@index([stub, popularity(sort: Desc), name])
   @@index([stub, name])
-  /// Console filter of /jogos: `consoles && ARRAY[...]` uses the GIN index.
-  @@index([consoles], type: Gin)
 }
 
 /// The game's id on a platform (PSN npCommunicationId, Xbox titleId, RA game id, Steam appid).
