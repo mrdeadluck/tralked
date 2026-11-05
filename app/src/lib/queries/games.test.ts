@@ -211,6 +211,12 @@ describe.skipIf(!reachable)("catalogWhere (exclusives and with-trophies filters)
     { key: "zelda", data: { platforms: ["NINTENDO"], consoles: ["switch"], achievementCount: 0 } },
     { key: "pc-epic", data: { platforms: ["PC"], consoles: ["pc"], achievementCount: 0 } },
     { key: "pc-steam", data: { platforms: ["PC"], consoles: ["pc"], achievementCount: 30, steamAppId: 910000002 } },
+    { key: "vita", data: { platforms: ["PLAYSTATION"], consoles: ["psvita"], achievementCount: 0 } },
+    { key: "x360", data: { platforms: ["XBOX"], consoles: ["xbox360"], achievementCount: 0 } },
+    { key: "xone", data: { platforms: ["XBOX"], consoles: ["xboxone"], achievementCount: 0 } },
+    { key: "xbox-list", data: { platforms: ["XBOX"], consoles: [], achievementCount: 0 }, list: { platform: "xbox", trophyCount: 20 } },
+    { key: "xbox-empty-list", data: { platforms: ["XBOX"], consoles: [], achievementCount: 0 }, list: { platform: "xbox", trophyCount: 0 } },
+    { key: "retro-only", data: { platforms: ["Mega Drive"], consoles: [], achievementCount: 0 }, retroLink: true },
     { key: "ps-list", data: { platforms: ["PLAYSTATION"], consoles: [], achievementCount: 0 }, list: { platform: "psn", trophyCount: 40 } },
   ];
   const slugs = async (filter: Parameters<typeof import("./games").catalogWhere>[0]) => {
@@ -231,6 +237,7 @@ describe.skipIf(!reachable)("catalogWhere (exclusives and with-trophies filters)
           ...(s.list
             ? { trophyLists: { create: { platform: s.list.platform, externalId: `${tag}-${s.key}`, name: s.key, trophyCount: s.list.trophyCount } } }
             : {}),
+          ...(s.retroLink ? { platformLinks: { create: { platform: "retro", externalId: `${tag}-${s.key}` } } } : {}),
         } as never,
       });
     }
@@ -271,5 +278,38 @@ describe.skipIf(!reachable)("catalogWhere (exclusives and with-trophies filters)
     const got = await slugs({ platform: "PC" });
     expect(got).toEqual(["pc-steam", "ps-then-steam"]);
     expect(await slugs({ platform: "PC", withTrophies: true })).toEqual(["pc-steam", "ps-then-steam"]);
+  });
+
+  it("without a platform, exclusive means exactly one of PC / PlayStation / Xbox / Nintendo", async () => {
+    const got = await slugs({ exclusive: true });
+    for (const key of ["ps-both", "zelda", "pc-epic", "pc-steam", "x360"]) expect(got).toContain(key);
+    expect(got).not.toContain("ps-then-steam");
+    expect(got).not.toContain("retro-only");
+  });
+
+  it("exclusive works for Xbox, Nintendo and PC", async () => {
+    const xbox = await slugs({ platform: "XBOX", exclusive: true });
+    expect(xbox).toEqual(expect.arrayContaining(["x360", "xone", "xbox-list"]));
+    expect(xbox).not.toContain("ps-both");
+    expect(await slugs({ platform: "NINTENDO", exclusive: true })).toEqual(["zelda"]);
+    expect(await slugs({ platform: "PC", exclusive: true })).toEqual(["pc-steam"]);
+  });
+
+  it("exclusive combines with withTrophies", async () => {
+    const got = await slugs({ platform: "PLAYSTATION", exclusive: true, withTrophies: true });
+    expect(got).toEqual(expect.arrayContaining(["ps-both", "ps3-2009", "vita", "ps-list"]));
+    expect(got).not.toContain("ps-then-steam");
+    expect(got).not.toContain("ps3-2007");
+    const any = await slugs({ exclusive: true, withTrophies: true });
+    expect(any).toContain("ps-both");
+    expect(any).not.toContain("zelda");
+    expect(any).not.toContain("pc-epic");
+  });
+
+  it("psvita and the Xbox consoles / lists with trophies count", async () => {
+    expect(await slugs({ platform: "PLAYSTATION", withTrophies: true })).toContain("vita");
+    const xbox = await slugs({ platform: "XBOX", withTrophies: true });
+    expect(xbox).toEqual(["x360", "xbox-list", "xone"]);
+    expect(xbox).not.toContain("xbox-empty-list");
   });
 });

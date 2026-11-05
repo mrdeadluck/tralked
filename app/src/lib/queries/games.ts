@@ -95,7 +95,7 @@ function withTrophiesOn(platform: string): Prisma.GameWhereInput {
         ],
       };
     case "XBOX":
-      return { OR: [{ consoles: { hasSome: XBOX_ACHIEVEMENT_CONSOLES } }, { trophyLists: { some: { platform: "xbox" } } }] };
+      return { OR: [{ consoles: { hasSome: XBOX_ACHIEVEMENT_CONSOLES } }, { trophyLists: { some: { platform: "xbox", trophyCount: { gt: 0 } } } }] };
     case "PC":
       return { achievementCount: { gt: 0 } };
     case "RETRO":
@@ -110,17 +110,27 @@ function withTrophiesOn(platform: string): Prisma.GameWhereInput {
 /**
  * Where of the catalog filters. `platform` narrows to a family; `exclusive` keeps the games that
  * are on no other family (PS4 + PS5 is still PlayStation only; a later Steam release ends it);
- * `withTrophies` keeps the games with a trophy / achievement list. Without a platform the two
- * flags look across every family.
+ * `withTrophies` keeps the games with a trophy / achievement list. Without a platform, `exclusive`
+ * means exactly one of PC / PlayStation / Xbox / Nintendo and `withTrophies` looks across every family.
  */
 export function catalogWhere(filter: Pick<GameFilter, "platform" | "exclusive" | "withTrophies">): Prisma.GameWhereInput {
   const { platform, exclusive, withTrophies } = filter;
-  const families = platform ? [platform] : [...EXCLUSIVITY_FAMILIES, "RETRO"];
-  const per = (f: string): Prisma.GameWhereInput => ({
-    AND: [onFamily(f), ...(exclusive ? [exclusiveTo(f)] : []), ...(withTrophies ? [withTrophiesOn(f)] : [])],
-  });
-  if (!platform && !exclusive && !withTrophies) return {};
-  return families.length === 1 ? per(families[0]) : { OR: families.map(per) };
+  if (platform) {
+    return {
+      AND: [onFamily(platform), ...(exclusive ? [exclusiveTo(platform)] : []), ...(withTrophies ? [withTrophiesOn(platform)] : [])],
+    };
+  }
+  const and: Prisma.GameWhereInput[] = [];
+  // No platform: exclusive = counted in exactly one of PC / PlayStation / Xbox / Nintendo (Retro never counts).
+  if (exclusive) {
+    and.push({
+      OR: EXCLUSIVITY_FAMILIES.map((f) => ({
+        AND: [countsAsFamily(f), ...EXCLUSIVITY_FAMILIES.filter((o) => o !== f).map((o) => ({ NOT: countsAsFamily(o) }))],
+      })),
+    });
+  }
+  if (withTrophies) and.push({ OR: [...EXCLUSIVITY_FAMILIES, "RETRO"].map((f) => ({ AND: [onFamily(f), withTrophiesOn(f)] })) });
+  return and.length ? { AND: and } : {};
 }
 
 export type GameCard = {
