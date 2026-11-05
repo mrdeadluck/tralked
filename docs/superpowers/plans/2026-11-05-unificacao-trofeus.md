@@ -113,6 +113,16 @@
 
 ## Global Constraints
 
+- **Base:** `origin/main` em `40bab5e` (rebase de 05/11). A suíte tinha 1.915/1.915 antes de qualquer tarefa. Comportamento da `main` de 05/11 que **não muda**:
+  - **Steam (`lib/sync/user.ts`):**
+    - jogos do Compartilhamento Familiar entram pelo `GetRecentlyPlayedGames` (`recentBorrowed`);
+    - um jogo sem data com horas nas 2 últimas semanas recebe "agora" (`lastPlayedOf`);
+    - `getRecentlyPlayedGames` e o 403 de `GetGlobalAchievementPercentages` = sem dados (`integrations/steam/client.ts`).
+  - **Xbox:** timeout de 20 s (`XBOX_FETCH_TIMEOUT_MS`, `integrations/http.ts`).
+  - **Banco:** `lib/db-url.ts` (`sslmode=verify-full`) em `lib/db.ts`. Os scripts novos usam o mesmo `prisma` de `lib/db`.
+  - **Perfil:** `ProfileSummary.backdropUrls` (`lib/profile/backdrops.ts`) + `ProfileBackdrop` alternando os 3 últimos jogos; `profileAccess` (`lib/profile/access.ts`) devolve também o `viewer`.
+  - **Página do jogo e guia:** caixa do logotipo em 620px (`.gps-logo` em `BookletSpread.tsx`, `.wk-logo` em `walk.css`) e logotipos recortados em `app/public/logos/` (`Game.logoUrl` = `/logos/...`).
+  - **SEO:** `lib/seo/robots.ts` + `app/robots.ts` bloqueiam `/forum/` e `/galeria?jogo=`, e liberam as seções do fórum com tópicos, lidas de `forumIndexCached()`.
 - Steam: nenhuma mudança em `lib/sync/user.ts` além do necessário para compilar. Contagem de `UserAchievement` Steam e soma do XP Steam (ledger `platform IS NULL`, `source IN (achievement, platinum)`) idênticas antes e depois de cada fase. É conferido por `scripts/trophy-lists-snapshot.ts`.
 - Visual: grafite + verde-limão, cantos `tk-cut*`, telas densas. Nenhuma cor nova sem perguntar ao Lucas. Mockup (artifact) aprovado **antes** das tarefas de tela B1–B4 e C3.
 - Texto da interface em português do Brasil. Rótulos fixos deste plano: "Platinas (contam no XP)", "Listas regionais extras", "Jogos", "Nível", "Só exclusivos", "Só com troféus", "PC · Steam", "Outras edições", "`N` listas · conta 1", "Lista 1", "🇯🇵 Ásia", "🇰🇷 Ásia".
@@ -452,7 +462,7 @@
 **Files:**
 - Create: `app/src/components/game/VersionRows.tsx` + `.test.tsx`, `app/src/components/game/VersionTabs.tsx` + `.test.tsx`
 - Modify:
-  - `app/src/components/game/BookletSpread.tsx` (`BookletProgress`): `VersionRows` entra no lugar de `PlatformProgressSwitch`, e o disco mostra a melhor versão.
+  - `app/src/components/game/BookletSpread.tsx` (`BookletProgress`): `VersionRows` entra no lugar de `PlatformProgressSwitch`, e o disco mostra a melhor versão. A caixa `.gps-logo` (620px) e os logotipos de `/logos/` ficam como estão.
   - `app/src/app/jogos/[slug]/page.tsx`: `VersionTabs` logo abaixo da área de progresso; a parte do usuário fica dentro do `Suspense` que já existe.
   - `app/src/lib/queries/game-profile.ts`: `GameProfile.versions: GameVersion[]`; `getPlayerGamePlatforms` devolve também `versions`.
 
@@ -470,7 +480,7 @@
 - Modify:
   - `app/src/lib/library/queries.ts`: `LibraryGame.versions: { label: string; pct: number | null; platinum: boolean; regions: number }[]`, via `TrophyList`/`UserTrophyList` (Steam pelo `UserGame`).
   - `app/src/app/jogador/[handle]/jogos/page.tsx`: a grade é a vista principal, e a lista atual fica como alternativa se o mockup aprovado mantiver.
-  - `app/src/lib/profile/queries.ts`: `ProfileSummary` ganha `platinums`, `regionalExtras` e `gamesCount`.
+  - `app/src/lib/profile/queries.ts`: `ProfileSummary` ganha `platinums`, `regionalExtras` e `gamesCount`. O `backdropUrls` e o `ProfileBackdrop` não mudam, e o acesso continua por `profileAccess`.
   - `app/src/components/profile/ProfileHeader.tsx`: os quatro contadores.
 
 - [ ] **Step 1: Testes** (FAIL):
@@ -580,13 +590,19 @@
   ```
 - Create: `app/prisma/migrations/20261110090000_game_redirects_editions/migration.sql`
 - Modify: `app/src/app/jogos/[slug]/page.tsx`, `jogos/[slug]/guia/page.tsx` e `metadata.ts`. Quando o slug não existe, procuram `GameSlugRedirect` e chamam `permanentRedirect` para `/jogos/<novo>` (mantendo o subcaminho). Também o `generateMetadata`.
+- Modify, para manter o SEO coerente com `lib/seo/robots.ts`:
+  - `app/src/app/forum/[categoria]/page.tsx`: um segmento que não é seção, mas é slug redirecionado, vai para `/forum/<novo>`;
+  - `app/src/app/galeria/page.tsx`: `?jogo=<antigo>` → `?jogo=<novo>`.
+  - Os dois continuam bloqueados para buscadores pela regra `/forum/` e `/galeria?jogo=`. A seção do jogo que fica entra na lista liberada pelo `forumIndexCached()` quando os tópicos chegam a ela.
 - Create: `app/src/lib/catalog/redirects.ts` (`resolveSlugRedirect(slug): Promise<string | null>`) + `.db.test.ts`
 - Modify: página do jogo, com a seção "Outras edições" (links para os `GameEdition` dos dois lados, no visual atual de link de seção).
 
 - [ ] **Step 1: Testes** (FAIL):
   - `old slug redirects to the kept game`;
   - `guia subpath keeps its path`;
-  - `unknown slug still 404s`.
+  - `unknown slug still 404s`;
+  - `forum section of an old slug redirects to the kept game's section`;
+  - `gallery filter of an old slug redirects`.
 - [ ] **Step 2:** Implementar, PASS, commit `feat(catalog): slug redirects and other editions`.
 
 ### Task D2: Relatório de candidatos a duplicado (sem mudar nada)
@@ -675,6 +691,10 @@
   - nenhuma linha órfã.
 - [ ] **Step 2: Parar e mandar ao Lucas** o que o ensaio mostrou (jogos juntados, linhas movidas, XP antes → depois) e esperar o "ok".
 - [ ] **Step 3:** Backup novo, `migrate deploy` (D1), merge `--no-ff`, push e espera do Vercel. Só então `pnpm games:merge --file …` em produção.
+- [ ] **Step 4:** Atualizar o cache do fórum e do jogo.
+  - O script não roda dentro do Next, então a atualização sai por uma rota protegida que já exista. O executor procura em `lib/community/cached.ts` a tag do índice do fórum e verifica se alguma rota `/api/cron/*` já revalida.
+  - Se não houver rota, a espera é o `cacheLife` vencer.
+  - Depois, conferir no `/robots.txt` de produção que a seção `/forum/<slug que fica>` está liberada quando tem tópicos e que nenhum slug apagado ficou liberado.
 
 ### Task D5: Limpeza da estrutura antiga (etapa 6)
 
