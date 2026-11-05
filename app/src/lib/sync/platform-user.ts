@@ -163,17 +163,20 @@ async function recordTitle(
     const listGameId = list.gameId;
     // List-less rows of the game written before trophy lists are this list's own rows (kept in
     // place, ids and ledger keys too) when the game has only this list on the platform (one PSN
-    // `NPWR` link; one Xbox/RA link) and always on RetroAchievements, whose ids are unique across
-    // sets (as the game page's writer does, lib/sync/retro-achievements.ts). Rows of a game with
-    // several lists mixed those lists' trophies: they stay as they are (the phase finish removes
-    // them) and the list gets rows of its own.
+    // `NPWR` link; one Xbox/RA link, and it is this title's) and always on RetroAchievements, whose
+    // ids are unique across sets (as the game page's writer does, lib/sync/retro-achievements.ts).
+    // Rows of a game with several lists mixed those lists' trophies, and rows of a game whose one
+    // list link is another title are that title's: they stay as they are (the phase finish removes
+    // the former) and the list gets rows of its own.
     const listLinks =
       platform === "retro"
-        ? 1
-        : await tx.gamePlatformLink.count({
+        ? [{ externalId: title.externalId }]
+        : await tx.gamePlatformLink.findMany({
             where: { gameId: listGameId, platform, ...(platform === "psn" && { externalId: { startsWith: "NPWR" } }) },
+            select: { externalId: true },
+            take: 2,
           });
-    if (listLinks === 1) {
+    if (listLinks.length === 1 && listLinks[0].externalId === title.externalId) {
       const own = await tx.achievement.findMany({ where: { listId: list.id }, select: { apiName: true } });
       const held = new Set(own.map((r) => r.apiName));
       await tx.achievement.updateMany({
@@ -542,8 +545,9 @@ async function rememberTitles(
 /**
  * Per-title progress already in the database, keyed by the platform's title id: the counts of the
  * user's UserTrophyList of that list (with the listed counts remembered for it, see
- * StoredProgress.listed); a list without one of a game that has per-list progress gets no entry
- * (read once); a title of a game recorded only before trophy lists, the counts remembered for it
+ * StoredProgress.listed); a list without one of a game that has per-list progress, or of a game
+ * whose unlocks are still on list-less rows only, gets no entry (read once); a title of a game
+ * recorded only before trophy lists, the counts remembered for it
  * when it was last recorded (a game with several lists), else its game's UserGame unlock count
  * (and, for RetroAchievements, the game's hardcore unlock count). Persistent, so a run cut short
  * by the budget resumes where it stopped.
@@ -564,7 +568,10 @@ async function storedProgress(
     }),
   ]);
   if (games.length === 0 && lists.length === 0 && remembered.size === 0) return new Map();
-  const [links, hardcore] = await Promise.all([
+  // A game with per-list progress counts by list only: its game count adds every list up, so a
+  // list of it without progress yet has no entry and is read (once: reading it records its row).
+  const onLists = new Set(lists.map((p) => p.list.gameId));
+  const [links, hardcore, listless] = await Promise.all([
     prisma.gamePlatformLink.findMany({
       where: { platform, gameId: { in: games.map((g) => g.gameId) } },
       select: { gameId: true, externalId: true },
@@ -575,18 +582,34 @@ async function storedProgress(
           select: { achievement: { select: { gameId: true } } },
         })
       : [],
+    prisma.achievement.findMany({
+      where: { platform, listId: null, gameId: { in: games.map((g) => g.gameId) }, unlocks: { some: { userId } } },
+      select: { gameId: true },
+      distinct: ["gameId"],
+    }),
   ]);
+  // A game whose unlocks are still on list-less rows (the backfill leaves a multi-list game so)
+  // and none of whose lists was read for this user: its lists get no entry, so each is read once
+  // and the game moves to its lists (reading a list records its UserTrophyList: no loop).
+  const unread = listless.map((a) => a.gameId).filter((g) => !onLists.has(g));
+  const unreadLists = new Set(
+    unread.length
+      ? (
+          await prisma.trophyList.findMany({
+            where: { platform, gameId: { in: unread } },
+            select: { gameId: true, externalId: true },
+          })
+        ).map((l) => `${l.gameId}:${l.externalId}`)
+      : [],
+  );
   const hardcoreByGame = new Map<string, number>();
   for (const h of hardcore) {
     hardcoreByGame.set(h.achievement.gameId, (hardcoreByGame.get(h.achievement.gameId) ?? 0) + 1);
   }
   const byGame = new Map(games.map((g) => [g.gameId, g]));
-  // A game with per-list progress counts by list only: its game count adds every list up, so a
-  // list of it without progress yet has no entry and is read (once: reading it records its row).
-  const onLists = new Set(lists.map((p) => p.list.gameId));
   const stored = new Map<string, StoredProgress>(
     links
-      .filter((l) => !onLists.has(l.gameId))
+      .filter((l) => !onLists.has(l.gameId) && !unreadLists.has(`${l.gameId}:${l.externalId}`))
       .map((l) => {
       const game = byGame.get(l.gameId);
       const counts = remembered.get(l.externalId);

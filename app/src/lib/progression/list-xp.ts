@@ -78,8 +78,9 @@ export type DesiredInput = {
   /** The user's UserTrophyList rows of those lists. */
   progress: ProgressRow[];
   /**
-   * UserGame.completedAt of the game on that platform: pays the legacy platinum key while the game
-   * has no list yet (data not migrated keeps its XP).
+   * UserGame.completedAt of the game on that platform: pays the legacy platinum key while the user
+   * has no UserTrophyList of the game on that platform (data not migrated, or lists not read for
+   * this user yet, keeps its XP).
    */
   legacyCompletedAt?: Date | null;
 };
@@ -99,7 +100,6 @@ const xpOf = (platform: CodePlatform, a: AchievementRow, hardcore: boolean) =>
 function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
   const { platform, gameId, skills } = input;
   const listById = new Map(input.lists.map((l) => [l.id, l]));
-  const hasLists = input.lists.length > 0;
   const versionOf = (l: ListRow) => versionKey({ platform, console: l.console, externalId: l.externalId });
 
   const versions = new Map<string, ListRow[]>();
@@ -111,11 +111,20 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
     if (l && canonicalLists.has(l.id)) canonicalIdOf.set(`${versionOf(l)}\n${a.apiName}`, a.id);
   }
   const achievementById = new Map(input.achievements.map((a) => [a.id, a]));
+  // apiNames the user holds validly on a list row: a list-less unlock of one of these is that same
+  // trophy, paid under the list row's key.
+  const coveredApiNames = new Set(
+    input.unlocks.flatMap((u) => {
+      const a = achievementById.get(u.achievementId);
+      return a?.listId && listById.has(a.listId) && !u.suspicious ? [a.apiName] : [];
+    }),
+  );
 
   /** Ledger key of an unlocked achievement, or null when the rule pays it nothing. */
   const keyOf = (a: AchievementRow): string | null => {
-    // List-less rows pay (by their own id) only while the game has no list on that platform.
-    if (!a.listId) return hasLists ? null : a.id;
+    // A list-less row (written before trophy lists) pays by its own id until a valid unlock of the
+    // same trophy on a list row of the game takes over (its lists not read yet: it keeps its XP).
+    if (!a.listId) return coveredApiNames.has(a.apiName) ? null : a.id;
     const l = listById.get(a.listId);
     if (!l) return null;
     if (platform !== "psn") return a.id;
@@ -159,7 +168,7 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
     });
   }
 
-  if (hasLists) {
+  if (input.progress.length > 0) {
     // One platinum per version: the earliest valid completion among its lists, valued over that list.
     const completedAt = new Map(input.progress.flatMap((p) => (p.completedAt ? [[p.listId, p.completedAt] as const] : [])));
     for (const lists of versions.values()) {
@@ -184,8 +193,9 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
       });
     }
   } else if (input.legacyCompletedAt && !input.unlocks.some((u) => u.suspicious && achievementById.has(u.achievementId))) {
-    // A game not on lists yet keeps its legacy platinum (no suspicious unlock in it, as for a
-    // list), valued like the fraud release values it.
+    // A game none of whose lists the user holds (no list yet, or not read for this user yet) keeps
+    // its legacy platinum (no suspicious unlock in it, as for a list), valued like the fraud
+    // release values it.
     const unlocked = input.achievements.filter((a) => validIds.has(a.id));
     drafts.push({
       source: "platinum",
@@ -207,8 +217,10 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
  *   unlock's value;
  * - a version's platinum is paid once, from its earliest valid completion (UserTrophyList);
  * - suspicious unlocks pay nothing, and a list with one pays no platinum;
- * - list-less Achievement rows pay only while the game has no list on that platform (then the
- *   legacy platinum key too, when `legacyCompletedAt` and no unlock of the game is suspicious).
+ * - a list-less Achievement row (written before trophy lists) pays by its own id unless the user
+ *   holds a valid unlock of the same apiName on a list row of the game (that row's key pays it);
+ * - the legacy platinum key is paid while the user has no UserTrophyList of the game on that
+ *   platform, when `legacyCompletedAt` and no unlock of the game is suspicious.
  */
 export function desiredListEntries(input: DesiredInput): LedgerDraft[] {
   return desiredWithOrigin(input).map((d) => ({

@@ -37,6 +37,8 @@ const CREATED_TITLES = [
   { platform: "xbox", externalId: "90000772" },
   { platform: "xbox", externalId: "90000781" },
   { platform: "psn", externalId: "NPWR99901_00" },
+  // The only trophy-list link of the adoption-guard test's game.
+  { platform: "psn", externalId: "NPWR99902_00" },
 ];
 const GTA_LISTS = ["NPWR90011_00", "NPWR90012_00", "NPWR90013_00"];
 // Lists and store title ids of the PSN concept tests (spied library).
@@ -799,6 +801,104 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     } finally {
       titles.mockRestore();
       trophies.mockRestore();
+    }
+  });
+
+  it("a game with lists but no UserTrophyList is read once by an incremental sync", async () => {
+    // The state the backfill leaves a multi-list game in for a player not read again by the finish:
+    // empty lists, the unlocks on list-less rows, no UserTrophyList, the listed counts remembered.
+    const { prisma } = await import("@/lib/db");
+    const { getPsn } = await import("@/lib/integrations");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const psn = getPsn();
+    const at = new Date(Date.UTC(2026, 0, 6, 20));
+    const list = (npTitleId: string, platform: string) => ({
+      npTitleId,
+      serviceName: "trophy2" as const,
+      name: "Jogo Curado Teste",
+      platform,
+      progress: 50,
+      trophyCounts: { bronze: 2, silver: 0, gold: 0, platinum: 0 },
+      earnedCounts: { bronze: 1, silver: 0, gold: 0, platinum: 0 },
+      lastPlayed: at,
+    });
+    const ps4 = `${FAKE_TITLE_PREFIX}HEAL4`;
+    const ps5 = `${FAKE_TITLE_PREFIX}HEAL5`;
+    const titles = vi.spyOn(psn, "getTitles").mockResolvedValue([list(ps4, "PS4"), list(ps5, "PS5")]);
+    const trophies = vi.spyOn(psn, "getTrophies").mockImplementation(async () =>
+      ["1", "2"].map((id, i) => ({
+        trophyId: id,
+        name: `Troféu ${id}`,
+        description: null,
+        iconUrl: null,
+        hidden: false,
+        tier: "bronze" as const,
+        earned: i === 0,
+        earnedAt: i === 0 ? at : null,
+        rarityPct: 40,
+      })),
+    );
+    try {
+      const user = await userWith("psn", "test-heal-account", "Cura-Teste");
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ status: "ok", partial: false });
+      const lists = await prisma.trophyList.findMany({ where: { platform: "psn", externalId: { in: [ps4, ps5] } } });
+      expect(lists).toHaveLength(2);
+      const gameId = lists[0].gameId;
+      await prisma.userTrophyList.deleteMany({ where: { userId: user.id } });
+      await prisma.achievement.deleteMany({ where: { listId: { in: lists.map((l) => l.id) } } });
+      const listless = await prisma.achievement.create({ data: { gameId, platform: "psn", apiName: "1", name: "Troféu 1" } });
+      await prisma.userAchievement.create({ data: { userId: user.id, achievementId: listless.id, unlockedAt: at } });
+
+      trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn");
+      expect(trophies.mock.calls.map((c) => c[1]).sort()).toEqual([ps4, ps5]);
+      expect(await prisma.userTrophyList.count({ where: { userId: user.id } })).toBe(2);
+
+      // Healed: the next incremental sync reads nothing.
+      trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn");
+      expect(trophies).not.toHaveBeenCalled();
+    } finally {
+      titles.mockRestore();
+      trophies.mockRestore();
+    }
+  });
+
+  it("a title never takes over the list-less rows of a game whose only list link is another title", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const fake = await fakePsnLibrary(1);
+    try {
+      // Earlier tests' game and list of the same fake title.
+      await prisma.game.deleteMany({ where: { platformLinks: { some: { platform: "psn", externalId: fake.id(0) } } } });
+      await prisma.trophyList.deleteMany({ where: { platform: "psn", externalId: fake.id(0) } });
+      // The game's one trophy-list link is NPWR99902_00; the title read is only linked to it.
+      const game = await prisma.game.create({
+        data: {
+          slug: "test-platform-adoption-guard",
+          name: "Adoção Teste",
+          achievementCount: 0,
+          platforms: ["PS5"],
+          platformLinks: {
+            create: [
+              { platform: "psn", externalId: "NPWR99902_00" },
+              { platform: "psn", externalId: fake.id(0) },
+            ],
+          },
+        },
+      });
+      const listless = await prisma.achievement.create({ data: { gameId: game.id, platform: "psn", apiName: "1", name: "Um" } });
+      const user = await userWith("psn", "test-adoption-account", "Adocao-Teste");
+      await expect(syncPlatformAccount(user.id, "psn", { full: true })).resolves.toMatchObject({ status: "ok" });
+
+      expect((await prisma.achievement.findUniqueOrThrow({ where: { id: listless.id } })).listId).toBeNull();
+      const list = await prisma.trophyList.findUniqueOrThrow({
+        where: { platform_externalId: { platform: "psn", externalId: fake.id(0) } },
+      });
+      expect(list.gameId).toBe(game.id);
+      expect(await prisma.achievement.count({ where: { listId: list.id } })).toBe(2);
+    } finally {
+      fake.restore();
     }
   });
 

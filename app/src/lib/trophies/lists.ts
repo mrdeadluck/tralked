@@ -87,6 +87,26 @@ export function canonicalList<T extends Orderable>(lists: T[]): T {
   return [...lists].sort(byCreation)[0];
 }
 
+/**
+ * `${platform}:${apiName}` -> the Achievement row a guide note on that trophy goes to: on a game
+ * with several lists, the row of the oldest list holding the apiName (canonicalList's order, as
+ * the phase finish moves notes); list-less rows (written before trophy lists) only when no list
+ * holds it.
+ */
+export function noteTargetIds(
+  rows: { id: string; platform: string; apiName: string; list: Orderable | null }[],
+): Map<string, string> {
+  const ordered = [...rows].sort((a, b) =>
+    a.list && b.list ? byCreation(a.list, b.list) : Number(!a.list) - Number(!b.list),
+  );
+  const out = new Map<string, string>();
+  for (const r of ordered) {
+    const key = `${r.platform}:${r.apiName}`;
+    if (!out.has(key)) out.set(key, r.id);
+  }
+  return out;
+}
+
 type Db = Prisma.TransactionClient | PrismaClient;
 
 export type EnsureTrophyListInput = {

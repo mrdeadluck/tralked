@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canonicalList,
+  noteTargetIds,
   psnConsoleCode,
   regionLabels,
   regionOf,
@@ -106,5 +107,27 @@ describe("canonicalList", () => {
   });
   it("throws on an empty version", () => {
     expect(() => canonicalList([])).toThrow(/at least one list/);
+  });
+});
+
+describe("noteTargetIds", () => {
+  it("prefers the canonical list's row of each trophy; list-less rows last", () => {
+    const rows = [
+      { id: "steam-1", platform: "steam", apiName: "1", list: null },
+      { id: "ps5-1", platform: "psn", apiName: "1", list: { createdAt: at("2"), externalId: "A" } },
+      { id: "ps4-1", platform: "psn", apiName: "1", list: { createdAt: at("1"), externalId: "C" } },
+      { id: "nolist-1", platform: "psn", apiName: "1", list: null },
+      { id: "jp-1", platform: "psn", apiName: "1", list: { createdAt: at("1"), externalId: "B" } },
+      // Only in a newer list, then only list-less.
+      { id: "nolist-2", platform: "psn", apiName: "2", list: null },
+      { id: "ps5-2", platform: "psn", apiName: "2", list: { createdAt: at("2"), externalId: "A" } },
+      { id: "nolist-3", platform: "psn", apiName: "3", list: null },
+    ];
+    expect(Object.fromEntries(noteTargetIds(rows))).toEqual({
+      "steam:1": "steam-1",
+      "psn:1": "jp-1",
+      "psn:2": "ps5-2",
+      "psn:3": "nolist-3",
+    });
   });
 });

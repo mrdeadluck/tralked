@@ -393,9 +393,12 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
     skills = skillsFromLedger(entries);
   }
 
-  // Once per console: the same PSN trophy in two regional lists counts one time everywhere below.
-  const unlocks = countedUnlocks(await loadValidUnlocks(userId));
-  const days = [...new Set(unlocks.map((u) => toLocalDay(u.unlockedAt)))];
+  // Once per console: the same PSN trophy in two regional lists counts one time in attributes and
+  // rank stats. Streak and active days take every valid unlock: playing is playing (as hours are),
+  // so a day whose only unlock is a second region's copy is still an active day.
+  const valid = await loadValidUnlocks(userId);
+  const unlocks = countedUnlocks(valid);
+  const days = [...new Set(valid.map((u) => toLocalDay(u.unlockedAt)))];
   const streak = computeStreak(days, toLocalDay(now));
   const attributes = computeAttributes(
     await attributeInput(

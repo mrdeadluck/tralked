@@ -287,6 +287,48 @@ describe("settleListXp", () => {
     expect(await settle(user.id, [game.id])).toEqual({ paid: 1, voided: 1 });
     expect((await valid(user.id)).map((e) => e.sourceKey)).toEqual([trophies[0].id]);
   });
+
+  it("a list-less unlock covered by a list row is voided, an uncovered one stays paid", async () => {
+    const user = await newUser();
+    const game = await newGame();
+    // A multi-list game after the backfill: the old list-less rows hold the unlocks; the PS5 list
+    // was read once (it holds "1" valid and "2" suspicious), the PS4 one never.
+    await newList(game.id, "PS4", T0);
+    const ps5 = await newList(game.id, "PS5", at(1));
+    const old = await newTrophies(game.id, null, ["0", "1", "2"]);
+    await prisma.userAchievement.createMany({
+      data: old.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(i) })),
+    });
+    await prisma.xpLedgerEntry.createMany({
+      data: old.map((t, i) => ({
+        userId: user.id,
+        source: "achievement",
+        sourceKey: t.id,
+        platform: "psn",
+        xp: tierXp(t.trophyTier ?? "bronze"),
+        skills: ["rpg"],
+        createdAt: at(i),
+      })),
+    });
+    const [ps5One, ps5Two] = await newTrophies(game.id, ps5.id, ["1", "2"]);
+    await prisma.userAchievement.createMany({
+      data: [
+        { userId: user.id, achievementId: ps5One.id, unlockedAt: at(1) },
+        { userId: user.id, achievementId: ps5Two.id, unlockedAt: at(2), suspicious: true },
+      ],
+    });
+    await prisma.userTrophyList.create({ data: { userId: user.id, listId: ps5.id, unlockedCount: 2 } });
+
+    // "1" moves to the list row's key; "0" (no list row) and "2" (only a suspicious copy) stay paid.
+    expect(await settle(user.id, [game.id])).toEqual({ paid: 1, voided: 1 });
+    expect((await valid(user.id)).map((e) => e.sourceKey).sort()).toEqual([old[0].id, old[2].id, ps5One.id].sort());
+    expect(
+      (await prisma.xpLedgerEntry.findUniqueOrThrow({
+        where: { userId_source_sourceKey: { userId: user.id, source: "achievement", sourceKey: old[1].id } },
+      })).voidedAt,
+    ).toEqual(NOW);
+    expect(await settle(user.id, [game.id])).toEqual({ paid: 0, voided: 0 });
+  });
 });
 
 describe("rebuildListXp", () => {
@@ -336,6 +378,52 @@ describe("rebuildListXp", () => {
     const result = await rebuildListXp(user.id, NOW);
     expect(result).toEqual({ paid: 3, voided: 1 }); // 2 trophies + psn:PS5 platinum; legacy platinum voided
     expect(await steamRows(user.id)).toEqual(before);
+  });
+
+  it("a game whose lists were never read keeps its list-less XP through rebuildListXp", async () => {
+    // After the backfill a multi-list game has its (empty) lists and the old list-less rows; a
+    // player whose lists were not read again (no credential, private, failed, cut short) has no
+    // UserTrophyList of it and keeps every entry, legacy platinum included.
+    const user = await newUser();
+    const game = await newGame();
+    await newList(game.id, "PS4", T0);
+    await newList(game.id, "PS5", at(1));
+    const old = await newTrophies(game.id, null);
+    await prisma.userAchievement.createMany({
+      data: old.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(i) })),
+    });
+    await prisma.userGame.create({
+      data: { userId: user.id, gameId: game.id, platform: "psn", playtimeMin: 0, unlockedCount: 2, completedAt: at(1) },
+    });
+    await prisma.xpLedgerEntry.createMany({
+      data: [
+        ...old.map((t, i) => ({
+          userId: user.id,
+          source: "achievement",
+          sourceKey: t.id,
+          platform: "psn",
+          xp: tierXp(t.trophyTier ?? "bronze"),
+          skills: ["rpg"],
+          createdAt: at(i),
+        })),
+        {
+          userId: user.id,
+          source: "platinum",
+          sourceKey: `psn:${game.id}`,
+          platform: "psn",
+          xp: platinumBonus([tierXp("platinum"), tierXp("bronze")]),
+          skills: ["rpg"],
+          createdAt: at(1),
+        },
+      ],
+    });
+    const trophyEntries = async () =>
+      (await valid(user.id)).filter((e) => e.source === "achievement" || e.source === "platinum");
+    const before = await trophyEntries();
+    expect(before).toHaveLength(3);
+
+    expect(await rebuildListXp(user.id, NOW)).toEqual({ paid: 0, voided: 0 });
+    expect(await trophyEntries()).toEqual(before);
   });
 
   it("rebuildListXp twice changes nothing the second time", async () => {
