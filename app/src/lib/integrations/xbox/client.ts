@@ -1,4 +1,4 @@
-import { timeoutSignal } from "../http";
+import { timeoutSignal, XBOX_FETCH_TIMEOUT_MS } from "../http";
 import type { XboxAchievement, XboxApi, XboxProfile, XboxTitle } from "./types";
 
 /**
@@ -105,7 +105,7 @@ export function createXboxClient({
         ...(body !== undefined && { "Content-Type": "application/json" }),
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
-      signal: timeoutSignal(),
+      signal: timeoutSignal(XBOX_FETCH_TIMEOUT_MS),
     });
     if (res.status === 403 || res.status === 404) {
       // What OpenXBL answered (its error text, no personal data) tells a typo from an outage.

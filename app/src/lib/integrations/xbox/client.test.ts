@@ -49,6 +49,18 @@ describe("xbox client (OpenXBL)", () => {
     expect(new Headers(init?.headers).get("X-Authorization")).toBe(KEY);
   });
 
+  it("gives OpenXBL 20 s per request (slower than the other sources' 10 s)", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    try {
+      const { client } = setup(() => json({ statlistscollection: [] }));
+      await client.getMinutesPlayed("2535", ["1"]);
+      expect(timeout).toHaveBeenCalledWith(20_000);
+      expect(timeout).not.toHaveBeenCalledWith(10_000);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   it("reports private stats", async () => {
     const { client } = setup(() => json({}, 403));
     await expect(client.getMinutesPlayed("2535", ["1"])).resolves.toBe("private");
