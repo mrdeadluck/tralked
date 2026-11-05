@@ -1,5 +1,8 @@
 import type { TrophyTier } from "@/lib/engine/trophies";
 import { getPsn, getRetro, getXbox } from "@/lib/integrations";
+import type { PsnPlayedGame } from "@/lib/integrations/psn/types";
+import { psnConsoleCode, regionOf, xboxConsoleOf } from "@/lib/trophies/lists";
+import { mapNewTitles } from "./psn-concepts";
 
 /** Platforms imported by the platform sync (Steam is linked by code too, but has its own sync: lib/sync/user.ts). */
 export type CodePlatform = "psn" | "xbox" | "retro";
@@ -31,6 +34,13 @@ export type LibraryTitle = {
   name: string;
   /** Platform label stored on created games (`PS5`, `Xbox`, `Mega Drive`). */
   platformLabel: string;
+  /**
+   * Console of the trophy list (TrophyList.console): PSN console code (`PS4`, `PS3+PSVITA`), Xbox
+   * `360` | `ONE` | `PC`, RA console name; null when unknown.
+   */
+  console: string | null;
+  /** PSN trophy service of the list (`trophy` | `trophy2`). */
+  serviceName?: string;
   /** Null when the platform does not report playtime. */
   playtimeMin: number | null;
   achievements: LibraryAchievement[];
@@ -55,12 +65,38 @@ export type PlaytimeTitle = {
   platformLabel: string;
   playtimeMin: number;
   lastPlayedAt: Date | null;
+  /** PSN concept of the game played (see PsnConcepts). */
+  conceptId?: number | null;
+};
+
+/**
+ * PSN concepts known in this run: the trophy lists whose store title ids were mapped (this run or
+ * an earlier one, lib/sync/psn-concepts.ts) and, from the played-games list, each concept's store
+ * title ids and name.
+ */
+export type PsnConcepts = {
+  /** npCommunicationId → concept, for the lists mapped for this connection. */
+  npToConcept: Map<string, number>;
+  /** Concept → its store title ids (CUSA…/PPSA…). */
+  conceptTitleIds: Map<number, string[]>;
+  /**
+   * Concept → a name of it without Japanese or Korean script (the concept's own name, else a
+   * version's), when there is one: names the game of a list whose own name is Japanese.
+   */
+  conceptNames: Map<number, string>;
 };
 
 /** What the database already holds for a title (from its UserGame row and unlocks). */
 export type StoredProgress = {
   unlocked: number;
   hardcore: number;
+  /**
+   * The counts the platform's title list showed when the title was last recorded (remembered by the
+   * sync). A title whose listed counts equal these is up to date too: the title list and the
+   * trophy list can disagree (an Xbox unlock the achievement list does not show, RA's sticky
+   * hardcore flags), and the title must not be read again on every sync for it.
+   */
+  listed?: { unlocked: number; hardcore?: number };
   /** The row's playtime was written by a Plano 4 sync (`playtimeUpdatedAt`). */
   playtimeSynced?: boolean;
   lastPlayedAt?: Date | null;
@@ -77,11 +113,15 @@ export type ReadOptions = {
   deadline?: number;
   /** At most this many titles are read per run. */
   maxTitles?: number;
+  /** Titles (platform ids) not read, counted as up to date (a later pass of a resync cut short). */
+  skip?: ReadonlySet<string>;
   /**
    * Xbox: titles whose minutes were already asked, with their last play then (ms, 0 unknown).
    * They are not asked again until played again, even when Xbox had no number (or 0) for them.
    */
   checkedTitles?: Map<string, number>;
+  /** PSN: the LinkedAccount row, whose concept memory says which store title ids were mapped already. */
+  linkedAccountId?: string;
   now?: () => number;
 };
 
@@ -96,12 +136,19 @@ export type LibraryResult = {
   partial: boolean;
   /** Titles already up to date (not read). */
   upToDate: number;
+  /**
+   * Titles read that came back with no achievements: nothing to record, but their listed counts are
+   * remembered so they are not read again until those counts change.
+   */
+  empty: { externalId: string; listed: { unlocked: number; hardcore?: number } }[];
   /** Current handle on the platform, when the sync learned it (RA usernames can change). */
   handle?: string;
   /** Play time of the games played (PSN, Xbox); RA play time comes with each title instead. */
   playtime: PlaytimeTitle[];
   /** Xbox: titles whose minutes were asked this run → their last play (ms, 0 unknown). */
   checkedTitles?: Map<string, number>;
+  /** PSN: concepts of the games played, and of the trophy lists mapped this run. */
+  concepts?: PsnConcepts;
 };
 
 type Listed<T> = {
@@ -115,10 +162,13 @@ type Listed<T> = {
   carriesPlaytime?: boolean;
 };
 
+const sameCounts = (listed: Listed<unknown>, counts: { unlocked: number; hardcore?: number }) =>
+  counts.unlocked === listed.unlocked && (listed.hardcore === undefined || counts.hardcore === listed.hardcore);
+
+/** Stored counts (or the listed counts remembered for the title) match the list; play time read. */
 const upToDate = (listed: Listed<unknown>, stored: StoredProgress | undefined) =>
   stored !== undefined &&
-  stored.unlocked === listed.unlocked &&
-  (listed.hardcore === undefined || stored.hardcore === listed.hardcore) &&
+  (sameCounts(listed, stored) || (stored.listed !== undefined && sameCounts(listed, stored.listed))) &&
   (!listed.carriesPlaytime || stored.playtimeSynced === true);
 
 async function collect<T>(
@@ -128,7 +178,9 @@ async function collect<T>(
 ): Promise<LibraryResult | "private"> {
   const now = options.now ?? Date.now;
   const stored = options.stored;
+  const skip = options.skip;
   const pending = items
+    .filter((i) => !skip?.has(i.id))
     .filter((i) => !stored || !upToDate(i, stored.get(i.id)))
     // Oldest activity first (undated first), so interrupted runs move through the whole backlog.
     .sort((a, b) => (a.lastUpdated?.getTime() ?? 0) - (b.lastUpdated?.getTime() ?? 0));
@@ -137,6 +189,7 @@ async function collect<T>(
     failures: [],
     partial: false,
     upToDate: items.length - pending.length,
+    empty: [],
     playtime: [],
   };
   // Sequential on purpose: the unofficial APIs rate-limit aggressively.
@@ -151,6 +204,7 @@ async function collect<T>(
       const title = await read(item);
       if (title === "private") return "private";
       if (title && title.achievements.length > 0) result.titles.push({ ...title, listed: { unlocked, hardcore } });
+      else if (title) result.empty.push({ externalId: id, listed: { unlocked, hardcore } });
     } catch (error) {
       result.failures.push({ externalId: id, error });
     }
@@ -177,6 +231,8 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
       externalId: t.npTitleId,
       name: t.name,
       platformLabel: t.platform.split(",")[0] || "PlayStation",
+      console: psnConsoleCode(t.platform),
+      serviceName: t.serviceName,
       playtimeMin: null,
       achievements: trophies.map((tr) => ({
         apiName: tr.trophyId,
@@ -209,12 +265,47 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
         platformLabel: g.category === "ps4_game" ? "PS4" : "PS5",
         playtimeMin: g.playtimeMin,
         lastPlayedAt: g.lastPlayedAt,
+        conceptId: g.conceptId,
       }));
+      result.concepts = await conceptsOf(account, games, options.linkedAccountId, options.deadline);
     }
   } catch (error) {
     result.failures.push({ externalId: "played-games", error });
   }
   return result;
+}
+
+/**
+ * Concepts of the played games, plus the trophy lists known for the connection: those learned
+ * before and those of store title ids not mapped yet (at most MAX_NEW_CONCEPT_TITLES per sync, no
+ * request after the read deadline). A failed mapping only leaves this run without the new lists'
+ * concepts: trophies still import, and the ids are asked again next sync.
+ */
+async function conceptsOf(
+  account: LibraryAccount,
+  games: PsnPlayedGame[],
+  linkedAccountId: string | undefined,
+  deadline: number | undefined,
+): Promise<PsnConcepts> {
+  const conceptTitleIds = new Map<number, string[]>();
+  const conceptNames = new Map<number, string>();
+  // The concept's own name first, then the versions' names.
+  for (const g of [...games].sort((a, b) => Number(b.conceptName !== null) - Number(a.conceptName !== null))) {
+    if (g.conceptId === null) continue;
+    const ids = new Set([...(conceptTitleIds.get(g.conceptId) ?? []), ...g.conceptTitleIds, g.titleId]);
+    conceptTitleIds.set(g.conceptId, [...ids]);
+    const name = [g.conceptName, g.name].find((n) => n && regionOf(n) === null);
+    if (name && !conceptNames.has(g.conceptId)) conceptNames.set(g.conceptId, name);
+  }
+  let npToConcept = new Map<string, number>();
+  if (linkedAccountId) {
+    try {
+      npToConcept = await mapNewTitles(account.externalId, linkedAccountId, games, undefined, deadline);
+    } catch (error) {
+      console.warn("Platform sync: could not map PSN title ids to their trophy lists (concepts)", error);
+    }
+  }
+  return { npToConcept, conceptTitleIds, conceptNames };
 }
 
 async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<LibraryResult | "private"> {
@@ -225,12 +316,13 @@ async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<
     .filter((t) => t.currentAchievements > 0)
     .map((t) => ({ item: t, id: t.titleId, lastUpdated: t.lastPlayed, unlocked: t.currentAchievements }));
   const result = await collect(played, options, async (t) => {
-    const list = await xbox.getAchievements(account.externalId, t.titleId);
+    const list = await xbox.getAchievements(account.externalId, t.titleId, t.devices);
     if (list === "private") return "private";
     return {
       externalId: t.titleId,
       name: t.name,
       platformLabel: "Xbox",
+      console: xboxConsoleOf(t.devices),
       playtimeMin: null,
       achievements: list.map((a) => ({
         apiName: a.id,
@@ -311,6 +403,7 @@ async function readRetro(account: LibraryAccount, options: ReadOptions): Promise
       externalId: g.gameId,
       name: g.title,
       platformLabel: g.consoleName || "Retro",
+      console: g.consoleName || null,
       playtimeMin: progress.playtimeMin,
       achievements: progress.achievements.map((a) => ({
         apiName: a.id,

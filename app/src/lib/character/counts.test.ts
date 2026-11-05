@@ -28,3 +28,14 @@ describe("platinum count (sheet and Troféus card)", () => {
     expect(card.tiers.gold).toBe(1);
   });
 });
+
+describe("platinum count by version", () => {
+  it("PS4 and PS5 platinums of one game are two, the same version twice is one", () => {
+    const ps4 = { gameId: "hk", platform: "psn", versionKey: "psn:PS4" };
+    const ps5 = { gameId: "hk", platform: "psn", versionKey: "psn:PS5" };
+    expect(platinumCount([ps4, ps5], [])).toBe(2);
+    expect(platinumCount([ps5, { ...ps5 }], [])).toBe(1);
+    // A PSN completion is covered by its native platinums, never added on top.
+    expect(platinumCount([ps4, ps5], [{ gameId: "hk", platform: "psn" }])).toBe(2);
+  });
+});

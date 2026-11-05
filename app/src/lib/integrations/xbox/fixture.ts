@@ -31,17 +31,34 @@ const TITLES: {
   firstUnlockedAt: string;
   /** Xbox's MinutesPlayed stat (absent: Xbox has no number for the title). */
   minutesPlayed?: number;
+  /** Title history devices. */
+  devices: string[];
 }[] = [
-  { titleId: "90000001", name: "Hollow Knight", unlocked: [4, 5, 6], firstUnlockedAt: "2026-01-10T20:00:00Z", minutesPlayed: 720 },
+  {
+    titleId: "90000001",
+    name: "Hollow Knight",
+    unlocked: [4, 5, 6],
+    firstUnlockedAt: "2026-01-10T20:00:00Z",
+    minutesPlayed: 720,
+    devices: ["XboxOne", "XboxSeries"],
+  },
   {
     titleId: "90000003",
     name: "Resident Evil 4",
     unlocked: [1, 2, 3, 4, 5, 6],
     firstUnlockedAt: "2026-08-20T21:00:00Z",
     minutesPlayed: 1830,
+    devices: ["XboxOne", "XboxSeries", "PC"],
   },
   // Played (title history) without any achievement unlocked yet.
-  { titleId: "90000005", name: "Forja Abissal", unlocked: [], firstUnlockedAt: "2026-09-15T21:00:00Z", minutesPlayed: 140 },
+  {
+    titleId: "90000005",
+    name: "Forja Abissal",
+    unlocked: [],
+    firstUnlockedAt: "2026-09-15T21:00:00Z",
+    minutesPlayed: 140,
+    devices: ["XboxSeries"],
+  },
 ];
 
 const DAY_MS = 86_400_000;
@@ -99,6 +116,7 @@ export function createXboxFixture(): XboxApi {
           totalGamerscore: list.reduce((sum, a) => sum + a.gamerscore, 0),
           progress: Math.round((unlocked.length / list.length) * 100),
           lastPlayed: unlocked.at(-1)?.unlockedAt ?? new Date(title.firstUnlockedAt),
+          devices: [...title.devices],
         };
       });
     },

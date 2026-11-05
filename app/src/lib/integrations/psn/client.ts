@@ -16,6 +16,8 @@ const LEGACY_PROFILE_BASE = "https://us-prof.np.community.playstation.net/userPr
 const TROPHY_BASE = "https://m.np.playstation.com/api/trophy/v1";
 const GAMELIST_BASE = "https://m.np.playstation.com/api/gamelist/v2";
 const PLAYED_PAGE_SIZE = 200;
+/** Store title ids per `titles/trophyTitles` request: PSN answers 400 past five. */
+const TITLE_LISTS_BATCH = 5;
 /** Safety stop for the played-games pagination (200 × 50 = 10k games). */
 const MAX_PLAYED_PAGES = 50;
 // Public client id/secret of the PlayStation App (not secrets of Tralked).
@@ -103,7 +105,11 @@ type PlayedRecord = {
   playDuration?: string;
   firstPlayedDateTime?: string;
   lastPlayedDateTime?: string;
-  concept?: { name?: string };
+  concept?: { id?: number; name?: string; titleIds?: unknown[] };
+};
+
+type TitleListsRecord = {
+  titles?: { npTitleId?: string; trophyTitles?: { npCommunicationId?: string }[] }[];
 };
 
 /**
@@ -350,12 +356,63 @@ export function createPsnClient({
             playtimeMin,
             firstPlayedAt: dateOrNull(t.firstPlayedDateTime),
             lastPlayedAt: dateOrNull(t.lastPlayedDateTime),
+            conceptId: typeof t.concept?.id === "number" && Number.isInteger(t.concept.id) ? t.concept.id : null,
+            conceptTitleIds: (t.concept?.titleIds ?? []).filter((id): id is string => typeof id === "string" && id !== ""),
+            conceptName: t.concept?.name?.trim() || null,
           });
         }
         if (!body.nextOffset || body.nextOffset <= offset) return games;
         offset = body.nextOffset;
       }
       return games;
+    },
+
+    async getTrophyListsOfTitles(accountId, titleIds, { deadline } = {}): Promise<Map<string, string[]> | "private"> {
+      const lists = new Map<string, string[]>();
+      const outOfTime = () => deadline !== undefined && now() >= deadline;
+      /** One request; `"failed"` when it errored (logged): its ids are left out of the answer. */
+      const ask = async (ids: string[]): Promise<TitleListsRecord | "private" | null | "failed"> => {
+        try {
+          return await get<TitleListsRecord>(
+            `${TROPHY_BASE}/users/${encodeURIComponent(accountId)}/titles/trophyTitles?npTitleIds=${ids.map(encodeURIComponent).join(",")}`,
+            "title trophy lists",
+          );
+        } catch (error) {
+          console.warn(`PSN title trophy lists: a batch of ${ids.length} title ids failed`, error);
+          return "failed";
+        }
+      };
+      /** The answer of one request, for the ids it asked only. */
+      const keep = (ids: string[], body: TitleListsRecord | null) => {
+        const asked = new Set(ids);
+        for (const id of ids) lists.set(id, []);
+        for (const t of body?.titles ?? []) {
+          if (!t.npTitleId || !asked.has(t.npTitleId)) continue;
+          const found = (t.trophyTitles ?? []).flatMap((l) => (l.npCommunicationId ? [l.npCommunicationId] : []));
+          lists.set(t.npTitleId, [...new Set(found)]);
+        }
+      };
+      const unique = [...new Set(titleIds)];
+      for (let i = 0; i < unique.length; i += TITLE_LISTS_BATCH) {
+        if (outOfTime()) break;
+        const batch = unique.slice(i, i + TITLE_LISTS_BATCH);
+        const body = await ask(batch);
+        if (body === "private") return "private";
+        if (body === "failed") continue;
+        // One id PSN does not know for this player fails the whole batch with 404: ask one by one,
+        // and an id that is 404 on its own has no list.
+        if (body !== null || batch.length === 1) {
+          keep(batch, body);
+          continue;
+        }
+        for (const id of batch) {
+          if (outOfTime()) break;
+          const one = await ask([id]);
+          if (one === "private") return "private";
+          if (one !== "failed") keep([id], one);
+        }
+      }
+      return lists;
     },
   };
 }

@@ -21,6 +21,7 @@ import {
 } from "@/lib/content/guide-schema";
 import { contentBlocksSchema, parseStoredBlocks, plainText, type ContentBlock } from "@/lib/content/schema";
 import { prisma } from "@/lib/db";
+import { noteTargetIds } from "@/lib/trophies/lists";
 import { describePending, parseReport, reportSummary, type GuideReport } from "./guide-report";
 
 /**
@@ -109,9 +110,10 @@ export async function saveGuide(
   // name an achievement of any platform of the game.
   const achievements = await prisma.achievement.findMany({
     where: { gameId: guide.gameId },
-    select: { id: true, platform: true, apiName: true },
+    select: { id: true, platform: true, apiName: true, list: { select: { createdAt: true, externalId: true } } },
   });
-  const byKey = new Map(achievements.map((a) => [`${a.platform}:${a.apiName}`, a.id]));
+  // A trophy of several lists: the note goes to the canonical list's row.
+  const byKey = noteTargetIds(achievements);
   for (const [i, step] of input.steps.entries()) {
     const missing = step.achievements.find((apiName) => !byKey.has(`steam:${apiName}`));
     if (missing) {

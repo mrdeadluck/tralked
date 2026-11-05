@@ -12,6 +12,7 @@ import { walkAchievementRefs, walkItemKeys, walkthroughSchema, type Walkthrough 
 import { prisma } from "@/lib/db";
 import { gameTag } from "@/lib/queries/games-cached";
 import { GUIDES_TAG } from "@/lib/queries/home-guides";
+import { noteTargetIds } from "@/lib/trophies/lists";
 import { toPointer, type ApiIssue } from "./errors";
 import { queuePendingUpdate } from "./guide-pending";
 import { findGame, guideUrl } from "./games";
@@ -68,10 +69,11 @@ async function resolveAchievements(
   const rows = wanted.length
     ? await prisma.achievement.findMany({
         where: { gameId, OR: wanted.map((w) => ({ platform: w.platform, apiName: w.apiName })) },
-        select: { id: true, platform: true, apiName: true },
+        select: { id: true, platform: true, apiName: true, list: { select: { createdAt: true, externalId: true } } },
       })
     : [];
-  const byKey = new Map(rows.map((r) => [`${r.platform}:${r.apiName}`, r.id]));
+  // A trophy of several lists: the note goes to the canonical list's row.
+  const byKey = noteTargetIds(rows);
   const issues: ApiIssue[] = [];
   steps?.forEach((step, i) =>
     step.achievements.forEach((apiName, j) => {

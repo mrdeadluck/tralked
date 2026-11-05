@@ -116,6 +116,7 @@ model User {
   notifications  Notification[]
   passwordResets PasswordResetToken[]
   wishlist       WishlistItem[]
+  trophyLists    UserTrophyList[]
   setup          PlayerSetup?
   moderationDone ModerationLog[]      @relation("ModerationActor")
   moderationOn   ModerationLog[]      @relation("ModerationTargetUser")
@@ -243,6 +244,7 @@ model Game {
   platformLinks GamePlatformLink[]
   media         GameMedia[]
   achievements  Achievement[]
+  trophyLists   TrophyList[]
   users         UserGame[]
   opens         GameOpen[]
   guide         Guide?
@@ -314,11 +316,14 @@ model GameSkill {
 
 /// An achievement / trophy of a game on one platform. `apiName` is the platform's own id
 /// (Steam apiname, PSN trophyId, Xbox achievement id, RA achievement id).
+/// It belongs to a TrophyList (`listId`): unique per `listId` + `apiName`. `gameId` and `platform`
+/// are kept as copies of the list's (every current reader filters on them). `listId` is optional
+/// while the lists are filled in; it becomes required in the last phase.
 model Achievement {
-  id            String  @id @default(cuid())
+  id            String      @id @default(cuid())
   gameId        String
   /// steam | psn | xbox | retro
-  platform      String  @default("steam")
+  platform      String      @default("steam")
   apiName       String
   name          String
   description   String?
@@ -327,24 +332,76 @@ model Achievement {
   descriptionPt String?
   iconUrl       String?
   globalPct     Float?
-  hidden        Boolean @default(false)
+  hidden        Boolean     @default(false)
   /// PSN only: bronze | silver | gold | platinum
   trophyTier    String?
   /// Xbox gamerscore or RetroAchievements points.
   points        Int?
   /// RetroAchievements: the achievement belongs to the hardcore set. Whether a given unlock was
   /// earned in hardcore mode is UserAchievement.hardcore.
-  hardcore      Boolean @default(false)
-  game          Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  hardcore      Boolean     @default(false)
+  listId        String?
+  game          Game        @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  list          TrophyList? @relation(fields: [listId], references: [id], onDelete: Cascade)
 
   unlocks UserAchievement[]
   notes   GuideAchievementNote[]
 
-  @@unique([gameId, platform, apiName])
+  @@unique([listId, apiName])
+  @@index([gameId, platform])
+}
+
+/// One list of achievements/trophies: a PSN npCommunicationId (one per console and region), an Xbox
+/// titleId, a Steam appid or an RA game id. A game has one or more lists per platform.
+model TrophyList {
+  id           String           @id @default(cuid())
+  gameId       String
+  /// steam | psn | xbox | retro
+  platform     String
+  /// npCommunicationId | Xbox titleId | Steam appid | RA game id
+  externalId   String
+  /// PSN: console code ("PS4", "PS5", "PS3+PSVITA"); Xbox: "360" | "ONE" | "PC"; Steam: "PC"; RA: console name.
+  /// Written once (when null) and never changed by a sync: it is part of the XP keys.
+  console      String?
+  name         String
+  /// PSN: trophy | trophy2
+  serviceName  String?
+  /// PSN concept (played-games list): groups the regional lists of one game
+  conceptId    Int?
+  /// "jp" | "kr" | null (see regionOf)
+  region       String?
+  trophyCount  Int              @default(0)
+  createdAt    DateTime         @default(now())
+  game         Game             @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  achievements Achievement[]
+  progress     UserTrophyList[]
+
+  @@unique([platform, externalId])
+  @@index([gameId, platform])
+  @@index([conceptId])
+}
+
+/// A user's progress on one TrophyList. The per-game UserGame row (psn | xbox | retro) is the sum
+/// of every list of that game and platform.
+model UserTrophyList {
+  userId        String
+  listId        String
+  unlockedCount Int
+  hardcoreCount Int        @default(0)
+  completedAt   DateTime?
+  updatedAt     DateTime   @updatedAt
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  list          TrophyList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@id([userId, listId])
+  @@index([listId])
 }
 
 /// A game in a user's library on one platform (the same game may be owned on several). Rows with
 /// `playtimeMin` 0 and no unlocks are owned but never played (Steam lists them).
+/// For psn | xbox | retro there is still one row per game and platform: `unlockedCount` is the sum
+/// of the unlocks of every list of that game on the platform, and `completedAt` is the earliest
+/// `completedAt` among the user's UserTrophyList rows for it (per-list progress lives there).
 model UserGame {
   userId             String
   gameId             String
@@ -512,9 +569,14 @@ model GameOpen {
 /// Immutable XP ledger; level, skills and attributes are derived from it.
 ///
 /// `source` / `sourceKey` conventions (sourceKey makes the entry idempotent per user):
-///   achievement    -> achievementId (unique across platforms: Achievement rows are per platform)
-///   platinum       -> gameId for Steam, `${platform}:${gameId}` for psn | xbox | retro
-///                     (a game can be completed once per platform)
+///   achievement    -> achievementId (unique across platforms: Achievement rows are per list).
+///                     PSN: the id of the Achievement with the same `apiName` in the canonical
+///                     list of the version (oldest `createdAt`; ties by `externalId`), or its own
+///                     id when the canonical list lacks that `apiName`, so the same trophy of
+///                     several regional lists is paid once. Xbox | RA: its own id.
+///   platinum       -> gameId for Steam (unchanged); `psn:${console}:${gameId}` for PSN;
+///                     `${platform}:${externalId}:${gameId}` for xbox | retro (one per list).
+///                     The game id is the part after the last ":" (platinumGameId).
 ///   mission        -> missionId (reward of a completed daily/weekly mission)
 ///   guide_vote     -> `${tipId}:${voterUserId}` (Sábio XP for the author of a voted tip)
 ///   photo_approved -> photoId (gallery upload XP, daily-limited; voided when moderation removes it)

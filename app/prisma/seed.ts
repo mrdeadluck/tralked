@@ -27,6 +27,7 @@ import hollowKnight from "../src/lib/integrations/steam/__fixtures__/hollow-knig
 import { prisma } from "../src/lib/db";
 import { expFor, levelFromXp, xpForAchievement } from "../src/lib/engine/xp";
 import { skillNeed, skillPointsFor } from "../src/lib/engine/skills";
+import { ensureTrophyList } from "../src/lib/trophies/lists";
 import type { MissionCondition } from "../src/lib/engine/missions";
 import { SKILLS, type SkillId, type SkillState } from "../src/lib/engine/types";
 import { vocationFor } from "../src/lib/engine/vocation";
@@ -75,6 +76,37 @@ const hoursAgo = (h: number) => new Date(now.getTime() - h * HOUR);
 const daysAgo = (d: number) => new Date(now.getTime() - d * DAY);
 
 const SKILL_IDS = SKILLS.map((s) => s.id);
+
+type SeedTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/** The seed's trophy list of a game on a platform (Steam: the appid; PSN/Xbox: the example platform id). */
+async function seedList(
+  tx: SeedTx,
+  game: { id: string; name: string },
+  platform: string,
+  externalId: string,
+  console: string | null,
+  trophyCount: number,
+) {
+  return ensureTrophyList(tx, { gameId: game.id, platform, externalId, console, name: game.name, trophyCount });
+}
+
+/**
+ * Upsert of a seed achievement by list + apiName (the table's unique key is (listId, apiName)).
+ * A row left by an older seed run without a list is found by game + platform and takes the list.
+ */
+async function upsertAchievement(
+  tx: SeedTx,
+  gameId: string,
+  platform: string,
+  listId: string,
+  apiName: string,
+  data: Record<string, unknown>,
+) {
+  const existing = await tx.achievement.findFirst({ where: { gameId, platform, apiName, OR: [{ listId }, { listId: null }] } });
+  if (existing) return tx.achievement.update({ where: { id: existing.id }, data: { ...data, listId } });
+  return tx.achievement.create({ data: { gameId, platform, listId, apiName, name: "", ...data } });
+}
 
 function skillStates(levels: Record<SkillId, number>, fraction: (id: SkillId) => number) {
   return Object.fromEntries(
@@ -278,6 +310,11 @@ export async function runSeed() {
       const hkGameId = gid("hollow-knight");
       const achievementIds = new Map<string, string>(); // `${gameSlug}:${apiName}` -> id
       const achievementByName = new Map<string, string>(); // HK name -> apiName
+      const steamListOf = async (slug: string, trophyCount: number) => {
+        const g = mustFind(GAMES.find((x) => x.slug === slug), `game ${slug}`);
+        return seedList(tx, { id: gid(slug), name: g.name }, "steam", String(g.steamAppId), "PC", trophyCount);
+      };
+      const hkList = await steamListOf("hollow-knight", hollowKnight.schema.length);
       for (const a of hollowKnight.schema) {
         const globalPct =
           (hollowKnight.globalPercentages as Record<string, number>)[a.apiName] ?? null;
@@ -288,23 +325,14 @@ export async function runSeed() {
           hidden: a.hidden,
           globalPct,
         };
-        const row = await tx.achievement.upsert({
-          where: { gameId_platform_apiName: { gameId: hkGameId, platform: "steam", apiName: a.apiName } },
-          create: { gameId: hkGameId, platform: "steam", apiName: a.apiName, ...data },
-          update: data,
-        });
+        const row = await upsertAchievement(tx, hkGameId, "steam", hkList.id, a.apiName, data);
         achievementIds.set(`hollow-knight:${a.apiName}`, row.id);
         achievementByName.set(a.name, a.apiName);
       }
       for (const f of FEED_ACHIEVEMENTS) {
         const data = { name: f.name, globalPct: f.globalPct, hidden: false };
-        const row = await tx.achievement.upsert({
-          where: {
-            gameId_platform_apiName: { gameId: gid(f.gameSlug), platform: "steam", apiName: f.apiName },
-          },
-          create: { gameId: gid(f.gameSlug), platform: "steam", apiName: f.apiName, ...data },
-          update: data,
-        });
+        const feedList = await steamListOf(f.gameSlug, FEED_ACHIEVEMENTS.filter((x) => x.gameSlug === f.gameSlug).length);
+        const row = await upsertAchievement(tx, gid(f.gameSlug), "steam", feedList.id, f.apiName, data);
         achievementIds.set(`${f.gameSlug}:${f.apiName}`, row.id);
       }
 
@@ -538,6 +566,8 @@ export async function runSeed() {
       for (const pg of PLATFORM_GAMES) {
         const gameId = gid(pg.gameSlug);
         const ids: string[] = [];
+        const game = mustFind(GAMES.find((g) => g.slug === pg.gameSlug), `game ${pg.gameSlug}`);
+        const list = await seedList(tx, { id: gameId, name: game.name }, pg.platform, pg.externalId, pg.platform === "psn" ? "PS4" : "ONE", pg.achievements.length);
         for (const { apiName, trophy } of pg.achievements) {
           const data = {
             name: trophy.name,
@@ -546,11 +576,7 @@ export async function runSeed() {
             trophyTier: trophy.tier ?? null,
             points: trophy.points ?? null,
           };
-          const row = await tx.achievement.upsert({
-            where: { gameId_platform_apiName: { gameId, platform: pg.platform, apiName } },
-            create: { gameId, platform: pg.platform, apiName, ...data },
-            update: data,
-          });
+          const row = await upsertAchievement(tx, gameId, pg.platform, list.id, apiName, data);
           ids.push(row.id);
         }
         if (pg.lucasPlaytimeMin === 0) continue;

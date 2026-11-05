@@ -1,11 +1,22 @@
 import { prisma } from "@/lib/db";
+import { countedUnlocks } from "@/lib/trophies/counted";
 import { computeRankStats, RANK_SCOPES, type RankScope, type RankStatsValues } from "./stats";
 
-type ValidUnlock = { achievement: { gameId: string; platform: string; globalPct: number | null } };
+type ValidUnlock = {
+  unlockedAt: Date;
+  achievement: {
+    gameId: string;
+    platform: string;
+    apiName: string;
+    globalPct: number | null;
+    list: { platform: string; console: string | null; externalId: string } | null;
+  };
+};
 
 /**
  * One user's highscores totals. `unlocks` are the valid unlocks (the recompute already loaded
- * them); the library and the tainted games are read here.
+ * them); the library and the tainted games are read here. Unlocks are counted once per console
+ * (countedUnlocks: a PSN trophy earned in two regional lists of one console counts once).
  */
 export async function loadRankStats(
   userId: string,
@@ -23,7 +34,7 @@ export async function loadRankStats(
   ]);
   return computeRankStats({
     games,
-    unlocks: unlocks.map((u) => u.achievement),
+    unlocks: countedUnlocks(unlocks).map((u) => u.achievement),
     taintedKeys: new Set(tainted.map((t) => `${t.achievement.gameId}:${t.achievement.platform}`)),
   });
 }
@@ -54,7 +65,18 @@ const upserts = (userId: string, stats: Record<RankScope, RankStatsValues>) =>
 export async function refreshRankStats(userId: string, { dryRun = false } = {}): Promise<RankStatsValues> {
   const unlocks = await prisma.userAchievement.findMany({
     where: { userId, suspicious: false },
-    select: { achievement: { select: { gameId: true, platform: true, globalPct: true } } },
+    select: {
+      unlockedAt: true,
+      achievement: {
+        select: {
+          gameId: true,
+          platform: true,
+          apiName: true,
+          globalPct: true,
+          list: { select: { platform: true, console: true, externalId: true } },
+        },
+      },
+    },
   });
   const stats = await loadRankStats(userId, unlocks);
   if (!dryRun) await prisma.$transaction(upserts(userId, stats));

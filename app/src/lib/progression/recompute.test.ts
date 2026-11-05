@@ -34,6 +34,7 @@ describe.skipIf(!reachable)("recomputeUser", () => {
     const { prisma } = await import("@/lib/db");
     await prisma.user.deleteMany({ where: { steamId: { startsWith: STEAM_PREFIX } } });
     await prisma.game.deleteMany({ where: { steamAppId: APP_ID } });
+    await prisma.game.deleteMany({ where: { slug: "test-recompute-psn-regions" } });
   }
 
   async function newUser() {
@@ -142,6 +143,42 @@ describe.skipIf(!reachable)("recomputeUser", () => {
     const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
     expect(stats.streakCurrent).toBe(3);
     expect(stats.streakBest).toBe(3);
+  });
+
+  it("a day whose only activity is a second-region copy still counts as an active day", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { recomputeUser } = await import("./recompute");
+    const user = await newUser();
+    // Two regional PS5 lists of one game: trophy "1" earned yesterday in one, again today in the other.
+    const game = await prisma.game.create({
+      data: { slug: "test-recompute-psn-regions", name: "Regiões", achievementCount: 0, platforms: ["PS5"] },
+    });
+    const ids: string[] = [];
+    for (const [i, externalId] of ["TEST_RECOMPUTE_EN", "TEST_RECOMPUTE_JP"].entries()) {
+      const list = await prisma.trophyList.create({
+        data: { gameId: game.id, platform: "psn", externalId, console: "PS5", name: "Lista", createdAt: new Date(NOW.getTime() - (10 - i) * HOUR) },
+      });
+      const row = await prisma.achievement.create({
+        data: { gameId: game.id, platform: "psn", listId: list.id, apiName: "1", name: "Um", trophyTier: "bronze" },
+      });
+      ids.push(row.id);
+    }
+    await prisma.userAchievement.createMany({
+      data: [
+        { userId: user.id, achievementId: ids[0], unlockedAt: new Date(NOW.getTime() - 24 * HOUR) },
+        { userId: user.id, achievementId: ids[1], unlockedAt: new Date(NOW.getTime() - HOUR) },
+      ],
+    });
+
+    await recomputeUser(user.id, NOW);
+
+    // Playing is playing: both days are active (the trophy itself still counts once elsewhere).
+    const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
+    expect(stats.streakBest).toBe(2);
+    const constancia = await prisma.attributeProgress.findUniqueOrThrow({
+      where: { userId_attribute: { userId: user.id, attribute: "constancia" } },
+    });
+    expect(constancia.points).toBe(40); // 2 active days (30) + best streak 2 (10)
   });
 
   it("creates daily (3) and weekly (2) missions once per period", async () => {
