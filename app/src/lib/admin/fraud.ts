@@ -1,7 +1,9 @@
 import { z } from "zod";
+import type { Prisma } from "@/generated/prisma/client";
 import { xpForPlatformAchievement, type TrophyTier } from "@/lib/engine/trophies";
 import { platinumBonus } from "@/lib/engine/xp";
 import { prisma } from "@/lib/db";
+import { refreshGameCompletion, settleListXp } from "@/lib/progression/list-xp";
 import { platinumSourceKey, recomputeUser, voidFraudEntries } from "@/lib/progression/recompute";
 
 /**
@@ -170,6 +172,12 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
     if (!linked) return { ok: false, error: "A conta dessa plataforma foi desvinculada: não há o que liberar." };
   }
   const levelBefore = await levelOf(key.userId);
+  if (key.platform !== "steam") {
+    const platform = key.platform;
+    const entries = await prisma.$transaction((tx) => releaseListed(tx, key.userId, platform, key.gameId, ids, now));
+    await recomputeUser(key.userId, now);
+    return { ok: true, entries, levelBefore, levelAfter: await levelOf(key.userId), ...(await caseLabels(key)) };
+  }
   // Same value the syncs write: Steam entries carry no platform, the others carry theirs.
   const ledgerPlatform = key.platform === "steam" ? null : key.platform;
 
@@ -262,4 +270,65 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
 
   await recomputeUser(key.userId, now);
   return { ok: true, entries, levelBefore, levelAfter: await levelOf(key.userId), ...(await caseLabels(key)) };
+}
+
+/**
+ * Release on PSN/Xbox/RA: the unlocks are cleared, every list of the game whose achievements are
+ * now all clean unlocks is complete (at its last unlock), the game's completion follows its lists
+ * (a game without lists: complete when every achievement row is a clean unlock), and settleListXp
+ * pays what the version rule wants, restoring entries of the released unlocks voided earlier.
+ * Returns how many entries were paid or restored.
+ */
+async function releaseListed(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  platform: "psn" | "xbox" | "retro",
+  gameId: string,
+  ids: string[],
+  now: Date,
+): Promise<number> {
+  await tx.userAchievement.updateMany({
+    where: { userId, achievementId: { in: ids } },
+    data: { suspicious: false, fraudReview: "cleared", fraudReviewedAt: now },
+  });
+  const [lists, achievements, unlocks] = [
+    await tx.trophyList.findMany({ where: { gameId, platform }, select: { id: true } }),
+    await tx.achievement.findMany({ where: { gameId, platform }, select: { id: true, listId: true } }),
+    await tx.userAchievement.findMany({
+      where: { userId, achievement: { gameId, platform } },
+      select: { achievementId: true, unlockedAt: true, suspicious: true, hardcore: true },
+    }),
+  ];
+  const unlockOf = new Map(unlocks.map((u) => [u.achievementId, u]));
+  /** Last clean unlock when every one of these achievements is a clean unlock, else null. */
+  const completion = (rows: { id: string }[]): Date | null => {
+    const clean = rows.map((a) => unlockOf.get(a.id)).filter((u) => u && !u.suspicious);
+    if (rows.length === 0 || clean.length < rows.length) return null;
+    return new Date(Math.max(...clean.map((u) => u!.unlockedAt.getTime())));
+  };
+
+  if (lists.length === 0) {
+    const completedAt = completion(achievements);
+    if (completedAt) await tx.userGame.updateMany({ where: { userId, gameId, platform }, data: { completedAt } });
+  } else {
+    for (const list of lists) {
+      const rows = achievements.filter((a) => a.listId === list.id);
+      const completedAt = completion(rows);
+      if (!completedAt) continue;
+      const owned = rows.flatMap((a) => unlockOf.get(a.id) ?? []);
+      await tx.userTrophyList.upsert({
+        where: { userId_listId: { userId, listId: list.id } },
+        create: {
+          userId,
+          listId: list.id,
+          unlockedCount: owned.length,
+          hardcoreCount: owned.filter((u) => u.hardcore).length,
+          completedAt,
+        },
+        update: { completedAt },
+      });
+    }
+    await refreshGameCompletion(tx, userId, platform, gameId);
+  }
+  return (await settleListXp(tx, userId, platform, [gameId], now, { restore: ids })).paid;
 }
