@@ -680,6 +680,21 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     }
   });
 
+  it("reports the titles it recorded and those it could not read; skipTitles are not read", async () => {
+    const { syncPlatformAccount } = await import("./platform-user");
+    const fake = await fakePsnLibrary(3, `${FAKE_TITLE_PREFIX}01`);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const user = await userWith("psn", "test-skip-account", "Pula-Teste");
+      const first = await syncPlatformAccount(user.id, "psn", { full: true, skipTitles: new Set([fake.id(2)]) });
+      expect(first).toMatchObject({ status: "ok", partial: false, recordedTitles: [fake.id(0)], failedTitles: [fake.id(1)] });
+      expect(fake.trophies.mock.calls.map((c) => c[1])).toEqual([fake.id(0), fake.id(1)]);
+    } finally {
+      logged.mockRestore();
+      fake.restore();
+    }
+  });
+
   it("a permanently failing title is retried but does not block lastSyncedAt", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncPlatformAccount } = await import("./platform-user");

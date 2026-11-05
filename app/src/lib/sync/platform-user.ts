@@ -29,6 +29,13 @@ export type SyncPlatformResult = {
   partial: boolean;
   /** Titles read from the platform this run, and those skipped as already up to date. */
   titles?: { read: number; upToDate: number };
+  /**
+   * Platform ids of the titles this run finished with (recorded, or read and found empty): a
+   * resync cut short passes them as `skipTitles` to its next pass.
+   */
+  recordedTitles?: string[];
+  /** Platform ids of the titles that could not be read this run (`played-games`: the play time list). */
+  failedTitles?: string[];
 };
 
 export type SyncPlatformOptions = {
@@ -40,6 +47,11 @@ export type SyncPlatformOptions = {
   maxTitles?: number;
   /** Reads every title, even those already up to date (default: incremental). */
   full?: boolean;
+  /**
+   * Titles (platform ids) not read this run, as if up to date: the next pass of a `full` resync
+   * cut short skips those an earlier pass recorded (lib/trophies/finish.ts).
+   */
+  skipTitles?: ReadonlySet<string>;
 };
 
 const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
@@ -662,6 +674,7 @@ export async function syncPlatformAccount(
       linkedAccountId: platform === "psn" ? account.id : undefined,
       deadline: readDeadline,
       maxTitles: options.maxTitles,
+      skip: options.skipTitles,
     },
   );
   if (library === "private") {
@@ -818,6 +831,8 @@ export async function syncPlatformAccount(
     levelAfter: await currentLevel(userId),
     partial,
     titles: { read: library.titles.length + library.failures.length, upToDate: library.upToDate },
+    recordedTitles: [...resolved.map((r) => r.title.externalId), ...library.empty.map((e) => e.externalId)],
+    failedTitles: library.failures.map((f) => f.externalId),
   };
 }
 

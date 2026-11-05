@@ -75,6 +75,29 @@ describe.skipIf(!reachable)("first imports", () => {
     expect(await busyImports(now)).toEqual(new Set());
   });
 
+  it("a job reserves its own keys beside the worker's and releases only those", async () => {
+    const { busyImports, holdImportLease, importKey, releaseImportKeys, releaseImportLease, renewImportKeys, reserveImportKeys } =
+      await import("./import-lease");
+    const now = Date.now();
+    const worker = importKey("psn", "u1");
+    await holdImportLease([worker], now);
+    await expect(reserveImportKeys([worker, importKey("xbox", "u1")], now)).resolves.toEqual({
+      taken: [importKey("xbox", "u1")],
+      held: [worker],
+    });
+    expect(await busyImports(now)).toEqual(new Set([worker, importKey("xbox", "u1")]));
+    // The worker rewrites the lease with its own list: the job's renewal puts its key back.
+    await holdImportLease([worker], now);
+    await renewImportKeys([importKey("xbox", "u1")], now);
+    expect(await busyImports(now)).toEqual(new Set([worker, importKey("xbox", "u1")]));
+    await releaseImportKeys([importKey("xbox", "u1")], now);
+    expect(await busyImports(now)).toEqual(new Set([worker]));
+    await releaseImportLease();
+    await reserveImportKeys([importKey("psn", "u2")], now);
+    await releaseImportKeys([importKey("psn", "u2")], now);
+    expect(await busyImports(now)).toEqual(new Set());
+  });
+
   it("the cron leaves alone the accounts the worker is importing", async () => {
     const { holdImportLease, importKey, releaseImportLease } = await import("./import-lease");
     const { syncStalePlatformAccounts } = await import("./platform-user");

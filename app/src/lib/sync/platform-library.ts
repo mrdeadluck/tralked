@@ -113,6 +113,8 @@ export type ReadOptions = {
   deadline?: number;
   /** At most this many titles are read per run. */
   maxTitles?: number;
+  /** Titles (platform ids) not read, counted as up to date (a later pass of a resync cut short). */
+  skip?: ReadonlySet<string>;
   /**
    * Xbox: titles whose minutes were already asked, with their last play then (ms, 0 unknown).
    * They are not asked again until played again, even when Xbox had no number (or 0) for them.
@@ -176,7 +178,9 @@ async function collect<T>(
 ): Promise<LibraryResult | "private"> {
   const now = options.now ?? Date.now;
   const stored = options.stored;
+  const skip = options.skip;
   const pending = items
+    .filter((i) => !skip?.has(i.id))
     .filter((i) => !stored || !upToDate(i, stored.get(i.id)))
     // Oldest activity first (undated first), so interrupted runs move through the whole backlog.
     .sort((a, b) => (a.lastUpdated?.getTime() ?? 0) - (b.lastUpdated?.getTime() ?? 0));
