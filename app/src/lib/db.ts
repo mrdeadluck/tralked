@@ -1,10 +1,12 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
+import { explicitSslMode } from "@/lib/db-url";
 import { env } from "@/lib/env";
 
 function createClient(): PrismaClient {
   const adapter = new PrismaPg({
-    connectionString: env.DATABASE_URL,
+    // sslmode spelled out as pg already reads it (lib/db-url.ts): no warning on every cold start.
+    connectionString: explicitSslMode(env.DATABASE_URL),
     // A connection idle for 10 s is closed (pg's default, kept on purpose): the long-running workers
     // hold no connection between batches, so nothing keeps sessions open on Neon.
     idleTimeoutMillis: 10_000,
