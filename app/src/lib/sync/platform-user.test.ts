@@ -344,6 +344,51 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     }
   });
 
+  it("a remembered empty Xbox title is read again when its listed count changes", async () => {
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const xbox = getXbox();
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    const titles = await xbox.getTitles("2535400000000002");
+    if (titles === "private") throw new Error("public fixture");
+    const listed = titles.filter((t) => t.currentAchievements > 0);
+    const read = vi.spyOn(xbox, "getAchievements").mockResolvedValue([]);
+    try {
+      await syncPlatformAccount(user.id, "xbox");
+      await syncPlatformAccount(user.id, "xbox");
+      expect(read).toHaveBeenCalledTimes(listed.length);
+      const bumped = vi.spyOn(xbox, "getTitles").mockResolvedValue(
+        titles.map((t) => (t.titleId === listed[0].titleId ? { ...t, currentAchievements: t.currentAchievements + 1 } : t)),
+      );
+      await syncPlatformAccount(user.id, "xbox");
+      expect(read).toHaveBeenCalledTimes(listed.length + 1);
+      expect(read.mock.calls.at(-1)?.[1]).toBe(listed[0].titleId);
+      bumped.mockRestore();
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it("an Xbox title whose read failed (404, unexpected body) is not remembered and is retried", async () => {
+    const { syncPlatformAccount } = await import("./platform-user");
+    const { getXbox } = await import("@/lib/integrations");
+    const xbox = getXbox();
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    const titles = await xbox.getTitles("2535400000000002");
+    if (titles === "private") throw new Error("public fixture");
+    const listed = titles.filter((t) => t.currentAchievements > 0).length;
+    const read = vi.spyOn(xbox, "getAchievements").mockRejectedValue(new Error("Xbox achievements: not found"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await syncPlatformAccount(user.id, "xbox").catch(() => {});
+      await syncPlatformAccount(user.id, "xbox").catch(() => {});
+      expect(read).toHaveBeenCalledTimes(listed * 2);
+    } finally {
+      read.mockRestore();
+      errors.mockRestore();
+    }
+  });
+
   it("Xbox titles with minutes left unwritten by the deadline are asked again next run", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncPlatformAccount } = await import("./platform-user");

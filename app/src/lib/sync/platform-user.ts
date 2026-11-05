@@ -444,6 +444,12 @@ async function rememberCheckedTitles(
 /** Listed counts of one title as last recorded: [unlocked, hardcore?]. */
 type RememberedCounts = { unlocked: number; hardcore?: number };
 
+/**
+ * Version of the remembered "read, no achievements" entries. Bump it to make every such entry
+ * stale (the titles are read again), e.g. after the Xbox 360 route is checked against the live API.
+ */
+export const EMPTY_TITLES_VERSION = 1;
+
 /** SyncCursor holding a connection's remembered title counts (see rememberTitles). */
 export const titleMemoryKey = (accountId: string) => `platform-titles:${accountId}`;
 
@@ -453,7 +459,7 @@ export const titleMemoryKey = (accountId: string) => `platform-titles:${accountI
  */
 async function rememberedTitles(account: AccountSnapshot, accountId: string): Promise<Map<string, RememberedCounts>> {
   const row = await prisma.syncCursor.findUnique({ where: { key: titleMemoryKey(accountId) } });
-  const value = row?.value as { externalId?: unknown; linkedAt?: unknown; titles?: unknown } | undefined;
+  const value = row?.value as { externalId?: unknown; linkedAt?: unknown; titles?: unknown; empty?: unknown } | undefined;
   if (
     !value ||
     value.externalId !== account.externalId ||
@@ -463,12 +469,21 @@ async function rememberedTitles(account: AccountSnapshot, accountId: string): Pr
   ) {
     return new Map();
   }
-  return new Map(
-    Object.entries(value.titles as Record<string, unknown>).flatMap(([id, counts]) => {
-      if (!Array.isArray(counts) || typeof counts[0] !== "number") return [];
-      return [[id, { unlocked: counts[0], ...(typeof counts[1] === "number" && { hardcore: counts[1] }) }]];
-    }),
+  const fromCounts = (id: string, counts: unknown): [string, RememberedCounts][] =>
+    Array.isArray(counts) && typeof counts[0] === "number"
+      ? [[id, { unlocked: counts[0], ...(typeof counts[1] === "number" && { hardcore: counts[1] }) }]]
+      : [];
+  // Empty titles (read, no achievements) count only at the current version; recorded titles win.
+  const empty = Object.entries((value.empty && typeof value.empty === "object" ? value.empty : {}) as Record<string, unknown>).flatMap(
+    ([id, entry]) => {
+      const e = entry as { c?: unknown; v?: unknown } | null;
+      return e && e.v === EMPTY_TITLES_VERSION ? fromCounts(id, e.c) : [];
+    },
   );
+  return new Map([
+    ...empty,
+    ...Object.entries(value.titles as Record<string, unknown>).flatMap(([id, counts]) => fromCounts(id, counts)),
+  ]);
 }
 
 /**
@@ -481,9 +496,10 @@ async function rememberTitles(
   account: AccountSnapshot,
   accountId: string,
   titles: readonly { externalId: string; listed?: RememberedCounts }[],
+  empties: readonly { externalId: string; listed: RememberedCounts }[] = [],
 ): Promise<void> {
   const counts = titles.flatMap((t) => (t.listed ? [[t.externalId, t.listed] as const] : []));
-  if (counts.length === 0) return;
+  if (counts.length === 0 && empties.length === 0) return;
   await prisma.$transaction(async (tx) => {
     const linked = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM "LinkedAccount"
@@ -492,11 +508,19 @@ async function rememberTitles(
     if (linked.length === 0) return;
     const key = titleMemoryKey(accountId);
     const row = await tx.syncCursor.findUnique({ where: { key } });
-    const before = row?.value as { externalId?: unknown; linkedAt?: unknown; titles?: Record<string, unknown> } | undefined;
+    const before = row?.value as
+      | { externalId?: unknown; linkedAt?: unknown; titles?: Record<string, unknown>; empty?: Record<string, unknown> }
+      | undefined;
     const same = before?.externalId === account.externalId && before?.linkedAt === account.linkedAt.toISOString();
     const merged = { ...(same && before?.titles ? before.titles : {}) } as Prisma.InputJsonObject & Record<string, Prisma.InputJsonValue>;
     for (const [id, c] of counts) merged[id] = c.hardcore === undefined ? [c.unlocked] : [c.unlocked, c.hardcore];
-    const value = { externalId: account.externalId, linkedAt: account.linkedAt.toISOString(), titles: merged };
+    // Empty titles live apart, tagged with the version they were remembered under.
+    const mergedEmpty = { ...(same && before?.empty ? before.empty : {}) } as Prisma.InputJsonObject & Record<string, Prisma.InputJsonValue>;
+    for (const [id] of counts) delete mergedEmpty[id];
+    for (const e of empties) {
+      mergedEmpty[e.externalId] = { c: e.listed.hardcore === undefined ? [e.listed.unlocked] : [e.listed.unlocked, e.listed.hardcore], v: EMPTY_TITLES_VERSION };
+    }
+    const value = { externalId: account.externalId, linkedAt: account.linkedAt.toISOString(), titles: merged, empty: mergedEmpty };
     await tx.syncCursor.upsert({ where: { key }, create: { key, value }, update: { value } });
   }, TRANSACTION_OPTIONS);
 }
@@ -755,7 +779,7 @@ export async function syncPlatformAccount(
       throw error;
     }
   }
-  await rememberTitles(snapshot, account.id, [...resolved.map((r) => r.title), ...library.empty]);
+  await rememberTitles(snapshot, account.id, resolved.map((r) => r.title), library.empty);
   let playtime: { partial: boolean; written: Set<string> };
   try {
     playtime = await recordPlaytime(snapshot, library.playtime, names, startedAt, options.deadline, Date.now, conceptOptions);

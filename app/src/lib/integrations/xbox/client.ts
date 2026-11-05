@@ -108,6 +108,10 @@ const dateOrNull = (value: string | undefined) => {
   return Number.isNaN(date.getTime()) || date.getUTCFullYear() < 2000 ? null : date;
 };
 
+/** A record is usable only with an id and a non-empty name (else it would become the id "undefined"). */
+const validRecord = (a: { id?: unknown; name?: unknown } | null): boolean =>
+  !!a && (typeof a.id === "string" || typeof a.id === "number") && typeof a.name === "string" && a.name.trim() !== "";
+
 /** An Xbox 360 achievement in the app's shape; the icon is the 360 image CDN's (title and image ids in hex). */
 function x360Achievement(a: X360AchievementRecord, titleId: string): XboxAchievement {
   const unlocked = a.unlocked === true || a.unlockedOnline === true;
@@ -175,13 +179,19 @@ export function createXboxClient({
     };
   }
 
+  /**
+   * The player route. Only a 200 whose `achievements` is an array can say a title is empty: a 404 or
+   * a body of another shape is unknown and throws, so the title is a failure (retried), not "empty".
+   */
   async function playerAchievements(xuid: string, titleId: string): Promise<XboxAchievement[] | "private"> {
     const body = await get<{ achievements?: AchievementRecord[] }>(
       `/achievements/player/${encodeURIComponent(xuid)}/${encodeURIComponent(titleId)}`,
       "achievements",
     );
     if (body === "private") return "private";
-    return (body?.achievements ?? []).map((a) => {
+    if (body === null) throw new Error("Xbox achievements: title not found (HTTP 404)");
+    if (!Array.isArray(body.achievements)) throw new Error("Xbox achievements: unexpected answer");
+    return body.achievements.filter(validRecord).map((a) => {
       const unlocked = a.progressState === "Achieved";
       const score = a.rewards?.find((r) => r.type === "Gamerscore")?.value;
       return {
@@ -255,7 +265,8 @@ export function createXboxClient({
           "360 achievements",
         );
         if (x360 === "private") return "private";
-        const records = Array.isArray(x360) ? x360 : (x360?.achievements ?? []);
+        const raw = Array.isArray(x360) ? x360 : x360?.achievements;
+        const records = Array.isArray(raw) ? raw.filter(validRecord) : [];
         if (records.length > 0) return records.map((a) => x360Achievement(a, titleId));
       }
       return playerAchievements(xuid, titleId);

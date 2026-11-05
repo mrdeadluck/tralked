@@ -276,6 +276,36 @@ describe("xbox client (OpenXBL)", () => {
     expect(back === "private" ? 0 : back.length).toBe(1);
   });
 
+  it("a 404 or an unrecognised body is unknown, not an empty list; a genuinely empty list is empty", async () => {
+    const make = (res: () => Response) => setup(res).client;
+    await expect(make(() => json({ code: "NOT_FOUND" }, 404)).getAchievements("2535", "10")).rejects.toThrow(/not found/);
+    await expect(make(() => json({ foo: 1 })).getAchievements("2535", "10")).rejects.toThrow(/unexpected/);
+    await expect(make(() => json({ achievements: [] })).getAchievements("2535", "10")).resolves.toEqual([]);
+  });
+
+  it("a 360 route that 404s or answers an unrecognised body falls back to the player route", async () => {
+    for (const x360 of [() => json({}, 404), () => json({ surprise: true })]) {
+      const seen: string[] = [];
+      const { client } = setup((url) => {
+        seen.push(url.pathname);
+        return url.pathname.includes("/x360/") ? x360() : json({ achievements: [{ id: "9", name: "A", progressState: "Achieved" }] });
+      });
+      const list = await client.getAchievements("2535", "11", ["Xbox360"]);
+      expect(seen).toHaveLength(2);
+      expect(list === "private" ? 0 : list.length).toBe(1);
+    }
+  });
+
+  it("drops achievement records without an id or a name (360 and player routes)", async () => {
+    const { client } = setup((url) =>
+      url.pathname.includes("/x360/")
+        ? json({ achievements: [{ name: "No id", unlocked: true }, { id: 3 }, { id: 4, name: "" }] })
+        : json({ achievements: [{ name: "No id" }, { id: 5, name: "Ok" }, { id: 6 }] }),
+    );
+    const list = await client.getAchievements("2535", "11", ["Xbox360"]);
+    expect(list === "private" ? [] : list.map((a) => a.id)).toEqual(["5"]);
+  });
+
   it("reports private data and keeps the key out of errors", async () => {
     const privateClient = setup(() => json({}, 403)).client;
     await expect(privateClient.getTitles("1")).resolves.toBe("private");
