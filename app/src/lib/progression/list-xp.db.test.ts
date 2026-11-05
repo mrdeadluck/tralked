@@ -169,6 +169,77 @@ describe("settleListXp", () => {
     expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(3);
   });
 
+  /**
+   * Pre-version ledger of a PS5 game with an EU (canonical) and a JP list: the player earned the JP
+   * list, paid under the old keys (own JP ids, legacy `psn:<gameId>` platinum).
+   */
+  async function preVersionPlayer() {
+    const user = await newUser();
+    const externalId = `${PREFIX}-acc-${counter}`;
+    const account = await prisma.linkedAccount.create({
+      data: { userId: user.id, platform: "psn", externalId, handle: "Teste", linkedAt: T0 },
+    });
+    const game = await newGame();
+    const eu = await newList(game.id, "PS5", T0);
+    const jp = await newList(game.id, "PS5", at(1));
+    const euTrophies = await newTrophies(game.id, eu.id);
+    const jpTrophies = await newTrophies(game.id, jp.id);
+    const imported = async () => {
+      await prisma.userAchievement.createMany({
+        data: jpTrophies.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(10 + i) })),
+      });
+      await prisma.userTrophyList.upsert({
+        where: { userId_listId: { userId: user.id, listId: jp.id } },
+        create: { userId: user.id, listId: jp.id, unlockedCount: 2, completedAt: at(11) },
+        update: { completedAt: at(11) },
+      });
+      await prisma.userGame.upsert({
+        where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "psn" } },
+        create: { userId: user.id, gameId: game.id, platform: "psn", playtimeMin: 0, unlockedCount: 2, completedAt: at(11) },
+        update: { completedAt: at(11) },
+      });
+    };
+    await imported();
+    await prisma.xpLedgerEntry.createMany({
+      data: [
+        ...jpTrophies.map((t, i) => ({
+          userId: user.id,
+          source: "achievement",
+          sourceKey: t.id,
+          platform: "psn",
+          xp: tierXp(t.trophyTier ?? "bronze"),
+          skills: ["rpg"],
+          createdAt: at(10 + i),
+        })),
+        { userId: user.id, source: "platinum", sourceKey: `psn:${game.id}`, platform: "psn", xp: 99, skills: ["rpg"], createdAt: at(11) },
+      ],
+    });
+    return { user, account, externalId, game, euTrophies, jpTrophies, imported };
+  }
+
+  it("valid legacy keys are replaced by the version keys", async () => {
+    const { user, game, euTrophies } = await preVersionPlayer();
+    expect(await rebuildListXp(user.id, NOW)).toEqual({ paid: 3, voided: 3 });
+    expect((await valid(user.id)).map((e) => e.sourceKey).sort()).toEqual(
+      [...euTrophies.map((t) => t.id), `psn:PS5:${game.id}`].sort(),
+    );
+  });
+
+  it("a legacy key voided by unlink is not paid under the version key after relink/rebuild", async () => {
+    const { user, account, externalId, imported } = await preVersionPlayer();
+    expect(await unlink(user.id, "psn", at(30))).toBe(true);
+    expect(await valid(user.id)).toHaveLength(0);
+
+    // Relink; the sync imports the JP list again, now under the version rule.
+    await prisma.linkedAccount.update({ where: { id: account.id }, data: { externalId, linkedAt: at(40) } });
+    await imported();
+    // Neither the trophies (canonical EU keys; their JP own-id entries are voided) nor the PS5
+    // platinum (the legacy psn:<gameId> is voided) is paid again.
+    expect(await rebuildListXp(user.id, NOW)).toEqual({ paid: 0, voided: 0 });
+    expect(await valid(user.id)).toHaveLength(0);
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(3);
+  });
+
   it("once the game has a list, entries of list-less rows are voided and the list pays", async () => {
     const user = await newUser();
     const game = await newGame();

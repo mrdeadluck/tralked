@@ -219,6 +219,17 @@ describe("desiredListEntries", () => {
     expect(keys(desired({ lists: [], achievements, unlocks }))).toEqual(["achievement:nolist-0", "achievement:nolist-1"]);
   });
 
+  it("a game with no list pays no legacy platinum while one of its unlocks is suspicious", () => {
+    const achievements = achievementsOf(null, ["0", "1"]);
+    const out = desired({
+      lists: [],
+      achievements,
+      unlocks: [unlock("nolist-0", at(10)), unlock("nolist-1", at(10, 1), { suspicious: true })],
+      legacyCompletedAt: at(10, 1),
+    });
+    expect(keys(out)).toEqual(["achievement:nolist-0"]);
+  });
+
   it("once the game has a list, unlocks on list-less rows and the legacy platinum are not desired", () => {
     const lists = [list("ps5", "PS5", 1)];
     const achievements = [...achievementsOf(null, ["0", "1"]), ...achievementsOf("ps5", ["0", "1"])];

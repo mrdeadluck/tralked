@@ -273,10 +273,12 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
 }
 
 /**
- * Release on PSN/Xbox/RA: the unlocks are cleared, every list of the game whose achievements are
- * now all clean unlocks is complete (at its last unlock), the game's completion follows its lists
+ * Release on PSN/Xbox/RA: the unlocks are cleared, every list holding a released unlock, not yet
+ * complete, whose achievements are now all clean unlocks is complete (at its last unlock), the
+ * game's completion follows its lists
  * (a game without lists: complete when every achievement row is a clean unlock), and settleListXp
- * pays what the version rule wants, restoring entries of the released unlocks voided earlier.
+ * pays what the version rule wants, restoring entries of the released unlocks voided under the
+ * current link (never XP voided by an earlier unlink).
  * Returns how many entries were paid or restored.
  */
 async function releaseListed(
@@ -311,8 +313,16 @@ async function releaseListed(
     const completedAt = completion(achievements);
     if (completedAt) await tx.userGame.updateMany({ where: { userId, gameId, platform }, data: { completedAt } });
   } else {
+    const released = new Set(ids);
+    const progress = await tx.userTrophyList.findMany({
+      where: { userId, listId: { in: lists.map((l) => l.id) } },
+      select: { listId: true, completedAt: true },
+    });
+    const completedBefore = new Set(progress.filter((p) => p.completedAt).map((p) => p.listId));
+    // Only the lists holding a released unlock, and not already complete: the others are the sync's.
     for (const list of lists) {
       const rows = achievements.filter((a) => a.listId === list.id);
+      if (completedBefore.has(list.id) || !rows.some((a) => released.has(a.id))) continue;
       const completedAt = completion(rows);
       if (!completedAt) continue;
       const owned = rows.flatMap((a) => unlockOf.get(a.id) ?? []);

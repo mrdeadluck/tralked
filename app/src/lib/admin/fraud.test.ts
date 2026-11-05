@@ -192,13 +192,14 @@ describe("fraud queue", () => {
     const tierXp = (tier: "platinum" | "bronze") =>
       xpForPlatformAchievement({ platform: "psn", globalPct: null, points: null, trophyTier: tier, hardcore: false });
     let n = 0;
+    const LINKED_AT = new Date("2026-10-01T00:00:00Z");
 
     /** A linked PSN player with both trophies of a PS5 list unlocked; `flagged` are pending suspicious. */
-    async function psnPlayer(name: string, flagged: number[]) {
+    async function psnPlayer(name: string, flagged: number[], linkedAt = LINKED_AT) {
       n++;
       const user = await prisma.user.create({ data: { handle: `${PREFIX}-${name}`, displayName: name } });
       await prisma.linkedAccount.create({
-        data: { userId: user.id, platform: "psn", externalId: `${PREFIX}-psn-${name}`, handle: name },
+        data: { userId: user.id, platform: "psn", externalId: `${PREFIX}-psn-${name}`, handle: name, linkedAt },
       });
       const game = await prisma.game.create({
         data: { slug: `${PREFIX}-psn-${n}`, name: `PSN ${n}`, achievementCount: 0, platforms: ["PS5"], skills: { create: [{ skill: "rpg" }] } },
@@ -280,6 +281,43 @@ describe("fraud queue", () => {
       });
       expect(progress.completedAt).toBeNull();
       expect((await prisma.userGame.findFirstOrThrow({ where: { userId: p.userId, gameId: p.gameId } })).completedAt).toBeNull();
+    });
+
+    it("Liberar never restores XP voided before the current link (an earlier unlink)", async () => {
+      // Linked again after T0: the entry voided at T0 belongs to the earlier link.
+      const p = await psnPlayer("psn-religado", [1], new Date("2026-10-25T00:00:00Z"));
+      await prisma.xpLedgerEntry.create({
+        data: { userId: p.userId, source: "achievement", sourceKey: p.trophies[1].id, platform: "psn", xp: tierXp("bronze"), skills: ["rpg"], voidedAt: T0 },
+      });
+      const result = await releaseFraud({ userId: p.userId, gameId: p.gameId, platform: "psn" }, NOW);
+      // trophy 0 + platinum; trophy 1 stays voided
+      expect(result).toMatchObject({ ok: true, entries: 2 });
+      const entry = await prisma.xpLedgerEntry.findUniqueOrThrow({
+        where: { userId_source_sourceKey: { userId: p.userId, source: "achievement", sourceKey: p.trophies[1].id } },
+      });
+      expect(entry.voidedAt).toEqual(T0);
+    });
+
+    it("Liberar completes only the lists holding a released unlock", async () => {
+      const p = await psnPlayer("psn-outra-lista", [0, 1]);
+      // A PS4 list of the same game, every trophy unlocked cleanly, left incomplete by its sync.
+      const ps4 = await prisma.trophyList.create({
+        data: { gameId: p.gameId, platform: "psn", externalId: `${PREFIX}-NPWR${n}-ps4`, console: "PS4", name: "PSN PS4" },
+      });
+      const ps4Trophy = await prisma.achievement.create({
+        data: { gameId: p.gameId, platform: "psn", listId: ps4.id, apiName: "1", name: "1", trophyTier: "bronze" },
+      });
+      await prisma.userAchievement.create({ data: { userId: p.userId, achievementId: ps4Trophy.id, unlockedAt: T0 } });
+      await prisma.userTrophyList.create({ data: { userId: p.userId, listId: ps4.id, unlockedCount: 1 } });
+
+      const result = await releaseFraud({ userId: p.userId, gameId: p.gameId, platform: "psn" }, NOW);
+      // 2 released trophies + the PS4 trophy (missing entry) + the PS5 platinum; no PS4 platinum
+      expect(result).toMatchObject({ ok: true, entries: 4 });
+      const ps4Progress = await prisma.userTrophyList.findUniqueOrThrow({
+        where: { userId_listId: { userId: p.userId, listId: ps4.id } },
+      });
+      expect(ps4Progress.completedAt).toBeNull();
+      expect(await prisma.xpLedgerEntry.count({ where: { userId: p.userId, sourceKey: `psn:PS4:${p.gameId}` } })).toBe(0);
     });
   });
 });

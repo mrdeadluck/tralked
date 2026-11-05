@@ -183,8 +183,9 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
         origin: input.achievements.filter((a) => a.listId && lists.some((l) => l.id === a.listId)).map((a) => a.id),
       });
     }
-  } else if (input.legacyCompletedAt) {
-    // A game not on lists yet keeps its legacy platinum, valued like the fraud release values it.
+  } else if (input.legacyCompletedAt && !input.unlocks.some((u) => u.suspicious && achievementById.has(u.achievementId))) {
+    // A game not on lists yet keeps its legacy platinum (no suspicious unlock in it, as for a
+    // list), valued like the fraud release values it.
     const unlocked = input.achievements.filter((a) => validIds.has(a.id));
     drafts.push({
       source: "platinum",
@@ -207,7 +208,7 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
  * - a version's platinum is paid once, from its earliest valid completion (UserTrophyList);
  * - suspicious unlocks pay nothing, and a list with one pays no platinum;
  * - list-less Achievement rows pay only while the game has no list on that platform (then the
- *   legacy platinum key too, when `legacyCompletedAt`).
+ *   legacy platinum key too, when `legacyCompletedAt` and no unlock of the game is suspicious).
  */
 export function desiredListEntries(input: DesiredInput): LedgerDraft[] {
   return desiredWithOrigin(input).map((d) => ({
@@ -223,7 +224,8 @@ export function desiredListEntries(input: DesiredInput): LedgerDraft[] {
 export type SettleOptions = {
   /**
    * Achievement ids an admin released (fraud "Liberar"): a wanted entry they pay that was voided
-   * earlier is restored instead of staying voided.
+   * under the current link of the platform (voidedAt >= LinkedAccount.linkedAt) is restored
+   * instead of staying voided. XP voided by an earlier unlink never comes back.
    */
   restore?: string[];
 };
@@ -237,6 +239,14 @@ const entryKey = (source: string, sourceKey: string) => `${source}\n${sourceKey}
  * voided (`now`); a wanted key with no row at all is created. A key that exists voided (unlink,
  * confirmed fraud, replaced legacy key) is never paid again, except through `restore`. XP of
  * existing entries is never rewritten. Runs inside the caller's transaction.
+ *
+ * A wanted key with no row is not created either when what it replaces exists only voided (so XP
+ * voided under the pre-version keys, e.g. by an unlink, is not paid again under the new key):
+ * - a version platinum, when the game's legacy `${platform}:${gameId}` platinum is voided and the
+ *   game has no other version platinum row (in any state);
+ * - a trophy, when the own-id `achievement` entries of the unlocks behind it exist and are all voided.
+ * A predecessor still valid (the migration case) does not block: the new key is paid and the old
+ * one voided by this same call.
  */
 export async function settleListXp(
   tx: Prisma.TransactionClient,
@@ -286,6 +296,19 @@ export async function settleListXp(
     e.source === "achievement" ? gameOfAchievement.get(e.sourceKey) : platinumGameId(e.sourceKey);
   const existingByKey = new Map(existing.map((e) => [entryKey(e.source, e.sourceKey), e]));
   const restore = new Set(options.restore ?? []);
+  const linkedAt =
+    restore.size > 0
+      ? ((await tx.linkedAccount.findUnique({ where: { userId_platform: { userId, platform } }, select: { linkedAt: true } }))
+          ?.linkedAt ?? null)
+      : null;
+  /** Voided under the current link: a fraud release may bring it back. */
+  const restorable = (row: { voidedAt: Date | null }) =>
+    row.voidedAt !== null && linkedAt !== null && row.voidedAt.getTime() >= linkedAt.getTime();
+  /** Rows exist and none is valid. */
+  const onlyVoided = (rows: ({ voidedAt: Date | null } | undefined)[]) => {
+    const found = rows.filter((r) => r !== undefined);
+    return found.length > 0 && found.every((r) => r.voidedAt !== null);
+  };
 
   const toVoid: string[] = [];
   const toRestore: string[] = [];
@@ -307,10 +330,23 @@ export async function settleListXp(
         toVoid.push(e.id);
       }
     }
+    const legacyKey = legacyPlatinumSourceKey(platform, gameId);
+    const versionPlatinums = existing.filter(
+      (e) => e.source === "platinum" && e.sourceKey !== legacyKey && gameOfEntry(e) === gameId,
+    );
     for (const { origin, ...d } of drafts) {
       const row = existingByKey.get(entryKey(d.source, d.sourceKey));
-      if (!row) toCreate.push({ userId, ...d });
-      else if (row.voidedAt !== null && origin.some((id) => restore.has(id))) toRestore.push(row.id);
+      if (row) {
+        if (row.voidedAt !== null && origin.some((id) => restore.has(id)) && restorable(row)) toRestore.push(row.id);
+        continue;
+      }
+      const replacesVoided =
+        d.source === "platinum"
+          ? d.sourceKey !== legacyKey &&
+            versionPlatinums.length === 0 &&
+            onlyVoided([existingByKey.get(entryKey("platinum", legacyKey))])
+          : onlyVoided(origin.map((id) => existingByKey.get(entryKey("achievement", id))));
+      if (!replacesVoided) toCreate.push({ userId, ...d });
     }
   }
 
