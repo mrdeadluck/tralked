@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
 import { howToJsonLd, newsArticleJsonLd, serializeJsonLd, videoGameJsonLd } from "./json-ld";
-import { buildRobots, DISALLOWED_PATHS } from "./robots";
+import { buildRobots, DISALLOWED_PATHS, EMPTY_LISTING_PATHS } from "./robots";
 import { buildSitemap, loadSitemapData, STATIC_PATHS } from "./sitemap";
 
 const article = {
@@ -139,9 +139,20 @@ describe("sitemap and robots", () => {
     const robots = buildRobots("https://tralked.example");
     expect(robots.rules).toEqual([
       { userAgent: expect.arrayContaining(["GPTBot", "ClaudeBot", "CCBot"]), disallow: "/" },
-      { userAgent: "*", allow: "/", disallow: DISALLOWED_PATHS },
+      { userAgent: "*", allow: ["/", "/forum/t/"], disallow: [...DISALLOWED_PATHS, ...EMPTY_LISTING_PATHS] },
     ]);
     expect(DISALLOWED_PATHS).toEqual(expect.arrayContaining(["/admin", "/conta", "/api", "/entrar"]));
     expect(robots.sitemap).toBe("https://tralked.example/sitemap.xml");
+  });
+
+  it("robots keeps crawlers off the empty per-game listings, open on forum sections with topics", () => {
+    // 2026-11-03..05: 99% of /forum/[categoria] and 95% of /galeria hits were crawlers walking one
+    // empty game forum and one empty game gallery filter per catalog game.
+    const robots = buildRobots("https://tralked.example", ["ajuda", "ghost-of-yotei"]);
+    const rule = (robots.rules as { userAgent: unknown; allow?: string[]; disallow?: string[] }[])[1];
+    expect(rule.disallow).toEqual(expect.arrayContaining(["/forum/", "/galeria?jogo=", "/galeria?*&jogo="]));
+    expect(rule.allow).toEqual(["/", "/forum/t/", "/forum/ajuda", "/forum/ghost-of-yotei"]);
+    // The forum index (/forum) is not under "/forum/"; threads and open sections win as longer rules.
+    expect(rule.disallow).not.toContain("/forum");
   });
 });

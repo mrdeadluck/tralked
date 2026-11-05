@@ -5,10 +5,10 @@ import { formatNumber } from "@/components/character/format";
 import { PLATFORM_LABEL, PLATFORM_TOKEN } from "@/components/character/platforms";
 import { XpBar } from "@/components/character/XpBar";
 import { Chip } from "@/components/ui/Chip";
-import { RemoteImg } from "@/components/ui/RemoteImg";
 import { levelFromXp } from "@/lib/engine/xp";
 import type { ProfileSummary } from "@/lib/profile/queries";
 import { formatCompact } from "@/lib/xp-format";
+import { ProfileBackdrop } from "./ProfileBackdrop";
 import { profilePath } from "./ProfileTabs";
 
 type ProfileHeaderProps = {
@@ -30,8 +30,8 @@ type ProfileHeaderProps = {
 };
 
 /**
- * Identity header of every profile tab: the most played game's art (blurred, desaturated,
- * dimmed) behind the avatar with its lime level plate, name, vocation and platforms, and the level
+ * Identity header of every profile tab: the art of the last games played, taking turns (blurred,
+ * desaturated, dimmed; ProfileBackdrop) behind the avatar with its lime level plate, name, vocation and platforms, and the level
  * box with the XP to the next level. The Ficha adds the rank, the week's XP and a numbers strip.
  */
 export function ProfileHeader({ summary, section, rank, week, bio, isOwner = false, actions, strip }: ProfileHeaderProps) {
@@ -41,17 +41,7 @@ export function ProfileHeader({ summary, section, rank, week, bio, isOwner = fal
     <header className="relative isolate">
       {/* The frame and the art live on their own clipped layer: overlays opened from the actions stay whole. */}
       <div aria-hidden="true" className="absolute inset-0 -z-10 overflow-hidden bg-surface tk-cut">
-        {summary.backdropUrl ? (
-          <RemoteImg
-            url={summary.backdropUrl}
-            alt=""
-            width={1280}
-            height={720}
-            sizes="(max-width: 1280px) 100vw, 1280px"
-            loading="eager"
-            className="absolute inset-0 size-full scale-105 object-cover object-[center_30%] opacity-45 blur-[3px] saturate-[.45]"
-          />
-        ) : null}
+        <ProfileBackdrop urls={summary.backdropUrls} />
         <span className="absolute inset-0 bg-[linear-gradient(90deg,var(--surface)_8%,color-mix(in_oklch,var(--surface)_70%,transparent)_55%,color-mix(in_oklch,var(--surface)_85%,transparent)),linear-gradient(0deg,var(--surface),transparent_60%)]" />
       </div>
 
