@@ -153,4 +153,78 @@ describe("backfillTrophyLists", () => {
     expect((await prisma.userTrophyList.findUniqueOrThrow({ where: { userId_listId: { userId, listId: list.id } } })).unlockedCount).toBe(1);
     expect(await prisma.achievement.count({ where: { gameId: g.id, listId: null } })).toBe(1);
   });
+
+  it("xbox game with two titleIds is left for the resync", async () => {
+    const g = await game();
+    await link(g.id, "xbox", "test-bf-XA");
+    await link(g.id, "xbox", "test-bf-XB");
+    await rows(g.id, "xbox", 3);
+    await prisma.userGame.create({ data: { userId, gameId: g.id, platform: "xbox", playtimeMin: 0, unlockedCount: 2 } });
+    const r = await backfillTrophyLists({ gameIds: [g.id] });
+    expect(r).toMatchObject({ listsCreated: 2, achievementsLinked: 0, achievementsLeftForResync: 3, userListsCreated: 0, multiListGames: 1 });
+  });
+
+  it("one NPWR link plus a CUSA store link is single-list", async () => {
+    const g = await game();
+    await link(g.id, "psn", "NPWR9TBF6_00");
+    await link(g.id, "psn", "CUSA9TBF6_00");
+    await rows(g.id, "psn", 2);
+    const r = await backfillTrophyLists({ gameIds: [g.id] });
+    expect(r).toMatchObject({ listsCreated: 1, achievementsLinked: 2, achievementsLeftForResync: 0, multiListGames: 0 });
+  });
+
+  it("dry run counts equal what the real run then reports", async () => {
+    const single = await game();
+    await link(single.id, "psn", "NPWR9TBF7_00");
+    await rows(single.id, "psn", 3);
+    await prisma.userGame.create({ data: { userId, gameId: single.id, platform: "psn", playtimeMin: 0, unlockedCount: 2 } });
+    const multi = await game();
+    await link(multi.id, "xbox", "test-bf-XC");
+    await link(multi.id, "xbox", "test-bf-XD");
+    await rows(multi.id, "xbox", 2);
+    const steam = await game();
+    await rows(steam.id, "steam", 4);
+    const rowless = await game();
+    await link(rowless.id, "psn", "NPWR9TBF8_00");
+    const ids = [single.id, multi.id, steam.id, rowless.id];
+
+    const dry = await backfillTrophyLists({ dryRun: true, gameIds: ids });
+    expect(await prisma.trophyList.count({ where: { gameId: { in: ids } } })).toBe(0);
+    expect(await prisma.achievement.count({ where: { gameId: { in: ids }, listId: { not: null } } })).toBe(0);
+    expect(await prisma.userTrophyList.count({ where: { list: { gameId: { in: ids } } } })).toBe(0);
+
+    const real = await backfillTrophyLists({ gameIds: ids });
+    expect({ ...real, dryRun: true }).toEqual(dry);
+    expect(real).toMatchObject({ listsCreated: 5, achievementsLinked: 7, achievementsLeftForResync: 2, multiListGames: 1, listsWithoutRows: 1 });
+  });
+
+  it("steam rows that cannot be linked are returned as steamLeftover", async () => {
+    const g = await game({ steamAppId: 990002 });
+    await rows(g.id, "steam", 2);
+    const list = await prisma.trophyList.create({ data: { gameId: g.id, platform: "steam", externalId: "990002", name: "x" } });
+    await prisma.achievement.create({ data: { gameId: g.id, platform: "steam", apiName: "A0", name: "A0", listId: list.id } });
+    const r = await backfillTrophyLists({ gameIds: [g.id] });
+    expect(r.steamLeftover).toBe(1);
+    expect(r.achievementsLinked).toBe(1);
+  });
+
+  it("does not copy an untouched UserGame (0 unlocked, not completed) into a user list", async () => {
+    const g = await game();
+    await link(g.id, "psn", "NPWR9TBF9_00");
+    await rows(g.id, "psn", 2);
+    await prisma.userGame.create({ data: { userId, gameId: g.id, platform: "psn", playtimeMin: 5, unlockedCount: 0 } });
+    const r = await backfillTrophyLists({ gameIds: [g.id] });
+    expect(r.userListsCreated).toBe(0);
+  });
+
+  it("links in several batches even when ineligible rows fill whole batches", async () => {
+    const multi = await game();
+    await link(multi.id, "psn", "NPWR9TBFA_00");
+    await link(multi.id, "psn", "NPWR9TBFB_00");
+    await rows(multi.id, "psn", 5);
+    const steam = await game();
+    await rows(steam.id, "steam", 5);
+    const r = await backfillTrophyLists({ gameIds: [multi.id, steam.id], batchSize: 2 });
+    expect(r).toMatchObject({ achievementsLinked: 5, achievementsLeftForResync: 5 });
+  });
 });
