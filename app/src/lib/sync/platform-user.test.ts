@@ -387,8 +387,8 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     await syncPlatformAccount(user.id, "xbox");
 
     const re4 = await prisma.game.findUniqueOrThrow({ where: { slug: "resident-evil-4" } });
-    const firm = await prisma.achievement.findUniqueOrThrow({
-      where: { gameId_platform_apiName: { gameId: re4.id, platform: "xbox", apiName: "2" } },
+    const firm = await prisma.achievement.findFirstOrThrow({
+      where: { gameId: re4.id, platform: "xbox", apiName: "2" },
     });
     expect(firm.points).toBe(80);
     const entry = await prisma.xpLedgerEntry.findUniqueOrThrow({
@@ -481,8 +481,8 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     const before = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
 
     const hk = await prisma.game.findUniqueOrThrow({ where: { slug: "hollow-knight" } });
-    const platinumTrophy = await prisma.achievement.findUniqueOrThrow({
-      where: { gameId_platform_apiName: { gameId: hk.id, platform: "psn", apiName: "1" } },
+    const platinumTrophy = await prisma.achievement.findFirstOrThrow({
+      where: { gameId: hk.id, platform: "psn", apiName: "1" },
     });
     const voided = await voidFraudEntries(user.id, [platinumTrophy.id]);
     expect(voided).toBe(2); // the trophy and the game's platinum bonus

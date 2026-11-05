@@ -76,6 +76,24 @@ const daysAgo = (d: number) => new Date(now.getTime() - d * DAY);
 
 const SKILL_IDS = SKILLS.map((s) => s.id);
 
+type SeedTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Upsert of a seed achievement by game + platform + apiName. The table's unique key is now
+ * (listId, apiName), which does not match rows whose listId is NULL, so the seed looks the row up.
+ */
+async function upsertAchievement(
+  tx: SeedTx,
+  gameId: string,
+  platform: string,
+  apiName: string,
+  data: Record<string, unknown>,
+) {
+  const existing = await tx.achievement.findFirst({ where: { gameId, platform, apiName } });
+  if (existing) return tx.achievement.update({ where: { id: existing.id }, data });
+  return tx.achievement.create({ data: { gameId, platform, apiName, name: "", ...data } });
+}
+
 function skillStates(levels: Record<SkillId, number>, fraction: (id: SkillId) => number) {
   return Object.fromEntries(
     SKILL_IDS.map((id) => [
@@ -288,23 +306,13 @@ export async function runSeed() {
           hidden: a.hidden,
           globalPct,
         };
-        const row = await tx.achievement.upsert({
-          where: { gameId_platform_apiName: { gameId: hkGameId, platform: "steam", apiName: a.apiName } },
-          create: { gameId: hkGameId, platform: "steam", apiName: a.apiName, ...data },
-          update: data,
-        });
+        const row = await upsertAchievement(tx, hkGameId, "steam", a.apiName, data);
         achievementIds.set(`hollow-knight:${a.apiName}`, row.id);
         achievementByName.set(a.name, a.apiName);
       }
       for (const f of FEED_ACHIEVEMENTS) {
         const data = { name: f.name, globalPct: f.globalPct, hidden: false };
-        const row = await tx.achievement.upsert({
-          where: {
-            gameId_platform_apiName: { gameId: gid(f.gameSlug), platform: "steam", apiName: f.apiName },
-          },
-          create: { gameId: gid(f.gameSlug), platform: "steam", apiName: f.apiName, ...data },
-          update: data,
-        });
+        const row = await upsertAchievement(tx, gid(f.gameSlug), "steam", f.apiName, data);
         achievementIds.set(`${f.gameSlug}:${f.apiName}`, row.id);
       }
 
@@ -546,11 +554,7 @@ export async function runSeed() {
             trophyTier: trophy.tier ?? null,
             points: trophy.points ?? null,
           };
-          const row = await tx.achievement.upsert({
-            where: { gameId_platform_apiName: { gameId, platform: pg.platform, apiName } },
-            create: { gameId, platform: pg.platform, apiName, ...data },
-            update: data,
-          });
+          const row = await upsertAchievement(tx, gameId, pg.platform, apiName, data);
           ids.push(row.id);
         }
         if (pg.lucasPlaytimeMin === 0) continue;
