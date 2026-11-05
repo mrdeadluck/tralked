@@ -16,6 +16,7 @@ import { levelFromXp } from "@/lib/engine/xp";
 import { notifyLevelUp, notifyMissionDone } from "@/lib/notifications/progress";
 import { dailyPeriodKey, isoWeekKey, weeklyPeriodKey } from "./periods";
 import { skillPointTotals, skillsFromLedger, type LedgerSkillEntry } from "./skills-from-ledger";
+import { countedUnlocks } from "@/lib/trophies/counted";
 import { isListPlatform, LIST_PLATFORMS, platinumGameId, platinumSourceKey, refreshGameCompletion, settleListXp } from "./list-xp";
 
 const DAY_MS = 86_400_000;
@@ -114,31 +115,60 @@ function topSkillsOf(skills: SkillMap): SkillId[] {
 }
 
 async function loadUnlockEvents(userId: string, from: Date, to?: Date) {
-  const rows = await prisma.userAchievement.findMany({
-    where: { userId, unlockedAt: { gte: from, ...(to && { lte: to }) } },
-    select: {
-      unlockedAt: true,
-      suspicious: true,
-      achievementId: true,
-      achievement: {
-        select: {
-          gameId: true,
-          globalPct: true,
-          game: { select: { skills: { select: { skill: true } } } },
-        },
+  const select = {
+    unlockedAt: true,
+    suspicious: true,
+    achievementId: true,
+    achievement: {
+      select: {
+        gameId: true,
+        platform: true,
+        apiName: true,
+        globalPct: true,
+        list: { select: { platform: true, console: true, externalId: true } },
+        game: { select: { skills: { select: { skill: true } } } },
       },
     },
+  } as const;
+  const inWindow = await prisma.userAchievement.findMany({
+    where: { userId, unlockedAt: { gte: from, ...(to && { lte: to }) } },
+    select,
   });
-  return rows.map(
-    (r): UnlockEvent => ({
-      achievementId: r.achievementId,
-      gameId: r.achievement.gameId,
-      globalPct: r.achievement.globalPct,
-      skills: r.achievement.game.skills.map((s) => s.skill as SkillId),
-      unlockedAt: r.unlockedAt,
-      suspicious: r.suspicious,
-    }),
-  );
+  // Once per console: a PSN trophy first earned in another regional list before the window is no
+  // new event, so the earlier copies of the window's PSN trophies are looked up too.
+  const psn = inWindow.filter((r) => r.achievement.platform === "psn" && !r.suspicious);
+  const earlier = psn.length
+    ? await prisma.userAchievement.findMany({
+        where: {
+          userId,
+          suspicious: false,
+          unlockedAt: { lt: from },
+          achievement: {
+            platform: "psn",
+            gameId: { in: [...new Set(psn.map((r) => r.achievement.gameId))] },
+            apiName: { in: [...new Set(psn.map((r) => r.achievement.apiName))] },
+          },
+        },
+        select,
+      })
+    : [];
+  // Suspicious unlocks stay events (they carry the flag); only clean copies dedupe each other.
+  const counted = new Set([
+    ...countedUnlocks([...inWindow, ...earlier].filter((r) => !r.suspicious)),
+    ...inWindow.filter((r) => r.suspicious),
+  ]);
+  return inWindow
+    .filter((r) => counted.has(r))
+    .map(
+      (r): UnlockEvent => ({
+        achievementId: r.achievementId,
+        gameId: r.achievement.gameId,
+        globalPct: r.achievement.globalPct,
+        skills: r.achievement.game.skills.map((s) => s.skill as SkillId),
+        unlockedAt: r.unlockedAt,
+        suspicious: r.suspicious,
+      }),
+    );
 }
 
 /**
@@ -236,7 +266,14 @@ function loadValidUnlocks(userId: string) {
       unlockedAt: true,
       hardcore: true,
       achievement: {
-        select: { gameId: true, platform: true, globalPct: true, trophyTier: true },
+        select: {
+          gameId: true,
+          platform: true,
+          apiName: true,
+          globalPct: true,
+          trophyTier: true,
+          list: { select: { platform: true, console: true, externalId: true } },
+        },
       },
     },
   });
@@ -356,7 +393,8 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
     skills = skillsFromLedger(entries);
   }
 
-  const unlocks = await loadValidUnlocks(userId);
+  // Once per console: the same PSN trophy in two regional lists counts one time everywhere below.
+  const unlocks = countedUnlocks(await loadValidUnlocks(userId));
   const days = [...new Set(unlocks.map((u) => toLocalDay(u.unlockedAt)))];
   const streak = computeStreak(days, toLocalDay(now));
   const attributes = computeAttributes(

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { ATTRIBUTES, attributeLevel, type AttributeId } from "@/lib/engine/attributes";
 import { trophyTierFromRarity, type PlatformId, type TrophyTier } from "@/lib/engine/trophies";
 import { validCompletions } from "@/lib/progression/completions";
+import { versionKey } from "@/lib/trophies/lists";
 import { platinumCount } from "./counts";
 
 /**
@@ -60,7 +61,14 @@ export type TrophySummary = {
   byPlatform: { platform: PlatformId; unlocks: number }[];
 };
 
-type UnlockRow = { gameId: string; platform: string; trophyTier: string | null; globalPct: number | null };
+type UnlockRow = {
+  gameId: string;
+  platform: string;
+  trophyTier: string | null;
+  globalPct: number | null;
+  /** Version of the trophy list (PS4 and PS5 platinums are two); absent for list-less rows. */
+  versionKey?: string;
+};
 
 const TIERS = new Set<string>(["bronze", "silver", "gold", "platinum"]);
 
@@ -120,7 +128,17 @@ export async function getCharacterSheetExtras(userId: string): Promise<Character
     }),
     prisma.userAchievement.findMany({
       where: { userId, suspicious: false },
-      select: { achievement: { select: { gameId: true, platform: true, trophyTier: true, globalPct: true } } },
+      select: {
+        achievement: {
+          select: {
+            gameId: true,
+            platform: true,
+            trophyTier: true,
+            globalPct: true,
+            list: { select: { platform: true, console: true, externalId: true } },
+          },
+        },
+      },
     }),
     // A tainted 100% (suspicious unlock) is no platinum, as in Glória and the sheet's counters.
     validCompletions(userId),
@@ -149,7 +167,7 @@ export async function getCharacterSheetExtras(userId: string): Promise<Character
     attributes,
     platforms,
     trophies: summarizeTrophies(
-      unlocks.map((u) => u.achievement),
+      unlocks.map(({ achievement: { list, ...a } }) => ({ ...a, versionKey: list ? versionKey(list) : a.platform })),
       completions,
     ),
     photos: { items: photos.photos, total: photos.total },
