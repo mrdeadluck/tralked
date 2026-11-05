@@ -9,14 +9,22 @@ afterEach(cleanup);
 const chip = (id: string, label = id) => ({ id, label, href: `/jogos?f=${id}` });
 const GENRES = ["fps", "horror", "soulslike", "rpg", "roguelike", "plataforma", "estrategia", "simulacao", "puzzle", "coop"];
 
-function setup(current = "todos", platform = "todas") {
+type Toggles = { exclusive?: boolean; trophies?: boolean };
+
+function setup(current = "todos", platform = "todas", on: Toggles = {}) {
   return render(
     <CatalogFilters
       categories={{ options: [chip("todos"), chip("quase"), chip("guia"), ...GENRES.map((g) => chip(g))], current }}
       leading={3}
       platforms={{ options: [chip("todas"), chip("PC", "Steam / PC")], current: platform }}
       sorts={{ options: [chip("popular", "Popular"), chip("nome", "Nome")], current: "popular" }}
-      activeCount={(current === "todos" ? 0 : 1) + (platform === "todas" ? 0 : 1)}
+      toggles={{
+        exclusive: on.exclusive ?? false,
+        trophies: on.trophies ?? false,
+        exclusiveHref: on.exclusive ? "/jogos?plataforma=PC" : "/jogos?plataforma=PC&exclusivos=1",
+        trophiesHref: on.trophies ? "/jogos?plataforma=PC&exclusivos=1" : "/jogos?plataforma=PC&exclusivos=1&trofeus=1",
+      }}
+      activeCount={(current === "todos" ? 0 : 1) + (platform === "todas" ? 0 : 1) + (on.exclusive ? 1 : 0) + (on.trophies ? 1 : 0)}
       total={1234}
       clearHref="/jogos"
     />,
@@ -46,9 +54,43 @@ describe("CatalogFilters", () => {
   it("phones: 'Filtrar (n)' counts the active filters and the sheet offers the results count", () => {
     setup("soulslike", "PC");
     expect(screen.getByRole("button", { name: "Filtrar (2)" })).toHaveAttribute("aria-haspopup", "dialog");
-    expect(screen.getByText("soulslike · Steam / PC · Ordem: Popular")).toBeInTheDocument();
+    expect(screen.getByText("soulslike · PC · Steam · Ordem: Popular")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ver 1.234 jogos", hidden: true })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Limpar", hidden: true })).toHaveAttribute("href", "/jogos");
+  });
+
+  it("toggles keep the other params", () => {
+    setup("todos", "PC", { exclusive: true });
+    const group = within(screen.getAllByRole("group", { name: "Recortes do catálogo" })[0]);
+    const exclusive = group.getByRole("button", { name: "Só exclusivos" });
+    expect(exclusive).toHaveAttribute("aria-pressed", "true");
+    expect(exclusive).toHaveAttribute("href", "/jogos?plataforma=PC");
+    const trophies = group.getByRole("button", { name: "Só com troféus" });
+    expect(trophies).toHaveAttribute("aria-pressed", "false");
+    expect(trophies).toHaveAttribute("href", "/jogos?plataforma=PC&exclusivos=1&trofeus=1");
+  });
+
+  it("Só com troféus is disabled on Nintendo with a hint", () => {
+    setup("todos", "NINTENDO", { exclusive: true });
+    const group = within(screen.getAllByRole("group", { name: "Recortes do catálogo" })[0]);
+    const trophies = group.getByRole("button", { name: "Só com troféus" });
+    expect(trophies).toHaveAttribute("aria-disabled", "true");
+    expect(trophies).not.toHaveAttribute("href");
+    expect(screen.getAllByText("Jogos da Nintendo não têm troféus nem conquistas.").length).toBeGreaterThan(0);
+    // Exclusive stays clickable.
+    expect(group.getByRole("button", { name: "Só exclusivos" })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it('PC label reads "PC · Steam"', () => {
+    setup();
+    expect(bar().queryByRole("link", { name: "Steam / PC" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "PC · Steam" }).length).toBeGreaterThan(0);
+  });
+
+  it("phones: the summary and the count include the toggles", () => {
+    setup("todos", "PLAYSTATION", { exclusive: true, trophies: true });
+    expect(screen.getByRole("button", { name: "Filtrar (3)" })).toBeInTheDocument();
+    expect(screen.getByText(/Só exclusivos · Só com troféus · Ordem: Popular/)).toBeInTheDocument();
   });
 });
 

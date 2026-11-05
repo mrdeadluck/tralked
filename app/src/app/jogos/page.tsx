@@ -31,7 +31,7 @@ export const metadata: Metadata = {
 
 const BASE = "/jogos";
 /** URL state of the catalog (`pagina` included: links built from it reset or set it). */
-const KEYS = ["q", "plataforma", "genero", "quase", "guia", "ordem", "por", PAGE_PARAM] as const;
+const KEYS = ["q", "plataforma", "genero", "quase", "guia", "ordem", "por", "exclusivos", "trofeus", PAGE_PARAM] as const;
 
 const PLATFORMS = new Set<string>(CATALOG_PLATFORMS);
 const PLATFORM_OPTION = new Map(
@@ -61,6 +61,10 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
   const q = cleanQuery(state.q);
   const plataforma = state.plataforma?.toUpperCase();
   const platform = plataforma && PLATFORMS.has(plataforma) ? plataforma : undefined;
+  const exclusive = state.exclusivos === "1";
+  // Kept in the links on Nintendo (going back to another platform restores it), but without effect there.
+  const trophiesParam = state.trofeus === "1";
+  const withTrophies = trophiesParam && platform !== "NINTENDO";
   const sort = (CATALOG_SORTS as readonly string[]).includes(state.ordem ?? "") ? (state.ordem as CatalogSort) : "popular";
   const { page: requested, perPage } = parsePagination(params);
 
@@ -71,12 +75,14 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
     genero: skill,
     quase: almost ? "1" : undefined,
     guia: withGuide ? "1" : undefined,
+    exclusivos: exclusive ? "1" : undefined,
+    trofeus: trophiesParam ? "1" : undefined,
     ordem: sort === "popular" ? undefined : sort,
     por: perPageParam(perPage),
   };
   const link = (changes: Record<string, string | undefined>) => hrefWith(BASE, kept, { ...changes, [PAGE_PARAM]: undefined });
 
-  const filter: GameFilter = { skill, almost, withGuide, q, platform };
+  const filter: GameFilter = { skill, almost, withGuide, q, platform, exclusive, withTrophies };
   const [result, catalogSize] = await Promise.all([
     listGames(filter, { page: requested, perPage, sort }, user?.id),
     countGames(),
@@ -130,9 +136,15 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
           leading={3}
           platforms={{ options: platformChips, current: platform ?? "todas" }}
           sorts={{ options: sortChips, current: sort }}
-          activeCount={(category === "todos" ? 0 : 1) + (platform ? 1 : 0)}
+          toggles={{
+            exclusive,
+            trophies: withTrophies,
+            exclusiveHref: link({ exclusivos: exclusive ? undefined : "1" }),
+            trophiesHref: link({ trofeus: trophiesParam ? undefined : "1" }),
+          }}
+          activeCount={(category === "todos" ? 0 : 1) + (platform ? 1 : 0) + (exclusive ? 1 : 0) + (withTrophies ? 1 : 0)}
           total={total}
-          clearHref={link({ ...noFilter, plataforma: undefined })}
+          clearHref={link({ ...noFilter, plataforma: undefined, exclusivos: undefined, trofeus: undefined })}
         />
       </div>
 
