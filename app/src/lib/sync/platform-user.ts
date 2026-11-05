@@ -2,9 +2,9 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { findBursts, isSpeedPlatinum } from "@/lib/engine/fraud";
 import { platformAvailable } from "@/lib/integrations/availability";
-import { xpForPlatformAchievement } from "@/lib/engine/trophies";
-import { platinumBonus } from "@/lib/engine/xp";
-import { platinumSourceKey, recomputeUser } from "@/lib/progression/recompute";
+import { settleListXp } from "@/lib/progression/list-xp";
+import { recomputeUser } from "@/lib/progression/recompute";
+import { ensureTrophyList } from "@/lib/trophies/lists";
 import { loadNameIndex, resolvePlatformGame, type NameIndex } from "./platform-games";
 import {
   CODE_PLATFORMS,
@@ -73,23 +73,38 @@ async function assertStillLinked(tx: Prisma.TransactionClient, account: AccountS
 }
 
 /** `fraudReview` "cleared": an admin released the unlock, so the rules no longer flag it. */
-type KnownUnlock = { unlockedAt: Date; suspicious: boolean; hardcore: boolean; fraudReview: string | null };
+type KnownUnlock = {
+  achievementId: string;
+  unlockedAt: Date;
+  suspicious: boolean;
+  hardcore: boolean;
+  fraudReview: string | null;
+  fraudReviewedAt: Date | null;
+};
 
-const xpOf = (platform: CodePlatform, a: LibraryAchievement, hardcore: boolean) =>
-  xpForPlatformAchievement({
-    platform,
-    globalPct: a.globalPct,
-    points: a.points,
-    trophyTier: a.trophyTier,
-    hardcore,
-  });
+/** The user's unlocks on one platform, as stored when the sync started. */
+type KnownUnlocks = {
+  /** Unlocks of trophy-list rows, by listKey. */
+  byList: Map<string, KnownUnlock>;
+  /**
+   * Unlocks of rows written before trophy lists (listId null), by `${gameId}:${apiName}`. Several
+   * lists of one game (PS4 and PS5) shared those rows, so one may hold another list's unlock.
+   */
+  legacy: Map<string, KnownUnlock>;
+};
+
+/** A trophy of one list: Achievement is unique by (listId, apiName). */
+const listKey = (listId: string, apiName: string) => `${listId}:${apiName}`;
 
 /**
- * Records one platform title in a single transaction: the platform's Achievement rows, the
- * UserGame of that platform, UserAchievement (with the anti-fraud verdict and the hardcore flag)
- * and ledger entries (`platform` set) for valid unlocks plus the completion bonus. Every insert
- * is idempotent and XP already in the ledger is never rewritten. A stored unlock date is never
- * rewritten either: an undated unlock keeps the time it was first seen (`seenAt`). Throws
+ * Records one platform title (one trophy list) in a single transaction: its TrophyList, the list's
+ * Achievement rows, UserAchievement (with the anti-fraud verdict and the hardcore flag), the
+ * user's UserTrophyList of the list and the UserGame of the game on that platform (every list's
+ * unlocks; completed when its first list was), then settles the game's XP by version
+ * (settleListXp). Every insert is idempotent and XP already in the ledger is never rewritten. A
+ * stored unlock date is never rewritten either: an undated unlock keeps the time it was first
+ * seen (`seenAt`). An unlock of a list-less row of the same game and trophy (written before
+ * trophy lists) passes on its verdict, and its date when the platform gives none. Throws
  * AccountChangedError (writing nothing) when the account is no longer linked.
  * Returns how many unlocks were new.
  */
@@ -97,16 +112,15 @@ async function recordTitle(
   account: AccountSnapshot,
   gameId: string,
   title: LibraryTitle,
-  known: Map<string, KnownUnlock>,
+  known: KnownUnlocks,
   bursts: Set<string>,
   seenAt: Date,
 ): Promise<number> {
   const { userId, platform } = account;
   const game = await prisma.game.findUniqueOrThrow({
     where: { id: gameId },
-    select: { timeToBeatCompleteMin: true, skills: { select: { skill: true } } },
+    select: { timeToBeatCompleteMin: true },
   });
-  const gameSkills = game.skills.map((s) => s.skill);
   const fields = (a: LibraryAchievement) => ({
     name: a.name,
     description: a.description,
@@ -119,12 +133,38 @@ async function recordTitle(
 
   return prisma.$transaction(async (tx) => {
     await assertStillLinked(tx, account);
-    const existing = await tx.achievement.findMany({ where: { gameId, platform } });
+    const list = await ensureTrophyList(tx, {
+      gameId,
+      platform,
+      externalId: title.externalId,
+      console: title.console,
+      name: title.name,
+      serviceName: title.serviceName,
+      trophyCount: title.achievements.length,
+    });
+    // A list never moves between games (ensureTrophyList): its rows and progress stay with its game.
+    const listGameId = list.gameId;
+    if (platform === "retro") {
+      // RetroAchievements ids are unique across sets: list-less rows of the game written before
+      // trophy lists are this set's own rows (as the game page's writer does, lib/sync/retro-achievements.ts).
+      const own = await tx.achievement.findMany({ where: { listId: list.id }, select: { apiName: true } });
+      const held = new Set(own.map((r) => r.apiName));
+      await tx.achievement.updateMany({
+        where: {
+          gameId: listGameId,
+          platform,
+          listId: null,
+          apiName: { in: title.achievements.map((a) => a.apiName).filter((n) => !held.has(n)) },
+        },
+        data: { listId: list.id },
+      });
+    }
+    const existing = await tx.achievement.findMany({ where: { listId: list.id } });
     const byApiName = new Map(existing.map((r) => [r.apiName, r]));
     await tx.achievement.createMany({
       data: title.achievements
         .filter((a) => !byApiName.has(a.apiName))
-        .map((a) => ({ gameId, platform, apiName: a.apiName, ...fields(a) })),
+        .map((a) => ({ gameId: listGameId, platform, listId: list.id, apiName: a.apiName, ...fields(a) })),
       skipDuplicates: true,
     });
     for (const a of title.achievements) {
@@ -135,7 +175,7 @@ async function recordTitle(
       if (changed) await tx.achievement.update({ where: { id: row.id }, data: next });
     }
     const rows = await tx.achievement.findMany({
-      where: { gameId, platform },
+      where: { listId: list.id },
       select: { id: true, apiName: true },
     });
     const idOf = new Map(rows.map((r) => [r.apiName, r.id]));
@@ -143,8 +183,14 @@ async function recordTitle(
     const unlocked = title.achievements.flatMap((a) => {
       const achievementId = idOf.get(a.apiName);
       if (!achievementId || !a.unlocked) return [];
-      const unlockedAt = known.get(achievementId)?.unlockedAt ?? a.unlockedAt ?? seenAt;
-      return [{ a, achievementId, unlockedAt }];
+      const listless = known.legacy.get(`${listGameId}:${a.apiName}`);
+      // A list-less row this list just took over (RetroAchievements) is the same row: same unlock.
+      const before =
+        known.byList.get(listKey(list.id, a.apiName)) ?? (listless?.achievementId === achievementId ? listless : undefined);
+      const legacy = before ? undefined : listless;
+      // The list-less row may hold another list's unlock: its date only stands in for a missing one.
+      const unlockedAt = before?.unlockedAt ?? a.unlockedAt ?? legacy?.unlockedAt ?? seenAt;
+      return [{ a, achievementId, unlockedAt, before, legacy }];
     });
     const complete = unlocked.length > 0 && unlocked.length >= title.achievements.length;
     const playtimeKnown = title.playtimeMin !== null && title.playtimeMin > 0;
@@ -152,7 +198,7 @@ async function recordTitle(
       complete && playtimeKnown && isSpeedPlatinum(title.playtimeMin ?? 0, game.timeToBeatCompleteMin);
 
     const verdicts = unlocked.map((u) => {
-      const before = known.get(u.achievementId);
+      const before = u.before ?? u.legacy;
       return {
         ...u,
         // Sticky like the Steam sync: once suspicious (rule or admin), always suspicious. An unlock
@@ -171,47 +217,32 @@ async function recordTitle(
       ? new Date(Math.max(...verdicts.map((v) => v.unlockedAt.getTime())))
       : null;
 
-    const playtimeMin = title.playtimeMin ?? 0;
-    // RetroAchievements reports play time with each title: reading the title is reading it (even
-    // when RA has none), so the row stops being re-read for it. PSN/Xbox play time comes from their
-    // played-games lists (recordPlaytime).
-    const playtimeFields = platform === "retro" ? { playtimeUpdatedAt: seenAt } : {};
-    await tx.userGame.upsert({
-      where: { userId_gameId_platform: { userId, gameId, platform } },
-      create: { userId, gameId, platform, playtimeMin, unlockedCount: unlocked.length, completedAt, ...playtimeFields },
-      update: {
-        // Platforms without playtime keep whatever was recorded before.
-        ...(title.playtimeMin !== null && { playtimeMin }),
-        unlockedCount: unlocked.length,
-        completedAt,
-        ...playtimeFields,
-      },
+    const progress = {
+      unlockedCount: verdicts.length,
+      hardcoreCount: verdicts.filter((v) => v.hardcore).length,
+      completedAt,
+    };
+    await tx.userTrophyList.upsert({
+      where: { userId_listId: { userId, listId: list.id } },
+      create: { userId, listId: list.id, ...progress },
+      update: progress,
     });
 
+    const fresh = verdicts.filter((v) => !v.before);
     const created = await tx.userAchievement.createMany({
-      data: verdicts
-        .filter((v) => !known.has(v.achievementId))
-        .map((v) => ({
-          userId,
-          achievementId: v.achievementId,
-          unlockedAt: v.unlockedAt,
-          suspicious: v.suspicious,
-          hardcore: v.hardcore,
-        })),
+      data: fresh.map((v) => ({
+        userId,
+        achievementId: v.achievementId,
+        unlockedAt: v.unlockedAt,
+        suspicious: v.suspicious,
+        hardcore: v.hardcore,
+        // An admin's decision on the list-less unlock stands for this one.
+        ...(v.legacy?.fraudReview && { fraudReview: v.legacy.fraudReview, fraudReviewedAt: v.legacy.fraudReviewedAt }),
+      })),
       skipDuplicates: true,
     });
-    // A game with several lists (PS4 and PS5) shares this row: it counts what was unlocked in any
-    // of them, not just this list.
-    const owned = await tx.userAchievement.count({ where: { userId, achievement: { gameId, platform } } });
-    if (owned > unlocked.length) {
-      await tx.userGame.update({
-        where: { userId_gameId_platform: { userId, gameId, platform } },
-        data: { unlockedCount: owned },
-      });
-    }
     for (const v of verdicts) {
-      const before = known.get(v.achievementId);
-      if (before && (before.suspicious !== v.suspicious || before.hardcore !== v.hardcore)) {
+      if (v.before && (v.before.suspicious !== v.suspicious || v.before.hardcore !== v.hardcore)) {
         await tx.userAchievement.update({
           where: { userId_achievementId: { userId, achievementId: v.achievementId } },
           data: { suspicious: v.suspicious, hardcore: v.hardcore },
@@ -219,32 +250,40 @@ async function recordTitle(
       }
     }
 
-    const ledger = verdicts
-      .filter((v) => !v.suspicious)
-      .map((v) => ({
-        userId,
-        source: "achievement",
-        sourceKey: v.achievementId,
-        platform,
-        xp: xpOf(platform, v.a, v.hardcore),
-        skills: gameSkills,
-        createdAt: v.unlockedAt,
-      }));
-    if (validComplete && completedAt) {
-      ledger.push({
-        userId,
-        source: "platinum",
-        sourceKey: platinumSourceKey(platform, gameId),
-        platform,
-        xp: platinumBonus(title.achievements.map((a) => xpOf(platform, a, false))),
-        skills: gameSkills,
-        createdAt: completedAt,
-      });
-    }
-    // Hours milestones (RetroAchievements play time comes with the title) are paid by
-    // settlePlaytime at the end of the sync, within the per-user caps.
-    await tx.xpLedgerEntry.createMany({ data: ledger, skipDuplicates: true });
-    return created.count;
+    // The game on that platform: every list's unlocks (list-less rows of older syncs left out: the
+    // lists hold those unlocks again), completed when its first list was.
+    const unlockedCount = await tx.userAchievement.count({
+      where: { userId, achievement: { gameId: listGameId, platform, listId: { not: null } } },
+    });
+    const firstCompleted = await tx.userTrophyList.findFirst({
+      where: { userId, completedAt: { not: null }, list: { gameId: listGameId, platform } },
+      orderBy: { completedAt: "asc" },
+      select: { completedAt: true },
+    });
+    const gameCompletedAt = firstCompleted?.completedAt ?? null;
+    const playtimeMin = title.playtimeMin ?? 0;
+    // RetroAchievements reports play time with each title: reading the title is reading it (even
+    // when RA has none), so the row stops being re-read for it. PSN/Xbox play time comes from their
+    // played-games lists (recordPlaytime).
+    const playtimeFields = platform === "retro" ? { playtimeUpdatedAt: seenAt } : {};
+    await tx.userGame.upsert({
+      where: { userId_gameId_platform: { userId, gameId: listGameId, platform } },
+      create: { userId, gameId: listGameId, platform, playtimeMin, unlockedCount, completedAt: gameCompletedAt, ...playtimeFields },
+      update: {
+        // Platforms without playtime keep whatever was recorded before.
+        ...(title.playtimeMin !== null && { playtimeMin }),
+        unlockedCount,
+        completedAt: gameCompletedAt,
+        ...playtimeFields,
+      },
+    });
+
+    // XP of the game's trophies and completions, by version (once per console). Hours milestones
+    // (RetroAchievements play time comes with the title) are paid by settlePlaytime at the end of
+    // the sync, within the per-user caps.
+    await settleListXp(tx, userId, platform, [listGameId], seenAt);
+    // Unlocks carried over from list-less rows were known already.
+    return Math.max(0, created.count - fresh.filter((v) => v.legacy).length);
   }, TRANSACTION_OPTIONS);
 }
 
@@ -417,21 +456,28 @@ async function rememberTitles(
 }
 
 /**
- * Per-title progress already in the database, keyed by the platform's title id: the UserGame
- * unlock count (and, for RetroAchievements, the hardcore unlock count), or the counts remembered
- * for that title when it was last recorded (a game with several lists). Persistent, so a run cut
- * short by the budget resumes where it stopped.
+ * Per-title progress already in the database, keyed by the platform's title id: the counts of the
+ * user's UserTrophyList of that list; for a title without one (recorded before trophy lists), the
+ * counts remembered for it when it was last recorded (a game with several lists), else its
+ * game's UserGame unlock count (and, for RetroAchievements, the game's hardcore unlock count).
+ * Persistent, so a run cut short by the budget resumes where it stopped.
  */
 async function storedProgress(
   userId: string,
   platform: CodePlatform,
   remembered: Map<string, RememberedCounts> = new Map(),
 ): Promise<Map<string, StoredProgress>> {
-  const games = await prisma.userGame.findMany({
-    where: { userId, platform },
-    select: { gameId: true, unlockedCount: true, playtimeUpdatedAt: true, lastPlayedAt: true },
-  });
-  if (games.length === 0) return new Map();
+  const [games, lists] = await Promise.all([
+    prisma.userGame.findMany({
+      where: { userId, platform },
+      select: { gameId: true, unlockedCount: true, playtimeUpdatedAt: true, lastPlayedAt: true },
+    }),
+    prisma.userTrophyList.findMany({
+      where: { userId, list: { platform } },
+      select: { unlockedCount: true, hardcoreCount: true, list: { select: { externalId: true, gameId: true } } },
+    }),
+  ]);
+  if (games.length === 0 && lists.length === 0) return new Map();
   const [links, hardcore] = await Promise.all([
     prisma.gamePlatformLink.findMany({
       where: { platform, gameId: { in: games.map((g) => g.gameId) } },
@@ -449,7 +495,7 @@ async function storedProgress(
     hardcoreByGame.set(h.achievement.gameId, (hardcoreByGame.get(h.achievement.gameId) ?? 0) + 1);
   }
   const byGame = new Map(games.map((g) => [g.gameId, g]));
-  return new Map(
+  const stored = new Map<string, StoredProgress>(
     links.map((l) => {
       const game = byGame.get(l.gameId);
       const counts = remembered.get(l.externalId);
@@ -464,6 +510,17 @@ async function storedProgress(
       ];
     }),
   );
+  // A list's own counts are exact (the game's add every list up): they win.
+  for (const p of lists) {
+    const game = byGame.get(p.list.gameId);
+    stored.set(p.list.externalId, {
+      unlocked: p.unlockedCount,
+      hardcore: p.hardcoreCount,
+      playtimeSynced: game?.playtimeUpdatedAt != null,
+      lastPlayedAt: game?.lastPlayedAt ?? null,
+    });
+  }
+  return stored;
 }
 
 async function currentLevel(userId: string): Promise<number> {
@@ -553,29 +610,63 @@ export async function syncPlatformAccount(
 
   // Anti-fraud looks at all of the user's unlocks on this platform together (bursts can span
   // games). Undated unlocks are left out: their first-seen time says nothing about play.
-  const known = new Map<string, KnownUnlock>(
-    (
-      await prisma.userAchievement.findMany({
-        where: { userId, achievement: { platform } },
-        select: { achievementId: true, unlockedAt: true, suspicious: true, hardcore: true, fraudReview: true },
-      })
-    ).map((r) => [r.achievementId, r]),
-  );
-  const ids = await prisma.achievement.findMany({
-    where: { platform, gameId: { in: resolved.map((r) => r.gameId) } },
-    select: { id: true, gameId: true, apiName: true },
+  const unlockRows = await prisma.userAchievement.findMany({
+    where: { userId, achievement: { platform } },
+    select: {
+      achievementId: true,
+      unlockedAt: true,
+      suspicious: true,
+      hardcore: true,
+      fraudReview: true,
+      fraudReviewedAt: true,
+      achievement: { select: { listId: true, gameId: true, apiName: true } },
+    },
   });
-  const idByKey = new Map(ids.map((a) => [`${a.gameId}:${a.apiName}`, a.id]));
-  const everyUnlock = new Map(
-    [...known].map(([achievementId, k]) => [achievementId, { achievementId, unlockedAt: k.unlockedAt }]),
-  );
-  for (const { gameId, title } of resolved) {
+  const known: KnownUnlocks = { byList: new Map(), legacy: new Map() };
+  for (const { achievement: a, ...unlock } of unlockRows) {
+    if (a.listId) known.byList.set(listKey(a.listId, a.apiName), unlock);
+    else known.legacy.set(`${a.gameId}:${a.apiName}`, unlock);
+  }
+  const lists = await prisma.trophyList.findMany({
+    where: { platform, externalId: { in: resolved.map((r) => r.title.externalId) } },
+    select: { id: true, externalId: true },
+  });
+  const listIdOf = new Map(lists.map((l) => [l.externalId, l.id]));
+  const ids = await prisma.achievement.findMany({
+    where: { listId: { in: lists.map((l) => l.id) } },
+    select: { id: true, listId: true, apiName: true },
+  });
+  const idByKey = new Map(ids.map((a) => [listKey(a.listId!, a.apiName), a.id]));
+  // A list-less unlock of a game that has (or gets, this run) trophy lists is held by a list row
+  // too: left out, so one unlock does not count twice.
+  const legacyGames = [...new Set(unlockRows.filter((r) => !r.achievement.listId).map((r) => r.achievement.gameId))];
+  const listedGames = new Set([
+    ...resolved.map((r) => r.gameId),
+    ...(legacyGames.length
+      ? await prisma.trophyList.findMany({
+          where: { platform, gameId: { in: legacyGames } },
+          select: { gameId: true },
+          distinct: ["gameId"],
+        })
+      : []
+    ).map((l) => l.gameId),
+  ]);
+  const everyUnlock = new Map<string, { achievementId: string; unlockedAt: Date }>();
+  for (const { achievement: a, achievementId, unlockedAt } of unlockRows) {
+    if (a.listId) everyUnlock.set(listKey(a.listId, a.apiName), { achievementId, unlockedAt });
+    else if (!listedGames.has(a.gameId)) everyUnlock.set(`${a.gameId}:${a.apiName}`, { achievementId, unlockedAt });
+  }
+  for (const { title } of resolved) {
+    const listId = listIdOf.get(title.externalId);
+    // Lists and achievements new to the catalog get their ids on record; they join the burst
+    // check next sync.
+    if (!listId) continue;
     for (const a of title.achievements) {
-      const id = idByKey.get(`${gameId}:${a.apiName}`);
-      // Achievements new to the catalog get their id on record; they join the burst check next sync.
+      const key = listKey(listId, a.apiName);
+      const id = idByKey.get(key);
       if (!id || !a.unlocked) continue;
-      if (!a.unlockedAt) everyUnlock.delete(id);
-      else if (!known.has(id)) everyUnlock.set(id, { achievementId: id, unlockedAt: a.unlockedAt });
+      if (!a.unlockedAt) everyUnlock.delete(key);
+      else if (!known.byList.has(key)) everyUnlock.set(key, { achievementId: id, unlockedAt: a.unlockedAt });
     }
   }
   const bursts = findBursts([...everyUnlock.values()]);

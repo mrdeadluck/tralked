@@ -16,6 +16,8 @@ export type XboxTitle = {
   /** Completion percentage 0-100. */
   progress: number;
   lastPlayed: Date | null;
+  /** Devices of the title in the title history (`Xbox360`, `XboxOne`, `XboxSeries`, `PC`, `Win32`). */
+  devices: string[];
 };
 
 export type XboxAchievement = {

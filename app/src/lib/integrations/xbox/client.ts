@@ -27,6 +27,8 @@ type TitleRecord = {
     progressPercentage?: number;
   };
   titleHistory?: { lastTimePlayed?: string };
+  /** Devices the title runs on (`Xbox360`, `XboxOne`, `XboxSeries`, `PC`, `Win32`, ...). */
+  devices?: unknown;
 };
 
 type AchievementRecord = {
@@ -181,6 +183,7 @@ export function createXboxClient({
         totalGamerscore: t.achievement?.totalGamerscore ?? 0,
         progress: t.achievement?.progressPercentage ?? 0,
         lastPlayed: dateOrNull(t.titleHistory?.lastTimePlayed),
+        devices: Array.isArray(t.devices) ? t.devices.filter((d): d is string => typeof d === "string") : [],
       }));
     },
 

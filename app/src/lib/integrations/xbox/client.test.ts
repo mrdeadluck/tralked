@@ -140,7 +140,9 @@ describe("xbox client (OpenXBL)", () => {
               name: "Hollow Knight",
               achievement: { currentAchievements: 1, totalAchievements: 2, currentGamerscore: 10, totalGamerscore: 30, progressPercentage: 33 },
               titleHistory: { lastTimePlayed: "2026-03-01T10:00:00Z" },
+              devices: ["XboxOne", "XboxSeries", 7],
             },
+            { titleId: 99, name: "Sem aparelhos" },
           ],
         });
       }
@@ -178,6 +180,18 @@ describe("xbox client (OpenXBL)", () => {
         totalGamerscore: 30,
         progress: 33,
         lastPlayed: new Date("2026-03-01T10:00:00Z"),
+        devices: ["XboxOne", "XboxSeries"],
+      },
+      {
+        titleId: "99",
+        name: "Sem aparelhos",
+        currentAchievements: 0,
+        totalAchievements: 0,
+        currentGamerscore: 0,
+        totalGamerscore: 0,
+        progress: 0,
+        lastPlayed: null,
+        devices: [],
       },
     ]);
     await expect(client.getAchievements("123", "1234")).resolves.toEqual([

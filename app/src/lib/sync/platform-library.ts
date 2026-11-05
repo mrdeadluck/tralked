@@ -1,5 +1,6 @@
 import type { TrophyTier } from "@/lib/engine/trophies";
 import { getPsn, getRetro, getXbox } from "@/lib/integrations";
+import { psnConsoleCode, xboxConsoleOf } from "@/lib/trophies/lists";
 
 /** Platforms imported by the platform sync (Steam is linked by code too, but has its own sync: lib/sync/user.ts). */
 export type CodePlatform = "psn" | "xbox" | "retro";
@@ -31,6 +32,13 @@ export type LibraryTitle = {
   name: string;
   /** Platform label stored on created games (`PS5`, `Xbox`, `Mega Drive`). */
   platformLabel: string;
+  /**
+   * Console of the trophy list (TrophyList.console): PSN console code (`PS4`, `PS3+PSVITA`), Xbox
+   * `360` | `ONE` | `PC`, RA console name; null when unknown.
+   */
+  console: string | null;
+  /** PSN trophy service of the list (`trophy` | `trophy2`). */
+  serviceName?: string;
   /** Null when the platform does not report playtime. */
   playtimeMin: number | null;
   achievements: LibraryAchievement[];
@@ -177,6 +185,8 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
       externalId: t.npTitleId,
       name: t.name,
       platformLabel: t.platform.split(",")[0] || "PlayStation",
+      console: psnConsoleCode(t.platform),
+      serviceName: t.serviceName,
       playtimeMin: null,
       achievements: trophies.map((tr) => ({
         apiName: tr.trophyId,
@@ -231,6 +241,7 @@ async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<
       externalId: t.titleId,
       name: t.name,
       platformLabel: "Xbox",
+      console: xboxConsoleOf(t.devices),
       playtimeMin: null,
       achievements: list.map((a) => ({
         apiName: a.id,
@@ -311,6 +322,7 @@ async function readRetro(account: LibraryAccount, options: ReadOptions): Promise
       externalId: g.gameId,
       name: g.title,
       platformLabel: g.consoleName || "Retro",
+      console: g.consoleName || null,
       playtimeMin: progress.playtimeMin,
       achievements: progress.achievements.map((a) => ({
         apiName: a.id,

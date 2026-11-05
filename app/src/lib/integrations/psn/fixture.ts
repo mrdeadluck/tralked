@@ -5,13 +5,17 @@ import type { PsnApi, PsnPlayedGame, PsnProfile, PsnTitle, PsnTrophy } from "./t
  * Offline PSN adapter. Its accounts and titles mirror the development seed
  * (prisma/seed-data/platforms.ts): lucas's account `Lucas-Exemplo`, the example
  * npCommunicationIds of Hollow Knight, Hades and Resident Evil 4, plus one title
- * the catalog does not know (`Astro Bot`). Every id and name is made up.
+ * the catalog does not know (`Astro Bot`). `Tres-Consoles` holds only Grand Theft Auto V, with a
+ * PS3, a PS4 and a PS5 trophy list of the same name (the lists that used to collide on one game).
+ * Every id is made up.
  */
 
 type FixtureAccount = Omit<PsnProfile, "isPrivate"> & {
   isPrivate?: boolean;
   /** PSN reports the trophies as earned but without a date (rare; tests the first-seen rule). */
   undated?: boolean;
+  /** `gta-v`: the account has only the GTA_V_LISTS titles and no played games (default: TITLES and PLAYED). */
+  library?: "gta-v";
 };
 
 export const PSN_FIXTURE_ACCOUNTS: FixtureAccount[] = [
@@ -41,9 +45,18 @@ export const PSN_FIXTURE_ACCOUNTS: FixtureAccount[] = [
     avatarUrl: null,
     undated: true,
   },
+  {
+    accountId: "9000000000000000005",
+    onlineId: "Tres-Consoles",
+    aboutMe: "",
+    avatarUrl: null,
+    library: "gta-v",
+  },
 ];
 
-const TROPHIES: { name: string; tier: TrophyTier; rarityPct: number }[] = [
+type FixtureTrophy = { name: string; tier: TrophyTier; rarityPct: number };
+
+const TROPHIES: FixtureTrophy[] = [
   { name: "Lenda completa", tier: "platinum", rarityPct: 2.1 },
   { name: "Mestre do desafio", tier: "gold", rarityPct: 4.8 },
   { name: "Sem olhar para trás", tier: "gold", rarityPct: 7.5 },
@@ -62,6 +75,8 @@ type FixtureTitle = {
   earned: number[];
   /** Earn time of the first trophy; each next one is a day later. */
   firstEarnedAt: string;
+  /** The title's own trophy list (default: TROPHIES). */
+  trophies?: FixtureTrophy[];
 };
 
 const TITLES: FixtureTitle[] = [
@@ -92,6 +107,45 @@ const TITLES: FixtureTitle[] = [
     platform: "PS5",
     earned: [5, 7],
     firstEarnedAt: "2026-09-01T19:00:00Z",
+  },
+];
+
+/** A made-up list of `count` trophies: a platinum first, then gold, silver and bronze. */
+function trophyList(count: number): FixtureTrophy[] {
+  return Array.from({ length: count }, (_, i) => ({
+    name: `Troféu ${i + 1}`,
+    tier: i === 0 ? "platinum" : i % 10 === 0 ? "gold" : i % 4 === 0 ? "silver" : "bronze",
+    rarityPct: i === 0 ? 1.5 : 5 + ((i * 7) % 90),
+  }));
+}
+
+const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+
+/** Grand Theft Auto V: three lists of one game, the same trophy numbers in each. */
+const GTA_V_LISTS: FixtureTitle[] = [
+  {
+    npTitleId: "NPWR90011_00",
+    name: "Grand Theft Auto V",
+    platform: "PS3",
+    earned: range(1, 20),
+    firstEarnedAt: "2014-03-01T20:00:00Z",
+    trophies: trophyList(59),
+  },
+  {
+    npTitleId: "NPWR90012_00",
+    name: "Grand Theft Auto V",
+    platform: "PS4",
+    earned: range(1, 46),
+    firstEarnedAt: "2015-02-01T20:00:00Z",
+    trophies: trophyList(77),
+  },
+  {
+    npTitleId: "NPWR90013_00",
+    name: "Grand Theft Auto V",
+    platform: "PS5",
+    earned: range(1, 26),
+    firstEarnedAt: "2022-04-01T20:00:00Z",
+    trophies: trophyList(77),
   },
 ];
 
@@ -145,9 +199,11 @@ const PLAYED: PsnPlayedGame[] = [
 
 const DAY_MS = 86_400_000;
 
+const titlesOf = (account: FixtureAccount | undefined) => (account?.library === "gta-v" ? GTA_V_LISTS : TITLES);
+
 function trophiesOf(title: FixtureTitle, undated = false): PsnTrophy[] {
   const start = new Date(title.firstEarnedAt).getTime();
-  return TROPHIES.map((t, i) => {
+  return (title.trophies ?? TROPHIES).map((t, i) => {
     const order = title.earned.indexOf(i);
     const earned = order >= 0;
     return {
@@ -184,7 +240,7 @@ export function createPsnFixture(): PsnApi {
       const found = account(accountId);
       if (!found) return [];
       if (found.isPrivate) return "private";
-      return TITLES.map((title): PsnTitle => {
+      return titlesOf(found).map((title): PsnTitle => {
         const trophies = trophiesOf(title, found.undated);
         const earned = trophies.filter((t) => t.earned);
         return {
@@ -202,14 +258,14 @@ export function createPsnFixture(): PsnApi {
     async getTrophies(accountId, npTitleId) {
       const found = account(accountId);
       if (found?.isPrivate) return "private";
-      const title = TITLES.find((t) => t.npTitleId === npTitleId);
+      const title = titlesOf(found).find((t) => t.npTitleId === npTitleId);
       return title && found ? trophiesOf(title, found.undated) : [];
     },
     async getPlayedGames(accountId) {
       const found = account(accountId);
       if (!found) return [];
       if (found.isPrivate) return "private";
-      return PLAYED.map((g) => ({ ...g }));
+      return (found.library === "gta-v" ? [] : PLAYED).map((g) => ({ ...g }));
     },
   };
 }
