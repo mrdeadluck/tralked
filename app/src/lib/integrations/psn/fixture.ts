@@ -152,7 +152,7 @@ const GTA_V_LISTS: FixtureTitle[] = [
 /**
  * Played games with PSN play time (gamelist): the trophy titles' games under their store title ids,
  * plus one game without any trophy earned (Resident Evil 4) and one made-up game the trophy list
- * does not have (Jornada Submersa).
+ * does not have (Jornada Submersa). No concept: the concept tests spy their own played games.
  */
 const PLAYED: PsnPlayedGame[] = [
   {
@@ -162,6 +162,8 @@ const PLAYED: PsnPlayedGame[] = [
     playtimeMin: 1500,
     firstPlayedAt: new Date("2026-05-30T20:00:00Z"),
     lastPlayedAt: new Date("2026-06-08T22:00:00Z"),
+    conceptId: null,
+    conceptTitleIds: [],
   },
   {
     titleId: "PPSA90002_00",
@@ -170,6 +172,8 @@ const PLAYED: PsnPlayedGame[] = [
     playtimeMin: 905,
     firstPlayedAt: new Date("2026-06-30T21:00:00Z"),
     lastPlayedAt: new Date("2026-07-05T23:00:00Z"),
+    conceptId: null,
+    conceptTitleIds: [],
   },
   {
     titleId: "PPSA90003_00",
@@ -178,6 +182,8 @@ const PLAYED: PsnPlayedGame[] = [
     playtimeMin: 200,
     firstPlayedAt: new Date("2026-08-01T21:00:00Z"),
     lastPlayedAt: new Date("2026-08-02T23:00:00Z"),
+    conceptId: null,
+    conceptTitleIds: [],
   },
   {
     titleId: "PPSA90004_00",
@@ -186,6 +192,8 @@ const PLAYED: PsnPlayedGame[] = [
     playtimeMin: 610,
     firstPlayedAt: new Date("2026-09-01T18:00:00Z"),
     lastPlayedAt: new Date("2026-09-03T20:00:00Z"),
+    conceptId: null,
+    conceptTitleIds: [],
   },
   {
     titleId: "PPSA90005_00",
@@ -194,6 +202,8 @@ const PLAYED: PsnPlayedGame[] = [
     playtimeMin: 75,
     firstPlayedAt: new Date("2026-09-10T18:00:00Z"),
     lastPlayedAt: new Date("2026-09-10T19:15:00Z"),
+    conceptId: null,
+    conceptTitleIds: [],
   },
 ];
 
@@ -266,6 +276,19 @@ export function createPsnFixture(): PsnApi {
       if (!found) return [];
       if (found.isPrivate) return "private";
       return (found.library === "gta-v" ? [] : PLAYED).map((g) => ({ ...g }));
+    },
+    async getTrophyListsOfTitles(accountId, titleIds) {
+      const found = account(accountId);
+      if (found?.isPrivate) return "private";
+      // Each played store title id has the trophy list of the same number (CUSA90001_00 -> NPWR90001_00).
+      const lists = new Map(PLAYED.map((g) => [g.titleId, `NPWR${g.titleId.slice(4)}`]));
+      const own = new Set(titlesOf(found).map((t) => t.npTitleId));
+      return new Map(
+        titleIds.map((id) => {
+          const list = lists.get(id);
+          return [id, found && list && own.has(list) ? [list] : []];
+        }),
+      );
     },
   };
 }

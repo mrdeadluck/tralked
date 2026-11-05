@@ -4,8 +4,8 @@ import { findBursts, isSpeedPlatinum } from "@/lib/engine/fraud";
 import { platformAvailable } from "@/lib/integrations/availability";
 import { settleListXp } from "@/lib/progression/list-xp";
 import { recomputeUser } from "@/lib/progression/recompute";
-import { ensureTrophyList } from "@/lib/trophies/lists";
-import { loadNameIndex, resolvePlatformGame, type NameIndex } from "./platform-games";
+import { ensureTrophyList, regionOf } from "@/lib/trophies/lists";
+import { loadNameIndex, resolvePlatformGame, type NameIndex, type ResolveOptions } from "./platform-games";
 import {
   CODE_PLATFORMS,
   readLibrary,
@@ -13,6 +13,7 @@ import {
   type LibraryAchievement,
   type LibraryTitle,
   type PlaytimeTitle,
+  type PsnConcepts,
   type StoredProgress,
 } from "./platform-library";
 import { busyImports, busyPairs } from "./import-lease";
@@ -115,6 +116,7 @@ async function recordTitle(
   known: KnownUnlocks,
   bursts: Set<string>,
   seenAt: Date,
+  conceptId: number | null = null,
 ): Promise<number> {
   const { userId, platform } = account;
   const game = await prisma.game.findUniqueOrThrow({
@@ -140,6 +142,7 @@ async function recordTitle(
       console: title.console,
       name: title.name,
       serviceName: title.serviceName,
+      conceptId,
       trophyCount: title.achievements.length,
     });
     // A list never moves between games (ensureTrophyList): its rows and progress stay with its game.
@@ -306,6 +309,16 @@ async function recordTitle(
 }
 
 /**
+ * Resolve options of a PSN concept: the concept and its ids (store title ids, and the trophy lists
+ * mapped to it this run). Nothing for an unknown concept: the title resolves as before.
+ */
+function conceptOptions(concepts: PsnConcepts | undefined, conceptId: number | null | undefined): ResolveOptions {
+  if (!concepts || conceptId == null) return {};
+  const lists = [...concepts.npToConcept].flatMap(([list, c]) => (c === conceptId ? [list] : []));
+  return { conceptId, conceptTitleIds: [...(concepts.conceptTitleIds.get(conceptId) ?? []), ...lists] };
+}
+
+/**
  * Records the play time of a platform's played-games list (PSN, Xbox): each title is mapped to its
  * catalog game without asking IGDB (a play-time-only title is matched by its platform link or
  * name, or created bare; the trophy sync and the catalog jobs fill in metadata), versions of one
@@ -323,6 +336,7 @@ async function recordPlaytime(
   now: Date,
   deadline?: number,
   clock: () => number = Date.now,
+  concepts?: PsnConcepts,
 ): Promise<{ partial: boolean; written: Set<string> }> {
   const { userId, platform } = account;
   const perGame = new Map<string, { playtimeMin: number; lastPlayedAt: Date | null }>();
@@ -336,7 +350,10 @@ async function recordPlaytime(
       break;
     }
     written.add(title.externalId);
-    const gameId = await resolvePlatformGame(platform, title, names, { igdb: false });
+    const gameId = await resolvePlatformGame(platform, title, names, {
+      igdb: false,
+      ...conceptOptions(concepts, title.conceptId),
+    });
     const acc = perGame.get(gameId) ?? { playtimeMin: 0, lastPlayedAt: null };
     acc.playtimeMin += Math.floor(title.playtimeMin);
     if (title.lastPlayedAt && (!acc.lastPlayedAt || title.lastPlayedAt > acc.lastPlayedAt)) {
@@ -599,6 +616,7 @@ export async function syncPlatformAccount(
     {
       stored: options.full ? undefined : await storedProgress(userId, platform, await rememberedTitles(snapshot, account.id)),
       checkedTitles: options.full || platform !== "xbox" ? undefined : checkedTitlesOf(account.minutesChecked),
+      linkedAccountId: platform === "psn" ? account.id : undefined,
       deadline: readDeadline,
       maxTitles: options.maxTitles,
     },
@@ -621,16 +639,26 @@ export async function syncPlatformAccount(
   }
 
   const names = await loadNameIndex();
-  const resolved: { gameId: string; title: LibraryTitle }[] = [];
+  const resolved: { gameId: string; title: LibraryTitle; conceptId: number | null }[] = [];
   let titlesPartial = false;
-  for (const title of library.titles) {
+  const conceptOfList = (title: LibraryTitle) => library.concepts?.npToConcept.get(title.externalId) ?? null;
+  // A list of a known concept with a Japanese or Korean name resolves after the others: the
+  // concept's other lists name (or create) the game first, and it joins that game.
+  const ordered = [...library.titles].sort(
+    (a, b) =>
+      Number(conceptOfList(a) !== null && regionOf(a.name) !== null) -
+      Number(conceptOfList(b) !== null && regionOf(b.name) !== null),
+  );
+  for (const title of ordered) {
     // Resolving an unknown title may ask IGDB: no new title after the deadline. The titles left
     // are not recorded, so they are still not up to date and the next run reads them again.
     if (options.deadline !== undefined && Date.now() >= options.deadline) {
       titlesPartial = true;
       break;
     }
-    resolved.push({ gameId: await resolvePlatformGame(platform, title, names), title });
+    const conceptId = conceptOfList(title);
+    const gameId = await resolvePlatformGame(platform, title, names, conceptOptions(library.concepts, conceptId));
+    resolved.push({ gameId, title, conceptId });
   }
 
   // Anti-fraud looks at all of the user's unlocks on this platform together (bursts can span
@@ -697,9 +725,9 @@ export async function syncPlatformAccount(
   const bursts = findBursts([...everyUnlock.values()]);
 
   let newUnlocks = 0;
-  for (const { gameId, title } of resolved) {
+  for (const { gameId, title, conceptId } of resolved) {
     try {
-      newUnlocks += await recordTitle(snapshot, gameId, title, known, bursts, startedAt);
+      newUnlocks += await recordTitle(snapshot, gameId, title, known, bursts, startedAt, conceptId);
     } catch (error) {
       // Unlinked while this run was reading: stop. Unlink already removed what was recorded and
       // recomputed; nothing more is written for this account.
@@ -710,7 +738,7 @@ export async function syncPlatformAccount(
   await rememberTitles(snapshot, account.id, resolved.map((r) => r.title));
   let playtime: { partial: boolean; written: Set<string> };
   try {
-    playtime = await recordPlaytime(snapshot, library.playtime, names, startedAt, options.deadline);
+    playtime = await recordPlaytime(snapshot, library.playtime, names, startedAt, options.deadline, Date.now, library.concepts);
   } catch (error) {
     if (error instanceof AccountChangedError) return unchanged("unlinked");
     throw error;

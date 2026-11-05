@@ -1,6 +1,8 @@
 import type { TrophyTier } from "@/lib/engine/trophies";
 import { getPsn, getRetro, getXbox } from "@/lib/integrations";
+import type { PsnPlayedGame } from "@/lib/integrations/psn/types";
 import { psnConsoleCode, xboxConsoleOf } from "@/lib/trophies/lists";
+import { mapNewTitles } from "./psn-concepts";
 
 /** Platforms imported by the platform sync (Steam is linked by code too, but has its own sync: lib/sync/user.ts). */
 export type CodePlatform = "psn" | "xbox" | "retro";
@@ -63,6 +65,19 @@ export type PlaytimeTitle = {
   platformLabel: string;
   playtimeMin: number;
   lastPlayedAt: Date | null;
+  /** PSN concept of the game played (see PsnConcepts). */
+  conceptId?: number | null;
+};
+
+/**
+ * PSN concepts known in this run: the trophy lists whose store title ids were mapped this run
+ * (lib/sync/psn-concepts.ts) and each concept's store title ids (played-games list).
+ */
+export type PsnConcepts = {
+  /** npCommunicationId → concept, for the lists mapped this run. */
+  npToConcept: Map<string, number>;
+  /** Concept → its store title ids (CUSA…/PPSA…). */
+  conceptTitleIds: Map<number, string[]>;
 };
 
 /** What the database already holds for a title (from its UserGame row and unlocks). */
@@ -97,6 +112,8 @@ export type ReadOptions = {
    * They are not asked again until played again, even when Xbox had no number (or 0) for them.
    */
   checkedTitles?: Map<string, number>;
+  /** PSN: the LinkedAccount row, whose concept memory says which store title ids were mapped already. */
+  linkedAccountId?: string;
   now?: () => number;
 };
 
@@ -117,6 +134,8 @@ export type LibraryResult = {
   playtime: PlaytimeTitle[];
   /** Xbox: titles whose minutes were asked this run → their last play (ms, 0 unknown). */
   checkedTitles?: Map<string, number>;
+  /** PSN: concepts of the games played, and of the trophy lists mapped this run. */
+  concepts?: PsnConcepts;
 };
 
 type Listed<T> = {
@@ -229,12 +248,41 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
         platformLabel: g.category === "ps4_game" ? "PS4" : "PS5",
         playtimeMin: g.playtimeMin,
         lastPlayedAt: g.lastPlayedAt,
+        conceptId: g.conceptId,
       }));
+      result.concepts = await conceptsOf(account, games, options.linkedAccountId);
     }
   } catch (error) {
     result.failures.push({ externalId: "played-games", error });
   }
   return result;
+}
+
+/**
+ * Concepts of the played games, plus the trophy lists of store title ids not mapped before (at
+ * most MAX_NEW_CONCEPT_TITLES per sync). A failed mapping only leaves this run without the new
+ * lists' concepts: trophies still import, and the ids are asked again next sync.
+ */
+async function conceptsOf(
+  account: LibraryAccount,
+  games: PsnPlayedGame[],
+  linkedAccountId: string | undefined,
+): Promise<PsnConcepts> {
+  const conceptTitleIds = new Map<number, string[]>();
+  for (const g of games) {
+    if (g.conceptId === null) continue;
+    const ids = new Set([...(conceptTitleIds.get(g.conceptId) ?? []), ...g.conceptTitleIds, g.titleId]);
+    conceptTitleIds.set(g.conceptId, [...ids]);
+  }
+  let npToConcept = new Map<string, number>();
+  if (linkedAccountId) {
+    try {
+      npToConcept = await mapNewTitles(account.externalId, linkedAccountId, games);
+    } catch (error) {
+      console.warn("Platform sync: could not map PSN title ids to their trophy lists (concepts)", error);
+    }
+  }
+  return { npToConcept, conceptTitleIds };
 }
 
 async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<LibraryResult | "private"> {

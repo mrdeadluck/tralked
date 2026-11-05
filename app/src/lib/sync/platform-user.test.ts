@@ -39,6 +39,9 @@ const CREATED_TITLES = [
   { platform: "psn", externalId: "NPWR99901_00" },
 ];
 const GTA_LISTS = ["NPWR90011_00", "NPWR90012_00", "NPWR90013_00"];
+// Lists and store title ids of the PSN concept tests (spied library).
+const CONCEPT_IDS = ["NPWR_EN", "NPWR_JP", "PPSA_EN_TEST_00", "PPSA_JP_TEST_00", "CUSA_GTA_TEST_00"];
+CREATED_TITLES.push(...CONCEPT_IDS.map((externalId) => ({ platform: "psn", externalId })));
 
 describe.skipIf(!reachable)("syncPlatformAccount", () => {
   let counter = 0;
@@ -269,6 +272,8 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
         playtimeMin: 400,
         firstPlayedAt: null,
         lastPlayedAt: new Date("2026-09-20T20:00:00Z"),
+        conceptId: null,
+        conceptTitleIds: [],
       },
     ]);
     try {
@@ -776,6 +781,146 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ titles: { read: 3, upToDate: 0 } });
     expect(await prisma.userAchievement.count({ where: { userId: user.id } })).toBe(92);
     expect(await prisma.userTrophyList.count({ where: { userId: user.id } })).toBe(3);
+  });
+
+  /**
+   * GTA V's concept on PSN (one concept, every region and console): an English PS5 list and a
+   * Japanese-named PS5 list, played under two store title ids of the concept.
+   */
+  async function conceptLibrary() {
+    const { getPsn } = await import("@/lib/integrations");
+    const psn = getPsn();
+    const at = (day: number) => new Date(Date.UTC(2026, 2, day, 20));
+    const lists = {
+      // The Japanese list was played first: it is read (and resolved) first.
+      NPWR_EN: { name: "Grand Theft Auto V Conceito Teste", day: 10, store: "PPSA_EN_TEST_00" },
+      NPWR_JP: { name: "グランド・セフト・オートV", day: 5, store: "PPSA_JP_TEST_00" },
+    };
+    type ListId = keyof typeof lists;
+    const library: ListId[] = [];
+    const title = (id: ListId) => ({
+      npTitleId: id,
+      serviceName: "trophy2" as const,
+      name: lists[id].name,
+      platform: "PS5",
+      progress: 66,
+      trophyCounts: { bronze: 3, silver: 0, gold: 0, platinum: 0 },
+      earnedCounts: { bronze: 2, silver: 0, gold: 0, platinum: 0 },
+      lastPlayed: at(lists[id].day),
+    });
+    const conceptTitleIds = ["CUSA_GTA_TEST_00", "PPSA_EN_TEST_00", "PPSA_JP_TEST_00"];
+    const spies = [
+      vi.spyOn(psn, "getTitles").mockImplementation(async () => library.map(title)),
+      vi.spyOn(psn, "getTrophies").mockImplementation(async (_account, npTitleId) =>
+        ["1", "2", "3"].map((id, i) => ({
+          trophyId: id,
+          name: `Troféu ${id}`,
+          description: null,
+          iconUrl: null,
+          hidden: false,
+          tier: "bronze" as const,
+          earned: i < 2,
+          earnedAt: i < 2 ? at(lists[npTitleId as ListId].day + i) : null,
+          rarityPct: 40,
+        })),
+      ),
+      vi.spyOn(psn, "getPlayedGames").mockImplementation(async () =>
+        library.map((id) => ({
+          titleId: lists[id].store,
+          name: lists[id].name,
+          category: "ps5_native_game",
+          playtimeMin: 300,
+          firstPlayedAt: at(lists[id].day - 1),
+          lastPlayedAt: at(lists[id].day + 1),
+          conceptId: 201930,
+          conceptTitleIds,
+        })),
+      ),
+      vi.spyOn(psn, "getTrophyListsOfTitles").mockImplementation(
+        async (_account, ids) =>
+          new Map(ids.map((id) => [id, (Object.keys(lists) as ListId[]).filter((l) => lists[l].store === id)])),
+      ),
+    ];
+    return { library, mapping: spies[3], restore: () => spies.forEach((s) => s.mockRestore()) };
+  }
+
+  async function removeConceptGames() {
+    const { prisma } = await import("@/lib/db");
+    await prisma.game.deleteMany({ where: { platformLinks: { some: { platform: "psn", externalId: { in: CONCEPT_IDS } } } } });
+  }
+
+  it("a Japanese-named PS5 list of the same concept lands on the same game", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { versionKey } = await import("@/lib/trophies/lists");
+    const { syncPlatformAccount } = await import("./platform-user");
+    await removeConceptGames();
+    const fake = await conceptLibrary();
+    fake.library.push("NPWR_EN", "NPWR_JP");
+    try {
+      const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ status: "ok", newUnlocks: 4 });
+
+      const lists = await prisma.trophyList.findMany({
+        where: { platform: "psn", externalId: { in: ["NPWR_EN", "NPWR_JP"] } },
+        include: { game: true },
+        orderBy: { externalId: "asc" },
+      });
+      expect(lists.map((l) => [l.externalId, l.console, l.region, l.conceptId])).toEqual([
+        ["NPWR_EN", "PS5", null, 201930],
+        ["NPWR_JP", "PS5", "jp", 201930],
+      ]);
+      // One game, named after the English list (resolved first even though read second).
+      expect(new Set(lists.map((l) => l.gameId)).size).toBe(1);
+      expect(lists[0].game.name).toBe("Grand Theft Auto V Conceito Teste");
+      expect(versionKey(lists[0])).toBe(versionKey(lists[1]));
+      // Both played versions add their hours to that game: no second game for the Japanese name.
+      const games = await prisma.userGame.findMany({ where: { userId: user.id, platform: "psn" } });
+      expect(games.map((g) => [g.gameId, g.unlockedCount, g.playtimeMin])).toEqual([[lists[0].gameId, 4, 600]]);
+      expect(
+        await prisma.game.count({ where: { platformLinks: { some: { platform: "psn", externalId: { in: CONCEPT_IDS } } } } }),
+      ).toBe(1);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a regional list of a concept seen in an earlier sync lands on its game", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    await removeConceptGames();
+    const fake = await conceptLibrary();
+    fake.library.push("NPWR_EN");
+    try {
+      const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
+      await syncPlatformAccount(user.id, "psn");
+      // The Japanese version shows up later (a new store title id of the concept, mapped then).
+      fake.library.push("NPWR_JP");
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ newUnlocks: 2, titles: { read: 1, upToDate: 1 } });
+      const lists = await prisma.trophyList.findMany({ where: { platform: "psn", externalId: { in: ["NPWR_EN", "NPWR_JP"] } } });
+      expect(lists).toHaveLength(2);
+      expect(new Set(lists.map((l) => l.gameId)).size).toBe(1);
+    } finally {
+      fake.restore();
+    }
+  });
+
+  it("a failing concept mapping never fails the sync (trophies still import)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount } = await import("./platform-user");
+    await removeConceptGames();
+    const fake = await conceptLibrary();
+    fake.library.push("NPWR_EN");
+    fake.mapping.mockRejectedValue(new Error("PSN title trophy lists failed with HTTP 500"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ status: "ok", newUnlocks: 2, partial: false });
+      expect(await prisma.userTrophyList.count({ where: { userId: user.id } })).toBe(1);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      fake.restore();
+    }
   });
 
   it("an Xbox 360 title and its One title are two lists of one game", async () => {

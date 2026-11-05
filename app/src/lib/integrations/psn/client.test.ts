@@ -124,10 +124,15 @@ describe("psn client", () => {
       firstPlayedDateTime: "2025-01-01T10:00:00Z",
       lastPlayedDateTime: "2026-02-03T04:05:06.12Z",
     });
+    const concept = { id: 201930, titleIds: ["CUSA00419_00", "PPSA1", 7], name: "Grand Theft Auto V" };
     const { client, fetchMock } = setup((url) => {
       expect(url.pathname).toBe("/api/gamelist/v2/users/123/titles");
       return url.searchParams.get("offset") === "0"
-        ? json({ titles: [played("PPSA1", "PT10H5M"), { titleId: "X", playDuration: "PT1H" }], nextOffset: 2, totalItemCount: 3 })
+        ? json({
+            titles: [{ ...played("PPSA1", "PT10H5M"), concept }, { titleId: "X", playDuration: "PT1H" }],
+            nextOffset: 2,
+            totalItemCount: 3,
+          })
         : json({ titles: [played("CUSA2", "PT0S")], totalItemCount: 3 });
     });
     await expect(client.getPlayedGames("123")).resolves.toEqual([
@@ -138,8 +143,10 @@ describe("psn client", () => {
         playtimeMin: 605,
         firstPlayedAt: new Date("2025-01-01T10:00:00Z"),
         lastPlayedAt: new Date("2026-02-03T04:05:06.12Z"),
+        conceptId: 201930,
+        conceptTitleIds: ["CUSA00419_00", "PPSA1"],
       },
-      expect.objectContaining({ titleId: "CUSA2", playtimeMin: 0 }),
+      expect.objectContaining({ titleId: "CUSA2", playtimeMin: 0, conceptId: null, conceptTitleIds: [] }),
     ]);
     const calls = fetchMock.mock.calls.map((c) => new URL(String(c[0]))).filter((u) => u.pathname.includes("gamelist"));
     expect(calls.map((u) => u.searchParams.get("offset"))).toEqual(["0", "2"]);
@@ -149,6 +156,68 @@ describe("psn client", () => {
   it("reports a hidden gaming history as private", async () => {
     const { client } = setup(() => json({ error: {} }, 403));
     await expect(client.getPlayedGames("123")).resolves.toBe("private");
+  });
+
+  const listsOf = (ids: string[]) => ({
+    titles: ids.map((id) => ({
+      npTitleId: id,
+      trophyTitles: [{ npCommunicationId: `NPWR_${id}`, trophyTitleName: `Jogo ${id}`, trophyTitlePlatform: null }],
+    })),
+  });
+
+  it("maps title ids in batches of five", async () => {
+    const { client, fetchMock } = setup((url) => {
+      expect(url.pathname).toBe("/api/trophy/v1/users/123/titles/trophyTitles");
+      const ids = url.searchParams.get("npTitleIds")!.split(",");
+      // PSN answers 400 past five ids; an id it lists with no trophy list comes back empty.
+      if (ids.length > 5) return json({ error: { code: 2240513 } }, 400);
+      return json({ titles: [...listsOf(ids.filter((id) => id !== "CUSA3")).titles, { npTitleId: "CUSA3", trophyTitles: [] }] });
+    });
+    const ids = ["CUSA1", "CUSA2", "CUSA3", "CUSA4", "CUSA5", "PPSA6", "PPSA7", "CUSA1"];
+    const lists = await client.getTrophyListsOfTitles("123", ids);
+    expect(lists).toEqual(
+      new Map([
+        ["CUSA1", ["NPWR_CUSA1"]],
+        ["CUSA2", ["NPWR_CUSA2"]],
+        ["CUSA3", []],
+        ["CUSA4", ["NPWR_CUSA4"]],
+        ["CUSA5", ["NPWR_CUSA5"]],
+        ["PPSA6", ["NPWR_PPSA6"]],
+        ["PPSA7", ["NPWR_PPSA7"]],
+      ]),
+    );
+    const asked = fetchMock.mock.calls
+      .map((c) => new URL(String(c[0])))
+      .filter((u) => u.pathname.endsWith("/titles/trophyTitles"))
+      .map((u) => u.searchParams.get("npTitleIds"));
+    expect(asked).toEqual(["CUSA1,CUSA2,CUSA3,CUSA4,CUSA5", "PPSA6,PPSA7"]);
+  });
+
+  it("retries one by one when a batch answers 404", async () => {
+    const { client, fetchMock } = setup((url) => {
+      const ids = url.searchParams.get("npTitleIds")!.split(",");
+      // One id PSN does not know (for this player) fails the whole batch.
+      if (ids.includes("CUSA29862_00")) {
+        return json({ error: { code: 2240525, message: "Resource not found (npTitleId='CUSA29862_00')" } }, 404);
+      }
+      return json(listsOf(ids));
+    });
+    const lists = await client.getTrophyListsOfTitles("123", ["PPSA1", "CUSA29862_00", "CUSA2"]);
+    expect(lists).toEqual(
+      new Map([
+        ["PPSA1", ["NPWR_PPSA1"]],
+        ["CUSA29862_00", []],
+        ["CUSA2", ["NPWR_CUSA2"]],
+      ]),
+    );
+    const asked = fetchMock.mock.calls
+      .map((c) => new URL(String(c[0])))
+      .filter((u) => u.pathname.endsWith("/titles/trophyTitles"))
+      .map((u) => u.searchParams.get("npTitleIds"));
+    expect(asked).toEqual(["PPSA1,CUSA29862_00,CUSA2", "PPSA1", "CUSA29862_00", "CUSA2"]);
+
+    const hidden = setup(() => json({ error: {} }, 403));
+    await expect(hidden.client.getTrophyListsOfTitles("123", ["PPSA1"])).resolves.toBe("private");
   });
 
   it("pages through trophy titles", async () => {

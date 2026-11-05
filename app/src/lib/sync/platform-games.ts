@@ -57,11 +57,47 @@ async function linkPlatform(gameId: string, platform: string, externalId: string
 export type ResolveOptions = {
   /** Ask IGDB for unknown titles (default true). Play-time-only titles skip it: no budget for it. */
   igdb?: boolean;
+  /** PSN concept of the title (played-games list), when known: groups a game's regional lists. */
+  conceptId?: number | null;
+  /**
+   * Platform ids of the concept: its store title ids, and the trophy lists known to be of it. A
+   * link of any of them says which game the concept is.
+   */
+  conceptTitleIds?: readonly string[];
 };
 
 /**
+ * The game a PSN concept is already on: the game of its oldest trophy list stored with that
+ * concept, else the game most of the concept's linked ids point to (tie: the first id linked).
+ */
+async function conceptGame(platform: string, conceptId: number | null | undefined, ids: readonly string[]): Promise<string | null> {
+  if (conceptId != null) {
+    const list = await prisma.trophyList.findFirst({
+      where: { platform, conceptId },
+      orderBy: [{ createdAt: "asc" }, { externalId: "asc" }],
+      select: { gameId: true },
+    });
+    if (list) return list.gameId;
+  }
+  if (ids.length === 0) return null;
+  const links = await prisma.gamePlatformLink.findMany({
+    where: { platform, externalId: { in: [...ids] } },
+    select: { gameId: true, externalId: true },
+  });
+  const votes = new Map<string, { count: number; first: number }>();
+  for (const link of links) {
+    const at = ids.indexOf(link.externalId);
+    const vote = votes.get(link.gameId) ?? { count: 0, first: at };
+    votes.set(link.gameId, { count: vote.count + 1, first: Math.min(vote.first, at) });
+  }
+  const [best] = [...votes].sort(([, a], [, b]) => b.count - a.count || a.first - b.first);
+  return best?.[0] ?? null;
+}
+
+/**
  * Finds the catalog game of a platform title, in order: the platform link (PSN
- * npCommunicationId or store title id, Xbox titleId, RA game id), the normalized name or an alias
+ * npCommunicationId or store title id, Xbox titleId, RA game id), the PSN concept when given (a
+ * trophy list stored with it, or a link of one of its ids: see conceptGame), the normalized name or an alias
  * of a listed game, the name of a stub of the full Steam catalog (findStubByName), the same without
  * a store edition (`… Deluxe Edition`), then IGDB by exact name (matched to the catalog by igdbId). A title nobody knows yet becomes a new game, with IGDB
  * metadata and skills when IGDB knows it. The link is stored so the next sync is a single lookup.
@@ -71,13 +107,20 @@ export async function resolvePlatformGame(
   platform: string,
   title: { externalId: string; name: string; platformLabel: string },
   names: NameIndex,
-  { igdb: useIgdb = true }: ResolveOptions = {},
+  { igdb: useIgdb = true, conceptId, conceptTitleIds = [] }: ResolveOptions = {},
 ): Promise<string> {
   const link = await prisma.gamePlatformLink.findUnique({
     where: { platform_externalId: { platform, externalId: title.externalId } },
     select: { gameId: true },
   });
   if (link) return link.gameId;
+
+  // Another region or console of a game the catalog already has (its name may be in Japanese).
+  const ofConcept = await conceptGame(platform, conceptId, conceptTitleIds.filter((id) => id !== title.externalId));
+  if (ofConcept) {
+    await linkPlatform(ofConcept, platform, title.externalId);
+    return ofConcept;
+  }
 
   const normalized = normalizePlatformTitle(title.name);
   const byName = names.get(normalized) ?? names.get(normalizeTitle(title.name));
