@@ -125,6 +125,35 @@ Os tipos de assunto que entram, tirados da PXN menos os excluídos:
 - declaração ou entrevista;
 - curiosidade ou comunidade ligada a games.
 
+**Peso das plataformas (decisão do Lucas).** A Steam é a plataforma principal do site, e o público é gamer em geral. Todas as plataformas têm importância, mas com um leve puxão para a Steam e para quem joga no PC. A Nintendo não pode ficar de fora.
+
+- **Steam e PC: a maior fatia do dia, mas sem dominar.** Assuntos que precisam aparecer com frequência:
+  - eventos e promoções da Steam (de verão, de inverno, temáticas, Next Fest com demos);
+  - fins de semana grátis e jogos que ficaram grátis;
+  - recordes de jogadores simultâneos e o mais vendido da semana;
+  - jogo bem avaliado ou mal avaliado nas análises da Steam, e "review bombing";
+  - Steam Deck (verificação, desempenho) e o hardware da Valve;
+  - notícias da Valve;
+  - grandes atualizações de jogos de PC;
+  - jogo chegando ou saindo da Steam;
+  - requisitos de PC de lançamentos grandes;
+  - portes de console para PC.
+- **Nintendo: presença garantida.** Assuntos que precisam aparecer:
+  - Nintendo Direct;
+  - Switch 2 (vendas, atualizações, jogos);
+  - promoções da eShop;
+  - jogos novos no Nintendo Switch Online;
+  - lançamentos e datas de jogos da Nintendo.
+- **PlayStation e Xbox continuam com a mesma importância** (PS Plus, Game Pass, State of Play, Xbox Showcase), assim como mobile e o resto.
+- **Como fazer isso:**
+  - a triagem marca também a **plataforma** de cada história;
+  - a meta de mistura do dia dá um pequeno bônus à Steam e ao PC;
+  - a Nintendo tem presença mínima no dia, quando houver história boa dela;
+  - nenhuma plataforma passa de um teto no dia, para não virar um site só de Steam.
+
+  Os números ficam com o builder.
+- **Fontes:** confere se as atuais cobrem bem a Steam (eventos, recordes, Steam Deck) e a Nintendo (Direct, eShop, Switch Online) e acrescenta o que faltar, com preferência por fontes oficiais. O site já mede os jogadores simultâneos da Steam (worker `steam-players`), o que pode virar matéria de recorde com dado próprio. Fica como opção para o builder avaliar, não é obrigatório.
+
 As Pautas Tralked continuam no dia a dia, com as mesmas regras (até 2 por dia, horário das 20h). O que muda é só a perda das retroativas.
 
 ## Restrições
