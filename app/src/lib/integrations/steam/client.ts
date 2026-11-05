@@ -22,6 +22,8 @@ type PlayerSummariesResponse = {
 type OwnedGamesResponse = {
   response?: {
     game_count?: number;
+    /** GetRecentlyPlayedGames' count. */
+    total_count?: number;
     games?: {
       appid: number;
       name?: string;
@@ -172,6 +174,22 @@ export function createSteamClient({
         name: g.name?.trim() || undefined,
         playtime2WeeksMin: g.playtime_2weeks ?? 0,
         lastPlayedAt: steamTime(g.rtime_last_played),
+      }));
+    },
+
+    async getRecentlyPlayedGames(steamId) {
+      const data = await getJson<OwnedGamesResponse>("/IPlayerService/GetRecentlyPlayedGames/v1/", {
+        steamid: steamId,
+        format: "json",
+      });
+      // Private game details answer `{"response":{}}`; nothing played lately carries total_count 0.
+      if (!data.response?.games && data.response?.total_count === undefined) return "private";
+      return (data.response?.games ?? []).map((g) => ({
+        appId: g.appid,
+        playtimeMin: g.playtime_forever ?? 0,
+        name: g.name?.trim() || undefined,
+        playtime2WeeksMin: g.playtime_2weeks ?? 0,
+        lastPlayedAt: null,
       }));
     },
 

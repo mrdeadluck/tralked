@@ -938,6 +938,73 @@ describe.skipIf(!reachable)("syncUser", () => {
     ).toMatchObject({ unlockedCount: 1 });
   });
 
+  it("a borrowed game Steam shows among the recently played enters the library with its hours, even one asked before", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { getRecentlyPlayed } = await import("@/lib/library/queries");
+    const mine = newAppId();
+    const shared = newAppId();
+    const sharedLocked = newAppId();
+    // Phantom Blade Zero through Family Sharing (2026-11-05): not in GetOwnedGames, in
+    // GetRecentlyPlayedGames with 148 min, 5 unlocks Steam answers when asked by appid.
+    const borrowed = fakeSteam({
+      [shared]: { pcts: pctsOf(3), unlocks: { A0: new Date("2024-03-01T10:00:00Z"), A1: new Date("2024-03-02T10:00:00Z") } },
+      [sharedLocked]: { pcts: pctsOf(2), unlocks: {} },
+    });
+    const fake = fakeSteam({
+      [mine]: { pcts: pctsOf(2), playtimeMin: 120, lastPlayedAt: new Date("2024-01-01T10:00:00Z"), unlocks: {} },
+    });
+    const listed = fake.api.getPlayerAchievements;
+    fake.api.getPlayerAchievements = async (steamId, appId) =>
+      appId === mine ? listed(steamId, appId) : borrowed.api.getPlayerAchievements(steamId, appId);
+    const ownSchema = fake.api.getSchemaForGame;
+    fake.api.getSchemaForGame = async (appId, lang) =>
+      appId === mine ? ownSchema(appId, lang) : borrowed.api.getSchemaForGame(appId, lang);
+    fake.api.getGlobalAchievementPercentages = async (appId) =>
+      appId === mine ? { ...pctsOf(2) } : borrowed.api.getGlobalAchievementPercentages(appId);
+    const recent = [
+      { appId: shared, name: "Emprestado Com Conquistas", playtimeMin: 148, playtime2WeeksMin: 148, lastPlayedAt: null },
+      { appId: sharedLocked, name: "Emprestado Sem Conquistas", playtimeMin: 118, playtime2WeeksMin: 118, lastPlayedAt: null },
+      // A recent game that is also owned keeps its library entry (and Steam's date).
+      { appId: mine, name: `Jogo de Teste ${mine}`, playtimeMin: 120, playtime2WeeksMin: 30, lastPlayedAt: null },
+    ];
+    fake.api.getRecentlyPlayedGames = async () => recent;
+    steamState.api = fake.api;
+    const user = await newUser();
+    // Asked once before, when they had no unlocks yet: the borrowed probe never asks again.
+    await prisma.syncCursor.create({ data: { key: `steam-borrowed:${user.id}`, value: [shared, sharedLocked] } });
+    const rowOf = async (appId: number) => {
+      const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+      return prisma.userGame.findUnique({
+        where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
+      });
+    };
+
+    const startedAt = Date.now();
+    await syncUser(user.id);
+    const played = await rowOf(shared);
+    expect(played).toMatchObject({ playtimeMin: 148, playtime2WeeksMin: 148, unlockedCount: 2 });
+    expect(played!.lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(startedAt - 1000);
+    const locked = await rowOf(sharedLocked);
+    expect(locked).toMatchObject({ playtimeMin: 118, unlockedCount: 0 });
+    expect(locked!.lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(startedAt - 1000);
+    expect((await rowOf(mine))!.lastPlayedAt).toEqual(new Date("2024-01-01T10:00:00Z"));
+    expect((await getRecentlyPlayed(user.id)).map((g) => g.name).slice(0, 2).sort()).toEqual([
+      "Emprestado Com Conquistas",
+      "Emprestado Sem Conquistas",
+    ]);
+
+    // Same hours on the next sync: the date stays. More hours: played now.
+    const firstDate = locked!.lastPlayedAt!;
+    await syncUser(user.id);
+    expect((await rowOf(sharedLocked))!.lastPlayedAt).toEqual(firstDate);
+    recent[1] = { ...recent[1], playtimeMin: 178, playtime2WeeksMin: 178 };
+    const later = Date.now();
+    await syncUser(user.id);
+    expect(await rowOf(sharedLocked)).toMatchObject({ playtimeMin: 178 });
+    expect((await rowOf(sharedLocked))!.lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(later - 1000);
+  });
+
   it("pays each hours milestone once, only for real playtime, and survives re-syncs", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");

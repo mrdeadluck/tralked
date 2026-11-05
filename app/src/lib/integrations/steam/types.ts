@@ -15,6 +15,11 @@ export type SteamOwnedGame = {
   playtime2WeeksMin?: number;
   /** `rtime_last_played`; null when Steam does not say (0). */
   lastPlayedAt?: Date | null;
+  /**
+   * Listed by GetRecentlyPlayedGames (played in the last two weeks) though not by GetOwnedGames:
+   * a game played through Family Sharing. Steam gives no date for it.
+   */
+  recent?: boolean;
 };
 
 export type SteamSchemaLang = "english" | "brazilian";
@@ -72,6 +77,11 @@ export interface SteamApi {
     steamId: string,
     appId: number,
   ): Promise<SteamPlayerAchievement[] | "private">;
+  /**
+   * Games played in the last two weeks (IPlayerService/GetRecentlyPlayedGames), Family Sharing
+   * ones included, which GetOwnedGames leaves out. No last-played date. Keyed adapter only.
+   */
+  getRecentlyPlayedGames?(steamId: string): Promise<SteamOwnedGame[] | "private">;
   /** The player's wishlist (IWishlistService/GetWishlist); `'private'` when it is not public. */
   getWishlist(steamId: string): Promise<SteamWishlistItem[] | "private">;
   /** One page of the store's game list; `'unsupported'` without an API key. */
