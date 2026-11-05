@@ -16,7 +16,10 @@ Standalone Node/TypeScript project (pnpm, Node >= 24, built-in `node:sqlite`). I
 
    | Key | Required | Meaning |
    |---|---|---|
-   | `ANTHROPIC_API_KEY` | yes | Anthropic API key. |
+   | `AI_BACKEND` | no | `claude-code` (default: `claude -p` on this PC, billed to the Claude subscription) or `api`. |
+   | `CLAUDE_BIN` | no | Claude Code executable; an absolute path when the scheduler's PATH lacks it. |
+   | `CLAUDE_WEEKLY_STOP` | no | Share of the weekly subscription window (0-1, default 0.9) at which the robot stops. |
+   | `ANTHROPIC_API_KEY` | with `AI_BACKEND=api` | Anthropic API key. |
    | `TRALKED_API_URL` | no | Site base URL. Default `https://tralked.com`. |
    | `TRALKED_API_KEY` | yes | The secret from `pnpm api:key`. |
    | `RESEND_API_KEY` | no | Resend API key, for alert and summary e-mails. |
@@ -36,6 +39,7 @@ All commands run from this folder with `pnpm <command>`.
 | `pnpm coleta` | Collects every active source, triages, clusters, queues stories, publishes "bombs" right away and updates same-day articles. Runs every 30 min, 24 h a day. |
 | `pnpm publica [--agora] [--fora-do-horario] [--ignorar-limite]` | Publishes the best queued story, one per hour between 06:00 and 23:00 (America/Sao_Paulo), at most `MAX_PER_DAY` (15) a day. Waits 0 to 12 min first; `--agora` skips the wait. News of the day only: a story older than `NEWS_MAX_AGE_HOURS` (12 h, counted from its first item) expires unpublished, so no backdated news goes out; Pautas Tralked (games, guides) are not affected. See "Manual publication" below for the flags. |
 | `pnpm retroativo` | Backfill: writes the older articles of the last `BACKFILL_DAYS` days with backdated times, under its own budget. |
+| `pnpm gasto [--dias N]` | What the robot used of the Claude subscription: tokens and API-equivalent US$ per published article (news and pautas), the collection's share and the weekly window. Default: the last day. |
 | `pnpm resumo [dia]` | Prints and e-mails the counts for a local day: collected, dropped, queued, published, updated, check failures, spend by bucket and broken sources. `dia` is `AAAA-MM-DD` or `ontem`; the default is today. |
 | `pnpm despublicar --de AAAA-MM-DD --ate AAAA-MM-DD [--fonte id] [--confirmar]` | Bulk unpublish by publication day (local), optionally only stories that used source `id`. Without `--confirmar` it only lists. With it, it PATCHes `{status: "archived"}` on the site for each match and marks it `archived` locally. |
 

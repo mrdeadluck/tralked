@@ -2,7 +2,19 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { localDay } from "./clock.js";
+import type { ClaudeUsage } from "./ai/claude-code.js";
 import { normalizeUrl } from "./url.js";
+
+/** One published article (news or pauta) with the Claude Code usage that went into it. */
+export type ArticleUsage = {
+  kind: "noticia" | "pauta";
+  ref: number;
+  title: string;
+  publishedAt: string;
+  runs: number;
+  tokens: number;
+  usdEquivalent: number;
+};
 
 /**
  * `bf_new` and `bf_triaged` belong to the backfill only: the live pipeline reads `new` and `triaged`, so it
@@ -296,6 +308,24 @@ CREATE TABLE IF NOT EXISTS pautas (
 );
 CREATE INDEX IF NOT EXISTS idx_pautas_status ON pautas(status, published_at);
 CREATE INDEX IF NOT EXISTS idx_pautas_game ON pautas(game_name, story_date);
+
+CREATE TABLE IF NOT EXISTS claude_usage (
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  model TEXT NOT NULL,
+  story_id INTEGER,
+  pauta_id INTEGER,
+  tag TEXT,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  cache_write_tokens INTEGER NOT NULL,
+  usd_equivalent REAL NOT NULL,
+  weekly_utilization REAL
+);
+CREATE INDEX IF NOT EXISTS idx_claude_usage_at ON claude_usage(at);
+CREATE INDEX IF NOT EXISTS idx_claude_usage_story ON claude_usage(story_id);
 `;
 
 /** Columns added after the first release: added to existing databases on open. */
@@ -375,6 +405,17 @@ export interface Db {
   recordSpend(bucket: SpendBucket, purpose: string, model: string, usd: number, at?: Date): void;
   spentToday(bucket: SpendBucket, now?: Date): number;
   spentTotal(bucket: SpendBucket): number;
+
+  /** One Claude Code run (the subscription counter): tokens, API-equivalent cost, weekly window use. */
+  recordClaudeUsage(usage: ClaudeUsage, ref: { purpose: string; storyId?: number; pautaId?: number; tag?: string }, at?: Date): void;
+  /** Gives the runs recorded under `tag` to the pauta that was saved after them. */
+  linkUsageTag(tag: string, ref: { pautaId: number }): void;
+  /** The weekly window share Claude Code reported last, or null when none was reported yet. */
+  lastWeeklyUtilization(): number | null;
+  /** Usage added up per article (news and pautas) published since `since`, newest first. */
+  usagePerArticle(since: Date): ArticleUsage[];
+  /** Usage of runs that belong to no article (triage, clustering) since `since`. */
+  collectionUsage(since: Date): { runs: number; tokens: number; usdEquivalent: number };
 
   publishedCountOn(day: string): number;
   /** Insert or update by story id; returns the article id. */
@@ -564,6 +605,72 @@ export function openDb(dir: string): Db {
       )
         .filter((r) => localDay(new Date(r.at)) === today)
         .reduce((sum, r) => sum + r.usd, 0);
+    },
+
+    recordClaudeUsage(u, ref, at = new Date()) {
+      raw
+        .prepare(
+          `INSERT INTO claude_usage (at, purpose, model, story_id, pauta_id, tag, input_tokens, output_tokens, cache_read_tokens,
+             cache_write_tokens, usd_equivalent, weekly_utilization) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          iso(at),
+          ref.purpose,
+          u.model,
+          ref.storyId ?? null,
+          ref.pautaId ?? null,
+          ref.tag ?? null,
+          u.inputTokens,
+          u.outputTokens,
+          u.cacheReadTokens,
+          u.cacheWriteTokens,
+          u.usdEquivalent,
+          u.weeklyUtilization,
+        );
+    },
+
+    linkUsageTag(tag, ref) {
+      raw.prepare("UPDATE claude_usage SET pauta_id = ? WHERE tag = ?").run(ref.pautaId, tag);
+    },
+
+    lastWeeklyUtilization() {
+      return (
+        one<{ w: number }>("SELECT weekly_utilization AS w FROM claude_usage WHERE weekly_utilization IS NOT NULL ORDER BY id DESC LIMIT 1")
+          ?.w ?? null
+      );
+    },
+
+    usagePerArticle(since) {
+      return rows<ArticleUsage>(
+        `SELECT 'noticia' AS kind, s.id AS ref, COALESCE(json_extract(a.payload_json, '$.title'), s.headline) AS title,
+                a.published_at AS publishedAt, COUNT(u.id) AS runs,
+                COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens), 0) AS tokens,
+                COALESCE(SUM(u.usd_equivalent), 0) AS usdEquivalent
+           FROM articles a JOIN stories s ON s.id = a.story_id JOIN claude_usage u ON u.story_id = s.id
+          WHERE a.status = 'published' AND a.published_at >= ?
+          GROUP BY s.id
+         UNION ALL
+         SELECT 'pauta' AS kind, p.id AS ref, COALESCE(json_extract(p.payload_json, '$.title'), p.game_name) AS title,
+                p.published_at AS publishedAt, COUNT(u.id) AS runs,
+                COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens), 0) AS tokens,
+                COALESCE(SUM(u.usd_equivalent), 0) AS usdEquivalent
+           FROM pautas p JOIN claude_usage u ON u.pauta_id = p.id
+          WHERE p.status = 'published' AND p.published_at >= ?
+          GROUP BY p.id
+         ORDER BY publishedAt DESC`,
+        iso(since),
+        iso(since),
+      );
+    },
+
+    collectionUsage(since) {
+      return one<{ runs: number; tokens: number; usdEquivalent: number }>(
+        `SELECT COUNT(*) AS runs,
+                COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
+                COALESCE(SUM(usd_equivalent), 0) AS usdEquivalent
+           FROM claude_usage WHERE story_id IS NULL AND pauta_id IS NULL AND tag IS NULL AND at >= ?`,
+        iso(since),
+      )!;
     },
 
     spentTotal(bucket) {

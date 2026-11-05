@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { BudgetExceededError, RefusalError, type Ai } from "./ai/client.js";
+import { BudgetExceededError, RefusalError, UsageLimitError, type Ai } from "./ai/client.js";
+import { withUsageRef } from "./ai/usage-context.js";
 import { clusterItems, openStories, storyKeyOf, type ClusterItem, type OpenStory } from "./ai/cluster.js";
 import { checkNovelty } from "./ai/novelty.js";
 import { CATEGORIES, triageItems, type Triage, type TriageInput } from "./ai/triage.js";
@@ -125,6 +126,8 @@ export type PipelineDeps = {
   log?: (line: string) => void;
   /** `config/jogos-famosos.json`: Pautas Tralked are made only when it is given and not empty. */
   famousGames?: FamousGame[];
+  /** `publica --revisao`: articles go to the site as drafts (`status: "review"`) for Lucas to check first. */
+  revisao?: boolean;
 };
 
 export type PublicaDeps = PipelineDeps & {
@@ -252,7 +255,35 @@ async function withPublishLock<T>(deps: PipelineDeps, fn: () => Promise<T>): Pro
 
 /** One budget alert per local day (it would otherwise repeat every run). */
 function budgetAlert(db: Db, error: BudgetExceededError, now: Date): void {
+  if (error instanceof UsageLimitError) {
+    alertOncePerDay(
+      db,
+      "orcamento",
+      `Robô parado: ${error.message}. Ele tenta de novo a cada rodada e volta sozinho quando o limite liberar.`,
+      now,
+      "Limite da assinatura do Claude",
+    );
+    return;
+  }
   alertOncePerDay(db, "orcamento", `Teto de gasto atingido: ${error.message}. O robô para até amanhã.`, now, "Teto de gasto");
+}
+
+/** "Custo: 41,2 mil tokens, ~US$ 0,38 se fosse pela API; limite semanal em 46%" (the subscription counter). */
+export function usageLine(db: Db, ref: { storyId?: number; pautaId?: number }): string | null {
+  const where = ref.storyId !== undefined ? "story_id = ?" : "pauta_id = ?";
+  const id = ref.storyId ?? ref.pautaId;
+  if (id === undefined) return null;
+  const row = db.raw
+    .prepare(
+      `SELECT COUNT(*) AS runs, COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
+              COALESCE(SUM(usd_equivalent), 0) AS usd FROM claude_usage WHERE ${where}`,
+    )
+    .get(id) as { runs: number; tokens: number; usd: number };
+  if (row.runs === 0) return null;
+  const week = db.lastWeeklyUtilization();
+  const tokens = row.tokens >= 1000 ? `${(row.tokens / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mil` : String(row.tokens);
+  const usd = row.usd.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `custo: ${tokens} tokens, ~US$ ${usd} se fosse pela API${week === null ? "" : `; limite semanal em ${Math.round(week * 100)}%`}`;
 }
 
 /** One `pausado` alert per local day, whichever command was stopped by the PAUSADO file. */
@@ -618,7 +649,12 @@ export function blocksText(blocks: ContentBlock[]): string {
 /** `published`: on the site. `rejected`: check failed twice or refused, story dropped. `busy`: someone else claimed it. */
 type PublishOutcome = { kind: "published"; id: string } | { kind: "rejected" } | { kind: "busy" };
 
-async function publishOne(story: StoryRow, deps: PipelineDeps): Promise<PublishOutcome> {
+/** `publishOneInner` with its AI runs counted for the story (`claude_usage.story_id`). */
+function publishOne(story: StoryRow, deps: PipelineDeps): Promise<PublishOutcome> {
+  return withUsageRef({ storyId: story.id }, () => publishOneInner(story, deps));
+}
+
+async function publishOneInner(story: StoryRow, deps: PipelineDeps): Promise<PublishOutcome> {
   const { db, ai, tralked, config } = deps;
   const now = deps.now();
   // Atomic claim: only one run may write a given story.
@@ -669,6 +705,8 @@ async function publishOne(story: StoryRow, deps: PipelineDeps): Promise<PublishO
       );
     }
 
+    // `--revisao`: the article goes to the site's admin as a draft for Lucas to check.
+    if (deps.revisao) payload = { ...payload, status: "review" };
     let created: { id: string; slug: string };
     try {
       created = await tralked.createArticle(payload, articleKey("live", story.id));
@@ -698,7 +736,9 @@ async function publishOne(story: StoryRow, deps: PipelineDeps): Promise<PublishO
       publishedAt,
     );
     db.setStoryStatus(story.id, "published");
-    deps.log?.(`publicada: história ${story.id} → ${created.id} (${payload.title})`);
+    deps.log?.(`${deps.revisao ? "rascunho enviado" : "publicada"}: história ${story.id} → ${created.id} (${payload.title})`);
+    const cost = usageLine(db, { storyId: story.id });
+    if (cost) deps.log?.(`  ${cost}`);
     return { kind: "published", id: created.id };
   } catch (error) {
     // Budget, transient site errors and anything unexpected: back to the queue (final states stay).
@@ -729,7 +769,11 @@ export async function publishStory(story: StoryRow, deps: PipelineDeps): Promise
  *   the "Atualizado às" note. `published_at` is untouched, so the day count does not change.
  * Returns true when patched. The idempotency key's counter is the story's item count, which only grows.
  */
-async function updateStory(story: StoryRow, deps: PipelineDeps): Promise<boolean> {
+function updateStory(story: StoryRow, deps: PipelineDeps): Promise<boolean> {
+  return withUsageRef({ storyId: story.id }, () => updateStoryInner(story, deps));
+}
+
+async function updateStoryInner(story: StoryRow, deps: PipelineDeps): Promise<boolean> {
   const { db, ai, tralked, config } = deps;
   const now = deps.now();
   const article = db.articleForStory(story.id);
@@ -1357,11 +1401,12 @@ async function publishLivePauta(deps: PublicaDeps, now: Date): Promise<{ id: str
     }
 
     const story = pautaStory(sources, format);
+    const usageTag = `pauta-${now.getTime()}-${attempt}-${sources.slug}`;
     const failed = (error: string) =>
       recordPauta(db, { gameName: entry.name, gameSlug: sources.slug, format, status: "failed", mode: "live", storyDate: today, error }, now);
     let draft: Awaited<ReturnType<typeof writePauta>>;
     try {
-      draft = await writePauta(ai, sources, format, "live", { models: config, now });
+      draft = await withUsageRef({ tag: usageTag }, () => writePauta(ai, sources, format, "live", { models: config, now }));
     } catch (error) {
       if (error instanceof PautaRejectedError) {
         failed(error.message);
@@ -1391,11 +1436,13 @@ async function publishLivePauta(deps: PublicaDeps, now: Date): Promise<{ id: str
       },
       now,
     );
+    db.linkUsageTag(usageTag, { pautaId: id });
     row = pautaById(db, id);
   }
   if (!row?.payload_json) return null;
 
-  const payload = JSON.parse(row.payload_json) as ArticlePayload;
+  const stored = JSON.parse(row.payload_json) as ArticlePayload;
+  const payload: ArticlePayload = deps.revisao ? { ...stored, status: "review" } : stored;
   let created: { id: string; slug: string };
   try {
     created = await deps.tralked.createArticle(payload, pautaKey("live", row.id));
@@ -1407,7 +1454,9 @@ async function publishLivePauta(deps: PublicaDeps, now: Date): Promise<{ id: str
     throw error;
   }
   markPauta(db, row.id, { status: "published", siteId: created.id, slug: created.slug, publishedAt: deps.now().toISOString() });
-  deps.log?.(`publicada: pauta ${row.id} → ${created.id} (${payload.title})`);
+  deps.log?.(`${deps.revisao ? "rascunho enviado" : "publicada"}: pauta ${row.id} → ${created.id} (${payload.title})`);
+  const cost = usageLine(db, { pautaId: row.id });
+  if (cost) deps.log?.(`  ${cost}`);
   return { id: created.id, title: payload.title };
 }
 
@@ -1439,6 +1488,7 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
         }
         deps.log?.("pauta: nenhuma pauta possível agora; o horário fica com a notícia");
       } catch (error) {
+        if (error instanceof UsageLimitError) return { published: null, reason: error.message };
         if (error instanceof BudgetExceededError) return { published: null, reason: `orçamento diário esgotado (${error.message})` };
         if (error instanceof TralkedError) return { published: null, reason: `erro da API do site: ${error.status} ${error.message}` };
         throw error;
@@ -1457,6 +1507,7 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
         }
         if (outcome.kind === "rejected") rejected++;
       } catch (error) {
+        if (error instanceof UsageLimitError) return { published: null, reason: error.message };
         if (error instanceof BudgetExceededError) return { published: null, reason: `orçamento diário esgotado (${error.message})` };
         if (error instanceof TralkedError) return { published: null, reason: `erro da API do site: ${error.status} ${error.message}` };
         throw error;
