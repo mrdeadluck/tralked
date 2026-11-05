@@ -58,11 +58,16 @@ const isListLink = (l: string) =>
     OR (${l}.platform IN ('xbox', 'retro')
         AND EXISTS (SELECT 1 FROM "Achievement" ax WHERE ax."gameId" = ${l}."gameId" AND ax.platform = ${l}.platform)))`);
 
+/** Limits a statement to the games of its `raw` CTE (the real-run batch), so it never scans every game. */
+type Restrict = { toRaw: boolean };
+const inRaw = (r: Restrict, col: string) => (r.toRaw ? Prisma.sql`AND ${Prisma.raw(col)} IN (SELECT "gameId" FROM raw)` : Prisma.empty);
+
 /** `lists` CTE: the lists that exist, plus (dry run) the candidates as virtual lists with a null id. */
-function listsCte(virtualFrom: Candidate[] | null, gameIds: string[] | undefined) {
-  const real = Prisma.sql`SELECT "gameId" AS game_id, platform, "externalId" AS ext, id FROM "TrophyList" WHERE true ${scope(gameIds, '"gameId"')}`;
-  if (!virtualFrom || virtualFrom.length === 0) return Prisma.sql`lists AS (${real})`;
-  return Prisma.sql`lists AS (${real} UNION ALL
+function listsCte(virtualFrom: Candidate[] | null, gameIds: string[] | undefined, r: Restrict) {
+  const real = Prisma.sql`SELECT "gameId" AS game_id, platform, "externalId" AS ext, id FROM "TrophyList"
+    WHERE true ${scope(gameIds, '"gameId"')} ${inRaw(r, '"gameId"')}`;
+  if (!virtualFrom || virtualFrom.length === 0) return Prisma.sql`lists AS NOT MATERIALIZED (${real})`;
+  return Prisma.sql`lists AS NOT MATERIALIZED (${real} UNION ALL
     SELECT v.game, v.platform, v.ext, NULL::text
     FROM unnest(${virtualFrom.map((c) => c.gameId)}::text[], ${virtualFrom.map((c) => c.platform)}::text[],
                 ${virtualFrom.map((c) => c.externalId)}::text[]) AS v(game, platform, ext))`;
@@ -70,24 +75,32 @@ function listsCte(virtualFrom: Candidate[] | null, gameIds: string[] | undefined
 
 /**
  * `tgt` CTE (needs `lists`): where the list-less rows of a (game, platform) go. Steam: its own list.
- * The others: only when the game has exactly one list-type link and exactly one list.
- * Recomputed inside every statement, so no session state is relied on.
+ * The others: only when the game has exactly one list-type link and exactly one list (GROUP BY ...
+ * HAVING count(*) = 1, joined back). Recomputed inside every statement, so no session state is
+ * relied on; in the real-run batch it only looks at the games of `raw`.
  */
-function tgtCte(gameIds: string[] | undefined) {
-  return Prisma.sql`tgt AS (
+function tgtCte(gameIds: string[] | undefined, r: Restrict) {
+  return Prisma.sql`one_link AS (
+    SELECT lk."gameId" AS game_id, lk.platform FROM "GamePlatformLink" lk
+    WHERE lk.platform IN ('psn', 'xbox', 'retro') AND ${isListLink("lk")} ${scope(gameIds, 'lk."gameId"')} ${inRaw(r, 'lk."gameId"')}
+    GROUP BY 1, 2 HAVING count(*) = 1),
+  one_list AS (SELECT game_id, platform FROM lists GROUP BY 1, 2 HAVING count(*) = 1),
+  tgt AS (
     SELECT g.id AS game_id, 'steam'::text AS platform, l.id AS list_id
     FROM "Game" g
     JOIN lists l ON l.game_id = g.id AND l.platform = 'steam' AND l.ext = COALESCE(g."steamAppId"::text, 'game:' || g.id)
-    WHERE true ${scope(gameIds, "g.id")}
+    WHERE true ${scope(gameIds, "g.id")} ${inRaw(r, "g.id")}
     UNION ALL
     SELECT lk."gameId", lk.platform, l.id
-    FROM "GamePlatformLink" lk
-    JOIN lists l ON l.game_id = lk."gameId" AND l.platform = lk.platform AND l.ext = lk."externalId"
-    WHERE lk.platform IN ('psn', 'xbox', 'retro') AND ${isListLink("lk")} ${scope(gameIds, 'lk."gameId"')}
-      AND (SELECT count(*) FROM "GamePlatformLink" l2
-           WHERE l2."gameId" = lk."gameId" AND l2.platform = lk.platform AND ${isListLink("l2")}) = 1
-      AND (SELECT count(*) FROM lists l3 WHERE l3.game_id = lk."gameId" AND l3.platform = lk.platform) = 1)`;
+    FROM one_link ol
+    JOIN one_list oli ON oli.game_id = ol.game_id AND oli.platform = ol.platform
+    JOIN "GamePlatformLink" lk ON lk."gameId" = ol.game_id AND lk.platform = ol.platform AND ${isListLink("lk")}
+    JOIN lists l ON l.game_id = lk."gameId" AND l.platform = lk.platform AND l.ext = lk."externalId")`;
 }
+
+/** SQL for "the list already holds this apiName", shared by the batch and the dry run. */
+const listHolds = (listId: string, apiName: string) =>
+  Prisma.raw(`EXISTS (SELECT 1 FROM "Achievement" b WHERE b."listId" = ${listId} AND b."apiName" = ${apiName})`);
 
 async function findCandidates(gameIds: string[] | undefined): Promise<Candidate[]> {
   return prisma.$queryRaw<Candidate[]>`
@@ -167,37 +180,40 @@ export async function backfillTrophyLists(
     }
   }
 
-  const lists = listsCte(dryRun ? candidates : null, gameIds);
-  const tgt = tgtCte(gameIds);
+  const all: Restrict = { toRaw: false };
+  const lists = listsCte(dryRun ? candidates : null, gameIds, all);
+  const tgt = tgtCte(gameIds, all);
 
   // 2. Link the rows. Skipped: rows whose apiName the target list already holds (a sync wrote them).
   if (dryRun) {
     const rows = await prisma.$queryRaw<{ platform: string; n: number }[]>`
       WITH ${lists}, ${tgt}
-      SELECT a.platform, count(*)::int AS n FROM "Achievement" a
-      JOIN tgt t ON t.game_id = a."gameId" AND t.platform = a.platform
-      WHERE a."listId" IS NULL
-        AND (t.list_id IS NULL OR NOT EXISTS (SELECT 1 FROM "Achievement" b WHERE b."listId" = t.list_id AND b."apiName" = a."apiName"))
-      GROUP BY a.platform`;
+      SELECT x.platform, count(*)::int AS n FROM (
+        SELECT DISTINCT a.platform, a."gameId", a."apiName" FROM "Achievement" a
+        JOIN tgt t ON t.game_id = a."gameId" AND t.platform = a.platform
+        WHERE a."listId" IS NULL AND (t.list_id IS NULL OR NOT ${listHolds("t.list_id", 'a."apiName"')})) x
+      GROUP BY x.platform`;
     for (const r of rows) {
       report.achievementsLinked += r.n;
       report.perPlatform[r.platform].achievementsLinked += r.n;
     }
   } else {
+    const inBatch: Restrict = { toRaw: true };
     let last = "";
     for (;;) {
       // raw = the next list-less rows by id (eligible or not), so a batch of ineligible rows never
       // ends the loop early; the keyset moves past all of them.
       const [res] = await prisma.$queryRaw<{ last: string | null; by_platform: Record<string, number> }[]>`
-        WITH ${lists}, ${tgt},
-        raw AS (
+        WITH raw AS (
           SELECT a.id, a."gameId", a.platform, a."apiName" FROM "Achievement" a
           WHERE a."listId" IS NULL AND a.id > ${last} ${scope(gameIds, 'a."gameId"')}
           ORDER BY a.id LIMIT ${batch}),
+        ${listsCte(null, gameIds, inBatch)}, ${tgtCte(gameIds, inBatch)},
         cand AS (
-          SELECT r.id, t.list_id FROM raw r
+          SELECT DISTINCT ON (t.list_id, r."apiName") r.id, t.list_id FROM raw r
           JOIN tgt t ON t.game_id = r."gameId" AND t.platform = r.platform
-          WHERE NOT EXISTS (SELECT 1 FROM "Achievement" b WHERE b."listId" = t.list_id AND b."apiName" = r."apiName")),
+          WHERE NOT ${listHolds("t.list_id", 'r."apiName"')}
+          ORDER BY t.list_id, r."apiName", r.id),
         upd AS (UPDATE "Achievement" a SET "listId" = cand.list_id FROM cand WHERE a.id = cand.id RETURNING a.platform)
         SELECT (SELECT max(id) FROM raw) AS last,
                COALESCE((SELECT jsonb_object_agg(platform, n) FROM (SELECT platform, count(*)::int AS n FROM upd GROUP BY 1) x), '{}'::jsonb) AS by_platform`;
@@ -205,7 +221,7 @@ export async function backfillTrophyLists(
       last = res.last;
       for (const [platform, n] of Object.entries(res.by_platform)) {
         report.achievementsLinked += n;
-        report.perPlatform[platform].achievementsLinked += n;
+        (report.perPlatform[platform] ??= emptyCounts()).achievementsLinked += n;
       }
     }
   }
@@ -259,9 +275,10 @@ export async function backfillTrophyLists(
     SELECT a.platform, count(*)::int AS n FROM "Achievement" a
     WHERE a."listId" IS NULL ${scope(gameIds, 'a."gameId"')} GROUP BY a.platform`;
   for (const row of total) {
-    const left = dryRun ? row.n - report.perPlatform[row.platform].achievementsLinked : row.n;
+    const counts = (report.perPlatform[row.platform] ??= emptyCounts());
+    const left = dryRun ? row.n - counts.achievementsLinked : row.n;
     report.achievementsLeftForResync += left;
-    (report.perPlatform[row.platform] ??= emptyCounts()).achievementsLeftForResync = left;
+    counts.achievementsLeftForResync = left;
   }
   report.steamLeftover = report.perPlatform.steam.achievementsLeftForResync;
   return report;

@@ -227,4 +227,24 @@ describe("backfillTrophyLists", () => {
     const r = await backfillTrophyLists({ gameIds: [multi.id, steam.id], batchSize: 2 });
     expect(r).toMatchObject({ achievementsLinked: 5, achievementsLeftForResync: 5 });
   });
+
+  it("links only one of two list-less rows with the same apiName (dry run counts the same)", async () => {
+    const g = await game();
+    await rows(g.id, "steam", 2); // A0, A1
+    await prisma.achievement.create({ data: { gameId: g.id, platform: "steam", apiName: "A0", name: "dup" } });
+    const dry = await backfillTrophyLists({ dryRun: true, gameIds: [g.id] });
+    const real = await backfillTrophyLists({ gameIds: [g.id] });
+    expect(real).toMatchObject({ achievementsLinked: 2, achievementsLeftForResync: 1, steamLeftover: 1 });
+    expect({ ...real, dryRun: true }).toEqual(dry);
+    expect(await prisma.achievement.count({ where: { gameId: g.id, listId: null } })).toBe(1);
+  });
+
+  it("does not throw on rows of an unknown platform", async () => {
+    const g = await game();
+    await rows(g.id, "other", 2);
+    for (const dryRun of [true, false]) {
+      const r = await backfillTrophyLists({ dryRun, gameIds: [g.id] });
+      expect(r.achievementsLeftForResync).toBe(2);
+    }
+  });
 });
