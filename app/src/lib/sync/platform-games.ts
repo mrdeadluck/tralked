@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getIgdb, mapToSkills } from "@/lib/integrations";
 import { normalizePlatformTitle, normalizeTitle, withoutEdition } from "@/lib/integrations/title-match";
+import { regionOf } from "@/lib/trophies/lists";
 import { slugify } from "./catalog";
 
 const IGDB_COVER_URL = "https://images.igdb.com/igdb/image/upload/t_cover_big";
@@ -64,7 +65,31 @@ export type ResolveOptions = {
    * link of any of them says which game the concept is.
    */
   conceptTitleIds?: readonly string[];
+  /**
+   * A name of the concept without Japanese or Korean script. A title whose own name has that script
+   * is first looked for (and, when new, named) by it.
+   */
+  conceptName?: string | null;
 };
+
+/**
+ * A catalog game known by this name: the normalized name or an alias of a listed game, the name of
+ * a stub (findStubByName), or the same without a store edition. `remember`: found outside the name
+ * index (the index learns it).
+ */
+async function knownByName(names: NameIndex, name: string): Promise<{ id: string; remember: boolean } | null> {
+  const byName = names.get(normalizePlatformTitle(name)) ?? names.get(normalizeTitle(name));
+  if (byName) return { id: byName, remember: false };
+  const stub = await findStubByName(name);
+  if (stub) return { id: stub, remember: true };
+  // A store edition of a known game (`… Digital Deluxe Edition`) is that game.
+  const editionOf = withoutEdition(name);
+  if (editionOf) {
+    const known = names.get(normalizePlatformTitle(editionOf)) ?? names.get(normalizeTitle(editionOf)) ?? (await findStubByName(editionOf));
+    if (known) return { id: known, remember: true };
+  }
+  return null;
+}
 
 /**
  * The game a PSN concept is already on: the game of its oldest trophy list stored with that
@@ -100,14 +125,16 @@ async function conceptGame(platform: string, conceptId: number | null | undefine
  * trophy list stored with it, or a link of one of its ids: see conceptGame), the normalized name or an alias
  * of a listed game, the name of a stub of the full Steam catalog (findStubByName), the same without
  * a store edition (`… Deluxe Edition`), then IGDB by exact name (matched to the catalog by igdbId). A title nobody knows yet becomes a new game, with IGDB
- * metadata and skills when IGDB knows it. The link is stored so the next sync is a single lookup.
+ * metadata and skills when IGDB knows it. A title named in Japanese or Korean script whose concept
+ * has a name without it goes through those name steps (and IGDB, and naming a new game) by the
+ * concept's name first. The link is stored so the next sync is a single lookup.
  * `names` is updated in place with created games.
  */
 export async function resolvePlatformGame(
   platform: string,
   title: { externalId: string; name: string; platformLabel: string },
   names: NameIndex,
-  { igdb: useIgdb = true, conceptId, conceptTitleIds = [] }: ResolveOptions = {},
+  { igdb: useIgdb = true, conceptId, conceptTitleIds = [], conceptName }: ResolveOptions = {},
 ): Promise<string> {
   const link = await prisma.gamePlatformLink.findUnique({
     where: { platform_externalId: { platform, externalId: title.externalId } },
@@ -123,32 +150,21 @@ export async function resolvePlatformGame(
   }
 
   const normalized = normalizePlatformTitle(title.name);
-  const byName = names.get(normalized) ?? names.get(normalizeTitle(title.name));
-  if (byName) {
-    await linkPlatform(byName, platform, title.externalId);
-    return byName;
-  }
-  const stub = await findStubByName(title.name);
-  if (stub) {
-    await linkPlatform(stub, platform, title.externalId);
-    names.set(normalized, stub);
-    return stub;
-  }
-  // A store edition of a known game (`… Digital Deluxe Edition`) is that game.
-  const editionOf = withoutEdition(title.name);
-  if (editionOf) {
-    const known = names.get(normalizePlatformTitle(editionOf)) ?? names.get(normalizeTitle(editionOf)) ?? (await findStubByName(editionOf));
-    if (known) {
-      await linkPlatform(known, platform, title.externalId);
-      names.set(normalized, known);
-      return known;
-    }
+  // A Japanese-named version of a concept with a name in Latin script is looked for by that name
+  // first (the catalog holds the game under it), then by its own.
+  const lookupName = regionOf(title.name) !== null && conceptName && regionOf(conceptName) === null ? conceptName : title.name;
+  for (const name of new Set([lookupName, title.name])) {
+    const known = await knownByName(names, name);
+    if (!known) continue;
+    await linkPlatform(known.id, platform, title.externalId);
+    if (known.remember) names.set(normalized, known.id);
+    return known.id;
   }
 
   let igdb = null;
   if (useIgdb) {
     try {
-      igdb = await getIgdb().findByName(title.name);
+      igdb = await getIgdb().findByName(lookupName);
     } catch (error) {
       // Best effort: without IGDB the game is still created, just without metadata.
       console.warn(`Platform sync: IGDB lookup failed for a ${platform} title`, error);
@@ -162,7 +178,7 @@ export async function resolvePlatformGame(
     }
   }
 
-  const name = igdb?.name ?? title.name;
+  const name = igdb?.name ?? lookupName;
   const skills = igdb ? mapToSkills(igdb) : [];
   const create = async (slug: string) =>
     prisma.game.create({
@@ -205,5 +221,6 @@ export async function resolvePlatformGame(
     game = await create(`${base}-${platform}-${slugify(title.externalId)}`);
   }
   names.set(normalized, game.id);
+  if (lookupName !== title.name) names.set(normalizePlatformTitle(lookupName), game.id);
   return game.id;
 }

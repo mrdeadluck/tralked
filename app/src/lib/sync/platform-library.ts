@@ -1,7 +1,7 @@
 import type { TrophyTier } from "@/lib/engine/trophies";
 import { getPsn, getRetro, getXbox } from "@/lib/integrations";
 import type { PsnPlayedGame } from "@/lib/integrations/psn/types";
-import { psnConsoleCode, xboxConsoleOf } from "@/lib/trophies/lists";
+import { psnConsoleCode, regionOf, xboxConsoleOf } from "@/lib/trophies/lists";
 import { mapNewTitles } from "./psn-concepts";
 
 /** Platforms imported by the platform sync (Steam is linked by code too, but has its own sync: lib/sync/user.ts). */
@@ -70,14 +70,20 @@ export type PlaytimeTitle = {
 };
 
 /**
- * PSN concepts known in this run: the trophy lists whose store title ids were mapped this run
- * (lib/sync/psn-concepts.ts) and each concept's store title ids (played-games list).
+ * PSN concepts known in this run: the trophy lists whose store title ids were mapped (this run or
+ * an earlier one, lib/sync/psn-concepts.ts) and, from the played-games list, each concept's store
+ * title ids and name.
  */
 export type PsnConcepts = {
-  /** npCommunicationId → concept, for the lists mapped this run. */
+  /** npCommunicationId → concept, for the lists mapped for this connection. */
   npToConcept: Map<string, number>;
   /** Concept → its store title ids (CUSA…/PPSA…). */
   conceptTitleIds: Map<number, string[]>;
+  /**
+   * Concept → a name of it without Japanese or Korean script (the concept's own name, else a
+   * version's), when there is one: names the game of a list whose own name is Japanese.
+   */
+  conceptNames: Map<number, string>;
 };
 
 /** What the database already holds for a title (from its UserGame row and unlocks). */
@@ -250,7 +256,7 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
         lastPlayedAt: g.lastPlayedAt,
         conceptId: g.conceptId,
       }));
-      result.concepts = await conceptsOf(account, games, options.linkedAccountId);
+      result.concepts = await conceptsOf(account, games, options.linkedAccountId, options.deadline);
     }
   } catch (error) {
     result.failures.push({ externalId: "played-games", error });
@@ -259,30 +265,36 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
 }
 
 /**
- * Concepts of the played games, plus the trophy lists of store title ids not mapped before (at
- * most MAX_NEW_CONCEPT_TITLES per sync). A failed mapping only leaves this run without the new
- * lists' concepts: trophies still import, and the ids are asked again next sync.
+ * Concepts of the played games, plus the trophy lists known for the connection: those learned
+ * before and those of store title ids not mapped yet (at most MAX_NEW_CONCEPT_TITLES per sync, no
+ * request after the read deadline). A failed mapping only leaves this run without the new lists'
+ * concepts: trophies still import, and the ids are asked again next sync.
  */
 async function conceptsOf(
   account: LibraryAccount,
   games: PsnPlayedGame[],
   linkedAccountId: string | undefined,
+  deadline: number | undefined,
 ): Promise<PsnConcepts> {
   const conceptTitleIds = new Map<number, string[]>();
-  for (const g of games) {
+  const conceptNames = new Map<number, string>();
+  // The concept's own name first, then the versions' names.
+  for (const g of [...games].sort((a, b) => Number(b.conceptName !== null) - Number(a.conceptName !== null))) {
     if (g.conceptId === null) continue;
     const ids = new Set([...(conceptTitleIds.get(g.conceptId) ?? []), ...g.conceptTitleIds, g.titleId]);
     conceptTitleIds.set(g.conceptId, [...ids]);
+    const name = [g.conceptName, g.name].find((n) => n && regionOf(n) === null);
+    if (name && !conceptNames.has(g.conceptId)) conceptNames.set(g.conceptId, name);
   }
   let npToConcept = new Map<string, number>();
   if (linkedAccountId) {
     try {
-      npToConcept = await mapNewTitles(account.externalId, linkedAccountId, games);
+      npToConcept = await mapNewTitles(account.externalId, linkedAccountId, games, undefined, deadline);
     } catch (error) {
       console.warn("Platform sync: could not map PSN title ids to their trophy lists (concepts)", error);
     }
   }
-  return { npToConcept, conceptTitleIds };
+  return { npToConcept, conceptTitleIds, conceptNames };
 }
 
 async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<LibraryResult | "private"> {

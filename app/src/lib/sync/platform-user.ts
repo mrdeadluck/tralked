@@ -308,14 +308,25 @@ async function recordTitle(
   }, TRANSACTION_OPTIONS);
 }
 
+/** Resolve options of a PSN concept (see conceptResolver). */
+type ConceptOptions = (conceptId: number | null | undefined) => ResolveOptions;
+
 /**
- * Resolve options of a PSN concept: the concept and its ids (store title ids, and the trophy lists
- * mapped to it this run). Nothing for an unknown concept: the title resolves as before.
+ * Resolve options of a PSN concept: the concept, its ids (store title ids, and the trophy lists
+ * known to be of it) and its name without Japanese or Korean script. Nothing for an unknown
+ * concept: the title resolves as before.
  */
-function conceptOptions(concepts: PsnConcepts | undefined, conceptId: number | null | undefined): ResolveOptions {
-  if (!concepts || conceptId == null) return {};
-  const lists = [...concepts.npToConcept].flatMap(([list, c]) => (c === conceptId ? [list] : []));
-  return { conceptId, conceptTitleIds: [...(concepts.conceptTitleIds.get(conceptId) ?? []), ...lists] };
+function conceptResolver(concepts: PsnConcepts | undefined): ConceptOptions {
+  const listsOf = new Map<number, string[]>();
+  for (const [list, c] of concepts?.npToConcept ?? []) listsOf.set(c, [...(listsOf.get(c) ?? []), list]);
+  return (conceptId) => {
+    if (!concepts || conceptId == null) return {};
+    return {
+      conceptId,
+      conceptTitleIds: [...(concepts.conceptTitleIds.get(conceptId) ?? []), ...(listsOf.get(conceptId) ?? [])],
+      conceptName: concepts.conceptNames.get(conceptId) ?? null,
+    };
+  };
 }
 
 /**
@@ -336,7 +347,7 @@ async function recordPlaytime(
   now: Date,
   deadline?: number,
   clock: () => number = Date.now,
-  concepts?: PsnConcepts,
+  conceptOptions: ConceptOptions = () => ({}),
 ): Promise<{ partial: boolean; written: Set<string> }> {
   const { userId, platform } = account;
   const perGame = new Map<string, { playtimeMin: number; lastPlayedAt: Date | null }>();
@@ -352,7 +363,7 @@ async function recordPlaytime(
     written.add(title.externalId);
     const gameId = await resolvePlatformGame(platform, title, names, {
       igdb: false,
-      ...conceptOptions(concepts, title.conceptId),
+      ...conceptOptions(title.conceptId),
     });
     const acc = perGame.get(gameId) ?? { playtimeMin: 0, lastPlayedAt: null };
     acc.playtimeMin += Math.floor(title.playtimeMin);
@@ -642,6 +653,7 @@ export async function syncPlatformAccount(
   const resolved: { gameId: string; title: LibraryTitle; conceptId: number | null }[] = [];
   let titlesPartial = false;
   const conceptOfList = (title: LibraryTitle) => library.concepts?.npToConcept.get(title.externalId) ?? null;
+  const conceptOptions = conceptResolver(library.concepts);
   // A list of a known concept with a Japanese or Korean name resolves after the others: the
   // concept's other lists name (or create) the game first, and it joins that game.
   const ordered = [...library.titles].sort(
@@ -657,7 +669,7 @@ export async function syncPlatformAccount(
       break;
     }
     const conceptId = conceptOfList(title);
-    const gameId = await resolvePlatformGame(platform, title, names, conceptOptions(library.concepts, conceptId));
+    const gameId = await resolvePlatformGame(platform, title, names, conceptOptions(conceptId));
     resolved.push({ gameId, title, conceptId });
   }
 
@@ -738,7 +750,7 @@ export async function syncPlatformAccount(
   await rememberTitles(snapshot, account.id, resolved.map((r) => r.title));
   let playtime: { partial: boolean; written: Set<string> };
   try {
-    playtime = await recordPlaytime(snapshot, library.playtime, names, startedAt, options.deadline, Date.now, library.concepts);
+    playtime = await recordPlaytime(snapshot, library.playtime, names, startedAt, options.deadline, Date.now, conceptOptions);
   } catch (error) {
     if (error instanceof AccountChangedError) return unchanged("unlinked");
     throw error;

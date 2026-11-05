@@ -164,6 +164,7 @@ const PLAYED: PsnPlayedGame[] = [
     lastPlayedAt: new Date("2026-06-08T22:00:00Z"),
     conceptId: null,
     conceptTitleIds: [],
+    conceptName: null,
   },
   {
     titleId: "PPSA90002_00",
@@ -174,6 +175,7 @@ const PLAYED: PsnPlayedGame[] = [
     lastPlayedAt: new Date("2026-07-05T23:00:00Z"),
     conceptId: null,
     conceptTitleIds: [],
+    conceptName: null,
   },
   {
     titleId: "PPSA90003_00",
@@ -184,6 +186,7 @@ const PLAYED: PsnPlayedGame[] = [
     lastPlayedAt: new Date("2026-08-02T23:00:00Z"),
     conceptId: null,
     conceptTitleIds: [],
+    conceptName: null,
   },
   {
     titleId: "PPSA90004_00",
@@ -194,6 +197,7 @@ const PLAYED: PsnPlayedGame[] = [
     lastPlayedAt: new Date("2026-09-03T20:00:00Z"),
     conceptId: null,
     conceptTitleIds: [],
+    conceptName: null,
   },
   {
     titleId: "PPSA90005_00",
@@ -204,6 +208,7 @@ const PLAYED: PsnPlayedGame[] = [
     lastPlayedAt: new Date("2026-09-10T19:15:00Z"),
     conceptId: null,
     conceptTitleIds: [],
+    conceptName: null,
   },
 ];
 

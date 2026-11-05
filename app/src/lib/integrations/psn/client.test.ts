@@ -145,8 +145,9 @@ describe("psn client", () => {
         lastPlayedAt: new Date("2026-02-03T04:05:06.12Z"),
         conceptId: 201930,
         conceptTitleIds: ["CUSA00419_00", "PPSA1"],
+        conceptName: "Grand Theft Auto V",
       },
-      expect.objectContaining({ titleId: "CUSA2", playtimeMin: 0, conceptId: null, conceptTitleIds: [] }),
+      expect.objectContaining({ titleId: "CUSA2", playtimeMin: 0, conceptId: null, conceptTitleIds: [], conceptName: null }),
     ]);
     const calls = fetchMock.mock.calls.map((c) => new URL(String(c[0]))).filter((u) => u.pathname.includes("gamelist"));
     expect(calls.map((u) => u.searchParams.get("offset"))).toEqual(["0", "2"]);
@@ -218,6 +219,62 @@ describe("psn client", () => {
 
     const hidden = setup(() => json({ error: {} }, 403));
     await expect(hidden.client.getTrophyListsOfTitles("123", ["PPSA1"])).resolves.toBe("private");
+  });
+
+  const askedBatches = (fetchMock: { mock: { calls: unknown[][] } }) =>
+    fetchMock.mock.calls
+      .map((c) => new URL(String(c[0])))
+      .filter((u) => u.pathname.endsWith("/titles/trophyTitles"))
+      .map((u) => u.searchParams.get("npTitleIds"));
+
+  it("starts no batch past the deadline: the ids not asked are left out", async () => {
+    let advance = (ms: number) => ms;
+    const run = setup((url) => {
+      advance(1000); // each answer takes a second
+      return json(listsOf(url.searchParams.get("npTitleIds")!.split(",")));
+    });
+    advance = run.advance;
+    const ids = ["A1", "A2", "A3", "A4", "A5", "B1", "B2"];
+    const lists = await run.client.getTrophyListsOfTitles("123", ids, { deadline: 500 });
+    expect([...(lists as Map<string, string[]>).keys()]).toEqual(["A1", "A2", "A3", "A4", "A5"]);
+    expect(askedBatches(run.fetchMock)).toEqual(["A1,A2,A3,A4,A5"]);
+
+    // The one-by-one retries of a 404 batch stop at the deadline too.
+    const retry = setup((url) => {
+      advance(1000);
+      const asked = url.searchParams.get("npTitleIds")!.split(",");
+      return asked.length > 1 ? json({ error: {} }, 404) : json(listsOf(asked));
+    });
+    advance = retry.advance;
+    const partial = await retry.client.getTrophyListsOfTitles("123", ["C1", "C2", "C3"], { deadline: 1500 });
+    expect([...(partial as Map<string, string[]>).keys()]).toEqual(["C1"]);
+  });
+
+  it("a failing batch is skipped; the batches answered are kept", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { client } = setup((url) => {
+        const ids = url.searchParams.get("npTitleIds")!.split(",");
+        return ids.includes("B1") ? json({}, 500) : json(listsOf(ids));
+      });
+      const ids = ["A1", "A2", "A3", "A4", "A5", "B1", "B2", "B3", "B4", "B5", "C1"];
+      const lists = await client.getTrophyListsOfTitles("123", ids);
+      expect([...(lists as Map<string, string[]>).keys()]).toEqual(["A1", "A2", "A3", "A4", "A5", "C1"]);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("an answer only counts for the ids of its own batch", async () => {
+    const { client } = setup((url) => {
+      const ids = url.searchParams.get("npTitleIds")!.split(",");
+      // The second batch's answer also names an id of the first one.
+      const extra = ids.includes("B1") ? [{ npTitleId: "A1", trophyTitles: [{ npCommunicationId: "NPWR_OTHER" }] }] : [];
+      return json({ titles: [...listsOf(ids).titles, ...extra] });
+    });
+    const lists = await client.getTrophyListsOfTitles("123", ["A1", "A2", "A3", "A4", "A5", "B1"]);
+    expect((lists as Map<string, string[]>).get("A1")).toEqual(["NPWR_A1"]);
   });
 
   it("pages through trophy titles", async () => {

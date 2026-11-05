@@ -358,6 +358,7 @@ export function createPsnClient({
             lastPlayedAt: dateOrNull(t.lastPlayedDateTime),
             conceptId: typeof t.concept?.id === "number" && Number.isInteger(t.concept.id) ? t.concept.id : null,
             conceptTitleIds: (t.concept?.titleIds ?? []).filter((id): id is string => typeof id === "string" && id !== ""),
+            conceptName: t.concept?.name?.trim() || null,
           });
         }
         if (!body.nextOffset || body.nextOffset <= offset) return games;
@@ -366,26 +367,38 @@ export function createPsnClient({
       return games;
     },
 
-    async getTrophyListsOfTitles(accountId, titleIds): Promise<Map<string, string[]> | "private"> {
+    async getTrophyListsOfTitles(accountId, titleIds, { deadline } = {}): Promise<Map<string, string[]> | "private"> {
       const lists = new Map<string, string[]>();
-      const ask = (ids: string[]) =>
-        get<TitleListsRecord>(
-          `${TROPHY_BASE}/users/${encodeURIComponent(accountId)}/titles/trophyTitles?npTitleIds=${ids.map(encodeURIComponent).join(",")}`,
-          "title trophy lists",
-        );
+      const outOfTime = () => deadline !== undefined && now() >= deadline;
+      /** One request; `"failed"` when it errored (logged): its ids are left out of the answer. */
+      const ask = async (ids: string[]): Promise<TitleListsRecord | "private" | null | "failed"> => {
+        try {
+          return await get<TitleListsRecord>(
+            `${TROPHY_BASE}/users/${encodeURIComponent(accountId)}/titles/trophyTitles?npTitleIds=${ids.map(encodeURIComponent).join(",")}`,
+            "title trophy lists",
+          );
+        } catch (error) {
+          console.warn(`PSN title trophy lists: a batch of ${ids.length} title ids failed`, error);
+          return "failed";
+        }
+      };
+      /** The answer of one request, for the ids it asked only. */
       const keep = (ids: string[], body: TitleListsRecord | null) => {
+        const asked = new Set(ids);
         for (const id of ids) lists.set(id, []);
         for (const t of body?.titles ?? []) {
-          if (!t.npTitleId || !lists.has(t.npTitleId)) continue;
-          const ids = (t.trophyTitles ?? []).flatMap((l) => (l.npCommunicationId ? [l.npCommunicationId] : []));
-          lists.set(t.npTitleId, [...new Set(ids)]);
+          if (!t.npTitleId || !asked.has(t.npTitleId)) continue;
+          const found = (t.trophyTitles ?? []).flatMap((l) => (l.npCommunicationId ? [l.npCommunicationId] : []));
+          lists.set(t.npTitleId, [...new Set(found)]);
         }
       };
       const unique = [...new Set(titleIds)];
       for (let i = 0; i < unique.length; i += TITLE_LISTS_BATCH) {
+        if (outOfTime()) break;
         const batch = unique.slice(i, i + TITLE_LISTS_BATCH);
         const body = await ask(batch);
         if (body === "private") return "private";
+        if (body === "failed") continue;
         // One id PSN does not know for this player fails the whole batch with 404: ask one by one,
         // and an id that is 404 on its own has no list.
         if (body !== null || batch.length === 1) {
@@ -393,9 +406,10 @@ export function createPsnClient({
           continue;
         }
         for (const id of batch) {
+          if (outOfTime()) break;
           const one = await ask([id]);
           if (one === "private") return "private";
-          keep([id], one);
+          if (one !== "failed") keep([id], one);
         }
       }
       return lists;

@@ -58,6 +58,16 @@ export type PsnPlayedGame = {
   conceptId: number | null;
   /** Store title ids of every version of the concept (`concept.titleIds`), e.g. CUSA… and PPSA…. */
   conceptTitleIds: string[];
+  /** The concept's own name (`concept.name`): often the English one when the version's is Japanese. */
+  conceptName: string | null;
+};
+
+export type TrophyListsOptions = {
+  /**
+   * Epoch ms after which no further request is started: the ids not asked are left out of the
+   * answer (the caller asks them another time).
+   */
+  deadline?: number;
 };
 
 export interface PsnApi {
@@ -78,5 +88,9 @@ export interface PsnApi {
    * who played them: title id → its lists (`[]` when PSN does not know the id for that player).
    * `'private'` when the trophies are hidden from the service account.
    */
-  getTrophyListsOfTitles(accountId: string, titleIds: string[]): Promise<Map<string, string[]> | "private">;
+  getTrophyListsOfTitles(
+    accountId: string,
+    titleIds: string[],
+    options?: TrophyListsOptions,
+  ): Promise<Map<string, string[]> | "private">;
 }

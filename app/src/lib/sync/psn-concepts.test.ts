@@ -60,6 +60,7 @@ describe.skipIf(!reachable)("mapNewTitles", () => {
     lastPlayedAt: new Date(Date.UTC(2026, 0, 1) + lastPlayed * 3_600_000),
     conceptId,
     conceptTitleIds,
+    conceptName: null,
   });
 
   /** Spies the PSN fixture: every title id has one list `${LIST_PREFIX}<titleId>` unless `lists` says otherwise. */
@@ -99,11 +100,19 @@ describe.skipIf(!reachable)("mapNewTitles", () => {
       spy.mockClear();
       const second = await mapNewTitles(account.externalId, account.id, games);
       expect(askedIds(spy).sort()).toEqual(games.slice(0, 10).map((g) => g.titleId).sort());
-      expect(second.size).toBe(10);
+      // What earlier syncs learned comes back too (a list read in a later run keeps its concept).
+      expect(second.size).toBe(60);
+      expect(second.get(`${LIST_PREFIX}PPSA00000_00`)).toBe(1000);
+      expect(second.get(`${LIST_PREFIX}PPSA00059_00`)).toBe(1059);
 
       spy.mockClear();
-      expect((await mapNewTitles(account.externalId, account.id, games)).size).toBe(0);
+      const third = await mapNewTitles(account.externalId, account.id, games);
       expect(spy).not.toHaveBeenCalled();
+      expect(third).toEqual(second);
+      const lists = (await prisma.syncCursor.findUniqueOrThrow({ where: { key: conceptMemoryKey(account.id) } })).value as {
+        lists: Record<string, number>;
+      };
+      expect(Object.keys(lists.lists)).toHaveLength(60);
     } finally {
       spy.mockRestore();
     }
@@ -120,7 +129,9 @@ describe.skipIf(!reachable)("mapNewTitles", () => {
       await mapNewTitles(account.externalId, account.id, games);
       expect(spy).toHaveBeenCalledTimes(1);
       await prisma.linkedAccount.update({ where: { id: account.id }, data: { linkedAt: new Date(Date.now() + 1000) } });
-      await mapNewTitles(account.externalId, account.id, games);
+      // The learned lists are forgotten with the ids: nothing comes back before asking again.
+      spy.mockResolvedValueOnce(new Map());
+      expect((await mapNewTitles(account.externalId, account.id, games)).size).toBe(0);
       expect(spy).toHaveBeenCalledTimes(2);
     } finally {
       spy.mockRestore();
@@ -148,6 +159,49 @@ describe.skipIf(!reachable)("mapNewTitles", () => {
       const mapped = await mapNewTitles(account.externalId, account.id, games);
       expect(mapped).toEqual(new Map([[`${LIST_PREFIX}PPSA90201_00`, 10]]));
       expect(askedIds(spy)).not.toContain("PPSA90205_00");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a passed deadline asks nothing; only the ids answered are remembered", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { mapNewTitles, conceptMemoryKey } = await import("./psn-concepts");
+    const account = await linked();
+    const games = Array.from({ length: 10 }, (_, i) => played(`PPSA905${String(i).padStart(2, "0")}_00`, 500 + i, i));
+    const spy = await spyLists();
+    try {
+      expect((await mapNewTitles(account.externalId, account.id, games, 50, Date.now() - 1)).size).toBe(0);
+      expect(spy).not.toHaveBeenCalled();
+      expect(await prisma.syncCursor.findUnique({ where: { key: conceptMemoryKey(account.id) } })).toBeNull();
+
+      // The client stopped after one batch (deadline): the five ids not asked are asked next time.
+      const deadline = Date.now() + 60_000;
+      spy.mockImplementationOnce(async (_account, ids, options) => {
+        expect(options?.deadline).toBe(deadline);
+        return new Map(ids.slice(0, 5).map((id) => [id, [`${LIST_PREFIX}${id}`]]));
+      });
+      expect((await mapNewTitles(account.externalId, account.id, games, 50, deadline)).size).toBe(5);
+      spy.mockClear();
+      expect((await mapNewTitles(account.externalId, account.id, games)).size).toBe(10);
+      expect(askedIds(spy).sort()).toEqual(games.slice(0, 5).map((g) => g.titleId).sort());
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a list a later sync finds under another concept is dropped (ambiguous)", async () => {
+    const { mapNewTitles } = await import("./psn-concepts");
+    const account = await linked();
+    const spy = await spyLists({ PPSA90601_00: ["NPWRAMBIGUOUS"], PPSA90602_00: ["NPWRAMBIGUOUS"] });
+    try {
+      expect(await mapNewTitles(account.externalId, account.id, [played("PPSA90601_00", 61, 1)])).toEqual(
+        new Map([["NPWRAMBIGUOUS", 61]]),
+      );
+      const later = await mapNewTitles(account.externalId, account.id, [played("PPSA90601_00", 61, 1), played("PPSA90602_00", 62, 2)]);
+      expect(later.has("NPWRAMBIGUOUS")).toBe(false);
+      spy.mockClear();
+      expect((await mapNewTitles(account.externalId, account.id, [played("PPSA90601_00", 61, 1)])).has("NPWRAMBIGUOUS")).toBe(false);
     } finally {
       spy.mockRestore();
     }
