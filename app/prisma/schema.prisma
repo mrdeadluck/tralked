@@ -261,6 +261,7 @@ model Game {
   releases      GameRelease[]
   steamPlayers  SteamPlayerCount?
   slugRedirects GameSlugRedirect[]
+  igdbAliases   GameIgdbAlias[]
   editions      GameEdition[]      @relation("Editions")
   editionOf     GameEdition[]      @relation("EditionOf")
 
@@ -1427,6 +1428,19 @@ model NewsletterSubscriber {
 /// An old slug of a game that was merged into another: /jogos/<fromSlug> answers a permanent redirect.
 model GameSlugRedirect {
   fromSlug  String   @id
+  gameId    String
+  createdAt DateTime @default(now())
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([gameId])
+}
+
+/// An IGDB id that leads to a game besides its own Game.igdbId: the id of a duplicate joined into
+/// it (mergeGames), so the IGDB imports (resolveIgdbGames) find this game instead of creating the
+/// duplicate again. One game per IGDB id.
+model GameIgdbAlias {
+  igdbId    Int      @id
   gameId    String
   createdAt DateTime @default(now())
 

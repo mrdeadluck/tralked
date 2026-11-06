@@ -1,4 +1,5 @@
 import type { Game } from "@/generated/prisma/client";
+import { slugTaken } from "@/lib/catalog/slug-taken";
 import { prisma } from "@/lib/db";
 import type { SkillId } from "@/lib/engine/types";
 import { isSteamCdnUrl } from "@/lib/integrations/steam/polite-fetch";
@@ -93,7 +94,8 @@ export async function writeCatalogGame(input: CatalogGameInput): Promise<{ game:
     } else {
       // "Tom Clancy's" → "tom-clancys", like the seed's "baldurs-gate-3".
       const base = slugify(store.name.replace(/['’]/g, "")) || `app-${appId}`;
-      const taken = await tx.game.findUnique({ where: { slug: base }, select: { id: true } });
+      // A game's slug or an old URL of a joined game (a redirect) is taken.
+      const taken = await slugTaken(base, tx);
       game = await tx.game.create({
         data: {
           ...fields,

@@ -113,6 +113,7 @@ async function dropWithEverything(userId: string) {
   await prisma.gameRelease.create({ data: { gameId: drop.id, platform: "PC", source: "igdb", seenAt: NOW } });
   await prisma.gameOpen.create({ data: { userId, gameId: drop.id } });
   await prisma.gameSlugRedirect.create({ data: { fromSlug: next(), gameId: drop.id } });
+  await prisma.gameIgdbAlias.create({ data: { igdbId: 97400000 + counter, gameId: drop.id } });
   // The drop as gameId and as otherId of an edition pair, and a pair with the keep (it becomes a self-pair).
   await prisma.gameEdition.create({ data: { gameId: drop.id, otherId: e1.id } });
   await prisma.gameEdition.create({ data: { gameId: e2.id, otherId: drop.id } });

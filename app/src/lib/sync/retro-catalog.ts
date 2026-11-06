@@ -1,4 +1,5 @@
 import { Prisma } from "@/generated/prisma/client";
+import { takenSlugs } from "@/lib/catalog/slug-taken";
 import { prisma } from "@/lib/db";
 import type { RetroCatalogApi, RetroCatalogEntry } from "@/lib/integrations/retro/catalog";
 import { slugify } from "./catalog";
@@ -199,9 +200,8 @@ async function linkChunk(queue: QueueRow[], create: boolean, at: Date): Promise<
           const name = names.get(row.id)![0] ?? row.title;
           return { row, name, base: slugify(name.replace(/['’]/g, "")) || `ra-${row.id}` };
         });
-        const used = new Set(
-          (await tx.game.findMany({ where: { slug: { in: bases.map((b) => b.base) } }, select: { slug: true } })).map((g) => g.slug),
-        );
+        // A game's slug or an old URL of a joined game (a redirect) is taken.
+        const used = await takenSlugs(bases.map((b) => b.base), tx);
         const data = bases.map(({ row, name, base }) => {
           const slug = used.has(base) ? `${base}-ra-${row.id}` : base;
           used.add(slug);
