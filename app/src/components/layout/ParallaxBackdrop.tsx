@@ -1,6 +1,6 @@
 "use client";
 
-import { type Ref, useEffect, useRef } from "react";
+import { type Ref, Suspense, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { markContentPanels } from "./content-panels";
 import { CAST } from "./parallax-cast";
@@ -45,15 +45,29 @@ function RibbonTrack() {
   );
 }
 
-export function ParallaxBackdrop() {
+/*
+ * Reports the URL once hydrated and on every navigation. It renders nothing, so the scene's HTML is
+ * the same on the server and in the browser whatever URL each one sees (on Vercel the server renders
+ * the streamed part under another path than "/", which made the Home's scene differ and broke its
+ * hydration). It sits in its own <Suspense> because usePathname suspends on dynamic routes.
+ */
+function PathnameWatch({ onChange }: { onChange: (pathname: string) => void }) {
   const pathname = usePathname();
-  const mode = backdropModeFor(pathname);
+  useEffect(() => onChange(pathname), [pathname, onChange]);
+  return null;
+}
+
+export function ParallaxBackdrop() {
+  const [pathname, setPathname] = useState<string | null>(null);
+  const mode = pathname === null ? null : backdropModeFor(pathname);
   const sceneRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene) return;
-    const figures = [...scene.querySelectorAll<HTMLElement>(".figure")];
+    if (!scene || !mode) return;
+    // The cast is in the markup on every page; CSS shows it only in the "full" mode.
+    scene.dataset.mode = mode;
+    const figures = mode === "full" ? [...scene.querySelectorAll<HTMLElement>(".figure")] : [];
     const ribbons = [...scene.querySelectorAll<HTMLElement>(".achievement-ribbon")];
     const word = scene.querySelector<HTMLElement>(".transition-word");
     const mark = scene.querySelector<HTMLElement>(".world-mark");
@@ -179,40 +193,45 @@ export function ParallaxBackdrop() {
     };
   }, [pathname]);
 
-  return <Scene full={mode === "full"} sceneRef={sceneRef} />;
+  return (
+    <>
+      <Scene sceneRef={sceneRef} />
+      <Suspense fallback={null}>
+        <PathnameWatch onChange={setPathname} />
+      </Suspense>
+    </>
+  );
 }
 
 /*
- * The scene's markup. On its own (no motion) it is the fallback the layout streams while the URL is
- * not known yet (usePathname suspends on dynamic routes with Cache Components): the opening
- * composition without the cast, which the real backdrop then takes over.
+ * The scene's markup: identical on every page and on both sides of hydration. The mode (cast or not)
+ * arrives afterwards as a data-mode attribute; character art downloads only in the "full" mode.
  */
-function Scene({ full, sceneRef }: { full: boolean; sceneRef?: Ref<HTMLDivElement> }) {
+function Scene({ sceneRef }: { sceneRef?: Ref<HTMLDivElement> }) {
   return (
-    <div ref={sceneRef} className="tk-scene" data-mode={full ? "full" : "ribbons"} aria-hidden="true">
+    <div ref={sceneRef} className="tk-scene" aria-hidden="true">
       <div className="distant" />
-      {full &&
-        CAST.map((c) => (
-          <div key={c.key} className={`figure ${c.key} ${c.side}`} data-center={c.center} style={{ zIndex: c.z }}>
-            <div className="rim">
-              <svg viewBox={c.viewBox} xmlns="http://www.w3.org/2000/svg">
-                {c.clip && (
-                  <defs>
-                    <clipPath id={`tk-clip-${c.key}`}>
-                      <path d={c.clip} clipRule={c.clipRule ?? undefined} />
-                    </clipPath>
-                  </defs>
-                )}
-                <image
-                  data-href={c.src}
-                  width={c.width}
-                  height={c.height}
-                  clipPath={c.clip ? `url(#tk-clip-${c.key})` : undefined}
-                />
-              </svg>
-            </div>
+      {CAST.map((c) => (
+        <div key={c.key} className={`figure ${c.key} ${c.side}`} data-center={c.center} style={{ zIndex: c.z }}>
+          <div className="rim">
+            <svg viewBox={c.viewBox} xmlns="http://www.w3.org/2000/svg">
+              {c.clip && (
+                <defs>
+                  <clipPath id={`tk-clip-${c.key}`}>
+                    <path d={c.clip} clipRule={c.clipRule ?? undefined} />
+                  </clipPath>
+                </defs>
+              )}
+              <image
+                data-href={c.src}
+                width={c.width}
+                height={c.height}
+                clipPath={c.clip ? `url(#tk-clip-${c.key})` : undefined}
+              />
+            </svg>
           </div>
-        ))}
+        </div>
+      ))}
       {/* Slot 0 starts as the opening ribbon (visible before the first frame, like the preview). */}
       <div className="achievement-ribbon" style={{ opacity: 0.48, zIndex: 2 }}>
         <RibbonTrack />
@@ -231,6 +250,3 @@ function Scene({ full, sceneRef }: { full: boolean; sceneRef?: Ref<HTMLDivElemen
   );
 }
 
-export function ParallaxBackdropFallback() {
-  return <Scene full={false} />;
-}
