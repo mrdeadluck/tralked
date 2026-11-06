@@ -6,8 +6,8 @@ import { candidateFamilies } from "./igdb-games";
 import { candidatesByName } from "./retro-catalog";
 
 /**
- * The PSN trophy-list index (front e of the trophy unification), filled weekly-ish by the
- * psn-catalog worker (scripts/psn-catalog-worker.ts):
+ * The PSN trophy-list index (front e of the trophy unification), filled by the psn-catalog worker
+ * (scripts/psn-catalog-worker.ts):
  * 1. `scanPsnIds`: walks the npCommunicationIds `NPWR00001_00`, `NPWR00002_00`, … and asks Sony's
  *    `trophyGroups` for each (no player involved): name, platform and trophy counts go into the
  *    light PsnCatalogList table. Trophies are never read here; the game page reads them on demand.
@@ -17,9 +17,11 @@ import { candidatesByName } from "./retro-catalog";
  * Only the `_00` suffix is walked; `_01` and above (rare sub-sets) are not read yet.
  * The Sony API is unofficial and the service account is the one the player syncs use, so the
  * scan is slow on purpose: one request every 2 s, and a clean stop on 429/5xx.
+ * The database is not touched while the scan runs (Neon sleeps): the rows of a slice (about 1,100)
+ * are held in memory and written once at its end, together with the cursor.
  */
 
-/** The SyncCursor of the scan: `{ next, misses, service, completedAt }`. */
+/** The SyncCursor of the scan: see `Cursor`. */
 export const PSN_SCAN_CURSOR = "psn-catalog-scan";
 /** Least time between two Sony requests (0.5 requests/s). Enforced inside `scanPsnIds`. */
 export const PSN_MIN_GAP_MS = 2000;
@@ -28,24 +30,51 @@ export const PSN_MIN_GAP_MS = 2000;
  * either service (the real ceiling was ~60.5k ids in 11/2026, with ~35% holes in between).
  */
 export const PSN_MISS_LIMIT = 2000;
-/** Rows written per transaction. */
+/** Rows per statement of the final write. */
 export const PSN_WRITE_BATCH = 50;
-/** Waits after a 429/5xx/timeout before asking the same id again; when they run out the slice ends. */
+/** Waits after a 429/5xx/network error before asking the same id again; when they run out the slice ends. */
 export const PSN_BACKOFF_MS = [5_000, 15_000, 45_000];
+/**
+ * An id Sony refuses with 400/403 in this many slices in a row is skipped by the next one (the
+ * scan must not stay on one id forever). 401 and authentication errors are never skipped.
+ */
+export const PSN_STUCK_RUNS = 3;
+/** Ids kept in the cursor's `skipped` list. */
+const SKIPPED_CAP = 50;
 const MAX_WAIT_MS = 120_000;
 /** A list left unmatched (unknown or ambiguous name) is looked at again after this long. */
 const RETRY_MS = 30 * 24 * 3_600_000;
 
 export const npwrId = (n: number) => `NPWR${String(n).padStart(5, "0")}_00`;
 
+/** Minutes the worker spends from `start` (UTC): the slot's room before the next job of the timetable. */
+export function psnSliceMinutes(start: Date): number {
+  const hour = start.getUTCHours();
+  if ([2, 8, 14, 20].includes(hour)) return 25; // steam-details at :37
+  if (hour === 4) return 40; // catalog-enrich at 04:37
+  return 50;
+}
+
 export type PsnLog = { info(message: string): void; warn(message: string): void };
 const quiet: PsnLog = { info: () => {}, warn: () => {} };
 
 type CatalogApi = Pick<PsnApi, "getListInfo">;
-type Cursor = { next: number; misses: number; service: PsnServiceName; completedAt: string | null };
+/**
+ * Where the scan is: `next` id number, the `misses` in a row up to it, the `service` that answered
+ * last, `completedAt` of the last finished lap (null while a lap runs), `stuck` (an id refused
+ * with 400/403 in `runs` slices in a row) and the ids `skipped` for that reason (newest last).
+ */
+export type Cursor = {
+  next: number;
+  misses: number;
+  service: PsnServiceName;
+  completedAt: string | null;
+  stuck?: { id: string; runs: number };
+  skipped?: string[];
+};
 
-export type ScanStop = "count" | "deadline" | "ceiling" | "throttled" | "forbidden";
-export type ScanResult = { scanned: number; hits: number; next: number; stopped: ScanStop };
+export type ScanStop = "count" | "deadline" | "ceiling" | "throttled" | "forbidden" | "signal";
+export type ScanResult = { scanned: number; hits: number; next: number; misses: number; stopped: ScanStop };
 
 export type ScanOptions = {
   api: CatalogApi;
@@ -55,13 +84,17 @@ export type ScanOptions = {
   count: number;
   /** Epoch ms after which no further id is started. */
   deadline: number;
+  /** The cursor already read (`readCursor`); read here when absent. */
+  cursor?: Cursor;
+  /** True once the process was asked to stop (SIGINT/SIGTERM): the loop ends and the slice is written. */
+  shouldStop?: () => boolean;
   log?: PsnLog;
   /** Injectable for tests. */
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 };
 
-async function readCursor(): Promise<Cursor> {
+export async function readCursor(): Promise<Cursor> {
   const row = await prisma.syncCursor.findUnique({ where: { key: PSN_SCAN_CURSOR } });
   const v = (row?.value ?? {}) as Partial<Cursor>;
   return {
@@ -69,33 +102,40 @@ async function readCursor(): Promise<Cursor> {
     misses: Number.isInteger(v.misses) && v.misses! >= 0 ? v.misses! : 0,
     service: v.service === "trophy" ? "trophy" : "trophy2",
     completedAt: typeof v.completedAt === "string" ? v.completedAt : null,
+    ...(v.stuck && typeof v.stuck.id === "string" && Number.isInteger(v.stuck.runs) ? { stuck: { id: v.stuck.id, runs: v.stuck.runs } } : {}),
+    ...(Array.isArray(v.skipped) ? { skipped: v.skipped.filter((s): s is string => typeof s === "string").slice(-SKIPPED_CAP) } : {}),
   };
 }
 
 type Row = { id: string; name: string; console: string | null; serviceName: string; trophyCount: number; tiers: string };
 
-/** Rows and cursor in one transaction: the cursor never gets ahead of what is written. */
-async function flush(rows: Row[], cursor: Cursor): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    if (rows.length > 0) {
-      await tx.$executeRaw`
-        INSERT INTO "PsnCatalogList" AS p (id, name, console, "serviceName", "trophyCount", tiers, "checkedAt")
-        SELECT x.id, x.name, x.console, x.service, x.n, x.tiers::jsonb, ${new Date().toISOString()}::timestamp
-        FROM unnest(
-          ${rows.map((r) => r.id)}::text[], ${rows.map((r) => r.name)}::text[], ${rows.map((r) => r.console)}::text[],
-          ${rows.map((r) => r.serviceName)}::text[], ${rows.map((r) => r.trophyCount)}::int[], ${rows.map((r) => r.tiers)}::text[]
-        ) AS x(id, name, console, service, n, tiers)
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name, console = EXCLUDED.console, "serviceName" = EXCLUDED."serviceName",
-          "trophyCount" = EXCLUDED."trophyCount", tiers = EXCLUDED.tiers, "checkedAt" = EXCLUDED."checkedAt",
-          "matchedAt" = CASE WHEN p.name IS DISTINCT FROM EXCLUDED.name THEN NULL ELSE p."matchedAt" END`;
-    }
-    await tx.syncCursor.upsert({
-      where: { key: PSN_SCAN_CURSOR },
-      create: { key: PSN_SCAN_CURSOR, value: cursor },
-      update: { value: cursor },
-    });
-  });
+/** Rows (in statements of PSN_WRITE_BATCH) and the cursor, last, in one transaction. */
+async function writeSlice(rows: Row[], cursor: Cursor): Promise<void> {
+  await prisma.$transaction(
+    async (tx) => {
+      const checkedAt = new Date().toISOString();
+      for (let i = 0; i < rows.length; i += PSN_WRITE_BATCH) {
+        const part = rows.slice(i, i + PSN_WRITE_BATCH);
+        await tx.$executeRaw`
+          INSERT INTO "PsnCatalogList" AS p (id, name, console, "serviceName", "trophyCount", tiers, "checkedAt")
+          SELECT x.id, x.name, x.console, x.service, x.n, x.tiers::jsonb, ${checkedAt}::timestamp
+          FROM unnest(
+            ${part.map((r) => r.id)}::text[], ${part.map((r) => r.name)}::text[], ${part.map((r) => r.console)}::text[],
+            ${part.map((r) => r.serviceName)}::text[], ${part.map((r) => r.trophyCount)}::int[], ${part.map((r) => r.tiers)}::text[]
+          ) AS x(id, name, console, service, n, tiers)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name, console = EXCLUDED.console, "serviceName" = EXCLUDED."serviceName",
+            "trophyCount" = EXCLUDED."trophyCount", tiers = EXCLUDED.tiers, "checkedAt" = EXCLUDED."checkedAt",
+            "matchedAt" = CASE WHEN p.name IS DISTINCT FROM EXCLUDED.name THEN NULL ELSE p."matchedAt" END`;
+      }
+      await tx.syncCursor.upsert({
+        where: { key: PSN_SCAN_CURSOR },
+        create: { key: PSN_SCAN_CURSOR, value: cursor },
+        update: { value: cursor },
+      });
+    },
+    { timeout: 120_000, maxWait: 60_000 },
+  );
 }
 
 const rowOf = (info: PsnListInfo): Row => ({
@@ -107,30 +147,48 @@ const rowOf = (info: PsnListInfo): Row => ({
   tiers: JSON.stringify(info.trophyCounts),
 });
 
+const NETWORK_CODES = /^(ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE|UND_ERR_.*)$/;
+/** Timeouts, aborts and dropped connections: worth another try. A TypeError or a JSON parse failure is not. */
+function isNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "AbortError" || error.name === "TimeoutError") return true;
+  const code = (error as { cause?: { code?: unknown } }).cause?.code;
+  return typeof code === "string" && NETWORK_CODES.test(code);
+}
+
 /**
  * Walks up to `count` ids from `from` (or the cursor), asking `trophyGroups` of each on the service
  * that answered last and then on the other, one request at a time and at least PSN_MIN_GAP_MS
- * apart. Rows are written PSN_WRITE_BATCH at a time together with the cursor. A 429, 5xx or
- * timeout is retried after PSN_BACKOFF_MS; when that runs out (or on a 403) the slice ends with
- * the cursor on the id that failed. A lap ends after PSN_MISS_LIMIT consecutive ids with no list:
- * the cursor then goes back to 1 with `completedAt` set.
+ * apart. Nothing is written while it walks: the rows found and the cursor are written once, in one
+ * transaction, when the loop ends (for any reason, errors included; one retry for a Neon cold
+ * start). A 429, 5xx or network error is retried after PSN_BACKOFF_MS; when that runs out the
+ * slice ends with the cursor on the id that failed. A 400/403 ends the slice too, and the same id
+ * refused in PSN_STUCK_RUNS slices in a row is skipped by the next one. A lap ends after
+ * PSN_MISS_LIMIT consecutive ids with no list: the cursor then goes back to 1 with `completedAt`
+ * set (cleared again when the next lap starts).
  */
 export async function scanPsnIds({
   api,
   from,
   count,
   deadline,
+  cursor,
+  shouldStop = () => false,
   log = quiet,
   now = Date.now,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }: ScanOptions): Promise<ScanResult> {
-  const saved = await readCursor();
+  const saved = cursor ?? (await readCursor());
   let position = from ?? saved.next;
   let misses = from === undefined ? saved.misses : 0;
   let service = saved.service;
+  let stuck = saved.stuck;
+  let skipped = saved.skipped ?? [];
+  // A new lap forgets the end of the last one.
+  const completedAt = position === 1 ? null : saved.completedAt;
   let lastRequestAt = -Infinity;
 
-  /** One request, paced; null = not found on that service. Throws PsnHttpError when Sony keeps refusing. */
+  /** One request, paced; null = not found on that service. Throws when Sony keeps refusing. */
   const ask = async (id: string, on: PsnServiceName): Promise<PsnListInfo | null> => {
     for (let attempt = 0; ; attempt++) {
       const wait = lastRequestAt + PSN_MIN_GAP_MS - now();
@@ -140,10 +198,14 @@ export async function scanPsnIds({
         return await api.getListInfo(id, on);
       } catch (error) {
         if (error instanceof PsnAuthError) throw error;
-        const status = error instanceof PsnHttpError ? error.status : null;
-        if (status !== null && status < 500 && status !== 429) throw error;
+        if (error instanceof PsnHttpError) {
+          if (error.status !== 429 && error.status < 500) throw error; // 400/401/403 and the like: no retry
+        } else if (!isNetworkError(error)) {
+          throw error;
+        }
         const backoff = PSN_BACKOFF_MS[attempt];
-        if (backoff === undefined) throw error;
+        if (backoff === undefined || shouldStop()) throw error;
+        // Retry-After in seconds is honored; an HTTP-date one reads as no header and the normal backoff applies.
         const pause = Math.min(Math.max(backoff, error instanceof PsnHttpError ? (error.retryAfterMs ?? 0) : 0), MAX_WAIT_MS);
         log.warn(`PSN ${id} (${on}): ${error instanceof Error ? error.message : String(error)}; waiting ${Math.round(pause / 1000)} s`);
         await sleep(pause);
@@ -152,7 +214,14 @@ export async function scanPsnIds({
   };
 
   const pending: Row[] = [];
-  const cursorAt = (next: number): Cursor => ({ next, misses, service, completedAt: saved.completedAt });
+  const cursorAt = (next: number): Cursor => ({
+    next,
+    misses,
+    service,
+    completedAt,
+    ...(stuck ? { stuck } : {}),
+    ...(skipped.length ? { skipped } : {}),
+  });
   let scanned = 0;
   let hits = 0;
   let stopped: ScanStop = "count";
@@ -160,11 +229,24 @@ export async function scanPsnIds({
   try {
     while (true) {
       if (scanned >= count) break;
+      if (shouldStop()) {
+        stopped = "signal";
+        break;
+      }
       if (now() >= deadline) {
         stopped = "deadline";
         break;
       }
       const id = npwrId(position);
+      if (stuck?.id === id && stuck.runs >= PSN_STUCK_RUNS) {
+        log.warn(`PSN ${id} was refused in ${stuck.runs} slices in a row: skipped.`);
+        skipped = [...skipped, id].slice(-SKIPPED_CAP);
+        stuck = undefined;
+        position++;
+        scanned++;
+        misses++;
+        continue;
+      }
       const other: PsnServiceName = service === "trophy2" ? "trophy" : "trophy2";
       let info: PsnListInfo | null;
       try {
@@ -172,10 +254,19 @@ export async function scanPsnIds({
       } catch (error) {
         if (error instanceof PsnAuthError) throw error;
         const status = error instanceof PsnHttpError ? error.status : null;
-        stopped = status !== null && status < 500 && status !== 429 ? "forbidden" : "throttled";
+        if (status === 401) throw error;
+        if (status === 400 || status === 403) {
+          stuck = stuck?.id === id ? { id, runs: stuck.runs + 1 } : { id, runs: 1 };
+          stopped = "forbidden";
+        } else if (status !== null && status < 500 && status !== 429) {
+          throw error; // an unexpected 4xx: not worth guessing
+        } else {
+          stopped = "throttled";
+        }
         log.warn(`PSN catalog scan ends at ${id}: ${error instanceof Error ? error.message : String(error)}`);
         break;
       }
+      if (stuck?.id === id) stuck = undefined;
       position++;
       scanned++;
       if (info) {
@@ -190,17 +281,23 @@ export async function scanPsnIds({
         stopped = "ceiling";
         break;
       }
-      if (pending.length >= PSN_WRITE_BATCH) await flush(pending.splice(0), cursorAt(position));
     }
   } finally {
-    // Whatever stopped the loop (even an auth error), what was read is kept.
-    if (stopped === "ceiling") {
-      await flush(pending.splice(0), { next: 1, misses: 0, service: "trophy2", completedAt: new Date().toISOString() });
-    } else {
-      await flush(pending.splice(0), cursorAt(position));
+    // Whatever stopped the loop (even an auth error), what was read is kept: one write, retried once.
+    const rows = pending.splice(0);
+    const final: Cursor =
+      stopped === "ceiling"
+        ? { next: 1, misses: 0, service: "trophy2", completedAt: new Date().toISOString(), ...(skipped.length ? { skipped } : {}) }
+        : cursorAt(position);
+    try {
+      await writeSlice(rows, final);
+    } catch (error) {
+      log.warn(`PSN catalog write failed, trying once more: ${error instanceof Error ? error.message : String(error)}`);
+      await sleep(5_000);
+      await writeSlice(rows, final);
     }
   }
-  return { scanned, hits, next: stopped === "ceiling" ? 1 : position, stopped };
+  return { scanned, hits, next: stopped === "ceiling" ? 1 : position, misses: stopped === "ceiling" ? 0 : misses, stopped };
 }
 
 export type MatchResult = { linked: number; ambiguous: number; unmatched: number; existing: number };

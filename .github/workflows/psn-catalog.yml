@@ -4,22 +4,27 @@
 # faster; it backs off on 429/5xx and ends the run cleanly, keeping its place in SyncCursor
 # `psn-catalog-scan`), stores name, console and trophy counts in the light PsnCatalogList table, then
 # links the lists whose name is that of exactly one PlayStation catalog game. Trophies are never read here.
-# ~60.5k ids at 0.5 requests/s (1-2 requests per id): about 1,000 ids per run, 3 runs a day, a lap in ~3 weeks; a finished
-# lap is not repeated for 30 days.
-# Runs at 10:03, 16:03 and 22:03 UTC: even hours with no other job (the odd-hour crons start at :17/:23
-# and platform-import at :29, so a run of at most 55 min ends before them), see the table in app/README.md.
+# The scan holds the rows it reads in memory and writes them once, at the end of the slice, so Neon
+# sleeps while it walks (the free plan has 100 CU-h a month); a cancel (SIGTERM) still writes them.
+# ~60.5k ids at 0.5 requests/s (1-2 requests per id): about 1,100 ids per 50-minute slice, 12 slices
+# a day, a lap in ~5 days; a finished lap is not repeated for 30 days.
+# Slots (UTC), each ending before the next job of the timetable in app/README.md:
+#   :20 of 0, 4, 6, 10, 12, 16, 18 and 22 h: 50 min (04:20 only 40 min, catalog-enrich runs at 04:37);
+#   :03 of 2, 8, 14 and 20 h: 25 min (steam-details runs at :37).
+# The worker computes its window from the start time (psnSliceMinutes); a manual run passes minutes.
 # Needs the repository secrets DATABASE_URL (Neon, unpooled) and PSN_NPSSO (the service account's).
 name: psn-catalog
 
 on:
   schedule:
-    - cron: "3 10,16,22 * * *"
+    - cron: "20 0,4,6,10,12,16,18,22 * * *"
+    - cron: "3 2,8,14,20 * * *"
   workflow_dispatch:
     inputs:
       minutes:
-        description: "Minutes to spend (scan + linking)"
-        required: true
-        default: "50"
+        description: "Minutes to spend (scan + linking); empty: by the time of day"
+        required: false
+        default: ""
 
 concurrency:
   group: psn-catalog
@@ -49,8 +54,8 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PSN_NPSSO: ${{ secrets.PSN_NPSSO }}
           APP_URL: https://tralked.com
-          MINUTES: ${{ github.event.inputs.minutes || '50' }}
+          MINUTES: ${{ github.event.inputs.minutes }}
         run: |
           # Production mode asks for these two; the worker signs nothing, so throwaway values do.
           export SESSION_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 16)"
-          pnpm psn:catalog --minutes "$MINUTES"
+          if [ -n "$MINUTES" ]; then pnpm psn:catalog --minutes "$MINUTES"; else pnpm psn:catalog; fi
