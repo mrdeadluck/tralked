@@ -3,7 +3,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { validCompletions } from "@/lib/progression/completions";
 import type { RarityTier } from "@/lib/engine/types";
-import { versionKey } from "@/lib/trophies/lists";
+import { versionKey, XBOX_BASE_GAMERSCORE } from "@/lib/trophies/lists";
 
 /*
  * The player's headline counters, each computed in one place so the character sheet, the Troféus
@@ -30,8 +30,8 @@ export type PlatinumList = {
   gamerscore?: number;
 };
 
-/** An Xbox list whose earned gamerscore reaches this is Tralked even with DLC missing (the base game's 1000G). */
-export const XBOX_BASE_GAMERSCORE = 1000;
+// Lives in lib/trophies/lists (client-safe: the library badges and the game page read it too).
+export { XBOX_BASE_GAMERSCORE };
 
 /** A valid platinum trophy the player earned, with its list. */
 export type NativePlatinum = { gameId: string; platform: string; listId: string; versionKey: string };

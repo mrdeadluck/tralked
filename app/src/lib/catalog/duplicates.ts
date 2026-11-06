@@ -184,6 +184,7 @@ export const GAME_REFS: { key: string; model: string; column: string }[] = [
   { key: "releases", model: "GameRelease", column: "gameId" },
   { key: "opens", model: "GameOpen", column: "gameId" },
   { key: "slugRedirects", model: "GameSlugRedirect", column: "gameId" },
+  { key: "igdbAliases", model: "GameIgdbAlias", column: "gameId" },
   { key: "editions", model: "GameEdition", column: "gameId" },
   { key: "editions", model: "GameEdition", column: "otherId" },
 ];

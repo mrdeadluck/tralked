@@ -1,10 +1,11 @@
 import type { PlatformId } from "@/lib/engine/trophies";
-import { versionBadgeLabel, versionKey, versionRank } from "@/lib/trophies/lists";
+import { versionBadgeLabel, versionKey, versionRank, XBOX_BASE_GAMERSCORE } from "@/lib/trophies/lists";
 
 /*
  * The versions of a library game as the profile's cover grid shows them: one badge per version the
  * player has (a PSN console, an Xbox title, an RA set, Steam), with its best list's percentage, a
- * check for its platinum or 100%, and how many of the player's regional lists it groups. Pure (the
+ * check for its platinum, 100% or (Xbox) the base game's 1000G, and how many of the player's
+ * regional lists it groups. Pure (the
  * reads are in lib/library/queries.ts, batched for the whole library).
  */
 
@@ -15,11 +16,11 @@ export type LibraryVersion = {
   label: string;
   /** 0-100 of the version's best list; null when its trophies are not known. */
   pct: number | null;
-  /** The platinum trophy, or 100% on a version without one. */
+  /** The platinum trophy, or 100% on a version without one (an Xbox list also at 1000G): the check. */
   platinum: boolean;
   /**
-   * The version's completed lists (platinum or 100%): 2+ is a platinum in that many regional lists
-   * (the badge's superscript; the XP counts one).
+   * The version's completed lists (platinum, 100% or Xbox 1000G): 2+ is that many regional lists
+   * (the badge's superscript; each list pays its own XP).
    */
   regions: number;
 };
@@ -35,6 +36,8 @@ export type ListProgress = {
   total: number;
   /** A valid platinum trophy earned in this list. */
   platinumEarned: boolean;
+  /** Xbox: the gamerscore earned with valid unlocks on this list (the base game's 1000G is Tralked). */
+  gamerscore?: number;
 };
 
 /** A platform copy of the game (UserGame): Steam's version, and the fallback of a platform without lists. */
@@ -68,7 +71,9 @@ export function libraryVersions(platforms: PlatformProgressRow[], lists: ListPro
       const pct = pctOf(l.unlockedCount, l.total);
       if (pct !== null && (best === null || pct > best)) best = pct;
     }
-    const completed = group.filter((l) => l.completedAt !== null || l.platinumEarned).length;
+    const completed = group.filter(
+      (l) => l.completedAt !== null || l.platinumEarned || (l.platform === "xbox" && (l.gamerscore ?? 0) >= XBOX_BASE_GAMERSCORE),
+    ).length;
     out.push({
       key,
       platform: group[0].platform as PlatformId,

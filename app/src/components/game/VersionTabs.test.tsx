@@ -56,6 +56,8 @@ const MINE: PlayerVersion = {
   total: 23,
   pct: 17,
   platinum: true,
+  platinums: 1,
+  tralked: 0,
   lists: [
     { id: "a", label: "Lista 1", complete: false, unlocked: 4 },
     { id: "b", label: "🇯🇵 Ásia", complete: false, unlocked: 2 },

@@ -253,3 +253,38 @@ componente das abas; cacheTags.
 - "PC · Steam" = jogos com appid da Steam.
 - "Exclusivo" = só uma família hoje (PS4+PS5 conta como exclusivo de PlayStation).
 - Retro não entra no cálculo de exclusividade.
+
+## Mudanças decididas pelo Lucas depois do design (06/11)
+
+Estas decisões vieram depois do design e valem sobre o que está escrito acima onde houver
+diferença.
+
+- **Toda lista regional da PSN paga XP (R1).** Substitui "listas regionais contam uma vez". Cada
+  lista de um console paga os seus troféus e a sua platina, como qualquer outra lista, e o perfil
+  mostra o total real de platinas (diguzz: 520). A decisão de "Decisões minhas" de contar os
+  troféus comuns uma vez por console também deixa de valer: cada lista conta.
+- **"Tralked" e "Platinas" são contadores diferentes (R2).**
+  - **Tralked** (o contador principal do perfil) conta os jogos e as listas terminados em 100% em
+    qualquer plataforma. Uma lista da PSN com platina só vira Tralked quando chega a 100%, com as
+    DLCs. No Xbox, a lista também conta quando o jogador chega aos 1000G do jogo base, mesmo sem as
+    DLCs. Um jogo terminado em duas plataformas conta duas vezes.
+  - **Platinas** são só os troféus de platina da PSN, uma por lista, qualquer que seja o % da lista.
+    Um 100% na Steam, no Xbox ou no RetroAchievements nunca é uma "platina": é Tralked.
+  - A página do jogo usa as mesmas palavras do perfil ("N platinas · N Tralked"), e uma versão sem
+    troféu de platina mostra o selo "Tralked" quando chega a 100%.
+- **Regra automática de duplicados.** O relatório só pergunta ao Lucas o que a regra não decide:
+  1. mesma lista de troféus nos dois jogos → junta;
+  2. mesmo jogo em plataformas diferentes, com o mesmo nome e sem duas listas no mesmo console →
+     junta;
+  3. os dois têm lista própria no mesmo console (remaster, Director's Cut, Steam Enhanced/Legacy) →
+     ficam separados e ligados em "Outras edições";
+  4. dois appids diferentes da Steam → nunca junta.
+
+  Um jogo juntado não volta: a página antiga redireciona para a que ficou, e o id do IGDB do jogo
+  que saiu fica guardado como apelido (`GameIgdbAlias`), para as importações do IGDB acharem o jogo
+  que ficou em vez de criar o antigo de novo. Nenhum jogo novo pega o endereço de um
+  redirecionamento.
+- **Conquistas da Steam sem data contam e pagam XP (opção A).** A Steam devolve algumas conquistas
+  antigas como feitas, mas sem data (unlocktime 0, como a maior parte das do Team Fortress 2 de
+  antes de 2009). Elas entram no total de conquistas e pagam XP, com "data desconhecida". Ficam fora
+  do que depende de data: linha do tempo, sequência e dias ativos, missões e "recentes".

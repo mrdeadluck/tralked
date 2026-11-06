@@ -43,6 +43,23 @@ export function trophyWord(versions: { platform: PlatformId }[]): string {
   return psn && other ? "Troféus e conquistas" : psn ? "Troféus" : "Conquistas";
 }
 
+/**
+ * The booklet's "Suas versões" line, in the profile's words: "Platinas" are PSN platinum trophies
+ * (one per list), "Tralked" the lists at 100% on any platform (an Xbox list also at 1000G).
+ * "2 versões · 2 platinas · 2 Tralked"; a count of zero is left out.
+ */
+export function versionsSummary(mine: Pick<PlayerVersion, "platinums" | "tralked">[]): string {
+  const platinums = mine.reduce((n, v) => n + v.platinums, 0);
+  const tralked = mine.reduce((n, v) => n + v.tralked, 0);
+  return [
+    mine.length === 1 ? "1 versão" : `${mine.length} versões`,
+    platinums === 0 ? null : platinums === 1 ? "1 platina" : `${platinums} platinas`,
+    tralked === 0 ? null : `${tralked} Tralked`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 /** The version the disc shows: a platinum first, then the highest percentage, then more unlocks. */
 export function bestVersion(mine: PlayerVersion[]): PlayerVersion | null {
   return (

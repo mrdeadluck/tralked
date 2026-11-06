@@ -182,4 +182,29 @@ describe("getGameVersions", () => {
     expect(await getGameVersions(g.id)).toEqual([]);
     expect(await getGameVersion(`${PREFIX}-empty`, "psn:PS4")).toBeNull();
   });
+
+  it("getPlayerVersions reads the suspicious flag: a flagged platinum counts for nothing", async () => {
+    const g = await prisma.game.create({ data: { slug: `${PREFIX}-sus`, name: "Suspeito", achievementCount: 0, platforms: [] } });
+    const l = await prisma.trophyList.create({
+      data: { gameId: g.id, platform: "psn", externalId: `${PREFIX}-sus-l`, console: "PS4", name: "Suspeito", trophyCount: 2, createdAt: at(1) },
+    });
+    const [plat, bronze] = await prisma.achievement.createManyAndReturn({
+      data: [
+        { gameId: g.id, platform: "psn", listId: l.id, apiName: "0", name: "Platina", trophyTier: "platinum" },
+        { gameId: g.id, platform: "psn", listId: l.id, apiName: "1", name: "Bronze", trophyTier: "bronze" },
+      ],
+    });
+    const u = await prisma.user.create({ data: { handle: `${PREFIX}-sus`, displayName: "S" } });
+    await prisma.userAchievement.createMany({
+      data: [
+        { userId: u.id, achievementId: plat.id, unlockedAt: at(2), suspicious: true },
+        { userId: u.id, achievementId: bronze.id, unlockedAt: at(3) },
+      ],
+    });
+    await prisma.userTrophyList.create({ data: { userId: u.id, listId: l.id, unlockedCount: 2, completedAt: at(3) } });
+    const [v] = await getPlayerVersions(g.id, u.id);
+    expect(v).toMatchObject({ unlocked: 1, pct: 50, platinum: false, platinums: 0, tralked: 0 });
+    expect(v.lists).toEqual([{ id: l.id, label: null, complete: false, unlocked: 1 }]);
+  });
 });
+

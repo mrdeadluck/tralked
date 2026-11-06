@@ -16,8 +16,10 @@
 # still writes them.
 # ~60.5k ids at 0.33 requests/s (1-2 requests per id): about 700 ids per 50-minute slice, 7 slices a
 # day, a lap in ~12 days; a finished lap is not repeated for 30 days.
-# Slots (UTC): :20 of 0, 6, 10, 12, 16, 18 and 22 h, 50 min each, over before the :23 jobs of the next
-# odd hour (and after platform-import, which ends by :16 of the even hour).
+# Slots (UTC): 0, 6, 10, 12, 16, 18 and 22 h, 50 min each, over before the :23 jobs of the next odd
+# hour (and after platform-import, which ends by :16 of the even hour). The hourly Vercel Cron
+# `workers` starts it at :28 of those hours (app/src/lib/cron/workers.ts); the :20 schedule below is
+# a fallback, skipped once the repository variable DISPATCH_FROM_VERCEL is "true".
 # GitHub often starts a run 10-30 min late, so the worker computes its window from the real start time
 # (psnSliceMinutes): 50 min, cut to end 2 min before the next job of the timetable in app/README.md
 # starts (:17 at 0/6/12/18, 03:19, :23 of odd hours, :28 at 2/8/14/20 and 04:28 when the :28 dispatcher
@@ -42,6 +44,8 @@ concurrency:
 
 jobs:
   index:
+    # Started by the Vercel Cron `workers`; the schedule is a fallback (see the header).
+    if: github.event_name != 'schedule' || vars.DISPATCH_FROM_VERCEL != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:

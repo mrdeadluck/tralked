@@ -5,6 +5,7 @@ import { isListPlatform, LIST_PLATFORMS, planListXp, platinumGameId, settleListX
 import { recomputeUser } from "@/lib/progression/recompute";
 import { GAME_REFS } from "./duplicates";
 import { editionPair } from "./editions";
+import { aliasDroppedIgdbId, moveIgdbAliases } from "./igdb-aliases";
 
 /**
  * Joins a duplicate catalog game (`drop`) into the one that stays (`keep`), in one transaction:
@@ -74,6 +75,8 @@ export type MergeOptions = {
  * - GameOpen keeps the earliest openedAt of the two;
  * - GameEdition pairs of the drop become pairs of the keep (stored once, never a self-pair);
  * - GameSlugRedirect: the redirects to the drop now lead to the keep, and drop.slug -> keep;
+ * - GameIgdbAlias: the drop's aliases move to the keep, and the drop's own igdbId becomes one
+ *   (unless the keep inherits it), so the IGDB imports never create the drop again;
  * - the keep inherits the ids, texts and art it lacks (steamAppId cleared on the drop first), and
  *   the drop's name and aliases become aliases; the drop is deleted;
  * - ledger: see rekeyLedger (settleListXp of every affected user on PSN/Xbox/RA), and after the
@@ -244,6 +247,8 @@ async function moveRows(tx: Prisma.TransactionClient, keep: Game, drop: Game, us
   await tx.gameEdition.deleteMany({ where: { OR: [{ gameId: dropId }, { otherId: dropId }] } });
   const others = [...new Set(pairs.map((p) => (p.gameId === dropId ? p.otherId : p.gameId)))].filter((id) => id !== keepId);
   if (others.length > 0) await tx.gameEdition.createMany({ data: others.map((id) => editionPair(keepId, id)), skipDuplicates: true });
+
+  await moveIgdbAliases(tx, keep, drop);
 
   // Redirects to the drop are repointed before the drop goes (they cascade with it): A→B then B→C leads A to C.
   await tx.gameSlugRedirect.updateMany(move);
@@ -461,6 +466,8 @@ async function inheritGame(tx: Prisma.TransactionClient, keep: Game, drop: Game)
   data.popularity = Math.max(keep.popularity, drop.popularity);
   data.stub = keep.stub && drop.stub;
   await tx.game.update({ where: { id: keep.id }, data });
+  // A join keeps one igdbId: the drop's, when the keep has another, stays as an alias.
+  await aliasDroppedIgdbId(tx, { id: keep.id, igdbId: keep.igdbId ?? drop.igdbId }, drop.igdbId);
 }
 
 /**

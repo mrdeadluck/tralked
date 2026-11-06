@@ -94,7 +94,7 @@ export async function getUserLibrary(userId: string, opts: { versions?: boolean 
     },
   });
   if (rows.length === 0) return [];
-  const [totals, userLists, platinumRows] = await Promise.all([
+  const [totals, userLists, platinumRows, scores] = await Promise.all([
     prisma.achievement.groupBy({
       by: ["gameId", "platform", "listId"],
       where: { gameId: { in: [...new Set(rows.map((r) => r.gameId))] } },
@@ -117,7 +117,16 @@ export async function getUserLibrary(userId: string, opts: { versions?: boolean 
           select: { achievement: { select: { listId: true } } },
         })
       : [],
+    // Xbox: the gamerscore earned per list (valid unlocks), for the base game's 1000G (counts.ts).
+    opts.versions
+      ? prisma.$queryRaw<{ listId: string; score: number }[]>`
+          SELECT a."listId", COALESCE(SUM(a.points), 0)::int AS score
+          FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId"
+          WHERE ua."userId" = ${userId} AND ua.suspicious = false AND a.platform = 'xbox'
+          GROUP BY a."listId"`
+      : [],
   ]);
+  const gamerscoreOf = new Map(scores.map((r) => [r.listId, r.score]));
   const totalOf = new Map<string, number>();
   const listTotal = new Map<string, number>();
   for (const t of totals) {
@@ -136,6 +145,7 @@ export async function getUserLibrary(userId: string, opts: { versions?: boolean 
       completedAt: u.completedAt,
       total: listTotal.get(u.listId) || u.list.trophyCount,
       platinumEarned: platinumLists.has(u.listId),
+      ...(u.list.platform === "xbox" && { gamerscore: gamerscoreOf.get(u.listId) ?? 0 }),
     };
     const lists = listsOf.get(u.list.gameId);
     if (lists) lists.push(progress);

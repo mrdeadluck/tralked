@@ -1,5 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import { slugTaken, takenSlugs } from "@/lib/catalog/slug-taken";
 import { cleanName } from "@/lib/integrations/steam/store";
 import { slugify } from "./catalog";
 
@@ -33,7 +34,7 @@ export const isPlaceholderSlug = (slug: string, appId: number) =>
 /**
  * The slug a game with a placeholder slug (`jogo-<appid>-da-steam` or the legacy `steam-app-<n>`,
  * given while Steam knew it only by appid) takes once its real name is known: the real name's slug,
- * or `<slug>-<appid>` when taken. Safe to change: a placeholder name is never a real game title,
+ * or `<slug>-<appid>` when taken (by a game or a redirect: slugTaken). Safe to change: a placeholder name is never a real game title,
  * and pages link to games by their current slug; an old bookmark of the placeholder URL gets a 404.
  * Games with a real slug keep it (`{}`), so a published URL never changes.
  */
@@ -47,8 +48,7 @@ export async function slugAfterPlaceholder(
   if (isPlaceholderName(realName, appId)) return {};
   const base = steamSlugBase(realName, appId);
   for (const slug of [base, `${base}-${appId}`]) {
-    const taken = await tx.game.findUnique({ where: { slug }, select: { id: true } });
-    if (!taken || taken.id === game.id) return { slug };
+    if (!(await slugTaken(slug, tx, game.id))) return { slug };
   }
   return {};
 }
@@ -182,7 +182,8 @@ export type EnsureOptions = {
  * Makes sure every app is in the catalog and returns appid → game id. An app that is a game of the
  * IGDB console catalog (adoptIgdbStubs) gives that game its appid. Other apps not there yet become
  * name-only stubs (`stub` true: unlisted until the details job fills them in) with a unique slug:
- * the name's slug, or `<slug>-<appid>` when another game (or another app of the batch) has it.
+ * the name's slug, or `<slug>-<appid>` when another game (or another app of the batch) has it or
+ * it is an old URL of a joined game (a redirect: takenSlugs).
  * Idempotent and safe to run concurrently: existing games are never touched, and an app created
  * meanwhile by someone else is simply found.
  */
@@ -202,11 +203,7 @@ export async function ensureSteamGames(
   for (const chunk of chunks(missing)) {
     const rowsFor = async (db: Prisma.TransactionClient | typeof prisma, part: [number, string][]) => {
       const bases = part.map(([appId, name]) => ({ appId, name, base: steamSlugBase(name, appId) }));
-      const taken = new Set(
-        (await db.game.findMany({ where: { slug: { in: [...new Set(bases.map((b) => b.base))] } }, select: { slug: true } })).map(
-          (g) => g.slug,
-        ),
-      );
+      const taken = await takenSlugs(bases.map((b) => b.base), db);
       return bases.map(({ appId, name, base }) => {
         const slug = taken.has(base) ? `${base}-${appId}` : base;
         taken.add(slug);
@@ -255,9 +252,14 @@ export async function ensureSteamGames(
         ids.set(row.steamAppId, id);
         continue;
       }
+      const retrySlug = `${steamSlugBase(row.name, row.steamAppId)}-${row.steamAppId}`;
+      if (await prisma.gameSlugRedirect.findUnique({ where: { fromSlug: retrySlug }, select: { fromSlug: true } })) {
+        console.warn(`Catalog: could not create Steam app ${row.steamAppId} (slug taken by a redirect)`);
+        continue;
+      }
       try {
         const game = await prisma.game.create({
-          data: { ...row, slug: `${steamSlugBase(row.name, row.steamAppId)}-${row.steamAppId}` },
+          data: { ...row, slug: retrySlug },
           select: { id: true },
         });
         ids.set(row.steamAppId, game.id);

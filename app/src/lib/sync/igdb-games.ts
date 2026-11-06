@@ -2,6 +2,8 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { IgdbCatalogGame } from "@/lib/integrations/igdb/catalog-types";
 import { consolesOf, familiesOf, familyOfLabel, type ReleasePlatform } from "@/lib/releases/platforms";
+import { gamesByIgdbIds } from "@/lib/catalog/igdb-aliases";
+import { takenSlugs } from "@/lib/catalog/slug-taken";
 import { slugify } from "./catalog";
 
 // Moved to lib/releases/platforms (client-safe); re-exported for the sync modules.
@@ -11,7 +13,8 @@ import { CATALOG_CREATE_LOCK, ensureSteamGames, steamGameIds } from "./steam-gam
 /**
  * Finds the catalog game of each IGDB game without ever creating a second row for a game the
  * catalog already has (Plano 4, F10: releases and the console catalog import). In order:
- * 1. a game with the same IGDB id;
+ * 1. a game with the same IGDB id, or that has it as an alias (GameIgdbAlias: the id of a duplicate
+ *    joined into it, which must never be created again);
  * 2. the Steam game of an appid IGDB links to (a Steam stub is created for an appid the catalog
  *    does not have yet, so the Steam app list import finds it later instead of adding it again);
  * 3. a game with the same name, ignoring case and trademark signs (expression index on
@@ -19,7 +22,8 @@ import { CATALOG_CREATE_LOCK, ensureSteamGames, steamGameIds } from "./steam-gam
  *    when both are known, or, when either year is unknown, that shares a platform family with it
  *    (sameGame); two such games make the name ambiguous and the IGDB game is skipped;
  * 4. otherwise, a name-only stub (name, platforms, IGDB id, first release, cover), out of the
- *    listings until the IGDB details step fills it in (lib/sync/igdb-catalog.ts).
+ *    listings until the IGDB details step fills it in (lib/sync/igdb-catalog.ts). Its slug is never
+ *    one taken by a game or by a redirect (takenSlugs): the name's, else `<slug>-<igdbId>`.
  * Matched games get the IGDB id (when they had none), the platform families, the consoles (IGDB
  * platform slugs: `Game.consoles`) and the first release date (when they had none). Creation runs under an advisory lock, so two jobs never create the
  * same IGDB game twice.
@@ -161,13 +165,8 @@ export async function resolveIgdbGames(
     g.firstReleaseDate !== undefined ? new Date(g.firstReleaseDate * 1000) : null;
   const matched: { id: string; game: IgdbCatalogGame }[] = [];
 
-  // 1. Same IGDB id (listed games first when several carry it).
-  const known = await prisma.game.findMany({
-    where: { igdbId: { in: games.map((g) => g.igdbId) } },
-    select: { id: true, igdbId: true, stub: true },
-    orderBy: [{ stub: "asc" }, { createdAt: "asc" }],
-  });
-  for (const row of known) if (row.igdbId !== null && !result.ids.has(row.igdbId)) result.ids.set(row.igdbId, row.id);
+  // 1. Same IGDB id or alias (listed games first when several carry it).
+  for (const [igdbId, id] of await gamesByIgdbIds(games.map((g) => g.igdbId))) result.ids.set(igdbId, id);
   for (const g of games) {
     const id = result.ids.get(g.igdbId);
     if (id) matched.push({ id, game: g });
@@ -223,11 +222,7 @@ export async function resolveIgdbGames(
     const part = unknown.slice(i, i + CHUNK);
     const created = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CREATE_LOCK}::bigint)`;
-      const raced = await tx.game.findMany({
-        where: { igdbId: { in: part.map((g) => g.igdbId) } },
-        select: { id: true, igdbId: true },
-      });
-      const already = new Map(raced.map((r) => [r.igdbId!, r.id]));
+      const already = await gamesByIgdbIds(part.map((g) => g.igdbId), tx);
       // Re-checked by name too: a game of that name may have been created since the check above
       // (a Steam app, another job's stub). One that is this game is used; an ambiguous name waits.
       const byNameNow = await candidatesByName(
@@ -241,14 +236,18 @@ export async function resolveIgdbGames(
         if (pick && pick !== "ambiguous") matchedNow.set(g.igdbId, pick.id);
         return pick === null;
       });
-      const bases = fresh.map((g) => ({ g, base: slugify(g.name.replace(/['’]/g, "")) || `igdb-${g.igdbId}` }));
-      const taken = new Set(
-        (await tx.game.findMany({ where: { slug: { in: bases.map((b) => b.base) } }, select: { slug: true } })).map((r) => r.slug),
-      );
-      const data = bases.map(({ g, base }) => {
-        const slug = taken.has(base) ? `${base}-${g.igdbId}` : base;
+      const bases = fresh.map((g) => {
+        const base = slugify(g.name.replace(/['’]/g, "")) || `igdb-${g.igdbId}`;
+        return { g, base, fallback: `${base}-${g.igdbId}` };
+      });
+      // A game's slug or an old URL of a joined game (a redirect) is taken.
+      const taken = await takenSlugs(bases.flatMap((b) => [b.base, b.fallback]), tx);
+      const data = bases.flatMap(({ g, base, fallback }) => {
+        const slug = [base, fallback].find((s) => !taken.has(s));
+        // Both taken: left for a later run (counted as skipped).
+        if (slug === undefined) return [];
         taken.add(slug);
-        return {
+        return [{
           slug,
           name: cleanIgdbName(g.name),
           igdbId: g.igdbId,
@@ -258,17 +257,14 @@ export async function resolveIgdbGames(
           coverUrl: g.coverImageId && /^[a-z0-9]+$/i.test(g.coverImageId) ? `${IGDB_COVER_URL}/${g.coverImageId}.jpg` : null,
           achievementCount: 0,
           stub: true,
-        };
+        }];
       });
-      // `<slug>-<igdbId>` can only clash with a game created meanwhile under that very slug.
+      // A game created meanwhile on one of these slugs (outside the lock) is skipped: retried next run.
       await tx.game.createMany({ data, skipDuplicates: true });
-      const rows = await tx.game.findMany({
-        where: { igdbId: { in: part.map((g) => g.igdbId) } },
-        select: { id: true, igdbId: true },
-      });
+      const rows = await gamesByIgdbIds(part.map((g) => g.igdbId), tx);
       return { rows, count: data.length, matchedNow };
     }, { timeout: 60_000, maxWait: 20_000 });
-    for (const row of created.rows) if (row.igdbId !== null && !result.ids.has(row.igdbId)) result.ids.set(row.igdbId, row.id);
+    for (const [igdbId, id] of created.rows) if (!result.ids.has(igdbId)) result.ids.set(igdbId, id);
     for (const [igdbId, id] of created.matchedNow) {
       if (result.ids.has(igdbId)) continue;
       result.ids.set(igdbId, id);

@@ -1,4 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
+import { gamesByIgdbIds } from "@/lib/catalog/igdb-aliases";
+import { slugTaken } from "@/lib/catalog/slug-taken";
 import { prisma } from "@/lib/db";
 import { getIgdb, mapToSkills } from "@/lib/integrations";
 import { consoleOfLabel, familyOfLabel } from "@/lib/releases/platforms";
@@ -187,10 +189,11 @@ export async function resolvePlatformGame(
     }
   }
   if (igdb) {
-    const known = await prisma.game.findFirst({ where: { igdbId: igdb.igdbId }, select: { id: true } });
+    // By IGDB id or alias (the id of a duplicate joined into a game is never created again).
+    const known = (await gamesByIgdbIds([igdb.igdbId])).get(igdb.igdbId);
     if (known) {
-      await linkPlatform(known.id, platform, title.externalId);
-      return known.id;
+      await linkPlatform(known, platform, title.externalId);
+      return known;
     }
   }
 
@@ -223,9 +226,11 @@ export async function resolvePlatformGame(
     });
 
   const base = slugify(name) || `${platform}-${slugify(title.externalId)}`;
+  const fallback = `${base}-${platform}-${slugify(title.externalId)}`;
   let game;
   try {
-    game = await create(base);
+    // A game's slug or an old URL of a joined game (a redirect) is taken.
+    game = await create((await slugTaken(base)) ? fallback : base);
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
     // Slug taken by another game, or a concurrent sync linked this title first.
@@ -234,7 +239,7 @@ export async function resolvePlatformGame(
       select: { gameId: true },
     });
     if (raced) return raced.gameId;
-    game = await create(`${base}-${platform}-${slugify(title.externalId)}`);
+    game = await create(fallback);
   }
   names.set(normalized, game.id);
   if (lookupName !== title.name) names.set(normalizePlatformTitle(lookupName), game.id);

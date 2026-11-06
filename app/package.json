@@ -30,6 +30,7 @@
     "news:feeds": "tsx scripts/news-feeds.ts",
     "games:duplicates": "tsx scripts/games-duplicates.ts",
     "games:merge": "tsx scripts/games-merge.ts",
+    "games:igdb-aliases": "tsx scripts/games-igdb-aliases.ts",
     "games:repair-placeholders": "tsx scripts/repair-placeholder-games.ts",
     "steam:details": "tsx scripts/steam-details-worker.ts",
     "steam:library-art": "tsx scripts/steam-library-art.ts",

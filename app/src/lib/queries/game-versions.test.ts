@@ -181,4 +181,128 @@ describe("buildPlayerVersions", () => {
     });
     expect(v.xp).toEqual({ "0": 2500 });
   });
+  it("leaves out the catalog lists the player does not hold: no empty chip, the note counts held lists", () => {
+    const lists = [
+      list("a", "psn", "PS4", 1),
+      list("b", "psn", "PS4", 2, { region: "jp" }),
+      list("c", "psn", "PS4", 3, { region: "eu" }),
+    ];
+    const rows = ["a", "b", "c"].flatMap((l) => [ach(`${l}0`, l, "psn", "0"), ach(`${l}1`, l, "psn", "1")]);
+    const base = { lists, achievements: rows, steamCount: 0, steamGame: null };
+    // Holds only "a": one list, no note.
+    const [one] = buildPlayerVersions({
+      ...base,
+      unlocks: [{ achievementId: "a0", unlockedAt: at(1) }],
+      userLists: [{ listId: "a", unlockedCount: 1, completedAt: null }],
+    });
+    expect(one.lists.map((l) => l.id)).toEqual(["a"]);
+    expect(one.countedNote).toBeNull();
+    // Holds "a" and "c" ("c" by an unlock only): two lists counted, "b" left out.
+    const [two] = buildPlayerVersions({
+      ...base,
+      unlocks: [
+        { achievementId: "a0", unlockedAt: at(1) },
+        { achievementId: "c1", unlockedAt: at(2) },
+      ],
+      userLists: [{ listId: "a", unlockedCount: 1, completedAt: null }],
+    });
+    expect(two.lists.map((l) => l.id)).toEqual(["a", "c"]);
+    expect(two.countedNote).toBe("2 listas · cada uma conta");
+  });
+
+  it("suspicious unlocks count for nothing, as in the counters", () => {
+    const lists = [list("a", "psn", "PS5", 1), list("b", "psn", "PS5", 2, { region: "jp" })];
+    const rows = [ach("a0", "a", "psn", "0", "platinum"), ach("a1", "a", "psn", "1"), ach("b0", "b", "psn", "0", "platinum"), ach("b1", "b", "psn", "1")];
+    const [v] = buildPlayerVersions({
+      lists,
+      achievements: rows,
+      steamCount: 0,
+      unlocks: [
+        { achievementId: "a0", unlockedAt: at(1), suspicious: true },
+        { achievementId: "a1", unlockedAt: at(2) },
+        { achievementId: "b0", unlockedAt: at(3), suspicious: true },
+        { achievementId: "b1", unlockedAt: at(4) },
+      ],
+      // "a" was stored complete before its platinum was flagged.
+      userLists: [
+        { listId: "a", unlockedCount: 2, completedAt: at(2) },
+        { listId: "b", unlockedCount: 2, completedAt: null },
+      ],
+      steamGame: null,
+    });
+    expect(v.platinum).toBe(false);
+    expect(v.platinums).toBe(0);
+    expect(v.tralked).toBe(0);
+    expect(v.unlocked).toBe(1);
+    expect(v.lists.map((l) => [l.id, l.complete, l.unlocked])).toEqual([
+      ["a", false, 1],
+      ["b", false, 1],
+    ]);
+    expect(Object.keys(v.unlockedAt)).toEqual(["1"]);
+    expect(v.tiersEarned.platinum).toBe(0);
+
+    // Steam: a suspicious unlock taints the 100%.
+    const steamRows = [ach("s1", "st", "steam", "A", null), ach("s2", "st", "steam", "B", null)];
+    const [steam] = buildPlayerVersions({
+      lists: [],
+      achievements: steamRows,
+      steamCount: 2,
+      unlocks: [
+        { achievementId: "s1", unlockedAt: at(1) },
+        { achievementId: "s2", unlockedAt: at(2), suspicious: true },
+      ],
+      userLists: [],
+      steamGame: { unlockedCount: 2, completedAt: at(2) },
+    });
+    expect([steam.unlocked, steam.platinum, steam.tralked]).toEqual([1, false, 0]);
+  });
+
+  it("an Xbox list at the base game's 1000G is complete, DLC missing", () => {
+    const lists = [list("x", "xbox", "ONE", 1, { trophyCount: 3 })];
+    const rows = [
+      { ...ach("x1", "x", "xbox", "1", null), points: 600 },
+      { ...ach("x2", "x", "xbox", "2", null), points: 400 },
+      { ...ach("x3", "x", "xbox", "3", null), points: 50 },
+    ];
+    const [v] = buildPlayerVersions({
+      lists,
+      achievements: rows,
+      steamCount: 0,
+      unlocks: [
+        { achievementId: "x1", unlockedAt: at(1) },
+        { achievementId: "x2", unlockedAt: at(2) },
+      ],
+      userLists: [{ listId: "x", unlockedCount: 2, completedAt: null }],
+      steamGame: null,
+    });
+    expect(v.pct).toBe(67);
+    expect(v.lists).toEqual([{ id: "x", label: null, complete: true, unlocked: 2 }]);
+    expect([v.platinum, v.tralked, v.platinums]).toEqual([true, 1, 0]);
+  });
+
+  it("platinums count the PSN platinum trophies per list; tralked the lists at 100% on any platform", () => {
+    const lists = [list("a", "psn", "PS5", 1), list("b", "psn", "PS5", 2, { region: "jp" })];
+    const rows = [ach("a0", "a", "psn", "0", "platinum"), ach("a1", "a", "psn", "1"), ach("b0", "b", "psn", "0", "platinum"), ach("b1", "b", "psn", "1")];
+    const [psn] = buildPlayerVersions({
+      lists,
+      achievements: rows,
+      steamCount: 0,
+      unlocks: ["a0", "a1", "b0"].map((id, i) => ({ achievementId: id, unlockedAt: at(i) })),
+      userLists: [
+        { listId: "a", unlockedCount: 2, completedAt: at(1) },
+        { listId: "b", unlockedCount: 1, completedAt: null },
+      ],
+      steamGame: null,
+    });
+    expect([psn.platinums, psn.tralked]).toEqual([2, 1]);
+    const [steam] = buildPlayerVersions({
+      lists: [],
+      achievements: [ach("s1", "st", "steam", "A", null)],
+      steamCount: 1,
+      unlocks: [{ achievementId: "s1", unlockedAt: at(1) }],
+      userLists: [],
+      steamGame: { unlockedCount: 1, completedAt: at(1) },
+    });
+    expect([steam.platinums, steam.tralked]).toEqual([0, 1]);
+  });
 });

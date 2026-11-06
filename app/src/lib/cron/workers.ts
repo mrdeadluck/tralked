@@ -14,6 +14,7 @@ export const GITHUB_REPO = "mrdeadluck/tralked";
 export type GithubWorker = { workflow: string; due: (at: Date) => boolean };
 
 const oddHour = (at: Date) => at.getUTCHours() % 2 === 1;
+const PSN_CATALOG_HOURS = new Set([0, 6, 10, 12, 16, 18, 22]);
 
 export const GITHUB_WORKERS: readonly GithubWorker[] = [
   // Every 2 h: first imports of PSN/Xbox/RA/Steam accounts; current players of the Steam catalog.
@@ -25,6 +26,9 @@ export const GITHUB_WORKERS: readonly GithubWorker[] = [
   { workflow: "catalog-enrich.yml", due: (at) => at.getUTCHours() === 4 },
   // Sundays 03:28 UTC: the RetroAchievements console catalog.
   { workflow: "retro-catalog.yml", due: (at) => at.getUTCDay() === 0 && at.getUTCHours() === 3 },
+  // The PSN index's slots (0, 6, 10, 12, 16, 18 and 22 h): it computes its own window from the real
+  // start (psnSliceMinutes), so its 50 min from :28 still end before the next odd hour's :23 jobs.
+  { workflow: "psn-catalog.yml", due: (at) => PSN_CATALOG_HOURS.has(at.getUTCHours()) },
 ];
 
 export function dueWorkers(at: Date): string[] {

@@ -1,4 +1,5 @@
 import { Prisma, type Game } from "@/generated/prisma/client";
+import { slugTaken } from "@/lib/catalog/slug-taken";
 import { prisma } from "@/lib/db";
 import { getIgdb, getRawg, getSgdb, getSteam, mapToSkills } from "@/lib/integrations";
 import { IgdbRateLimitError } from "@/lib/integrations/igdb/client";
@@ -106,7 +107,8 @@ export async function syncGame(appId: number): Promise<Game | null> {
         });
       } else {
         const base = slugify(name) || `app-${appId}`;
-        const taken = await tx.game.findUnique({ where: { slug: base }, select: { id: true } });
+        // A game's slug or an old URL of a joined game (a redirect) is taken.
+        const taken = await slugTaken(base, tx);
         game = await tx.game.create({
           data: { ...metadata, slug: taken ? `${base}-${appId}` : base, steamAppId: appId, platforms: ["PC"] },
         });
