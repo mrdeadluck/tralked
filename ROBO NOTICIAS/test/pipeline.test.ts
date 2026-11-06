@@ -249,7 +249,8 @@ function fakeTralked() {
 
 function harness(start = local("2026-10-31T10:00")) {
   const dir = mkdtempSync(join(tmpdir(), "robo-pipeline-"));
-  const config = loadConfig({ ANTHROPIC_API_KEY: "test", TRALKED_API_KEY: "test", DATA_DIR: dir });
+  // The cap tests are written for a cap of 15 (production sets its own; the default is 20).
+  const config = loadConfig({ ANTHROPIC_API_KEY: "test", TRALKED_API_KEY: "test", DATA_DIR: dir, MAX_PER_DAY: "15" });
   const db = openDb(dir);
   const clock = { now: start };
   const feeds = new Map<string, FeedItem[]>();
@@ -353,6 +354,7 @@ function seedQueued(
     status?: StoryRow["status"];
     topic?: string;
     platforms?: string[];
+    games?: string[];
   } = {},
 ): number {
   const seen = opts.firstSeenAt ?? h.clock.now;
@@ -363,7 +365,8 @@ function seedQueued(
     seen,
   );
   const item = h.db.raw.prepare("SELECT id FROM items WHERE url = ?").get(url) as { id: number };
-  const triage = { id: item.id, keep: true, category: "GAMES", games: ["Hades II"], companies: [], rumor: false, importance: 60, headlinePt: headline };
+  const games = opts.games ?? ["Hades II"];
+  const triage = { id: item.id, keep: true, category: "GAMES", games, companies: [], rumor: false, importance: 60, headlinePt: headline };
   h.db.setItemStatus(item.id, "clustered", JSON.stringify(triage));
   const id = h.db.upsertStory(
     {
@@ -373,7 +376,7 @@ function seedQueued(
       score: opts.score ?? 70,
       bomb: opts.bomb ?? false,
       rumor: false,
-      gamesJson: '["Hades II"]',
+      gamesJson: JSON.stringify(games),
       mode: "live",
       status: opts.status ?? "queued",
       lastItemAt: itemAt.toISOString(),
@@ -1165,15 +1168,28 @@ describe("publica: daily mix", () => {
     expect(result.reason).toContain("Hades II ganha evento na Steam");
   });
 
-  it("a topic that already came out 3 times today gives way to another topic", async () => {
+  it("a topic that already came out 4 times today (its cap) gives way to another topic", async () => {
     const h = harness(local("2026-10-31T15:00"));
-    for (const [i, hour] of ["08", "09", "10"].entries()) {
+    for (const [i, hour] of ["08", "09", "10", "11"].entries()) {
       seedQueued(h, `Lançamento ${i}`, { status: "published", topic: "lancamento", firstSeenAt: local(`2026-10-31T${hour}:00`) });
       const id = stories(h.db).at(-1)!.id;
       h.db.saveArticle({ storyId: id, payloadJson: "{}", status: "published", siteId: `l-${i}`, publishedAt: local(`2026-10-31T${hour}:00`).toISOString() });
     }
     seedQueued(h, "Hades II chega em dezembro", { score: 80, topic: "lancamento", platforms: ["multi"] });
     seedQueued(h, "Hades II vende 5 milhões", { score: 60, topic: "vendas", platforms: ["multi"] });
+    const result = await h.publica({ agora: true });
+    expect(result.reason).toContain("Hades II vende 5 milhões");
+  });
+
+  it("a game that already had two articles today loses a little to other news", async () => {
+    const h = harness(local("2026-10-31T15:00"));
+    for (const [i, hour] of ["08", "10"].entries()) {
+      seedQueued(h, `GTA 6 notícia ${i}`, { status: "published", games: ["Grand Theft Auto VI"], firstSeenAt: local(`2026-10-31T${hour}:00`) });
+      const id = stories(h.db).at(-1)!.id;
+      h.db.saveArticle({ storyId: id, payloadJson: "{}", status: "published", siteId: `g-${i}`, publishedAt: local(`2026-10-31T${hour}:00`).toISOString() });
+    }
+    seedQueued(h, "GTA 6 ganha nova arte oficial", { score: 70, games: ["Grand Theft Auto VI"] });
+    seedQueued(h, "Hades II vende 5 milhões", { score: 55 });
     const result = await h.publica({ agora: true });
     expect(result.reason).toContain("Hades II vende 5 milhões");
   });
@@ -1422,7 +1438,7 @@ describe("publica: pautas", () => {
   it("the mix picking a news below 60 does not hand the slot to a pauta while a news of 60+ is queued", async () => {
     const h = harness(local("2026-10-31T15:00"));
     withPautas(h);
-    for (const [i, hour] of ["08", "09", "10"].entries()) {
+    for (const [i, hour] of ["08", "09", "10", "11"].entries()) {
       seedQueued(h, `Lançamento ${i}`, { status: "published", topic: "lancamento", firstSeenAt: local(`2026-10-31T${hour}:00`) });
       const id = stories(h.db).at(-1)!.id;
       h.db.saveArticle({ storyId: id, payloadJson: "{}", status: "published", siteId: `l-${i}`, publishedAt: local(`2026-10-31T${hour}:00`).toISOString() });

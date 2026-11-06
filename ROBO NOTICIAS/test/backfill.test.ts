@@ -251,7 +251,8 @@ function fakeSite() {
 
 function harness(start = NOW) {
   const dir = mkdtempSync(join(tmpdir(), "robo-backfill-"));
-  const config = loadConfig({ ANTHROPIC_API_KEY: "test", TRALKED_API_KEY: "test", DATA_DIR: dir });
+  // Written for a daily cap of 15 (the default is 20).
+  const config = loadConfig({ ANTHROPIC_API_KEY: "test", TRALKED_API_KEY: "test", DATA_DIR: dir, MAX_PER_DAY: "15" });
   const db = openDb(dir);
   const clock = { now: start };
   const facts = new Map<string, Fact>();

@@ -14,7 +14,7 @@ describe("loadConfig", () => {
     expect(c.MODEL_FAST).toBe("claude-haiku-5-5");
     expect(c.DAILY_BUDGET_USD).toBe(5);
     expect(c.BACKFILL_BUDGET_USD).toBe(70);
-    expect(c.MAX_PER_DAY).toBe(15);
+    expect(c.MAX_PER_DAY).toBe(20);
     expect(c.SLOT_FIRST_HOUR).toBe(6);
     expect(c.SLOT_LAST_HOUR).toBe(23);
     expect(c.BACKFILL_DAYS).toBe(90);

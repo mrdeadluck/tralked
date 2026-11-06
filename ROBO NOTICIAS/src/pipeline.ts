@@ -1535,7 +1535,10 @@ function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
   const today = deps.db.publishedTodayMix(localDay(now));
   let best: { story: StoryRow; mix: number } | null = null;
   for (const story of eligible) {
-    const mix = mixScore({ score: story.score, topic: story.topic, platforms: parseGames(story.platforms_json) }, today);
+    const mix = mixScore(
+      { score: story.score, topic: story.topic, platforms: parseGames(story.platforms_json), games: parseGames(story.games_json) },
+      today,
+    );
     if (!best || mix > best.mix) best = { story, mix };
   }
   return best?.story ?? null;

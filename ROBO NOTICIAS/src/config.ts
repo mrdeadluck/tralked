@@ -25,7 +25,7 @@ const ConfigSchema = z.object({
   MODEL_VISION: opt(z.string().default("claude-sonnet-5-5")),
   DAILY_BUDGET_USD: opt(z.coerce.number().positive().default(5)),
   BACKFILL_BUDGET_USD: opt(z.coerce.number().positive().default(70)),
-  MAX_PER_DAY: opt(z.coerce.number().int().positive().default(15)),
+  MAX_PER_DAY: opt(z.coerce.number().int().positive().default(20)),
   /** `publica` leaves at least this many minutes between two articles (bombs are exempt). */
   PUBLISH_GAP_MINUTES: opt(z.coerce.number().int().positive().default(21)),
   /** News older than this (since its first item) is never published: daily news only, no backdated stories. */
