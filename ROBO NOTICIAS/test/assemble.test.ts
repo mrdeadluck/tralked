@@ -139,6 +139,7 @@ describe("assemble: media", () => {
   it("keeps an https creditUrl and drops any other", () => {
     const linked = assemble(draft(), story, { ...opts(), media: { cover: { ...cover, creditUrl: "https://news.xbox.com/a" } } });
     expect(linked.blocks[1]).toEqual({ type: "image", ...cover, creditUrl: "https://news.xbox.com/a" });
+    expect(articlePayloadSchema.safeParse(linked).success).toBe(true);
     const insecure = assemble(draft(), story, { ...opts(), media: { cover: { ...cover, creditUrl: "http://news.xbox.com/a" } } });
     expect(insecure.blocks[1]).toEqual({ type: "image", ...cover });
     const script = assemble(draft(), story, { ...opts(), media: { cover: { ...cover, creditUrl: "javascript:alert(1)" } } });

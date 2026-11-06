@@ -107,11 +107,15 @@ export const quoteBlockSchema = z.strictObject({
   author: plainText(120).optional(),
 });
 
+/** Where an outside image came from (the page of the official image): the credit links there. */
+const creditUrlSchema = z.url({ protocol: /^https$/, error: "O link do crédito precisa ser https://" }).max(2048);
+
 export const imageBlockSchema = z.strictObject({
   type: z.literal("image"),
   url: z.url({ protocol: /^https$/, error: "A imagem precisa de uma URL https://" }).max(2048),
   alt: plainText(300),
   credit: plainText(200),
+  creditUrl: creditUrlSchema.optional(),
 });
 
 export const videoBlockSchema = z.strictObject({
@@ -119,6 +123,24 @@ export const videoBlockSchema = z.strictObject({
   youtubeId: z.string().regex(/^[A-Za-z0-9_-]{11}$/, "ID de vídeo do YouTube inválido"),
   /** What the video is ("Trailer de lançamento de Hades II"): the player's accessible name and caption. */
   title: plainText(200).optional(),
+});
+
+/** A post on X: https://x.com/<handle>/status/<id>, nothing else (no query, no other host). */
+export const X_POST_URL = /^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d{1,25}$/;
+
+/**
+ * A post on X embedded in news (an official announcement, the statement the news is about). The text,
+ * author and date are stored so the article reads without X's script, which only loads with the
+ * visitor's consent (`XPostEmbed`).
+ */
+export const postBlockSchema = z.strictObject({
+  type: z.literal("post"),
+  network: z.literal("x"),
+  url: z.string().regex(X_POST_URL, "Link de post do X inválido (https://x.com/<perfil>/status/<id>)"),
+  authorName: plainText(120),
+  authorHandle: z.string().regex(/^[A-Za-z0-9_]{1,15}$/, "Perfil do X inválido"),
+  text: plainText(1000),
+  postedAt: z.iso.datetime({ offset: true }).optional(),
 });
 
 export const calloutBlockSchema = z.strictObject({
@@ -162,6 +184,7 @@ export const contentBlockSchema = z.discriminatedUnion("type", [
   quoteBlockSchema,
   imageBlockSchema,
   videoBlockSchema,
+  postBlockSchema,
   calloutBlockSchema,
   tableBlockSchema,
   achievementBlockSchema,
