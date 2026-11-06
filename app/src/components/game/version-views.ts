@@ -143,8 +143,8 @@ export type TrophyMark = {
   lists: { label: string; date: string }[];
   /** Where the XP came from; on the version's first trophy earned in several lists only. */
   why: string | null;
-  /** A hidden trophy the player earned: its text, for them only. */
-  reveal: { name: string; description: string | null } | null;
+  /** A hidden trophy the player earned: its text and icon, for them only. */
+  reveal: { name: string; description: string | null; iconUrl: string | null } | null;
 };
 
 /** The player's marks on one version they have: badge, meta line and each earned trophy. */
@@ -237,7 +237,7 @@ function versionMarksOf(v: GameVersion, mine: PlayerVersion): VersionMarks {
       xp: mine.xp[t.apiName] ?? null,
       lists: (mine.earnedIn[t.apiName] ?? []).map((label) => ({ label, date: dateIn.get(label) ?? "" })),
       why,
-      reveal: t.hidden ? { name: t.name, description: t.description } : null,
+      reveal: t.hidden ? { name: t.name, description: t.description, iconUrl: safeMediaUrl(t.iconUrl) } : null,
     };
   }
   return {

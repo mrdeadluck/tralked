@@ -162,14 +162,24 @@ function TrophyRow({ t, versionKey, noun }: { t: VersionTabTrophy; versionKey: s
       <p>{feminine ? "Oculta até ser obtida." : "Oculto até ser obtido."}</p>
     </>
   );
+  const icon = (url: string | null) =>
+    url ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={url} alt="" width={44} height={44} loading="lazy" />
+    ) : (
+      <TrophyIcon color={t.chip?.color ?? "var(--muted)"} />
+    );
   return (
     <li className="vt-tr">
       <span className="vt-ic">
-        {t.iconUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={t.iconUrl} alt="" width={44} height={44} loading="lazy" />
+        {t.name === null ? (
+          // A hidden trophy's icon, like its text, only for the player who earned it.
+          <WithMarks
+            fallback={icon(null)}
+            render={(marks) => icon(marks?.byKey[versionKey]?.earned[t.apiName]?.reveal?.iconUrl ?? null)}
+          />
         ) : (
-          <TrophyIcon color={t.chip?.color ?? "var(--muted)"} />
+          icon(t.iconUrl)
         )}
       </span>
       <div>

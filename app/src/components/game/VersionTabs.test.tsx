@@ -33,7 +33,7 @@ const version = (key: string, label: string, platform: GameVersion["platform"], 
 const PS5_TROPHIES = [
   trophy("0", "Platina", { tier: "platinum", globalPct: 4.1 }),
   trophy("1", "Bem-vindo a Los Santos"),
-  trophy("2", "Segredo", { hidden: true }),
+  trophy("2", "Segredo", { hidden: true, iconUrl: "https://image.example.com/segredo.png" }),
   ...Array.from({ length: 20 }, (_, i) => trophy(String(i + 3), `Extra ${i + 3}`)),
 ];
 const PS5 = version("psn:PS5", "PS5", "psn", PS5_TROPHIES, {
@@ -212,5 +212,19 @@ describe("VersionTabs", () => {
     // A version the player does not have: the list without marks.
     await act(async () => fireEvent.click(screen.getByRole("tab", { name: /Xbox/ })));
     expect(screen.getByRole("tabpanel")).not.toHaveTextContent("não obtida");
+  });
+
+  it("an earned hidden trophy shows its icon to its owner only", async () => {
+    const SRC = "https://image.example.com/segredo.png";
+    const icons = (panel: HTMLElement) => [...panel.querySelectorAll("img")].filter((img) => img.getAttribute("src") === SRC);
+    // The visitor payload never carries the hidden trophy's icon.
+    expect(JSON.stringify(versionTabs(VERSIONS))).not.toContain("segredo.png");
+    await show(null);
+    expect(icons(screen.getByRole("tabpanel"))).toHaveLength(0);
+    cleanup();
+
+    await show(versionMarks(VERSIONS, [MINE]));
+    const row = within(screen.getByRole("tabpanel")).getByRole("heading", { name: "Segredo" }).closest("li")!;
+    expect(icons(row)).toHaveLength(1);
   });
 });

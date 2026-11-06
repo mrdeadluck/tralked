@@ -18,7 +18,14 @@ import { achievementTotal } from "@/lib/games/achievement-total";
 import { platinumSourceKey } from "@/lib/progression/recompute";
 import { skillPointTotals } from "@/lib/progression/skills-from-ledger";
 import { timeAgo } from "@/lib/time-ago";
-import { getGameVersion, getGameVersions, getPlayerVersions, type GameVersion, type PlayerVersion } from "./game-versions";
+import {
+  getGameVersion,
+  getGameVersionKeys,
+  getGameVersions,
+  getPlayerVersions,
+  type GameVersion,
+  type PlayerVersion,
+} from "./game-versions";
 import { gameTag } from "./games-cached";
 import { loadTimeTo100, type TimeTo100 } from "./time-to-100";
 import {
@@ -618,6 +625,14 @@ export async function getGameVersionCached(slug: string, key: string): Promise<G
   cacheLife("hours");
   cacheTag(gameTag(slug));
   return getGameVersion(slug, key);
+}
+
+/** The game's version keys (one small read of its lists), cached and tagged with the game. */
+export async function getGameVersionKeysCached(slug: string): Promise<string[]> {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(gameTag(slug));
+  return getGameVersionKeys(slug);
 }
 
 // ---------- Per-user ----------
