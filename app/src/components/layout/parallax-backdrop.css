@@ -171,6 +171,9 @@
   .tk-scene .figure.lara{width:520px;left:-165px;top:16vh}
 }
 
+/* The cast is in the markup on every page; it shows only once the backdrop says "full". */
+.tk-scene:not([data-mode="full"]) .figure{display:none}
+
 /* Site port, 11-06 (Lucas): Laufey and Lara placed by hand, mostly out from behind the content (desktop; the
    phone layout keeps the preview's own positions below 801 px). */
 @media(min-width:801px){
