@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { validCompletions } from "@/lib/progression/completions";
@@ -27,7 +28,7 @@ export type PlatinumList = {
 };
 
 /** A valid platinum trophy the player earned, by version (list-less rows: versionKey = platform). */
-export type NativePlatinum = { gameId: string; platform: string; versionKey: string };
+export type NativePlatinum = { gameId: string; platform: string; versionKey: string; apiName?: string };
 
 /**
  * "Platinas (contam no XP)": at most one per version (game, platform, versionKey), each paid in the
@@ -52,9 +53,19 @@ export function platinumCount(
     withLists.add(key(l));
     if (l.completed && !l.tainted) out.add(versionedKey(l));
   }
+  // The trophies a list row already holds validly, by game and platform (apiName "" when unknown).
+  const onLists = new Map<string, Set<string>>();
   for (const n of natives) {
-    // A list-less row (from before the lists) stands for its game and platform only until they have lists.
-    if (n.versionKey === n.platform && withLists.has(key(n))) continue;
+    if (n.versionKey === n.platform) continue;
+    onLists.set(key(n), (onLists.get(key(n)) ?? new Set()).add(n.apiName ?? ""));
+  }
+  for (const n of natives) {
+    // As the ledger (list-xp keyOf): a list-less row (from before the lists) keeps being paid until
+    // a valid unlock of the same trophy on a list row of its game and platform takes over.
+    if (n.versionKey === n.platform) {
+      const held = onLists.get(key(n));
+      if (held && (held.has(n.apiName ?? "") || n.apiName === undefined || held.has(""))) continue;
+    }
     out.add(versionedKey(n));
   }
   for (const c of completions) {
@@ -71,7 +82,7 @@ function platinumUnlocks(userId: string, db: Db) {
     where: { userId, suspicious: false, achievement: { trophyTier: "platinum" } },
     select: {
       unlockedAt: true,
-      achievement: { select: { gameId: true, platform: true, listId: true, list: listOf } },
+      achievement: { select: { gameId: true, platform: true, apiName: true, listId: true, list: listOf } },
     },
   });
 }
@@ -124,7 +135,7 @@ async function platinumLists(userId: string, db: Db): Promise<PlatinumList[]> {
  * "Platinas (contam no XP)" (platinumCount) and "Listas regionais extras" (regionalExtras): the
  * profile header, the sheet's Troféus card and the migration snapshots read these.
  */
-export async function platinumTally(userId: string, db: Db = prisma): Promise<{ platinums: number; regionalExtras: number }> {
+async function platinumTallyOf(userId: string, db: Db): Promise<{ platinums: number; regionalExtras: number }> {
   const [unlocks, lists, completions] = await Promise.all([
     platinumUnlocks(userId, db),
     platinumLists(userId, db),
@@ -134,8 +145,17 @@ export async function platinumTally(userId: string, db: Db = prisma): Promise<{ 
     gameId: u.achievement.gameId,
     platform: u.achievement.platform,
     versionKey: versionOf(u.achievement),
+    apiName: u.achievement.apiName,
   }));
   return { platinums: platinumCount(natives, lists, completions), regionalExtras: extrasOf(unlocks) };
+}
+
+/** Per request, the same tally is read once (the profile header and the sheet both ask for it). */
+const tallyOfRequest = cache((userId: string) => platinumTallyOf(userId, prisma));
+
+export function platinumTally(userId: string, db: Db = prisma): Promise<{ platinums: number; regionalExtras: number }> {
+  // Inside a transaction (migrations, tests) the read must see the transaction: no memo.
+  return db === prisma ? tallyOfRequest(userId) : platinumTallyOf(userId, db);
 }
 
 /**

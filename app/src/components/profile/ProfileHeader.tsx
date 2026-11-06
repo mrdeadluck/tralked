@@ -47,7 +47,7 @@ const STRIP_COLS: Record<number, string> = {
  */
 function ProfileStrip({ summary, stats = [] }: { summary: ProfileSummary; stats?: ProfileStat[] }) {
   const items: ProfileStat[] = [
-    { label: "Platinas (contam no XP)", value: formatNumber(summary.platinums), note: "uma por console", hot: true },
+    { label: "Platinas (contam no XP)", value: formatNumber(summary.platinums), note: "uma por versão", hot: true },
     { label: "Listas regionais extras", value: formatNumber(summary.regionalExtras), note: "aparecem, mas não somam XP" },
     { label: "Jogos", value: formatNumber(summary.gamesCount), note: "cada jogo uma vez" },
     ...stats,

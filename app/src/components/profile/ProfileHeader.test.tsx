@@ -31,7 +31,7 @@ describe("ProfileHeader", () => {
     render(<ProfileHeader summary={SUMMARY} section="Jogos" />);
     const strip = screen.getByRole("group", { name: "Números do perfil" });
     expect(cell(strip, "Platinas (contam no XP)")).toHaveTextContent("504");
-    expect(cell(strip, "Platinas (contam no XP)")).toHaveTextContent("uma por console");
+    expect(cell(strip, "Platinas (contam no XP)")).toHaveTextContent("uma por versão");
     expect(cell(strip, "Listas regionais extras")).toHaveTextContent("67");
     expect(cell(strip, "Listas regionais extras")).toHaveTextContent("aparecem, mas não somam XP");
     expect(cell(strip, "Jogos")).toHaveTextContent("2.148");

@@ -82,7 +82,7 @@ export function libraryVersions(platforms: PlatformProgressRow[], lists: ListPro
   for (const p of platforms) {
     if (p.platform !== "steam" && withLists.has(p.platform)) continue;
     const pct = pctOf(p.unlockedCount, p.achievementTotal);
-    const platinum = p.completedAt !== null || pct === 100;
+    const platinum = p.platform === "steam" ? p.completedAt !== null : p.completedAt !== null || pct === 100;
     out.push({
       key: p.platform === "steam" ? "steam" : p.platform,
       platform: p.platform,

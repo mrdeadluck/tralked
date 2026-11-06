@@ -349,8 +349,7 @@ export async function getGameVersionKeys(slug: string): Promise<string[]> {
 
 /** One player's versions of a game: reads only ids, tiers and rarity of the trophies (never their text). */
 export async function getPlayerVersions(gameId: string, userId: string): Promise<PlayerVersion[]> {
-  const [{ steamCount, lists, achievements }, unlocks, userLists, steamGame] = await Promise.all([
-    loadGame(gameId, SLIM_SELECT),
+  const [unlocks, userLists, steamGame] = await Promise.all([
     prisma.userAchievement.findMany({
       where: { userId, achievement: { gameId } },
       select: { achievementId: true, unlockedAt: true },
@@ -364,6 +363,9 @@ export async function getPlayerVersions(gameId: string, userId: string): Promise
       select: { unlockedCount: true, completedAt: true },
     }),
   ]);
+  // A player with nothing on this game has no version: skip the game's trophy rows altogether.
+  if (unlocks.length === 0 && userLists.length === 0 && !steamGame) return [];
+  const { steamCount, lists, achievements } = await loadGame(gameId, SLIM_SELECT);
   // Ledger keys of a PSN trophy may be another list's copy (the canonical one): read by every id.
   const ledger =
     unlocks.length === 0

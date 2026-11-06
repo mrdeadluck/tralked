@@ -20,10 +20,10 @@ export const dayLabel = (d: Date) => DAY.format(d);
 
 type Labelled = { platform: PlatformId; label: string };
 
-/** The rows' and tabs' short name: Xbox titles read "Xbox" or "360"; the rest keep their label. */
+/** The rows' and tabs' short name: Xbox titles read "Xbox" (One/Series), "Xbox PC" or "360"; the rest keep their label. */
 export function shortLabel(v: Labelled): string {
   if (v.platform !== "xbox") return v.label;
-  return v.label === "Xbox 360" ? "360" : "Xbox";
+  return v.label === "Xbox 360" ? "360" : v.label === "Xbox PC" ? "Xbox PC" : "Xbox";
 }
 
 export const versionColor = (v: { platform: PlatformId }) => PLATFORM_TOKEN[v.platform];
@@ -49,6 +49,14 @@ export function bestVersion(mine: PlayerVersion[]): PlayerVersion | null {
     [...mine].sort((a, b) => Number(b.platinum) - Number(a.platinum) || b.pct - a.pct || b.unlocked - a.unlocked)[0] ??
     null
   );
+}
+
+/** The intro's disc (plat and label): the same best version as the booklet's disc, never the platform-level sum. */
+export function introDisc(mine: PlayerVersion[] | null): { plat: boolean; discLabel: string } {
+  const best = mine ? bestVersion(mine) : null;
+  if (!best) return { plat: false, discLabel: "TRALKED · DISCO 1" };
+  const plat = best.platinum || best.pct >= 100;
+  return { plat, discLabel: plat ? `TRALKED! · ${best.unlocked}/${best.total}` : "TRALKED · DISCO 1" };
 }
 
 /** "falta 1" / "faltam 39". */
@@ -184,9 +192,16 @@ function publicTrophy(v: GameVersion, t: GameVersion["trophies"][number]): Versi
   };
 }
 
-/** One tab per version, in the versions' order, with the first FIRST_ROWS trophies of each. */
+/** The versions that have rows to list (a tab needs them; a Steam count with no imported rows has none). */
+export const listedVersions = (versions: GameVersion[]) => versions.filter((v) => v.trophies.length > 0);
+
+/**
+ * One tab per version with rows, in the versions' order, with the first FIRST_ROWS trophies of
+ * each. The badge and meta count the rows the tab lists (a partial Steam list says so).
+ */
 export function versionTabs(versions: GameVersion[]): VersionTab[] {
-  return versions.map((v) => {
+  return listedVersions(versions).map((v) => {
+    const n = v.trophies.length;
     const labelled = v.lists.filter((l) => l.label);
     const on = onVersion(v);
     return {
@@ -195,9 +210,9 @@ export function versionTabs(versions: GameVersion[]): VersionTab[] {
       fullLabel: v.label,
       color: versionColor(v),
       noun: isTrophy(v) ? "troféu" : "conquista",
-      badge: fmt(v.total),
+      badge: fmt(n),
       meta: {
-        strong: `${fmt(v.total)} ${nounOf(v, v.total)}`,
+        strong: `${fmt(n)} ${nounOf(v, n)}`,
         rest: labelled[0] ? ` ${on} · ${labelled.length} listas regionais, mostrando a ${labelled[0].label}` : ` ${on}`,
       },
       trophies: v.trophies.slice(0, FIRST_ROWS).map((t) => publicTrophy(v, t)),

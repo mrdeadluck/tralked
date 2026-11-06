@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import { getGameVersion, getGameVersionKeys, getGameVersions, getPlayerVersions } from "./game-versions";
 
@@ -73,7 +73,14 @@ describe("getGameVersions", () => {
     expect(versions.find((v) => v.key === "psn:PS5")!.lists.map((l) => l.label)).toEqual(["Lista 1", "🇯🇵 Ásia"]);
     expect(versions.find((v) => v.key === "psn:PS4")!.lists.map((l) => l.label)).toEqual([null]);
 
-    expect(await getPlayerVersions(gameId, userId)).toEqual([]);
+    // A player with nothing on the game: no versions and no read of the game's trophy rows.
+    const rows = vi.spyOn(prisma.achievement, "findMany");
+    try {
+      expect(await getPlayerVersions(gameId, userId)).toEqual([]);
+      expect(rows).not.toHaveBeenCalled();
+    } finally {
+      rows.mockRestore();
+    }
 
     await prisma.userTrophyList.create({ data: { userId, listId: listIds.ps5a, unlockedCount: 0 } });
     await prisma.userTrophyList.create({ data: { userId, listId: listIds.ps5b, unlockedCount: 0 } });

@@ -12,7 +12,7 @@ import { FamilyPlayers } from "@/components/game/FamilyPlayers";
 import { MediaRail } from "@/components/game/MediaRail";
 import { RetroAchievementsLoader } from "@/components/game/RetroAchievementsLoader";
 import { ShotsRail } from "@/components/game/ShotsRail";
-import { trophyWord, versionMarks, versionTabs, type TabsMarks } from "@/components/game/version-views";
+import { introDisc, listedVersions, trophyWord, versionMarks, versionTabs, type TabsMarks } from "@/components/game/version-views";
 import { VersionTabs } from "@/components/game/VersionTabs";
 import { SimilarShelf } from "@/components/game/SimilarShelf";
 import { loginHref } from "@/components/guide/format";
@@ -126,6 +126,7 @@ const delay = (d: string) => ({ "--d": d }) as CSSProperties;
 async function IntroIsland({ profile, steamPlayers }: { profile: GameProfile; steamPlayers: SteamPlayersView | null }) {
   const me = await visitor(profile.slug);
   const best = me?.profile?.progress;
+  const disc = introDisc(me?.profile?.versions ?? null);
   const platformLabel = best
     ? best.platforms.map((p) => PLATFORM_NAME[p.platform]).join(" · ").toUpperCase()
     : profile.platforms.includes("PC")
@@ -147,8 +148,8 @@ async function IntroIsland({ profile, steamPlayers }: { profile: GameProfile; st
       back={backCover(profile, steamPlayers)}
       disc={profile.art.disc}
       platformLabel={platformLabel}
-      plat={Boolean(best?.completed)}
-      discLabel={best?.completed ? `TRALKED! · ${best.best.unlocked}/${best.best.total}` : "TRALKED · DISCO 1"}
+      plat={disc.plat}
+      discLabel={disc.discLabel}
       bookletNote={profile.guide ? "Guia de conquistas 100%" : "Encarte do jogo"}
       account={me ? { opened: Boolean(me.profile?.opened), introOff: me.introOff } : null}
     />
@@ -268,8 +269,8 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
         marks={trophyMarks(profile)}
         loadMore={moreVersionTrophies.bind(null, profile.slug)}
         label={`Versões de ${profile.name}`}
-        title={trophyWord(profile.versions)}
-        aside={profile.versions.length > 1 ? "Uma aba por versão" : null}
+        title={trophyWord(listedVersions(profile.versions))}
+        aside={listedVersions(profile.versions).length > 1 ? "Uma aba por versão" : null}
       />
 
       <Suspense

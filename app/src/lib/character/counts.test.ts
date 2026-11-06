@@ -41,7 +41,17 @@ describe("platinumCount (at most one per version)", () => {
       { gameId: "gta", platform: "steam" },
     ];
     expect(platinumCount([native("old", "psn")], [list("gta", "psn", "psn:PS4", { completed: false })], completions)).toBe(2);
-    // A list-less platinum row of a game that has lists now: its lists speak for it.
-    expect(platinumCount([native("gta", "psn")], [list("gta", "psn", "psn:PS4", { completed: false })], [])).toBe(0);
+  });
+
+  it("a list-less platinum keeps counting, as the ledger pays it, until a list row holds the same trophy", () => {
+    const incomplete = [list("gta", "psn", "psn:PS4", { completed: false })];
+    // The game has a list, but no list row holds the platinum yet: the ledger still pays the list-less one.
+    expect(platinumCount([{ ...native("gta", "psn"), apiName: "0" }], incomplete, [])).toBe(1);
+    // A list row holds the same trophy (valid unlock): the list's version speaks for it, once.
+    expect(platinumCount([{ ...native("gta", "psn"), apiName: "0" }, { ...native("gta", "psn", "psn"), apiName: "0" }, { ...native("gta", "psn:PS4"), apiName: "0" }], incomplete, [])).toBe(1);
+    // A list row holds another trophy: it does not cover this one.
+    expect(platinumCount([{ ...native("gta", "psn"), apiName: "0" }, { ...native("gta", "psn:PS4"), apiName: "7" }], incomplete, [])).toBe(2);
+    // Another game or platform is never covered.
+    expect(platinumCount([{ ...native("gta", "psn"), apiName: "0" }, { ...native("old", "psn:PS4"), apiName: "0" }], incomplete, [])).toBe(2);
   });
 });
