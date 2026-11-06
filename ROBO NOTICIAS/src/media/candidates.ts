@@ -19,8 +19,33 @@ export type ImageCandidate = {
   sourceUrl: string;
   /** The site of that page, without "www.": two hosts carrying one picture make it a repetition. */
   host: string;
+  /** The page's main (og) image or one of its article images; absent for videos and the catalog. */
+  role?: "og" | "body";
   image?: FetchedImage;
 };
+
+/** "news.xbox.com" → "xbox.com"; "img.uol.com.br" → "uol.com.br". */
+function siteOf(host: string): string {
+  const parts = host.toLowerCase().split(".");
+  const two = parts.slice(-2).join(".");
+  return /^(com|co|org|net|gov|edu)\.[a-z]{2}$/.test(two) ? parts.slice(-3).join(".") : two;
+}
+
+/** CDNs official sites serve their own pictures from, by the official site. */
+const OFFICIAL_CDNS: Record<string, RegExp> = {
+  "steampowered.com": /(^|\.)steamstatic\.com$/,
+  "xbox.com": /(^|\.)thesourcemediaassets\.com$|(^|\.)xboxservices\.com$/,
+  "rockstargames.com": /^media-rockstargames-com\.akamaized\.net$/,
+  "playstation.com": /(^|\.)playstation\.(com|net)$/,
+};
+
+/** An official page's own picture: on its own site or on that site's known CDN (not a press article it reposts). */
+export function ownPicture(pageUrl: string, imageUrl: string): boolean {
+  if (!URL.canParse(pageUrl) || !URL.canParse(imageUrl)) return false;
+  const page = siteOf(new URL(pageUrl).hostname);
+  const image = new URL(imageUrl).hostname.toLowerCase();
+  return siteOf(image) === page || (OFFICIAL_CDNS[page]?.test(image) ?? false);
+}
 
 const hostOf = (url: string): string => (URL.canParse(url) ? new URL(url).hostname.replace(/^www\./, "") : url);
 const isHttps = (url: string): boolean => URL.canParse(url) && new URL(url).protocol === "https:";
@@ -59,9 +84,9 @@ export function collectCandidates(input: {
     const host = hostOf(item.url);
     for (const image of mediaOf(item).images) {
       if (!fresh(image.url)) continue;
-      const base = { url: image.url, sourceName, sourceUrl: item.url, host };
+      const base = { url: image.url, sourceName, sourceUrl: item.url, host, role: image.role };
       if (isStoreAsset(image.url)) store.push({ ...base, id: "", origin: "loja" });
-      else if (source?.tier === "oficial" && !item.publisher) official.push({ ...base, id: "", origin: "fonte-oficial" });
+      else if (source?.tier === "oficial" && !item.publisher && ownPicture(item.url, image.url)) official.push({ ...base, id: "", origin: "fonte-oficial" });
       else other.push({ ...base, id: "", origin: "fonte" });
     }
   }

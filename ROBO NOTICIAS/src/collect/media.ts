@@ -11,7 +11,7 @@ export type SourceImage = { url: string; width?: number; height?: number; role: 
 export type SourcePost = { url: string; handle: string; statusId: string };
 export type SourceMedia = { images: SourceImage[]; youtube: string[]; posts: SourcePost[] };
 
-const MAX_IMAGES = 10;
+const MAX_IMAGES = 16;
 const MAX_VIDEOS = 5;
 const MAX_POSTS = 5;
 const BODY_MIN_WIDTH = 600;
@@ -40,6 +40,18 @@ function meta(document: Doc, selector: string): string | null {
 
 /** Not a picture of the subject: author avatars, icons, emoji, sprites, tracking pixels, placeholders. */
 const NOT_A_PICTURE = /avatar|gravatar|icon|emoji|sprite|pixel|placeholder|spinner|badge/i;
+/** A site's generic share picture (Steam News' "social_share_default"): never about the story. */
+const DEFAULT_SHARE = /social_share_default|default[-_](share|og|social)|og[-_]default/i;
+const IMAGE_FILE = /\.(jpe?g|png|webp|gif|avif)(\?|#|$)/i;
+
+/** An image inside a link to another page is a related-post thumbnail, not the article's picture. */
+function linksElsewhere(img: El, base: string): boolean {
+  const href = img.closest("a[href]")?.getAttribute("href");
+  if (!href) return false;
+  const target = resolve(href, base);
+  if (!target || IMAGE_FILE.test(new URL(target).pathname)) return false;
+  return target.split("#")[0] !== base.split("#")[0];
+}
 
 /** The largest `w` candidate of a srcset, when it has width descriptors. */
 function biggestSrcset(srcset: string | null, base: string): { url: string; width: number } | null {
@@ -59,7 +71,7 @@ function bodyImage(img: El, base: string): SourceImage | null {
   const hint = [img.getAttribute("class"), img.getAttribute("alt"), img.getAttribute("src"), img.getAttribute("data-src")]
     .filter(Boolean)
     .join(" ");
-  if (NOT_A_PICTURE.test(hint)) return null;
+  if (NOT_A_PICTURE.test(hint) || linksElsewhere(img, base)) return null;
   const src = resolve(img.getAttribute("src") ?? img.getAttribute("data-src") ?? img.getAttribute("data-lazy-src"), base);
   const set = biggestSrcset(img.getAttribute("srcset") ?? img.getAttribute("data-srcset"), base);
   const attrWidth = int(img.getAttribute("width"));
@@ -67,7 +79,9 @@ function bodyImage(img: El, base: string): SourceImage | null {
   if (set && set.width > (attrWidth ?? 0)) {
     return set.width >= BODY_MIN_WIDTH ? { url: set.url, width: set.width, role: "body" } : null;
   }
-  if (!src || !attrWidth || attrWidth < BODY_MIN_WIDTH) return null;
+  if (!src || (attrWidth !== undefined && attrWidth < BODY_MIN_WIDTH)) return null;
+  // No size in the HTML (lazy-loaded pictures): kept, and measured when fetched.
+  if (attrWidth === undefined) return { url: src, role: "body" };
   return { url: src, width: attrWidth, ...(height ? { height } : {}), role: "body" };
 }
 
@@ -93,7 +107,7 @@ export function extractMedia(html: string, pageUrl: string): SourceMedia {
     const media = empty();
     const seenImages = new Set<string>();
     const addImage = (img: SourceImage | null) => {
-      if (!img || seenImages.has(img.url) || media.images.length >= MAX_IMAGES) return;
+      if (!img || seenImages.has(img.url) || DEFAULT_SHARE.test(img.url) || media.images.length >= MAX_IMAGES) return;
       seenImages.add(img.url);
       media.images.push(img);
     };

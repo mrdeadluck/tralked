@@ -21,8 +21,8 @@ export type ChooseDeps = {
   trace?: (line: string) => void;
 };
 
-/** Images downloaded per article at most (pages carry up to 10 each; most stories have 2–6 sources). */
-const MAX_FETCHED = 24;
+/** Images downloaded per article at most (pages carry up to 16 each; big stories have 20+ sources). */
+export const MAX_FETCHED = 48;
 const FETCH_CONCURRENCY = 4;
 /** Catalog pictures offered per article: a scene or two of the exact game is enough to mix in. */
 const MAX_CATALOG = 2;
@@ -49,8 +49,17 @@ export function creditFor(c: ImageCandidate, companies: string[]): { credit: str
   return c.origin === "catalogo" ? { credit } : { credit, creditUrl: c.sourceUrl };
 }
 
+/**
+ * Downloads the candidates, most telling first: official pictures, video covers and every source's main
+ * (og) image (the one sites share when they carry the same official picture), then article images.
+ */
 async function fetchAll(cands: ImageCandidate[], fetchFn: FetchFn): Promise<void> {
-  const todo = cands.slice(0, MAX_FETCHED);
+  const rank = (c: ImageCandidate) => (c.origin === "fonte" && c.role === "body" ? 1 : 0);
+  const todo = cands
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i)
+    .slice(0, MAX_FETCHED)
+    .map((x) => x.c);
   let next = 0;
   const run = async () => {
     while (next < todo.length) {

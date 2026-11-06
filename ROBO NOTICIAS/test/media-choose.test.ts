@@ -6,7 +6,7 @@ import type { SourceMedia } from "../src/collect/media.js";
 import type { Source } from "../src/config.js";
 import type { ItemRow, StoryRow } from "../src/db.js";
 import type { ImageCandidate } from "../src/media/candidates.js";
-import { chooseImages, creditFor } from "../src/media/choose.js";
+import { MAX_FETCHED, chooseImages, creditFor } from "../src/media/choose.js";
 import type { GameMedia } from "../src/tralked.js";
 
 // ------------------------------------------------------------------ pictures
@@ -227,6 +227,25 @@ describe("chooseImages", () => {
     expect(out.cover?.url).toBe("https://blob.test/1.webp");
     expect(up.tralked.uploadImage).toHaveBeenCalledTimes(2); // wide as cover, square in the body
     expect(out.bodyImage?.url).toBe("https://blob.test/2.webp");
+  });
+});
+
+describe("chooseImages downloads", () => {
+  it("fetches every source's main (og) image first, then body images, up to the cap", async () => {
+    const items = Array.from({ length: 30 }, (_, n) =>
+      item("ign", `https://site${n}.test/a`, {
+        images: [
+          { url: `https://site${n}.test/og.jpg`, role: "og" },
+          { url: `https://site${n}.test/b1.jpg`, role: "body" },
+          { url: `https://site${n}.test/b2.jpg`, role: "body" },
+        ],
+      }),
+    );
+    const fetchFn = vi.fn(async () => new Response("no", { status: 404 }));
+    await chooseImages(input(items, { officialVideoIds: [] }), deps(visionAi().ai, fetchFn as never, uploader().tralked));
+    const urls = fetchFn.mock.calls.map((c) => String((c as unknown[])[0]));
+    expect(urls.filter((u) => u.endsWith("/og.jpg"))).toHaveLength(30);
+    expect(urls.length).toBe(MAX_FETCHED);
   });
 });
 

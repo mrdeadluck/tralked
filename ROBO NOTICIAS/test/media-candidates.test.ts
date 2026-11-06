@@ -88,6 +88,34 @@ describe("collectCandidates", () => {
     expect(cands[2]).toMatchObject({ sourceName: "IGN", host: "ign.com" });
   });
 
+  it("an official source's page counts as official only for images on its own domain or its known CDN", () => {
+    const cands = collectCandidates({
+      items: [
+        item("xbox", "https://store.steampowered.com/news/group/1/view/2", {
+          images: [
+            { url: "https://cdn.mos.cms.futurecdn.net/pcgamer.jpg", role: "og" },
+            { url: "https://clan.akamai.steamstatic.com/images/1/a.png", role: "body" },
+          ],
+        }),
+        item("xbox", "https://news.xbox.com/en-us/2026/11/03/tes", {
+          images: [{ url: "https://xboxwire.thesourcemediaassets.com/sites/2/hero.jpg", role: "og" }],
+        }),
+        item("xbox", "https://www.rockstargames.com/newswire/article/1", {
+          images: [{ url: "https://media-rockstargames-com.akamaized.net/a.jpg", role: "og" }],
+        }),
+      ],
+      sources: SOURCES,
+      officialVideoIds: [],
+      catalog: [],
+    });
+    expect(cands.map((c) => [c.origin, c.url.split("/")[2]])).toEqual([
+      ["fonte-oficial", "clan.akamai.steamstatic.com"],
+      ["fonte-oficial", "xboxwire.thesourcemediaassets.com"],
+      ["fonte-oficial", "media-rockstargames-com.akamaized.net"],
+      ["fonte", "cdn.mos.cms.futurecdn.net"],
+    ]);
+  });
+
   it("credits a Google News item to its publisher", () => {
     const [c] = collectCandidates({
       items: [item("ign", "https://www.eurogamer.net/x", { images: [{ url: "https://cdn.eg.net/a.jpg", role: "og" }] }, "Eurogamer")],

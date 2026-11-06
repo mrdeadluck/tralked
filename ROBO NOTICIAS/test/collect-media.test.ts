@@ -34,14 +34,27 @@ describe("extractMedia", () => {
     expect(media.images.find((i) => i.url === "https://cdn.ign.com/body-1.jpg")).toMatchObject({ width: 1280, height: 720 });
   });
 
+  it("keeps article images without a size hint (measured when fetched), never related-post thumbnails or default share images", () => {
+    const html = `<html><head><meta property="og:image" content="https://store.fastly.steamstatic.com/public/shared/images/news/social_share_default.jpg"></head><body><article>
+      <img data-src="https://cdn.pxn.test/gta-1.webp" alt="GTA 6">
+      <a href="https://cdn.pxn.test/gta-2-full.jpg"><img src="https://cdn.pxn.test/gta-2.jpg" alt="GTA 6"></a>
+      <a href="/noticia/outra-materia"><img src="https://cdn.pxn.test/related.jpg" width="1200"></a>
+      <img src="https://cdn.pxn.test/tiny.jpg" width="120">
+    </article></body></html>`;
+    expect(extractMedia(html, "https://pxngames.com/noticia/gta").images).toEqual([
+      { url: "https://cdn.pxn.test/gta-1.webp", role: "body" },
+      { url: "https://cdn.pxn.test/gta-2.jpg", role: "body" },
+    ]);
+  });
+
   it("ignores images outside article/main", () => {
     expect(media.images.some((i) => i.url.includes("site-logo"))).toBe(false);
   });
 
-  it("caps images at 10", () => {
-    const imgs = Array.from({ length: 15 }, (_, n) => `<img src="https://cdn.x.com/${n}.jpg" width="1000">`).join("");
+  it("caps images at 16", () => {
+    const imgs = Array.from({ length: 20 }, (_, n) => `<img src="https://cdn.x.com/${n}.jpg" width="1000">`).join("");
     const m = extractMedia(`<html><body><article>${imgs}</article></body></html>`, PAGE);
-    expect(m.images).toHaveLength(10);
+    expect(m.images).toHaveLength(16);
   });
 
   it("collects YouTube ids from embeds and links, valid and unique, at most 5", () => {
