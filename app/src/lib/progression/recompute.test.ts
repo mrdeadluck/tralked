@@ -204,9 +204,22 @@ describe.skipIf(!reachable)("recomputeUser", () => {
     });
     expect(constancia.points).toBe(20); // 1 active day (15) + best streak 1 (5)
     const daily = await prisma.mission.findMany({ where: { userId: user.id, kind: "daily", periodKey: "2026-10-31" } });
+    expect(daily).toHaveLength(3);
     const five = daily.find((m) => m.title === "Desbloqueie 5 conquistas");
-    if (five) expect(five).toMatchObject({ progress: 1, completedAt: null });
-    expect(daily.every((m) => m.completedAt === null && m.progress <= 1)).toBe(true);
+    expect(five).toMatchObject({ progress: 1, completedAt: null });
+    // The "XP in {skill}" mission targets a skill drawn from the (random) user id; the one dated unlock is an
+    // rpg unlock, so that mission legitimately completes when the draw is rpg (~10% of ids) and not otherwise.
+    // Every other daily mission must see only the dated unlock (the 5 undated ones never count).
+    for (const m of daily) {
+      const skill = (m.condition as { skill?: string }).skill;
+      if (skill === "rpg") {
+        expect(m.progress).toBe(1);
+        expect(m.completedAt).not.toBeNull();
+      } else {
+        expect(m.completedAt).toBeNull();
+        expect(m.progress).toBeLessThanOrEqual(1);
+      }
+    }
     // Totals still see all six (rank stats count every valid unlock).
     const rank = await prisma.userRankStats.findUniqueOrThrow({ where: { userId_scope: { userId: user.id, scope: "all" } } });
     expect(rank.achievements).toBe(6);
