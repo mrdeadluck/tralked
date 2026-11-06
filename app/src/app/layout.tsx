@@ -4,12 +4,13 @@ import { Archivo, JetBrains_Mono } from "next/font/google";
 import { SLOGAN } from "@/components/brand/slogan";
 import { Footer } from "@/components/layout/Footer";
 import { LoginNotice } from "@/components/layout/LoginNotice";
-import { PageBackdrop } from "@/components/layout/PageBackdrop";
+import { ParallaxBackdrop, ParallaxBackdropFallback } from "@/components/layout/ParallaxBackdrop";
 import { SessionHeader } from "@/components/layout/SessionHeader";
 import { CookieConsent } from "@/components/layout/CookieConsent";
 import { RewardHost } from "@/components/fx/RewardHost";
 import { env } from "@/lib/env";
 import "./globals.css";
+import "@/components/layout/parallax-backdrop.css";
 
 // Archivo tem eixo de largura (wdth 62-125): os títulos usam font-stretch expandido.
 const archivo = Archivo({
@@ -40,7 +41,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${archivo.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        <PageBackdrop />
+        {/* Reads the URL (usePathname), which suspends on dynamic routes: a still scene stands in. */}
+        <Suspense fallback={<ParallaxBackdropFallback />}>
+          <ParallaxBackdrop />
+        </Suspense>
         {/* Keyboard users skip the header (sections, search, account) in one Tab. */}
         <a
           href="#principal"
