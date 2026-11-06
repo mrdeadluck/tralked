@@ -254,10 +254,45 @@ describe.skipIf(!reachable)("PSN catalog scan", () => {
     });
   });
 
-  it("psnSliceMinutes leaves room before the next job", () => {
-    expect(psnSliceMinutes(new Date("2026-11-11T10:20:00Z"))).toBe(50);
-    expect(psnSliceMinutes(new Date("2026-11-11T04:20:00Z"))).toBe(40);
-    expect(psnSliceMinutes(new Date("2026-11-11T08:03:00Z"))).toBe(25);
+  it("psnSliceMinutes ends 2 minutes before the next neighbour job, on time or late", () => {
+    const at = (hhmm: string) => psnSliceMinutes(new Date(`2026-11-11T${hhmm}:00Z`));
+    expect(at("10:20")).toBe(50); // ends 11:10, before :23
+    expect(at("10:50")).toBe(31); // late: ends 11:21
+    expect(at("00:20")).toBe(50);
+    expect(at("02:03")).toBe(25); // ends 02:28, before steam-details 02:37
+    expect(at("02:40")).toBe(25); // late: next job 03:19
+    expect(at("04:20")).toBe(15); // ends 04:35, before catalog-enrich 04:37
+    expect(at("04:30")).toBe(5);
+    expect(at("04:33")).toBe(0); // too late to scan
+    expect(at("04:40")).toBe(40); // next job 05:23
+    expect(at("08:03")).toBe(25);
+    expect(at("22:20")).toBe(50);
+    expect(at("22:50")).toBe(31);
+    expect(at("23:30")).toBe(45); // next job 00:17
+  });
+
+  it("retries network errors only: a TypeError is not retried, a dropped connection is", async () => {
+    const ok = (id: string): PsnListInfo => ({ npTitleId: id, serviceName: "trophy2", name: `${TAG} n`, platform: "PS5", trophyCounts: { bronze: 1, silver: 0, gold: 0, platinum: 0 } });
+    let typeErrorCalls = 0;
+    const typeError = {
+      getListInfo: async (): Promise<PsnListInfo | null> => {
+        typeErrorCalls++;
+        throw new TypeError("x is not a function");
+      },
+    };
+    await expect(scanPsnIds({ api: typeError, from: BASE, count: 1, deadline: Infinity, ...fakeClock() })).rejects.toBeInstanceOf(TypeError);
+    expect(typeErrorCalls).toBe(1);
+
+    let dropped = 0;
+    const flaky = {
+      getListInfo: async (id: string): Promise<PsnListInfo | null> => {
+        if (dropped++ === 0) throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } });
+        return ok(id);
+      },
+    };
+    const result = await scanPsnIds({ api: flaky, from: BASE, count: 1, deadline: Infinity, ...fakeClock() });
+    expect(dropped).toBe(2);
+    expect(result).toMatchObject({ hits: 1, stopped: "count" });
   });
 
   it("a new lap clears the end of the last one", async () => {

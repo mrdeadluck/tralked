@@ -6,7 +6,7 @@
  *
  *   DATABASE_URL=postgresql://... PSN_NPSSO=... pnpm psn:catalog [--minutes N] [--no-match]
  *
- * Without --minutes the window comes from the start time (psnSliceMinutes: 50, 40 at 04 UTC, 25 at 02/08/14/20).
+ * Without --minutes the window comes from the start time (psnSliceMinutes: 50, 40 at 04 UTC, 25 at 02/08/14/20, cut 2 min before the next job of the timetable; a late start with under 5 min left exits 0).
  * The scan holds its rows in memory and writes once at the end (Neon sleeps meanwhile); SIGINT/SIGTERM
  * (a GitHub cancel) ends the scan early and that write still happens.
  * Run by .github/workflows/psn-catalog.yml. A lap ends after 2,000 ids with no list in a row; the next
@@ -47,6 +47,10 @@ if (!hasKey("PSN_NPSSO")) {
 const LAP_PAUSE_MS = 30 * 24 * 3_600_000;
 const started = Date.now();
 const minutes = explicitMinutes ?? psnSliceMinutes(new Date(started));
+if (minutes === 0) {
+  log.info("Started too close to the next job of the timetable: nothing to scan.");
+  process.exit(0);
+}
 const stopAt = started + minutes * 60_000;
 // The grace outlasts the final write of the scan (one transaction, retried once).
 exitAfterWindow(stopAt, log, 5 * 60_000);

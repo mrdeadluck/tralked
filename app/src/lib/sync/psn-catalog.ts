@@ -47,12 +47,50 @@ const RETRY_MS = 30 * 24 * 3_600_000;
 
 export const npwrId = (n: number) => `NPWR${String(n).padStart(5, "0")}_00`;
 
-/** Minutes the worker spends from `start` (UTC): the slot's room before the next job of the timetable. */
+/**
+ * Start times (UTC) of the jobs that write to the database, from app/vercel.json and the
+ * workflows: the :17-:19 crons at 0/6/12/18 h, the 03:19-03:22 daily ones (they also cover the
+ * Sunday 03:21 retro-catalog), the :23-:29 ones on odd hours (crons, steam-players,
+ * platform-import), steam-details at :37 of 2/8/14/20 h, catalog-enrich at 04:37.
+ */
+const NEIGHBOURS: { hours: (h: number) => boolean; minute: number }[] = [
+  { hours: (h) => h % 6 === 0, minute: 17 },
+  { hours: (h) => h === 3, minute: 19 },
+  { hours: (h) => h % 2 === 1, minute: 23 },
+  { hours: (h) => h % 6 === 2, minute: 37 },
+  { hours: (h) => h === 4, minute: 37 },
+];
+/** A slice leaves this long before the next neighbour starts. */
+const NEIGHBOUR_MARGIN_MS = 2 * 60_000;
+/** Under this much room left the worker does not start a scan. */
+const MIN_SLICE_MS = 5 * 60_000;
+
+/** Epoch ms of the first neighbour job starting after `from`. */
+function nextNeighbourStart(from: number): number {
+  const day = Date.UTC(new Date(from).getUTCFullYear(), new Date(from).getUTCMonth(), new Date(from).getUTCDate());
+  let best = Infinity;
+  for (let d = 0; d <= 1; d++) {
+    for (let h = 0; h < 24; h++) {
+      for (const n of NEIGHBOURS) {
+        const at = day + d * 86_400_000 + h * 3_600_000 + n.minute * 60_000;
+        if (n.hours(h) && at > from && at < best) best = at;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Minutes the worker spends from `start`: the slot's size by the hour it starts in (50; 40 at 04 UTC;
+ * 25 at 02/08/14/20 h), cut so that it ends 2 minutes before the next neighbour job starts (GitHub
+ * often starts a run 10-30 min late). 0 when under 5 minutes are left: the run exits without scanning.
+ */
 export function psnSliceMinutes(start: Date): number {
   const hour = start.getUTCHours();
-  if ([2, 8, 14, 20].includes(hour)) return 25; // steam-details at :37
-  if (hour === 4) return 40; // catalog-enrich at 04:37
-  return 50;
+  const base = [2, 8, 14, 20].includes(hour) ? 25 : hour === 4 ? 40 : 50;
+  const room = nextNeighbourStart(start.getTime()) - NEIGHBOUR_MARGIN_MS - start.getTime();
+  if (room < MIN_SLICE_MS) return 0;
+  return Math.min(base, Math.floor(room / 60_000));
 }
 
 export type PsnLog = { info(message: string): void; warn(message: string): void };
@@ -225,6 +263,7 @@ export async function scanPsnIds({
   let scanned = 0;
   let hits = 0;
   let stopped: ScanStop = "count";
+  let scanError: unknown;
 
   try {
     while (true) {
@@ -254,7 +293,7 @@ export async function scanPsnIds({
       } catch (error) {
         if (error instanceof PsnAuthError) throw error;
         const status = error instanceof PsnHttpError ? error.status : null;
-        if (status === 401) throw error;
+        if (status === 401 || (status === null && !isNetworkError(error))) throw error; // a bug, not Sony: fail loudly
         if (status === 400 || status === 403) {
           stuck = stuck?.id === id ? { id, runs: stuck.runs + 1 } : { id, runs: 1 };
           stopped = "forbidden";
@@ -282,6 +321,9 @@ export async function scanPsnIds({
         break;
       }
     }
+  } catch (error) {
+    scanError = error;
+    throw error;
   } finally {
     // Whatever stopped the loop (even an auth error), what was read is kept: one write, retried once.
     const rows = pending.splice(0);
@@ -294,7 +336,13 @@ export async function scanPsnIds({
     } catch (error) {
       log.warn(`PSN catalog write failed, trying once more: ${error instanceof Error ? error.message : String(error)}`);
       await sleep(5_000);
-      await writeSlice(rows, final);
+      try {
+        await writeSlice(rows, final);
+      } catch (again) {
+        log.warn(`PSN catalog write failed again: ${again instanceof Error ? again.message : String(again)}`);
+        // The error that ended the scan is the one to report; the write error only when the scan was fine.
+        if (scanError === undefined) throw again;
+      }
     }
   }
   return { scanned, hits, next: stopped === "ceiling" ? 1 : position, misses: stopped === "ceiling" ? 0 : misses, stopped };

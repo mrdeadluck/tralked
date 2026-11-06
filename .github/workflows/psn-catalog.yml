@@ -11,7 +11,10 @@
 # Slots (UTC), each ending before the next job of the timetable in app/README.md:
 #   :20 of 0, 4, 6, 10, 12, 16, 18 and 22 h: 50 min (04:20 only 40 min, catalog-enrich runs at 04:37);
 #   :03 of 2, 8, 14 and 20 h: 25 min (steam-details runs at :37).
-# The worker computes its window from the start time (psnSliceMinutes); a manual run passes minutes.
+# GitHub often starts a run 10-30 min late, so the worker computes its window from the real start time
+# (psnSliceMinutes): the slot's size, cut to end 2 min before the next job of the timetable starts
+# (:17 at 0/6/12/18, 03:19, :23 of odd hours, :37 at 2/8/14/20, 04:37); with under 5 min left it exits 0
+# without scanning. The 04 slot therefore ends by 04:35. A manual run passes minutes.
 # Needs the repository secrets DATABASE_URL (Neon, unpooled) and PSN_NPSSO (the service account's).
 name: psn-catalog
 
