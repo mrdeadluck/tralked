@@ -423,7 +423,51 @@ O site (`app/`, Next.js 16) ganha:
 - [ ] **Step 4:** `pnpm test`. Esperado: PASS.
 - [ ] **Step 5: commit** `feat(robo): embed the official X posts the story is built on`.
 
-### Task A10: fontes sem repetição e comando de conferência
+### Task A11: galeria em notícia de imagens novas (acréscimo do Lucas, 05/11)
+
+**Files:**
+- Create: `ROBO NOTICIAS/src/media/gallery.ts`
+- Modify:
+  - `ROBO NOTICIAS/src/tralked.ts`: `ContentBlock` ganha `{ type: "gallery"; images: { url; alt; credit; creditUrl? }[] }`;
+  - `ROBO NOTICIAS/src/assemble.ts`: `ArticleMedia.gallery?: MediaImage[]`. A galeria entra logo depois do primeiro parágrafo e antes do vídeo, e com ela não entra `bodyImage`;
+  - `ROBO NOTICIAS/src/pipeline.ts`: `articleMedia` chama `chooseGallery` quando `isImagesStory`.
+- Modify (site):
+  - `app/src/lib/content/schema.ts`: `galleryBlockSchema = z.strictObject({ type: z.literal("gallery"), images: z.array(z.strictObject({ url: <https como image>, alt: plainText(300), credit: plainText(200), creditUrl: <https opcional> })).min(3).max(12) })`, incluído no `contentBlockSchema`;
+  - `app/src/lib/content/render.tsx`: `case "gallery"` → `<Gallery block={block} />`;
+  - `app/src/lib/admin/block-draft.ts` e `app/src/components/admin/BlockEditor.tsx`: a galeria aparece só para leitura e é preservada ao salvar.
+- Create (site): `app/src/components/content/Gallery.tsx`, componente client. A grade usa 2 colunas abaixo de 640 px e 3 a partir daí.
+  - O clique abre um `<dialog>` com a imagem grande.
+  - No diálogo, Esc fecha, ←/→ navegam, o foco fica preso e volta à miniatura ao fechar.
+  - Com o mesmo crédito em todas as imagens, ele vira uma legenda única da galeria. Com créditos diferentes, cada imagem leva o seu.
+- Test: `ROBO NOTICIAS/test/media-gallery.test.ts`, `ROBO NOTICIAS/test/assemble.test.ts`, `app/src/components/content/Gallery.test.tsx` e o teste de schema.
+
+**Interfaces:**
+- Consumes: A2 (`fetchImage`, `hamming`, `SAME_IMAGE_MAX_DISTANCE`), A3 (`collectCandidates`, `markRepeated`, `isEligible`, `fitsBody`), A4 (`checkImages`) e A5 (`creditFor`, `uploadImage`, `MediaImage`).
+- Produces:
+  - `isImagesStory(story: StoryRow, items: ItemRow[]): boolean`. É verdadeiro quando a manchete ou algum título de item casa com `/novas imagens|screenshots?|galeria|capturas|fotos oficiais|imagens oficiais|key art|new images|gallery/i`.
+  - `chooseGallery(input: { candidates: ImageCandidate[]; cover?: MediaImage; subject: string; headline: string; companies: string[] }, deps: …mesmos de chooseImages): Promise<MediaImage[]>`:
+    - fica com as candidatas elegíveis e com `fitsBody`, sem a capa nem quase-duplicatas;
+    - a visão roda em no máximo 2 chamadas de 6;
+    - envia até 8 imagens;
+    - devolve `[]` com menos de 3 aprovadas.
+  - `GALLERY_MIN = 3`, `GALLERY_MAX = 8`.
+
+- [ ] **Step 1: testes que falham.**
+  - **Robô:**
+    - uma história "Rockstar solta novas imagens de GTA 6" com 5 imagens oficiais repetidas em 2 hosts gera um bloco `gallery` com 5 imagens e crédito "Divulgação/Rockstar Games";
+    - com só 2 aprovadas, não há galeria;
+    - uma imagem recusada pela visão fica fora;
+    - quase-duplicatas (mesma imagem em dois tamanhos) contam uma vez;
+    - `isImagesStory` é falso para "GTA 6 é adiado".
+  - **Site:**
+    - o schema recusa galeria com 2 imagens ou com URL http;
+    - o `Gallery` abre o diálogo ao clicar, Esc fecha, → vai para a próxima e o foco volta à miniatura.
+- [ ] **Step 2:** rodar. Esperado: FAIL.
+- [ ] **Step 3:** implementar.
+- [ ] **Step 4:** robô `pnpm test && pnpm typecheck`; site `pnpm test && pnpm typecheck && pnpm lint`. Esperado: PASS.
+- [ ] **Step 5: commit** `feat(robo,news): news about new images brings the official gallery`.
+
+### Task A12: fontes sem repetição e comando de conferência
 
 **Files:**
 - Modify: `ROBO NOTICIAS/src/assemble.ts`: `sourceBlocks` cita cada veículo uma vez. A chave é o nome normalizado, e fica a URL da fonte mais bem colocada (`writerSources` já ordena).
@@ -440,7 +484,7 @@ O site (`app/`, Next.js 16) ganha:
 - [ ] **Step 4:** `pnpm test && pnpm typecheck`. Esperado: PASS.
 - [ ] **Step 5: commit** `fix(robo): one entry per outlet in Fontes; pnpm midia dry run`.
 - [ ] **Step 6: checkpoint e entrega (a).**
-  1. Rodar `pnpm midia` nas histórias 4929 (Sentinel), 4838 (Xbox Wire), 4790 (BioWare) e 4840 (itch.io) e mandar o resultado ao Lucas.
+  1. Rodar `pnpm midia` nas histórias 4929 (Sentinel), 4838 (Xbox Wire), 4790 (BioWare), 4840 (itch.io) e 5265 (galeria do GTA 6) e mandar o resultado ao Lucas.
   2. Passar a ele o comando de produção que dá `media:write` à chave do robô de notícias. Antes, o builder confere em `app/src/lib/api/` como os escopos são guardados e monta o `UPDATE` exato.
   3. Depois do ok dele: merge `--no-ff` na `main`, push, esperar o deploy da Vercel com sucesso e atualizar a cópia que roda (`git merge origin/main` em `C:\projetos\Nova pasta`).
 
