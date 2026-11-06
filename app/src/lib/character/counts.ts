@@ -142,7 +142,11 @@ async function platinumLists(userId: string, db: Db): Promise<PlatinumList[]> {
 }
 
 /** "Platinas" (platinumCount): the profile header, the sheet's Troféus card and the migration snapshots read these. */
-async function platinumTallyOf(userId: string, db: Db): Promise<PlatinumCounts> {
+/**
+ * The same, read now (never the per-request memo): writers that store it (the highscores totals
+ * in a recompute) must not take a value read before their own changes.
+ */
+export async function platinumTallyOf(userId: string, db: Db = prisma): Promise<PlatinumCounts> {
   const [unlocks, lists, completions] = await Promise.all([
     platinumUnlocks(userId, db),
     platinumLists(userId, db),

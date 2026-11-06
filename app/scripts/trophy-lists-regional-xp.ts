@@ -5,8 +5,11 @@
  * restored; nothing already paid is voided or paid twice), in batches, then recomputes each
  * player. Prints per player: new and restored entries (restored ones by the hour they were voided),
  * voided (expected 0), XP, level and platinums before -> after. Idempotent. The real run writes
- * what it did to C:\Users\luck_\tralked-backups\regional-xp-<timestamp>.json: per player, the
- * created keys and the restored entry ids with their old voidedAt.
+ * what it did to C:\Users\luck_\tralked-backups\regional-xp-<timestamp>.json as each player
+ * finishes (a crash midway leaves the record of the players done): per player, the created keys,
+ * the restored entry ids with their old voidedAt, and the voided ids (expected none). Afterwards
+ * run `pnpm highscores:backfill`: the "Platinas e 100%" board of the players not recomputed here
+ * still holds the old meaning.
  *
  * `--dry-run` only reads: the session is opened read-only (default_transaction_read_only=on,
  * checked before anything) and nothing is written. Production: the direct URL.
@@ -50,7 +53,20 @@ try {
   } else {
     log.info(`Paying every regional list in ${db.name}…`);
   }
-  const reports = await regionalListXp({ dryRun, handle: values.user, log: (line) => log.info(line) });
+  const file = join(BACKUPS, `regional-xp-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+  const startedAt = new Date().toISOString();
+  /** The real run's record, rewritten as each player finishes. */
+  const save = (done: Awaited<ReturnType<typeof regionalListXp>>) => {
+    mkdirSync(BACKUPS, { recursive: true });
+    const users = done.map((r) => ({ userId: r.userId, handle: r.handle, ...r.entries }));
+    writeFileSync(file, `${JSON.stringify({ database: db.name, startedAt, users }, null, 2)}\n`);
+  };
+  const reports = await regionalListXp({
+    dryRun,
+    handle: values.user,
+    log: (line) => log.info(line),
+    onReport: dryRun ? undefined : save,
+  });
   const total = reports.reduce(
     (acc, r) => ({
       created: acc.created + r.created.trophies + r.created.platinums,
@@ -65,10 +81,7 @@ try {
       `XP ${total.xp >= 0 ? "+" : ""}${total.xp.toLocaleString("pt-BR")}.`,
   );
   if (!dryRun) {
-    mkdirSync(BACKUPS, { recursive: true });
-    const file = join(BACKUPS, `regional-xp-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-    const users = reports.map((r) => ({ userId: r.userId, handle: r.handle, created: r.entries.created, restored: r.entries.restored }));
-    writeFileSync(file, `${JSON.stringify({ database: db.name, takenAt: new Date().toISOString(), users }, null, 2)}\n`);
+    save(reports);
     log.info(`Plans written to ${file}.`);
   }
   if (total.voided > 0) log.warn("WARNING: entries were voided; the rule should only add. Investigate.");
@@ -78,6 +91,9 @@ try {
     }
   }
   if (dryRun) log.info("Dry run: nothing was written (XP after = the ledger plus the new entries; missions not simulated).");
+  log.info(
+    'Next: run `pnpm highscores:backfill` (same DATABASE_URL) so every player\'s "Platinas e 100%" board counts platinas per list.',
+  );
 } catch (error) {
   log.error("Regional lists XP failed", error);
   process.exitCode = 1;

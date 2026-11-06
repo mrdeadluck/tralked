@@ -1,4 +1,4 @@
-import { platinumTally } from "@/lib/character/counts";
+import { platinumTallyOf } from "@/lib/character/counts";
 import { prisma } from "@/lib/db";
 import { computeRankStats, RANK_SCOPES, type RankScope, type RankStatsValues } from "./stats";
 
@@ -15,7 +15,8 @@ export async function loadRankStats(
 ): Promise<Record<RankScope, RankStatsValues>> {
   const [games, platinums] = await Promise.all([
     prisma.userGame.findMany({ where: { userId }, select: { gameId: true, platform: true, playtimeMin: true } }),
-    platinumTally(userId),
+    // Read now: the per-request memo could hold a value from before this recompute's changes.
+    platinumTallyOf(userId),
   ]);
   return computeRankStats({ games, unlocks: unlocks.map((u) => u.achievement), platinums });
 }

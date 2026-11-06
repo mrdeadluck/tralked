@@ -1,4 +1,4 @@
-import { platinumTally } from "@/lib/character/counts";
+import { platinumTallyOf } from "@/lib/character/counts";
 import { prisma } from "@/lib/db";
 import { levelFromXp } from "@/lib/engine/xp";
 import { applyListXpPlan, planListXp, type ListXpPlan } from "@/lib/progression/list-xp";
@@ -42,8 +42,15 @@ export type RegionalXpReport = {
   platinums: [number, number];
   /** The PSN platinum trophies ("N na PSN"). */
   psnPlatinums: number;
-  /** What the run wrote (or would write): created keys (`source:sourceKey`) and restored entries with their old voidedAt. */
-  entries: { created: string[]; restored: { id: string; source: string; sourceKey: string; voidedAt: string }[] };
+  /**
+   * What the run wrote (or would write): created keys (`source:sourceKey`), restored entries with
+   * their old voidedAt, and voided entries (expected none).
+   */
+  entries: {
+    created: string[];
+    restored: { id: string; source: string; sourceKey: string; voidedAt: string }[];
+    voided: { id: string; source: string; sourceKey: string }[];
+  };
 };
 
 /** PSN games with two or more lists of one console (version), by id. */
@@ -91,6 +98,8 @@ export async function regionalListXp(options: {
   handle?: string;
   now?: Date;
   log?: (line: string) => void;
+  /** Called with every report so far as each player finishes (the script saves them as it goes). */
+  onReport?: (reports: RegionalXpReport[]) => void;
 }): Promise<RegionalXpReport[]> {
   const now = options.now ?? new Date();
   const gameIds = await multiListGames();
@@ -150,7 +159,7 @@ export async function regionalListXp(options: {
       xpAfter = await ledgerXp(user.id);
       after = await coverage(user.id, games);
     }
-    const tally = await platinumTally(user.id);
+    const tally = await platinumTallyOf(user.id);
     const report: RegionalXpReport = {
       userId: user.id,
       handle: user.handle,
@@ -171,6 +180,7 @@ export async function regionalListXp(options: {
       entries: {
         created: createdEntries.map((e) => `${e.source}:${e.sourceKey}`).sort(),
         restored: restoredEntries.map((e) => ({ id: e.id, source: e.source, sourceKey: e.sourceKey, voidedAt: e.voidedAt.toISOString() })),
+        voided: removed.map((e) => ({ id: e.id, source: e.source, sourceKey: e.sourceKey })),
       },
     };
     options.log?.(formatReport(report));
@@ -185,6 +195,7 @@ export async function regionalListXp(options: {
       }
     }
     reports.push(report);
+    options.onReport?.(reports);
   }
   return reports;
 }

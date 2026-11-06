@@ -179,6 +179,7 @@ describe("regionalListXp (pnpm trophy-lists:regional-xp)", () => {
       entries: {
         created: [`achievement:${jp.trophies[0].id}`, `platinum:psn:${jp.list.externalId}:${game.id}`].sort(),
         restored: [{ id: entry.id, source: "achievement", sourceKey: jp.trophies[1].id, voidedAt: at(60).toISOString() }],
+        voided: [],
       },
       voided: 0,
       unpaid: { voidedUnderLink: 0, voidedBeforeLink: 0, blocked: 0 },
@@ -188,7 +189,15 @@ describe("regionalListXp (pnpm trophy-lists:regional-xp)", () => {
     // The restored entries are logged by the hour they were voided.
     expect(lines).toContain(`  ${user.handle}: 1 entries voided at ${at(60).toISOString().slice(0, 13)}h (${tierXp("bronze").toLocaleString("pt-BR")} XP), restored`);
 
-    const [report] = await regionalListXp({ dryRun: false, handle: user.handle, now: NOW });
+    // The script saves the record as each player finishes.
+    const saved: string[][] = [];
+    const [report] = await regionalListXp({
+      dryRun: false,
+      handle: user.handle,
+      now: NOW,
+      onReport: (done) => saved.push(done.map((r) => r.handle)),
+    });
+    expect(saved).toEqual([[user.handle]]);
     expect(report).toEqual(dry);
     // Restored as it was paid (value and date kept).
     expect(await prisma.xpLedgerEntry.findUniqueOrThrow({ where: { id: entry.id } })).toEqual({ ...entry, voidedAt: null });

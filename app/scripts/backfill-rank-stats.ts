@@ -32,7 +32,7 @@ try {
     const all = await refreshRankStats(user.id, { dryRun });
     log.info(
       `${dryRun ? "would write" : "wrote"} @${user.handle}: ${Math.floor(all.playtimeMin / 60)} h, ` +
-        `${all.achievements} unlocks (${all.rareAchievements} rare), ${all.perfectGames} at 100%, ` +
+        `${all.achievements} unlocks (${all.rareAchievements} rare), ${all.perfectGames} platinas, ` +
         `${all.gamesOwned} games (${all.gamesPlayed} played)`,
     );
   }
