@@ -489,6 +489,64 @@ describe("settleListXp", () => {
     expect(before.map((e) => e.sourceKey).sort()).toEqual(jpTrophies.map((t) => t.id).sort());
   });
 
+  it("a PSN catalog list older than the player's: its rows arriving on a page open pay nothing twice", async () => {
+    // matchPsnCatalog made the EU list (older: canonical) without trophies; the player's sync then
+    // read the JP list of the same PS5 version and paid its trophies and platinum by own id/key.
+    const { ensureTrophyList } = await import("@/lib/trophies/lists");
+    const { loadPsnCatalogTrophies, PSN_OPEN_BUDGET_KEY, PSN_OPEN_COOLDOWN_KEY } = await import("@/lib/sync/psn-catalog-trophies");
+    const CATALOG = "NPWR97301_00";
+    await prisma.psnCatalogList.deleteMany({ where: { id: CATALOG } });
+    await prisma.syncCursor.deleteMany({ where: { key: { in: [PSN_OPEN_BUDGET_KEY, PSN_OPEN_COOLDOWN_KEY] } } });
+    try {
+      const user = await newUser();
+      const game = await newGame();
+      await prisma.psnCatalogList.create({
+        data: { id: CATALOG, name: "Lista", console: "PS5", serviceName: "trophy2", trophyCount: 2, tiers: { bronze: 1, silver: 0, gold: 0, platinum: 1 }, matchedAt: T0 },
+      });
+      const eu = await ensureTrophyList(prisma, { gameId: game.id, platform: "psn", externalId: CATALOG, console: "PS5", name: "Lista", serviceName: "trophy2", trophyCount: 2 });
+      await prisma.trophyList.update({ where: { id: eu.id }, data: { createdAt: T0 } });
+      const jp = await newList(game.id, "PS5", at(1));
+      const jpTrophies = await newTrophies(game.id, jp.id);
+      await prisma.userAchievement.createMany({
+        data: jpTrophies.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(10 + i) })),
+      });
+      await prisma.userTrophyList.create({ data: { userId: user.id, listId: jp.id, unlockedCount: 2, completedAt: at(11) } });
+      expect(await settle(user.id, [game.id])).toEqual({ paid: 3, voided: 0 });
+      const before = await valid(user.id);
+      expect(before.filter((e) => e.source === "achievement").map((e) => e.sourceKey).sort()).toEqual(jpTrophies.map((t) => t.id).sort());
+      expect(before.filter((e) => e.source === "platinum").map((e) => e.sourceKey)).toEqual([`psn:PS5:${game.id}`]);
+
+      // A visitor opens the game page: the catalog list's definitions are written (the canonical rows).
+      const api = {
+        getListTrophies: async () =>
+          (["0", "1"] as const).map((id) => ({
+            trophyId: id,
+            name: `T${id}`,
+            description: null,
+            iconUrl: null,
+            hidden: false,
+            tier: id === "0" ? ("platinum" as const) : ("bronze" as const),
+            earned: false,
+            earnedAt: null,
+            rarityPct: null,
+          })),
+      };
+      expect(await loadPsnCatalogTrophies(game.id, api, NOW, { databaseBytes: async () => 0 })).toBe("loaded");
+      expect(await prisma.achievement.count({ where: { listId: eu.id } })).toBe(2);
+
+      // Nothing moves: the own-id entries stay, no stand-in under the new canonical ids, no second platinum.
+      expect(await settle(user.id, [game.id])).toEqual({ paid: 0, voided: 0 });
+      expect(await valid(user.id)).toEqual(before);
+      expect(await rebuildListXp(user.id, NOW)).toEqual({ paid: 0, voided: 0 });
+      const trophyAndPlatinum = (rows: Awaited<ReturnType<typeof valid>>) =>
+        rows.filter((e) => e.source === "achievement" || e.source === "platinum").map((e) => [e.source, e.sourceKey, e.xp]);
+      expect(trophyAndPlatinum(await valid(user.id))).toEqual(trophyAndPlatinum(before));
+    } finally {
+      await prisma.psnCatalogList.deleteMany({ where: { id: CATALOG } });
+      await prisma.syncCursor.deleteMany({ where: { key: { in: [PSN_OPEN_BUDGET_KEY, PSN_OPEN_COOLDOWN_KEY] } } });
+    }
+  });
+
   /** Valid `achievement` entry keys (the fraud flow's recompute may also pay missions). */
   const trophyKeys = async (userId: string) =>
     (await valid(userId)).filter((e) => e.source === "achievement").map((e) => e.sourceKey);
