@@ -9,8 +9,8 @@
  * Without --minutes the window comes from the start time (psnSliceMinutes: 50 min, cut 2 min before
  * the next job of the timetable; a late start with under 5 min left, or inside platform-import's
  * window, exits 0).
- * While Sony's pause holds (`psn-open-cooldown`: a slice Sony throttled or refused writes it for
- * 4 h, a page open for 1 h) the run skips its slot and exits 0.
+ * While Sony's pause holds (`psn-open-cooldown`: a slice Sony throttled, or refused with 403 on 3
+ * different ids, writes it for 4 h; a page open for 1 h) the run skips its slot and exits 0.
  * The scan holds its rows in memory and writes once at the end (Neon sleeps meanwhile); SIGINT/SIGTERM
  * (a GitHub cancel) ends the scan early and that write still happens.
  * Run by .github/workflows/psn-catalog.yml (matching only when the repository variable
@@ -86,7 +86,7 @@ try {
       const scan = await scanPsnIds({ api: getPsn(), count: Number.MAX_SAFE_INTEGER, deadline: scanDeadline, cursor, shouldStop: () => stopRequested, log });
       log.info(`Scanned ${scan.scanned} ids, ${scan.hits} lists; stopped: ${scan.stopped}; next id ${scan.next}; ${scan.misses} misses in a row.`);
       if (scan.cooldownUntil !== null) {
-        log.warn(`Sony throttled or refused the scan: every Sony call pauses until ${new Date(scan.cooldownUntil).toISOString()}.`);
+        log.warn(`Sony throttled the scan or refused a burst of ids: every Sony call pauses until ${new Date(scan.cooldownUntil).toISOString()}.`);
       }
       if (scan.stopped === "forbidden") exitCode = 1;
     }

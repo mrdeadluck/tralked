@@ -19,8 +19,9 @@ import { candidatesByName, type Candidate } from "./retro-catalog";
  * Only the `_00` suffix is walked; `_01` and above (rare sub-sets) are not read yet.
  * The Sony API is unofficial and the service account is the one the player syncs use, so the
  * scan is slow on purpose: one request every 3 s (psnawp's 300 per 15 min), and a clean stop on
- * 429/5xx/403 that also pauses every Sony call of the site for 4 h (`psn-open-cooldown`, the row
- * page opens check; the worker skips its slots while it holds).
+ * 429/5xx or on a burst of 403s (3 different ids in one slice) that also pauses every Sony call of
+ * the site for 4 h (`psn-open-cooldown`, the row page opens check; the worker skips its slots while
+ * it holds). A single refused id is passed over and asked again by the next slices.
  * The database is not touched while the scan runs (Neon sleeps): the rows of a slice (about 700)
  * are held in memory and written once at its end, together with the cursor, in one transaction.
  */
@@ -42,18 +43,25 @@ export const PSN_MISS_LIMIT = 2000;
 export const PSN_WRITE_BATCH = 50;
 /**
  * Pause of every Sony call (scan slots and page opens) after Sony throttled the scan (429/5xx
- * after the retries) or refused it with a 403.
+ * after the retries) or refused PSN_FORBIDDEN_BURST different ids with 403 in one slice.
  */
 export const PSN_SCAN_COOLDOWN_MS = 4 * 3_600_000;
+/**
+ * New ids refused with 403 in one slice that make a burst: the slice stops and Sony pauses
+ * (PSN_SCAN_COOLDOWN_MS). Fewer are single lists Sony refuses: passed over, retried later.
+ */
+export const PSN_FORBIDDEN_BURST = 3;
 /** Waits after a 429/5xx/network error before asking the same id again; when they run out the slice ends. */
 export const PSN_BACKOFF_MS = [5_000, 15_000, 45_000];
 /**
  * An id Sony refuses with 400/403 in this many slices in a row is skipped by the next one (the
- * scan must not stay on one id forever). 401 and authentication errors are never skipped.
+ * scan must not ask one id forever). 401 and authentication errors are never skipped.
  */
 export const PSN_STUCK_RUNS = 3;
 /** Ids kept in the cursor's `skipped` list. */
 const SKIPPED_CAP = 50;
+/** Ids kept in the cursor's `refused` list (the oldest beyond it are skipped). */
+const REFUSED_CAP = 20;
 const MAX_WAIT_MS = 120_000;
 /** A list left unmatched (unknown or ambiguous name) is looked at again after this long. */
 const RETRY_MS = 30 * 24 * 3_600_000;
@@ -121,17 +129,22 @@ const quiet: PsnLog = { info: () => {}, warn: () => {} };
 type CatalogApi = Pick<PsnApi, "getListInfo">;
 /**
  * Where the scan is: `next` id number, the `misses` in a row up to it, the `service` that answered
- * last, `completedAt` of the last finished lap (null while a lap runs), `stuck` (an id refused
- * with 400/403 in `runs` slices in a row) and the ids `skipped` for that reason (newest last).
+ * last, `completedAt` of the last finished lap (null while a lap runs), the ids `refused` with
+ * 400/403 (passed over, asked again at the start of the next slices; `runs`: slices in a row that
+ * refused it) and the ids `skipped` after PSN_STUCK_RUNS such slices (newest last).
  */
 export type Cursor = {
   next: number;
   misses: number;
   service: PsnServiceName;
   completedAt: string | null;
-  stuck?: { id: string; runs: number };
+  refused?: { id: string; runs: number }[];
   skipped?: string[];
 };
+
+type Refused = { id: string; runs: number };
+const isRefused = (r: unknown): r is Refused =>
+  !!r && typeof (r as Refused).id === "string" && Number.isInteger((r as Refused).runs) && (r as Refused).runs >= 0;
 
 export type ScanStop = "count" | "deadline" | "ceiling" | "throttled" | "forbidden" | "signal";
 export type ScanResult = {
@@ -140,7 +153,7 @@ export type ScanResult = {
   next: number;
   misses: number;
   stopped: ScanStop;
-  /** Epoch ms of the Sony pause the slice wrote (throttled, or refused with a 403), else null. */
+  /** Epoch ms of the Sony pause the slice wrote (throttled, or a burst of 403s), else null. */
   cooldownUntil: number | null;
 };
 
@@ -166,13 +179,15 @@ export type ScanOptions = {
 
 export async function readCursor(): Promise<Cursor> {
   const row = await prisma.syncCursor.findUnique({ where: { key: PSN_SCAN_CURSOR } });
-  const v = (row?.value ?? {}) as Partial<Cursor>;
+  const v = (row?.value ?? {}) as Partial<Cursor> & { stuck?: unknown };
+  // `stuck` (one id) is the cursor's shape before `refused`.
+  const refused = Array.isArray(v.refused) ? v.refused.filter(isRefused) : isRefused(v.stuck) ? [v.stuck] : [];
   return {
     next: Number.isInteger(v.next) && v.next! >= 1 ? v.next! : 1,
     misses: Number.isInteger(v.misses) && v.misses! >= 0 ? v.misses! : 0,
     service: v.service === "trophy" ? "trophy" : "trophy2",
     completedAt: typeof v.completedAt === "string" ? v.completedAt : null,
-    ...(v.stuck && typeof v.stuck.id === "string" && Number.isInteger(v.stuck.runs) ? { stuck: { id: v.stuck.id, runs: v.stuck.runs } } : {}),
+    ...(refused.length ? { refused: refused.slice(-REFUSED_CAP).map((r) => ({ id: r.id, runs: r.runs })) } : {}),
     ...(Array.isArray(v.skipped) ? { skipped: v.skipped.filter((s): s is string => typeof s === "string").slice(-SKIPPED_CAP) } : {}),
   };
 }
@@ -243,13 +258,16 @@ function isNetworkError(error: unknown): boolean {
  * apart. Nothing is written while it walks: the rows found and the cursor are written once, in one
  * transaction, when the loop ends (for any reason, errors included; one retry for a Neon cold
  * start). A 429, 5xx or network error is retried after PSN_BACKOFF_MS; when that runs out the
- * slice ends with the cursor on the id that failed. A 400/403 ends the slice too, and the same id
- * refused in PSN_STUCK_RUNS slices in a row is skipped by the next one. A slice ended by a 429/5xx
- * (after the retries) or by a 403 (the scan stops at the first one, so that 403 is the burst) also
- * writes the 4 h pause of every Sony call (PSN_SCAN_COOLDOWN_MS, `psn-open-cooldown`), in its one
- * write; a network error or a 400 does not. A lap ends after PSN_MISS_LIMIT consecutive ids with no
- * list, once past the highest NPWR id a TrophyList holds: the cursor then goes back to 1 with
- * `completedAt` set (cleared again when the next lap starts).
+ * slice ends with the cursor on the id that failed. An id refused with 400/403 is passed over and
+ * kept in the cursor's `refused` list: the next slices ask it again first (read: it leaves the
+ * list), and one refused in PSN_STUCK_RUNS slices in a row is skipped. 403s on
+ * PSN_FORBIDDEN_BURST new ids in one slice are Sony refusing the account, not lists: the slice
+ * stops there, and those refusals do not count toward any id's runs. A slice ended by a 429/5xx
+ * (after the retries) or by that burst writes the 4 h pause of every Sony call
+ * (PSN_SCAN_COOLDOWN_MS, `psn-open-cooldown`) in its one write; a network error, a 400 or fewer
+ * 403s do not. A lap ends after PSN_MISS_LIMIT consecutive ids with no list, once past the highest
+ * NPWR id a TrophyList holds: the cursor then goes back to 1 with `completedAt` set (cleared again
+ * when the next lap starts).
  */
 export async function scanPsnIds({
   api,
@@ -268,8 +286,11 @@ export async function scanPsnIds({
   let position = from ?? saved.next;
   let misses = from === undefined ? saved.misses : 0;
   let service = saved.service;
-  let stuck = saved.stuck;
+  let refused: Refused[] = (saved.refused ?? []).map((r) => ({ ...r }));
+  const runsBefore = new Map(refused.map((r) => [r.id, r.runs]));
   let skipped = saved.skipped ?? [];
+  /** New ids refused with 403 in this slice (a burst at PSN_FORBIDDEN_BURST). */
+  const forbiddenNew = new Set<string>();
   // A new lap forgets the end of the last one.
   const completedAt = position === 1 ? null : saved.completedAt;
   let lastRequestAt = -Infinity;
@@ -305,66 +326,107 @@ export async function scanPsnIds({
     misses,
     service,
     completedAt,
-    ...(stuck ? { stuck } : {}),
+    ...(refused.length ? { refused } : {}),
     ...(skipped.length ? { skipped } : {}),
   });
   let scanned = 0;
   let hits = 0;
-  let stopped: ScanStop = "count";
-  /** HTTP status that ended the slice (throttled / forbidden); null for a network error. */
+  // Set inside the closures below too: the cast keeps TypeScript from narrowing it to "count".
+  let stopped = "count" as ScanStop;
+  /** HTTP status that ended a throttled slice; null for a network error. */
   let stopStatus: number | null = null;
   let cooldownUntil: number | null = null;
   let scanError: unknown;
 
+  /** Should the slice stop before the next request: a signal or the deadline. */
+  const halted = (): boolean => {
+    if (shouldStop()) stopped = "signal";
+    else if (now() >= deadline) stopped = "deadline";
+    else return false;
+    return true;
+  };
+  /** Status of the last refusal `read` answered (400 or 403). */
+  let lastRefusal = 0;
+  /**
+   * Asks one id on both services. "refused" for a 400/403; a 429/5xx after the retries or a
+   * network error sets `stopped` ("throttled") and answers "stop"; anything else throws.
+   */
+  const read = async (id: string): Promise<PsnListInfo | null | "refused" | "stop"> => {
+    const other: PsnServiceName = service === "trophy2" ? "trophy" : "trophy2";
+    try {
+      return (await ask(id, service)) ?? (await ask(id, other));
+    } catch (error) {
+      if (error instanceof PsnAuthError) throw error;
+      const status = error instanceof PsnHttpError ? error.status : null;
+      if (status === 401 || (status === null && !isNetworkError(error))) throw error; // a bug, not Sony: fail loudly
+      const message = error instanceof Error ? error.message : String(error);
+      if (status === 400 || status === 403) {
+        log.warn(`PSN ${id} refused: ${message}`);
+        lastRefusal = status;
+        return "refused";
+      }
+      if (status !== null && status < 500 && status !== 429) throw error; // an unexpected 4xx: not worth guessing
+      stopStatus = status;
+      stopped = "throttled";
+      log.warn(`PSN catalog scan ends at ${id}: ${message}`);
+      return "stop";
+    }
+  };
+  const found = (info: PsnListInfo) => {
+    hits++;
+    service = info.serviceName;
+    pending.push(rowOf(info));
+  };
+
   try {
-    while (true) {
-      if (scanned >= count) break;
-      if (shouldStop()) {
-        stopped = "signal";
-        break;
-      }
-      if (now() >= deadline) {
-        stopped = "deadline";
-        break;
-      }
-      const id = npwrId(position);
-      if (stuck?.id === id && stuck.runs >= PSN_STUCK_RUNS) {
-        log.warn(`PSN ${id} was refused in ${stuck.runs} slices in a row: skipped.`);
-        skipped = [...skipped, id].slice(-SKIPPED_CAP);
-        stuck = undefined;
-        position++;
-        scanned++;
-        misses++;
+    // First the ids refused by earlier slices: skipped after PSN_STUCK_RUNS slices, else asked again.
+    let walk = true;
+    for (const r of [...refused]) {
+      if (r.runs >= PSN_STUCK_RUNS) {
+        log.warn(`PSN ${r.id} was refused in ${r.runs} slices in a row: skipped.`);
+        skipped = [...skipped, r.id].slice(-SKIPPED_CAP);
+        refused = refused.filter((x) => x !== r);
         continue;
       }
-      const other: PsnServiceName = service === "trophy2" ? "trophy" : "trophy2";
-      let info: PsnListInfo | null;
-      try {
-        info = (await ask(id, service)) ?? (await ask(id, other));
-      } catch (error) {
-        if (error instanceof PsnAuthError) throw error;
-        const status = error instanceof PsnHttpError ? error.status : null;
-        if (status === 401 || (status === null && !isNetworkError(error))) throw error; // a bug, not Sony: fail loudly
-        stopStatus = status;
-        if (status === 400 || status === 403) {
-          stuck = stuck?.id === id ? { id, runs: stuck.runs + 1 } : { id, runs: 1 };
-          stopped = "forbidden";
-        } else if (status !== null && status < 500 && status !== 429) {
-          throw error; // an unexpected 4xx: not worth guessing
-        } else {
-          stopped = "throttled";
-        }
-        log.warn(`PSN catalog scan ends at ${id}: ${error instanceof Error ? error.message : String(error)}`);
+      if (halted()) {
+        walk = false;
         break;
       }
-      if (stuck?.id === id) stuck = undefined;
+      const answer = await read(r.id);
+      if (answer === "stop") {
+        walk = false;
+        break;
+      }
+      if (answer === "refused") r.runs++;
+      else {
+        refused = refused.filter((x) => x !== r);
+        if (answer) found(answer);
+      }
+    }
+    while (walk) {
+      if (scanned >= count) break;
+      if (halted()) break;
+      const id = npwrId(position);
+      const answer = await read(id);
+      if (answer === "stop") break;
       position++;
       scanned++;
-      if (info) {
-        hits++;
+      if (answer === "refused") {
+        // Passed over, asked again by the next slices; not a miss (its list is unknown).
+        const known = refused.find((r) => r.id === id);
+        if (known) known.runs++;
+        else refused.push({ id, runs: 1 });
+        if (lastRefusal === 403 && !runsBefore.has(id)) forbiddenNew.add(id);
+        if (forbiddenNew.size >= PSN_FORBIDDEN_BURST) {
+          stopped = "forbidden";
+          log.warn(`PSN catalog scan ends at ${id}: ${forbiddenNew.size} different ids refused with 403 in one slice.`);
+          break;
+        }
+        continue;
+      }
+      if (answer) {
+        found(answer);
         misses = 0;
-        service = info.serviceName;
-        pending.push(rowOf(info));
       } else {
         misses++;
       }
@@ -379,15 +441,30 @@ export async function scanPsnIds({
   } finally {
     // Whatever stopped the loop (even an auth error), what was read is kept: one write, retried once.
     const rows = pending.splice(0);
-    // Sony throttling (429/5xx after the retries) or refusing (403) the service account: every
+    // A burst of 403s is Sony refusing the account, not those lists: no id's runs count it (the
+    // ids it refused are asked again, as never refused, after the pause).
+    if (stopped === "forbidden") refused = refused.map((r) => ({ id: r.id, runs: runsBefore.get(r.id) ?? 0 }));
+    if (refused.length > REFUSED_CAP) {
+      const dropped = refused.slice(0, refused.length - REFUSED_CAP);
+      log.warn(`PSN catalog: too many refused ids, skipped: ${dropped.map((r) => r.id).join(", ")}`);
+      skipped = [...skipped, ...dropped.map((r) => r.id)].slice(-SKIPPED_CAP);
+      refused = refused.slice(-REFUSED_CAP);
+    }
+    // Sony throttling (429/5xx after the retries) or refusing the account (a burst of 403s): every
     // Sony call of the site pauses, the worker's next slots included.
     const throttledBySony =
-      (stopped === "throttled" && stopStatus !== null && (stopStatus === 429 || stopStatus >= 500)) ||
-      (stopped === "forbidden" && stopStatus === 403);
+      (stopped === "throttled" && stopStatus !== null && (stopStatus === 429 || stopStatus >= 500)) || stopped === "forbidden";
     cooldownUntil = throttledBySony ? Date.now() + PSN_SCAN_COOLDOWN_MS : null;
     const final: Cursor =
       stopped === "ceiling"
-        ? { next: 1, misses: 0, service: "trophy2", completedAt: new Date().toISOString(), ...(skipped.length ? { skipped } : {}) }
+        ? {
+            next: 1,
+            misses: 0,
+            service: "trophy2",
+            completedAt: new Date().toISOString(),
+            ...(refused.length ? { refused } : {}),
+            ...(skipped.length ? { skipped } : {}),
+          }
         : cursorAt(position);
     try {
       await writeSlice(rows, final, cooldownUntil);

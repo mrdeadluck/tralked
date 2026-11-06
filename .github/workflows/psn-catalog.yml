@@ -6,9 +6,9 @@
 # table and, only when the repository variable PSN_CATALOG_MATCH is "true", links the lists whose name
 # is that of exactly one PlayStation catalog game (otherwise it runs with --no-match: off by default
 # until `pnpm psn-catalog:match-check` was read). Trophies are never read here.
-# A slice Sony throttles (429/5xx after the retries) or refuses (403) pauses every Sony call of the site
-# for 4 h (SyncCursor `psn-open-cooldown`, the row the game pages check); the runs in that time exit 0
-# without scanning.
+# A slice Sony throttles (429/5xx after the retries) or refuses with 403 on 3 different ids pauses every
+# Sony call of the site for 4 h (SyncCursor `psn-open-cooldown`, the row the game pages check); the runs
+# in that time exit 0 without scanning. A single refused id is passed over and asked again later.
 # The scan holds the rows it reads in memory and writes them once, at the end of the slice (one
 # transaction), so Neon sleeps while it walks (the free plan has 100 CU-h a month); a cancel (SIGTERM)
 # still writes them.

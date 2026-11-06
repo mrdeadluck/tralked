@@ -7,6 +7,7 @@ import {
   knownPsnCeiling,
   PSN_MIN_GAP_MS,
   PSN_MISS_LIMIT,
+  PSN_FORBIDDEN_BURST,
   PSN_SCAN_COOLDOWN_MS,
   PSN_SCAN_CURSOR,
   PSN_STUCK_RUNS,
@@ -176,7 +177,7 @@ describe.skipIf(!reachable)("PSN catalog scan", () => {
     expect(await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_SCAN_CURSOR } })).toMatchObject({ value: { next: BASE + 1 } });
   });
 
-  it("a 5xx after the retries pauses Sony for 4 h too; a dropped connection or a 400 does not", async () => {
+  it("a 5xx after the retries pauses Sony for 4 h too; a dropped connection or 400s do not", async () => {
     const failing = (error: () => Error) => ({
       getListInfo: async (): Promise<PsnListInfo | null> => {
         throw error();
@@ -191,8 +192,9 @@ describe.skipIf(!reachable)("PSN catalog scan", () => {
     const network = () => Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } });
     const offline = await scanPsnIds({ api: failing(network), from: BASE, count: 5, deadline: Infinity, ...fakeClock() });
     expect(offline).toMatchObject({ stopped: "throttled", cooldownUntil: null });
+    // Every id refused with 400: each one passed over, no burst (only 403s make one).
     const bad = await scanPsnIds({ api: failing(() => new PsnHttpError("trophy groups", 400, null)), from: BASE, count: 5, deadline: Infinity, ...fakeClock() });
-    expect(bad).toMatchObject({ stopped: "forbidden", cooldownUntil: null });
+    expect(bad).toMatchObject({ stopped: "count", scanned: 5, cooldownUntil: null });
     expect(await pause()).toBeNull();
   });
 
@@ -260,13 +262,17 @@ describe.skipIf(!reachable)("PSN catalog scan", () => {
   });
 
   describe("an id Sony refuses", () => {
-    const refusing = (bad: string, status: number, calls: string[] = []) => ({
+    const ok = (id: string, service: PsnServiceName): PsnListInfo | null =>
+      service === "trophy2"
+        ? { npTitleId: id, serviceName: service, name: `${TAG} ok`, platform: "PS5", trophyCounts: { bronze: 1, silver: 0, gold: 0, platinum: 0 } }
+        : null;
+    /** Answers every id but `bad` (refused with `status`), recording the ids asked. */
+    const refusing = (bad: string | string[], status: number, calls: string[] = []) => ({
+      calls,
       async getListInfo(id: string, service: PsnServiceName): Promise<PsnListInfo | null> {
         calls.push(id);
-        if (id === bad) throw new PsnHttpError("trophy groups", status, null);
-        return service === "trophy2"
-          ? { npTitleId: id, serviceName: service, name: `${TAG} ok`, platform: "PS5", trophyCounts: { bronze: 1, silver: 0, gold: 0, platinum: 0 } }
-          : null;
+        if ((Array.isArray(bad) ? bad : [bad]).includes(id)) throw new PsnHttpError("trophy groups", status, null);
+        return ok(id, service);
       },
     });
     const cursor = async () => {
@@ -274,34 +280,83 @@ describe.skipIf(!reachable)("PSN catalog scan", () => {
       return (await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_SCAN_CURSOR } })).value as Record<string, unknown>;
     };
 
-    it("is skipped by the slice after PSN_STUCK_RUNS refused slices in a row", async () => {
+    it("one 403 is passed over without a pause, asked again by the next slices, and skipped after PSN_STUCK_RUNS", async () => {
       expect(PSN_STUCK_RUNS).toBe(3);
       const bad = idOf(BASE + 1);
-      const api = refusing(bad, 403);
-      for (let run = 1; run <= PSN_STUCK_RUNS; run++) {
-        const r = await scanPsnIds({ api, ...(run === 1 ? { from: BASE } : {}), count: 5, deadline: Infinity, ...fakeClock() });
-        expect(r).toMatchObject({ stopped: "forbidden", next: BASE + 1 });
-        expect((await cursor()).stuck).toEqual({ id: bad, runs: run });
-        // The scan stops at its first 403: that refusal pauses every Sony call for 4 h.
-        expect(r.cooldownUntil).toEqual(expect.any(Number));
-        expect(await pause()).not.toBeNull();
+      const calls: string[] = [];
+      const api = refusing(bad, 403, calls);
+      // Slice 1: the refused id is passed over and the slice goes on to its count.
+      const first = await scanPsnIds({ api, from: BASE, count: 5, deadline: Infinity, ...fakeClock() });
+      expect(first).toMatchObject({ stopped: "count", scanned: 5, hits: 4, next: BASE + 5, cooldownUntil: null });
+      expect(await pause()).toBeNull();
+      expect((await cursor()).refused).toEqual([{ id: bad, runs: 1 }]);
+      // Slices 2 and 3 ask it again first (one request: a 403 is not retried on the other service).
+      for (let run = 2; run <= PSN_STUCK_RUNS; run++) {
+        calls.length = 0;
+        const r = await scanPsnIds({ api, count: 5, deadline: Infinity, ...fakeClock() });
+        expect(calls[0]).toBe(bad);
+        expect(r).toMatchObject({ stopped: "count", scanned: 5, cooldownUntil: null });
+        expect((await cursor()).refused).toEqual([{ id: bad, runs: run }]);
       }
+      // Slice 4 skips it without asking.
+      calls.length = 0;
       const fourth = await scanPsnIds({ api, count: 5, deadline: Infinity, ...fakeClock() });
-      expect(fourth).toMatchObject({ stopped: "count", scanned: 5, next: BASE + 6 });
+      expect(calls).not.toContain(bad);
+      expect(fourth).toMatchObject({ stopped: "count", scanned: 5, next: BASE + 20 });
       const after = await cursor();
-      expect(after.stuck).toBeUndefined();
+      expect(after.refused).toBeUndefined();
       expect(after.skipped).toEqual([bad]);
+      expect(await pause()).toBeNull();
     });
 
-    it("a different refused id starts the count again", async () => {
-      await scanPsnIds({ api: refusing(idOf(BASE + 1), 400), from: BASE, count: 5, deadline: Infinity, ...fakeClock() });
-      expect((await cursor()).stuck).toEqual({ id: idOf(BASE + 1), runs: 1 });
-      await scanPsnIds({ api: refusing(idOf(BASE + 1), 400), count: 5, deadline: Infinity, ...fakeClock() });
-      expect((await cursor()).stuck).toEqual({ id: idOf(BASE + 1), runs: 2 });
-      await scanPsnIds({ api: refusing(idOf(BASE + 1), 400), from: BASE + 3, count: 5, deadline: Infinity, ...fakeClock() });
-      // The id 1 is passed no more; a later refusal elsewhere counts from 1.
-      await scanPsnIds({ api: refusing(idOf(BASE + 9), 403), from: BASE + 8, count: 5, deadline: Infinity, ...fakeClock() });
-      expect((await cursor()).stuck).toEqual({ id: idOf(BASE + 9), runs: 1 });
+    it("a refused id Sony answers later is read and leaves the list", async () => {
+      const { prisma } = await import("@/lib/db");
+      const bad = idOf(BASE + 1);
+      await scanPsnIds({ api: refusing(bad, 403), from: BASE, count: 3, deadline: Infinity, ...fakeClock() });
+      expect((await cursor()).refused).toEqual([{ id: bad, runs: 1 }]);
+      const later = await scanPsnIds({ api: refusing([], 403), count: 2, deadline: Infinity, ...fakeClock() });
+      expect(later).toMatchObject({ hits: 3, scanned: 2, next: BASE + 5 });
+      expect((await cursor()).refused).toBeUndefined();
+      expect(await prisma.psnCatalogList.count({ where: { id: bad } })).toBe(1);
+    });
+
+    it("403s on three different ids in one slice stop it and pause Sony for 4 h, without counting toward their runs", async () => {
+      expect(PSN_FORBIDDEN_BURST).toBe(3);
+      const burst = [idOf(BASE + 1), idOf(BASE + 2), idOf(BASE + 4)];
+      // Two different 403s: still no pause.
+      const two = await scanPsnIds({ api: refusing(burst.slice(0, 2), 403), from: BASE, count: 6, deadline: Infinity, ...fakeClock() });
+      expect(two).toMatchObject({ stopped: "count", cooldownUntil: null });
+      expect(await pause()).toBeNull();
+
+      const { prisma } = await import("@/lib/db");
+      await prisma.syncCursor.deleteMany({ where: { key: PSN_SCAN_CURSOR } });
+      const wall = Date.now();
+      const r = await scanPsnIds({ api: refusing(burst, 403), from: BASE, count: 10, deadline: Infinity, ...fakeClock() });
+      expect(r).toMatchObject({ stopped: "forbidden", scanned: 5, hits: 2, next: BASE + 5 });
+      expect(r.cooldownUntil).toBeGreaterThanOrEqual(wall + PSN_SCAN_COOLDOWN_MS);
+      expect((await pause())?.value).toEqual({ until: r.cooldownUntil });
+      // Sony refused the account, not these lists: asked again after the pause, runs 0.
+      expect((await cursor()).refused).toEqual(burst.map((id) => ({ id, runs: 0 })));
+      // The rows read before the burst are kept.
+      expect(await prisma.psnCatalogList.count({ where: { id: { in: [idOf(BASE), idOf(BASE + 3)] } } })).toBe(2);
+    });
+
+    it("an id already refused by an earlier slice does not count toward a burst", async () => {
+      const stuck = [idOf(BASE + 1), idOf(BASE + 2)];
+      await scanPsnIds({ api: refusing(stuck, 403), from: BASE, count: 3, deadline: Infinity, ...fakeClock() });
+      expect((await cursor()).refused).toEqual(stuck.map((id) => ({ id, runs: 1 })));
+      // Both refused again at the start, plus one new 403: two old + one new, no burst.
+      const r = await scanPsnIds({ api: refusing([...stuck, idOf(BASE + 4)], 403), count: 4, deadline: Infinity, ...fakeClock() });
+      expect(r).toMatchObject({ stopped: "count", cooldownUntil: null });
+      expect((await cursor()).refused).toEqual([...stuck.map((id) => ({ id, runs: 2 })), { id: idOf(BASE + 4), runs: 1 }]);
+      expect(await pause()).toBeNull();
+    });
+
+    it("reads the one-id `stuck` of an older cursor as a refused id", async () => {
+      const { prisma } = await import("@/lib/db");
+      const { readCursor } = await import("./psn-catalog");
+      await prisma.syncCursor.create({ data: { key: PSN_SCAN_CURSOR, value: { next: BASE + 1, misses: 0, service: "trophy2", completedAt: null, stuck: { id: idOf(BASE + 1), runs: 2 } } } });
+      expect((await readCursor()).refused).toEqual([{ id: idOf(BASE + 1), runs: 2 }]);
     });
 
     it("a 401 is fatal and never skipped", async () => {
@@ -311,7 +366,7 @@ describe.skipIf(!reachable)("PSN catalog scan", () => {
       }
       const state = await cursor();
       expect(state.next).toBe(BASE + 1);
-      expect(state.stuck).toBeUndefined();
+      expect(state.refused).toBeUndefined();
       expect(state.skipped).toBeUndefined();
       const auth = { getListInfo: async (): Promise<PsnListInfo | null> => { throw new PsnAuthError("authorize", 302); } };
       await expect(scanPsnIds({ api: auth, from: BASE, count: 1, deadline: Infinity, ...fakeClock() })).rejects.toBeInstanceOf(PsnAuthError);
