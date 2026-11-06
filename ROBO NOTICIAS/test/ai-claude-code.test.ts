@@ -136,11 +136,28 @@ describe("createClaudeCodeAi", () => {
     db.recordClaudeUsage(
       { model: "m", inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, usdEquivalent: 0, weeklyUtilization: 0.91 },
       { purpose: "triage" },
+      new Date(NOW.getTime() - 60 * 60 * 1000),
     );
     const { run, calls } = fakeRun(result());
-    const ai = createClaudeCodeAi({ config, db, run, env: {} });
+    const ai = createClaudeCodeAi({ config, db, run, env: {}, now: () => NOW });
     await expect(ai.structured(opts)).rejects.toBeInstanceOf(WeeklyReserveError);
     expect(calls).toHaveLength(0);
+  });
+
+  it("the weekly stop lifts: a reading over the reserve older than 2 h lets one call through, and its fresh reading counts", async () => {
+    db.recordClaudeUsage(
+      { model: "m", inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, usdEquivalent: 0, weeklyUtilization: 0.95 },
+      { purpose: "triage" },
+      new Date(NOW.getTime() - 2 * 60 * 60 * 1000 - 1000),
+    );
+    const { run, calls } = fakeRun(`${rateLimit(0.12)}
+${result()}`);
+    const ai = createClaudeCodeAi({ config, db, run, env: {}, now: () => NOW });
+    await ai.structured(opts);
+    expect(calls).toHaveLength(1);
+    await ai.structured(opts);
+    expect(calls).toHaveLength(2);
+    expect(db.lastWeeklyUtilization()).toBe(0.12);
   });
 
   it("fails without structured output, and maps a refusal to RefusalError", async () => {

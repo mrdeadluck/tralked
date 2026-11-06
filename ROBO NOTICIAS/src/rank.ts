@@ -23,8 +23,16 @@ export function storyScore(s: StoryStats): number {
   return s.maxImportance + tierWeight + extraSources * 5 - (s.rumor ? 15 : 0);
 }
 
-export function isBomb(s: Pick<StoryStats, "maxImportance" | "sourceCount" | "tiers">): boolean {
-  return s.maxImportance >= 90 && s.sourceCount >= 3 && s.tiers.some((t) => t !== "outro");
+/**
+ * Importance >= 90, at least 3 sources and a non-`outro` one, never a rumor. With `fullTextSources`, only
+ * sources with their own text count toward the 3 (a Reddit hot list or a title-only Google News item is a
+ * signal, not coverage).
+ */
+export function isBomb(
+  s: Pick<StoryStats, "maxImportance" | "sourceCount" | "tiers"> & { rumor?: boolean; fullTextSources?: number },
+): boolean {
+  if (s.rumor) return false;
+  return s.maxImportance >= 90 && (s.fullTextSources ?? s.sourceCount) >= 3 && s.tiers.some((t) => t !== "outro");
 }
 
 /**

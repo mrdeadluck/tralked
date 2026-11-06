@@ -446,6 +446,8 @@ export interface Db {
   linkUsageTag(tag: string, ref: { pautaId: number }): void;
   /** The weekly window share Claude Code reported last, or null when none was reported yet. */
   lastWeeklyUtilization(): number | null;
+  /** The newest weekly reading and when it was taken. */
+  lastWeeklyReading(): { utilization: number; at: Date } | null;
   /** Usage added up per article (news and pautas) published since `since`, newest first. */
   usagePerArticle(since: Date): ArticleUsage[];
   /** Usage of runs that belong to no article (triage, clustering) since `since`. */
@@ -693,6 +695,13 @@ export function openDb(dir: string): Db {
 
     linkUsageTag(tag, ref) {
       raw.prepare("UPDATE claude_usage SET pauta_id = ? WHERE tag = ?").run(ref.pautaId, tag);
+    },
+
+    lastWeeklyReading() {
+      const r = one<{ w: number; at: string }>(
+        "SELECT weekly_utilization AS w, at FROM claude_usage WHERE weekly_utilization IS NOT NULL ORDER BY id DESC LIMIT 1",
+      );
+      return r ? { utilization: r.w, at: new Date(r.at) } : null;
     },
 
     lastWeeklyUtilization() {

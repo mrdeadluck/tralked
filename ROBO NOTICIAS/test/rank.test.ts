@@ -38,6 +38,13 @@ describe("isBomb", () => {
     expect(isBomb({ maxImportance: 99, tiers: ["oficial", "outro", "outro"], sourceCount: 5 })).toBe(true);
   });
 
+  it("a rumor is never a bomb, and only sources with their own text count toward the 3 (review 06/11/2026)", () => {
+    expect(isBomb({ maxImportance: 95, tiers: ["portal", "portal", "portal"], sourceCount: 3, rumor: true })).toBe(false);
+    // One portal plus two Reddit hot lists (signal only) or title-only Google News items.
+    expect(isBomb({ maxImportance: 95, tiers: ["portal", "outro", "outro"], sourceCount: 3, fullTextSources: 1 })).toBe(false);
+    expect(isBomb({ maxImportance: 95, tiers: ["portal", "portal", "outro"], sourceCount: 4, fullTextSources: 3 })).toBe(true);
+  });
+
   it("is not a bomb with only 2 sources, even at importance 100 with an oficial source", () => {
     expect(isBomb({ maxImportance: 100, tiers: ["oficial", "portal"], sourceCount: 2 })).toBe(false);
   });

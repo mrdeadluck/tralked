@@ -853,6 +853,59 @@ describe("updates and follow-ups", () => {
     expect(stories(h.db).filter((s) => s.parent_article_id !== null)).toHaveLength(1);
   });
 
+  it("a later-day item that only repeats the published news creates no follow-up (review 06/11/2026)", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    const fact = await publishedStory(h);
+    h.fake.state.novelty = { hasNewFacts: false, newFacts: [] };
+    h.at(local("2026-11-01T09:00"));
+    h.post("ign", "Hades II weapon is here", { ...fact, importance: 80 });
+    const report = await h.coleta();
+    expect(report.followUps).toBe(0);
+    expect(stories(h.db)).toHaveLength(1);
+    expect(h.fake.calls.some((c) => c.purpose === "novelty")).toBe(true);
+  });
+
+  it("an article from late last night takes a same-story update within 12 h, not a follow-up", async () => {
+    const h = harness(local("2026-10-31T22:00"));
+    const fact: Fact = { headline: "Hades II recebe arma nova", importance: 60 };
+    h.post("ign", "Hades II ganha arma nova", fact);
+    h.post("kotaku", "Hades II adds a new weapon", fact);
+    await h.coleta();
+    h.at(local("2026-10-31T22:30"));
+    expect((await h.publica({ agora: true })).published).toBe("site-1");
+
+    h.at(local("2026-11-01T00:45"));
+    h.post("ign", "Hades II patch fixes the new weapon", { ...fact, importance: 60 });
+    const report = await h.coleta();
+    expect(report.followUps).toBe(0);
+    expect(h.site.patches).toHaveLength(1);
+  });
+
+  it("an expired follow-up does not block the next one, and an item past the news age never seeds one", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    const fact = await publishedStory(h);
+    const parent = stories(h.db)[0]!;
+    const route = (headline: string) => h.fake.state.route.set(headline, parent.key);
+
+    // An item 13 h old (indexed late) is past NEWS_MAX_AGE_HOURS: no follow-up from it.
+    h.at(local("2026-11-01T09:00"));
+    route("Velho");
+    h.post("ign", "Hades II old note", { ...fact, headline: "Velho", importance: 80 }, { pub: local("2026-10-31T20:00") });
+    expect((await h.coleta()).followUps).toBe(0);
+
+    // A follow-up that expired today does not block a real development later that day.
+    h.at(local("2026-11-01T10:00"));
+    route("Primeiro");
+    h.post("kotaku", "Hades II rebalance", { ...fact, headline: "Primeiro", importance: 80 });
+    expect((await h.coleta()).followUps).toBe(1);
+    const first = stories(h.db).find((s) => s.parent_article_id !== null)!;
+    h.db.setStoryStatusIf(first.id, "expired", ["queued", "open"]);
+    h.at(local("2026-11-01T15:00"));
+    route("Segundo");
+    h.post("pub", "Hades II rebalance reverted", { ...fact, headline: "Segundo", importance: 85 });
+    expect((await h.coleta()).followUps).toBe(1);
+  });
+
   it("a later-day item below 70 creates no follow-up", async () => {
     const h = harness(local("2026-10-31T09:00"));
     const fact = await publishedStory(h);

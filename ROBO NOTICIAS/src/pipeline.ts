@@ -73,6 +73,8 @@ export const FEED_WINDOW_MS = 3 * 24 * HOUR_MS;
 export const UPDATE_MIN_IMPORTANCE = 50;
 /** New items of a story published on an earlier day start a follow-up from this importance. */
 export const FOLLOW_UP_MIN_IMPORTANCE = 70;
+/** New items on an article published less than this ago are an update of it, even past midnight. */
+export const UPDATE_WINDOW_MS = 12 * 60 * 60 * 1000;
 /**
  * `publica` waits 0–2 min before publishing, so articles do not land on the scheduler's exact minute
  * (it runs every 7 min; a longer wait would run into the next call).
@@ -434,6 +436,8 @@ export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): Stor
     triages.some((t) => t.rumor) && !withTriage.some(({ item, t }) => tierOf(item) === "oficial" && !t.rumor);
   // R15: at least one source with extracted text (title-only Google News items have none).
   const hasFullText = items.some((i) => i.text_unavailable !== 1 && hasRealText(i.text));
+  const withText = items.filter((i) => i.text_unavailable !== 1 && hasRealText(i.text) && !sourcesById.get(i.source_id)?.signalOnly);
+  const fullTextSources = new Set(withText.map((i) => i.source_id)).size;
   const ranked = [...triages].sort((a, b) => b.importance - a.importance);
   const top = ranked[0];
   // Triages stored before topics existed have none of these fields.
@@ -454,7 +458,7 @@ export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): Stor
     items,
     triages,
     score: storyScore(stats),
-    bomb: isBomb(stats),
+    bomb: isBomb({ ...stats, fullTextSources }),
     rumor,
     publishable: isPublishable({ ...stats, hasFullText }) || relevantVideo,
     category: top && (CATEGORIES as readonly string[]).includes(top.category) ? top.category : null,
@@ -1160,19 +1164,21 @@ async function clusterTriaged(deps: PipelineDeps, report: ColetaReport, now: Dat
 
 /**
  * For published stories that got new items:
- * - same-day ones with `importance >= 50` are returned as update candidates (`updateStory` then requires
- *   a relevant new fact, the 60-min gap and the daily cap);
- * - earlier-day ones with `importance >= 70` get a follow-up story. An `open` or `queued` follow-up of the
- *   same article absorbs the items instead; no new follow-up starts while one is being written or when one
- *   was already created today.
+ * - ones published today or less than `UPDATE_WINDOW_MS` ago, with `importance >= 50`, are returned as update
+ *   candidates (`updateStory` then requires a relevant new fact, the 60-min gap and the daily cap);
+ * - older ones with `importance >= 70` get a follow-up story, but only when the novelty check finds a new
+ *   fact against the published article (review 06/11/2026: sites re-reporting the same news after midnight
+ *   made a "continuação" of itself) and the item is within `NEWS_MAX_AGE_HOURS`. An `open` or `queued`
+ *   follow-up of the same article absorbs the items instead; no new follow-up starts while one is being
+ *   written or when one created today was not dropped or expired.
  */
-function planUpdatesAndFollowUps(
+async function planUpdatesAndFollowUps(
   touched: Map<number, ItemRow[]>,
   deps: PipelineDeps,
   report: ColetaReport,
   now: Date,
-): StoryRow[] {
-  const { db } = deps;
+): Promise<StoryRow[]> {
+  const { db, ai, config } = deps;
   const today = localDay(now);
   const updates: StoryRow[] = [];
   for (const [storyId, newItems] of touched) {
@@ -1187,7 +1193,8 @@ function planUpdatesAndFollowUps(
     const top = ranked[0];
     if (!top) continue;
 
-    if (localDay(new Date(article.published_at)) === today) {
+    const publishedAt = Date.parse(article.published_at);
+    if (localDay(new Date(publishedAt)) === today || now.getTime() - publishedAt < UPDATE_WINDOW_MS) {
       if (top.t.importance >= UPDATE_MIN_IMPORTANCE) updates.push(story);
       continue;
     }
@@ -1196,8 +1203,28 @@ function planUpdatesAndFollowUps(
     const existing = db.followUpsOf(article.id);
     const pending = existing.find((s) => s.status === "open" || s.status === "queued");
     if (!pending) {
-      const blocked = existing.some((s) => s.status === "written" || localDay(new Date(s.first_seen_at)) === today);
+      const blocked = existing.some(
+        (s) =>
+          s.status === "written" ||
+          (localDay(new Date(s.first_seen_at)) === today && s.status !== "expired" && s.status !== "dropped"),
+      );
       if (blocked) continue;
+      if (now.getTime() - itemTime(top.item, now) > config.NEWS_MAX_AGE_HOURS * 3_600_000) continue;
+      const previous = parsePayload(article);
+      const novelty = await checkNovelty(
+        ai,
+        {
+          articleTitle: previous.title ?? story.headline,
+          articleText: blocksText(previous.blocks ?? []),
+          items: ranked.map(({ item }) => ({ title: item.title, text: item.text_unavailable === 1 ? "" : (item.text ?? item.summary ?? "") })),
+        },
+        "live",
+        { model: config.MODEL_FAST },
+      );
+      if (!novelty.hasNewFacts) {
+        deps.log?.(`sem fato novo para continuação: história ${story.id}`);
+        continue;
+      }
     }
     const followUpId =
       pending?.id ??
@@ -1501,7 +1528,7 @@ export async function runColeta(deps: PipelineDeps): Promise<ColetaReport> {
     const touched = await clusterTriaged(deps, report, now);
     for (const storyId of touched.keys()) recomputeStory(storyId, deps, now);
     // Follow-ups are created before queueing so they are queued in this same run.
-    const updates = planUpdatesAndFollowUps(touched, deps, report, now);
+    const updates = await planUpdatesAndFollowUps(touched, deps, report, now);
     expireStale(deps, report, now);
     await queueStories(deps, report, now);
     await publishBombs(deps, report);

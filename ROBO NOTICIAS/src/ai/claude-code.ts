@@ -134,9 +134,12 @@ function userLine(opts: StructuredOpts<unknown>): string {
   return `${JSON.stringify({ type: "user", message: { role: "user", content }, parent_tool_use_id: null })}\n`;
 }
 
+/** How long a weekly reading over the reserve holds the robot before one call probes again. */
+export const WEEKLY_PROBE_MS = 2 * 60 * 60 * 1000;
+
 export function createClaudeCodeAi(deps: {
   config: Pick<Config, "CLAUDE_BIN" | "CLAUDE_TIMEOUT_MS" | "CLAUDE_WEEKLY_STOP">;
-  db?: Pick<Db, "recordClaudeUsage" | "lastWeeklyUtilization">;
+  db?: Pick<Db, "recordClaudeUsage" | "lastWeeklyReading">;
   run?: ClaudeRun;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
@@ -146,8 +149,13 @@ export function createClaudeCodeAi(deps: {
   const now = deps.now ?? (() => new Date());
   const { config } = deps;
 
+  /**
+   * Stops at the weekly reserve. Only a call records a new reading, so a reading over the reserve older than
+   * `WEEKLY_PROBE_MS` lets one call through: after the weekly reset its fresh reading lifts the stop.
+   */
   function assertBudget(): void {
-    const used = deps.db?.lastWeeklyUtilization() ?? null;
+    const reading = deps.db?.lastWeeklyReading() ?? null;
+    const used = reading && now().getTime() - reading.at.getTime() < WEEKLY_PROBE_MS ? reading.utilization : null;
     if (used !== null && used >= config.CLAUDE_WEEKLY_STOP) {
       throw new WeeklyReserveError(
         `reserva semanal: ${Math.round(used * 100)}% do limite semanal usado (o robô para em ${Math.round(config.CLAUDE_WEEKLY_STOP * 100)}%)`,
