@@ -8,7 +8,7 @@ import { inSlotWindow, localDay } from "../src/clock.js";
 import { loadConfig, type Source } from "../src/config.js";
 import { openDb, type Db, type StoryRow } from "../src/db.js";
 import { recordPauta } from "../src/pautas.js";
-import { publishStory, runColeta, runPublica, type PipelineDeps } from "../src/pipeline.js";
+import { publishStory, runColeta, runPublica, storyForWriting, type PipelineDeps } from "../src/pipeline.js";
 import {
   TralkedError,
   slugify,
@@ -817,6 +817,26 @@ describe("PAUSADO", () => {
     expect(result.reason).toMatch(/pausad/i);
     expect(h.sleep).not.toHaveBeenCalled();
     expect(h.site.created).toHaveLength(0);
+  });
+});
+
+describe("game destinations", () => {
+  it("news about Mass Effect 1-3 (any edition) is written for the Legendary Edition, named or found", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    const found = vi.fn(async (name: string) =>
+      name === "Documentário da BioWare" ? { slug: "mass-effect-2-collectors-edition", name: "Mass Effect 2: Collector's Edition" } : null,
+    );
+    h.deps.tralked = { ...h.deps.tralked, findGame: found };
+    const id = seedQueued(h, "Massive Effect sai em 2027");
+    h.db.raw
+      .prepare("UPDATE stories SET games_json = ? WHERE id = ?")
+      .run(JSON.stringify(["Mass Effect", "Mass Effect 3", "Documentário da BioWare", "Mass Effect: Andromeda"]), id);
+    const story = stories(h.db).find((s) => s.id === id)!;
+
+    const writing = await storyForWriting(story, h.deps);
+    expect(writing.candidates.map((c) => c.slug)).toEqual(["mass-effect-legendary-edition"]);
+    // Named Mass Effect games never hit the catalog search; Andromeda is searched as itself.
+    expect(found.mock.calls.map((c) => c[0])).toEqual(["Documentário da BioWare", "Mass Effect: Andromeda"]);
   });
 });
 
