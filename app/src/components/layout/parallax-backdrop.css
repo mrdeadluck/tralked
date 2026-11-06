@@ -184,16 +184,15 @@
 /*
  * Content panels (Lucas, 11-06; content-panels.ts): blocks that had no box of their own become the
  * preview's panels: graphite at 80% (a hint of the scene through it), a margin around the content
- * and the cards' 1 px edge, square. The margin is drawn outside the box with spread shadows, so nothing on the
- * page moves or shrinks. content-panels.ts marks them ([data-tk-panel]) and merges blocks that sit
- * too close into one panel; until it has run (html without data-tk-panels), the outermost blocks
- * are painted one by one with the same selector (PANEL_CANDIDATES there: keep both in step). Base
- * layer, so a background utility on the element still wins.
+ * and the cards' 1 px edge, square. The margin is drawn outside the box with spread shadows, so
+ * nothing on the page moves or shrinks. content-panels.ts marks them ([data-tk-panel]) and merges
+ * blocks that sit too close into one panel; until it has run (html without data-tk-panels), the
+ * outermost blocks are painted one by one with the same selector (PANEL_CANDIDATES there: keep both
+ * in step). On phones the whole column is one edge-to-edge panel, without the frame. Base layer, so
+ * a background utility on the element still wins.
  */
 @layer base {
-  /* One compound selector each: no whitespace between :is() and the :not()s. */
-  html[data-tk-panels] [data-tk-panel],
-  html:not([data-tk-panels]) #principal :is(section, aside, article, header, nav, form, ul, ol, table, h1, h2, h3, h4, p, [data-section-head]):not([class^="bg-"], [class*=" bg-"], [style*="background"]):not(#principal :is(section, aside, article, header, nav, form, ul, ol, table, h1, h2, h3, h4, p, [data-section-head], [class^="bg-"], [class*=" bg-"], [style*="background"]) *) {
+  html[data-tk-panels] [data-tk-panel] {
     --tk-panel: color-mix(in oklch, var(--bg) 80%, transparent);
     background-color: var(--tk-panel);
     /* Square corners on purpose: a spread shadow adds its spread to the corner radius. Edge and
@@ -202,5 +201,23 @@
     box-shadow:
       0 0 0 10px var(--tk-panel),
       0 0 0 11px var(--border);
+  }
+  @media (min-width: 801px) {
+    /* One compound selector: no whitespace between :is() and the :not()s. */
+    html:not([data-tk-panels]) #principal :is(section, aside, article, header, nav, form, ul, ol, table, h1, h2, h3, h4, p, [data-section-head]):not([class^="bg-"], [class*=" bg-"], [style*="background"]):not(#principal :is(section, aside, article, header, nav, form, ul, ol, table, h1, h2, h3, h4, p, [data-section-head], [class^="bg-"], [class*=" bg-"], [style*="background"]) *) {
+      --tk-panel: color-mix(in oklch, var(--bg) 80%, transparent);
+      background-color: var(--tk-panel);
+      box-shadow:
+        0 0 0 10px var(--tk-panel),
+        0 0 0 11px var(--border);
+    }
+  }
+  @media (max-width: 800px) {
+    html:not([data-tk-panels]) #principal {
+      background-color: color-mix(in oklch, var(--bg) 80%, transparent);
+    }
+    html[data-tk-panels] [data-tk-panel] {
+      box-shadow: none;
+    }
   }
 }

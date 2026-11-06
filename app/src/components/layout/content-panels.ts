@@ -7,6 +7,8 @@
  */
 
 /** Blocks that can become a panel: the outermost ones without a background of their own. */
+import { MOBILE_MAX_WIDTH } from "./parallax-motion";
+
 const BLOCKS = "section, aside, article, header, nav, form, ul, ol, table, h1, h2, h3, h4, p, [data-section-head]";
 const OWN_BG = '[class^="bg-"], [class*=" bg-"], [style*="background"]';
 export const PANEL_CANDIDATES = `#principal :is(${BLOCKS}):not(${OWN_BG}):not(#principal :is(${BLOCKS}, ${OWN_BG}) *)`;
@@ -100,7 +102,12 @@ export function markContentPanels(doc: Document = document): "done" | "pending" 
         const r = el.getBoundingClientRect();
         return r.width > 2 && r.height > 2;
       });
-  const panels = new Set(groupPanels(root, candidates, (el) => el.getBoundingClientRect(), paintable));
+  // Phones have no side room for frames or for the scene between blocks: the whole column is one
+  // edge-to-edge panel there (its frame is turned off in the CSS).
+  const narrow = doc.defaultView?.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH}px)`).matches ?? false;
+  const panels = new Set(
+    ownBackdrop ? [] : narrow ? [root] : groupPanels(root, candidates, (el) => el.getBoundingClientRect(), paintable),
+  );
   if ([...panels].some((el) => !el.hasAttribute("data-tk-panel") && !hydrated(el))) return "pending";
   for (const el of doc.querySelectorAll("[data-tk-panel]")) if (!panels.has(el)) el.removeAttribute("data-tk-panel");
   for (const el of panels) if (!el.hasAttribute("data-tk-panel")) el.setAttribute("data-tk-panel", "");
