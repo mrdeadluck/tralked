@@ -36,6 +36,8 @@ type ListDef = {
   completed?: boolean;
   /** The last earned trophy is suspicious. */
   suspicious?: boolean;
+  /** Xbox: gamerscore of each of the 3 achievements. */
+  points?: number;
 };
 
 /** A trophy list of 3 trophies (the first a platinum when `platinumTrophy`), with the player's progress. */
@@ -53,6 +55,7 @@ async function addList(userId: string, gameId: string, d: ListDef) {
       name: `T${apiName}`,
       trophyTier: d.platform === "psn" ? (apiName === "0" && d.platinumTrophy ? "platinum" : "bronze") : null,
       globalPct: 40,
+      points: d.points ?? null,
     })),
   });
   const earned = rows.sort((a, b) => a.apiName.localeCompare(b.apiName)).slice(0, d.earned);
@@ -76,33 +79,53 @@ describe("platinumTally", () => {
     for (const console of ["PS4", "PS5", "PS5"]) {
       await addList(user.id, game.id, { platform: "psn", console, platinumTrophy: true, earned: 3, completed: true });
     }
-    expect(await platinumTally(user.id)).toMatchObject({ platinums: 3, psnPlatinums: 3, perVersion: 2 });
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 3, psnPlatinums: 3, perVersion: 2, tralked: 3 });
   });
 
-  it("PS4 + PS5 without a platinum trophy, both 100% = 2", async () => {
+  it("PS4 + PS5 without a platinum trophy, both 100% = 2 Tralked, no Platinas", async () => {
     const user = await newUser();
     const game = await newGame("Indie");
     await addList(user.id, game.id, { platform: "psn", console: "PS4", earned: 3, completed: true });
     await addList(user.id, game.id, { platform: "psn", console: "PS5", earned: 3, completed: true });
-    expect((await platinumTally(user.id)).platinums).toBe(2);
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 0, tralked: 2 });
   });
 
-  it("Xbox with two titleIds both complete = 2", async () => {
+  it("Xbox: 1000G earned on a list short of 100% is Tralked; 999G and a suspicious 1000G are not", async () => {
+    const user = await newUser();
+    const game = await newGame("Forza");
+    // 3 achievements of 334G = 1002G earned with all three; two of 500G = 1000G; two of 499G = 998G.
+    await addList(user.id, game.id, { platform: "xbox", console: "ONE", earned: 3, points: 334 });
+    await addList(user.id, game.id, { platform: "xbox", console: "PC", earned: 2, points: 500 });
+    await addList(user.id, game.id, { platform: "xbox", console: "360", earned: 2, points: 499 });
+    await addList(user.id, game.id, { platform: "xbox", console: "X", earned: 2, points: 600, suspicious: true });
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 0, tralked: 2, tralkedByPlatform: { xbox: 2 } });
+  });
+
+  it("Xbox with NULL points: a completed list is Tralked through completedAt, not through the 1000G path", async () => {
+    const user = await newUser();
+    const game = await newGame("SemPontos");
+    // No points on the achievements: the 1000G path reads 0, so only completedAt counts the first list.
+    await addList(user.id, game.id, { platform: "xbox", console: "ONE", earned: 3, completed: true });
+    await addList(user.id, game.id, { platform: "xbox", console: "PC", earned: 3 });
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 0, tralked: 1, tralkedByPlatform: { xbox: 1 } });
+  });
+
+  it("Xbox with two titleIds both complete = 2 Tralked", async () => {
     const user = await newUser();
     const game = await newGame("Halo");
     await addList(user.id, game.id, { platform: "xbox", console: "ONE", earned: 3, completed: true });
     await addList(user.id, game.id, { platform: "xbox", console: "PC", earned: 3, completed: true });
-    expect((await platinumTally(user.id)).platinums).toBe(2);
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 0, tralked: 2 });
   });
 
-  it("a platinum trophy on a list short of 100% (DLC) counts 1", async () => {
+  it("a platinum trophy on a list short of 100% (DLC) is a Platina but not Tralked", async () => {
     const user = await newUser();
     const game = await newGame("DLC");
     await addList(user.id, game.id, { platform: "psn", console: "PS4", platinumTrophy: true, earned: 2 });
-    expect(await platinumTally(user.id)).toMatchObject({ platinums: 1, psnPlatinums: 1, perVersion: 1 });
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 1, psnPlatinums: 1, perVersion: 1, tralked: 0 });
   });
 
-  it("the header equals the platinums the ledger pays (one per list), on a mixed library", async () => {
+  it("Platinas are the platinum trophies the ledger pays; Tralked the completed lists, on a mixed library", async () => {
     const user = await newUser();
     // PSN: a platinum on PS5 plus a PS4 100% without a platinum trophy (no "covered" across versions).
     const mixed = await newGame("Misto");
@@ -164,11 +187,13 @@ describe("platinumTally", () => {
     const bonuses = entries.filter((x) => x.source === "platinum" && !withTrophy(x.sourceKey)).length;
     const steamCompletions = 1;
 
-    const { platinums, psnPlatinums } = await platinumTally(user.id);
-    expect(platinums).toBe(trophies + bonuses + steamCompletions);
-    // Misto 3, DLC 1, Suspeito 1, Halo 2, SNES 1, Legado 1, Steam 1.
-    expect(platinums).toBe(10);
-    // The platinum trophies (Misto's two PS5 regions and DLC), as Sony counts them.
+    const { platinums, psnPlatinums, tralked } = await platinumTally(user.id);
+    // Platinas: only the platinum trophies the ledger pays (Misto's two PS5 regions and DLC).
+    expect(platinums).toBe(trophies);
+    expect(platinums).toBe(3);
     expect(psnPlatinums).toBe(3);
+    // Tralked: Misto 3 lists, Suspeito 1, Halo 2, SNES 1, Legado 1, Steam 1 (DLC is short of 100%).
+    expect(tralked).toBe(9);
+    expect(bonuses + steamCompletions).toBeGreaterThan(0);
   });
 });

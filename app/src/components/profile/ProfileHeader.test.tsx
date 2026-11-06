@@ -18,7 +18,8 @@ const SUMMARY: ProfileSummary = {
   gamesCount: 2148,
   achievements: 61_904,
   wishlist: 38,
-  platinums: 571,
+  tralked: 571,
+  platinums: 520,
   psnPlatinums: 520,
   platforms: [{ platform: "psn", handle: "diguzz", verified: true }],
   backdropUrls: [],
@@ -27,24 +28,29 @@ const SUMMARY: ProfileSummary = {
 const cell = (strip: HTMLElement, label: string) => within(strip).getByText(label, { selector: "dt" }).parentElement!;
 
 describe("ProfileHeader", () => {
-  it("header shows Platinas with the PSN part under it, and no regional-lists counter", () => {
+  it("header shows Tralked first as the main counter, then Platinas, and no regional-lists counter", () => {
     render(<ProfileHeader summary={SUMMARY} section="Jogos" />);
     const strip = screen.getByRole("group", { name: "Números do perfil" });
-    expect(cell(strip, "Platinas")).toHaveTextContent("571");
-    expect(cell(strip, "Platinas")).toHaveTextContent("520 na PSN");
+    expect(within(strip).getAllByRole("term").map((t) => t.textContent)).toEqual(["Tralked", "Platinas", "Jogos"]);
+    expect(cell(strip, "Tralked")).toHaveTextContent("571");
+    expect(cell(strip, "Tralked")).toHaveTextContent("jogos 100% em qualquer plataforma");
+    expect(within(cell(strip, "Tralked")).getByText("571")).toHaveClass("text-acc");
+    expect(cell(strip, "Platinas")).toHaveTextContent("520");
+    expect(cell(strip, "Platinas")).toHaveTextContent("troféus de platina da PSN");
+    expect(within(cell(strip, "Platinas")).getByText("520")).not.toHaveClass("text-acc");
     expect(within(strip).queryByText(/Listas regionais/)).toBeNull();
     expect(within(strip).queryByText(/contam no XP/)).toBeNull();
     expect(cell(strip, "Jogos")).toHaveTextContent("2.148");
     // "Nível" lives in the level box only.
     expect(within(strip).queryByText("Nível")).toBeNull();
-    expect(within(strip).getAllByRole("term")).toHaveLength(2);
+    expect(within(strip).getAllByRole("term")).toHaveLength(3);
   });
 
-  it("without PSN the Platinas cell has no PSN note", () => {
-    render(<ProfileHeader summary={{ ...SUMMARY, platinums: 12, psnPlatinums: 0, platforms: [] }} section="Jogos" />);
+  it("without PSN the Platinas counter is hidden and Tralked stays", () => {
+    render(<ProfileHeader summary={{ ...SUMMARY, tralked: 12, platinums: 0, psnPlatinums: 0, platforms: [] }} section="Jogos" />);
     const strip = screen.getByRole("group", { name: "Números do perfil" });
-    expect(cell(strip, "Platinas")).toHaveTextContent("12");
-    expect(cell(strip, "Platinas")).not.toHaveTextContent("na PSN");
+    expect(within(strip).queryByText("Platinas")).toBeNull();
+    expect(cell(strip, "Tralked")).toHaveTextContent("12");
   });
 
   it("the Ficha keeps its own numbers after the shared two", () => {
@@ -57,6 +63,7 @@ describe("ProfileHeader", () => {
     );
     const strip = screen.getByRole("group", { name: "Números do perfil" });
     expect(within(strip).getAllByRole("term").map((t) => t.textContent)).toEqual([
+      "Tralked",
       "Platinas",
       "Jogos",
       "Conquistas",

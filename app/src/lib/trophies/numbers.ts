@@ -21,9 +21,11 @@ export type UserNumbers = {
   psnUnlocks: number;
   xboxUnlocks: number;
   retroUnlocks: number;
-  /** "Platinas" as the header and the sheet count them (platinumCount: one per list). */
+  /** "Tralked" as the header counts it (platinumCount: lists/versions at 100% on any platform). Absent in snapshots from before it. */
+  tralked: number;
+  /** "Platinas": the valid PSN platinum trophies, as the header and the sheet count them. */
   platinums: number;
-  /** The PSN platinum trophies among them (the header's "N na PSN"). */
+  /** Equal to `platinums`. */
   psnPlatinums: number;
   totalXp: number;
   level: number;
@@ -70,6 +72,7 @@ export async function userNumbers(userIds?: string[]): Promise<UserNumbers[]> {
       psnUnlocks: count(u.id, "psn"),
       xboxUnlocks: count(u.id, "xbox"),
       retroUnlocks: count(u.id, "retro"),
+      tralked: tally.tralked,
       platinums: tally.platinums,
       psnPlatinums: tally.psnPlatinums,
       totalXp: u.stats?.totalXp ?? 0,

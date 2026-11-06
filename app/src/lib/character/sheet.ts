@@ -71,7 +71,7 @@ const TIERS = new Set<string>(["bronze", "silver", "gold", "platinum"]);
 /**
  * Trophies by tier: the native tier (PSN) when there is one, otherwise the tier from the global
  * rarity. The platinum tier is `platinums`, the header's "Platinas"
- * (lib/character/counts platinumCount: one per list, as the ledger pays them).
+ * (lib/character/counts platinumCount: the PSN platinum trophies earned, on every list).
  */
 export function summarizeTrophies(unlocks: UnlockRow[], platinums: number): TrophySummary {
   const tiers: TrophyTotals = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
@@ -129,7 +129,7 @@ export async function getCharacterSheetExtras(userId: string): Promise<Character
         },
       },
     }),
-    // The same platinums as the profile header (a tainted 100% is no platinum).
+    // The same platinums as the profile header (valid PSN platinum trophies).
     platinumTally(userId),
     listPhotosByAuthor(userId, SHEET_PHOTO_LIMIT),
   ]);

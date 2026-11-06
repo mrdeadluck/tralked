@@ -12,6 +12,7 @@ const user = (over: Partial<UserNumbers> = {}): UserNumbers => ({
   psnUnlocks: 10,
   xboxUnlocks: 0,
   retroUnlocks: 0,
+  tralked: 2,
   platinums: 1,
   psnPlatinums: 1,
   totalXp: 6000,
@@ -38,6 +39,11 @@ describe("compareSnapshots", () => {
     });
     expect(compareSnapshots(snap("a", [user()]), snap("b", [])).steamChanged).toBe(true);
     expect(compareSnapshots(snap("a", []), snap("b", [user({ steamUnlocks: 0, steamXp: 0 })])).steamChanged).toBe(false);
+  });
+
+  it("Tralked changes show as a line and never as a Steam change", () => {
+    const r = compareSnapshots(snap("a", [user()]), snap("b", [user({ tralked: 5 })]));
+    expect(r).toEqual({ lines: ["lucas: tralked 2 -> 5 (+3)"], steamChanged: false, steamUndatedChanged: false });
   });
 
   it("a number an older snapshot does not have shows without a delta", () => {

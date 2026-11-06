@@ -16,7 +16,7 @@ type Db = Prisma.TransactionClient;
 const key = (c: { gameId: string; platform: string }) => `${c.gameId}:${c.platform}`;
 const versionedKey = (c: { gameId: string; platform: string; versionKey: string }) => `${key(c)}:${c.versionKey}`;
 
-/** One of the player's trophy lists (UserTrophyList) as the platinum rule reads it. */
+/** One of the player's trophy lists (UserTrophyList) as the counters read it. */
 export type PlatinumList = {
   listId: string;
   gameId: string;
@@ -24,52 +24,63 @@ export type PlatinumList = {
   versionKey: string;
   /** UserTrophyList.completedAt is set. */
   completed: boolean;
-  /** The player has a suspicious unlock in this list (it pays no platinum). */
+  /** The player has a suspicious unlock in this list (it counts for nothing). */
   tainted: boolean;
+  /** Xbox: the gamerscore earned with valid unlocks on this list (Achievement.points); absent elsewhere. */
+  gamerscore?: number;
 };
+
+/** An Xbox list whose earned gamerscore reaches this is Tralked even with DLC missing (the base game's 1000G). */
+export const XBOX_BASE_GAMERSCORE = 1000;
 
 /** A valid platinum trophy the player earned, with its list (list-less rows: listId null, versionKey = platform). */
 export type NativePlatinum = { gameId: string; platform: string; listId: string | null; versionKey: string; apiName?: string };
 
 export type PlatinumCounts = {
-  /** "Platinas": one per list (see platinumCount). */
+  /** "Platinas": the valid PSN platinum trophies earned, on every list (never a Steam/Xbox/RA completion). */
   platinums: number;
-  /** The PSN platinum trophies among them ("520 na PSN", as Sony counts them). */
+  /** Equal to `platinums` (only PSN has platinum trophies); kept for the readers that say "na PSN". */
   psnPlatinums: number;
-  /** The same platinums counted once per version (game, platform, versionKey): the rule before every regional list counted, for the migration reports. */
+  /** The platinums counted once per version (game, platform, versionKey): the rule before every regional list counted, for the migration reports. */
   perVersion: number;
-  /** `platinums` by platform (steam, psn, xbox, retro): the highscores "Platinas e 100%" scopes. */
+  /** `platinums` by platform (only `psn`). */
   byPlatform: Record<string, number>;
+  /** "Tralked": lists/versions completed at 100% on any platform (see platinumCount). */
+  tralked: number;
+  /** `tralked` by platform (steam, psn, xbox, retro): the highscores "Tralked" scopes. */
+  tralkedByPlatform: Record<string, number>;
 };
 
 /**
- * "Platinas", one per list, each paid in the ledger (lib/progression/list-xp):
- * - every valid platinum trophy of every list, whatever the list's % (DLC short of 100%): two
- *   regional PSN lists of one console are two;
- * - a list without one that is complete and holds no suspicious unlock (PSN without a platinum
- *   trophy, every Xbox titleId, RA set; the `platinum` bonus);
+ * The two headline counters.
+ *
+ * "Platinas": the valid PSN platinum trophies earned, one per list whatever the list's % (two
+ * regional PSN lists of one console are two). A list-less platinum trophy (from before the lists)
+ * counts until a valid unlock of the same trophy on a list row of its game and platform takes over.
+ *
+ * "Tralked": one per list/version finished at 100% on any platform, valid unlocks only:
+ * - a list with `completedAt` and no suspicious unlock (a platinated PSN list counts only once it
+ *   reaches 100% with its DLC), plus an Xbox list whose earned gamerscore reaches 1000 (the base
+ *   game's 1000G, DLC missing) and holds no suspicious unlock;
  * - a valid 100% (UserGame.completedAt, `completions`) of a non-Steam game and platform where the
- *   player has no list yet (legacy key, one with its list-less platinum trophy), and a valid Steam 100%.
- * A list-less platinum trophy (from before the lists) counts until a valid unlock of the same
- * trophy on a list row of its game and platform takes over. A game finished on two platforms is
- * two; "Jogos 100%" counts it once.
+ *   player has no list yet (legacy key), and a valid Steam 100%.
+ * A game finished on two platforms is two; "Jogos 100%" counts it once.
  */
 export function platinumCount(
   natives: NativePlatinum[],
   lists: PlatinumList[],
   completions: { gameId: string; platform: string }[],
 ): PlatinumCounts {
-  // Each platinum by its list (`list:<id>`), or by game and platform where it has no list.
-  const out = new Map<string, { platform: string; version: string; psn: boolean }>();
-  const add = (k: string, c: { gameId: string; platform: string; versionKey: string }, psn = false) => {
-    const seen = out.get(k);
-    out.set(k, { platform: c.platform, version: versionedKey(c), psn: psn || Boolean(seen?.psn) });
-  };
+  // Platinums by list (`list:<id>`), or by game and platform where the trophy has no list.
+  const plat = new Map<string, { platform: string; version: string }>();
+  // Tralked by list, or by game and platform for the legacy completions.
+  const tral = new Map<string, string>();
   const withLists = new Set<string>();
   for (const l of lists) {
     if (l.platform === "steam") continue;
     withLists.add(key(l));
-    if (l.completed && !l.tainted) add(`list:${l.listId}`, l);
+    const done = l.completed || (l.platform === "xbox" && (l.gamerscore ?? 0) >= XBOX_BASE_GAMERSCORE);
+    if (done && !l.tainted) tral.set(`list:${l.listId}`, l.platform);
   }
   // The trophies a list row already holds validly, by game and platform (apiName "" when unknown).
   const onLists = new Map<string, Set<string>>();
@@ -78,28 +89,29 @@ export function platinumCount(
     onLists.set(key(n), (onLists.get(key(n)) ?? new Set()).add(n.apiName ?? ""));
   }
   for (const n of natives) {
+    if (n.platform !== "psn") continue;
     if (!n.listId) {
       // As the ledger (list-xp keyOf): a list-less row keeps being paid until a valid unlock of the
       // same trophy on a list row of its game and platform takes over.
       const held = onLists.get(key(n));
       if (held && (held.has(n.apiName ?? "") || n.apiName === undefined || held.has(""))) continue;
     }
-    add(n.listId ? `list:${n.listId}` : versionedKey(n), n, n.platform === "psn");
+    plat.set(n.listId ? `list:${n.listId}` : versionedKey(n), { platform: n.platform, version: versionedKey(n) });
   }
   for (const c of completions) {
-    if (c.platform === "steam" || !withLists.has(key(c))) {
-      const legacy = { ...c, versionKey: c.platform };
-      add(versionedKey(legacy), legacy);
-    }
+    if (c.platform === "steam" || !withLists.has(key(c))) tral.set(versionedKey({ ...c, versionKey: c.platform }), c.platform);
   }
-  const items = [...out.values()];
   const byPlatform: Record<string, number> = {};
-  for (const i of items) byPlatform[i.platform] = (byPlatform[i.platform] ?? 0) + 1;
+  for (const i of plat.values()) byPlatform[i.platform] = (byPlatform[i.platform] ?? 0) + 1;
+  const tralkedByPlatform: Record<string, number> = {};
+  for (const platform of tral.values()) tralkedByPlatform[platform] = (tralkedByPlatform[platform] ?? 0) + 1;
   return {
-    platinums: items.length,
-    psnPlatinums: items.filter((i) => i.psn).length,
-    perVersion: new Set(items.map((i) => i.version)).size,
+    platinums: plat.size,
+    psnPlatinums: plat.size,
+    perVersion: new Set([...plat.values()].map((i) => i.version)).size,
     byPlatform,
+    tralked: tral.size,
+    tralkedByPlatform,
   };
 }
 
@@ -120,7 +132,7 @@ const versionOf = (a: { platform: string; list: { platform: string; console: str
 
 /** The player's trophy lists, completed or not, each marked when it holds a suspicious unlock. */
 async function platinumLists(userId: string, db: Db): Promise<PlatinumList[]> {
-  const [rows, suspicious] = await Promise.all([
+  const [rows, suspicious, scores] = await Promise.all([
     db.userTrophyList.findMany({
       where: { userId },
       select: { listId: true, completedAt: true, list: { select: { gameId: true, platform: true, console: true, externalId: true } } },
@@ -129,8 +141,15 @@ async function platinumLists(userId: string, db: Db): Promise<PlatinumList[]> {
       where: { userId, suspicious: true, achievement: { listId: { not: null } } },
       select: { achievement: { select: { listId: true } } },
     }),
+    // Xbox: the gamerscore earned per list (valid unlocks; Achievement.points is the gamerscore).
+    db.$queryRaw<{ listId: string; score: number }[]>`
+      SELECT a."listId", COALESCE(SUM(a.points), 0)::int AS score
+      FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId"
+      WHERE ua."userId" = ${userId} AND ua.suspicious = false AND a.platform = 'xbox' AND a."listId" IS NOT NULL
+      GROUP BY a."listId"`,
   ]);
   const tainted = new Set(suspicious.map((s) => s.achievement.listId));
+  const score = new Map(scores.map((r) => [r.listId, r.score]));
   return rows.map((r) => ({
     listId: r.listId,
     gameId: r.list.gameId,
@@ -138,12 +157,13 @@ async function platinumLists(userId: string, db: Db): Promise<PlatinumList[]> {
     versionKey: versionKey(r.list),
     completed: r.completedAt !== null,
     tainted: tainted.has(r.listId),
+    gamerscore: score.get(r.listId) ?? 0,
   }));
 }
 
-/** "Platinas" (platinumCount): the profile header, the sheet's Troféus card and the migration snapshots read these. */
 /**
- * The same, read now (never the per-request memo): writers that store it (the highscores totals
+ * "Platinas" and "Tralked" (platinumCount): the profile header, the sheet's Troféus card and the
+ * migration snapshots read these. Read now (never the per-request memo): writers that store it (the highscores totals
  * in a recompute) must not take a value read before their own changes.
  */
 export async function platinumTallyOf(userId: string, db: Db = prisma): Promise<PlatinumCounts> {
