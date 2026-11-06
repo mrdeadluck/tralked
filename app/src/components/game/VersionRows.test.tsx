@@ -27,6 +27,8 @@ const player = (v: GameVersion, over: Partial<PlayerVersion> = {}): PlayerVersio
   total: v.total,
   pct: 33,
   platinum: false,
+  platinums: 0,
+  tralked: 0,
   lists: [],
   countedNote: null,
   earnedIn: {},
@@ -115,5 +117,19 @@ describe("VersionRows", () => {
     expect(list).not.toHaveTextContent("%");
     expect(list).not.toHaveTextContent(/platina/i);
     expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("a 100% without a platinum trophy (Steam, Xbox at 1000G) reads Tralked, not Platina", () => {
+    render(
+      <VersionRows
+        versions={[STEAM, PS5]}
+        player={[player(STEAM, { unlocked: 77, pct: 100, platinum: true }), player(PS5, { unlocked: 78, pct: 100, platinum: true })]}
+        label="Seu progresso por versão"
+      />,
+    );
+    const rows = within(screen.getByRole("list", { name: "Seu progresso por versão" })).getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("Tralked");
+    expect(rows[0]).not.toHaveTextContent(/platina/i);
+    expect(rows[1]).toHaveTextContent(/platina/i);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GameVersion } from "@/lib/queries/game-versions";
 import type { PlayerVersion } from "@/lib/queries/game-versions";
-import { achievementsFact, familyTotals, introDisc, shortLabel, versionTabs } from "./version-views";
+import { achievementsFact, familyTotals, introDisc, shortLabel, versionsSummary, versionTabs } from "./version-views";
 
 const version = (key: string, platform: GameVersion["platform"], total: number): GameVersion => ({
   key,
@@ -93,5 +93,16 @@ describe("introDisc", () => {
   it("is the plain disc for a visitor or a player without versions", () => {
     expect(introDisc(null)).toEqual({ plat: false, discLabel: "TRALKED · DISCO 1" });
     expect(introDisc([])).toEqual({ plat: false, discLabel: "TRALKED · DISCO 1" });
+  });
+});
+
+describe("versionsSummary (the booklet's Suas versões)", () => {
+  const mine = (over: Partial<PlayerVersion>) => ({ platinums: 0, tralked: 0, ...over }) as PlayerVersion;
+  it("says platinas (PSN platinum trophies) and Tralked (100% anywhere), as the profile", () => {
+    // PS5 platinated in two regions, one of them at 100%; Steam at 100%.
+    expect(versionsSummary([mine({ platinums: 2, tralked: 1 }), mine({ tralked: 1 })])).toBe("2 versões · 2 platinas · 2 Tralked");
+    // A Steam 100% alone is never a "platina".
+    expect(versionsSummary([mine({ tralked: 1 })])).toBe("1 versão · 1 Tralked");
+    expect(versionsSummary([mine({ platinums: 1 }), mine({})])).toBe("2 versões · 1 platina");
   });
 });

@@ -8,7 +8,7 @@ import { CaseReplayButton } from "./case-replay";
 import { DiscProgress } from "./DiscProgress";
 import { HeroTitle } from "./HeroTitle";
 import { PROGRESS_CSS, TrophyGrid } from "./progress-parts";
-import { achievementsFact, bestVersion, leftLabel, nounOf, onVersion, trophyWord } from "./version-views";
+import { achievementsFact, bestVersion, leftLabel, nounOf, onVersion, trophyWord, versionsSummary } from "./version-views";
 import { VersionRows } from "./VersionRows";
 import { titleFitStyle } from "./title-fit";
 
@@ -140,11 +140,12 @@ export function BookletProgress({
   // The player's versions: the disc shows the best one, the rows every one, the grid the best one's tiers.
   if (best) {
     const on = onVersion(best);
-    const platinums = mine.filter((v) => v.platinum).length;
     const state = best.platinum
       ? best.pct >= 100
         ? "100% · Tralked!"
-        : `${best.pct}% · com a platina`
+        : best.nativePlatinum
+          ? `${best.pct}% · com a platina`
+          : `${best.pct}% · Tralked!`
       : best.pct >= 100
         ? "100% · Tralked!"
         : `${best.pct}% · ${leftLabel(best.unlocked, best.total)} para ${best.nativePlatinum ? "platinar" : "a Platina Tralked"}`;
@@ -173,14 +174,7 @@ export function BookletProgress({
             <div className="gpv gp-veil" style={delay(".26s")}>
               <div className="vr-cap">
                 <span className="tk-lbl">Suas versões</span>
-                <small>
-                  {[
-                    mine.length === 1 ? "1 versão" : `${mine.length} versões`,
-                    platinums === 0 ? null : platinums === 1 ? "1 platina" : `${platinums} platinas`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </small>
+                <small>{versionsSummary(mine)}</small>
               </div>
               <VersionRows player={mine} label="Seu progresso por versão" />
             </div>

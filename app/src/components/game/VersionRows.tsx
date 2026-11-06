@@ -5,7 +5,8 @@ import { nounOf, shortLabel, versionColor } from "./version-views";
 /*
  * The hero's version rows, under the disc (in place of the old platform switch): one row per
  * version (a console or store) with its name, and for a player the progress bar, the regional
- * lists as chips (✓ = that list complete) and the PLATINA seal or the percentage. A visitor sees
+ * lists as chips (✓ = that list complete) and the PLATINA seal (TRALKED on a version without a
+ * platinum trophy: a 100%, or an Xbox list's 1000G) or the percentage. A visitor sees
  * the versions the game has, with their number of trophies and no marks. Presentational only.
  */
 
@@ -94,7 +95,7 @@ function PlayerRow({ p }: { p: PlayerVersion }) {
       )}
       {p.platinum ? (
         <span className="vr-seal tk-cut-sm" data-plat="">
-          Platina
+          {p.nativePlatinum ? "Platina" : "Tralked"}
         </span>
       ) : (
         <span className="vr-seal tk-cut-sm">{p.pct}%</span>

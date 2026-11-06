@@ -1,13 +1,15 @@
 import { prisma } from "@/lib/db";
 import type { PlatformId, TrophyTier } from "@/lib/engine/trophies";
-import { regionLabels, versionKey, versionLabel, versionRank } from "@/lib/trophies/lists";
+import { regionLabels, versionKey, versionLabel, versionRank, XBOX_BASE_GAMERSCORE } from "@/lib/trophies/lists";
 import { catalogPlatforms, tierOf, type TierCounts } from "./game-profile";
 
 /*
  * A game's versions: one per Steam, per PSN console, per Xbox title and per RA set. A version with
  * several regional lists shows its best list's progress (every list still pays its own XP and
  * platinum). `getGameVersions` is the public part (cached with the game profile);
- * `getPlayerVersions` is one player's progress, never cached.
+ * `getPlayerVersions` is one player's progress, never cached: only the lists the player holds,
+ * valid (non-suspicious) unlocks only, the same rules as the profile's counters
+ * (lib/character/counts.ts).
  */
 
 export type VersionList = { id: string; label: string | null; trophyCount: number };
@@ -40,9 +42,18 @@ export type PlayerVersion = {
   unlocked: number;
   total: number;
   pct: number;
+  /** The version's platinum trophy (PSN), or its 100% where there is none (any list of it). */
   platinum: boolean;
+  /** "Platinas": the PSN lists of the version whose platinum trophy the player earned (validly). */
+  platinums: number;
+  /** "Tralked": the player's lists of the version at 100% (an Xbox list also at the base game's 1000G), untainted. */
+  tralked: number;
+  /**
+   * The lists of the version the player holds (progress or an unlock): catalog lists they do not
+   * hold are left out. `complete`: 100% (Xbox: or 1000G) with no suspicious unlock.
+   */
   lists: { id: string; label: string | null; complete: boolean; unlocked: number }[];
-  /** "2 listas · cada uma conta" when the version has several lists (each pays XP). */
+  /** "2 listas · cada uma conta" when the player holds several lists of the version (each pays XP). */
   countedNote: string | null;
   /** apiName -> labels of the lists it was earned in (only on a version with several lists). */
   earnedIn: Record<string, string[]>;
@@ -80,14 +91,17 @@ export type AchRow = {
   globalPct: number | null;
   hidden: boolean;
   trophyTier: string | null;
+  /** Xbox gamerscore (RA points); the player side sums it for the base game's 1000G. */
+  points?: number | null;
 };
 /** What the player side reads of each trophy row (no name, description nor icon). */
-export type SlimAchRow = Pick<AchRow, "id" | "listId" | "platform" | "apiName" | "globalPct" | "trophyTier">;
+export type SlimAchRow = Pick<AchRow, "id" | "listId" | "platform" | "apiName" | "globalPct" | "trophyTier" | "points">;
 export type PlayerInput = {
   lists: ListRow[];
   achievements: SlimAchRow[];
   steamCount: number;
-  unlocks: { achievementId: string; unlockedAt: Date | null }[];
+  /** Every unlock of the game; a suspicious one counts for nothing and taints its list. */
+  unlocks: { achievementId: string; unlockedAt: Date | null; suspicious?: boolean }[];
   userLists: { listId: string; unlockedCount: number; completedAt: Date | null }[];
   steamGame: { unlockedCount: number; completedAt: Date | null } | null;
   /** Achievement ledger entries of the game, not voided (sourceKey = an Achievement id). */
@@ -181,7 +195,10 @@ export function buildGameVersions(lists: ListRow[], achievements: AchRow[], stea
 }
 
 export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
-  const unlockById = new Map(input.unlocks.map((u) => [u.achievementId, u.unlockedAt]));
+  // Valid unlocks only (as the counters); a suspicious one still says the player holds its list.
+  const unlockById = new Map(input.unlocks.filter((u) => !u.suspicious).map((u) => [u.achievementId, u.unlockedAt]));
+  const suspicious = new Set(input.unlocks.filter((u) => u.suspicious).map((u) => u.achievementId));
+  const touched = new Set(input.unlocks.map((u) => u.achievementId));
   const progress = new Map(input.userLists.map((u) => [u.listId, u]));
   const paidByKey = new Map<string, number>();
   for (const e of input.ledger ?? []) paidByKey.set(e.sourceKey, (paidByKey.get(e.sourceKey) ?? 0) + e.xp);
@@ -194,35 +211,47 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
     // Steam keeps one row per game (UserGame); the other platforms one per list (UserTrophyList).
     type Entry = { id: string | null; label: string | null; total: number; unlocked: number; complete: boolean; rows: SlimAchRow[] };
     let entries: Entry[];
+    // A suspicious unlock taints its list (Steam: the game): the stored count and completion,
+    // which include it, give way to the valid unlocks, and it is not complete (validCompletions).
+    const tainted = (rows: SlimAchRow[]) => rows.some((a) => suspicious.has(a.id));
     if (isSteam) {
+      if (!input.steamGame && !g.rows.some((a) => touched.has(a.id))) continue;
       const earned = earnedRows(g.rows);
-      const unlocked = input.steamGame?.unlockedCount ?? earned.length;
+      const bad = tainted(g.rows);
+      const unlocked = bad ? earned.length : (input.steamGame?.unlockedCount ?? earned.length);
       entries = [
         {
           id: g.lists[0]?.id ?? null,
           label: null,
           total: g.total,
           unlocked,
-          complete: Boolean(input.steamGame?.completedAt) || (g.total > 0 && unlocked >= g.total),
+          complete: !bad && (Boolean(input.steamGame?.completedAt) || (g.total > 0 && unlocked >= g.total)),
           rows: g.rows,
         },
       ];
-      if (!input.steamGame && earned.length === 0) continue;
     } else {
-      entries = g.lists.map((l) => {
+      // Only the lists the player holds: a catalog list of the version they never played is no chip.
+      const held = g.lists.filter((l) => progress.has(l.id) || l.rows.some((a) => touched.has(a.id)));
+      if (held.length === 0) continue;
+      entries = held.map((l) => {
         const total = l.rows.length || l.trophyCount;
         const mine = progress.get(l.id);
-        const unlocked = mine?.unlockedCount ?? earnedRows(l.rows).length;
+        const earned = earnedRows(l.rows);
+        const bad = tainted(l.rows);
+        const unlocked = bad ? earned.length : (mine?.unlockedCount ?? earned.length);
+        // Xbox: the base game's 1000G is Tralked, DLC missing (counts.ts platinumCount).
+        const gamerscore = l.platform === "xbox" ? earned.reduce((sum, a) => sum + (a.points ?? 0), 0) : 0;
         return {
           id: l.id,
           label: l.label,
           total,
           unlocked,
-          complete: Boolean(mine?.completedAt) || (total > 0 && unlocked >= total),
+          complete:
+            !bad &&
+            (Boolean(mine?.completedAt) || (total > 0 && unlocked >= total) || gamerscore >= XBOX_BASE_GAMERSCORE),
           rows: l.rows,
         };
       });
-      if (!entries.some((e) => progress.has(e.id!) || e.rows.some((a) => unlockById.has(a.id)))) continue;
     }
 
     const pctOf = (e: Entry) => (e.total > 0 ? e.unlocked / e.total : 0);
@@ -250,12 +279,12 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
       dates.sort((x, y) => (x.at ? x.at.getTime() : Infinity) - (y.at ? y.at.getTime() : Infinity) || 0);
     }
 
+    // Every row of the version: a trophy may be paid under a list the player does not hold (the
+    // canonical list's row: a stand-in key).
     const xp: Record<string, number> = {};
-    for (const e of entries) {
-      for (const a of e.rows) {
-        const paid = paidByKey.get(a.id);
-        if (paid) xp[a.apiName] = (xp[a.apiName] ?? 0) + paid;
-      }
+    for (const a of isSteam ? g.rows : g.lists.flatMap((l) => l.rows)) {
+      const paid = paidByKey.get(a.id);
+      if (paid) xp[a.apiName] = (xp[a.apiName] ?? 0) + paid;
     }
 
     const tiersEarned = emptyTiers();
@@ -275,6 +304,8 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
       total: best.total,
       pct: best.total > 0 ? Math.min(100, Math.round((best.unlocked / best.total) * 100)) : 0,
       platinum,
+      platinums: g.platform === "psn" ? entries.filter((e) => earnedRows(e.rows).some((a) => tierOf(a) === "platinum")).length : 0,
+      tralked: entries.filter((e) => e.complete).length,
       lists: isSteam ? [] : entries.map((e) => ({ id: e.id!, label: e.label, complete: e.complete, unlocked: e.unlocked })),
       countedNote: !isSteam && entries.length > 1 ? `${entries.length} listas · cada uma conta` : null,
       earnedIn,
@@ -310,7 +341,7 @@ const LIST_SELECT = {
   createdAt: true,
   trophyCount: true,
 } as const;
-const SLIM_SELECT = { id: true, listId: true, platform: true, apiName: true, globalPct: true, trophyTier: true } as const;
+const SLIM_SELECT = { id: true, listId: true, platform: true, apiName: true, globalPct: true, trophyTier: true, points: true } as const;
 
 async function loadGame<S extends typeof ACH_SELECT | typeof SLIM_SELECT>(gameId: string, select: S) {
   const [game, lists, achievements] = await Promise.all([
@@ -375,7 +406,7 @@ export async function getPlayerVersions(gameId: string, userId: string): Promise
   const [unlocks, userLists, steamGame] = await Promise.all([
     prisma.userAchievement.findMany({
       where: { userId, achievement: { gameId } },
-      select: { achievementId: true, unlockedAt: true },
+      select: { achievementId: true, unlockedAt: true, suspicious: true },
     }),
     prisma.userTrophyList.findMany({
       where: { userId, list: { gameId } },

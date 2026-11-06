@@ -118,4 +118,22 @@ describe("library versions and the header counters", () => {
     const library = await getUserLibrary(userId);
     expect(library.every((g) => g.versions === undefined)).toBe(true);
   });
+
+  it("an Xbox list at the base game's 1000G shows the check, as the header's Tralked counts it", async () => {
+    const u = await prisma.user.create({ data: { handle: `${PREFIX}-xb`, displayName: "X" } });
+    const g = await prisma.game.create({ data: { slug: `${PREFIX}-halo`, name: "Halo", achievementCount: 0, platforms: [] } });
+    const l = await prisma.trophyList.create({
+      data: { gameId: g.id, platform: "xbox", externalId: `${PREFIX}-halo-x`, console: "ONE", name: "Halo", trophyCount: 3 },
+    });
+    const rows = await prisma.achievement.createManyAndReturn({
+      data: [600, 400, 50].map((points, n) => ({ gameId: g.id, platform: "xbox", listId: l.id, apiName: `X${n}`, name: `X${n}`, points })),
+    });
+    await prisma.userAchievement.createMany({ data: rows.slice(0, 2).map((r) => ({ userId: u.id, achievementId: r.id, unlockedAt: at(50) })) });
+    await prisma.userTrophyList.create({ data: { userId: u.id, listId: l.id, unlockedCount: 2, completedAt: null } });
+    await prisma.userGame.create({ data: { userId: u.id, gameId: g.id, platform: "xbox", playtimeMin: 0, unlockedCount: 2 } });
+    const [halo] = await getUserLibrary(u.id, { versions: true });
+    expect(halo.versions).toEqual([{ key: `xbox:${PREFIX}-halo-x`, platform: "xbox", label: "Xbox", pct: 67, platinum: true, regions: 1 }]);
+    expect((await platinumTally(u.id)).tralked).toBe(1);
+  });
 });
+

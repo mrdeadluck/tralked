@@ -7,6 +7,9 @@ const PSN_ORDER = ["PS3", "PSVITA", "PS4", "PS5", "PSPC"] as const;
 const PSN_LABELS: Record<string, string> = { PS3: "PS3", PSVITA: "Vita", PS4: "PS4", PS5: "PS5", PSPC: "PC" };
 
 /** "PS3,PSVITA" -> "PS3+PSVITA" in a fixed order; nothing known -> null. */
+/** An Xbox list whose earned gamerscore reaches this is Tralked even with DLC missing (the base game's 1000G). */
+export const XBOX_BASE_GAMERSCORE = 1000;
+
 export function psnConsoleCode(trophyTitlePlatform: string): string | null {
   const present = new Set(
     trophyTitlePlatform
