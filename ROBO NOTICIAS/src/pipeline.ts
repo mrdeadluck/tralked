@@ -17,6 +17,7 @@ import type { ArticleRow, Db, ItemRow, SpendBucket, StoryRow } from "./db.js";
 import { gameDestination } from "./game-destination.js";
 import { acquireLock, type Lock } from "./lock.js";
 import { chooseImages } from "./media/choose.js";
+import { aboutVideo, officialSourceVideo } from "./media/video.js";
 import {
   PautaRejectedError,
   chooseFormat,
@@ -547,6 +548,13 @@ export async function storyForWriting(
   const parent = parentOf(story, deps);
   const items = deps.db.itemsForStory(story.id);
   const video = storyVideo(items, deps.sources);
+  // No official channel item: the official video a source page carries, when the story is about it.
+  const fromSource = video
+    ? null
+    : await officialSourceVideo(
+        { items, sources: deps.sources, games: parseGames(story.games_json), companies: storyCompanies(items) },
+        deps.fetchFn,
+      );
   return {
     id: story.id,
     headline: story.headline,
@@ -565,7 +573,9 @@ export async function storyForWriting(
             only: isVideoOnly(items),
           },
         }
-      : {}),
+      : fromSource
+        ? { video: { ...fromSource, only: false } }
+        : {}),
   };
 }
 
@@ -645,7 +655,7 @@ export async function articleMedia(
   }
 
   const trailer = set?.videos[0];
-  if (!writing.video && trailer && linked.length === 1) media.trailer = { youtubeId: trailer.youtubeId, title: `Vídeo de ${set!.game.name}` };
+  if (!writing.video && trailer && linked.length === 1 && !aboutVideo(story, items)) media.trailer = { youtubeId: trailer.youtubeId, title: `Vídeo de ${set!.game.name}` };
   return media;
 }
 

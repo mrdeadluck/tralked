@@ -244,10 +244,17 @@ function harness(start = local("2026-10-31T10:00")) {
   const brokenPages = new Set<string>();
   /** Image bytes served by URL (catalog art, source images). */
   const pictures = new Map<string, Buffer>();
+  /** YouTube oEmbed answers by video id. */
+  const oembeds = new Map<string, { title: string; author_name: string }>();
 
   const fetchFn = vi.fn(async (input: string) => {
     const source = SOURCES.find((s) => s.url === input);
     if (source) return new Response(rss(feeds.get(source.id) ?? []), { status: 200 });
+    if (input.startsWith("https://www.youtube.com/oembed?")) {
+      const id = new URL(new URL(input).searchParams.get("url")!).searchParams.get("v")!;
+      const meta = oembeds.get(id);
+      return meta ? new Response(JSON.stringify(meta), { status: 200 }) : new Response("no", { status: 404 });
+    }
     const picture = pictures.get(input);
     if (picture) return new Response(new Uint8Array(picture), { status: 200, headers: { "content-type": "image/jpeg" } });
     if (input.startsWith("https://news.test/") && !brokenPages.has(input)) {
@@ -287,6 +294,7 @@ function harness(start = local("2026-10-31T10:00")) {
     facts,
     brokenPages,
     pictures,
+    oembeds,
     fetchFn,
     fake,
     site,
@@ -1498,6 +1506,28 @@ describe("catalog media for articles without their own", () => {
     expect(vision.user).toContain(`img1 (de Tralked)`);
     expect(h.site.uploads).toHaveLength(2);
     expect(id).toBeGreaterThan(0);
+  });
+
+  it("a story about a trailer never gets the catalog's gameplay in its place", async () => {
+    const h = harness();
+    h.site.state.media.set("hades-ii", media());
+    seedQueued(h, "Hades II ganha trailer de lançamento");
+    await h.publica({ agora: true });
+    expect(h.site.created[0]!.payload.blocks.some((b) => b.type === "video")).toBe(false);
+  });
+
+  it("embeds the official video a source page carries, right after the lede", async () => {
+    const h = harness();
+    h.oembeds.set("SSSSSSSSSSS", { title: "Hades II - Official Launch Trailer", author_name: "PlayStation" });
+    h.oembeds.set("RRRRRRRRRRR", { title: "Hades II trailer reaction", author_name: "Canal Qualquer" });
+    const id = seedQueued(h, "Hades II ganha trailer de lançamento");
+    const [item] = h.db.itemsForStory(id);
+    h.db.setItemMedia(item!.id, { images: [], youtube: ["RRRRRRRRRRR", "SSSSSSSSSSS"], posts: [] });
+    await h.publica({ agora: true });
+    const { blocks } = h.site.created[0]!.payload;
+    expect(blocks[1]).toEqual({ type: "video", youtubeId: "SSSSSSSSSSS", title: "Hades II - Official Launch Trailer" });
+    const write = h.fake.calls.find((c) => c.purpose === "write")!;
+    expect(write.user).toContain("O vídeo complementa a notícia");
   });
 
   it("a vision failure publishes without images; the subscription limit puts the story back in the queue", async () => {
