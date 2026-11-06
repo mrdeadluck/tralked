@@ -197,10 +197,10 @@
     --tk-panel: color-mix(in oklch, var(--bg) 80%, transparent);
     background-color: var(--tk-panel);
     /* Square corners on purpose: a spread shadow adds its spread to the corner radius. Edge and
-       margin: the cards' border-line, 6 px out, so a panel stays almost in line with the cards
+       margin: the cards' border-line, 10 px out, so a panel stays almost in line with the cards
        above it without touching its content (Lucas, 11-06). */
     box-shadow:
-      0 0 0 6px var(--tk-panel),
-      0 0 0 7px var(--border);
+      0 0 0 10px var(--tk-panel),
+      0 0 0 11px var(--border);
   }
 }

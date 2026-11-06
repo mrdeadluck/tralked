@@ -11,8 +11,8 @@ const BLOCKS = "section, aside, article, header, nav, form, ul, ol, table, h1, h
 const OWN_BG = '[class^="bg-"], [class*=" bg-"], [style*="background"]';
 export const PANEL_CANDIDATES = `#principal :is(${BLOCKS}):not(${OWN_BG}):not(#principal :is(${BLOCKS}, ${OWN_BG}) *)`;
 
-/** Two frames of 7 px each, plus a little air. */
-export const MERGE_GAP = 20;
+/** Two frames of 11 px each, plus a little air. */
+export const MERGE_GAP = 26;
 
 type Box = { left: number; right: number; top: number; bottom: number };
 
