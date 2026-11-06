@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const { prisma } = await import("@/lib/db");
+const { createAchievements } = await import("@/lib/trophies/test-lists");
 const { getAchievementsOnly } = await import("./achievements-only");
 
 const SLUG = "t11-sem-guia";
@@ -8,20 +9,18 @@ const EMPTY = "t11-sem-conquistas";
 
 beforeAll(async () => {
   await prisma.game.deleteMany({ where: { slug: { in: [SLUG, EMPTY] } } });
-  await prisma.game.create({
+  const game = await prisma.game.create({
     data: {
       slug: SLUG,
       name: "Jogo Sem Guia",
       achievementCount: 2,
-      achievements: {
-        create: [
-          { platform: "steam", apiName: "S1", name: "Steam One", namePt: "Primeira", description: "Faça tudo", globalPct: 40 },
-          { platform: "steam", apiName: "S2", name: "Secret", hidden: true, globalPct: 2 },
-          { platform: "psn", apiName: "P1", name: "Trophy One", globalPct: 10 },
-        ],
-      },
     },
   });
+  await createAchievements(game.id, [
+    { platform: "steam", apiName: "S1", name: "Steam One", namePt: "Primeira", description: "Faça tudo", globalPct: 40 },
+    { platform: "steam", apiName: "S2", name: "Secret", hidden: true, globalPct: 2 },
+    { platform: "psn", apiName: "P1", name: "Trophy One", globalPct: 10 },
+  ]);
   await prisma.game.create({ data: { slug: EMPTY, name: "Sem Conquistas", achievementCount: 0 } });
 });
 

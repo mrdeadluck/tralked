@@ -62,10 +62,9 @@ try {
       earned: titles.reduce((total, t) => total + sum(t.earnedCounts), 0),
       platinums: titles.reduce((total, t) => total + (t.earnedCounts.platinum ?? 0), 0),
     };
-    const [lists, unlocks, listless, platinums] = await Promise.all([
+    const [lists, unlocks, platinums] = await Promise.all([
       prisma.userTrophyList.count({ where: { userId: account.userId, list: { platform: "psn" } } }),
       prisma.userAchievement.count({ where: { userId: account.userId, achievement: { platform: "psn" } } }),
-      prisma.userAchievement.count({ where: { userId: account.userId, achievement: { platform: "psn", listId: null } } }),
       prisma.userAchievement.count({
         where: { userId: account.userId, achievement: { platform: "psn", trophyTier: "platinum" } },
       }),
@@ -75,7 +74,7 @@ try {
     console.log(`  ${"lists with trophies earned".padEnd(26)}${pad(sony.played, 8)}${pad(lists, 9)}${pad(diff(sony.played, lists), 8)}`);
     console.log(`  ${"earned trophies".padEnd(26)}${pad(sony.earned, 8)}${pad(unlocks, 9)}${pad(diff(sony.earned, unlocks), 8)}`);
     console.log(`  ${"earned platinums".padEnd(26)}${pad(sony.platinums, 8)}${pad(platinums, 9)}${pad(diff(sony.platinums, platinums), 8)}`);
-    console.log(`  (Sony lists in all, earned or not: ${sony.lists}; Tralked unlocks on list-less rows: ${listless})`);
+    console.log(`  (Sony lists in all, earned or not: ${sony.lists})`);
   }
 } catch (error) {
   console.error("PSN comparison failed", error);

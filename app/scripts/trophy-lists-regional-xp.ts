@@ -87,7 +87,7 @@ try {
   if (total.voided > 0) log.warn("WARNING: entries were voided; the rule should only add. Investigate.");
   for (const r of reports) {
     if (r.paid.trophies[0] !== r.paid.trophies[1] || r.paid.platinums[0] !== r.paid.platinums[1]) {
-      log.warn(`${r.handle}: entries and unlocks / complete lists differ after the run (list-less rows, or a gap): check.`);
+      log.warn(`${r.handle}: entries and unlocks / complete lists differ after the run (a gap): check.`);
     }
   }
   if (dryRun) log.info("Dry run: nothing was written (XP after = the ledger plus the new entries; missions not simulated).");

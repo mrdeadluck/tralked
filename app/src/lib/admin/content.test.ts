@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
+import { createAchievements } from "@/lib/trophies/test-lists";
 import { articleInputSchema, getArticleForEdit, saveArticle, setArticleStatus, type ArticleInput } from "./articles";
 import { createGuideForGame, getGuideForEdit, guideInputSchema, saveGuide } from "./guides";
 
@@ -51,14 +52,12 @@ beforeAll(async () => {
       steamAppId: APP_ID,
       achievementCount: 2,
       platforms: ["PC"],
-      achievements: {
-        create: [
-          { apiName: "ACH_ONE", name: "Primeira" },
-          { apiName: "ACH_TWO", name: "Segunda" },
-        ],
-      },
     },
   });
+  await createAchievements(game.id, [
+    { apiName: "ACH_ONE", name: "Primeira" },
+    { apiName: "ACH_TWO", name: "Segunda" },
+  ]);
   gameId = game.id;
   const guide = await prisma.guide.create({
     data: {
@@ -343,11 +342,10 @@ describe("saveGuide", () => {
     const older = await prisma.trophyList.create({
       data: { gameId, platform: "psn", externalId: `${PREFIX}-L1`, console: "PS4", name: "Lista", createdAt: new Date("2026-01-01T00:00:00Z") },
     });
-    const row = (listId: string | null) =>
+    const row = (listId: string) =>
       prisma.achievement.create({ data: { gameId, platform: "psn", listId, apiName: "PSN_NOTE", name: "Nota" } });
     await row(newer.id);
     const canonical = await row(older.id);
-    await row(null);
     try {
       const notes = [{ apiName: "PSN_NOTE", platform: "psn", category: "historia", tip: body("Dica.") }];
       const steps = [{ title: "X", hours: "1 h", body: body("x") }];

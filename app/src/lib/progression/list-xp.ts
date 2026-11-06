@@ -19,7 +19,10 @@ const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 /** Games settled per transaction by rebuildListXp. */
 const REBUILD_CHUNK = 20;
 
-/** Legacy key of a list-less platinum (`${platform}:${gameId}`), written before trophy lists. */
+/**
+ * Legacy key of a game's platinum (`${platform}:${gameId}`), written before trophy lists. Entries
+ * under it are still read: paid ones count, voided ones block (planListXp), none is paid again.
+ */
 export const legacyPlatinumSourceKey = (platform: string, gameId: string) => `${platform}:${gameId}`;
 
 /**
@@ -27,9 +30,8 @@ export const legacyPlatinumSourceKey = (platform: string, gameId: string) => `${
  * version: `psn:<console>:<gameId>` (no console: `psn:<externalId>:<gameId>`) and
  * `<platform>:<externalId>:<gameId>` for xbox | retro.
  *
- * Transitional: a non-Steam call without `list` still answers the legacy key
- * (legacyPlatinumSourceKey) for the readers and writers not yet on lists (the PSN/Xbox/RA sync until
- * it settles through settleListXp, the game page's XP total).
+ * A non-Steam call without `list` answers the legacy key (legacyPlatinumSourceKey): the game page's
+ * XP total still reads entries written under it.
  */
 export function platinumSourceKey(
   platform: string,
@@ -64,7 +66,7 @@ export type LedgerDraft = {
 export type ListRow = { id: string; externalId: string; console: string | null; createdAt: Date };
 export type AchievementRow = {
   id: string;
-  listId: string | null;
+  listId: string;
   apiName: string;
   globalPct: number | null;
   points: number | null;
@@ -79,7 +81,7 @@ export type DesiredInput = {
   skills: string[];
   /** Every TrophyList of the game on that platform. */
   lists: ListRow[];
-  /** Every Achievement of the game on that platform (listId null: rows from before the lists). */
+  /** Every Achievement of the game on that platform. */
   achievements: AchievementRow[];
   /** The user's unlocks of those achievements. */
   unlocks: UnlockRow[];
@@ -131,7 +133,7 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
   // PSN: the same trophy (apiName) in the lists of one version, `${version}\n${apiName}`: its rows,
   // and the canonical list's row of it (the key the rule paid before every list counted).
   const groupOf = (a: AchievementRow): string | null => {
-    const l = platform === "psn" && a.listId ? listById.get(a.listId) : undefined;
+    const l = platform === "psn" ? listById.get(a.listId) : undefined;
     return l ? `${versionOf(l)}\n${a.apiName}` : null;
   };
   const groupRows = new Map<string, string[]>();
@@ -140,23 +142,15 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
     const g = groupOf(a);
     if (!g) continue;
     groupRows.set(g, [...(groupRows.get(g) ?? []), a.id]);
-    if (canonicalLists.has(a.listId!)) canonicalIdOf.set(g, a.id);
+    if (canonicalLists.has(a.listId)) canonicalIdOf.set(g, a.id);
   }
 
   const valid = input.unlocks.filter((u) => !u.suspicious && achievementById.has(u.achievementId));
   const validIds = new Set(valid.map((u) => u.achievementId));
   const suspiciousLists = new Set(
     input.unlocks.flatMap((u) => {
-      const listId = u.suspicious ? achievementById.get(u.achievementId)?.listId : null;
-      return listId ? [listId] : [];
-    }),
-  );
-  // apiNames the user holds validly on a list row: a list-less unlock of one of these is that same
-  // trophy, paid under the list row's key.
-  const coveredApiNames = new Set(
-    valid.flatMap((u) => {
-      const a = achievementById.get(u.achievementId)!;
-      return a.listId && listById.has(a.listId) ? [a.apiName] : [];
+      const a = u.suspicious ? achievementById.get(u.achievementId) : undefined;
+      return a ? [a.listId] : [];
     }),
   );
   // A trophy whose canonical row the user does not hold validly: its earliest valid copy in the
@@ -177,9 +171,6 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
 
   /** Ledger key of an unlocked achievement, or null when the rule pays it nothing. */
   const keyOf = (a: AchievementRow): string | null => {
-    // A list-less row (written before trophy lists) pays by its own id until a valid unlock of the
-    // same trophy on a list row of the game takes over (its lists not read yet: it keeps its XP).
-    if (!a.listId) return coveredApiNames.has(a.apiName) ? null : a.id;
     if (!listById.has(a.listId)) return null;
     const g = groupOf(a);
     return g && standIn.get(g) === a.id ? canonicalIdOf.get(g)! : a.id;
@@ -222,7 +213,7 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
       const holder = done.includes(canonical) ? canonical : done[0];
       const versionPlatinumKey = platinumSourceKey(platform, gameId, holder);
       const keys = lists.map((l) => (l === holder ? versionPlatinumKey : listPlatinumSourceKey(platform, gameId, l)));
-      const versionRows = input.achievements.filter((a) => a.listId && lists.some((l) => l.id === a.listId)).map((a) => a.id);
+      const versionRows = input.achievements.filter((a) => lists.some((l) => l.id === a.listId)).map((a) => a.id);
       for (const l of done) {
         const sourceKey = keys[lists.indexOf(l)];
         const own = input.achievements.filter((a) => a.listId === l.id);
@@ -271,8 +262,6 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
  *   `psn:<console>:<gameId>`, which pays the canonical list's completion, or the earliest one when
  *   the canonical list is not complete;
  * - suspicious unlocks pay nothing, and a list with one pays no platinum;
- * - a list-less Achievement row (written before trophy lists) pays by its own id unless the user
- *   holds a valid unlock of the same apiName on a list row of the game (that row's key pays it);
  * - the legacy platinum key is paid while the user has no UserTrophyList of the game on that
  *   platform, when `legacyCompletedAt` and no unlock of the game is suspicious.
  */

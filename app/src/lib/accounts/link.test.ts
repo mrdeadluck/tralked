@@ -348,16 +348,17 @@ describe.skipIf(!reachable)("account claims and unlinking", () => {
         name: "Jogo da missão",
         achievementCount: 0,
         platforms: ["XBOX"],
-        achievements: {
-          create: [0, 1, 2].map((i) => ({ platform: "xbox", apiName: `X${i}`, name: `Rara ${i}`, globalPct: 5 })),
-        },
       },
-      include: { achievements: true },
     });
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
+    const achievements = await createAchievements(
+      game.id,
+      [0, 1, 2].map((i) => ({ platform: "xbox", apiName: `X${i}`, name: `Rara ${i}`, globalPct: 5 })),
+    );
     try {
       // Three rare Xbox unlocks today complete the daily "Desbloqueie 3 conquistas raras".
       await prisma.userAchievement.createMany({
-        data: game.achievements.map((a, i) => ({ userId: user.id, achievementId: a.id, unlockedAt: later(-(i + 1) * 3_600_000) })),
+        data: achievements.map((a, i) => ({ userId: user.id, achievementId: a.id, unlockedAt: later(-(i + 1) * 3_600_000) })),
       });
       await recomputeUser(user.id, T0);
       const rare = await prisma.mission.findFirstOrThrow({

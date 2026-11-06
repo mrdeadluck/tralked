@@ -332,7 +332,8 @@ describe.skipIf(!reachable)("syncUser", () => {
     steamState.api = steam.api;
     const game = await syncGame(appId);
     // A leftover row (e.g. a seed fixture id) that Steam does not list for this game.
-    await prisma.achievement.create({ data: { gameId: game!.id, platform: "steam", apiName: "SEED_ONLY", name: "Seed", globalPct: 1 } });
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
+    await createAchievements(game!.id, [{ platform: "steam", apiName: "SEED_ONLY", name: "Seed", globalPct: 1 }]);
     const user = await newUser();
 
     await syncUser(user.id);
@@ -615,7 +616,8 @@ describe.skipIf(!reachable)("syncUser", () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");
     const appId = newAppId();
-    await prisma.game.create({
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
+    const game = await prisma.game.create({
       data: {
         slug: `test-sync-speed-${appId}`,
         name: "Speed game",
@@ -623,11 +625,9 @@ describe.skipIf(!reachable)("syncUser", () => {
         achievementCount: 3,
         platforms: ["PC"],
         timeToBeatCompleteMin: 6000,
-        achievements: {
-          create: ["A0", "A1", "A2"].map((apiName) => ({ apiName, name: apiName, globalPct: 10 })),
-        },
       },
     });
+    await createAchievements(game.id, ["A0", "A1", "A2"].map((apiName) => ({ apiName, name: apiName, globalPct: 10 })));
     steamState.api = fakeSteam({
       [appId]: {
         pcts: pctsOf(3),
@@ -653,7 +653,8 @@ describe.skipIf(!reachable)("syncUser", () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");
     const appId = newAppId();
-    await prisma.game.create({
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
+    const created = await prisma.game.create({
       data: {
         slug: `test-sync-speed-undated-${appId}`,
         name: "Old speed game",
@@ -661,9 +662,9 @@ describe.skipIf(!reachable)("syncUser", () => {
         achievementCount: 3,
         platforms: ["PC"],
         timeToBeatCompleteMin: 6000,
-        achievements: { create: ["A0", "A1", "A2"].map((apiName) => ({ apiName, name: apiName, globalPct: 10 })) },
       },
     });
+    await createAchievements(created.id, ["A0", "A1", "A2"].map((apiName) => ({ apiName, name: apiName, globalPct: 10 })));
     // Valid dated unlocks first, the game not complete; Steam's playtime is tiny (< 5% of 6000).
     const fake = fakeSteam({
       [appId]: {
@@ -720,7 +721,8 @@ describe.skipIf(!reachable)("syncUser", () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");
     const appId = newAppId();
-    await prisma.game.create({
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
+    const game = await prisma.game.create({
       data: {
         slug: `test-sync-rpg-${appId}`,
         name: "RPG game",
@@ -728,11 +730,9 @@ describe.skipIf(!reachable)("syncUser", () => {
         achievementCount: 5,
         platforms: ["PC"],
         skills: { create: [{ skill: "rpg" }] },
-        achievements: {
-          create: Array.from({ length: 5 }, (_, i) => ({ apiName: `A${i}`, name: `A${i}`, globalPct: 2 })),
-        },
       },
     });
+    await createAchievements(game.id, Array.from({ length: 5 }, (_, i) => ({ apiName: `A${i}`, name: `A${i}`, globalPct: 2 })));
     steamState.api = fakeSteam({
       [appId]: {
         pcts: pctsOf(5, 2),
@@ -892,7 +892,8 @@ describe.skipIf(!reachable)("syncUser", () => {
     const partial = newAppId();
     const complete = newAppId();
     // Known time to beat: with playtime 0 the speed-platinum rule would flag a real completion.
-    await prisma.game.create({
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
+    const game = await prisma.game.create({
       data: {
         slug: `test-sync-hidden-${complete}`,
         name: "Hidden playtime game",
@@ -900,11 +901,9 @@ describe.skipIf(!reachable)("syncUser", () => {
         achievementCount: 2,
         platforms: ["PC"],
         timeToBeatCompleteMin: 6000,
-        achievements: {
-          create: ["A0", "A1"].map((apiName) => ({ apiName, name: apiName, globalPct: 10 })),
-        },
       },
     });
+    await createAchievements(game.id, ["A0", "A1"].map((apiName) => ({ apiName, name: apiName, globalPct: 10 })));
     steamState.api = fakeSteam({
       [partial]: { pcts: pctsOf(3), playtimeMin: 0, unlocks: { A0: new Date("2024-01-01T10:00:00Z") } },
       [complete]: {

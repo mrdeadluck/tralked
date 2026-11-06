@@ -63,11 +63,11 @@ beforeAll(async () => {
     [gta, 25, 16],
     [hk, 3, 3],
   ] as const) {
-    await prisma.trophyList.create({
+    const steamList = await prisma.trophyList.create({
       data: { gameId: game.id, platform: "steam", externalId: `${PREFIX}-steam-${game.slug}`, console: "PC", name: game.name, trophyCount: total },
     });
     const rows = await prisma.achievement.createManyAndReturn({
-      data: Array.from({ length: total }, (_, n) => ({ gameId: game.id, platform: "steam", apiName: `A${n}`, name: `A${n}` })),
+      data: Array.from({ length: total }, (_, n) => ({ gameId: game.id, platform: "steam", listId: steamList.id, apiName: `A${n}`, name: `A${n}` })),
     });
     await prisma.userAchievement.createMany({ data: rows.slice(0, unlocked).map((r) => ({ userId, achievementId: r.id, unlockedAt: at(40) })) });
     await prisma.userGame.create({

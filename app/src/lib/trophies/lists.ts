@@ -119,16 +119,12 @@ export function canonicalList<T extends Orderable>(lists: T[]): T {
 
 /**
  * `${platform}:${apiName}` -> the Achievement row a guide note on that trophy goes to: on a game
- * with several lists, the row of the oldest list holding the apiName (canonicalList's order, as
- * the phase finish moves notes); list-less rows (written before trophy lists) only when no list
- * holds it.
+ * with several lists, the row of the oldest list holding the apiName (canonicalList's order).
  */
 export function noteTargetIds(
-  rows: { id: string; platform: string; apiName: string; list: Orderable | null }[],
+  rows: { id: string; platform: string; apiName: string; list: Orderable }[],
 ): Map<string, string> {
-  const ordered = [...rows].sort((a, b) =>
-    a.list && b.list ? byCreation(a.list, b.list) : Number(!a.list) - Number(!b.list),
-  );
+  const ordered = [...rows].sort((a, b) => byCreation(a.list, b.list));
   const out = new Map<string, string>();
   for (const r of ordered) {
     const key = `${r.platform}:${r.apiName}`;

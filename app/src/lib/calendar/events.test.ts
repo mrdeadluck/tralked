@@ -37,6 +37,7 @@ describe.skipIf(!reachable)("calendar events", () => {
     const author = await prisma.author.findFirstOrThrow();
     const user = await prisma.user.create({ data: { handle: "cal_test_player", displayName: "Cal" } });
     userId = user.id;
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
     const game = await prisma.game.create({
       data: {
         slug: "cal-test-jogo",
@@ -44,18 +45,15 @@ describe.skipIf(!reachable)("calendar events", () => {
         platforms: ["PC", "PLAYSTATION"],
         achievementCount: 3,
         releaseDate: at("2039-03-20T00:00:00Z"),
-        achievements: {
-          create: [
-            { apiName: "A", name: "Comum", globalPct: 60 },
-            { apiName: "B", name: "Rara", globalPct: 2.5 },
-            { apiName: "C", name: "Fraude", globalPct: 1 },
-          ],
-        },
       },
-      include: { achievements: true },
     });
+    const achievements = await createAchievements(game.id, [
+      { apiName: "A", name: "Comum", globalPct: 60 },
+      { apiName: "B", name: "Rara", globalPct: 2.5 },
+      { apiName: "C", name: "Fraude", globalPct: 1 },
+    ]);
     gameId = game.id;
-    const byName = new Map(game.achievements.map((a) => [a.name, a.id]));
+    const byName = new Map(achievements.map((a) => [a.name, a.id]));
     await prisma.userAchievement.createMany({
       data: [
         // 01:30 UTC on Mar 6 is still Mar 5 in Brasília.

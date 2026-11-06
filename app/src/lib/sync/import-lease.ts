@@ -55,9 +55,9 @@ export function busyPairs(busy: Set<string>): { platform: ImportLane; userId: st
  * Changes the lease's account list under a row lock: `edit` gets the keys a valid lease holds now
  * and returns the new list. The lease ends when no key remains; otherwise it is renewed for
  * IMPORT_WORKER_LEASE_MS (`renew`) or keeps its current end. For a one-off job beside the worker
- * (lib/trophies/finish.ts), which adds and removes only its own keys. The worker itself overwrites
- * (or wipes) the whole list without reading it (holdImportLease, releaseImportLease): such a job
- * puts its keys back often (finish: every 30 s and before each account).
+ * (the phase a trophy-lists finish was one), which adds and removes only its own keys. The worker
+ * itself overwrites (or wipes) the whole list without reading it (holdImportLease,
+ * releaseImportLease): such a job puts its keys back often (renewImportKeys).
  *
  * A renewal extends the whole lease, so the keys of a worker that died stay in it while the job
  * runs (harmless: the cron only skips those accounts until the job ends and the lease expires).

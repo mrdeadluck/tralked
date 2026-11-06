@@ -129,6 +129,7 @@ describe.skipIf(!reachable)("writeCatalogGame", () => {
     const { prisma } = await import("@/lib/db");
     const { writeCatalogGame } = await import("./write-catalog-game");
     const appId = APP_BASE + 2;
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
     const seeded = await prisma.game.create({
       data: {
         slug: `seeded-${appId}`,
@@ -138,19 +139,16 @@ describe.skipIf(!reachable)("writeCatalogGame", () => {
         platforms: ["PLAYSTATION"],
         achievementCount: 9,
         skills: { create: [{ skill: "rpg" }] },
-        achievements: {
-          create: [
-            { platform: "steam", apiName: "FIXTURE_CHARMED", name: "charmed" },
-            { platform: "steam", apiName: "ONLY_SEED", name: "Only in the seed" },
-            // Two rows share a name: ambiguous, so neither is re-keyed.
-            { platform: "steam", apiName: "DUP_1", name: "Twin" },
-            { platform: "steam", apiName: "DUP_2", name: "Twin" },
-          ],
-        },
       },
-      include: { achievements: true },
     });
-    const fixtureCharmed = seeded.achievements.find((a) => a.apiName === "FIXTURE_CHARMED")!;
+    const achievements = await createAchievements(seeded.id, [
+      { platform: "steam", apiName: "FIXTURE_CHARMED", name: "charmed" },
+      { platform: "steam", apiName: "ONLY_SEED", name: "Only in the seed" },
+      // Two rows share a name: ambiguous, so neither is re-keyed.
+      { platform: "steam", apiName: "DUP_1", name: "Twin" },
+      { platform: "steam", apiName: "DUP_2", name: "Twin" },
+    ]);
+    const fixtureCharmed = achievements.find((a) => a.apiName === "FIXTURE_CHARMED")!;
     const user = await prisma.user.create({
       data: { steamId: USER_STEAM_ID, handle: "test_writer_1", displayName: "Writer" },
     });
@@ -201,29 +199,5 @@ describe.skipIf(!reachable)("writeCatalogGame", () => {
     await writeCatalogGame(input(appId, { schema: [], percentages: {} }));
     expect((await prisma.trophyList.findUniqueOrThrow({ where: { id: list.id } })).trophyCount).toBe(2);
     expect(await prisma.achievement.count({ where: { listId: list.id } })).toBe(2);
-  });
-
-  it("attaches the rows of a game that already had achievements without a list", async () => {
-    const { prisma } = await import("@/lib/db");
-    const { writeCatalogGame } = await import("./write-catalog-game");
-    const appId = APP_BASE + 4;
-    await prisma.game.create({
-      data: {
-        slug: `legacy-${appId}`,
-        name: "Legacy",
-        steamAppId: appId,
-        platforms: ["PC"],
-        achievementCount: 2,
-        achievements: { create: [
-          { platform: "steam", apiName: "CHARMED", name: "Charmed" },
-          { platform: "steam", apiName: "SEED_ONLY", name: "Seed only" },
-        ] },
-      },
-    });
-    await writeCatalogGame(input(appId));
-    const game = await snapshot(appId);
-    expect(game.achievements.map((a) => a.apiName)).toEqual(["CHARMED", "FK_DEFEAT", "SEED_ONLY"]);
-    expect(new Set(game.achievements.map((a) => a.listId)).size).toBe(1);
-    expect(game.achievements.every((a) => a.listId !== null)).toBe(true);
   });
 });

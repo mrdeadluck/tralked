@@ -13,8 +13,6 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:generate": "prisma generate",
     "igdb:consoles": "tsx scripts/igdb-consoles-backfill.ts",
-    "trophy-lists:backfill": "tsx scripts/trophy-lists-backfill.ts",
-    "trophy-lists:finish": "tsx scripts/trophy-lists-finish.ts",
     "trophy-lists:snapshot": "tsx scripts/trophy-lists-snapshot.ts",
     "trophy-lists:audit-psn": "tsx scripts/trophy-lists-audit-psn.ts",
     "trophy-lists:repair-psn": "tsx scripts/trophy-lists-repair-psn.ts",

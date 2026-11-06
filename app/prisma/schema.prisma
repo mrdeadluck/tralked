@@ -322,9 +322,9 @@ model GameSkill {
 
 /// An achievement / trophy of a game on one platform. `apiName` is the platform's own id
 /// (Steam apiname, PSN trophyId, Xbox achievement id, RA achievement id).
-/// It belongs to a TrophyList (`listId`): unique per `listId` + `apiName`. `gameId` and `platform`
-/// are kept as copies of the list's (every current reader filters on them). `listId` is optional
-/// while the lists are filled in; it becomes required in the last phase.
+/// It belongs to a TrophyList (`listId`, required): unique per `listId` + `apiName`, so the same
+/// trophy in two lists of a game (PS4 and PS5, regional lists) is two rows. `gameId` and `platform`
+/// are kept as copies of the list's (every current reader filters on them).
 model Achievement {
   id            String      @id @default(cuid())
   gameId        String
@@ -346,9 +346,9 @@ model Achievement {
   /// RetroAchievements: the achievement belongs to the hardcore set. Whether a given unlock was
   /// earned in hardcore mode is UserAchievement.hardcore.
   hardcore      Boolean     @default(false)
-  listId        String?
+  listId        String
   game          Game        @relation(fields: [gameId], references: [id], onDelete: Cascade)
-  list          TrophyList? @relation(fields: [listId], references: [id], onDelete: Cascade)
+  list          TrophyList  @relation(fields: [listId], references: [id], onDelete: Cascade)
 
   unlocks UserAchievement[]
   notes   GuideAchievementNote[]
@@ -617,6 +617,8 @@ model GameOpen {
 ///                     `psn:${console}:${gameId}` for the version's canonical list (or its earliest
 ///                     completion when the canonical list is not complete).
 ///                     The game id is the part after the last ":" (platinumGameId).
+///                     The legacy `${platform}:${gameId}` key (before trophy lists) is still read
+///                     (paid entries count, voided ones block) and never paid again.
 ///   mission        -> missionId (reward of a completed daily/weekly mission)
 ///   guide_vote     -> `${tipId}:${voterUserId}` (Sábio XP for the author of a voted tip)
 ///   photo_approved -> photoId (gallery upload XP, daily-limited; voided when moderation removes it)

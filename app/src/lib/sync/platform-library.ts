@@ -48,7 +48,7 @@ export type LibraryTitle = {
   achievements: LibraryAchievement[];
   /**
    * The counts the platform's title list showed when the title was read: the sync remembers them
-   * per title, since one game can have several lists (PS4 and PS5) sharing one UserGame row.
+   * per title (StoredProgress.listed), since the title list and the trophy list can disagree.
    */
   listed?: { unlocked: number; hardcore?: number };
 };
@@ -88,7 +88,7 @@ export type PsnConcepts = {
   conceptNames: Map<number, string>;
 };
 
-/** What the database already holds for a title (from its UserGame row and unlocks). */
+/** What the database already holds for a title (its UserTrophyList, the game's UserGame play time). */
 export type StoredProgress = {
   unlocked: number;
   hardcore: number;

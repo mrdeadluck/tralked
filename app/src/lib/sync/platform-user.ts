@@ -50,7 +50,7 @@ export type SyncPlatformOptions = {
   full?: boolean;
   /**
    * Titles (platform ids) not read this run, as if up to date: the next pass of a `full` resync
-   * cut short skips those an earlier pass recorded (lib/trophies/finish.ts). With it, a `full`
+   * cut short skips those an earlier pass recorded (`recordedTitles`). With it, a `full`
    * Xbox read still leaves out the minutes already asked (LinkedAccount.minutesChecked), so the
    * passes move through more than MAX_MINUTES_TITLES titles.
    */
@@ -102,16 +102,8 @@ type KnownUnlock = {
   fraudReviewedAt: Date | null;
 };
 
-/** The user's unlocks on one platform, as stored when the sync started. */
-type KnownUnlocks = {
-  /** Unlocks of trophy-list rows, by listKey. */
-  byList: Map<string, KnownUnlock>;
-  /**
-   * Unlocks of rows written before trophy lists (listId null), by `${gameId}:${apiName}`. Several
-   * lists of one game (PS4 and PS5) shared those rows, so one may hold another list's unlock.
-   */
-  legacy: Map<string, KnownUnlock>;
-};
+/** The user's unlocks on one platform, as stored when the sync started, by listKey. */
+type KnownUnlocks = Map<string, KnownUnlock>;
 
 /** A trophy of one list: Achievement is unique by (listId, apiName). */
 const listKey = (listId: string, apiName: string) => `${listId}:${apiName}`;
@@ -123,9 +115,8 @@ const listKey = (listId: string, apiName: string) => `${listId}:${apiName}`;
  * unlocks; completed when its first list was), then settles the game's XP by version
  * (settleListXp). Every insert is idempotent and XP already in the ledger is never rewritten. A
  * stored unlock date is never rewritten either: an undated unlock keeps the time it was first
- * seen (`seenAt`). An unlock of a list-less row of the same game and trophy (written before
- * trophy lists) passes on its verdict, and its date when the platform gives none. Throws
- * AccountChangedError (writing nothing) when the account is no longer linked.
+ * seen (`seenAt`). Throws AccountChangedError (writing nothing) when the account is no longer
+ * linked.
  * Returns how many unlocks were new.
  */
 async function recordTitle(
@@ -166,34 +157,6 @@ async function recordTitle(
     });
     // A list never moves between games (ensureTrophyList): its rows and progress stay with its game.
     const listGameId = list.gameId;
-    // List-less rows of the game written before trophy lists are this list's own rows (kept in
-    // place, ids and ledger keys too) when the game has only this list on the platform (one PSN
-    // `NPWR` link; one Xbox/RA link, and it is this title's) and always on RetroAchievements, whose
-    // ids are unique across sets (as the game page's writer does, lib/sync/retro-achievements.ts).
-    // Rows of a game with several lists mixed those lists' trophies, and rows of a game whose one
-    // list link is another title are that title's: they stay as they are (the phase finish removes
-    // the former) and the list gets rows of its own.
-    const listLinks =
-      platform === "retro"
-        ? [{ externalId: title.externalId }]
-        : await tx.gamePlatformLink.findMany({
-            where: { gameId: listGameId, platform, ...(platform === "psn" && { externalId: { startsWith: "NPWR" } }) },
-            select: { externalId: true },
-            take: 2,
-          });
-    if (listLinks.length === 1 && listLinks[0].externalId === title.externalId) {
-      const own = await tx.achievement.findMany({ where: { listId: list.id }, select: { apiName: true } });
-      const held = new Set(own.map((r) => r.apiName));
-      await tx.achievement.updateMany({
-        where: {
-          gameId: listGameId,
-          platform,
-          listId: null,
-          apiName: { in: title.achievements.map((a) => a.apiName).filter((n) => !held.has(n)) },
-        },
-        data: { listId: list.id },
-      });
-    }
     const existing = await tx.achievement.findMany({ where: { listId: list.id } });
     const byApiName = new Map(existing.map((r) => [r.apiName, r]));
     await tx.achievement.createMany({
@@ -240,36 +203,26 @@ async function recordTitle(
     const unlocked = title.achievements.flatMap((a) => {
       const achievementId = idOf.get(a.apiName);
       if (!achievementId || !a.unlocked) return [];
-      // The list-less row of the same game and apiName: on a game with several lists it stands for
-      // every one of them, so its verdict carries over to that trophy in each list of the game.
-      const listless = known.legacy.get(`${listGameId}:${a.apiName}`);
-      // A list-less row this list just took over is the same row: same unlock.
-      const before =
-        known.byList.get(listKey(list.id, a.apiName)) ?? (listless?.achievementId === achievementId ? listless : undefined);
-      const legacy = before ? undefined : listless;
-      // The list-less row may hold another list's unlock: its date only stands in for a missing one.
-      const unlockedAt = before?.unlockedAt ?? a.unlockedAt ?? legacy?.unlockedAt ?? seenAt;
-      return [{ a, achievementId, unlockedAt, before, legacy }];
+      const before = known.get(listKey(list.id, a.apiName));
+      const unlockedAt = before?.unlockedAt ?? a.unlockedAt ?? seenAt;
+      return [{ a, achievementId, unlockedAt, before }];
     });
     const complete = unlocked.length > 0 && unlocked.length >= title.achievements.length;
     const playtimeKnown = title.playtimeMin !== null && title.playtimeMin > 0;
     const speedRun =
       complete && playtimeKnown && isSpeedPlatinum(title.playtimeMin ?? 0, game.timeToBeatCompleteMin);
 
-    const verdicts = unlocked.map((u) => {
-      const before = u.before ?? u.legacy;
-      return {
-        ...u,
-        // An unlock already stored keeps its stored verdict (suspicious stays suspicious, an
-        // admin-released one stays clean): only unlocks seen for the first time are judged by the
-        // burst and speed rules, so a resync never flags old bursts (save transfers, sibling lists).
-        suspicious: before
-          ? before.suspicious
-          : bursts.has(u.achievementId) || bursts.has(newKey(title.externalId, u.a.apiName)) || speedRun,
-        // A softcore unlock later redone in hardcore is upgraded, never downgraded.
-        hardcore: u.a.hardcore || (before?.hardcore ?? false),
-      };
-    });
+    const verdicts = unlocked.map((u) => ({
+      ...u,
+      // An unlock already stored keeps its stored verdict (suspicious stays suspicious, an
+      // admin-released one stays clean): only unlocks seen for the first time are judged by the
+      // burst and speed rules, so a resync never flags old bursts (save transfers, sibling lists).
+      suspicious: u.before
+        ? u.before.suspicious
+        : bursts.has(u.achievementId) || bursts.has(newKey(title.externalId, u.a.apiName)) || speedRun,
+      // A softcore unlock later redone in hardcore is upgraded, never downgraded.
+      hardcore: u.a.hardcore || (u.before?.hardcore ?? false),
+    }));
     // A 100% with any suspicious unlock is not a completion (no Coleção, no platinum bonus).
     const validComplete = complete && verdicts.every((v) => !v.suspicious);
     const completedAt = validComplete
@@ -301,8 +254,6 @@ async function recordTitle(
         unlockedAt: v.unlockedAt,
         suspicious: v.suspicious,
         hardcore: v.hardcore,
-        // An admin's decision on the list-less unlock stands for this one.
-        ...(v.legacy?.fraudReview && { fraudReview: v.legacy.fraudReview, fraudReviewedAt: v.legacy.fraudReviewedAt }),
       })),
       skipDuplicates: true,
     });
@@ -315,10 +266,9 @@ async function recordTitle(
       }
     }
 
-    // The game on that platform: every list's unlocks (list-less rows of older syncs left out: the
-    // lists hold those unlocks again), completed when its first list was.
+    // The game on that platform: every list's unlocks, completed when its first list was.
     const unlockedCount = await tx.userAchievement.count({
-      where: { userId, achievement: { gameId: listGameId, platform, listId: { not: null } } },
+      where: { userId, achievement: { gameId: listGameId, platform } },
     });
     const firstCompleted = await tx.userTrophyList.findFirst({
       where: { userId, completedAt: { not: null }, list: { gameId: listGameId, platform } },
@@ -347,8 +297,7 @@ async function recordTitle(
     // (RetroAchievements play time comes with the title) are paid by settlePlaytime at the end of
     // the sync, within the per-user caps.
     await settleListXp(tx, userId, platform, [listGameId], seenAt);
-    // Unlocks carried over from list-less rows were known already.
-    return Math.max(0, created.count - fresh.filter((v) => v.legacy).length);
+    return created.count;
   }, TRANSACTION_OPTIONS);
 }
 
@@ -502,7 +451,11 @@ export const EMPTY_TITLES_VERSION: Record<CodePlatform, number> = { psn: 1, xbox
  */
 export const X360_RETRY_MS = 24 * 3_600_000;
 
-/** SyncCursor holding a connection's remembered title counts (see rememberTitles). */
+/**
+ * SyncCursor of a connection's title memory (see rememberTitles): the listed counts of the titles
+ * recorded, the empty titles (per platform version) and the failed Xbox 360 titles waiting
+ * (X360_RETRY_MS).
+ */
 export const titleMemoryKey = (accountId: string) => `platform-titles:${accountId}`;
 
 type TitleMemory = {
@@ -548,10 +501,12 @@ async function rememberedTitles(account: AccountSnapshot, accountId: string): Pr
 }
 
 /**
- * Remembers (merging) the counts the platform listed for each title recorded this run. A game with
- * several lists (PS4 and PS5) has one UserGame row whose count matches at most one list: without
- * this, the other list was read again on every sync, and a big library never finished importing.
- * Also when each `failed` title failed (`failedAt`), and forgets that of the titles read this run.
+ * Remembers (merging) the counts the platform listed for each title recorded this run: the title
+ * list and the trophy list can disagree (an Xbox unlock the achievement list does not show, RA's
+ * sticky hardcore flags), and without this such a title was read again on every sync. Also the
+ * titles read empty (`empties`, at the platform's EMPTY_TITLES_VERSION), so they are not read
+ * again until their counts change, and when each `failed` title failed (`failedAt`, the Xbox 360
+ * backoff), forgetting that of the titles read this run.
  * Guarded like the titles: nothing is written on a connection unlinked (or replaced) meanwhile.
  */
 async function rememberTitles(
@@ -602,13 +557,13 @@ async function rememberTitles(
 
 /**
  * Per-title progress already in the database, keyed by the platform's title id: the counts of the
- * user's UserTrophyList of that list (with the listed counts remembered for it, see
- * StoredProgress.listed); a list without one of a game that has per-list progress, or of a game
- * whose unlocks are still on list-less rows only, gets no entry (read once); a title of a game
- * recorded only before trophy lists, the counts remembered for it
- * when it was last recorded (a game with several lists), else its game's UserGame unlock count
- * (and, for RetroAchievements, the game's hardcore unlock count). Persistent, so a run cut short
- * by the budget resumes where it stopped.
+ * user's UserTrophyList of that list, with the listed counts remembered for it (see
+ * StoredProgress.listed). A title without one carries no counts of its own (the game's UserGame
+ * count is no list's progress): a list of a game with per-list progress gets no entry (read once:
+ * reading it records its row); any other linked title of a game the user has on that platform
+ * gets only its remembered counts and the game's play time (what the Xbox minutes and the
+ * RetroAchievements play time are checked against), and the titles read empty their remembered
+ * counts. Persistent, so a run cut short by the budget resumes where it stopped.
  */
 async function storedProgress(
   userId: string,
@@ -618,7 +573,7 @@ async function storedProgress(
   const [games, lists] = await Promise.all([
     prisma.userGame.findMany({
       where: { userId, platform },
-      select: { gameId: true, unlockedCount: true, playtimeUpdatedAt: true, lastPlayedAt: true },
+      select: { gameId: true, playtimeUpdatedAt: true, lastPlayedAt: true },
     }),
     prisma.userTrophyList.findMany({
       where: { userId, list: { platform } },
@@ -626,61 +581,31 @@ async function storedProgress(
     }),
   ]);
   if (games.length === 0 && lists.length === 0 && remembered.size === 0) return new Map();
-  // A game with per-list progress counts by list only: its game count adds every list up, so a
-  // list of it without progress yet has no entry and is read (once: reading it records its row).
+  // A game with per-list progress counts by list only: a list of it without progress yet has no
+  // entry and is read (once: reading it records its row).
   const onLists = new Set(lists.map((p) => p.list.gameId));
-  const [links, hardcore, listless] = await Promise.all([
-    prisma.gamePlatformLink.findMany({
-      where: { platform, gameId: { in: games.map((g) => g.gameId) } },
-      select: { gameId: true, externalId: true },
-    }),
-    platform === "retro"
-      ? prisma.userAchievement.findMany({
-          where: { userId, hardcore: true, achievement: { platform } },
-          select: { achievement: { select: { gameId: true } } },
-        })
-      : [],
-    prisma.achievement.findMany({
-      where: { platform, listId: null, gameId: { in: games.map((g) => g.gameId) }, unlocks: { some: { userId } } },
-      select: { gameId: true },
-      distinct: ["gameId"],
-    }),
-  ]);
-  // A game whose unlocks are still on list-less rows (the backfill leaves a multi-list game so)
-  // and none of whose lists was read for this user: its lists get no entry, so each is read once
-  // and the game moves to its lists (reading a list records its UserTrophyList: no loop).
-  const unread = listless.map((a) => a.gameId).filter((g) => !onLists.has(g));
-  const unreadLists = new Set(
-    unread.length
-      ? (
-          await prisma.trophyList.findMany({
-            where: { platform, gameId: { in: unread } },
-            select: { gameId: true, externalId: true },
-          })
-        ).map((l) => `${l.gameId}:${l.externalId}`)
-      : [],
-  );
-  const hardcoreByGame = new Map<string, number>();
-  for (const h of hardcore) {
-    hardcoreByGame.set(h.achievement.gameId, (hardcoreByGame.get(h.achievement.gameId) ?? 0) + 1);
-  }
+  const links = await prisma.gamePlatformLink.findMany({
+    where: { platform, gameId: { in: games.map((g) => g.gameId) } },
+    select: { gameId: true, externalId: true },
+  });
   const byGame = new Map(games.map((g) => [g.gameId, g]));
   const stored = new Map<string, StoredProgress>(
     links
-      .filter((l) => !onLists.has(l.gameId) && !unreadLists.has(`${l.gameId}:${l.externalId}`))
+      .filter((l) => !onLists.has(l.gameId))
       .map((l) => {
-      const game = byGame.get(l.gameId);
-      const counts = remembered.get(l.externalId);
-      return [
-        l.externalId,
-        {
-          unlocked: counts?.unlocked ?? game?.unlockedCount ?? 0,
-          hardcore: counts?.hardcore ?? hardcoreByGame.get(l.gameId) ?? 0,
-          playtimeSynced: game?.playtimeUpdatedAt != null,
-          lastPlayedAt: game?.lastPlayedAt ?? null,
-        },
-      ];
-    }),
+        const game = byGame.get(l.gameId);
+        return [
+          l.externalId,
+          {
+            // No list progress: never equal to a listed count (titles are listed with unlocks).
+            unlocked: -1,
+            hardcore: -1,
+            listed: remembered.get(l.externalId),
+            playtimeSynced: game?.playtimeUpdatedAt != null,
+            lastPlayedAt: game?.lastPlayedAt ?? null,
+          },
+        ];
+      }),
   );
   // PSN: the stored trophies of each list per tier, checked against what the list defines.
   const definitions = new Map<string, TierCounts>();
@@ -691,9 +616,9 @@ async function storedProgress(
       _count: { _all: true },
     });
     for (const t of tiers) {
-      const counts = definitions.get(t.listId!) ?? tierCounts([]);
+      const counts = definitions.get(t.listId) ?? tierCounts([]);
       if (t.trophyTier && t.trophyTier in counts) counts[t.trophyTier as keyof TierCounts] += t._count._all;
-      definitions.set(t.listId!, counts);
+      definitions.set(t.listId, counts);
     }
   }
   for (const p of lists) {
@@ -840,11 +765,9 @@ export async function syncPlatformAccount(
       achievement: { select: { listId: true, gameId: true, apiName: true } },
     },
   });
-  const known: KnownUnlocks = { byList: new Map(), legacy: new Map() };
-  for (const { achievement: a, ...unlock } of unlockRows) {
-    if (a.listId) known.byList.set(listKey(a.listId, a.apiName), unlock);
-    else known.legacy.set(`${a.gameId}:${a.apiName}`, unlock);
-  }
+  const known: KnownUnlocks = new Map(
+    unlockRows.map(({ achievement: a, ...unlock }) => [listKey(a.listId, a.apiName), unlock]),
+  );
   const lists = await prisma.trophyList.findMany({
     where: { platform, externalId: { in: resolved.map((r) => r.title.externalId) } },
     select: { id: true, externalId: true, gameId: true },
@@ -855,26 +778,10 @@ export async function syncPlatformAccount(
     where: { listId: { in: lists.map((l) => l.id) } },
     select: { id: true, listId: true, apiName: true },
   });
-  const idByKey = new Map(ids.map((a) => [listKey(a.listId!, a.apiName), a.id]));
-  // A list-less unlock of a game that has (or gets, this run) trophy lists is held by a list row
-  // too: left out, so one unlock does not count twice.
-  const legacyGames = [...new Set(unlockRows.filter((r) => !r.achievement.listId).map((r) => r.achievement.gameId))];
-  const listedGames = new Set([
-    ...resolved.map((r) => r.gameId),
-    ...(legacyGames.length
-      ? await prisma.trophyList.findMany({
-          where: { platform, gameId: { in: legacyGames } },
-          select: { gameId: true },
-          distinct: ["gameId"],
-        })
-      : []
-    ).map((l) => l.gameId),
-  ]);
+  const idByKey = new Map(ids.map((a) => [listKey(a.listId, a.apiName), a.id]));
   const everyUnlock = new Map<string, { achievementId: string; unlockedAt: Date; gameId: string; apiName: string }>();
   for (const { achievement: a, achievementId, unlockedAt } of unlockRows) {
-    if (!unlockedAt) continue;
-    if (a.listId) everyUnlock.set(listKey(a.listId, a.apiName), { achievementId, unlockedAt, gameId: a.gameId, apiName: a.apiName });
-    else if (!listedGames.has(a.gameId)) everyUnlock.set(`${a.gameId}:${a.apiName}`, { achievementId, unlockedAt, gameId: a.gameId, apiName: a.apiName });
+    if (unlockedAt) everyUnlock.set(listKey(a.listId, a.apiName), { achievementId, unlockedAt, gameId: a.gameId, apiName: a.apiName });
   }
   for (const { title, gameId: resolvedGameId } of resolved) {
     const listId = listIdOf.get(title.externalId);
@@ -890,7 +797,7 @@ export async function syncPlatformAccount(
         continue;
       }
       if (!a.unlockedAt) everyUnlock.delete(key);
-      else if (!known.byList.has(key)) everyUnlock.set(key, { achievementId: id, unlockedAt: a.unlockedAt, gameId, apiName: a.apiName });
+      else if (!known.has(key)) everyUnlock.set(key, { achievementId: id, unlockedAt: a.unlockedAt, gameId, apiName: a.apiName });
     }
   }
   // One trophy counts once however many sibling lists of the game hold it (cross-buy, cross-gen

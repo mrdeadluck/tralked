@@ -88,11 +88,14 @@ describe.skipIf(!reachable)("steam:dateless", () => {
         achievementCount: n,
         platforms: ["PC"],
         timeToBeatCompleteMin,
-        achievements: { create: Array.from({ length: n }, (_, i) => ({ apiName: `A${i}`, name: `A${i}`, globalPct: pct })) },
       },
-      include: { achievements: { orderBy: { apiName: "asc" } } },
     });
-    const mine = row.achievements.slice(0, have);
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
+    const achievements = await createAchievements(
+      row.id,
+      Array.from({ length: n }, (_, i) => ({ apiName: `A${i}`, name: `A${i}`, globalPct: pct })),
+    );
+    const mine = achievements.slice(0, have);
     await prisma.userGame.create({
       data: {
         userId,

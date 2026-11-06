@@ -12,7 +12,7 @@ const list = (id: string, platform: string, console: string | null, m: number, o
   trophyCount: 2,
   ...over,
 });
-const ach = (id: string, listId: string | null, platform: string, apiName: string, trophyTier: string | null = "bronze"): AchRow => ({
+const ach = (id: string, listId: string, platform: string, apiName: string, trophyTier: string | null = "bronze"): AchRow => ({
   id,
   listId,
   platform,
@@ -56,9 +56,9 @@ describe("buildGameVersions", () => {
 
   it("lists Steam achievements commonest first", () => {
     const rows = [
-      { ...ach("r", null, "steam", "RARE", null), globalPct: 2 },
-      { ...ach("u", null, "steam", "UNKNOWN", null), globalPct: null },
-      { ...ach("c", null, "steam", "COMMON", null), globalPct: 80 },
+      { ...ach("r", "st", "steam", "RARE", null), globalPct: 2 },
+      { ...ach("u", "st", "steam", "UNKNOWN", null), globalPct: null },
+      { ...ach("c", "st", "steam", "COMMON", null), globalPct: 80 },
     ];
     expect(buildGameVersions([], rows, 3)[0].trophies.map((t) => t.apiName)).toEqual(["COMMON", "RARE", "UNKNOWN"]);
   });
@@ -101,7 +101,7 @@ describe("buildPlayerVersions", () => {
   });
 
   it("Steam: UserGame progress over achievementCount; no progress -> omitted", () => {
-    const rows = [ach("s1", null, "steam", "A", null), ach("s2", null, "steam", "B", null)];
+    const rows = [ach("s1", "st", "steam", "A", null), ach("s2", "st", "steam", "B", null)];
     const base = { lists: [], achievements: rows, steamCount: 4, userLists: [] };
     expect(buildPlayerVersions({ ...base, unlocks: [], steamGame: null })).toEqual([]);
 

@@ -99,8 +99,6 @@ describe.skipIf(!reachable)("RetroAchievements lists on demand", () => {
   it("an RA set read on demand gets its own list", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncRetroAchievements } = await import("./retro-achievements");
-    // A row a player's sync wrote earlier, without a list.
-    await prisma.achievement.create({ data: { gameId, platform: "retro", apiName: "1", name: "old" } });
     const read = api({ [RA + 1]: [ach("1"), ach("2")] });
     await syncRetroAchievements(gameId, read.api);
     const list = await prisma.trophyList.findUniqueOrThrow({
@@ -126,8 +124,11 @@ describe.skipIf(!reachable)("RetroAchievements lists on demand", () => {
   it("only marks a set whose rows a player's sync already wrote", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncRetroAchievements } = await import("./retro-achievements");
+    const list = await prisma.trophyList.create({
+      data: { gameId, platform: "retro", externalId: String(RA + 1), console: "SNES", name: "Set", trophyCount: 2 },
+    });
     await prisma.achievement.createMany({
-      data: ["1", "2"].map((apiName) => ({ gameId, platform: "retro", apiName, name: apiName })),
+      data: ["1", "2"].map((apiName) => ({ gameId, platform: "retro", listId: list.id, apiName, name: apiName })),
     });
     const spy = api({});
     await expect(syncRetroAchievements(gameId, spy.api)).resolves.toEqual({ sets: 1, written: 0, failed: 0 });

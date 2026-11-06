@@ -93,7 +93,6 @@ async function seedList(
 
 /**
  * Upsert of a seed achievement by list + apiName (the table's unique key is (listId, apiName)).
- * A row left by an older seed run without a list is found by game + platform and takes the list.
  */
 async function upsertAchievement(
   tx: SeedTx,
@@ -103,8 +102,8 @@ async function upsertAchievement(
   apiName: string,
   data: Record<string, unknown>,
 ) {
-  const existing = await tx.achievement.findFirst({ where: { gameId, platform, apiName, OR: [{ listId }, { listId: null }] } });
-  if (existing) return tx.achievement.update({ where: { id: existing.id }, data: { ...data, listId } });
+  const existing = await tx.achievement.findUnique({ where: { listId_apiName: { listId, apiName } } });
+  if (existing) return tx.achievement.update({ where: { id: existing.id }, data });
   return tx.achievement.create({ data: { gameId, platform, listId, apiName, name: "", ...data } });
 }
 

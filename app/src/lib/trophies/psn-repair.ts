@@ -229,14 +229,12 @@ async function repairOne(
     await prisma.$transaction(async (tx) => {
       const staleBefore = new Map<string, Map<string, Stale>>();
       for (const h of holders) staleBefore.set(h.id, await staleEntries(tx, h.id, list.gameId));
-      await applyPlan(tx, list, p);
+      await applyPlan(tx, list, p, holders.map((h) => h.id), now);
       await tx.trophyList.update({ where: { id: list.id }, data: { trophyCount: sony.length } });
       for (const h of holders) {
         const below = await settleHolder(tx, h.id, list, sony.length, now);
         if (below) report.warnings.push(`${h.handle}: completion kept (sticky) at ${below.unlocked}/${below.count} trophies: judge it by hand`);
       }
-      // The replaced rows, detached for the settle above (which voided their entries), go.
-      await tx.achievement.deleteMany({ where: { id: { in: p.replaces.map((r) => r.row.id) }, listId: null } });
       const after = await numbersOf(tx, list.id, holders.map((h) => h.id));
       report.users = holders.map((h) => {
         const b = before.get(h.id)!;
@@ -294,15 +292,21 @@ async function numbersOf(db: Db, listId: string, userIds: string[]) {
   return out;
 }
 
-async function applyPlan(tx: Prisma.TransactionClient, list: { id: string; gameId: string }, p: Plan) {
+async function applyPlan(
+  tx: Prisma.TransactionClient,
+  list: { id: string; gameId: string },
+  p: Plan,
+  holderIds: string[],
+  now: Date,
+) {
   for (const u of p.updates) await tx.achievement.update({ where: { id: u.id }, data: u.data });
   for (const { row, data } of p.replaces) {
     const [unlocks, entries] = await Promise.all([
       tx.userAchievement.findMany({ where: { achievementId: row.id } }),
       tx.xpLedgerEntry.findMany({ where: { source: "achievement", sourceKey: row.id } }),
     ]);
-    // Detached (list-less, no unlock): the settle voids its valid entries, then it is deleted.
-    await tx.achievement.update({ where: { id: row.id }, data: { listId: null } });
+    // Parked under its own id (a list holds one row per apiName) until it goes, below.
+    await tx.achievement.update({ where: { id: row.id }, data: { apiName: row.id } });
     const fresh = await tx.achievement.create({
       data: {
         gameId: list.gameId,
@@ -338,6 +342,13 @@ async function applyPlan(tx: Prisma.TransactionClient, list: { id: string; gameI
         skipDuplicates: true,
       });
     }
+    // The old row goes. The holders' valid entries under its key are voided now, as their settle
+    // (settleHolder) voids every entry the rule no longer wants; the new key is paid there.
+    await tx.xpLedgerEntry.updateMany({
+      where: { source: "achievement", sourceKey: row.id, voidedAt: null, userId: { in: holderIds } },
+      data: { voidedAt: now },
+    });
+    await tx.achievement.delete({ where: { id: row.id } });
   }
   if (p.creates.length > 0) {
     await tx.achievement.createMany({
@@ -395,7 +406,7 @@ async function settleHolder(
     update: progress,
   });
   const unlockedCount = await tx.userAchievement.count({
-    where: { userId, achievement: { gameId: list.gameId, platform: "psn", listId: { not: null } } },
+    where: { userId, achievement: { gameId: list.gameId, platform: "psn" } },
   });
   await tx.userGame.updateMany({ where: { userId, gameId: list.gameId, platform: "psn" }, data: { unlockedCount } });
   await refreshGameCompletion(tx, userId, "psn", list.gameId);

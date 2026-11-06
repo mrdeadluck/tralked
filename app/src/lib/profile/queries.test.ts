@@ -121,11 +121,10 @@ describe.skipIf(!reachable)("profile queries (seeded database)", () => {
         name: "Undated",
         achievementCount: 3,
         platforms: ["PC"],
-        achievements: { create: ["A", "B", "C"].map((apiName) => ({ apiName, name: apiName, globalPct: 30 })) },
       },
-      include: { achievements: { orderBy: { apiName: "asc" } } },
     });
-    const [a, b, c] = game.achievements;
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
+    const [a, b, c] = await createAchievements(game.id, ["A", "B", "C"].map((apiName) => ({ apiName, name: apiName, globalPct: 30 })));
     await prisma.userAchievement.createMany({
       data: [
         { userId: user.id, achievementId: a.id, unlockedAt: new Date("2020-01-01T12:00:00Z") },

@@ -39,8 +39,9 @@ export type MergeReport = {
   moved: Record<string, number>;
   /**
    * A platinum collision the join will most likely refuse: a Steam one (key = gameId) or a legacy
-   * list-less `psn:<gameId>` one, which no list platinum of the keep can take. A dry run cannot be
-   * sure (the free slots are known only once the rows moved); the real run decides.
+   * `psn:<gameId>` one (written before trophy lists), which no list platinum of the keep can take.
+   * A dry run cannot be sure (the free slots are known only once the rows moved); the real run
+   * decides.
    */
   likelyRefused: boolean;
   /** Users whose ledger was settled and who were recomputed (a dry run: who would be). */
@@ -122,7 +123,7 @@ async function prepare(db: Db, keepId: string, dropId: string) {
     : [];
   const collisions = valid.filter((e) => takenKeys.some((t) => t.userId === e.userId && t.sourceKey === keepKey(e, keepId)));
   moved.platinumCollisions = collisions.length;
-  // Steam's key is the bare gameId; the legacy list-less PSN/Xbox/RA key is `<platform>:<gameId>`.
+  // Steam's key is the bare gameId; the legacy PSN/Xbox/RA key (before trophy lists) is `<platform>:<gameId>`.
   const likelyRefused = collisions.some((e) => e.platform === null || e.sourceKey.split(":").length === 2);
   const users = await db.$queryRaw<{ userId: string }[]>`
     SELECT "userId" FROM "UserGame" WHERE "gameId" = ${dropId}
@@ -289,17 +290,12 @@ async function mergeUserGames(tx: Prisma.TransactionClient, keepId: string, drop
 
 /**
  * UserGame.unlockedCount of the keep's rows of these users (every user with a drop row, unlock,
- * list progress or ledger entry), as the syncs count: Steam every unlock of the game; PSN/Xbox/RA
- * the unlocks on its lists (list-less rows of older syncs only when the game has none on a list).
+ * list progress or ledger entry), as the syncs count: every unlock of the game on that platform.
  */
 async function recountUnlocks(tx: Prisma.TransactionClient, keepId: string, users: string[]): Promise<void> {
   const rows = await tx.userGame.findMany({ where: { gameId: keepId, userId: { in: users } }, select: { userId: true, platform: true } });
   for (const { userId, platform } of rows) {
-    const achievement = { gameId: keepId, platform };
-    let unlockedCount = isListPlatform(platform)
-      ? await tx.userAchievement.count({ where: { userId, achievement: { ...achievement, listId: { not: null } } } })
-      : 0;
-    if (unlockedCount === 0) unlockedCount = await tx.userAchievement.count({ where: { userId, achievement } });
+    const unlockedCount = await tx.userAchievement.count({ where: { userId, achievement: { gameId: keepId, platform } } });
     await tx.userGame.update({ where: { userId_gameId_platform: { userId, gameId: keepId, platform } }, data: { unlockedCount } });
   }
 }
