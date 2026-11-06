@@ -60,7 +60,7 @@ const MINE: PlayerVersion = {
     { id: "a", label: "Lista 1", complete: false, unlocked: 4 },
     { id: "b", label: "🇯🇵 Ásia", complete: false, unlocked: 2 },
   ],
-  countedNote: "2 listas · conta 1",
+  countedNote: "2 listas · cada uma conta",
   earnedIn: { "0": ["Lista 1", "🇯🇵 Ásia"], "1": ["Lista 1", "🇯🇵 Ásia"], "2": ["Lista 1"], "20": ["Lista 1"] },
   bestListId: "a",
   unlockedAt: { "0": at(14), "1": at(2), "2": at(3), "20": at(25) },
@@ -202,10 +202,12 @@ describe("VersionTabs", () => {
     const plat = within(panel).getByRole("heading", { name: "Platina" }).closest("li")!;
     expect(plat).toHaveTextContent("14/04/2022");
     expect(plat).toHaveTextContent("+2.400 XP");
-    expect(plat).toHaveTextContent("Obtido na Lista 1 em 14/04/2022 e na 🇯🇵 Ásia em 20/04/2022.");
+    expect(plat).toHaveTextContent("Obtido na Lista 1 em 14/04/2022 e na 🇯🇵 Ásia em 20/04/2022. Cada lista soma o seu XP.");
+    expect(panel).toHaveTextContent("cada uma soma o seu XP");
+    expect(panel).not.toHaveTextContent(/não soma|conta uma vez/);
     // The XP note is said once per panel; the other rows keep each list's date in the chip.
     const second = within(panel).getByRole("heading", { name: "Bem-vindo a Los Santos" }).closest("li")!;
-    expect(second).not.toHaveTextContent("O XP veio");
+    expect(second).not.toHaveTextContent("Cada lista soma");
     expect(within(second).getByText("🇯🇵 Ásia").closest("[title]")).toHaveAttribute("title", "Obtido em 21/04/2022");
     // An earned hidden trophy shows its name to the one who earned it.
     expect(panel).toHaveTextContent("Segredo");

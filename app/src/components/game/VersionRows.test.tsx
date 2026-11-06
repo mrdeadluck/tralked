@@ -82,7 +82,7 @@ describe("VersionRows", () => {
             unlocked: 78,
             pct: 100,
             platinum: true,
-            countedNote: "2 listas · conta 1",
+            countedNote: "2 listas · cada uma conta",
             lists: [
               { id: "a", label: "Lista 1", complete: true, unlocked: 78 },
               { id: "b", label: "🇯🇵 Ásia", complete: false, unlocked: 12 },
@@ -97,7 +97,7 @@ describe("VersionRows", () => {
     expect(done).toHaveTextContent("✓");
     expect(done).toHaveTextContent("completa");
     expect(open).not.toHaveTextContent("✓");
-    expect(screen.getByText("2 listas · conta 1")).toBeInTheDocument();
+    expect(screen.getByText("2 listas · cada uma conta")).toBeInTheDocument();
   });
 
   it("visitor rows have no marks", () => {
@@ -107,7 +107,7 @@ describe("VersionRows", () => {
     expect(rows).toHaveLength(3);
     expect(rows[1]).toHaveTextContent("PS5");
     expect(rows[1]).toHaveTextContent("Lista 1");
-    expect(rows[1]).toHaveTextContent("2 listas · conta 1");
+    expect(rows[1]).toHaveTextContent("2 listas · cada uma conta");
     expect(rows[1]).toHaveTextContent("78");
     expect(rows[0]).toHaveTextContent("conquistas");
     expect(rows[2]).toHaveTextContent("troféus");

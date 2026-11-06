@@ -10,10 +10,11 @@ const FIELDS = [
   "xboxUnlocks",
   "retroUnlocks",
   "platinums",
-  "regionalExtras",
+  "psnPlatinums",
   "totalXp",
   "level",
 ] as const satisfies readonly (keyof UserNumbers)[];
+const STEAM_FIELDS = new Set<string>(["steamUnlocks", "steamXp"]);
 /** The undated part of each Steam number (absent in snapshots from before it existed: 0). */
 const UNDATED = { steamUnlocks: "steamUndatedUnlocks", steamXp: "steamUndatedXp" } as const;
 
@@ -45,9 +46,14 @@ export function compareSnapshots(
     }
     for (const field of FIELDS) {
       if (before[field] === after[field]) continue;
-      const steam = field === "steamUnlocks" || field === "steamXp";
+      // A number one snapshot does not have (taken by older code): no delta.
+      if (before[field] === undefined || after[field] === undefined) {
+        lines.push(`${after.handle}: ${field} ${before[field] ?? "—"} -> ${after[field] ?? "—"}`);
+        continue;
+      }
+      const steam = STEAM_FIELDS.has(field);
       // Only the undated part moved: told by the "Steam sem data" line below.
-      if (steam && before[field] - undated(before, field) === after[field] - undated(after, field)) continue;
+      if (steam && before[field] - undated(before, field as keyof typeof UNDATED) === after[field] - undated(after, field as keyof typeof UNDATED)) continue;
       if (steam) steamChanged = true;
       lines.push(
         `${after.handle}: ${field} ${before[field]} -> ${after[field]} (${signed(after[field] - before[field])})${steam ? "  <- STEAM" : ""}`,

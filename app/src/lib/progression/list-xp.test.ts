@@ -113,9 +113,9 @@ describe("desiredListEntries", () => {
     expect(out.filter((d) => d.source === "achievement")).toHaveLength(4);
   });
 
-  it("two regional PS5 lists pay the platinum once", () => {
+  it("two regional PS5 lists, both complete, pay two platinums: the version key covers the canonical list", () => {
     const lists = [list("eu", "PS5", 1, "NPWR2_00"), list("jp", "PS5", 2, "NPWR1_00")];
-    const achievements = [...achievementsOf("eu", ["0", "1"]), ...achievementsOf("jp", ["0", "1"])];
+    const achievements = [...achievementsOf("eu", ["0", "1"]), ...achievementsOf("jp", ["0", "1"], { trophyTier: "silver" })];
     const unlocks = achievements.map((a, i) => unlock(a.id, at(10, i)));
     const out = desired({
       lists,
@@ -127,12 +127,65 @@ describe("desiredListEntries", () => {
       ],
     });
     const platinums = out.filter((d) => d.source === "platinum");
-    expect(platinums).toHaveLength(1);
-    // The earliest completion of the version, valued over that list.
-    expect(platinums[0]).toMatchObject({ sourceKey: `psn:PS5:${G}`, createdAt: at(10, 1) });
+    expect(platinums.map((p) => p.sourceKey).sort()).toEqual([`psn:NPWR1_00:${G}`, `psn:PS5:${G}`]);
+    // `eu` is the canonical (oldest) list: the key paid before every list counted stays its own.
+    expect(platinums.find((p) => p.sourceKey === `psn:PS5:${G}`)).toMatchObject({
+      createdAt: at(10, 1),
+      xp: platinumBonus(achievementsOf("eu", ["0", "1"]).map(psnXp)),
+    });
+    // The other list's platinum: its own completion, valued over its own trophies.
+    expect(platinums.find((p) => p.sourceKey === `psn:NPWR1_00:${G}`)).toMatchObject({
+      createdAt: at(10, 3),
+      xp: platinumBonus(achievementsOf("jp", ["0", "1"], { trophyTier: "silver" }).map(psnXp)),
+    });
+    // Every trophy of each list pays.
+    expect(keys(out.filter((d) => d.source === "achievement"))).toEqual([
+      "achievement:eu-0",
+      "achievement:eu-1",
+      "achievement:jp-0",
+      "achievement:jp-1",
+    ]);
   });
 
-  it("a trophy earned in both regions is paid once, at the earliest unlock, keyed to the canonical achievement", () => {
+  it("the version key goes to the canonical list when complete, else to the earliest complete list", () => {
+    const lists = [list("eu", "PS5", 1, "NPWR3_00"), list("jp", "PS5", 2, "NPWR1_00"), list("kr", "PS5", 3, "NPWR2_00")];
+    const achievements = ["eu", "jp", "kr"].flatMap((l) => achievementsOf(l, ["0", "1"]));
+    const unlocks = achievements.map((a, i) => unlock(a.id, at(10, i)));
+    // The canonical list is complete last: it still holds the version key; the others get their own.
+    const all = desired({
+      lists,
+      achievements,
+      unlocks,
+      progress: [
+        { listId: "eu", completedAt: at(12) },
+        { listId: "jp", completedAt: at(11) },
+        { listId: "kr", completedAt: at(13) },
+      ],
+    }).filter((d) => d.source === "platinum");
+    expect(all.map((d) => [d.sourceKey, d.createdAt])).toEqual([
+      [`psn:NPWR1_00:${G}`, at(11)],
+      [`psn:NPWR2_00:${G}`, at(13)],
+      [`psn:PS5:${G}`, at(12)],
+    ]);
+    // The canonical list is not complete: the earliest completion holds the version key (the one
+    // the rule paid before every list counted), the next one its own.
+    const withoutCanonical = desired({
+      lists,
+      achievements,
+      unlocks,
+      progress: [
+        { listId: "eu", completedAt: null },
+        { listId: "jp", completedAt: at(14) },
+        { listId: "kr", completedAt: at(13) },
+      ],
+    }).filter((d) => d.source === "platinum");
+    expect(withoutCanonical.map((d) => [d.sourceKey, d.createdAt])).toEqual([
+      [`psn:NPWR1_00:${G}`, at(14)],
+      [`psn:PS5:${G}`, at(13)],
+    ]);
+  });
+
+  it("a trophy earned in both regions is paid once per list, each with its own unlock", () => {
     // `eu` is older: canonical. The JP unlock came first and is worth more (silver).
     const lists = [list("eu", "PS5", 1), list("jp", "PS5", 2)];
     const achievements = [...achievementsOf("eu", ["1"]), ...achievementsOf("jp", ["1"], { trophyTier: "silver" })];
@@ -142,24 +195,25 @@ describe("desiredListEntries", () => {
       unlocks: [unlock("eu-1", at(12)), unlock("jp-1", at(11))],
     });
     expect(out).toEqual([
-      {
-        source: "achievement",
-        sourceKey: "eu-1",
-        xp: psnXp(achievements[1]),
-        platform: "psn",
-        createdAt: at(11),
-        skills: ["rpg"],
-      },
+      { source: "achievement", sourceKey: "eu-1", xp: psnXp(achievements[0]), platform: "psn", createdAt: at(12), skills: ["rpg"] },
+      { source: "achievement", sourceKey: "jp-1", xp: psnXp(achievements[1]), platform: "psn", createdAt: at(11), skills: ["rpg"] },
     ]);
   });
 
-  it("a trophy earned only in the second region is paid once, keyed to the canonical achievement", () => {
-    const lists = [list("eu", "PS5", 1), list("jp", "PS5", 2)];
-    const achievements = [...achievementsOf("eu", ["1"]), ...achievementsOf("jp", ["1", "9"])];
-    const out = desired({ lists, achievements, unlocks: [unlock("jp-1", at(11)), unlock("jp-9", at(12))] });
+  it("a trophy earned only outside the canonical list keeps the canonical key for its earliest unlock", () => {
+    // The key the rule paid before every list counted (the canonical row's id) still pays the
+    // earliest copy; a further copy pays under its own id.
+    const lists = [list("eu", "PS5", 1), list("jp", "PS5", 2), list("kr", "PS5", 3)];
+    const achievements = [...achievementsOf("eu", ["1"]), ...achievementsOf("jp", ["1", "9"]), ...achievementsOf("kr", ["1"])];
+    const out = desired({
+      lists,
+      achievements,
+      unlocks: [unlock("jp-1", at(11)), unlock("jp-9", at(12)), unlock("kr-1", at(10))],
+    });
     // jp-9 has no counterpart in the canonical list: its own id.
-    expect(keys(out)).toEqual(["achievement:eu-1", "achievement:jp-9"]);
-    expect(out.find((d) => d.sourceKey === "eu-1")?.createdAt).toEqual(at(11));
+    expect(keys(out)).toEqual(["achievement:eu-1", "achievement:jp-1", "achievement:jp-9"]);
+    expect(out.find((d) => d.sourceKey === "eu-1")?.createdAt).toEqual(at(10));
+    expect(out.find((d) => d.sourceKey === "jp-1")?.createdAt).toEqual(at(11));
   });
 
   it("suspicious unlocks are not desired", () => {
@@ -176,7 +230,8 @@ describe("desiredListEntries", () => {
       // A completion stored with a suspicious unlock in the list pays no platinum.
       progress: [{ listId: "eu", completedAt: at(10) }],
     });
-    // The clean JP unlock still pays the trophy, from its own date.
+    // The clean JP unlock still pays the trophy, from its own date (under the canonical key: the
+    // canonical copy is not a valid unlock).
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ source: "achievement", sourceKey: "eu-1", createdAt: at(12) });
   });

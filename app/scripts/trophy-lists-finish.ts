@@ -119,7 +119,7 @@ try {
     log.info(
       `${b.handle}: psn ${pair(b.psnUnlocks, a.psnUnlocks)}, xbox ${pair(b.xboxUnlocks, a.xboxUnlocks)}, ` +
         `retro ${pair(b.retroUnlocks, a.retroUnlocks)}, steam ${pair(b.steamUnlocks, a.steamUnlocks)}; ` +
-        `platinums ${pair(b.platinums, a.platinums)}, regional extras ${pair(b.regionalExtras, a.regionalExtras)}, ` +
+        `platinums ${pair(b.platinums, a.platinums)}, on PSN ${pair(b.psnPlatinums, a.psnPlatinums)}, ` +
         `XP ${pair(b.totalXp, a.totalXp)}, level ${pair(b.level, a.level)}, Steam XP ${pair(b.steamXp, a.steamXp)}`,
     );
     if (a.steamUnlocks !== b.steamUnlocks || a.steamXp !== b.steamXp) {

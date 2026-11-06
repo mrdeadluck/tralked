@@ -70,8 +70,8 @@ const TIERS = new Set<string>(["bronze", "silver", "gold", "platinum"]);
 
 /**
  * Trophies by tier: the native tier (PSN) when there is one, otherwise the tier from the global
- * rarity. The platinum tier is `platinums`, the header's "Platinas (contam no XP)"
- * (lib/character/counts platinumCount: one per version, as the ledger pays them).
+ * rarity. The platinum tier is `platinums`, the header's "Platinas"
+ * (lib/character/counts platinumCount: one per list, as the ledger pays them).
  */
 export function summarizeTrophies(unlocks: UnlockRow[], platinums: number): TrophySummary {
   const tiers: TrophyTotals = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
