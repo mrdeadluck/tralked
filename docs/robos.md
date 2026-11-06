@@ -161,6 +161,29 @@ O exemplo abaixo usa todos os tipos de bloco:
       "postedAt": "2026-10-30T15:00:00-03:00"
     },
     {
+      "type": "gallery",
+      "images": [
+        {
+          "url": "https://cdn.exemplo.com.br/hades/provacoes-1.jpg",
+          "alt": "Cena 1 do modo de provações de Hades II",
+          "credit": "Divulgação/Supergiant Games",
+          "creditUrl": "https://www.supergiantgames.com/blog/hades-ii-provacoes"
+        },
+        {
+          "url": "https://cdn.exemplo.com.br/hades/provacoes-2.jpg",
+          "alt": "Cena 2 do modo de provações de Hades II",
+          "credit": "Divulgação/Supergiant Games",
+          "creditUrl": "https://www.supergiantgames.com/blog/hades-ii-provacoes"
+        },
+        {
+          "url": "https://cdn.exemplo.com.br/hades/provacoes-3.jpg",
+          "alt": "Cena 3 do modo de provações de Hades II",
+          "credit": "Divulgação/Supergiant Games",
+          "creditUrl": "https://www.supergiantgames.com/blog/hades-ii-provacoes"
+        }
+      ]
+    },
+    {
       "type": "callout",
       "tone": "info",
       "text": "A atualização é gratuita e chega a todas as plataformas no mesmo dia."

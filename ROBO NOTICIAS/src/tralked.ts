@@ -30,6 +30,7 @@ export type ContentBlock =
   | { type: "quote"; text: string; author?: string }
   | { type: "image"; url: string; alt: string; credit: string; creditUrl?: string }
   | { type: "video"; youtubeId: string; title?: string }
+  | { type: "gallery"; images: { url: string; alt: string; credit: string; creditUrl?: string }[] }
   | { type: "post"; network: "x"; url: string; authorName: string; authorHandle: string; text: string; postedAt?: string }
   | { type: "callout"; tone: "info" | "aviso" | "spoiler"; text: string }
   | { type: "table"; header: string[]; rows: string[][] }

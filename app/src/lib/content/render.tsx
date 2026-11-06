@@ -1,5 +1,6 @@
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { RARITY_COLOR, RARITY_LABEL } from "@/components/character/format";
+import { Gallery } from "@/components/content/Gallery";
 import { XPostEmbed } from "@/components/content/XPostEmbed";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { sizedImage } from "@/lib/images/sized";
@@ -293,6 +294,8 @@ function Block({
       );
     case "post":
       return <XPostEmbed block={block} />;
+    case "gallery":
+      return <Gallery block={block} />;
     case "callout": {
       const style = { "--c": CALLOUT_COLOR[block.tone] } as CSSProperties;
       const label = (

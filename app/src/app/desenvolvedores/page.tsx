@@ -186,6 +186,7 @@ const BLOCKS: { type: string; fields: string; rules: string }[] = [
   { type: "image", fields: "url, alt, credit, creditUrl?", rules: "Só https://. Texto alternativo e crédito obrigatórios; creditUrl (https) leva à página de origem." },
   { type: "video", fields: "youtubeId", rules: "Os 11 caracteres do ID do YouTube, não a URL." },
   { type: "post", fields: "network, url, authorName, authorHandle, text, postedAt?", rules: "Post do X: network \"x\", url https://x.com/<perfil>/status/<id>. O texto guardado aparece sem o script do X." },
+  { type: "gallery", fields: "images[] (url, alt, credit, creditUrl?)", rules: "De 3 a 12 imagens https. Grade que abre cada imagem grande; um crédito só quando todas têm o mesmo." },
   { type: "callout", fields: "tone, text", rules: "tone: info, aviso ou spoiler (spoiler aparece fechado)." },
   { type: "table", fields: "header[], rows[][]", rules: "Até 8 colunas; toda linha com o número de colunas do cabeçalho." },
   { type: "achievement", fields: "apiName, platform?", rules: "Cartão da conquista com raridade e XP. platform: steam (padrão), psn, xbox, retro." },

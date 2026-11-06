@@ -92,3 +92,16 @@ describe("blocks the robot writes (read-only in the editor)", () => {
     expect(blockFromDraft(draftFromBlock(plain))).toEqual(plain);
   });
 });
+
+describe("gallery (read-only in the editor)", () => {
+  const gallery = {
+    type: "gallery" as const,
+    images: [1, 2, 3].map((n) => ({ url: `https://blob.test/${n}.webp`, alt: `Captura ${n}`, credit: "Divulgação/Rockstar Games" })),
+  };
+  it("survives a round trip and cannot be added", () => {
+    const draft = draftFromBlock(gallery);
+    expect(draft.readOnly).toBe(true);
+    expect(validateDrafts([draft]).blocks).toEqual([gallery]);
+    expect(BLOCK_TYPES).not.toContain("gallery");
+  });
+});

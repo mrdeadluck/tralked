@@ -53,10 +53,11 @@ export const BLOCK_TYPE_LABEL: Record<ContentBlockType, string> = {
   achievement: "Conquista",
   divider: "Divisória",
   post: "Post do X",
+  gallery: "Galeria",
 };
 
-/** Written by the news robot (an X post): the editor shows them and keeps them, but cannot add or edit them. */
-export const READ_ONLY_TYPES: ContentBlockType[] = ["post"];
+/** Written by the news robot (an X post, an image gallery): the editor shows them and keeps them, but cannot add or edit them. */
+export const READ_ONLY_TYPES: ContentBlockType[] = ["post", "gallery"];
 
 /** The block types the editor can add. */
 export const BLOCK_TYPES = (Object.keys(BLOCK_TYPE_LABEL) as ContentBlockType[]).filter((t) => !READ_ONLY_TYPES.includes(t));
@@ -113,6 +114,7 @@ export function draftFromBlock(block: ContentBlock): BlockDraft {
       return { ...draft, apiName: block.apiName, platform: block.platform };
     case "divider":
     case "post":
+    case "gallery":
       return draft;
   }
 }
@@ -157,6 +159,7 @@ export function blockFromDraft(draft: BlockDraft): unknown {
     case "divider":
       return { type: "divider" };
     case "post":
+    case "gallery":
       return draft.raw;
   }
 }

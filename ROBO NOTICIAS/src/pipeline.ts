@@ -17,6 +17,7 @@ import type { ArticleRow, Db, ItemRow, SpendBucket, StoryRow } from "./db.js";
 import { gameDestination } from "./game-destination.js";
 import { acquireLock, type Lock } from "./lock.js";
 import { chooseImages } from "./media/choose.js";
+import { isImagesStory } from "./media/gallery.js";
 import { aboutVideo, officialSourceVideo } from "./media/video.js";
 import { storyPosts, type XProfile } from "./media/xposts.js";
 import {
@@ -603,15 +604,20 @@ export function storyCompanies(items: ItemRow[]): string[] {
 }
 
 /** The images an article already has (an update keeps them: no second vision call, no new uploads). */
-function previousImages(blocks: ContentBlock[] | undefined): Pick<ArticleMedia, "cover" | "bodyImage"> {
+function previousImages(blocks: ContentBlock[] | undefined): Pick<ArticleMedia, "cover" | "bodyImage" | "gallery"> {
   const images = (blocks ?? []).flatMap((b) => (b.type === "image" ? [b] : []));
+  const gallery = (blocks ?? []).find((b) => b.type === "gallery");
   const toMedia = (b: (typeof images)[number]): MediaImage => ({
     url: b.url,
     alt: b.alt,
     credit: b.credit,
     ...(b.creditUrl ? { creditUrl: b.creditUrl } : {}),
   });
-  return { ...(images[0] ? { cover: toMedia(images[0]) } : {}), ...(images[1] ? { bodyImage: toMedia(images[1]) } : {}) };
+  return {
+    ...(images[0] ? { cover: toMedia(images[0]) } : {}),
+    ...(images[1] ? { bodyImage: toMedia(images[1]) } : {}),
+    ...(gallery?.type === "gallery" ? { gallery: gallery.images } : {}),
+  };
 }
 
 /**
@@ -627,7 +633,7 @@ export async function articleMedia(
   writing: StoryForWriting,
   payload: ArticlePayload,
   deps: Pick<PipelineDeps, "tralked" | "log" | "db" | "ai" | "config" | "fetchFn" | "sources">,
-  reuse?: Pick<ArticleMedia, "cover" | "bodyImage">,
+  reuse?: Pick<ArticleMedia, "cover" | "bodyImage" | "gallery">,
 ): Promise<ArticleMedia> {
   const items = deps.db.itemsForStory(story.id);
   const linked = (payload.games ?? []).flatMap((g) => ("slug" in g ? [g.slug] : []));
@@ -661,6 +667,7 @@ export async function articleMedia(
         officialVideoIds: writing.video ? [writing.video.youtubeId] : [],
       },
       { ai: deps.ai, config: deps.config, fetchFn: deps.fetchFn, tralked: deps.tralked, ...(deps.log ? { log: deps.log } : {}) },
+      { gallery: isImagesStory(story, items) },
     );
     Object.assign(media, images);
   }
@@ -677,7 +684,7 @@ async function assembleWithMedia(
   writing: StoryForWriting,
   deps: PipelineDeps,
   updatedAt?: Date,
-  reuse?: Pick<ArticleMedia, "cover" | "bodyImage">,
+  reuse?: Pick<ArticleMedia, "cover" | "bodyImage" | "gallery">,
 ): Promise<ArticlePayload> {
   const opts = assembleOpts(story, writing, deps, updatedAt);
   const plain = assemble(draft, writing, opts);

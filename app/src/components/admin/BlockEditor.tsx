@@ -374,11 +374,12 @@ function BlockFields({ draft, base, onPatch }: { draft: BlockDraft; base: string
     case "divider":
       return <p className={HINT}>Linha divisória entre seções.</p>;
     case "post":
+    case "gallery":
       return <ReadOnlyBlock block={draft.raw} />;
   }
 }
 
-/** A block the robot wrote (an X post): shown as it is, kept on save, not editable here. */
+/** A block the robot wrote (an X post, a gallery): shown as it is, kept on save, not editable here. */
 function ReadOnlyBlock({ block }: { block: BlockDraft["raw"] }) {
   if (block?.type === "post") {
     return (
@@ -391,6 +392,21 @@ function ReadOnlyBlock({ block }: { block: BlockDraft["raw"] }) {
           {block.url}
         </a>
         <p className={HINT}>Escrito pelo robô. Não dá para editar aqui; dá para mover ou remover.</p>
+      </div>
+    );
+  }
+  if (block?.type === "gallery") {
+    return (
+      <div className="flex flex-col gap-2">
+        <ul className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+          {block.images.map((image) => (
+            <li key={image.url}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- preview of images hosted by us */}
+              <img src={image.url} alt={image.alt} className="aspect-video w-full rounded-[2px] object-cover" />
+            </li>
+          ))}
+        </ul>
+        <p className={HINT}>Galeria de {block.images.length} imagens escrita pelo robô. Não dá para editar aqui; dá para mover ou remover.</p>
       </div>
     );
   }

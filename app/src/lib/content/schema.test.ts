@@ -159,3 +159,17 @@ describe("news media blocks", () => {
     expect(paths([{ ...image, creditUrl: "javascript:alert(1)" }])).toEqual(["0/creditUrl"]);
   });
 });
+
+describe("gallery block", () => {
+  const img = (n: number) => ({ url: `https://blob.test/${n}.webp`, alt: `Captura ${n}`, credit: "Divulgação/Rockstar Games", creditUrl: "https://www.rockstargames.com/a" });
+  it("takes 3 to 12 https images", () => {
+    expect(paths([{ type: "gallery", images: [img(1), img(2), img(3)] }])).toEqual([]);
+    expect(paths([{ type: "gallery", images: Array.from({ length: 12 }, (_, i) => img(i)) }])).toEqual([]);
+  });
+  it("refuses 2 images, 13 images, an http url or an http credit link", () => {
+    expect(paths([{ type: "gallery", images: [img(1), img(2)] }])).toEqual(["0/images"]);
+    expect(paths([{ type: "gallery", images: Array.from({ length: 13 }, (_, i) => img(i)) }])).toEqual(["0/images"]);
+    expect(paths([{ type: "gallery", images: [img(1), img(2), { ...img(3), url: "http://blob.test/3.webp" }] }])).toEqual(["0/images/2/url"]);
+    expect(paths([{ type: "gallery", images: [img(1), img(2), { ...img(3), creditUrl: "http://x.test" }] }])).toEqual(["0/images/2/creditUrl"]);
+  });
+});

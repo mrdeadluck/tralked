@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { BudgetExceededError, type Ai } from "../ai/client.js";
-import { checkImages, type VisionVerdict } from "../ai/vision.js";
+import { VISION_MAX_IMAGES, checkImages, type VisionVerdict } from "../ai/vision.js";
 import type { MediaImage } from "../assemble.js";
 import type { FetchFn } from "../collect/index.js";
 import type { Config, Source } from "../config.js";
 import type { ItemRow, StoryRow } from "../db.js";
 import type { GameMedia, Tralked } from "../tralked.js";
 import { collectCandidates, fitsBody, fitsCover, isEligible, markRepeated, type ImageCandidate } from "./candidates.js";
+import { GALLERY_MAX, GALLERY_MIN } from "./gallery.js";
 import { SAME_IMAGE_MAX_DISTANCE, fetchImage, hamming, type FetchedImage } from "./images.js";
 
 export type ChooseDeps = {
@@ -23,6 +24,8 @@ const MAX_FETCHED = 24;
 const FETCH_CONCURRENCY = 4;
 /** Catalog pictures offered per article: a scene or two of the exact game is enough to mix in. */
 const MAX_CATALOG = 2;
+/** A gallery story: the vision check sees up to two batches of pictures. */
+const GALLERY_VISION_MAX = 2 * VISION_MAX_IMAGES;
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -129,7 +132,8 @@ export async function chooseImages(
     officialVideoIds: string[];
   },
   deps: ChooseDeps,
-): Promise<{ cover?: MediaImage; bodyImage?: MediaImage }> {
+  opts: { gallery?: boolean } = {},
+): Promise<{ cover?: MediaImage; bodyImage?: MediaImage; gallery?: MediaImage[] }> {
   const cands = collectCandidates({
     items: input.items,
     sources: input.sources,
@@ -141,12 +145,16 @@ export async function chooseImages(
   const pictures = distinctPictures(cands);
   // A picture is repeated when any of its copies is.
   for (const p of pictures) if (cands.some((c) => repeated.has(c.id) && c.image && same(c.image, p.image!))) repeated.add(p.id);
-  const sent = forVision(pictures, repeated, 6);
+  const sent = forVision(pictures, repeated, opts.gallery ? GALLERY_VISION_MAX : VISION_MAX_IMAGES);
   if (sent.length === 0) return {};
 
-  let verdicts: Map<string, VisionVerdict>;
+  const verdicts = new Map<string, VisionVerdict>();
   try {
-    verdicts = await checkImages(deps.ai, { subject: input.subject, headline: input.story.headline, candidates: sent }, { model: deps.config.MODEL_VISION });
+    for (let i = 0; i < sent.length; i += VISION_MAX_IMAGES) {
+      const batch = sent.slice(i, i + VISION_MAX_IMAGES);
+      const answer = await checkImages(deps.ai, { subject: input.subject, headline: input.story.headline, candidates: batch }, { model: deps.config.MODEL_VISION });
+      for (const [id, v] of answer) verdicts.set(id, v);
+    }
   } catch (error) {
     if (error instanceof BudgetExceededError) throw error;
     deps.log?.(`conferência de imagens falhou: ${errorMessage(error)}`);
@@ -178,6 +186,19 @@ export async function chooseImages(
     if (cover) out.cover = cover;
   }
   const rest = approved.filter((c) => c !== coverCand && c.origin !== "video-oficial" && !(coverCand && same(c.image!, coverCand.image!)));
+
+  if (opts.gallery) {
+    const picks = rest.filter((c) => c.origin !== "catalogo" && fitsBody(c.image!)).slice(0, GALLERY_MAX);
+    if (picks.length >= GALLERY_MIN) {
+      const gallery: MediaImage[] = [];
+      for (const c of picks) {
+        const m = await toMedia(c);
+        if (m) gallery.push(m);
+      }
+      if (gallery.length >= GALLERY_MIN) return { ...out, gallery };
+    }
+  }
+
   const bodyCand = rest.find((c) => c.origin === "catalogo") ?? rest.find((c) => fitsBody(c.image!));
   if (bodyCand) {
     const body = await toMedia(bodyCand);

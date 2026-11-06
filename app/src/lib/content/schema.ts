@@ -125,6 +125,20 @@ export const videoBlockSchema = z.strictObject({
   title: plainText(200).optional(),
 });
 
+/** One picture of a gallery: hosted by us (https), with alt text, credit and the page it came from. */
+export const galleryImageSchema = z.strictObject({
+  url: z.url({ protocol: /^https$/, error: "A imagem precisa de uma URL https://" }).max(2048),
+  alt: plainText(300),
+  credit: plainText(200),
+  creditUrl: creditUrlSchema.optional(),
+});
+
+/** Official images of news about new images (a screenshot drop): a grid that opens each one big. */
+export const galleryBlockSchema = z.strictObject({
+  type: z.literal("gallery"),
+  images: z.array(galleryImageSchema).min(3, "A galeria precisa de pelo menos 3 imagens").max(12),
+});
+
 /** A post on X: https://x.com/<handle>/status/<id>, nothing else (no query, no other host). */
 export const X_POST_URL = /^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d{1,25}$/;
 
@@ -185,6 +199,7 @@ export const contentBlockSchema = z.discriminatedUnion("type", [
   imageBlockSchema,
   videoBlockSchema,
   postBlockSchema,
+  galleryBlockSchema,
   calloutBlockSchema,
   tableBlockSchema,
   achievementBlockSchema,

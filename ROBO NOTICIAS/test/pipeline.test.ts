@@ -1572,6 +1572,21 @@ describe("catalog media for articles without their own", () => {
     expect(h.fake.calls.find((c) => c.purpose === "write")!.user).toContain("## Posts no X");
   });
 
+  it("news about new images brings a gallery of the sources' official pictures", async () => {
+    const h = harness();
+    const id = seedQueued(h, "Supergiant solta novas imagens de Hades II");
+    const [item] = h.db.itemsForStory(id);
+    const urls = [0, 1, 2, 3, 4].map((n) => `https://www.supergiantgames.com/img/${n}.jpg`);
+    for (const [n, url] of urls.entries()) h.pictures.set(url, await scene(n + 3));
+    h.db.raw.prepare("UPDATE items SET source_id = 'pub' WHERE id = ?").run(item!.id);
+    h.db.setItemMedia(item!.id, { images: urls.map((url) => ({ url, role: "body" as const })), youtube: [], posts: [] });
+    await h.publica({ agora: true });
+    const { blocks } = h.site.created[0]!.payload;
+    const gallery = blocks.find((b) => b.type === "gallery");
+    expect(gallery?.type === "gallery" && gallery.images.length).toBeGreaterThanOrEqual(3);
+    expect(blocks.findIndex((b) => b.type === "gallery")).toBe(2);
+  });
+
   it("a vision failure publishes without images; the subscription limit puts the story back in the queue", async () => {
     const h = harness();
     h.site.state.media.set("hades-ii", media());

@@ -69,7 +69,7 @@ export async function checkImages(
   const out = new Map<string, VisionVerdict>();
   if (sent.length === 0) return out;
   const images = await Promise.all(sent.map(forVision));
-  const list = sent.map((c, i) => `Imagem ${i + 1}: ${c.id} (de ${escapeText(c.sourceName)})`).join("\n");
+  const list = sent.map((c, i) => `Imagem ${i + 1}: ${c.id} (de ${escapeText(c.sourceName)}) <${escapeText(c.url)}>`).join("\n");
   const user = `Manchete: ${escapeText(input.headline)}\nAssunto exato: ${escapeText(input.subject)}\n\nAs imagens vêm na ordem abaixo:\n${list}`;
   const answer = await ai.structured({
     bucket: "live",

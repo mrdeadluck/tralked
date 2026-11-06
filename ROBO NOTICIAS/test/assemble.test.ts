@@ -90,6 +90,8 @@ function outline(blocks: ContentBlock[]): string[] {
         return `achievement:${b.apiName}`;
       case "post":
         return "post";
+      case "gallery":
+        return "gallery";
       default:
         return b.type;
     }
@@ -211,6 +213,23 @@ describe("assemble: media", () => {
     );
     expect(JSON.stringify(payload.blocks)).not.toMatch(/x\.com\/|twitter\.com\//);
     expect(payload.blocks[0]).toEqual({ type: "paragraph", text: "Veja o post e também." });
+  });
+
+  const shots = [1, 2, 3, 4].map((n) => ({ url: `https://blob.test/s${n}.webp`, alt: `Captura ${n}`, credit: "Divulgação/Team Cherry", creditUrl: "https://teamcherry.com.au/a" }));
+
+  it("a gallery goes after the lede and the cover, before the video, and replaces the body image", () => {
+    const payload = assemble(draft(), story, { ...opts(), media: { cover, video, bodyImage, gallery: shots } });
+    expect(outline(payload.blocks).slice(0, 4)).toEqual(["p:A Team Cherry lançou nesta sexta a versão 1.6 de Hollow Knight.", "image", "gallery", "video"]);
+    expect(payload.blocks.filter((b) => b.type === "image")).toHaveLength(1);
+    expect(payload.blocks[2]).toEqual({ type: "gallery", images: shots });
+    expect(articlePayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("a gallery with fewer than 3 safe images is dropped, and the body image comes back", () => {
+    const unsafe = [shots[0]!, shots[1]!, { ...shots[2]!, url: "http://x.test/a.jpg" }];
+    const payload = assemble(draft(), story, { ...opts(), media: { cover, bodyImage, gallery: unsafe } });
+    expect(payload.blocks.some((b) => b.type === "gallery")).toBe(false);
+    expect(payload.blocks.filter((b) => b.type === "image")).toHaveLength(2);
   });
 
   it("drops unsafe media: bad video ids, non-https images, HTML in titles", () => {

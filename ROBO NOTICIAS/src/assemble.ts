@@ -246,7 +246,20 @@ export type ArticleMedia = {
   trailer?: { youtubeId: string; title: string };
   /** Official X posts of the story: each after the first body paragraph that quotes its author. */
   posts?: XPost[];
+  /** News about new images: the official pictures, after the cover; replaces `bodyImage`. */
+  gallery?: MediaImage[];
 };
+
+const GALLERY_MIN = 3;
+const GALLERY_MAX = 12;
+
+/** The gallery block when at least 3 of its images are safe for the site; else nothing. */
+function galleryBlock(images: MediaImage[] | undefined): ContentBlock[] {
+  const safe = (images ?? []).flatMap((i) => imageBlock(i)).flatMap((b) => (b.type === "image" ? [b] : []));
+  const unique = safe.filter((b, i) => safe.findIndex((o) => o.url === b.url) === i).slice(0, GALLERY_MAX);
+  if (unique.length < GALLERY_MIN) return [];
+  return [{ type: "gallery", images: unique.map(({ type: _type, ...rest }) => rest) }];
+}
 
 /** A post on X as the site takes it (app/src/lib/content/schema.ts `postBlockSchema`). */
 const X_POST_URL = /^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d{1,25}$/;
@@ -328,14 +341,16 @@ export function assemble(draft: AssembleDraft, story: AssembleStory, opts: Assem
   const media = opts.media ?? {};
   const own = videoBlock(media.video);
   const cover = imageBlock(media.cover);
-  const second = media.bodyImage && media.bodyImage.url.trim() !== media.cover?.url.trim() ? imageBlock(media.bodyImage) : [];
+  const gallery = galleryBlock(media.gallery);
+  const second =
+    gallery.length === 0 && media.bodyImage && media.bodyImage.url.trim() !== media.cover?.url.trim() ? imageBlock(media.bodyImage) : [];
   const afterBody = own.length > 0 ? [] : videoBlock(media.trailer);
 
   // What goes after each body block: the cover and the video after the lede, the body image after the
   // 3rd block, each post after the first block that quotes its author (else with the lede's media).
   const after = new Map<number, ContentBlock[]>();
   const put = (i: number, b: ContentBlock[]) => after.set(i, [...(after.get(i) ?? []), ...b]);
-  put(0, [...cover, ...own]);
+  put(0, [...cover, ...gallery, ...own]);
   if (second.length > 0) put(Math.min(BODY_IMAGE_AFTER, corpo.length) - 1, second);
   const seenPosts = new Set<string>();
   for (const post of media.posts ?? []) {
