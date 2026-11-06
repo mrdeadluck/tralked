@@ -37,7 +37,7 @@ import {
   type FamousGame,
 } from "./pautas.js";
 import { mixScore } from "./mix.js";
-import { recurringKey } from "./recurring.js";
+import { recurringKey, recurringKind, sameAnnouncement } from "./recurring.js";
 import { TIER_WEIGHT, isBomb, isExpired, isPublishable, storyScore, type Tier } from "./rank.js";
 import {
   TralkedError,
@@ -1351,21 +1351,23 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
 }
 
 /**
- * A recurring announcement (PS Plus, Game Pass, Epic free game) is covered once: a candidate whose
- * `recurring_key` belongs to a story already published or being written is dropped, and among candidates
- * sharing a key only the highest score stays. Returns the candidates still standing.
+ * A recurring announcement (PS Plus, Game Pass, Epic free game) is covered once (`sameAnnouncement`: same
+ * kind, started at most `RECURRING_WINDOW_DAYS` apart): a candidate of an announcement a story already
+ * published or being written covered is dropped, and among candidates of one announcement only the highest
+ * score stays. Returns the candidates still standing.
  */
 function dropRecurringRepeats(candidates: StoryRow[], deps: PipelineDeps, report: ColetaReport): StoryRow[] {
   const { db } = deps;
-  const kept = new Set<string>();
+  const kept: string[] = [];
   const dropped = new Set<number>();
   for (const story of [...candidates].sort((a, b) => b.score - a.score || a.id - b.id)) {
     const key = story.recurring_key;
-    if (!key) continue;
+    const kind = key ? recurringKind(key) : null;
+    if (!key || !kind) continue;
     const done = db
-      .storiesWithRecurringKey(key)
-      .some((s) => s.id !== story.id && (s.status === "published" || s.status === "written"));
-    if (done || kept.has(key)) {
+      .storiesWithRecurringKind(kind)
+      .some((s) => s.id !== story.id && (s.status === "published" || s.status === "written") && sameAnnouncement(key, s.recurring_key!));
+    if (done || kept.some((k) => sameAnnouncement(k, key))) {
       if (db.setStoryStatusIf(story.id, "dropped", ["open", "queued"])) {
         dropped.add(story.id);
         report.covered++;
@@ -1373,7 +1375,7 @@ function dropRecurringRepeats(candidates: StoryRow[], deps: PipelineDeps, report
       }
       continue;
     }
-    kept.add(key);
+    kept.push(key);
   }
   return candidates.filter((s) => !dropped.has(s.id));
 }
@@ -1527,6 +1529,20 @@ export async function runColeta(deps: PipelineDeps): Promise<ColetaReport> {
  * score order. Video stories are skipped (left queued) once `MAX_VIDEO_STORIES_PER_DAY` went out today.
  */
 function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
+  const eligible = eligibleQueued(deps, now);
+  const bomb = eligible.find((s) => s.bomb === 1);
+  if (bomb) return bomb;
+  const today = deps.db.publishedTodayMix(localDay(now));
+  let best: { story: StoryRow; mix: number } | null = null;
+  for (const story of eligible) {
+    const mix = mixScore({ score: story.score, topic: story.topic, platforms: parseGames(story.platforms_json) }, today);
+    if (!best || mix > best.mix) best = { story, mix };
+  }
+  return best?.story ?? null;
+}
+
+/** The queued live stories a slot may take, in score order (expired ones marked, video cap applied). */
+function eligibleQueued(deps: PipelineDeps, now: Date): StoryRow[] {
   let videoCap: boolean | null = null;
   const eligible: StoryRow[] = [];
   for (const story of deps.db.storiesByStatus("queued", 100_000)) {
@@ -1541,15 +1557,7 @@ function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
     }
     eligible.push(story);
   }
-  const bomb = eligible.find((s) => s.bomb === 1);
-  if (bomb) return bomb;
-  const today = deps.db.publishedTodayMix(localDay(now));
-  let best: { story: StoryRow; mix: number } | null = null;
-  for (const story of eligible) {
-    const mix = mixScore({ score: story.score, topic: story.topic, platforms: parseGames(story.platforms_json) }, today);
-    if (!best || mix > best.mix) best = { story, mix };
-  }
-  return best?.story ?? null;
+  return eligible;
 }
 
 function refusal(deps: PublicaDeps, now: Date): string | null {
@@ -1576,8 +1584,10 @@ function wantsPauta(deps: PublicaDeps, now: Date): boolean {
   if (!deps.famousGames || deps.famousGames.length === 0) return false;
   const today = pautasPublishedOn(deps.db, localDay(now));
   if (today >= MAX_PAUTAS_PER_DAY) return false;
-  const best = nextQueued(deps, now);
-  return best === null || best.score < PAUTA_SCORE_BELOW || (localHour(now) >= PAUTA_HOUR && today === 0);
+  // The best raw score, not the mix's pick: the mix may take a 58 over an 80 for variety, and the slot
+  // still belongs to the news.
+  const best = Math.max(-Infinity, ...eligibleQueued(deps, now).map((s) => s.score));
+  return best < PAUTA_SCORE_BELOW || (localHour(now) >= PAUTA_HOUR && today === 0);
 }
 
 /**

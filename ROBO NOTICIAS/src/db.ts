@@ -432,8 +432,8 @@ export interface Db {
   storyByKey(key: string): StoryRow | undefined;
   /** Follow-up stories of an article, newest first. */
   followUpsOf(articleId: number): StoryRow[];
-  /** Stories of one recurring announcement (`recurringKey`), in id order. */
-  storiesWithRecurringKey(key: string): StoryRow[];
+  /** Stories whose recurring key is of one kind (`ps-plus`, …), in id order. */
+  storiesWithRecurringKind(kind: string): StoryRow[];
 
   recordSpend(bucket: SpendBucket, purpose: string, model: string, usd: number, at?: Date): void;
   spentToday(bucket: SpendBucket, now?: Date): number;
@@ -603,8 +603,8 @@ export function openDb(dir: string): Db {
       return one<{ id: number }>("SELECT id FROM stories WHERE key = ?", s.key)!.id;
     },
 
-    storiesWithRecurringKey(key) {
-      return rows<StoryRow>("SELECT * FROM stories WHERE recurring_key = ? ORDER BY id", key);
+    storiesWithRecurringKind(kind) {
+      return rows<StoryRow>("SELECT * FROM stories WHERE recurring_key LIKE ? ORDER BY id", `${kind}:%`);
     },
 
     attachItem(storyId, itemId) {

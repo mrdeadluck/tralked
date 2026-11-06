@@ -1113,7 +1113,7 @@ describe("topic, platforms and recurring items", () => {
   it("a recurring announcement already published (same key) is dropped, not queued again", async () => {
     const h = harness(local("2026-10-31T09:00"));
     const old = h.db.upsertStory(
-      { key: "old-psplus", headline: "PS Plus de novembro", category: "GAMES", score: 70, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", recurringKey: "ps-plus:2026-10" },
+      { key: "old-psplus", headline: "PS Plus de novembro", category: "GAMES", score: 70, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", recurringKey: "ps-plus:2026-10-29" },
       local("2026-10-29T10:00"),
     );
     h.db.saveArticle({ storyId: old, payloadJson: "{}", status: "published", siteId: "old-1", publishedAt: local("2026-10-29T10:00").toISOString() });
@@ -1122,7 +1122,7 @@ describe("topic, platforms and recurring items", () => {
     h.post("kotaku", "PS Plus November games", fact);
     const report = await h.coleta();
     const story = stories(h.db).find((s) => s.id !== old)!;
-    expect(story.recurring_key).toBe("ps-plus:2026-10");
+    expect(story.recurring_key).toBe("ps-plus:2026-10-31");
     expect(story.status).toBe("dropped");
     expect(report.queued).toBe(0);
   });
@@ -1130,7 +1130,7 @@ describe("topic, platforms and recurring items", () => {
   it("the next month's PS Plus is queued", async () => {
     const h = harness(local("2026-11-26T09:00"));
     const old = h.db.upsertStory(
-      { key: "old-psplus", headline: "PS Plus de novembro", category: "GAMES", score: 70, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", recurringKey: "ps-plus:2026-10" },
+      { key: "old-psplus", headline: "PS Plus de novembro", category: "GAMES", score: 70, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", recurringKey: "ps-plus:2026-10-29" },
       local("2026-10-29T10:00"),
     );
     h.db.saveArticle({ storyId: old, payloadJson: "{}", status: "published", siteId: "old-1", publishedAt: local("2026-10-29T10:00").toISOString() });
@@ -1139,7 +1139,20 @@ describe("topic, platforms and recurring items", () => {
     h.post("kotaku", "PS Plus December games", fact);
     const report = await h.coleta();
     expect(report.queued).toBe(1);
-    expect(stories(h.db).find((s) => s.id !== old)!.recurring_key).toBe("ps-plus:2026-11");
+    expect(stories(h.db).find((s) => s.id !== old)!.recurring_key).toBe("ps-plus:2026-11-26");
+  });
+
+  it("PS Plus Extra (mid-month) and Essential (end of month) are two announcements of the same month", async () => {
+    const h = harness(local("2026-11-25T09:00"));
+    const extra = h.db.upsertStory(
+      { key: "old-extra", headline: "PS Plus Extra de novembro", category: "GAMES", score: 70, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", recurringKey: "ps-plus:2026-11-11" },
+      local("2026-11-11T10:00"),
+    );
+    h.db.saveArticle({ storyId: extra, payloadJson: "{}", status: "published", siteId: "old-1", publishedAt: local("2026-11-11T10:00").toISOString() });
+    const fact = { headline: "PS Plus Essential de dezembro", importance: 60, games: [], topic: "assinaturas-gratis", platforms: ["playstation"], recurring: "ps-plus" };
+    h.post("ign", "PS Plus Essential de dezembro", fact);
+    h.post("kotaku", "PS Plus Essential December", fact);
+    expect((await h.coleta()).queued).toBe(1);
   });
 });
 
@@ -1403,6 +1416,21 @@ describe("publica: pautas", () => {
     const result = await h.publica();
     expect(result.published).toBe("site-1");
     expect(h.site.created[0]!.key).toMatch(/^robo-live-story-\d+$/);
+    expect(pautaRows(h.db)).toHaveLength(0);
+  });
+
+  it("the mix picking a news below 60 does not hand the slot to a pauta while a news of 60+ is queued", async () => {
+    const h = harness(local("2026-10-31T15:00"));
+    withPautas(h);
+    for (const [i, hour] of ["08", "09", "10"].entries()) {
+      seedQueued(h, `Lançamento ${i}`, { status: "published", topic: "lancamento", firstSeenAt: local(`2026-10-31T${hour}:00`) });
+      const id = stories(h.db).at(-1)!.id;
+      h.db.saveArticle({ storyId: id, payloadJson: "{}", status: "published", siteId: `l-${i}`, publishedAt: local(`2026-10-31T${hour}:00`).toISOString() });
+    }
+    seedQueued(h, "Hades II chega em dezembro", { score: 80, topic: "lancamento", platforms: ["multi"] });
+    seedQueued(h, "Hades II vende 5 milhões", { score: 58, topic: "vendas", platforms: ["multi"] });
+    const result = await h.publica();
+    expect(result.reason).toContain("Hades II vende 5 milhões");
     expect(pautaRows(h.db)).toHaveLength(0);
   });
 

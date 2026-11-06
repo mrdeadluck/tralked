@@ -1,34 +1,33 @@
-import type { Recurring } from "./ai/triage.js";
+import { RECURRING, type Recurring } from "./ai/triage.js";
 import { localDay } from "./clock.js";
 
 /**
- * The key of one recurring announcement, so each is covered once (spec "Itens recorrentes"):
- * - PS Plus: one a month, `ps-plus:YYYY-MM`;
- * - Game Pass: one a wave, about two a month, `game-pass:YYYY-MM-a` up to the 15th and `-b` after;
- * - Epic free game: one a week, `epic-gratis:YYYY-Www` (ISO week).
- * Days are São Paulo days.
+ * Recurring announcements (PS Plus, Game Pass, Epic free game) are covered once each (spec "Itens
+ * recorrentes": "a chave para não repetir é o anúncio, não o mês"). An announcement is known by its kind
+ * and the São Paulo day its story started: `ps-plus:2026-11-25`. Two stories of one kind started at most
+ * `RECURRING_WINDOW_DAYS` apart are the same announcement (sites repeat it for a few days); distinct
+ * announcements of one kind are a week or more apart: PS Plus Extra (2nd Wednesday) and Essential (last
+ * Wednesday), the two Game Pass waves, the weekly Epic free game.
  */
+export const RECURRING_WINDOW_DAYS = 6;
+
 export function recurringKey(kind: Recurring, day: Date): string {
-  const [y, m, d] = localDay(day).split("-").map(Number) as [number, number, number];
-  const month = `${y}-${String(m).padStart(2, "0")}`;
-  switch (kind) {
-    case "ps-plus":
-      return `ps-plus:${month}`;
-    case "game-pass":
-      return `game-pass:${month}-${d <= 15 ? "a" : "b"}`;
-    case "epic-gratis": {
-      const { year, week } = isoWeek(y, m, d);
-      return `epic-gratis:${year}-W${String(week).padStart(2, "0")}`;
-    }
-  }
+  return `${kind}:${localDay(day)}`;
 }
 
-/** ISO 8601 week of a calendar date: the week (Monday first) holding that week's Thursday. */
-function isoWeek(y: number, m: number, d: number): { year: number; week: number } {
-  const date = new Date(Date.UTC(y, m - 1, d));
-  const weekday = date.getUTCDay() || 7; // Monday 1 … Sunday 7
-  date.setUTCDate(date.getUTCDate() + 4 - weekday); // that week's Thursday
-  const year = date.getUTCFullYear();
-  const week = Math.ceil(((date.getTime() - Date.UTC(year, 0, 1)) / 86_400_000 + 1) / 7);
-  return { year, week };
+const parse = (key: string): { kind: string; day: number } | null => {
+  const m = /^([a-z-]+):(\d{4}-\d{2}-\d{2})$/.exec(key);
+  if (!m || !(RECURRING as readonly string[]).includes(m[1]!)) return null;
+  const day = Date.parse(`${m[2]}T12:00:00Z`);
+  return Number.isNaN(day) ? null : { kind: m[1]!, day };
+};
+
+/** The kind of a recurring key ("ps-plus"), or null for a malformed one. */
+export const recurringKind = (key: string): string | null => parse(key)?.kind ?? null;
+
+/** Whether two recurring keys are the same announcement (same kind, at most the window apart). */
+export function sameAnnouncement(a: string, b: string): boolean {
+  const x = parse(a);
+  const y = parse(b);
+  return !!x && !!y && x.kind === y.kind && Math.abs(x.day - y.day) <= RECURRING_WINDOW_DAYS * 86_400_000;
 }
