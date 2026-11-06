@@ -2,6 +2,25 @@
 
 Resumo da sessão de 31/10 a 02/11 com o Lucas (dono da Ludai Labs): o que está no ar e o que ficou pendente. Branch de trabalho: `feat/plano-2-tralked`. A `main` é mantida igual a ela (fast-forward + push), e cada push na `main` publica o site na Vercel.
 
+## Atualização de 06/11: unificação de troféus concluída
+
+- **No ar na `main`:** fase a `b5aba98`; b `595d915`; hotfix antifraude `52b675f`; c `079d755`; R1 `7cb43ac`; R2 `758e985`; e `d53bc0b`; d `0e928c2` + `9d5c142`. A rodada final, na branch `fix/final-wave`, ainda não foi publicada: espera o Lucas.
+- **Números do diguzz agora:** PSN 18.981 = Sony e 520 platinas; Steam 4.020 = API da Steam; Xbox 2.160 = OpenXBL; Tralked 495+; nível 200.
+- **Workflows novos:** `psn-catalog` (7 fatias por dia; o casamento liga pela variável `vars.PSN_CATALOG_MATCH`) e `igdb-consoles` (manual). Em operações de produção, pausar os agendados: cron, platform-import, steam-details, steam-players, catalog-enrich, retro-catalog, psn-catalog.
+- **Backups** em `C:\Users\luck_\tralked-backups\`, arquivos `neon-before-*` de 05/11 e 06/11: phase-b, fraud-hotfix, phase-c, regional-xp, tralked-counter, phase-e, phase-d, d6-cleanup.
+
+**Pendências novas (continuam a numeração):**
+- **35. Publicar a rodada final** (`fix/final-wave`): apelidos de IGDB dos 43 jogos juntados, slug de redirecionamento protegido, psn-repair, página do jogo pela regra Tralked/Platinas e disparo da varredura PSN. O script está pronto em `C:\Users\luck_\AppData\Local\Temp\claude\88d8229872c22355\c18fd4c8-fe0b-4227-82c0-406ee0914047\scratchpad\release-final-wave.sh` e precisa da permissão do Lucas.
+- **36. Gamificação:** proposta de 5 ajustes (régua única de raridade, "Platina" só PSN, moeda de cada plataforma visível com o G do Xbox e os pontos do RA, nomes únicos, progresso visível). O brainstorm está pausado; nada foi aprovado.
+- **37. Duplicados vazios:** 11.104 pares sem conteúdo (incluindo Ghost of Yōtei e Mass Effect 2) não foram juntados.
+- **38. Antifraude:** falta regra para "1 conquista sem data + o resto rápido" (Steam Achievement Manager).
+- **39. Filtro "PC · Steam":** agora só mostra jogos com appid da Steam (jogos só da Epic saem). Avisar o Lucas.
+- **40. Varredura da PSN:** acompanhar a primeira volta (~16 dias) e o log "do not match the list". Leituras ao abrir página + varredura juntas ficam acima do ritmo da psnawp (0,43/s); considerar pausar as leituras de página durante a fatia.
+- **41. Selo de 1000G na biblioteca** ignora troféu suspeito (pequeno).
+- **42. API pública** procura jogo só pelo `igdbId` principal, não pelos apelidos.
+- **43. Limpeza técnica:** caminho `legacyCompletedAt` morto em produção; teste lento/instável em `platform-user.test.ts` (~l. 937); `apiName` de troféu oculto exposto.
+- **44. Steam:** 13 conquistas que o Exophase mostra e a API da Steam não tem; Portal (2) não entrou no `steam:dateless`.
+
 ## Atualização da tarde de 02/11: queda do site e plano de segurança
 
 **O que aconteceu:** o site ficou fora do ar (402 `DEPLOYMENT_DISABLED`) porque o plano Hobby estourou as 4 h de CPU do mês. A culpa não foi da sincronização. Foram robôs que coletam dados para treinar IA:
@@ -171,7 +190,7 @@ Opcional: `pnpm sgdb:png-thumbs` marca as artes do SteamGridDB que só têm mini
 4. Opcional: limitar o autoscaling do Neon a 0,25–0,5 CU no console.
 5. Chaves de Resend e Google, que seguem pendentes.
 
-**Pendências antigas que continuam abertas:** os itens 20 a 25 da lista, isto é, Wolverine sem troféus, triagem por amostragem do robô e revisões, troféus de console sem dono, juntar jogos duplicados, F9 Social e Emulador.
+**Pendências antigas:** resolvidas pela unificação de troféus (06/11) os itens 20, 22 e 23 da lista e a antiga pendência 4: Wolverine sem troféus (as listas PS4/PS5 se colapsavam, corrigido na fase a); troféus de console sem dono e página do jogo sem troféus (fase e: índice do catálogo da PSN e troféus carregados ao abrir a página); juntar jogos duplicados (fase d: 107 junções e 470 vínculos de edição em 06/11). Continuam abertas: o item 21 (triagem por amostragem do robô e revisões), o 24 (F9 Social) e o 25 (Emulador).
 
 ## Como o Tralked roda hoje
 
