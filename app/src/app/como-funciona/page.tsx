@@ -268,7 +268,7 @@ export default function ComoFuncionaPage() {
             <b className="text-text">Esta semana</b> (XP dos últimos 7 dias, inclusive o da comunidade: o nível não
             importa) e{" "}
             <b className="text-text">Novatos</b> (até o nível {NOVATO_MAX_LEVEL}). Há também rankings de
-            horas, conquistas, raras, platinas, acervo e um por gênero. Se alguém te passar, o sino avisa.
+            horas, conquistas, raras, Tralked, acervo e um por gênero. Se alguém te passar, o sino avisa.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link

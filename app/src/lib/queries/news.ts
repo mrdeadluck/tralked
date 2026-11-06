@@ -1,4 +1,4 @@
-import { artAssets, pickArt, type ArtAsset } from "@/lib/art/frame";
+import { artAssets, artRatio, pickArt, type ArtAsset } from "@/lib/art/frame";
 import { prisma } from "@/lib/db";
 import {
   achievementKey,
@@ -236,6 +236,31 @@ export function gamesArt(games: GameRow[]): ArtAsset[] | null {
     if (art.length > 0) return art;
   }
   return null;
+}
+
+/** Landscape images (a hero, a screenshot, a wide artwork) fill a 21:9 box; a portrait cover does not. */
+const WIDE_MIN_RATIO = 1.2;
+const isWide = (a: ArtAsset) => a.kind !== "logo" && (artRatio(a) ?? 0) >= WIDE_MIN_RATIO;
+
+/**
+ * The 21:9 header of an article page: the art of the first related game that has a wide image (hero,
+ * screenshot, wide artwork) and its scene. A game with only a portrait cover never fills it (the box
+ * would crop the cover: the-elder-scrolls-vi showed a black frame with its logo cut): the page gets the
+ * official picture of the console or company `text` names, else nothing (the generated illustration).
+ */
+export async function articleHero(
+  games: GameRow[],
+  seed: string,
+  blocks: ContentBlock[],
+  text: string,
+): Promise<{ heroUrl: string | null; heroArt: ArtAsset[] | null; heroExclude: string[] }> {
+  const heroExclude = blocks.flatMap((b) => (b.type === "image" ? [b.url] : []));
+  const wideGames = games.filter((g) => artAssets({ coverUrl: g.coverUrl, heroUrl: g.heroUrl, media: g.media }).some(isWide));
+  return {
+    heroUrl: gameScene(wideGames, seed, new Set(heroExclude), { wideOnly: true }) ?? (await companyArt(text)),
+    heroArt: gamesArt(wideGames),
+    heroExclude,
+  };
 }
 
 /**
@@ -574,11 +599,7 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     blocks,
     source: row.source,
     reviewed: row.reviewedAt !== null,
-    heroUrl:
-      gameScene(gameRows, row.slug, new Set(blocks.flatMap((b) => (b.type === "image" ? [b.url] : [])))) ??
-      (await companyArt(`${row.title} ${row.subtitle ?? ""}`)),
-    heroArt: gamesArt(gameRows),
-    heroExclude: blocks.flatMap((b) => (b.type === "image" ? [b.url] : [])),
+    ...(await articleHero(gameRows, row.slug, blocks, `${row.title} ${row.subtitle ?? ""}`)),
     game: games[0] ?? null,
     games,
     achievements,

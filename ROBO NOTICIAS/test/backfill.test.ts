@@ -94,6 +94,9 @@ function fakeStructured(facts: Map<string, Fact>) {
               rumor: false,
               importance: f.importance,
               headlinePt: f.headline,
+              topic: "atualizacao",
+              platforms: ["multi"],
+              recurring: null,
             },
           ];
         }),

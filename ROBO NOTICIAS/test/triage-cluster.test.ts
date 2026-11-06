@@ -38,6 +38,9 @@ const triageOut = (id: number, over: Partial<Triage> = {}): Triage => ({
   rumor: false,
   importance: 95,
   headlinePt: `GTA 6 ganha data de lançamento (${id})`,
+  topic: "lancamento",
+  platforms: ["multi"],
+  recurring: null,
   ...over,
 });
 
@@ -138,6 +141,32 @@ describe("triageItems", () => {
     expect(out[0]!.keep).toBe(true);
     expect(out[0]!.importance).toBe(100);
     expect(out[1]!.importance).toBe(0);
+  });
+
+  it("returns the topic, the platforms and the recurring item of each story", async () => {
+    const { ai } = fakeAi([
+      { items: [triageOut(1, { topic: "assinaturas-gratis", platforms: ["playstation"], recurring: "ps-plus" })] },
+    ]);
+    const [t] = await triageItems(ai, [{ id: 1, title: "PS Plus de novembro", summary: null, source: source() }], "live");
+    expect(t).toMatchObject({ topic: "assinaturas-gratis", platforms: ["playstation"], recurring: "ps-plus" });
+  });
+
+  it("fails on an unknown topic", async () => {
+    const { ai } = fakeAi([{ items: [triageOut(1, { topic: "opiniao" as never })] }]);
+    await expect(triageItems(ai, [{ id: 1, title: "x", summary: null, source: source() }], "live")).rejects.toThrow();
+  });
+
+  it("keeps relevant free games and store events, drops 'X published a post about Y', and favors Steam/PC and Nintendo", async () => {
+    const { ai, calls } = fakeAi([{ items: [triageOut(1)] }]);
+    await triageItems(ai, [{ id: 1, title: "x", summary: null, source: source() }], "live");
+    const system = calls[0]!.system;
+    for (const phrase of ["PlayStation Plus", "Game Pass", "Epic", "Next Fest", "free weekend", "concurrent players", "review scores", "published a post"]) {
+      expect(system).toContain(phrase);
+    }
+    expect(system).toMatch(/Steam.{0,40}PC.{0,80}Nintendo/s);
+    for (const t of ["anuncio", "assinaturas-gratis", "notas-imprensa", "steam-pc", "nintendo", "ps-plus", "game-pass", "epic-gratis"]) {
+      expect(system).toContain(t);
+    }
   });
 
   it("makes no call for an empty list", async () => {

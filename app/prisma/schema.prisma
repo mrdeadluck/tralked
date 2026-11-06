@@ -722,8 +722,9 @@ model UserRankStats {
   rareAchievements      Int      @default(0)
   /// Valid unlocks at most 3% global rarity (lendária).
   legendaryAchievements Int      @default(0)
-  /// "Platinas e 100%": the profile's Platinas (lib/character/counts platinumCount, one per
-  /// list), by platform; `all` is the total.
+  /// Since 2026-11-06 this is the profile's "Tralked" (lib/character/counts platinumCount: lists and
+  /// versions completed at 100%, one per list), by platform; `all` is the total. It was "Platinas e
+  /// 100%" before; the column keeps its name.
   perfectGames          Int      @default(0)
   gamesOwned            Int      @default(0)
   /// Games with playtime or a valid unlock.

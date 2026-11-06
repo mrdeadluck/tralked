@@ -6,7 +6,7 @@ import { getBoardCached } from "@/lib/highscores/cached";
 export const metadata: Metadata = {
   title: "Ranking | Tralked",
   description:
-    "Ranking dos jogadores do Tralked: nível, XP da semana, horas jogadas, conquistas, raras e lendárias, platinas, acervo, por plataforma e por gênero.",
+    "Ranking dos jogadores do Tralked: nível, XP da semana, horas jogadas, conquistas, raras e lendárias, Tralked, acervo, por plataforma e por gênero.",
 };
 
 /**

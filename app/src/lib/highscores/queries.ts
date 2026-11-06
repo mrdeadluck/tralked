@@ -61,7 +61,7 @@ export type RankedPlayer = {
   totalXp: number;
   /**
    * The ranked value: level (nivel, novatos), XP of the last 7 days (semana), skill level (genero), minutes (horas), unlocks
-   * (conquistas), rare unlocks (raras), platinas (platinas: the profile's, one per list), Acervo points (acervo).
+   * (conquistas), rare unlocks (raras), Tralked (platinas: the profile's Tralked, one per list/version at 100%), Acervo points (acervo).
    */
   value: number;
   /**

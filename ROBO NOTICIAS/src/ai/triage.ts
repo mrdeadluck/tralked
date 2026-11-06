@@ -12,6 +12,34 @@ const SUMMARY_MAX_CHARS = 600;
 export const CATEGORIES = ["GAMES", "MERCADO", "ENTRETENIMENTO", "TECNOLOGIA"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
+/** Kinds of story, for the daily mix (spec "Variedade"). */
+export const TOPICS = [
+  "anuncio",
+  "trailer",
+  "lancamento",
+  "atualizacao",
+  "vendas",
+  "hardware",
+  "negocios",
+  "assinaturas-gratis",
+  "promocao-loja",
+  "notas-imprensa",
+  "adaptacao",
+  "mobile",
+  "indie",
+  "rumor",
+  "declaracao",
+  "comunidade",
+] as const;
+export type Topic = (typeof TOPICS)[number];
+
+export const PLATFORMS = ["steam-pc", "playstation", "xbox", "nintendo", "mobile", "multi"] as const;
+export type Platform = (typeof PLATFORMS)[number];
+
+/** Announcements that come back on a schedule; each one is covered once (`recurringKey`). */
+export const RECURRING = ["ps-plus", "game-pass", "epic-gratis"] as const;
+export type Recurring = (typeof RECURRING)[number];
+
 export type Triage = {
   id: number;
   keep: boolean;
@@ -22,6 +50,9 @@ export type Triage = {
   /** 0-100 */
   importance: number;
   headlinePt: string;
+  topic: Topic;
+  platforms: Platform[];
+  recurring: Recurring | null;
 };
 
 export interface TriageInput {
@@ -43,6 +74,9 @@ const TriageResponse = z.object({
       rumor: z.boolean(),
       importance: z.number(),
       headlinePt: z.string(),
+      topic: z.enum(TOPICS),
+      platforms: z.array(z.enum(PLATFORMS)),
+      recurring: z.enum(RECURRING).nullable(),
     }),
   ),
 });
@@ -60,13 +94,26 @@ Return exactly one entry per input item, with the same id:
 - rumor: true when the item reports a leak, rumor, insider claim, speculation or anything not officially confirmed.
 - importance: an integer from 0 to 100 measuring how interesting the story is for a Brazilian gamer audience.
 - headlinePt: a short, factual headline in Brazilian Portuguese stating the fact (no clickbait, no emojis, no source name).
+- topic: the kind of story, one of:
+  anuncio (a game announced), trailer (a trailer, gameplay video or showcase), lancamento (release date, launch or delay), atualizacao (update, patch, DLC, free content), vendas (sales and player numbers of games and consoles, concurrent players records), hardware (consoles, handhelds, PC hardware for games, console prices), negocios (acquisitions, layoffs, closures, earnings, industry), assinaturas-gratis (PlayStation Plus games of the month, Game Pass additions, Epic Games Store free game, games that became free), promocao-loja (big store events: Steam seasonal sales, Steam Next Fest, free weekends, big eShop or PlayStation Store sales), notas-imprensa (the review scores a big release is getting from the press), adaptacao (films, series and anime based on games), mobile (mobile games), indie (independent games), rumor (leaks and rumors), declaracao (statements and interviews), comunidade (community and curiosities about games).
+- platforms: the platforms the story is about, from steam-pc (Steam, PC, Steam Deck, Valve), playstation, xbox, nintendo, mobile; multi when it is about all of them or none in particular.
+- recurring: ps-plus for the monthly PlayStation Plus games announcement, game-pass for a Game Pass wave announcement, epic-gratis for the Epic Games Store free game of the week; null for anything else.
 
 Set keep to false for:
-- deals, sales, discounts, price drops, promo codes, coupons and giveaways;
+- promo codes, coupons and giveaways;
+- small deals and discounts on a single game, price drops of one game;
 - listicles and rankings ("top 10", "best games of", "X games like Y");
+- opinion pieces and editorials ("questioning", "why X is the best");
 - reviews of products that are not games (headphones, phones, TVs, chairs, gadgets and similar);
 - sponsored content, advertorials, paid partnerships and affiliate posts;
+- anything not about games: music, sports, films, series and anime that do not come from games;
+- items whose only fact is that someone published a post or an article about something ("X published a post about Y"), with no new concrete fact;
 - when the item's gamingFilter flag is true: anything not about games (general technology, phones, politics, celebrity news, general entertainment unrelated to games).
+Set keep to true for these, which interest gamers:
+- the PlayStation Plus games of the month, Game Pass additions, the Epic Games Store free game;
+- Steam events: seasonal sales, Steam Next Fest, free weekends; a game that became free to keep;
+- console price changes; concurrent players records;
+- the review scores the press is giving a big release.
 Otherwise keep news that interests gamers.
 
 How to score importance:
@@ -74,6 +121,7 @@ How to score importance:
 - 70-89: major news about big franchises, big publishers or the platforms (major reveals, release dates, big showcases, big acquisitions).
 - 40-69: regular news (updates, trailers of mid-size games, ordinary industry news).
 - 0-39: minor or niche news.
+Steam and PC news, and Nintendo news, interest the Tralked audience a lot: score them accordingly.
 Raise the score for games and franchises especially popular in Brazil (e.g. Free Fire, EA Sports FC, Counter-Strike, Fortnite, Minecraft, GTA, League of Legends) and for news that directly affects Brazilian players (Brazilian prices, Portuguese localization, Brazilian servers or events). Lower it for rumors from weak sources.`;
 
 const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);

@@ -4,12 +4,14 @@ import { BudgetExceededError, type Ai } from "../ai/client.js";
 import { VISION_MAX_IMAGES, checkImages, type VisionVerdict } from "../ai/vision.js";
 import type { MediaImage } from "../assemble.js";
 import type { FetchFn } from "../collect/index.js";
+import { mediaOf } from "../collect/media.js";
 import type { Config, Source } from "../config.js";
 import type { ItemRow, StoryRow } from "../db.js";
 import type { GameMedia, Tralked } from "../tralked.js";
-import { collectCandidates, fitsBody, fitsCover, isEligible, markRepeated, type ImageCandidate } from "./candidates.js";
+import { collectCandidates, fitsBody, fitsCover, isEligible, markRepeated, youtubeThumbnailId, type ImageCandidate } from "./candidates.js";
 import { GALLERY_MAX, GALLERY_MIN } from "./gallery.js";
 import { SAME_IMAGE_MAX_DISTANCE, fetchImage, hamming, type FetchedImage } from "./images.js";
+import { isRecentVideo } from "./video.js";
 
 export type ChooseDeps = {
   ai: Ai;
@@ -138,6 +140,41 @@ function forVision(pictures: ImageCandidate[], repeated: Set<string>, max: numbe
   return [...official.slice(0, max - keepCatalog), ...catalog.slice(0, keepCatalog)];
 }
 
+/** Videos whose covers the source pages carry, dated at most this many per article (one watch page each). */
+const MAX_COVER_DATE_LOOKUPS = 3;
+
+/**
+ * The videos whose covers (YouTube thumbnails on the source pages) must not illustrate the story: published
+ * long before it or of unknown date (B5: story 4929 would show the 2018 teaser). The official videos the
+ * article embeds were checked already; covers beyond `MAX_COVER_DATE_LOOKUPS` videos count as stale.
+ */
+async function staleVideoCovers(
+  input: { items: ItemRow[]; officialVideoIds: string[]; storyAt?: Date },
+  fetchFn: FetchFn,
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const item of input.items) {
+    for (const image of mediaOf(item).images) {
+      const id = youtubeThumbnailId(image.url);
+      if (id && !input.officialVideoIds.includes(id)) ids.add(id);
+    }
+  }
+  const stale = new Set<string>();
+  if (ids.size === 0) return stale;
+  const storyAt = input.storyAt ?? earliest(input.items);
+  let lookups = 0;
+  for (const id of ids) {
+    if (lookups++ >= MAX_COVER_DATE_LOOKUPS || !(await isRecentVideo(id, storyAt, fetchFn))) stale.add(id);
+  }
+  return stale;
+}
+
+/** The earliest date among the items (published, else fetched). */
+function earliest(items: ItemRow[]): Date {
+  const times = items.map((i) => Date.parse(i.published_at ?? i.fetched_at)).filter((t) => !Number.isNaN(t));
+  return new Date(times.length > 0 ? Math.min(...times) : Date.now());
+}
+
 /**
  * The article's images (spec "Escolher a imagem"):
  * - candidates from the sources, the official videos and the catalog of the exact game;
@@ -156,7 +193,10 @@ export async function chooseImages(
     companies: string[];
     subject: string;
     catalog: GameMedia | null;
+    /** Already checked (recent official videos): their covers may be candidates. */
     officialVideoIds: string[];
+    /** When the story broke (its earliest item); defaults to its items' earliest date. */
+    storyAt?: Date;
   },
   deps: ChooseDeps,
   opts: { gallery?: boolean } = {},
@@ -166,6 +206,7 @@ export async function chooseImages(
     sources: input.sources,
     officialVideoIds: input.officialVideoIds,
     catalog: catalogPool(input.catalog, input.story.id),
+    staleVideoIds: await staleVideoCovers(input, deps.fetchFn),
   });
   await fetchAll(cands, deps.fetchFn);
   const repeated = markRepeated(cands);

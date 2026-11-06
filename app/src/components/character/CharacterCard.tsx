@@ -4,8 +4,8 @@ import type { ProfileStat } from "@/components/profile/ProfileHeader";
 import { formatNumber } from "./format";
 
 /**
- * The Ficha's own numbers, after the header strip's shared two (Platinas, Jogos;
- * components/profile/ProfileHeader): its platinums are the strip's.
+ * The Ficha's own numbers, after the header strip's shared numbers (Tralked, Platinas, Jogos;
+ * components/profile/ProfileHeader): "Jogos 100%" is each game once, however many platforms/lists (not the strip's Tralked).
  */
 export function characterStats(stats: Character["stats"], week?: { total: number; community: number }): ProfileStat[] {
   return [
@@ -14,7 +14,7 @@ export function characterStats(stats: Character["stats"], week?: { total: number
       value: formatNumber(stats.achievements),
       note: stats.pendingReview > 0 ? `+${formatNumber(stats.pendingReview)} em análise` : "todas as plataformas",
     },
-    { label: "Jogos 100%", value: formatNumber(stats.perfectGames), note: "TRALKED!" },
+    { label: "Jogos 100%", value: formatNumber(stats.perfectGames), note: "cada jogo uma vez" },
     { label: "Lendárias", value: formatNumber(stats.legendary), note: "até 3% dos jogadores" },
     {
       label: "Ranking geral",

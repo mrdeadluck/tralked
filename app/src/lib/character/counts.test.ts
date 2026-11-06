@@ -19,58 +19,95 @@ const native = (gameId: string, listId: string | null, versionKey: string, platf
   apiName,
 });
 const total = (...args: Parameters<typeof platinumCount>) => platinumCount(...args).platinums;
+const tralked = (...args: Parameters<typeof platinumCount>) => platinumCount(...args).tralked;
 
-describe("platinumCount (one per list)", () => {
+describe("Platinas (PSN platinum trophies only)", () => {
   it("every PSN platinum trophy counts, two regions of one console are two", () => {
     const natives = [native("gta", "eu5", "psn:PS5"), native("gta", "jp5", "psn:PS5"), native("gta", "eu4", "psn:PS4")];
     const lists = [list("eu5", "gta", "psn", "psn:PS5"), list("jp5", "gta", "psn", "psn:PS5"), list("eu4", "gta", "psn", "psn:PS4")];
-    expect(platinumCount(natives, lists, [])).toMatchObject({ platinums: 3, psnPlatinums: 3, perVersion: 2 });
+    expect(platinumCount(natives, lists, [])).toMatchObject({ platinums: 3, psnPlatinums: 3, perVersion: 2, byPlatform: { psn: 3 } });
     expect(platinumCount([], [], [])).toMatchObject({ platinums: 0, psnPlatinums: 0, perVersion: 0 });
   });
 
-  it("a platinum trophy counts whatever the list's %, once with its own 100%", () => {
+  it("a platinum trophy counts whatever the list's %", () => {
     const lists = [list("a", "gta", "psn", "psn:PS5", { completed: false }), list("b", "gta", "psn", "psn:PS4")];
     expect(total([native("gta", "a", "psn:PS5"), native("gta", "b", "psn:PS4")], lists, [])).toBe(2);
   });
 
-  it("a 100% without a platinum trophy counts one per list (PSN without platinum, Xbox titleIds, RA)", () => {
+  it("never counts Steam, Xbox, RA or PSN-without-platinum completions", () => {
     const lists = [
       list("p4", "indie", "psn", "psn:PS4"),
-      list("p5a", "indie", "psn", "psn:PS5"),
-      list("p5b", "indie", "psn", "psn:PS5"),
       list("x1", "halo", "xbox", "xbox:1"),
-      list("x2", "halo", "xbox", "xbox:2"),
       list("r1", "snes", "retro", "retro:77"),
     ];
-    // The PSN 100%s without a platinum trophy are platinums, but not "na PSN" (Sony counts trophies).
-    expect(platinumCount([], lists, [])).toEqual({ platinums: 6, psnPlatinums: 0, perVersion: 5, byPlatform: { psn: 3, xbox: 2, retro: 1 } });
-  });
-
-  it("a list short of 100% or with a suspicious unlock pays no bonus", () => {
-    const lists = [list("a", "hk", "psn", "psn:PS5", { tainted: true }), list("b", "hk", "psn", "psn:PS4", { completed: false })];
-    expect(total([], lists, [])).toBe(0);
-  });
-
-  it("a 100% counts under the legacy key only where the player has no list; Steam always", () => {
-    const completions = [
-      { gameId: "gta", platform: "psn" }, // has lists: their completions count instead
-      { gameId: "old", platform: "psn" }, // no list yet: legacy platinum, the same as its list-less trophy
-      { gameId: "gta", platform: "steam" },
-    ];
-    expect(
-      platinumCount([native("old", null, "psn")], [list("a", "gta", "psn", "psn:PS4", { completed: false })], completions),
-    ).toEqual({ platinums: 2, psnPlatinums: 1, perVersion: 2, byPlatform: { psn: 1, steam: 1 } });
+    expect(platinumCount([], lists, [{ gameId: "g", platform: "steam" }, { gameId: "old", platform: "psn" }]).platinums).toBe(0);
   });
 
   it("a list-less platinum keeps counting until a list row holds the same trophy", () => {
     const incomplete = [list("a", "gta", "psn", "psn:PS4", { completed: false })];
-    // No list row holds the platinum yet: the list-less one counts.
     expect(total([native("gta", null, "psn", "psn", "0")], incomplete, [])).toBe(1);
-    // A list row holds the same trophy (valid unlock): that list speaks for it, once.
     expect(total([native("gta", null, "psn", "psn", "0"), native("gta", "a", "psn:PS4", "psn", "0")], incomplete, [])).toBe(1);
-    // A list row holds another trophy: it does not cover this one.
     expect(total([native("gta", null, "psn", "psn", "0"), native("gta", "a", "psn:PS4", "psn", "7")], incomplete, [])).toBe(2);
-    // Another game is never covered.
     expect(total([native("gta", null, "psn", "psn", "0"), native("old", "b", "psn:PS4", "psn", "0")], incomplete, [])).toBe(2);
+  });
+});
+
+describe("Tralked (lists completed at 100% on any platform)", () => {
+  it("counts a PSN list at 100% (with or without a platinum trophy), one per list", () => {
+    const lists = [
+      list("p4", "indie", "psn", "psn:PS4"),
+      list("p5a", "indie", "psn", "psn:PS5"),
+      list("p5b", "indie", "psn", "psn:PS5"),
+    ];
+    expect(platinumCount([], lists, [])).toMatchObject({ tralked: 3, tralkedByPlatform: { psn: 3 }, platinums: 0 });
+  });
+
+  it("does not count a platinated list short of 100% (DLC missing)", () => {
+    const lists = [list("a", "gta", "psn", "psn:PS4", { completed: false })];
+    const r = platinumCount([native("gta", "a", "psn:PS4")], lists, []);
+    expect(r.platinums).toBe(1);
+    expect(r.tralked).toBe(0);
+  });
+
+  it("counts Steam 100% (UserGame.completedAt) and Xbox/RA lists at 100%", () => {
+    const lists = [
+      list("x1", "halo", "xbox", "xbox:1"),
+      list("x2", "halo", "xbox", "xbox:2"),
+      list("r1", "snes", "retro", "retro:77"),
+    ];
+    expect(platinumCount([], lists, [{ gameId: "hk", platform: "steam" }])).toMatchObject({
+      tralked: 4,
+      tralkedByPlatform: { steam: 1, xbox: 2, retro: 1 },
+    });
+  });
+
+  it("counts an Xbox list that earned 1000G even with DLC missing, but not 999G", () => {
+    const lists = [
+      list("x1", "halo", "xbox", "xbox:1", { completed: false, gamerscore: 1000 }),
+      list("x2", "fh", "xbox", "xbox:2", { completed: false, gamerscore: 999 }),
+      list("x3", "fh2", "xbox", "xbox:3", { completed: false, gamerscore: 1250, tainted: true }),
+    ];
+    expect(tralked([], lists, [])).toBe(1);
+  });
+
+  it("the 1000G rule is Xbox only", () => {
+    expect(tralked([], [list("p", "g", "psn", "psn:PS4", { completed: false, gamerscore: 5000 })], [])).toBe(0);
+  });
+
+  it("excludes lists with a suspicious unlock", () => {
+    const lists = [list("a", "hk", "psn", "psn:PS5", { tainted: true }), list("b", "hk", "psn", "psn:PS4", { completed: false })];
+    expect(tralked([], lists, [])).toBe(0);
+  });
+
+  it("a legacy 100% counts only where the player has no list; Steam always", () => {
+    const completions = [
+      { gameId: "gta", platform: "psn" }, // has lists: their completions count instead
+      { gameId: "old", platform: "psn" }, // no list yet
+      { gameId: "gta", platform: "steam" },
+    ];
+    expect(platinumCount([], [list("a", "gta", "psn", "psn:PS4", { completed: false })], completions)).toMatchObject({
+      tralked: 2,
+      tralkedByPlatform: { psn: 1, steam: 1 },
+    });
   });
 });

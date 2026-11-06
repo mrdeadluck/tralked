@@ -29,10 +29,10 @@ export type RankStatsInput = {
   /** Valid (non-suspicious) unlocks only. */
   unlocks: { gameId: string; platform: string; globalPct: number | null }[];
   /**
-   * The profile's "Platinas" (lib/character/counts platinumCount: one per list), in total and by
-   * platform: the "Platinas e 100%" board (`perfectGames`).
+   * The profile's "Tralked" (lib/character/counts platinumCount: one per list/version at 100%), in
+   * total and by platform: the "Tralked" board (`perfectGames`).
    */
-  platinums: { platinums: number; byPlatform: Record<string, number> };
+  tralked: { tralked: number; tralkedByPlatform: Record<string, number> };
 };
 
 const inScope = (scope: RankScope, platform: string) => scope === "all" || scope === platform;
@@ -41,7 +41,8 @@ const inScope = (scope: RankScope, platform: string) => scope === "all" || scope
  * The highscores totals of one user for every scope. Same rules as the attributes (recompute
  * `attributeInput`): a game is played with playtime or a valid unlock, owned games include games
  * with an unlock but no library row, and `all` counts each game once however many platforms it is
- * on. `perfectGames` ("Platinas e 100%") is the profile's Platinas, one per list.
+ * on. `perfectGames` is the profile's Tralked (the "Tralked" board). The column keeps its name; since
+ * 2026-11-06 it no longer means "Platinas e 100%" but the lists/versions completed at 100%.
  * Hours are the raw hours the platforms report (product ruling): the anti-idle caps of
  * lib/sync/playtime.ts limit the XP they pay, not the Horas jogadas ranking.
  */
@@ -81,7 +82,7 @@ export function computeRankStats(input: RankStatsInput): Record<RankScope, RankS
       achievements,
       rareAchievements: rare,
       legendaryAchievements: legendary,
-      perfectGames: scope === "all" ? input.platinums.platinums : (input.platinums.byPlatform[scope] ?? 0),
+      perfectGames: scope === "all" ? input.tralked.tralked : (input.tralked.tralkedByPlatform[scope] ?? 0),
       gamesOwned: all.length,
       gamesPlayed: played,
       acervo: acervoPoints(played, all.length - played),
