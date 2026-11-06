@@ -130,7 +130,9 @@ class DryRunRollback extends Error {}
  * Repairs these PSN lists (npCommunicationIds) from Sony's definitions. A list is left as it is
  * when Sony's answer cannot be its own (definitionsProblem), when a row Sony does not have holds an
  * unlock, a guide note or a ledger entry (blocked: someone must look), or when nothing differs.
- * Each list is one transaction; the holders are recomputed after it. Idempotent.
+ * Each list is one transaction; the holders, and every other user with a valid entry under a row
+ * it replaces (a copy in a regional twin paid under this list's row id: a stand-in), are settled
+ * in it and recomputed after it. Idempotent.
  */
 export async function repairPsnLists(psn: PsnApi, externalIds: string[], options: RepairOptions = {}): Promise<ListRepair[]> {
   const now = options.now ?? new Date();
@@ -224,19 +226,43 @@ async function repairOne(
   const nothing = p.updates.length + p.replaces.length + p.creates.length + p.removes.length === 0;
   if (nothing && list.trophyCount === sony.length) return report;
 
-  const before = await numbersOf(prisma, list.id, holders.map((h) => h.id));
+  // A replaced row's id may also be the key of a user who does not hold this list: their copy of
+  // the trophy in a regional twin was paid under the canonical row's id (stand-in). Once the row
+  // goes, that entry names nothing and the rule pays the new id: it is voided and they are settled
+  // here too, or they would be paid twice at their next sync.
+  const holderIds = new Set(holders.map((h) => h.id));
+  const standInIds = [
+    ...new Set(
+      (
+        await prisma.xpLedgerEntry.findMany({
+          where: { source: "achievement", sourceKey: { in: p.replaces.map((r) => r.row.id) }, voidedAt: null },
+          select: { userId: true },
+        })
+      )
+        .map((e) => e.userId)
+        .filter((id) => !holderIds.has(id)),
+    ),
+  ];
+  const standIns = standInIds.length
+    ? await prisma.user.findMany({ where: { id: { in: standInIds } }, select: { id: true, handle: true }, orderBy: { handle: "asc" } })
+    : [];
+  const affected = [...holders, ...standIns].sort((x, y) => x.handle.localeCompare(y.handle));
+
+  const before = await numbersOf(prisma, list.id, affected.map((h) => h.id));
   try {
     await prisma.$transaction(async (tx) => {
       const staleBefore = new Map<string, Map<string, Stale>>();
-      for (const h of holders) staleBefore.set(h.id, await staleEntries(tx, h.id, list.gameId));
-      await applyPlan(tx, list, p, holders.map((h) => h.id), now);
+      for (const h of affected) staleBefore.set(h.id, await staleEntries(tx, h.id, list.gameId));
+      await applyPlan(tx, list, p, now);
       await tx.trophyList.update({ where: { id: list.id }, data: { trophyCount: sony.length } });
       for (const h of holders) {
         const below = await settleHolder(tx, h.id, list, sony.length, now);
         if (below) report.warnings.push(`${h.handle}: completion kept (sticky) at ${below.unlocked}/${below.count} trophies: judge it by hand`);
       }
-      const after = await numbersOf(tx, list.id, holders.map((h) => h.id));
-      report.users = holders.map((h) => {
+      // Not this list's holders: only the game's XP (their own lists are not touched).
+      for (const u of standIns) await settleListXp(tx, u.id, "psn", [list.gameId], now);
+      const after = await numbersOf(tx, list.id, affected.map((h) => h.id));
+      report.users = affected.map((h) => {
         const b = before.get(h.id)!;
         const a = after.get(h.id)!;
         return {
@@ -248,7 +274,7 @@ async function repairOne(
         };
       });
       // Only what the repair changed: a rarity that moved since an entry was paid is not news.
-      for (const h of holders) {
+      for (const h of affected) {
         const was = staleBefore.get(h.id)!;
         for (const [key, e] of await staleEntries(tx, h.id, list.gameId)) {
           if (was.get(key)?.wants === e.wants) continue;
@@ -261,7 +287,7 @@ async function repairOne(
     if (!(error instanceof DryRunRollback)) throw error;
     return { ...report, status: "would-repair" };
   }
-  for (const h of holders) await recomputeUser(h.id, now);
+  for (const h of affected) await recomputeUser(h.id, now);
   return { ...report, status: "repaired" };
 }
 
@@ -296,7 +322,6 @@ async function applyPlan(
   tx: Prisma.TransactionClient,
   list: { id: string; gameId: string },
   p: Plan,
-  holderIds: string[],
   now: Date,
 ) {
   for (const u of p.updates) await tx.achievement.update({ where: { id: u.id }, data: u.data });
@@ -323,11 +348,12 @@ async function applyPlan(
     await tx.guideAchievementNote.updateMany({ where: { achievementId: row.id }, data: { achievementId: fresh.id } });
     // XP voided before (an unlink, confirmed fraud) stays voided under the new key: the key is
     // written voided as the old one was, so no settle pays it (a fraud release still can, as before).
-    const carried = entries.filter((e) => e.voidedAt !== null && unlocks.some((u) => u.userId === e.userId));
+    // Also for a user whose entry is a stand-in (their copy is in a regional twin, not this row).
+    const carried = entries.filter((e) => e.voidedAt !== null);
     if (carried.length > 0) {
       await tx.xpLedgerEntry.createMany({
         data: carried.map((e) => {
-          const u = unlocks.find((x) => x.userId === e.userId)!;
+          const u = unlocks.find((x) => x.userId === e.userId);
           return {
             userId: e.userId,
             source: "achievement",
@@ -335,17 +361,18 @@ async function applyPlan(
             xp: xpOf(fresh),
             skills: e.skills,
             platform: "psn",
-            createdAt: u.unlockedAt ?? undefined,
+            createdAt: u ? (u.unlockedAt ?? undefined) : e.createdAt,
             voidedAt: e.voidedAt,
           };
         }),
         skipDuplicates: true,
       });
     }
-    // The old row goes. The holders' valid entries under its key are voided now, as their settle
-    // (settleHolder) voids every entry the rule no longer wants; the new key is paid there.
+    // The old row goes. Every valid entry under its key is voided now (holders and stand-ins:
+    // an entry naming a deleted row is never voided by a settle); the new key is paid by their
+    // settle in repairOne.
     await tx.xpLedgerEntry.updateMany({
-      where: { source: "achievement", sourceKey: row.id, voidedAt: null, userId: { in: holderIds } },
+      where: { source: "achievement", sourceKey: row.id, voidedAt: null },
       data: { voidedAt: now },
     });
     await tx.achievement.delete({ where: { id: row.id } });

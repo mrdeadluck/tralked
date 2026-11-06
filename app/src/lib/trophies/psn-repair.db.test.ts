@@ -212,6 +212,35 @@ describe("repairPsnLists", () => {
     expect(await ledgerOf(s.b.id)).toEqual(b);
   });
 
+  it("a non-holder whose stand-in entry sits under the replaced canonical row is not paid twice", async () => {
+    // c holds only a regional twin of LIST (same version, created later): its copy of trophy 1 was
+    // paid under LIST's row 1 (the canonical row's id), which the repair replaces.
+    const twin = await prisma.trophyList.create({
+      data: { gameId: s.game.id, platform: "psn", externalId: "NPWR99511_00", console: "PS4", name: "Canhões (JP)", serviceName: "trophy", trophyCount: 4, createdAt: new Date(Date.now() + 60_000) },
+    });
+    const copy = await prisma.achievement.create({
+      data: { gameId: s.game.id, platform: "psn", listId: twin.id, apiName: "1", name: "Certo 1", trophyTier: "bronze", globalPct: null },
+    });
+    const c = await prisma.user.create({ data: { handle: `${PREFIX}-c`, displayName: "c" } });
+    await prisma.userAchievement.create({ data: { userId: c.id, achievementId: copy.id, unlockedAt: UNLOCKED } });
+    await prisma.userTrophyList.create({ data: { userId: c.id, listId: twin.id, unlockedCount: 1 } });
+    await prisma.userGame.create({ data: { userId: c.id, gameId: s.game.id, platform: "psn", unlockedCount: 1, playtimeMin: 0 } });
+    await prisma.$transaction((tx) => settleListXp(tx, c.id, "psn", [s.game.id], PAID_AT));
+    expect((await ledgerOf(c.id)).filter((e) => !e.voidedAt).map((e) => e.sourceKey)).toEqual([s.rows.get("1")]);
+
+    const [report] = await repairPsnLists(fakePsn(() => sonyTrophies()), [LIST], { now: NOW });
+    expect(report.status).toBe("repaired");
+    const row1 = await prisma.achievement.findFirstOrThrow({ where: { listId: s.list.id, apiName: "1" } });
+    expect(row1.id).not.toBe(s.rows.get("1"));
+
+    // c's next sync settles the game again: still one valid entry for the one trophy.
+    await prisma.$transaction((tx) => settleListXp(tx, c.id, "psn", [s.game.id], new Date(NOW.getTime() + 60_000)));
+    const valid = (await ledgerOf(c.id)).filter((e) => !e.voidedAt);
+    expect(valid).toEqual([{ sourceKey: row1.id, xp: tierXp("bronze"), voidedAt: null }]);
+    expect((await prisma.userStats.findUniqueOrThrow({ where: { userId: c.id } })).totalXp).toBe(tierXp("bronze"));
+    expect(report.users.map((u) => u.handle)).toContain(`${PREFIX}-c`);
+  });
+
   it("dry run shows before -> after and writes nothing", async () => {
     const snapshot = async () => ({
       rows: await prisma.achievement.findMany({ where: { gameId: s.game.id }, orderBy: { id: "asc" } }),
