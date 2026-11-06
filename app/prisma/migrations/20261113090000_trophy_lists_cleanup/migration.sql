@@ -1,6 +1,7 @@
+SET lock_timeout = '5s';
 -- Trophy lists, phase d (cleanup): every Achievement belongs to a TrophyList.
--- Refuses to run while any row has no list (the phase a backfill and finish fill them in);
--- production had none on 2026-11-06.
+-- Refuses to run while any row has no list: give such rows a list first; production had none
+-- on 2026-11-06.
 DO $$
 DECLARE
   listless bigint;

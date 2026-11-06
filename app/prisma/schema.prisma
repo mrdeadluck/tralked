@@ -617,6 +617,8 @@ model GameOpen {
 ///                     `psn:${console}:${gameId}` for the version's canonical list (or its earliest
 ///                     completion when the canonical list is not complete).
 ///                     The game id is the part after the last ":" (platinumGameId).
+///                     The legacy `${platform}:${gameId}` key (before trophy lists) is still read
+///                     (paid entries count, voided ones block) and never paid again.
 ///   mission        -> missionId (reward of a completed daily/weekly mission)
 ///   guide_vote     -> `${tipId}:${voterUserId}` (Sábio XP for the author of a voted tip)
 ///   photo_approved -> photoId (gallery upload XP, daily-limited; voided when moderation removes it)
