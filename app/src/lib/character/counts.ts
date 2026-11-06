@@ -13,22 +13,43 @@ import { versionKey } from "@/lib/trophies/lists";
 type Db = Prisma.TransactionClient;
 
 const key = (c: { gameId: string; platform: string }) => `${c.gameId}:${c.platform}`;
-const nativeKey = (c: { gameId: string; platform: string; versionKey?: string }) =>
-  `${key(c)}:${c.versionKey ?? ""}`;
+const versionedKey = (c: { gameId: string; platform: string; versionKey: string }) => `${key(c)}:${c.versionKey}`;
+
+/** One of the player's trophy lists (UserTrophyList) as the platinum rule reads it. */
+export type PlatinumList = {
+  gameId: string;
+  platform: string;
+  versionKey: string;
+  /** UserTrophyList.completedAt is set. */
+  completed: boolean;
+  /** The player has a suspicious unlock in this list (it pays no platinum). */
+  tainted: boolean;
+};
 
 /**
- * Platinums across every platform (Glória's rule): each native platinum trophy (PSN) once per
- * version (PS4 and PS5 are two, two regions of one console are one), plus each valid 100% on a
- * platform without one (Steam, Xbox, RetroAchievements, small PSN games). A game finished on two
- * platforms is two platinums; "Jogos 100%" counts it once.
+ * "Platinas (contam no XP)": the ledger's `platinum` entries (lib/progression/list-xp
+ * desiredListEntries), one per version:
+ * - PSN, Xbox, RA: each (game, platform, versionKey) with a completed list holding no suspicious
+ *   unlock (PS4 and PS5 are two, two regions of one console are one, two Xbox titleIds are two);
+ * - a valid 100% (UserGame.completedAt, `completions`) of a non-Steam game and platform where the
+ *   player has no list yet: one, under the legacy key;
+ * - Steam: each valid 100%.
+ * A PSN platinum trophy alone (the list short of 100%, e.g. its DLC) is paid as that trophy, not as a
+ * platinum, so it does not count here. A game finished on two platforms is two; "Jogos 100%" counts
+ * it once.
  */
-export function platinumCount(
-  nativePlatinum: Iterable<{ gameId: string; platform: string; versionKey?: string }>,
-  completions: { gameId: string; platform: string }[],
-): number {
-  const natives = [...nativePlatinum];
-  const covered = new Set(natives.map(key));
-  return new Set(natives.map(nativeKey)).size + completions.filter((c) => !covered.has(key(c))).length;
+export function platinumCount(lists: PlatinumList[], completions: { gameId: string; platform: string }[]): number {
+  const out = new Set<string>();
+  const withLists = new Set<string>();
+  for (const l of lists) {
+    if (l.platform === "steam") continue;
+    withLists.add(key(l));
+    if (l.completed && !l.tainted) out.add(versionedKey(l));
+  }
+  for (const c of completions) {
+    if (c.platform === "steam" || !withLists.has(key(c))) out.add(versionedKey({ ...c, versionKey: c.platform }));
+  }
+  return out.size;
 }
 
 const listOf = { select: { platform: true, console: true, externalId: true } } as const;
@@ -49,21 +70,16 @@ const versionOf = (a: { platform: string; list: { platform: string; console: str
 
 type PlatinumUnlock = Awaited<ReturnType<typeof platinumUnlocks>>[number];
 
-function distinctNatives(unlocks: PlatinumUnlock[]) {
-  const out = new Map<string, { gameId: string; platform: string; versionKey: string }>();
-  for (const u of unlocks) {
-    const row = { gameId: u.achievement.gameId, platform: u.achievement.platform, versionKey: versionOf(u.achievement) };
-    out.set(nativeKey(row), row);
-  }
-  return [...out.values()];
-}
-
+/**
+ * "Listas regionais extras": PSN platinum trophies unlocked in lists beyond the first unlocked one
+ * of each version (shown, but they earn no XP).
+ */
 function extrasOf(unlocks: PlatinumUnlock[]): number {
   const lists = new Map<string, Set<string>>();
   for (const u of unlocks) {
     const a = u.achievement;
     if (a.platform !== "psn" || !a.listId) continue;
-    const k = nativeKey({ gameId: a.gameId, platform: a.platform, versionKey: versionOf(a) });
+    const k = versionedKey({ gameId: a.gameId, platform: a.platform, versionKey: versionOf(a) });
     lists.set(k, (lists.get(k) ?? new Set()).add(a.listId));
   }
   let extras = 0;
@@ -71,29 +87,39 @@ function extrasOf(unlocks: PlatinumUnlock[]): number {
   return extras;
 }
 
-/**
- * Game, platform and version of each native platinum trophy the player unlocked (valid unlocks),
- * distinct per (gameId, platform, versionKey): PS4 + PS5 = 2, two PS5 regions = 1.
- */
-export async function nativePlatinums(userId: string, db: Db = prisma) {
-  return distinctNatives(await platinumUnlocks(userId, db));
+/** The player's trophy lists, completed or not, each marked when it holds a suspicious unlock. */
+async function platinumLists(userId: string, db: Db): Promise<PlatinumList[]> {
+  const [rows, suspicious] = await Promise.all([
+    db.userTrophyList.findMany({
+      where: { userId },
+      select: { listId: true, completedAt: true, list: { select: { gameId: true, platform: true, console: true, externalId: true } } },
+    }),
+    db.userAchievement.findMany({
+      where: { userId, suspicious: true, achievement: { listId: { not: null } } },
+      select: { achievement: { select: { listId: true } } },
+    }),
+  ]);
+  const tainted = new Set(suspicious.map((s) => s.achievement.listId));
+  return rows.map((r) => ({
+    gameId: r.list.gameId,
+    platform: r.list.platform,
+    versionKey: versionKey(r.list),
+    completed: r.completedAt !== null,
+    tainted: tainted.has(r.listId),
+  }));
 }
 
 /**
- * PSN platinum trophies unlocked in lists beyond the first unlocked one of each version
- * ("Listas regionais extras": they are shown but earn no XP).
- */
-export async function regionalExtras(userId: string, db: Db = prisma): Promise<number> {
-  return extrasOf(await platinumUnlocks(userId, db));
-}
-
-/**
- * The profile header's "Platinas (contam no XP)" (platinumCount: one per version) and "Listas
- * regionais extras" (regionalExtras), from one read of the platinum unlocks.
+ * "Platinas (contam no XP)" (platinumCount) and "Listas regionais extras" (regionalExtras): the
+ * profile header, the sheet's Troféus card and the migration snapshots read these.
  */
 export async function platinumTally(userId: string, db: Db = prisma): Promise<{ platinums: number; regionalExtras: number }> {
-  const [unlocks, completions] = await Promise.all([platinumUnlocks(userId, db), validCompletions(userId, db)]);
-  return { platinums: platinumCount(distinctNatives(unlocks), completions), regionalExtras: extrasOf(unlocks) };
+  const [unlocks, lists, completions] = await Promise.all([
+    platinumUnlocks(userId, db),
+    platinumLists(userId, db),
+    validCompletions(userId, db),
+  ]);
+  return { platinums: platinumCount(lists, completions), regionalExtras: extrasOf(unlocks) };
 }
 
 /**

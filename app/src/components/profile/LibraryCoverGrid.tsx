@@ -26,7 +26,7 @@ const CSS = `
 /** The band's platform families of the player's copies. */
 const FAMILY: Record<PlatformId, string> = { steam: "PC", psn: "PLAYSTATION", xbox: "XBOX", retro: "RETRO" };
 
-/** "PS5: platina em 2 listas regionais", "PC: 64%". */
+/** "PS5: platina em 2 listas regionais" (2+ completed lists only), "PC: 64%". */
 export function versionSummary(v: LibraryVersion): string {
   const state = v.platinum ? "platina" : v.pct !== null ? `${v.pct}%` : "sem troféus conhecidos";
   return `${v.label}: ${state}${v.regions > 1 ? ` em ${v.regions} listas regionais` : ""}`;
@@ -53,7 +53,8 @@ function VersionBadge({ version }: { version: LibraryVersion }) {
 }
 
 function GameCase({ game }: { game: LibraryGame }) {
-  const n = game.versions.length;
+  const versions = game.versions ?? [];
+  const n = versions.length;
   const hours = formatPlaytime(game.playtimeMin);
   return (
     <CaseItem
@@ -63,11 +64,11 @@ function GameCase({ game }: { game: LibraryGame }) {
       art={caseArt({ coverUrl: game.coverUrl, steamAppId: game.steamAppId, portraitChecked: game.portraitChecked })}
       platforms={bandPlatforms(game.platforms.map((p) => FAMILY[p.platform]))}
       flag={game.completed ? "TRALKED!" : undefined}
-      progress={bestVersionPct(game.versions)}
+      progress={bestVersionPct(versions)}
       overlay={
         n > 0 ? (
           <span className="lcg-vs" aria-hidden="true">
-            {game.versions.map((v) => (
+            {versions.map((v) => (
               <VersionBadge key={v.key} version={v} />
             ))}
           </span>
@@ -75,7 +76,7 @@ function GameCase({ game }: { game: LibraryGame }) {
       }
     >
       <h3 className="cs-name">{game.name}</h3>
-      {n > 0 ? <span className="sr-only">{`Versões: ${game.versions.map(versionSummary).join("; ")}.`}</span> : null}
+      {n > 0 ? <span className="sr-only">{`Versões: ${versions.map(versionSummary).join("; ")}.`}</span> : null}
       <span className="cs-meta">
         <span>
           {n === 1 ? "1 versão" : `${n} versões`}

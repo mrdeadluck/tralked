@@ -62,7 +62,7 @@ export function versionLabel(list: { platform: string; console: string | null })
 
 /**
  * A version's short name on a cover badge (the profile grid): PSN its consoles ("PS5", "PS3 · Vita"),
- * Steam "PC", Xbox "360" or "Xbox" (One/Series and PC), RA its console's first name ("SNES" for
+ * Steam "PC", Xbox "360", "Xbox PC" or "Xbox" (One/Series), RA its console's first name ("SNES" for
  * "SNES/Super Famicom").
  */
 export function versionBadgeLabel(list: { platform: string; console: string | null }): string {
@@ -72,7 +72,7 @@ export function versionBadgeLabel(list: { platform: string; console: string | nu
     case "steam":
       return "PC";
     case "xbox":
-      return list.console === "360" ? "360" : "Xbox";
+      return list.console === "360" ? "360" : list.console === "PC" ? "Xbox PC" : "Xbox";
     default:
       return list.console?.split("/")[0].trim() || "Retrô";
   }

@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { nativePlatinums, platinumCount, regionalExtras } from "@/lib/character/counts";
+import { platinumTally } from "@/lib/character/counts";
 import { prisma } from "@/lib/db";
-import { validCompletions } from "@/lib/progression/completions";
 import { getProfileSummary } from "@/lib/profile/queries";
 import { getUserLibrary } from "./queries";
 
@@ -71,27 +70,32 @@ afterAll(cleanup);
 
 describe("library versions and the header counters", () => {
   it("getUserLibrary gives each game once, with one version per console and Steam from its UserGame", async () => {
-    const library = await getUserLibrary(userId);
+    const library = await getUserLibrary(userId, { versions: true });
     expect(library.map((g) => g.slug).sort()).toEqual([`${PREFIX}-gta`, `${PREFIX}-hk`]);
     const gta = library.find((g) => g.slug === `${PREFIX}-gta`)!;
-    expect(gta.versions.map((v) => [v.label, v.platinum, v.pct, v.regions])).toEqual([
+    expect(gta.versions!.map((v) => [v.label, v.platinum, v.pct, v.regions])).toEqual([
       ["PS5", true, 100, 2],
       ["PS4", true, 75, 1],
-      ["PS3", false, 25, 1],
-      ["PC", false, 64, 1],
+      ["PS3", false, 25, 0],
+      ["PC", false, 64, 0],
     ]);
     expect(library.find((g) => g.slug === `${PREFIX}-hk`)!.versions).toEqual([
       { key: "steam", platform: "steam", label: "PC", pct: 100, platinum: true, regions: 1 },
     ]);
   });
 
-  it("the header's Platinas count one per console (PS4 + PS5 + a Steam 100%) and the second PS5 region apart", async () => {
+  it("the header's Platinas count what the ledger pays (the PS5 100% once, the Steam 100%), the second PS5 region apart", async () => {
     const summary = (await getProfileSummary(userId))!;
-    expect(summary.platinums).toBe(3);
+    // The PS4 platinum trophy without the list at 100% is paid as a trophy, not as a platinum.
+    expect(summary.platinums).toBe(2);
     expect(summary.regionalExtras).toBe(1);
     expect(summary.gamesCount).toBe(2);
     // The same numbers as the sheet and the migration snapshot (lib/character/counts).
-    expect(summary.platinums).toBe(platinumCount(await nativePlatinums(userId), await validCompletions(userId)));
-    expect(summary.regionalExtras).toBe(await regionalExtras(userId));
+    expect(await platinumTally(userId)).toEqual({ platinums: summary.platinums, regionalExtras: summary.regionalExtras });
+  });
+
+  it("the versions are read only when asked", async () => {
+    const library = await getUserLibrary(userId);
+    expect(library.every((g) => g.versions === undefined)).toBe(true);
   });
 });

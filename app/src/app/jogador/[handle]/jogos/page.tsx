@@ -69,7 +69,7 @@ async function ProfileGames({
   if (!visible) return <PrivateProfile displayName={header.displayName} />;
 
   const params = await searchParams;
-  const [summary, library] = await Promise.all([getProfileSummary(header.id), getUserLibrary(header.id)]);
+  const [summary, library] = await Promise.all([getProfileSummary(header.id), getUserLibrary(header.id, { versions: true })]);
   if (!summary) notFound();
 
   const state = pickParams(params, KEYS);

@@ -17,7 +17,10 @@ export type LibraryVersion = {
   pct: number | null;
   /** The platinum trophy, or 100% on a version without one. */
   platinum: boolean;
-  /** The player's lists of the version (2+: regional lists, counted once). */
+  /**
+   * The version's completed lists (platinum or 100%): 2+ is a platinum in that many regional lists
+   * (the badge's superscript; the XP counts one).
+   */
   regions: number;
 };
 
@@ -65,27 +68,28 @@ export function libraryVersions(platforms: PlatformProgressRow[], lists: ListPro
       const pct = pctOf(l.unlockedCount, l.total);
       if (pct !== null && (best === null || pct > best)) best = pct;
     }
-    const played = group.filter((l) => l.unlockedCount > 0 || l.completedAt).length;
+    const completed = group.filter((l) => l.completedAt !== null || l.platinumEarned).length;
     out.push({
       key,
       platform: group[0].platform as PlatformId,
       label: versionBadgeLabel(group[0]),
       pct: best,
-      platinum: group.some((l) => l.completedAt !== null || l.platinumEarned),
-      regions: Math.max(1, played),
+      platinum: completed > 0,
+      regions: completed,
     });
   }
   const withLists = new Set(lists.map((l) => l.platform));
   for (const p of platforms) {
     if (p.platform !== "steam" && withLists.has(p.platform)) continue;
     const pct = pctOf(p.unlockedCount, p.achievementTotal);
+    const platinum = p.completedAt !== null || pct === 100;
     out.push({
       key: p.platform === "steam" ? "steam" : p.platform,
       platform: p.platform,
       label: FALLBACK_LABEL[p.platform],
       pct,
-      platinum: p.completedAt !== null || pct === 100,
-      regions: 1,
+      platinum,
+      regions: platinum ? 1 : 0,
     });
   }
   return out.sort((a, b) => versionRank(a) - versionRank(b) || (a.key < b.key ? -1 : 1));

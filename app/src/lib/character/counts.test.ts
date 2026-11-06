@@ -1,41 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { summarizeTrophies } from "./sheet";
-import { platinumCount } from "./counts";
+import { platinumCount, type PlatinumList } from "./counts";
 
-describe("platinum count (sheet and Troféus card)", () => {
-  const completions = [
-    { gameId: "hk", platform: "steam" },
-    { gameId: "hk", platform: "psn" },
-    { gameId: "celeste", platform: "xbox" },
-  ];
-  const native = [{ gameId: "hk", platform: "psn" }, { gameId: "gow", platform: "psn" }];
+const list = (gameId: string, platform: string, versionKey: string, over: Partial<PlatinumList> = {}): PlatinumList => ({
+  gameId,
+  platform,
+  versionKey,
+  completed: true,
+  tainted: false,
+  ...over,
+});
 
-  it("counts native platinum trophies plus 100% where there is none, once per game and platform", () => {
-    // hk:psn is both a native platinum and a completion: one platinum, not two.
-    expect(platinumCount(native, completions)).toBe(4);
-    expect(platinumCount([...native, ...native], completions)).toBe(4);
+describe("platinumCount (the ledger's platinum entries, one per version)", () => {
+  it("PS4 and PS5 are two, two regions of one console are one, two Xbox titleIds are two", () => {
+    expect(platinumCount([list("gta", "psn", "psn:PS4"), list("gta", "psn", "psn:PS5"), list("gta", "psn", "psn:PS5")], [])).toBe(2);
+    expect(platinumCount([list("halo", "xbox", "xbox:1"), list("halo", "xbox", "xbox:2")], [])).toBe(2);
     expect(platinumCount([], [])).toBe(0);
   });
 
-  it("the Troféus card's platinum tier is the same number as the sheet's Platinas", () => {
-    const unlocks = [
-      { gameId: "hk", platform: "psn", trophyTier: "platinum", globalPct: null },
-      { gameId: "gow", platform: "psn", trophyTier: "platinum", globalPct: null },
-      { gameId: "hk", platform: "steam", trophyTier: null, globalPct: 2 },
-    ];
-    const card = summarizeTrophies(unlocks, completions);
-    expect(card.tiers.platinum).toBe(platinumCount(native, completions));
-    expect(card.tiers.gold).toBe(1);
+  it("a list short of 100% or with a suspicious unlock pays none; another console never covers a version", () => {
+    expect(
+      platinumCount(
+        [
+          list("gta", "psn", "psn:PS5", { completed: false }),
+          list("gta", "psn", "psn:PS4"),
+          list("hk", "psn", "psn:PS5", { tainted: true }),
+        ],
+        [],
+      ),
+    ).toBe(1);
   });
-});
 
-describe("platinum count by version", () => {
-  it("PS4 and PS5 platinums of one game are two, the same version twice is one", () => {
-    const ps4 = { gameId: "hk", platform: "psn", versionKey: "psn:PS4" };
-    const ps5 = { gameId: "hk", platform: "psn", versionKey: "psn:PS5" };
-    expect(platinumCount([ps4, ps5], [])).toBe(2);
-    expect(platinumCount([ps5, { ...ps5 }], [])).toBe(1);
-    // A PSN completion is covered by its native platinums, never added on top.
-    expect(platinumCount([ps4, ps5], [{ gameId: "hk", platform: "psn" }])).toBe(2);
+  it("a 100% counts under the legacy key only where the player has no list; Steam always", () => {
+    const completions = [
+      { gameId: "gta", platform: "psn" }, // has lists: their completions count instead
+      { gameId: "old", platform: "psn" }, // no list yet: legacy platinum
+      { gameId: "gta", platform: "steam" },
+    ];
+    expect(platinumCount([list("gta", "psn", "psn:PS4", { completed: false })], completions)).toBe(2);
   });
 });

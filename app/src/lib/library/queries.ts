@@ -45,8 +45,9 @@ export type LibraryGame = {
   /**
    * The player's versions of the game (lib/library/versions): one per PSN console, Xbox title and
    * RA set (their UserTrophyList rows) and Steam (its UserGame), each with its best list's progress.
+   * Read only with `{ versions: true }` (the profile's cover grid).
    */
-  versions: LibraryVersion[];
+  versions?: LibraryVersion[];
   /** Sum over platforms. */
   playtimeMin: number;
   /** Most recent over platforms. */
@@ -63,12 +64,11 @@ export type LibraryGame = {
 
 /**
  * Every game of the player's library (all platforms, never-played ones included), most played
- * first, with its versions. Sorting/filtering for the UI (hours, recent, completion, name, platform,
- * "never played") is done on this list. Four reads whatever the library's size: the UserGame rows,
- * one aggregate of the trophy rows (per game, platform and list), the player's lists and their
- * platinum unlocks.
+ * first. Sorting/filtering for the UI (hours, recent, completion, name, platform, "never played")
+ * is done on this list. Two reads whatever the library's size (the UserGame rows and one aggregate
+ * of the trophy rows); `versions` adds two (the player's lists and their platinum unlocks).
  */
-export async function getUserLibrary(userId: string): Promise<LibraryGame[]> {
+export async function getUserLibrary(userId: string, opts: { versions?: boolean } = {}): Promise<LibraryGame[]> {
   const rows = await prisma.userGame.findMany({
     where: { userId },
     select: {
@@ -100,19 +100,23 @@ export async function getUserLibrary(userId: string): Promise<LibraryGame[]> {
       where: { gameId: { in: [...new Set(rows.map((r) => r.gameId))] } },
       _count: { _all: true },
     }),
-    prisma.userTrophyList.findMany({
-      where: { userId },
-      select: {
-        listId: true,
-        unlockedCount: true,
-        completedAt: true,
-        list: { select: { gameId: true, platform: true, console: true, externalId: true, trophyCount: true } },
-      },
-    }),
-    prisma.userAchievement.findMany({
-      where: { userId, suspicious: false, achievement: { trophyTier: "platinum", listId: { not: null } } },
-      select: { achievement: { select: { listId: true } } },
-    }),
+    opts.versions
+      ? prisma.userTrophyList.findMany({
+          where: { userId },
+          select: {
+            listId: true,
+            unlockedCount: true,
+            completedAt: true,
+            list: { select: { gameId: true, platform: true, console: true, externalId: true, trophyCount: true } },
+          },
+        })
+      : [],
+    opts.versions
+      ? prisma.userAchievement.findMany({
+          where: { userId, suspicious: false, achievement: { trophyTier: "platinum", listId: { not: null } } },
+          select: { achievement: { select: { listId: true } } },
+        })
+      : [],
   ]);
   const totalOf = new Map<string, number>();
   const listTotal = new Map<string, number>();
@@ -133,7 +137,9 @@ export async function getUserLibrary(userId: string): Promise<LibraryGame[]> {
       total: listTotal.get(u.listId) || u.list.trophyCount,
       platinumEarned: platinumLists.has(u.listId),
     };
-    listsOf.set(u.list.gameId, [...(listsOf.get(u.list.gameId) ?? []), progress]);
+    const lists = listsOf.get(u.list.gameId);
+    if (lists) lists.push(progress);
+    else listsOf.set(u.list.gameId, [progress]);
   }
 
   const games = new Map<string, LibraryGame>();
@@ -149,7 +155,6 @@ export async function getUserLibrary(userId: string): Promise<LibraryGame[]> {
         portraitChecked: r.game.detailsSyncedAt !== null,
         stub: r.game.stub,
         platforms: [],
-        versions: [],
         playtimeMin: 0,
         lastPlayedAt: null,
         unlockedCount: 0,
@@ -182,7 +187,7 @@ export async function getUserLibrary(userId: string): Promise<LibraryGame[]> {
     game.platforms.sort((a, b) => PLATFORMS.indexOf(a.platform) - PLATFORMS.indexOf(b.platform));
     game.completionPct =
       game.achievementTotal > 0 ? Math.min(100, Math.round((game.unlockedCount / game.achievementTotal) * 100)) : null;
-    game.versions = libraryVersions(game.platforms, listsOf.get(game.gameId) ?? []);
+    if (opts.versions) game.versions = libraryVersions(game.platforms, listsOf.get(game.gameId) ?? []);
   }
   return [...games.values()].sort((a, b) => b.playtimeMin - a.playtimeMin || a.name.localeCompare(b.name, "pt-BR"));
 }

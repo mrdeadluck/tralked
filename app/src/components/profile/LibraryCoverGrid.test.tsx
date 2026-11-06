@@ -81,11 +81,27 @@ describe("LibraryCoverGrid", () => {
     expect(screen.getByRole("link")).toHaveTextContent("1 versão");
   });
 
-  it("Xbox reads Xbox or 360, RA its console, and a region that was only opened does not count", () => {
+  it("a PS5 platinum in one region plus 3% in another reads PS5 ✓, no superscript", () => {
+    const g = game(
+      [platform("psn", 52, 100)],
+      [
+        list("PS5", "NPWR22807_00", { unlockedCount: 50, completedAt: at(3), platinumEarned: true }),
+        list("PS5", "NPWR22808_00", { unlockedCount: 2, total: 50 }),
+      ],
+    );
+    const { container } = render(<LibraryCoverGrid games={[g]} />);
+    expect(badges(container)).toEqual(["PS5 ✓"]);
+    expect(container.querySelector(".lcg-vb sup")).toBeNull();
+    expect(container.querySelector(".lcg-vb")).toHaveAttribute("title", "PS5: platina");
+    expect(screen.getByRole("link")).toHaveTextContent("Versões: PS5: platina.");
+  });
+
+  it("Xbox reads Xbox, Xbox PC or 360, RA its console, and a region that was only opened does not count", () => {
     const g = game(
       [platform("xbox", 0, 0), platform("retro", 0, 0)],
       [
         { ...list("ONE", "1717113201", { unlockedCount: 6, total: 50 }), platform: "xbox" },
+        { ...list("PC", "1800000000", { unlockedCount: 10, total: 50 }), platform: "xbox" },
         { ...list("360", "1414793383", { unlockedCount: 35, total: 50 }), platform: "xbox" },
         { ...list("SNES/Super Famicom", "228", { unlockedCount: 20, total: 50 }), platform: "retro" },
         list("PS5", "NPWR1", { unlockedCount: 20, total: 40 }),
@@ -93,6 +109,7 @@ describe("LibraryCoverGrid", () => {
       ],
     );
     const { container } = render(<LibraryCoverGrid games={[g]} />);
-    expect(badges(container)).toEqual(["PS5 50%", "360 70%", "Xbox 12%", "SNES 40%"]);
+    expect(badges(container)).toEqual(["PS5 50%", "360 70%", "Xbox 12%", "Xbox PC 20%", "SNES 40%"]);
+    expect(screen.getByRole("link")).toHaveTextContent("Versões: PS5: 50%; 360: 70%; Xbox: 12%; Xbox PC: 20%; SNES: 40%.");
   });
 });
