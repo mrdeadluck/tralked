@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db";
-import { nativePlatinums, platinumCount, regionalExtras } from "@/lib/character/counts";
-import { validCompletions } from "@/lib/progression/completions";
+import { platinumTally } from "@/lib/character/counts";
 
 /**
  * Per-user totals checked before and after each phase of the trophy-list migration
@@ -22,7 +21,7 @@ export type UserNumbers = {
   psnUnlocks: number;
   xboxUnlocks: number;
   retroUnlocks: number;
-  /** "Platinas" as the sheet counts them (platinumCount). */
+  /** "Platinas (contam no XP)" as the header and the sheet count them (platinumCount). */
   platinums: number;
   /** "Listas regionais extras" (regionalExtras). */
   regionalExtras: number;
@@ -59,11 +58,7 @@ export async function userNumbers(userIds?: string[]): Promise<UserNumbers[]> {
     Number(unlocks.find((u) => u.userId === userId && u.platform === "steam")?.undated ?? 0);
   const out: UserNumbers[] = [];
   for (const u of users) {
-    const [natives, completions, extras] = await Promise.all([
-      nativePlatinums(u.id),
-      validCompletions(u.id),
-      regionalExtras(u.id),
-    ]);
+    const tally = await platinumTally(u.id);
     const xp = steamXp.find((x) => x.userId === u.id);
     out.push({
       userId: u.id,
@@ -75,8 +70,8 @@ export async function userNumbers(userIds?: string[]): Promise<UserNumbers[]> {
       psnUnlocks: count(u.id, "psn"),
       xboxUnlocks: count(u.id, "xbox"),
       retroUnlocks: count(u.id, "retro"),
-      platinums: platinumCount(natives, completions),
-      regionalExtras: extras,
+      platinums: tally.platinums,
+      regionalExtras: tally.regionalExtras,
       totalXp: u.stats?.totalXp ?? 0,
       level: u.stats?.level ?? 1,
     });

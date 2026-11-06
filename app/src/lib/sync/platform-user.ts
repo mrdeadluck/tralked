@@ -5,6 +5,7 @@ import { platformAvailable } from "@/lib/integrations/availability";
 import { settleListXp } from "@/lib/progression/list-xp";
 import { recomputeUser } from "@/lib/progression/recompute";
 import { ensureTrophyList, regionOf } from "@/lib/trophies/lists";
+import { tierCounts, type TierCounts } from "@/lib/trophies/psn-definitions";
 import { loadNameIndex, resolvePlatformGame, type NameIndex, type ResolveOptions } from "./platform-games";
 import {
   CODE_PLATFORMS,
@@ -204,6 +205,28 @@ async function recordTitle(
       const next = fields(a);
       const changed = (Object.keys(next) as (keyof typeof next)[]).some((k) => next[k] !== row[k]);
       if (changed) await tx.achievement.update({ where: { id: row.id }, data: next });
+    }
+    // PSN: the list is what Sony defines. Rows it does not have (a list once stored with another
+    // list's trophies) go, unless someone unlocked them, a guide note is on them or the ledger
+    // names them (scripts/trophy-lists-repair-psn.ts deals with those).
+    if (platform === "psn") {
+      const sony = new Set(title.achievements.map((a) => a.apiName));
+      const extra = existing.filter((r) => !sony.has(r.apiName)).map((r) => r.id);
+      if (extra.length > 0) {
+        const keyed = await tx.xpLedgerEntry.findMany({ where: { source: "achievement", sourceKey: { in: extra } }, select: { sourceKey: true } });
+        const kept = new Set(keyed.map((e) => e.sourceKey));
+        await tx.achievement.deleteMany({
+          where: { id: { in: extra.filter((id) => !kept.has(id)) }, listId: list.id, unlocks: { none: {} }, notes: { none: {} } },
+        });
+        // Rows that stay keep the list apart from Sony's (it is read again every sync): say so.
+        const left = await tx.achievement.findMany({ where: { id: { in: extra } }, select: { apiName: true } });
+        if (left.length > 0) {
+          console.warn(
+            `Platform sync: psn list ${title.externalId} keeps ${left.length} row(s) Sony does not have (unlocked, noted or in the ledger): ` +
+              `${left.map((r) => r.apiName).sort().join(", ")}. See pnpm trophy-lists:repair-psn.`,
+          );
+        }
+      }
     }
     const rows = await tx.achievement.findMany({
       where: { listId: list.id },
@@ -565,7 +588,7 @@ async function storedProgress(
     }),
     prisma.userTrophyList.findMany({
       where: { userId, list: { platform } },
-      select: { unlockedCount: true, hardcoreCount: true, list: { select: { externalId: true, gameId: true } } },
+      select: { unlockedCount: true, hardcoreCount: true, list: { select: { id: true, externalId: true, gameId: true } } },
     }),
   ]);
   if (games.length === 0 && lists.length === 0 && remembered.size === 0) return new Map();
@@ -625,6 +648,20 @@ async function storedProgress(
       ];
     }),
   );
+  // PSN: the stored trophies of each list per tier, checked against what the list defines.
+  const definitions = new Map<string, TierCounts>();
+  if (platform === "psn" && lists.length > 0) {
+    const tiers = await prisma.achievement.groupBy({
+      by: ["listId", "trophyTier"],
+      where: { listId: { in: lists.map((p) => p.list.id) } },
+      _count: { _all: true },
+    });
+    for (const t of tiers) {
+      const counts = definitions.get(t.listId!) ?? tierCounts([]);
+      if (t.trophyTier && t.trophyTier in counts) counts[t.trophyTier as keyof TierCounts] += t._count._all;
+      definitions.set(t.listId!, counts);
+    }
+  }
   for (const p of lists) {
     const game = byGame.get(p.list.gameId);
     stored.set(p.list.externalId, {
@@ -633,6 +670,7 @@ async function storedProgress(
       listed: remembered.get(p.list.externalId),
       playtimeSynced: game?.playtimeUpdatedAt != null,
       lastPlayedAt: game?.lastPlayedAt ?? null,
+      ...(platform === "psn" && { definitions: definitions.get(p.list.id) ?? tierCounts([]) }),
     });
   }
   // Titles read that had no achievements have no list, game or link: only their remembered counts

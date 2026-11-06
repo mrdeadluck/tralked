@@ -31,7 +31,7 @@ describe("summarizeTrophies", () => {
         { gameId: "hk", platform: "xbox", trophyTier: null, globalPct: 60 }, // bronze
         { gameId: "hk", platform: "retro", trophyTier: null, globalPct: null }, // bronze (unknown rarity)
       ],
-      [],
+      1,
     );
     expect(summary.tiers).toEqual({ platinum: 1, gold: 2, silver: 1, bronze: 2 });
     expect(summary.byPlatform).toEqual([
@@ -42,15 +42,8 @@ describe("summarizeTrophies", () => {
     ]);
   });
 
-  it("counts a 100% game as a platinum only on platforms without a native platinum", () => {
-    const summary = summarizeTrophies(
-      [{ gameId: "hk", platform: "psn", trophyTier: "platinum", globalPct: null }],
-      [
-        { gameId: "hk", platform: "psn" }, // native platinum already counted
-        { gameId: "hk", platform: "steam" },
-        { gameId: "hades", platform: "xbox" },
-      ],
-    );
-    expect(summary.tiers.platinum).toBe(3);
+  it("takes its platinum tier from the header's count (platinumCount), never from the unlocks", () => {
+    const summary = summarizeTrophies([{ gameId: "hk", platform: "psn", trophyTier: "platinum", globalPct: null }], 3);
+    expect(summary.tiers).toEqual({ platinum: 3, gold: 0, silver: 0, bronze: 0 });
   });
 });

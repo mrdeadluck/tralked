@@ -25,16 +25,62 @@ type ProfileHeaderProps = {
   isOwner?: boolean;
   /** Under the XP bar: the owner's sync and sound, or "Denunciar" for visitors. */
   actions?: ReactNode;
-  /** Bottom strip of the header (the Ficha's six numbers). */
-  strip?: ReactNode;
+  /** More numbers after the shared three in the bottom strip (the Ficha's own). */
+  stats?: ProfileStat[];
 };
+
+/** One number of the header's bottom strip. */
+export type ProfileStat = { label: string; value: string; note?: string; title?: string; hot?: boolean };
+
+// Columns from 761 px: one row up to four numbers, then rows of four.
+const STRIP_COLS: Record<number, string> = {
+  1: "min-[761px]:grid-cols-1",
+  2: "min-[761px]:grid-cols-2",
+  3: "min-[761px]:grid-cols-3",
+  4: "min-[761px]:grid-cols-4",
+};
+
+/**
+ * The strip under every profile tab's header: "Platinas (contam no XP)" (one per version: PS4 and
+ * PS5 are two, a second region of one console is not), "Listas regionais extras" and "Jogos", then
+ * the tab's own numbers. Two columns on phones (a last odd one takes the row).
+ */
+function ProfileStrip({ summary, stats = [] }: { summary: ProfileSummary; stats?: ProfileStat[] }) {
+  const items: ProfileStat[] = [
+    { label: "Platinas (contam no XP)", value: formatNumber(summary.platinums), note: "uma por versão", hot: true },
+    { label: "Listas regionais extras", value: formatNumber(summary.regionalExtras), note: "aparecem, mas não somam XP" },
+    { label: "Jogos", value: formatNumber(summary.gamesCount), note: "cada jogo uma vez" },
+    ...stats,
+  ];
+  return (
+    <dl
+      role="group"
+      aria-label="Números do perfil"
+      className={`m-0 grid grid-cols-2 gap-0.5 border-t border-line max-[760px]:[&>div:last-child:nth-child(odd)]:col-span-2 ${STRIP_COLS[Math.min(4, items.length)]}`}
+    >
+      {items.map((item) => (
+        <div key={item.label} className="flex flex-col gap-1 bg-[color-mix(in_oklch,var(--bg)_55%,transparent)] px-3 py-2.5 min-[761px]:px-4 min-[761px]:py-3">
+          <dt className="tk-lbl">{item.label}</dt>
+          <dd
+            className={`m-0 text-[22px] leading-[1.05] font-extrabold font-stretch-[110%] tabular-nums ${item.hot ? "text-acc" : ""}`}
+            title={item.title}
+          >
+            {item.value}
+          </dd>
+          {item.note ? <dd className="m-0 text-[12.5px] text-muted">{item.note}</dd> : null}
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 /**
  * Identity header of every profile tab: the art of the last games played, taking turns (blurred,
  * desaturated, dimmed; ProfileBackdrop) behind the avatar with its lime level plate, name, vocation and platforms, and the level
- * box with the XP to the next level. The Ficha adds the rank, the week's XP and a numbers strip.
+ * box with the XP to the next level (the "Nível"), over the numbers strip (ProfileStrip). The Ficha
+ * adds the rank, the week's XP and its own numbers to the strip.
  */
-export function ProfileHeader({ summary, section, rank, week, bio, isOwner = false, actions, strip }: ProfileHeaderProps) {
+export function ProfileHeader({ summary, section, rank, week, bio, isOwner = false, actions, stats }: ProfileHeaderProps) {
   const progress = levelFromXp(summary.totalXp);
   const unverified = isOwner && summary.platforms.some((p) => !p.verified);
   return (
@@ -149,7 +195,7 @@ export function ProfileHeader({ summary, section, rank, week, bio, isOwner = fal
         </div>
       </div>
 
-      {strip}
+      <ProfileStrip summary={summary} stats={stats} />
     </header>
   );
 }

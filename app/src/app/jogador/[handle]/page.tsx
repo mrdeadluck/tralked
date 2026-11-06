@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { ActivityFeed } from "@/components/character/ActivityFeed";
 import { AlmostThere } from "@/components/character/AlmostThere";
 import { AttributesWindow } from "@/components/character/AttributesWindow";
-import { CharacterStats } from "@/components/character/CharacterCard";
+import { characterStats } from "@/components/character/CharacterCard";
 import { formatAgo } from "@/components/character/format";
 import { MissionsCard } from "@/components/character/MissionsCard";
 import { PlayerSetupSection } from "@/components/character/PlayerSetup";
@@ -150,7 +150,7 @@ async function PlayerSheet({ header }: { header: PlayerHeader }) {
             />
           )
         }
-        strip={<CharacterStats stats={character.stats} week={week} />}
+        stats={characterStats(character.stats, week)}
       />
       <ProfileTabs handle={character.handle} active="ficha" summary={summary} />
 

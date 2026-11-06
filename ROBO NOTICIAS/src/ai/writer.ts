@@ -423,12 +423,11 @@ async function amostra(path: string): Promise<void> {
   await import("dotenv/config");
   const { loadConfig } = await import("../config.js");
   const { openDb } = await import("../db.js");
-  const { createAi } = await import("./client.js");
-  const { default: Anthropic } = await import("@anthropic-ai/sdk");
+  const { createRobotAi } = await import("./backend.js");
 
   const config = loadConfig();
   const story = parseStory(JSON.parse(readFileSync(path, "utf8")));
-  const ai = createAi({ client: new Anthropic({ apiKey: config.ANTHROPIC_API_KEY }), db: openDb(config.DATA_DIR), config });
+  const ai = createRobotAi(config, openDb(config.DATA_DIR));
 
   const result = await writeAndCheck(ai, story, "live", { models: config });
   if (!result.ok) {

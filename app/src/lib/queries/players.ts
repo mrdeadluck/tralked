@@ -5,7 +5,7 @@ import { toLocalDay } from "@/lib/engine/streak";
 import { SKILLS, type RarityTier, type SkillId } from "@/lib/engine/types";
 import { levelFromXp, rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import type { MissionCondition } from "@/lib/engine/missions";
-import { nativePlatinums, platinumCount, rarityCounts } from "@/lib/character/counts";
+import { rarityCounts } from "@/lib/character/counts";
 import { genreName, primaryGenre } from "@/lib/engine/genres";
 import { achievementTotal } from "@/lib/games/achievement-total";
 import type { ArtAsset } from "@/lib/art/frame";
@@ -88,11 +88,6 @@ export type Character = {
     pendingReview: number;
     /** Distinct games with a valid 100% on any platform. */
     perfectGames: number;
-    /**
-     * Platinums across every platform, as the Troféus card counts them (lib/character/counts
-     * `platinumCount`): native platinum trophies plus 100% on platforms without one.
-     */
-    platinums: number;
     /** Valid unlocks of rarity "lendária" (≤ 3%), as the statistics page (`rarityCounts`). */
     legendary: number;
     /** Rank among public profiles; null when the profile is private. */
@@ -178,7 +173,6 @@ export async function getCharacter(
     pendingReview,
     completions,
     rarity,
-    platinumPairs,
     rankRow,
     missions,
     recent,
@@ -191,7 +185,6 @@ export async function getCharacter(
     validCompletions(user.id, db),
     // Same functions as the statistics page and the Troféus card (lib/character/counts).
     rarityCounts(user.id, db),
-    nativePlatinums(user.id, db),
     user.profilePublic ? getRank(user.id, { metric: "nivel" }, db) : Promise.resolve(null),
     db.mission.findMany({
       where: {
@@ -305,7 +298,6 @@ export async function getCharacter(
       achievements,
       pendingReview,
       perfectGames: perfect.size,
-      platinums: platinumCount(platinumPairs, completions),
       legendary: rarity.lendaria,
       rank: rankRow,
     },

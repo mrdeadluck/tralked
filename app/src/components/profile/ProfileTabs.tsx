@@ -31,7 +31,7 @@ export function ProfileTabs({
   summary?: ProfileSummary;
 }) {
   const counts: Partial<Record<ProfileTabId, number>> = summary
-    ? { jogos: summary.gamesOwned, conquistas: summary.achievements, desejos: summary.wishlist }
+    ? { jogos: summary.gamesCount, conquistas: summary.achievements, desejos: summary.wishlist }
     : {};
   return (
     <nav
@@ -66,8 +66,8 @@ export function ProfileTabs({
             <b className="mr-1 font-extrabold text-text tabular-nums">{formatHours(summary.playtimeMin)}</b>jogadas
           </span>
           <span>
-            <b className="mr-1 font-extrabold text-text tabular-nums">{nf(summary.gamesOwned)}</b>
-            {summary.gamesOwned === 1 ? "jogo" : "jogos"}
+            <b className="mr-1 font-extrabold text-text tabular-nums">{nf(summary.gamesCount)}</b>
+            {summary.gamesCount === 1 ? "jogo" : "jogos"}
           </span>
         </p>
       ) : null}
