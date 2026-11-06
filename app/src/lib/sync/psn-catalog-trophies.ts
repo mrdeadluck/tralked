@@ -16,7 +16,8 @@ import { definitionsProblem, type TierCounts } from "@/lib/trophies/psn-definiti
  * The page open is public, so the traffic to Sony (the service account is the scan's) is bounded:
  * - one list and one Sony request per call;
  * - a list is claimed first (`trophiesSyncedAt`), so concurrent opens cost one request; a claim
- *   with no rows after PSN_CLAIM_MS is a crashed instance's and is due again;
+ *   with no rows after PSN_CLAIM_MS is a crashed instance's and is due again, counted as a failed
+ *   attempt (the backoff below applies to it);
  * - a failed list waits PSN_RETRY_MS[attempts - 1] before it is due again, and lists never tried
  *   go first, so one failing list does not hold back the game's other lists;
  * - a site-wide budget (`psn-open-budget`): at most PSN_OPEN_PER_MINUTE reads a minute and
@@ -47,18 +48,24 @@ export const PSN_OPEN_COOLDOWN_KEY = "psn-open-cooldown";
 
 type Due = { externalId: string; serviceName: string; tiers: unknown };
 
-/** The lists of `gameId` (catalog rows `p`, their TrophyList `t`) whose trophies a page open may read now. */
+/**
+ * The lists of `gameId` (catalog rows `p`, their TrophyList `t`) whose trophies a page open may read now:
+ * never tried, or failed and past the wait of its attempts, or claimed so long ago that the reader
+ * crashed (a takeover counts as an attempt, so a read that keeps crashing backs off too).
+ */
 const dueWhere = (gameId: string, now: Date) => {
   const [h1, h2, h3, h4] = PSN_RETRY_MS;
-  const staleClaim = new Date(now.getTime() - PSN_CLAIM_MS);
+  const wait = Prisma.sql`(CASE WHEN p."trophiesAttempts" <= 0 THEN 0::double precision
+      WHEN p."trophiesAttempts" = 1 THEN ${h1}::double precision WHEN p."trophiesAttempts" = 2 THEN ${h2}::double precision
+      WHEN p."trophiesAttempts" = 3 THEN ${h3}::double precision ELSE ${h4}::double precision END)`;
   return Prisma.sql`
     t."gameId" = ${gameId} AND p."trophyCount" > 0
     AND NOT EXISTS (SELECT 1 FROM "Achievement" a WHERE a."listId" = t.id)
     AND (
-      (p."trophiesSyncedAt" IS NULL AND (p."trophiesTriedAt" IS NULL OR p."trophiesTriedAt" + (CASE
-          WHEN p."trophiesAttempts" <= 1 THEN ${h1}::double precision WHEN p."trophiesAttempts" = 2 THEN ${h2}::double precision
-          WHEN p."trophiesAttempts" = 3 THEN ${h3}::double precision ELSE ${h4}::double precision END) * interval '1 millisecond' <= ${now}))
-      OR p."trophiesSyncedAt" <= ${staleClaim})`;
+      (p."trophiesSyncedAt" IS NULL AND (p."trophiesTriedAt" IS NULL
+          OR p."trophiesTriedAt" + ${wait} * interval '1 millisecond' <= ${now}))
+      OR (p."trophiesSyncedAt" IS NOT NULL
+          AND p."trophiesSyncedAt" + GREATEST(${PSN_CLAIM_MS}::double precision, ${wait}) * interval '1 millisecond' <= ${now}))`;
 };
 
 /** True when the game has a PSN catalog list whose trophies a page open would read now. */
@@ -76,7 +83,8 @@ export async function hasPsnCatalogTrophiesDue(gameId: string, now: Date = new D
  */
 async function claim(gameId: string, now: Date): Promise<Due | null> {
   const rows = await prisma.$queryRaw<{ id: string; serviceName: string; tiers: unknown }[]>(Prisma.sql`
-    UPDATE "PsnCatalogList" c SET "trophiesSyncedAt" = ${now}, "trophiesTriedAt" = ${now}
+    UPDATE "PsnCatalogList" c SET "trophiesSyncedAt" = ${now},
+      "trophiesAttempts" = c."trophiesAttempts" + CASE WHEN c."trophiesSyncedAt" IS NULL THEN 0 ELSE 1 END
     WHERE c.id = (
         SELECT p.id FROM "PsnCatalogList" p
         JOIN "TrophyList" t ON t.platform = 'psn' AND t."externalId" = p.id
@@ -131,6 +139,15 @@ export async function takePsnOpenBudget(now: Date = new Date()): Promise<boolean
   return taken.length > 0;
 }
 
+/** Gives back a unit taken by takePsnOpenBudget when no Sony call followed (another open won the claim). */
+export async function refundPsnOpenBudget(now: Date): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE "SyncCursor" SET "updatedAt" = ${now}, value = jsonb_set(jsonb_set(value,
+        '{count}', to_jsonb(GREATEST((value->>'count')::int - 1, 0))),
+        '{dayCount}', to_jsonb(GREATEST((value->>'dayCount')::int - 1, 0)))
+    WHERE key = ${PSN_OPEN_BUDGET_KEY}`;
+}
+
 const tiersOf = (value: unknown): TierCounts => {
   const v = (value ?? {}) as Partial<TierCounts>;
   return { bronze: v.bronze ?? 0, silver: v.silver ?? 0, gold: v.gold ?? 0, platinum: v.platinum ?? 0 };
@@ -160,11 +177,14 @@ export async function loadPsnCatalogTrophies(
   if (await coolingDown(now)) return "none";
   if (!(await takePsnOpenBudget(now))) return "none";
   const due = await claim(gameId, now);
-  if (!due) return "none";
+  if (!due) {
+    await refundPsnOpenBudget(now); // no Sony call will happen
+    return "none";
+  }
 
   const giveBack = () =>
     prisma.psnCatalogList
-      .update({ where: { id: due.externalId }, data: { trophiesSyncedAt: null, trophiesAttempts: { increment: 1 } } })
+      .update({ where: { id: due.externalId }, data: { trophiesSyncedAt: null, trophiesTriedAt: now, trophiesAttempts: { increment: 1 } } })
       .catch(() => undefined);
   try {
     const service: PsnServiceName = due.serviceName === "trophy" ? "trophy" : "trophy2";

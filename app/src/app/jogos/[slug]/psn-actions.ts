@@ -11,6 +11,12 @@ import { loadPsnCatalogTrophies } from "@/lib/sync/psn-catalog-trophies";
 
 export type LoadPsnTrophiesResult = { status: "loaded" } | { status: "none" } | { status: "invalid" } | { status: "not_found" } | { status: "failed" } | { status: "limited" } | { status: "skipped" };
 
+/** The visitor's address as the proxy reports it (same as lib/auth/actions.ts; only used to count opens). */
+async function clientIp(): Promise<string> {
+  const list = await headers();
+  return list.get("x-forwarded-for")?.split(",")[0]?.trim() || list.get("x-real-ip")?.trim() || "unknown";
+}
+
 const gameIdSchema = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
 
 /**
@@ -26,10 +32,8 @@ const gameIdSchema = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
 export async function loadPsnTrophies(gameId: unknown): Promise<LoadPsnTrophiesResult> {
   const parsed = gameIdSchema.safeParse(gameId);
   if (!parsed.success) return { status: "invalid" };
-  const list = await headers();
-  if (isAutomatedClient(list.get("user-agent"))) return { status: "skipped" };
-  const ip = list.get("x-forwarded-for")?.split(",")[0]?.trim() || list.get("x-real-ip")?.trim() || "unknown";
-  if (!psnOpenIpLimiter.hit(ip).ok) return { status: "limited" };
+  if (isAutomatedClient((await headers()).get("user-agent"))) return { status: "skipped" };
+  if (!psnOpenIpLimiter.hit(await clientIp()).ok) return { status: "limited" };
   const game = await prisma.game.findUnique({ where: { id: parsed.data }, select: { id: true, slug: true } });
   if (!game) return { status: "not_found" };
 

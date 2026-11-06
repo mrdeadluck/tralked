@@ -272,7 +272,7 @@ export function createPsnClient({
       return "private";
     }
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`PSN ${what} failed with HTTP ${res.status}`);
+    if (!res.ok) throw new PsnHttpError(what, res.status, retryAfterOf(res)); // same message as before
     return (await res.json()) as T;
   }
 

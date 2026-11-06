@@ -342,4 +342,93 @@ describe.skipIf(!reachable)("PSN trophies read when the page opens", () => {
     expect(api.calls).toEqual([]);
     expect((await prisma.psnCatalogList.findUniqueOrThrow({ where: { id: LIST } })).trophiesSyncedAt).toBeNull();
   });
+
+  it("a 429 or 503 from the real client stops every open for an hour", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { createPsnClient } = await import("@/lib/integrations/psn/client");
+    const { loadPsnCatalogTrophies } = await import("./psn-catalog-trophies");
+    const game = await seed([LIST, OTHER]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t0 = Date.now();
+    let status = 429;
+    const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/oauth/authorize")) {
+        return new Response(null, { status: 302, headers: { location: "com.scee.psxandroid.scecompcall://redirect/?code=v3.CODE&cid=x" } });
+      }
+      if (url.pathname.endsWith("/oauth/token")) {
+        return new Response(
+          JSON.stringify({ access_token: "T", expires_in: 3600, refresh_token: "R", refresh_token_expires_in: 5_184_000 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("{}", { status });
+    });
+    const client = createPsnClient({ npsso: "npsso-secret-value-0123456789", fetch: fetchStub as unknown as typeof fetch });
+    try {
+      for (const code of [429, 503]) {
+        await prisma.syncCursor.deleteMany({ where: { key: PSN_OPEN_COOLDOWN_KEY } });
+        await prisma.psnCatalogList.updateMany({ data: { trophiesSyncedAt: null, trophiesTriedAt: null, trophiesAttempts: 0 } });
+        status = code;
+        expect(await loadPsnCatalogTrophies(game.id, client, new Date(t0))).toBe("failed");
+        const sonyCalls = fetchStub.mock.calls.length;
+        // The cooldown is on: the other list is not asked.
+        expect(await loadPsnCatalogTrophies(game.id, client, new Date(t0 + 30 * 60_000))).toBe("none");
+        expect(fetchStub.mock.calls).toHaveLength(sonyCalls);
+        expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_COOLDOWN_KEY } })).value).toMatchObject({ until: t0 + 3_600_000 });
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("a read that keeps crashing its instance waits longer each time", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadPsnCatalogTrophies } = await import("./psn-catalog-trophies");
+    const game = await seed();
+    const t0 = Date.now();
+    // Simulate the dead reader: a claim made 11 minutes ago, never given back.
+    const stale = async (at: number) =>
+      prisma.psnCatalogList.update({ where: { id: LIST }, data: { trophiesSyncedAt: new Date(at) } });
+    await stale(t0 - 11 * 60_000);
+    const api = fakeApi();
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0))).toBe("loaded"); // first takeover: due after 10 min
+
+    // Second list state: crashed again. Takeover #1 counted (attempts 1): the next one waits 1 h, not 10 min.
+    await prisma.achievement.deleteMany({ where: { gameId: game.id } });
+    await prisma.psnCatalogList.update({ where: { id: LIST }, data: { trophiesAttempts: 1, trophiesTriedAt: null, trophiesSyncedAt: new Date(t0) } });
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 11 * 60_000))).toBe("none");
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 61 * 60_000))).toBe("loaded");
+    expect(api.calls).toHaveLength(2);
+  });
+
+  it("a takeover of a stale claim adds an attempt", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadPsnCatalogTrophies } = await import("./psn-catalog-trophies");
+    const game = await seed();
+    const t0 = Date.now();
+    await prisma.psnCatalogList.update({ where: { id: LIST }, data: { trophiesSyncedAt: new Date(t0 - 11 * 60_000) } });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const bad = fakeApi(async () => {
+        throw new Error("boom");
+      });
+      expect(await loadPsnCatalogTrophies(game.id, bad, new Date(t0))).toBe("failed");
+    } finally {
+      warn.mockRestore();
+    }
+    // One for the crash it took over, one for this failure.
+    expect((await prisma.psnCatalogList.findUniqueOrThrow({ where: { id: LIST } })).trophiesAttempts).toBe(2);
+  });
+
+  it("the budget unit comes back when no Sony call follows", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { takePsnOpenBudget, refundPsnOpenBudget } = await import("./psn-catalog-trophies");
+    const now = new Date();
+    for (let i = 0; i < 3; i++) await takePsnOpenBudget(now);
+    await refundPsnOpenBudget(now);
+    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_BUDGET_KEY } })).value).toMatchObject({ count: 2, dayCount: 2 });
+    for (let i = 0; i < 4; i++) expect(await takePsnOpenBudget(now)).toBe(true); // 6 in the minute again
+    expect(await takePsnOpenBudget(now)).toBe(false);
+  });
 });

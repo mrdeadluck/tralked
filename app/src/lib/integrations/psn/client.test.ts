@@ -437,6 +437,17 @@ describe("psn catalog list info", () => {
     await expect(refused.client.getListTrophies("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 403 });
   });
 
+  it("getListTrophies throws PsnHttpError on 429 and 5xx (with Retry-After), like every other read", async () => {
+    const limited = setup(() => new Response("{}", { status: 429, headers: { "retry-after": "20" } }));
+    await expect(limited.client.getListTrophies("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 429, retryAfterMs: 20_000 });
+    const down = setup(() => new Response("{}", { status: 503 }));
+    const error = await down.client.getListTrophies("NPWR10000_00", "trophy2").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(PsnHttpError);
+    expect((error as Error).message).toBe("PSN list trophies failed with HTTP 503");
+    // The other reads keep their message too (now a PsnHttpError).
+    await expect(down.client.getTitles("1")).rejects.toThrow("PSN trophy titles failed with HTTP 503");
+  });
+
   it("throws PsnHttpError with the status and Retry-After on 429 and 5xx", async () => {
     const { client } = setup(() => new Response("{}", { status: 429, headers: { "retry-after": "30" } }));
     await expect(client.getListInfo("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 429, retryAfterMs: 30_000 });
