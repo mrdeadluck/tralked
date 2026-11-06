@@ -36,10 +36,10 @@ export type ProfileSummary = {
   playtimeMin: number;
   /** "Jogos": distinct games of the library, each once over its platforms (the Jogos tab count). */
   gamesCount: number;
-  /** "Platinas (contam no XP)": one per version (PS4 and PS5 are two), as the sheet counts them. */
+  /** "Platinas": one per list (two regional PSN lists are two), as the sheet counts them. */
   platinums: number;
-  /** "Listas regionais extras": platinum lists beyond the first of each version (no XP). */
-  regionalExtras: number;
+  /** The PSN platinum trophies among them (the note "520 na PSN"). */
+  psnPlatinums: number;
   /** Valid unlocks over every platform (the Conquistas tab count). */
   achievements: number;
   /** Games on the wishlist (the Lista de desejos tab count). */
@@ -109,7 +109,7 @@ export async function getProfileSummary(userId: string): Promise<ProfileSummary 
     playtimeMin,
     gamesCount: owned.length,
     platinums: tally.platinums,
-    regionalExtras: tally.regionalExtras,
+    psnPlatinums: tally.psnPlatinums,
     achievements,
     wishlist,
     platforms: PLATFORM_ORDER.flatMap((platform) => {
@@ -164,7 +164,8 @@ export type ProfileAchievement = {
   xp: number;
   /** PSN: bronze | silver | gold | platinum. */
   trophyTier: string | null;
-  unlockedAt: Date;
+  /** Null: earned on a date the platform does not know ("data desconhecida"). */
+  unlockedAt: Date | null;
   game: { slug: string; name: string };
 };
 
@@ -203,10 +204,15 @@ function toProfileAchievement(row: AchievementRow): ProfileAchievement {
   };
 }
 
+// Unlocks of unknown date come last in every order (Postgres would put them first in `desc`).
 const ORDER: Record<AchievementSort, Prisma.UserAchievementOrderByWithRelationInput[]> = {
-  recentes: [{ unlockedAt: "desc" }, { achievementId: "asc" }],
-  antigas: [{ unlockedAt: "asc" }, { achievementId: "asc" }],
-  raras: [{ achievement: { globalPct: { sort: "asc", nulls: "last" } } }, { unlockedAt: "desc" }, { achievementId: "asc" }],
+  recentes: [{ unlockedAt: { sort: "desc", nulls: "last" } }, { achievementId: "asc" }],
+  antigas: [{ unlockedAt: { sort: "asc", nulls: "last" } }, { achievementId: "asc" }],
+  raras: [
+    { achievement: { globalPct: { sort: "asc", nulls: "last" } } },
+    { unlockedAt: { sort: "desc", nulls: "last" } },
+    { achievementId: "asc" },
+  ],
 };
 
 /** One page of the player's valid unlocks, filtered and ordered in the database. */
@@ -272,7 +278,7 @@ export type ProfileStats = {
   startedGames: number;
   achievements: number;
   achievementsByPlatform: { platform: PlatformId; count: number }[];
-  /** Oldest year first. */
+  /** Oldest year first; unlocks of unknown date are in no year. */
   achievementsByYear: { year: number; count: number }[];
   rarityCounts: Record<RarityTier, number>;
 };
@@ -290,7 +296,7 @@ export async function getProfileStats(userId: string): Promise<ProfileStats> {
     prisma.$queryRaw<{ year: number; count: number }[]>`
       SELECT extract(year FROM ua."unlockedAt" AT TIME ZONE 'America/Sao_Paulo')::int AS year, count(*)::int AS count
       FROM "UserAchievement" ua
-      WHERE ua."userId" = ${userId} AND ua.suspicious = false
+      WHERE ua."userId" = ${userId} AND ua.suspicious = false AND ua."unlockedAt" IS NOT NULL
       GROUP BY 1 ORDER BY 1`,
     // The sheet's "Lendárias" reads the same function (lib/character/counts).
     rarityCounts(userId),

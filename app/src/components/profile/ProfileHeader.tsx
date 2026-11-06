@@ -41,14 +41,19 @@ const STRIP_COLS: Record<number, string> = {
 };
 
 /**
- * The strip under every profile tab's header: "Platinas (contam no XP)" (one per version: PS4 and
- * PS5 are two, a second region of one console is not), "Listas regionais extras" and "Jogos", then
- * the tab's own numbers. Two columns on phones (a last odd one takes the row).
+ * The strip under every profile tab's header: "Platinas" (one per list: every platinum trophy and
+ * every 100% without one; with PSN, the note "520 na PSN") and "Jogos", then the tab's own numbers.
+ * Two columns on phones (a last odd one takes the row).
  */
 function ProfileStrip({ summary, stats = [] }: { summary: ProfileSummary; stats?: ProfileStat[] }) {
+  const psn = summary.psnPlatinums > 0 || summary.platforms.some((p) => p.platform === "psn");
   const items: ProfileStat[] = [
-    { label: "Platinas (contam no XP)", value: formatNumber(summary.platinums), note: "uma por versão", hot: true },
-    { label: "Listas regionais extras", value: formatNumber(summary.regionalExtras), note: "aparecem, mas não somam XP" },
+    {
+      label: "Platinas",
+      value: formatNumber(summary.platinums),
+      note: psn ? `${formatNumber(summary.psnPlatinums)} na PSN` : undefined,
+      hot: true,
+    },
     { label: "Jogos", value: formatNumber(summary.gamesCount), note: "cada jogo uma vez" },
     ...stats,
   ];

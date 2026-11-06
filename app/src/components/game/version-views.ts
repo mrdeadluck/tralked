@@ -16,7 +16,7 @@ import type { GameVersion, PlayerVersion } from "@/lib/queries/game-versions";
 const fmt = (n: number) => n.toLocaleString("pt-BR");
 const DAY = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric" });
 /** "14/04/2022", Brasília time. */
-export const dayLabel = (d: Date) => DAY.format(d);
+export const dayLabel = (d: Date | null) => (d ? DAY.format(d) : "data desconhecida");
 
 type Labelled = { platform: PlatformId; label: string };
 
@@ -149,7 +149,7 @@ export type TrophyMark = {
   xp: number | null;
   /** The regional lists it was earned in, each with its date (a version with several lists). */
   lists: { label: string; date: string }[];
-  /** Where the XP came from; on the version's first trophy earned in several lists only. */
+  /** Where it was earned and that each list pays; on the version's first trophy earned in several lists only. */
   why: string | null;
   /** A hidden trophy the player earned: its text and icon, for them only. */
   reveal: { name: string; description: string | null; iconUrl: string | null } | null;
@@ -170,7 +170,7 @@ export type VersionMarks = {
 export type TabsMarks = { initial: string; aside: string | null; byKey: Record<string, VersionMarks> };
 
 /** "na Lista 1 em 14/04/2022 e na 🇯🇵 Ásia em 02/09/2023". */
-function whereWhen(dates: { label: string; at: Date }[]): string {
+function whereWhen(dates: { label: string; at: Date | null }[]): string {
   const parts = dates.map((d) => `na ${d.label} em ${dayLabel(d.at)}`);
   return parts.length < 2 ? parts.join("") : `${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}`;
 }
@@ -235,17 +235,12 @@ function versionMarksOf(v: GameVersion, mine: PlayerVersion): VersionMarks {
   const earned: Record<string, TrophyMark> = {};
   let said = false;
   for (const t of v.trophies) {
+    if (!(t.apiName in mine.unlockedAt)) continue;
     const at = mine.unlockedAt[t.apiName];
-    if (!at) continue;
     const dates = mine.earnedAt[t.apiName] ?? [];
     const dateIn = new Map(dates.map((d) => [d.label, dayLabel(d.at)]));
     // The XP note is said once per version (on its first trophy earned in several lists).
-    const why =
-      dates.length > 1 && !said
-        ? `Obtido ${whereWhen(dates)}. O XP veio da primeira; ${
-            dates.length === 2 ? "a segunda aparece, mas não soma" : "as outras aparecem, mas não somam"
-          }.`
-        : null;
+    const why = dates.length > 1 && !said ? `Obtido ${whereWhen(dates)}. Cada lista soma o seu XP.` : null;
     if (why) said = true;
     earned[t.apiName] = {
       date: dayLabel(at),
@@ -273,7 +268,7 @@ function versionMarksOf(v: GameVersion, mine: PlayerVersion): VersionMarks {
       chips,
       note:
         chips.length > 1
-          ? "As listas regionais são iguais: cada troféu mostra em quais você o obteve, e o XP conta uma vez."
+          ? "As listas regionais são iguais: cada troféu mostra em quais você o obteve, e cada uma soma o seu XP."
           : null,
     },
     earned,

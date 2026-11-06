@@ -94,7 +94,8 @@ const newKey = (externalId: string, apiName: string) => `new:${externalId}:${api
 /** What is stored about an unlock: its verdict (admin release included) is kept by a resync. */
 type KnownUnlock = {
   achievementId: string;
-  unlockedAt: Date;
+  /** Never null for these platforms (they date every unlock); the column allows it for Steam. */
+  unlockedAt: Date | null;
   suspicious: boolean;
   hardcore: boolean;
   fraudReview: string | null;
@@ -342,7 +343,7 @@ async function recordTitle(
       },
     });
 
-    // XP of the game's trophies and completions, by version (once per console). Hours milestones
+    // XP of the game's trophies and completions, by list (every regional list pays). Hours milestones
     // (RetroAchievements play time comes with the title) are paid by settlePlaytime at the end of
     // the sync, within the per-user caps.
     await settleListXp(tx, userId, platform, [listGameId], seenAt);
@@ -833,6 +834,7 @@ export async function syncPlatformAccount(
   ]);
   const everyUnlock = new Map<string, { achievementId: string; unlockedAt: Date; gameId: string; apiName: string }>();
   for (const { achievement: a, achievementId, unlockedAt } of unlockRows) {
+    if (!unlockedAt) continue;
     if (a.listId) everyUnlock.set(listKey(a.listId, a.apiName), { achievementId, unlockedAt, gameId: a.gameId, apiName: a.apiName });
     else if (!listedGames.has(a.gameId)) everyUnlock.set(`${a.gameId}:${a.apiName}`, { achievementId, unlockedAt, gameId: a.gameId, apiName: a.apiName });
   }

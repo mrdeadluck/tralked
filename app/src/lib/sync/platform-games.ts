@@ -1,6 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { getIgdb, mapToSkills } from "@/lib/integrations";
+import { consoleOfLabel, familyOfLabel } from "@/lib/releases/platforms";
 import { normalizePlatformTitle, normalizeTitle, withoutEdition } from "@/lib/integrations/title-match";
 import { regionOf } from "@/lib/trophies/lists";
 import { slugify } from "./catalog";
@@ -53,6 +54,21 @@ async function linkPlatform(gameId: string, platform: string, externalId: string
     data: [{ gameId, platform, externalId }],
     skipDuplicates: true,
   });
+}
+
+/**
+ * What a new game of a platform title records as Game.platforms and Game.consoles: PSN and Xbox
+ * labels ("PS5") become the family ("PLAYSTATION") plus the console slug ("ps5"); a label naming no
+ * console ("Xbox") gives the family only. Retro labels ("Mega Drive") stay as written.
+ */
+function platformsOfLabel(platform: string, label: string): { platforms: string[]; consoles: string[] } {
+  if (platform !== "psn" && platform !== "xbox") return { platforms: [label], consoles: [] };
+  // A PSN list may span consoles ("PS4,PS5"): every one of them is recorded.
+  const parts = label.split(/[,+]/).map((part) => part.trim()).filter(Boolean);
+  const family = parts.map(familyOfLabel).find(Boolean) ?? null;
+  if (!family) return { platforms: [label], consoles: [] };
+  const consoles = [...new Set(parts.map(consoleOfLabel).filter((c): c is string => c !== null))];
+  return { platforms: [family], consoles };
 }
 
 export type ResolveOptions = {
@@ -197,7 +213,7 @@ export async function resolvePlatformGame(
             : undefined,
         timeToBeatHastyMin: igdb?.timeToBeatHastySec !== undefined ? Math.round(igdb.timeToBeatHastySec / 60) : undefined,
         timeToBeatNormalMin: igdb?.timeToBeatNormalSec !== undefined ? Math.round(igdb.timeToBeatNormalSec / 60) : undefined,
-        platforms: [title.platformLabel],
+        ...platformsOfLabel(platform, title.platformLabel),
         // Steam achievement count; this game's achievements are counted per platform.
         achievementCount: 0,
         skills: { create: skills.map((skill) => ({ skill })) },

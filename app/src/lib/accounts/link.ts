@@ -1,10 +1,9 @@
 import { randomInt } from "node:crypto";
 import { Prisma, type LinkedAccount } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
-import { toLocalDay } from "@/lib/engine/streak";
 import { platformAvailable } from "@/lib/integrations/availability";
 import { parseSteamProfileInput, steamProfileHandle } from "@/lib/integrations/steam/profile-lookup";
-import { recomputeUser, revalidateMissions } from "@/lib/progression/recompute";
+import { recomputeUser, revalidateMissions, unlockDays } from "@/lib/progression/recompute";
 import type { CodePlatform } from "@/lib/sync/platform-library";
 import { lookupProfile, type LinkPlatform, type PlatformProfile } from "./profiles";
 
@@ -460,7 +459,7 @@ export async function releaseAccount(
   // list whose stored count matches the platform's).
   await tx.userTrophyList.deleteMany({ where: { userId, list: { platform } } });
   if (platform === "steam") await tx.user.update({ where: { id: userId }, data: { steamId: null, lastSyncedAt: null } });
-  return { days: [...new Set(gone.map((u) => toLocalDay(u.unlockedAt)))] };
+  return { days: unlockDays(gone) };
 }
 
 /**

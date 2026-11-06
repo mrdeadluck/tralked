@@ -68,6 +68,84 @@ export const IGDB_EXTRA_PLATFORMS: { name: string; family: ReleasePlatform }[] =
 /** Every platform id of the table above, for IGDB `where platform = (...)`. */
 export const IGDB_PLATFORM_IDS = Object.keys(IGDB_PLATFORM_FAMILY).map(Number);
 
+/**
+ * Console slugs (IGDB platform slugs, `Game.consoles`) per IGDB platform id: the same platforms as
+ * IGDB_PLATFORM_FAMILY, one slug each. Platforms newer than the table are left out.
+ */
+export const IGDB_PLATFORM_CONSOLE: Record<number, string> = {
+  6: "pc",
+  7: "ps1",
+  8: "ps2",
+  9: "ps3",
+  48: "ps4",
+  167: "ps5",
+  38: "psp",
+  46: "psvita",
+  11: "xbox",
+  12: "xbox360",
+  49: "xboxone",
+  169: "series-x-s",
+  130: "switch",
+  41: "wiiu",
+  5: "wii",
+  21: "gamecube",
+  4: "n64",
+  19: "snes",
+  58: "super-famicom",
+  18: "nes",
+  99: "famicom",
+  37: "3ds",
+  137: "new-3ds",
+  20: "nds",
+  159: "dsi",
+  24: "gba",
+  33: "gb",
+  22: "gbc",
+  87: "virtualboy",
+};
+
+/** Console slugs of a list of IGDB platform ids (unknown ids dropped, no repeats), sorted. */
+export function consolesOf(platformIds: number[]): string[] {
+  return [...new Set(platformIds.map((id) => IGDB_PLATFORM_CONSOLE[id]).filter(Boolean))].sort();
+}
+
+/**
+ * Console slug of a label a platform sync wrote ("PS4", "PSVITA", "Xbox 360"), or null when the
+ * label names no single console ("Xbox", "PlayStation", a retro console).
+ */
+export function consoleOfLabel(label: string): string | null {
+  const value = label.trim().toUpperCase().replace(/\s+/g, "");
+  const table: Record<string, string> = {
+    PS1: "ps1", PSX: "ps1", PS2: "ps2", PS3: "ps3", PS4: "ps4", PS5: "ps5", PSP: "psp", PSVITA: "psvita", VITA: "psvita",
+    XBOX360: "xbox360", "360": "xbox360", XBOXONE: "xboxone", XBOXSERIES: "series-x-s", XBOXSERIESX: "series-x-s",
+  };
+  return table[value] ?? null;
+}
+
+/**
+ * A Game.platforms list that holds console labels ("PS4", "Xbox") as families plus consoles:
+ * `["PS4", "PC"]` -> platforms `["PC", "PLAYSTATION"]`, consoles `["ps4"]`. Labels naming no console
+ * and no bare family ("Mega Drive", "Retro") stay as written; null when nothing needs changing.
+ */
+export function normalizeConsoleLabels(platforms: readonly string[]): { platforms: string[]; consoles: string[] } | null {
+  const keep: string[] = [];
+  const consoles: string[] = [];
+  let changed = false;
+  for (const label of platforms) {
+    const console = consoleOfLabel(label);
+    const family = console || label.trim().toUpperCase() === "XBOX" ? familyOfLabel(label) : null;
+    if (!family || (RELEASE_PLATFORMS as readonly string[]).includes(label)) {
+      keep.push(label);
+      continue;
+    }
+    changed = true;
+    keep.push(family);
+    if (console) consoles.push(console);
+  }
+  if (!changed) return null;
+  return { platforms: [...new Set(keep)].sort(), consoles: [...new Set(consoles)].sort() };
+}
+
 /** Families of a list of IGDB platform ids (unknown ids dropped), in display order. */
 export function familiesOf(platformIds: number[], extra: Record<number, ReleasePlatform> = {}): ReleasePlatform[] {
   const found = new Set(platformIds.map((id) => IGDB_PLATFORM_FAMILY[id] ?? extra[id]).filter(Boolean));

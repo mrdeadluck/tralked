@@ -40,6 +40,8 @@ export type CommunityAchievement = {
   name: string;
   description?: string;
   iconUrl?: string;
+  achieved: boolean;
+  /** Null when locked, or unlocked on a date Steam does not know (closed without a timestamp). */
   unlockedAt: Date | null;
 };
 
@@ -72,6 +74,7 @@ export function parseAchievementPage(xml: string): ParsedAchievementPage {
       // "Closed" is Steam's word for unlocked: the closed icon is the colored one. Only Steam CDN
       // URLs are kept (they are hotlinked as is).
       iconUrl: cdnUrl(xmlTag(body, "iconClosed")),
+      achieved: closed,
       unlockedAt: closed && timestamp > 0 ? new Date(timestamp * 1000) : null,
     });
   }
@@ -221,6 +224,7 @@ export function createSteamCommunity(config: SteamCommunityConfig = {}): SteamAp
       const canonical = await canonicalNames(appId);
       return page.achievements.map((a) => ({
         apiName: canonical.get(a.apiName.toLowerCase()) ?? a.apiName,
+        achieved: a.achieved,
         unlockedAt: a.unlockedAt,
       }));
     },

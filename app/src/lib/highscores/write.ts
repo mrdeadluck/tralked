@@ -1,42 +1,24 @@
+import { platinumTallyOf } from "@/lib/character/counts";
 import { prisma } from "@/lib/db";
-import { countedUnlocks } from "@/lib/trophies/counted";
 import { computeRankStats, RANK_SCOPES, type RankScope, type RankStatsValues } from "./stats";
 
-type ValidUnlock = {
-  unlockedAt: Date;
-  achievement: {
-    gameId: string;
-    platform: string;
-    apiName: string;
-    globalPct: number | null;
-    list: { platform: string; console: string | null; externalId: string } | null;
-  };
-};
+type ValidUnlock = { achievement: { gameId: string; platform: string; globalPct: number | null } };
 
 /**
  * One user's highscores totals. `unlocks` are the valid unlocks (the recompute already loaded
- * them); the library and the tainted games are read here. Unlocks are counted once per console
- * (countedUnlocks: a PSN trophy earned in two regional lists of one console counts once).
+ * them); the library and the platinums (the profile's, one per list) are read here. Every list
+ * counts (a PSN trophy earned in two regional lists is two).
  */
 export async function loadRankStats(
   userId: string,
   unlocks: ValidUnlock[],
 ): Promise<Record<RankScope, RankStatsValues>> {
-  const [games, tainted] = await Promise.all([
-    prisma.userGame.findMany({
-      where: { userId },
-      select: { gameId: true, platform: true, playtimeMin: true, completedAt: true },
-    }),
-    prisma.userAchievement.findMany({
-      where: { userId, suspicious: true },
-      select: { achievement: { select: { gameId: true, platform: true } } },
-    }),
+  const [games, platinums] = await Promise.all([
+    prisma.userGame.findMany({ where: { userId }, select: { gameId: true, platform: true, playtimeMin: true } }),
+    // Read now: the per-request memo could hold a value from before this recompute's changes.
+    platinumTallyOf(userId),
   ]);
-  return computeRankStats({
-    games,
-    unlocks: countedUnlocks(unlocks).map((u) => u.achievement),
-    taintedKeys: new Set(tainted.map((t) => `${t.achievement.gameId}:${t.achievement.platform}`)),
-  });
+  return computeRankStats({ games, unlocks: unlocks.map((u) => u.achievement), platinums });
 }
 
 /**
@@ -65,18 +47,7 @@ const upserts = (userId: string, stats: Record<RankScope, RankStatsValues>) =>
 export async function refreshRankStats(userId: string, { dryRun = false } = {}): Promise<RankStatsValues> {
   const unlocks = await prisma.userAchievement.findMany({
     where: { userId, suspicious: false },
-    select: {
-      unlockedAt: true,
-      achievement: {
-        select: {
-          gameId: true,
-          platform: true,
-          apiName: true,
-          globalPct: true,
-          list: { select: { platform: true, console: true, externalId: true } },
-        },
-      },
-    },
+    select: { achievement: { select: { gameId: true, platform: true, globalPct: true } } },
   });
   const stats = await loadRankStats(userId, unlocks);
   if (!dryRun) await prisma.$transaction(upserts(userId, stats));

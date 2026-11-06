@@ -113,7 +113,7 @@ function VisitorRow({ v }: { v: GameVersion }) {
           {chips.map((l) => (
             <Chip key={l.id} label={l.label!} />
           ))}
-          <span className="vr-note">{`${v.lists.length} listas · conta 1`}</span>
+          <span className="vr-note">{`${v.lists.length} listas · cada uma conta`}</span>
         </div>
       ) : (
         <span className="vr-note">{nounOf(v, v.total)}</span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandPlatforms, familyOfLabel } from "./platforms";
+import { bandPlatforms, familyOfLabel, consolesOf, normalizeConsoleLabels } from "./platforms";
 
 describe("familyOfLabel", () => {
   it("reads family keys and the labels the platform syncs write", () => {
@@ -33,5 +33,23 @@ describe("bandPlatforms", () => {
     expect(bandPlatforms(["Mega Drive"])).toEqual([{ platform: "RETRO", label: "Retrô" }]);
     expect(bandPlatforms(["Retro", "Mega Drive"])).toHaveLength(1);
     expect(bandPlatforms([])).toEqual([]);
+  });
+});
+
+describe("console slugs", () => {
+  it("maps IGDB platform ids to sorted console slugs, dropping unknown ids", () => {
+    expect(consolesOf([167, 48, 6, 99999, 48])).toEqual(["pc", "ps4", "ps5"]);
+    expect(consolesOf([169, 49, 12, 46])).toEqual(["psvita", "series-x-s", "xbox360", "xboxone"]);
+  });
+
+  it("normalizes console labels into families plus consoles", () => {
+    expect(normalizeConsoleLabels(["PS4"])).toEqual({ platforms: ["PLAYSTATION"], consoles: ["ps4"] });
+    expect(normalizeConsoleLabels(["PSVITA", "PC"])).toEqual({ platforms: ["PC", "PLAYSTATION"], consoles: ["psvita"] });
+    expect(normalizeConsoleLabels(["Xbox"])).toEqual({ platforms: ["XBOX"], consoles: [] });
+    expect(normalizeConsoleLabels(["Xbox 360"])).toEqual({ platforms: ["XBOX"], consoles: ["xbox360"] });
+    // Already families, retro labels and unknown labels are left alone.
+    expect(normalizeConsoleLabels(["PLAYSTATION", "PC"])).toBeNull();
+    expect(normalizeConsoleLabels(["Mega Drive"])).toBeNull();
+    expect(normalizeConsoleLabels(["Mega Drive", "PS5"])).toEqual({ platforms: ["Mega Drive", "PLAYSTATION"], consoles: ["ps5"] });
   });
 });

@@ -25,7 +25,10 @@ export type SyncUserResult = {
 
 type CatalogGame = Game & { achievements: Achievement[]; skills: GameSkill[] };
 
-/** A game the user owns, with the achievements they have unlocked (times from Steam's `unlocktime`). */
+/**
+ * A game the user owns, with the achievements they have unlocked (times from Steam's `unlocktime`;
+ * null when Steam gives the achievement as earned without one: an unlock on an unknown date).
+ */
 type FetchedGame = {
   /** `achievements` holds only the rows Steam still lists for the game (see `fetchGame`). */
   game: CatalogGame;
@@ -34,7 +37,7 @@ type FetchedGame = {
   playtimeKnown: boolean;
   /** The library sync recorded the game's playtime: recording its unlocks leaves playtime alone. */
   fromLibrary: boolean;
-  unlocks: { achievementId: string; unlockedAt: Date }[];
+  unlocks: { achievementId: string; unlockedAt: Date | null }[];
 };
 
 const STEAM_CONCURRENCY = 5;
@@ -114,7 +117,7 @@ async function fetchGame(
   if (achievements === "private") return "private";
   if (achievements.length === 0) return "none";
   // A probed game is not known to be owned: only one with an unlock enters the library.
-  if (requireUnlock && !achievements.some((a) => a.unlockedAt)) return "none";
+  if (requireUnlock && !achievements.some((a) => a.achieved)) return "none";
 
   let game = await loadGame(owned.appId);
   // Unknown game (or a name-only stub), or Steam has achievements the catalog doesn't know yet (new DLC).
@@ -129,9 +132,10 @@ async function fetchGame(
   const upstream = new Set(achievements.map((a) => a.apiName));
   const current = game.achievements.filter((a) => upstream.has(a.apiName));
   const idByApiName = new Map(current.map((a) => [a.apiName, a.id]));
+  // Earned without a date (unlocktime 0, old achievements) still counts: kept with a null date.
   const unlocks = achievements.flatMap((a) => {
     const achievementId = idByApiName.get(a.apiName);
-    return achievementId && a.unlockedAt ? [{ achievementId, unlockedAt: a.unlockedAt }] : [];
+    return achievementId && a.achieved ? [{ achievementId, unlockedAt: a.unlockedAt }] : [];
   });
   return {
     game: { ...game, achievements: current },
@@ -171,7 +175,7 @@ async function assertSteamStillLinked(tx: Prisma.TransactionClient, userId: stri
 }
 
 /** What is stored about an unlock: its verdict (admin release included) is kept by a resync. */
-type KnownUnlock = { unlockedAt: Date; suspicious: boolean };
+type KnownUnlock = { unlockedAt: Date | null; suspicious: boolean };
 
 /**
  * An unlock already stored keeps its stored verdict (suspicious stays suspicious, an admin-released
@@ -180,12 +184,20 @@ type KnownUnlock = { unlockedAt: Date; suspicious: boolean };
 const suspiciousVerdict = (before: KnownUnlock | undefined, ruleMatches: boolean) =>
   before ? before.suspicious : ruleMatches;
 
+/** The newest of these unlock dates (unknown ones left out); null when none is known. */
+function newestDate(unlocks: { unlockedAt: Date | null }[]): Date | null {
+  const times = unlocks.flatMap((u) => (u.unlockedAt ? [u.unlockedAt.getTime()] : []));
+  return times.length > 0 ? new Date(Math.max(...times)) : null;
+}
+
 /**
  * Records one game in a single transaction: UserGame, UserAchievement (with the anti-fraud
  * verdict) and the ledger entries of the valid unlocks plus the platinum bonus. Every insert is
  * idempotent (unique keys + skipDuplicates), so concurrent or repeated syncs never double-count,
  * and XP of entries already in the ledger is never rewritten (it is frozen at record time).
- * Returns how many unlocks were new.
+ * Unlocks on an unknown date (null) pay like the others, but their entries are dated `now` (when
+ * Tralked records them) and marked `dateUnknown`, so no time window counts them; so is the
+ * platinum of a completion that includes one. Returns how many unlocks were new.
  */
 async function recordGame(
   userId: string,
@@ -193,28 +205,56 @@ async function recordGame(
   fetched: FetchedGame,
   known: Map<string, KnownUnlock>,
   bursts: Set<string>,
+  now: Date,
 ): Promise<number> {
   const { game, playtimeMin, playtimeKnown, fromLibrary, unlocks } = fetched;
   const gameSkills = game.skills.map((s) => s.skill);
   const total = Math.max(game.achievementCount, game.achievements.length);
   const complete = unlocks.length >= total;
-  // Without playtime there is no evidence of a speed run, so the rule cannot apply.
+  // A date Steam gave before is never erased by a later answer without one.
+  const dated = unlocks.map((u) => ({
+    achievementId: u.achievementId,
+    unlockedAt: u.unlockedAt ?? known.get(u.achievementId)?.unlockedAt ?? null,
+  }));
+  const undatedCompletion = complete && dated.some((u) => u.unlockedAt === null);
+  // Without playtime there is no evidence of a speed run, so the rule cannot apply. Nor to a
+  // completion that includes undated unlocks: those are Steam's own unlocktime 0, from an era
+  // whose playtime Steam did not record reliably (0 minutes is common), so the hours prove nothing.
+  // Stored unlocks keep their verdict anyway, so this only spares the first-seen unlocks and the
+  // platinum bonus of such a completion from a speed flag the data cannot support.
   const speedRun =
-    complete && playtimeKnown && isSpeedPlatinum(playtimeMin, game.timeToBeatCompleteMin);
-  const completedAt = complete
-    ? new Date(Math.max(...unlocks.map((u) => u.unlockedAt.getTime())))
-    : null;
+    complete &&
+    playtimeKnown &&
+    !undatedCompletion &&
+    isSpeedPlatinum(playtimeMin, game.timeToBeatCompleteMin);
 
-  const rows = unlocks.map((u) => ({
+  const rows = dated.map((u) => ({
     ...u,
     // Stored unlocks keep their verdict; only new unlocks are judged by the burst rule (over all
     // of the user's unlocks) and the speed-platinum rule.
     suspicious: suspiciousVerdict(known.get(u.achievementId), bursts.has(u.achievementId) || speedRun),
   }));
+  // Undated unlocks are old ones (Steam did not keep dates then), so the newest dated unlock is
+  // when the game was completed; with no dated unlock at all, when Tralked records it (see
+  // UserGame.completedAt). The platinum of such a completion is `dateUnknown` even when the newest
+  // dated unlock is recent: the completion's real date is not known, so it never counts in a time
+  // window ("Esta semana" included).
+  const newest = newestDate(rows);
+  const completedAtNew = complete ? (newest ?? now) : null;
   const pctById = new Map(game.achievements.map((a) => [a.id, a.globalPct]));
 
   return prisma.$transaction(async (tx) => {
     await assertSteamStillLinked(tx, userId, link);
+    // A completion with no dated unlock has no date but the one Tralked recorded it at: keep that
+    // one instead of moving it to `now` on every re-read.
+    const stored =
+      complete && !newest
+        ? await tx.userGame.findUnique({
+            where: { userId_gameId_platform: { userId, gameId: game.id, platform: "steam" } },
+            select: { completedAt: true },
+          })
+        : null;
+    const completedAt = stored?.completedAt ?? completedAtNew;
     await tx.userGame.createMany({
       data: [
         { userId, gameId: game.id, platform: "steam", playtimeMin, unlockedCount: unlocks.length, completedAt },
@@ -234,8 +274,8 @@ async function recordGame(
     });
     // The game was played at least when its newest achievement unlocked: a game Steam lists
     // without a last-played date (see lastPlayedOf) still shows in "Jogou recentemente".
-    if (unlocks.length > 0) {
-      const newest = new Date(Math.max(...unlocks.map((u) => u.unlockedAt.getTime())));
+    // Undated unlocks say nothing about when.
+    if (newest) {
       await tx.userGame.updateMany({
         where: {
           userId,
@@ -257,7 +297,8 @@ async function recordGame(
       const before = known.get(r.achievementId);
       if (
         before &&
-        (before.suspicious !== r.suspicious || before.unlockedAt.getTime() !== r.unlockedAt.getTime())
+        (before.suspicious !== r.suspicious ||
+          (before.unlockedAt?.getTime() ?? null) !== (r.unlockedAt?.getTime() ?? null))
       ) {
         await tx.userAchievement.update({
           where: { userId_achievementId: { userId, achievementId: r.achievementId } },
@@ -274,7 +315,8 @@ async function recordGame(
         sourceKey: r.achievementId,
         xp: xpForAchievement(pctById.get(r.achievementId) ?? null),
         skills: gameSkills,
-        createdAt: r.unlockedAt,
+        createdAt: r.unlockedAt ?? now,
+        dateUnknown: r.unlockedAt === null,
       }));
     if (complete && rows.every((r) => !r.suspicious)) {
       ledger.push({
@@ -283,7 +325,8 @@ async function recordGame(
         sourceKey: game.id,
         xp: platinumBonus(game.achievements.map((a) => xpForAchievement(a.globalPct))),
         skills: gameSkills,
-        createdAt: completedAt ?? new Date(),
+        createdAt: undatedCompletion ? now : (completedAt ?? now),
+        dateUnknown: undatedCompletion,
       });
     }
     await tx.xpLedgerEntry.createMany({ data: ledger, skipDuplicates: true });
@@ -562,6 +605,13 @@ async function currentProgress(userId: string) {
   };
 }
 
+/** Unlocks with a known date: the burst rule needs one. */
+function datedUnlocks(
+  unlocks: Iterable<{ achievementId: string; unlockedAt: Date | null }>,
+): { achievementId: string; unlockedAt: Date }[] {
+  return [...unlocks].flatMap((u) => (u.unlockedAt ? [{ achievementId: u.achievementId, unlockedAt: u.unlockedAt }] : []));
+}
+
 /** The user's recorded Steam unlocks (what the anti-fraud rules and the sticky flag build on). */
 async function loadKnownUnlocks(userId: string): Promise<Map<string, KnownUnlock>> {
   const rows = await prisma.userAchievement.findMany({
@@ -727,14 +777,14 @@ export async function syncUser(userId: string, options: SyncUserOptions = {}): P
     [...known].map(([achievementId, k]) => [achievementId, { achievementId, unlockedAt: k.unlockedAt }]),
   );
   for (const { unlocks } of fetchedGames) {
-    for (const u of unlocks) everyUnlock.set(u.achievementId, u);
+    for (const u of unlocks) if (u.unlockedAt || !everyUnlock.has(u.achievementId)) everyUnlock.set(u.achievementId, u);
   }
-  const bursts = findBursts([...everyUnlock.values()]);
+  const bursts = findBursts(datedUnlocks(everyUnlock.values()));
 
   let newUnlocks = 0;
   for (const fetched of fetchedGames) {
     try {
-      newUnlocks += await recordGame(userId, link, fetched, known, bursts);
+      newUnlocks += await recordGame(userId, link, fetched, known, bursts, new Date(startedAt));
     } catch (error) {
       // Disconnected while this run was reading: stop. The unlink already removed what was
       // recorded and recomputed; nothing more is written for this account.
@@ -829,11 +879,12 @@ export async function syncUserGame(userId: string, appId: number): Promise<SyncU
   const everyUnlock = new Map(
     [...known].map(([achievementId, k]) => [achievementId, { achievementId, unlockedAt: k.unlockedAt }]),
   );
-  for (const u of fetched.unlocks) everyUnlock.set(u.achievementId, u);
-  const bursts = findBursts([...everyUnlock.values()]);
+  // A date stored before stays (recordGame keeps it too) when Steam now answers without one.
+  for (const u of fetched.unlocks) if (u.unlockedAt || !everyUnlock.has(u.achievementId)) everyUnlock.set(u.achievementId, u);
+  const bursts = findBursts(datedUnlocks(everyUnlock.values()));
 
   try {
-    await recordGame(userId, link, fetched, known, bursts);
+    await recordGame(userId, link, fetched, known, bursts, new Date());
   } catch (error) {
     if (error instanceof SteamUnlinkedError) return { status: "unlinked", newUnlocks: [] };
     throw error;

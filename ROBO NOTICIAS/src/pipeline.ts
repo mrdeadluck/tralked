@@ -4,7 +4,7 @@ import { BudgetExceededError, RefusalError, UsageLimitError, type Ai } from "./a
 import { withUsageRef } from "./ai/usage-context.js";
 import { clusterItems, openStories, storyKeyOf, type ClusterItem, type OpenStory } from "./ai/cluster.js";
 import { checkNovelty } from "./ai/novelty.js";
-import { CATEGORIES, triageItems, type Triage, type TriageInput } from "./ai/triage.js";
+import { CATEGORIES, PLATFORMS, RECURRING, TOPICS, triageItems, type Topic, type Triage, type TriageInput } from "./ai/triage.js";
 import { writeAndCheck, type StoryForWriting, type StorySource } from "./ai/writer.js";
 import { alert, alertOncePerDay, checkSourceHealth } from "./alerts.js";
 import { assemble, type ArticleMedia, type MediaImage } from "./assemble.js";
@@ -18,7 +18,7 @@ import { gameDestination } from "./game-destination.js";
 import { acquireLock, type Lock } from "./lock.js";
 import { chooseImages } from "./media/choose.js";
 import { isImagesStory } from "./media/gallery.js";
-import { aboutVideo, officialSourceVideo } from "./media/video.js";
+import { CHANNEL_VIDEO_WINDOW_MS, aboutVideo, channelVideoFor, officialSourceVideo } from "./media/video.js";
 import { storyPosts, type XProfile } from "./media/xposts.js";
 import {
   PautaRejectedError,
@@ -36,6 +36,8 @@ import {
   writePauta,
   type FamousGame,
 } from "./pautas.js";
+import { mixScore } from "./mix.js";
+import { recurringKey, recurringKind, sameAnnouncement } from "./recurring.js";
 import { TIER_WEIGHT, isBomb, isExpired, isPublishable, storyScore, type Tier } from "./rank.js";
 import {
   TralkedError,
@@ -405,6 +407,12 @@ export type StoryFacts = {
   lastItemAt: number;
   /** No text source besides an official video (see `isVideoOnly`). */
   videoOnly: boolean;
+  /** The topic of the most important item; null when its triage predates topics. */
+  topic: Topic | null;
+  /** The union of the items' platforms, in first-seen order. */
+  platforms: string[];
+  /** `recurringKey` of the most important recurring item, dated by the story's earliest item. */
+  recurringKey: string | null;
 };
 
 export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): StoryFacts {
@@ -424,7 +432,15 @@ export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): Stor
     triages.some((t) => t.rumor) && !withTriage.some(({ item, t }) => tierOf(item) === "oficial" && !t.rumor);
   // R15: at least one source with extracted text (title-only Google News items have none).
   const hasFullText = items.some((i) => i.text_unavailable !== 1 && hasRealText(i.text));
-  const top = [...triages].sort((a, b) => b.importance - a.importance)[0];
+  const ranked = [...triages].sort((a, b) => b.importance - a.importance);
+  const top = ranked[0];
+  // Triages stored before topics existed have none of these fields.
+  const topic = top && (TOPICS as readonly string[]).includes(top.topic) ? top.topic : null;
+  const platforms = [
+    ...new Set(triages.flatMap((t) => (Array.isArray(t.platforms) ? t.platforms : [])).filter((p) => (PLATFORMS as readonly string[]).includes(p))),
+  ];
+  const recurring = ranked.find((t) => (RECURRING as readonly unknown[]).includes(t.recurring))?.recurring ?? null;
+  const startedAt = items.length > 0 ? Math.min(...items.map((i) => itemTime(i, now))) : Date.parse(story.first_seen_at);
   const stats = { maxImportance, tiers, sourceCount, rumor };
   // A video story stands on the official video alone: a relevant one (importance >= 60), never a rumor.
   const videoOnly = isVideoOnly(items);
@@ -443,10 +459,16 @@ export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): Stor
     games: [...new Set(triages.flatMap((t) => t.games))],
     lastItemAt: Math.max(0, ...items.map((i) => itemTime(i, now))),
     videoOnly,
+    topic,
+    platforms,
+    recurringKey: recurring ? recurringKey(recurring, new Date(startedAt)) : null,
   };
 }
 
-/** Recomputes score, bomb, rumor, category, games and last item time; keeps headline, status and mode. */
+/**
+ * Recomputes score, bomb, rumor, category, games, topic, platforms, recurring key and last item time; keeps
+ * headline, status and mode.
+ */
 export function recomputeStory(storyId: number, deps: PipelineDeps, now: Date): StoryFacts | null {
   const story = deps.db.storyById(storyId);
   if (!story) return null;
@@ -462,6 +484,9 @@ export function recomputeStory(storyId: number, deps: PipelineDeps, now: Date): 
       gamesJson: JSON.stringify(facts.games),
       mode: story.mode,
       lastItemAt: new Date(facts.lastItemAt || now.getTime()).toISOString(),
+      topic: facts.topic,
+      platformsJson: JSON.stringify(facts.platforms),
+      recurringKey: facts.recurringKey,
     },
     now,
   );
@@ -554,13 +579,26 @@ export async function storyForWriting(
   const parent = parentOf(story, deps);
   const items = deps.db.itemsForStory(story.id);
   const video = storyVideo(items, deps.sources);
-  // No official channel item: the official video a source page carries, when the story is about it.
+  const storyAt = storyStartedAt(story, deps.db, deps.now());
+  // No official channel item: the official video a source page carries, when the story is about it;
+  // else, for a story about a video, the official channel's video of the game collected close to it.
   const fromSource = video
     ? null
-    : await officialSourceVideo(
-        { items, sources: deps.sources, games: parseGames(story.games_json), companies: storyCompanies(items) },
+    : ((await officialSourceVideo(
+        { items, sources: deps.sources, games: parseGames(story.games_json), companies: storyCompanies(items), storyAt },
         deps.fetchFn,
-      );
+      )) ??
+      (aboutVideo(story, items)
+        ? channelVideoFor({
+            candidates: deps.db.videoItemsPublishedBetween(
+              new Date(storyAt.getTime() - CHANNEL_VIDEO_WINDOW_MS),
+              new Date(storyAt.getTime() + CHANNEL_VIDEO_WINDOW_MS),
+            ),
+            sources: deps.sources,
+            games: parseGames(story.games_json),
+            storyAt,
+          })
+        : null));
   const posts = await storyPosts(
     {
       items,
@@ -640,7 +678,7 @@ export async function articleMedia(
   story: StoryRow,
   writing: StoryForWriting,
   payload: ArticlePayload,
-  deps: Pick<PipelineDeps, "tralked" | "log" | "db" | "ai" | "config" | "fetchFn" | "sources" | "mediaTrace">,
+  deps: Pick<PipelineDeps, "tralked" | "log" | "db" | "ai" | "config" | "fetchFn" | "sources" | "mediaTrace" | "now">,
   reuse?: Pick<ArticleMedia, "cover" | "bodyImage" | "gallery">,
 ): Promise<ArticleMedia> {
   const items = deps.db.itemsForStory(story.id);
@@ -673,6 +711,7 @@ export async function articleMedia(
         subject,
         catalog: set,
         officialVideoIds: writing.video ? [writing.video.youtubeId] : [],
+        storyAt: storyStartedAt(story, deps.db, deps.now()),
       },
       {
         ai: deps.ai,
@@ -834,6 +873,7 @@ async function publishOneInner(story: StoryRow, deps: PipelineDeps): Promise<Pub
         slug: created.slug,
         publishedAt: publishedAt.toISOString(),
         parentArticleId: story.parent_article_id,
+        companiesJson: JSON.stringify(storyCompanies(db.itemsForStory(story.id))),
       },
       publishedAt,
     );
@@ -1193,8 +1233,13 @@ function expireStale(deps: PipelineDeps, report: ColetaReport, now: Date): void 
 }
 
 /**
- * Stories the site already covered: the same game slug and a title match decided by `clusterItems`, with
- * the feed articles passed as open stories. A follow-up never counts as covered by its own parent article.
+ * Stories the site already covered: a title match decided by `clusterItems`, with the feed articles passed
+ * as open stories, and
+ * - the same game slug, for a story whose games are in the catalog;
+ * - a company in common, for a story without a catalog game (itch.io twice on 03/11). The article's
+ *   companies are the ones stored when the robot published it (`articles.companies_json`, or its story's
+ *   triage for older rows); for an article the robot did not write, a company named in its title counts.
+ * A follow-up never counts as covered by its own parent article.
  */
 export async function coveredStories(
   candidates: StoryRow[],
@@ -1228,10 +1273,43 @@ export async function coveredStories(
     const story = candidates.find((s) => s.id === r.id);
     if (!story) continue;
     if (story.parent_article_id !== null && db.articleById(story.parent_article_id)?.site_id === article.id) continue;
-    if ((slugs.get(story.id) ?? []).some((slug) => article.games.includes(slug))) covered.add(story.id);
+    const storySlugs = slugs.get(story.id) ?? [];
+    if (storySlugs.length > 0) {
+      if (storySlugs.some((slug) => article.games.includes(slug))) covered.add(story.id);
+    } else if (sharesCompany(storyCompanies(db.itemsForStory(story.id)), article, db)) {
+      covered.add(story.id);
+    }
   }
   return covered;
 }
+
+/** Company names compared loosely: "Itch.io" = "itch.io", "Bandai Namco" = "BANDAI NAMCO". */
+const companyKey = (name: string) => gameKey(name);
+
+/** Whether a story's companies meet a site article's (see `coveredStories`). */
+function sharesCompany(companies: string[], article: FeedArticle, db: Db): boolean {
+  const keys = new Set(companies.map(companyKey).filter((k) => k.length >= 2));
+  if (keys.size === 0) return false;
+  const local = db.articleBySiteId(article.id);
+  if (local) {
+    const stored = local.companies_json === null ? storyCompanies(db.itemsForStory(local.story_id)) : parseGames(local.companies_json);
+    return stored.some((c) => keys.has(companyKey(c)));
+  }
+  const title = ` ${plainWords(article.title)} `;
+  return companies.some((c) => {
+    const words = plainWords(c);
+    return words.length >= 2 && title.includes(` ${words} `);
+  });
+}
+
+/** "Itch.io anuncia" → "itch io anuncia": no accents, lower case, words split by single spaces. */
+const plainWords = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 
 /**
  * Drops covered stories, then queues the publishable open ones. Queued stories are re-checked each run,
@@ -1260,7 +1338,8 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
     throw error;
   }
 
-  const remaining = await dedupeVideoStories(candidates, feed, deps, report, now);
+  const fresh = dropRecurringRepeats(candidates, deps, report);
+  const remaining = await dedupeVideoStories(fresh, feed, deps, report, now);
   const covered = await coveredStories(remaining, feed, deps);
   for (const story of remaining) {
     if (covered.has(story.id)) {
@@ -1269,6 +1348,36 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
       if (db.setStoryStatusIf(story.id, "queued", ["open"])) report.queued++;
     }
   }
+}
+
+/**
+ * A recurring announcement (PS Plus, Game Pass, Epic free game) is covered once (`sameAnnouncement`: same
+ * kind, started at most `RECURRING_WINDOW_DAYS` apart): a candidate of an announcement a story already
+ * published or being written covered is dropped, and among candidates of one announcement only the highest
+ * score stays. Returns the candidates still standing.
+ */
+function dropRecurringRepeats(candidates: StoryRow[], deps: PipelineDeps, report: ColetaReport): StoryRow[] {
+  const { db } = deps;
+  const kept: string[] = [];
+  const dropped = new Set<number>();
+  for (const story of [...candidates].sort((a, b) => b.score - a.score || a.id - b.id)) {
+    const key = story.recurring_key;
+    const kind = key ? recurringKind(key) : null;
+    if (!key || !kind) continue;
+    const done = db
+      .storiesWithRecurringKind(kind)
+      .some((s) => s.id !== story.id && (s.status === "published" || s.status === "written") && sameAnnouncement(key, s.recurring_key!));
+    if (done || kept.some((k) => sameAnnouncement(k, key))) {
+      if (db.setStoryStatusIf(story.id, "dropped", ["open", "queued"])) {
+        dropped.add(story.id);
+        report.covered++;
+        deps.log?.(`item recorrente já coberto (${key}): história ${story.id}`);
+      }
+      continue;
+    }
+    kept.push(key);
+  }
+  return candidates.filter((s) => !dropped.has(s.id));
 }
 
 /**
@@ -1415,11 +1524,27 @@ export async function runColeta(deps: PipelineDeps): Promise<ColetaReport> {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The highest-score queued live story that is not expired; expired ones are marked on the way. Video
- * stories are skipped (left queued) once `MAX_VIDEO_STORIES_PER_DAY` went out today.
+ * The queued live story this slot goes to, among those not expired (expired ones are marked on the way):
+ * a bomb first (highest score), otherwise the highest `mixScore` against what came out today, ties by
+ * score order. Video stories are skipped (left queued) once `MAX_VIDEO_STORIES_PER_DAY` went out today.
  */
 function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
+  const eligible = eligibleQueued(deps, now);
+  const bomb = eligible.find((s) => s.bomb === 1);
+  if (bomb) return bomb;
+  const today = deps.db.publishedTodayMix(localDay(now));
+  let best: { story: StoryRow; mix: number } | null = null;
+  for (const story of eligible) {
+    const mix = mixScore({ score: story.score, topic: story.topic, platforms: parseGames(story.platforms_json) }, today);
+    if (!best || mix > best.mix) best = { story, mix };
+  }
+  return best?.story ?? null;
+}
+
+/** The queued live stories a slot may take, in score order (expired ones marked, video cap applied). */
+function eligibleQueued(deps: PipelineDeps, now: Date): StoryRow[] {
   let videoCap: boolean | null = null;
+  const eligible: StoryRow[] = [];
   for (const story of deps.db.storiesByStatus("queued", 100_000)) {
     if (story.mode !== "live") continue;
     if (expired(story, deps, now)) {
@@ -1430,9 +1555,9 @@ function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
       videoCap ??= videoCapReached(deps.db, now);
       if (videoCap) continue;
     }
-    return story;
+    eligible.push(story);
   }
-  return null;
+  return eligible;
 }
 
 function refusal(deps: PublicaDeps, now: Date): string | null {
@@ -1459,8 +1584,10 @@ function wantsPauta(deps: PublicaDeps, now: Date): boolean {
   if (!deps.famousGames || deps.famousGames.length === 0) return false;
   const today = pautasPublishedOn(deps.db, localDay(now));
   if (today >= MAX_PAUTAS_PER_DAY) return false;
-  const best = nextQueued(deps, now);
-  return best === null || best.score < PAUTA_SCORE_BELOW || (localHour(now) >= PAUTA_HOUR && today === 0);
+  // The best raw score, not the mix's pick: the mix may take a 58 over an 80 for variety, and the slot
+  // still belongs to the news.
+  const best = Math.max(-Infinity, ...eligibleQueued(deps, now).map((s) => s.score));
+  return best < PAUTA_SCORE_BELOW || (localHour(now) >= PAUTA_HOUR && today === 0);
 }
 
 /**

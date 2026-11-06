@@ -5,8 +5,9 @@ import { catalogPlatforms, tierOf, type TierCounts } from "./game-profile";
 
 /*
  * A game's versions: one per Steam, per PSN console, per Xbox title and per RA set. A version with
- * several regional lists counts once (its best list). `getGameVersions` is the public part (cached
- * with the game profile); `getPlayerVersions` is one player's progress, never cached.
+ * several regional lists shows its best list's progress (every list still pays its own XP and
+ * platinum). `getGameVersions` is the public part (cached with the game profile);
+ * `getPlayerVersions` is one player's progress, never cached.
  */
 
 export type VersionList = { id: string; label: string | null; trophyCount: number };
@@ -41,7 +42,7 @@ export type PlayerVersion = {
   pct: number;
   platinum: boolean;
   lists: { id: string; label: string | null; complete: boolean; unlocked: number }[];
-  /** "2 listas · conta 1" when the version has several lists. */
+  /** "2 listas · cada uma conta" when the version has several lists (each pays XP). */
   countedNote: string | null;
   /** apiName -> labels of the lists it was earned in (only on a version with several lists). */
   earnedIn: Record<string, string[]>;
@@ -49,11 +50,12 @@ export type PlayerVersion = {
   /** The version's best list (its unlocked/total/pct); null when the version has no list row. */
   bestListId: string | null;
   /** apiName -> when it was first earned, in any list of the version. */
-  unlockedAt: Record<string, Date>;
+  /** apiName -> when it was first earned (null: earned on an unknown date); absent = not earned. */
+  unlockedAt: Record<string, Date | null>;
   /** Tiers of the trophies earned in the best list (the platinum also when only the 100% earns it). */
   tiersEarned: TierCounts;
   /** apiName -> the lists it was earned in, oldest unlock first (only on a version with several lists). */
-  earnedAt: Record<string, { label: string; at: Date }[]>;
+  earnedAt: Record<string, { label: string; at: Date | null }[]>;
   /** apiName -> XP the ledger paid for it (entries not voided). */
   xp: Record<string, number>;
 };
@@ -85,7 +87,7 @@ export type PlayerInput = {
   lists: ListRow[];
   achievements: SlimAchRow[];
   steamCount: number;
-  unlocks: { achievementId: string; unlockedAt: Date }[];
+  unlocks: { achievementId: string; unlockedAt: Date | null }[];
   userLists: { listId: string; unlockedCount: number; completedAt: Date | null }[];
   steamGame: { unlockedCount: number; completedAt: Date | null } | null;
   /** Achievement ledger entries of the game, not voided (sourceKey = an Achievement id). */
@@ -224,13 +226,15 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
     const best = entries.reduce((b, e) => (pctOf(e) > pctOf(b) || (pctOf(e) === pctOf(b) && e.unlocked > b.unlocked) ? e : b));
 
     const earnedIn: Record<string, string[]> = {};
-    const earnedAt: Record<string, { label: string; at: Date }[]> = {};
-    const unlockedAt: Record<string, Date> = {};
+    const earnedAt: Record<string, { label: string; at: Date | null }[]> = {};
+    const unlockedAt: Record<string, Date | null> = {};
     let platinumTrophy = false;
     for (const e of entries) {
       for (const a of earnedRows(e.rows)) {
-        const when = unlockById.get(a.id)!;
-        if (!unlockedAt[a.apiName] || when < unlockedAt[a.apiName]) unlockedAt[a.apiName] = when;
+        const when = unlockById.get(a.id) ?? null;
+        // A dated unlock wins over an undated one; the dates of the version's lists: the oldest.
+        const prev = unlockedAt[a.apiName];
+        if (!(a.apiName in unlockedAt) || (when && (!prev || when < prev))) unlockedAt[a.apiName] = when;
         if (e.label) {
           (earnedIn[a.apiName] ??= []).push(e.label);
           (earnedAt[a.apiName] ??= []).push({ label: e.label, at: when });
@@ -238,7 +242,10 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
         if (tierOf(a) === "platinum") platinumTrophy = true;
       }
     }
-    for (const dates of Object.values(earnedAt)) dates.sort((x, y) => x.at.getTime() - y.at.getTime());
+    // Oldest first; the undated ones last.
+    for (const dates of Object.values(earnedAt)) {
+      dates.sort((x, y) => (x.at ? x.at.getTime() : Infinity) - (y.at ? y.at.getTime() : Infinity) || 0);
+    }
 
     const xp: Record<string, number> = {};
     for (const e of entries) {
@@ -266,7 +273,7 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
       pct: best.total > 0 ? Math.min(100, Math.round((best.unlocked / best.total) * 100)) : 0,
       platinum,
       lists: isSteam ? [] : entries.map((e) => ({ id: e.id!, label: e.label, complete: e.complete, unlocked: e.unlocked })),
-      countedNote: !isSteam && entries.length > 1 ? `${entries.length} listas · conta 1` : null,
+      countedNote: !isSteam && entries.length > 1 ? `${entries.length} listas · cada uma conta` : null,
       earnedIn,
       bestListId: best.id,
       unlockedAt,
@@ -366,7 +373,7 @@ export async function getPlayerVersions(gameId: string, userId: string): Promise
   // A player with nothing on this game has no version: skip the game's trophy rows altogether.
   if (unlocks.length === 0 && userLists.length === 0 && !steamGame) return [];
   const { steamCount, lists, achievements } = await loadGame(gameId, SLIM_SELECT);
-  // Ledger keys of a PSN trophy may be another list's copy (the canonical one): read by every id.
+  // A PSN trophy may be paid under another list's copy (the canonical one): read by every id.
   const ledger =
     unlocks.length === 0
       ? []

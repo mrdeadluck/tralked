@@ -147,4 +147,18 @@ describe("loadSources", () => {
     expect(byId.get("digitalfoundry")?.active).toBe(true);
     expect(byId.get("rockstar-newswire")?.active).toBe(true);
   });
+
+  it("real file: Steam, Nintendo, mobile and PC sources checked live on 06/11 are active (B4)", () => {
+    const byId = new Map(loadSources().map((s) => [s.id, s]));
+    const expected = {
+      "steam-blog": { tier: "oficial", url: "https://store.steampowered.com/feeds/news/collection/steam/" },
+      "nintendo-europe": { tier: "oficial", url: "https://www.nintendo.com/en-gb/news.xml" },
+      "nintendo-life": { tier: "portal", url: "https://www.nintendolife.com/feeds/latest" },
+      "pocket-gamer": { tier: "portal", url: "https://www.pocketgamer.com/news/index.rss", gamingFilter: true },
+      pcgamesn: { tier: "portal", url: "https://www.pcgamesn.com/mainrss.xml" },
+    };
+    for (const [id, want] of Object.entries(expected)) {
+      expect(byId.get(id), id).toMatchObject({ kind: "rss", category: "GAMES", active: true, ...want });
+    }
+  });
 });

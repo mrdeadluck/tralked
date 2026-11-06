@@ -25,11 +25,14 @@ export type RankStatsValues = {
 
 export type RankStatsInput = {
   /** Every UserGame row of the user. */
-  games: { gameId: string; platform: string; playtimeMin: number; completedAt: Date | null }[];
+  games: { gameId: string; platform: string; playtimeMin: number }[];
   /** Valid (non-suspicious) unlocks only. */
   unlocks: { gameId: string; platform: string; globalPct: number | null }[];
-  /** `${gameId}:${platform}` with any suspicious unlock: a completion there does not count. */
-  taintedKeys: Set<string>;
+  /**
+   * The profile's "Platinas" (lib/character/counts platinumCount: one per list), in total and by
+   * platform: the "Platinas e 100%" board (`perfectGames`).
+   */
+  platinums: { platinums: number; byPlatform: Record<string, number> };
 };
 
 const inScope = (scope: RankScope, platform: string) => scope === "all" || scope === platform;
@@ -37,19 +40,19 @@ const inScope = (scope: RankScope, platform: string) => scope === "all" || scope
 /**
  * The highscores totals of one user for every scope. Same rules as the attributes (recompute
  * `attributeInput`): a game is played with playtime or a valid unlock, owned games include games
- * with an unlock but no library row, a completion with a suspicious unlock on its platform is no
- * completion, and `all` counts each game once however many platforms it is on.
+ * with an unlock but no library row, and `all` counts each game once however many platforms it is
+ * on. `perfectGames` ("Platinas e 100%") is the profile's Platinas, one per list.
  * Hours are the raw hours the platforms report (product ruling): the anti-idle caps of
  * lib/sync/playtime.ts limit the XP they pay, not the Horas jogadas ranking.
  */
 export function computeRankStats(input: RankStatsInput): Record<RankScope, RankStatsValues> {
   const result = {} as Record<RankScope, RankStatsValues>;
   for (const scope of RANK_SCOPES) {
-    const games = new Map<string, { playtimeMin: number; unlocked: boolean; completed: boolean }>();
+    const games = new Map<string, { playtimeMin: number; unlocked: boolean }>();
     const accOf = (gameId: string) => {
       let acc = games.get(gameId);
       if (!acc) {
-        acc = { playtimeMin: 0, unlocked: false, completed: false };
+        acc = { playtimeMin: 0, unlocked: false };
         games.set(gameId, acc);
       }
       return acc;
@@ -69,7 +72,6 @@ export function computeRankStats(input: RankStatsInput): Record<RankScope, RankS
       if (!inScope(scope, g.platform)) continue;
       const acc = accOf(g.gameId);
       acc.playtimeMin += Math.max(0, g.playtimeMin);
-      if (g.completedAt && !input.taintedKeys.has(`${g.gameId}:${g.platform}`)) acc.completed = true;
     }
 
     const all = [...games.values()];
@@ -79,7 +81,7 @@ export function computeRankStats(input: RankStatsInput): Record<RankScope, RankS
       achievements,
       rareAchievements: rare,
       legendaryAchievements: legendary,
-      perfectGames: all.filter((g) => g.completed).length,
+      perfectGames: scope === "all" ? input.platinums.platinums : (input.platinums.byPlatform[scope] ?? 0),
       gamesOwned: all.length,
       gamesPlayed: played,
       acervo: acervoPoints(played, all.length - played),

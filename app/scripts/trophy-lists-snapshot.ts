@@ -1,6 +1,6 @@
 /**
  * Per-user numbers of the trophy-list migration, taken before and after each phase: Steam unlocks
- * and Steam trophy XP (must never change), PSN/Xbox/RA unlocks, platinums, regional extras, total
+ * and Steam trophy XP (must never change), PSN/Xbox/RA unlocks, platinums (PSN's separately), total
  * XP and level (lib/trophies/numbers.ts). Read-only.
  *
  * Production: use the direct URL (DATABASE_URL_UNPOOLED), not the pooled one.
@@ -9,7 +9,8 @@
  *       -> C:\Users\luck_\tralked-backups\snapshot-a-antes.json (refuses an existing label
  *          unless --force)
  *   pnpm trophy-lists:snapshot --compare a-antes a-depois
- *       -> prints the differences (no database); exits 1 when a Steam number differs
+ *       -> prints the differences (no database); exits 1 when a Steam number differs beyond the
+ *          Steam unlocks of unknown date (steam:dateless adds those: one "Steam sem data" line each)
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -43,13 +44,13 @@ if (values.compare) {
     return JSON.parse(readFileSync(file, "utf8")) as Snapshot;
   };
   const [a, b] = positionals;
-  const { lines, steamChanged } = compareSnapshots(read(a), read(b));
+  const { lines, steamChanged, steamUndatedChanged } = compareSnapshots(read(a), read(b));
   console.log(lines.length > 0 ? lines.join("\n") : "No differences.");
   if (steamChanged) {
     console.error("A Steam number differs: the Steam data must not change.");
     process.exit(1);
   }
-  console.log("Steam: identical.");
+  console.log(steamUndatedChanged ? "Steam: identical apart from the undated unlocks (Steam sem data)." : "Steam: identical.");
   process.exit(0);
 }
 
@@ -77,8 +78,8 @@ try {
   writeFileSync(file, `${JSON.stringify(snapshot, null, 2)}\n`);
   for (const u of users) {
     console.log(
-      `${u.handle}: steam ${u.steamUnlocks} (${u.steamXp} XP), psn ${u.psnUnlocks}, xbox ${u.xboxUnlocks}, ` +
-        `retro ${u.retroUnlocks}, platinums ${u.platinums}, regional extras ${u.regionalExtras}, XP ${u.totalXp}, level ${u.level}`,
+      `${u.handle}: steam ${u.steamUnlocks} (${u.steamXp} XP; sem data ${u.steamUndatedUnlocks}, ${u.steamUndatedXp} XP), psn ${u.psnUnlocks}, xbox ${u.xboxUnlocks}, ` +
+        `retro ${u.retroUnlocks}, platinums ${u.platinums} (${u.psnPlatinums} on PSN), XP ${u.totalXp}, level ${u.level}`,
     );
   }
   console.log(`Snapshot of ${users.length} users written to ${file}.`);
