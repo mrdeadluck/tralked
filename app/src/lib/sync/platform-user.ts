@@ -90,7 +90,8 @@ async function assertStillLinked(tx: Prisma.TransactionClient, account: AccountS
 /** `fraudReview` "cleared": an admin released the unlock, so the rules no longer flag it. */
 type KnownUnlock = {
   achievementId: string;
-  unlockedAt: Date;
+  /** Never null for these platforms (they date every unlock); the column allows it for Steam. */
+  unlockedAt: Date | null;
   suspicious: boolean;
   hardcore: boolean;
   fraudReview: string | null;
@@ -791,6 +792,7 @@ export async function syncPlatformAccount(
   ]);
   const everyUnlock = new Map<string, { achievementId: string; unlockedAt: Date }>();
   for (const { achievement: a, achievementId, unlockedAt } of unlockRows) {
+    if (!unlockedAt) continue;
     if (a.listId) everyUnlock.set(listKey(a.listId, a.apiName), { achievementId, unlockedAt });
     else if (!listedGames.has(a.gameId)) everyUnlock.set(`${a.gameId}:${a.apiName}`, { achievementId, unlockedAt });
   }

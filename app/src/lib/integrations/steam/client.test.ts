@@ -234,19 +234,22 @@ describe("steam client", () => {
     await expect(setup({}, 500).client.getGlobalAchievementPercentages(1)).rejects.toThrow(/HTTP 500/);
   });
 
-  it("getPlayerAchievements maps unlock times (0 = locked)", async () => {
+  it("getPlayerAchievements maps achieved and unlock times (achieved with unlocktime 0 = date unknown)", async () => {
     const { client, lastUrl } = setup({
       playerstats: {
         success: true,
         achievements: [
           { apiname: "A1", achieved: 1, unlocktime: 1700000000 },
           { apiname: "A2", achieved: 0, unlocktime: 0 },
+          // Team Fortress 2, 2026-11-05: old achievements come achieved without a date.
+          { apiname: "A3", achieved: 1, unlocktime: 0 },
         ],
       },
     });
     await expect(client.getPlayerAchievements("765", 367520)).resolves.toEqual([
-      { apiName: "A1", unlockedAt: new Date(1700000000 * 1000) },
-      { apiName: "A2", unlockedAt: null },
+      { apiName: "A1", achieved: true, unlockedAt: new Date(1700000000 * 1000) },
+      { apiName: "A2", achieved: false, unlockedAt: null },
+      { apiName: "A3", achieved: true, unlockedAt: null },
     ]);
     const url = lastUrl();
     expect(url.pathname).toBe("/ISteamUserStats/GetPlayerAchievements/v1/");

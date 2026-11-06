@@ -112,11 +112,17 @@ describe("parsers", () => {
           name: "Falsehood",
           description: 'Defeat the "False" Knight',
           iconUrl: "https://shared.fastly.steamstatic.com/community_assets/images/apps/367520/fk_defeat.jpg",
+          achieved: true,
           unlockedAt: new Date(1757048535 * 1000),
         },
-        expect.objectContaining({ apiName: "charmed", unlockedAt: null }),
+        expect.objectContaining({ apiName: "charmed", achieved: false, unlockedAt: null }),
       ],
     });
+  });
+
+  it("closed without a timestamp is an unlock on an unknown date", () => {
+    const page = parseAchievementPage(statsXml(USER, achievement("tf_old", "Old", 1).replace("<unlockTimestamp>1</unlockTimestamp>", "")));
+    expect(page).toMatchObject({ status: "ok", achievements: [{ apiName: "tf_old", achieved: true, unlockedAt: null }] });
   });
 
   it("tells private pages from unavailable ones", () => {
@@ -145,8 +151,8 @@ describe("createSteamCommunity", () => {
     const { fetch, calls } = fakeFetch(hkPage, hkPercentages);
     const steam = createSteamCommunity({ fetch });
     await expect(steam.getPlayerAchievements(USER, 367520)).resolves.toEqual([
-      { apiName: "FK_DEFEAT", unlockedAt: new Date(1757048535 * 1000) },
-      { apiName: "CHARMED", unlockedAt: null },
+      { apiName: "FK_DEFEAT", achieved: true, unlockedAt: new Date(1757048535 * 1000) },
+      { apiName: "CHARMED", achieved: false, unlockedAt: null },
     ]);
     // Percentages are cached: a second read of the same app asks Steam once more for the page only.
     await steam.getPlayerAchievements(USER, 367520);
@@ -174,7 +180,7 @@ describe("createSteamCommunity", () => {
     );
     const steam = createSteamCommunity({ fetch });
     await expect(steam.getPlayerAchievements(USER, 440)).resolves.toEqual([
-      { apiName: "tf_play_game_everyclass", unlockedAt: new Date(1300000000 * 1000) },
+      { apiName: "tf_play_game_everyclass", achieved: true, unlockedAt: new Date(1300000000 * 1000) },
     ]);
     expect(calls[1]).toBe("https://steamcommunity.com/id/diguzzz/stats/TF2/achievements/?xml=1");
     await expect(steam.getPlayerAchievements(USER, 228980)).resolves.toEqual([]);

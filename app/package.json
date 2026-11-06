@@ -19,6 +19,7 @@
     "psn:compare": "tsx scripts/psn-compare.ts",
     "catalog:bootstrap": "tsx scripts/catalog-bootstrap.ts",
     "steam:import": "tsx scripts/import-steam-profile.ts",
+    "steam:dateless": "tsx scripts/steam-dateless.ts",
     "user:invite": "tsx scripts/invite-user.ts",
     "api:key": "tsx scripts/create-api-key.ts",
     "comments:recount": "tsx scripts/recount-article-comments.ts",

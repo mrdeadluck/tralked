@@ -78,7 +78,10 @@ function installSteam() {
     async getPlayerAchievements(_steamId, appId) {
       steamState.asked.push(appId);
       if (steamState.privateGame) return "private";
-      return Object.keys(PCTS).map((apiName) => ({ apiName, unlockedAt: steamState.unlocks[apiName] ?? null }));
+      return Object.keys(PCTS).map((apiName) => {
+        const unlockedAt = steamState.unlocks[apiName] ?? null;
+        return { apiName, achieved: unlockedAt !== null, unlockedAt };
+      });
     },
     async getWishlist() {
       return [];

@@ -157,18 +157,21 @@ async function loadUnlockEvents(userId: string, from: Date, to?: Date) {
     ...countedUnlocks([...inWindow, ...earlier].filter((r) => !r.suspicious)),
     ...inWindow.filter((r) => r.suspicious),
   ]);
-  return inWindow
-    .filter((r) => counted.has(r))
-    .map(
-      (r): UnlockEvent => ({
-        achievementId: r.achievementId,
-        gameId: r.achievement.gameId,
-        globalPct: r.achievement.globalPct,
-        skills: r.achievement.game.skills.map((s) => s.skill as SkillId),
-        unlockedAt: r.unlockedAt,
-        suspicious: r.suspicious,
-      }),
-    );
+  // The date window already leaves undated unlocks out (NULL is in no range).
+  return inWindow.flatMap((r): UnlockEvent[] =>
+    counted.has(r) && r.unlockedAt
+      ? [
+          {
+            achievementId: r.achievementId,
+            gameId: r.achievement.gameId,
+            globalPct: r.achievement.globalPct,
+            skills: r.achievement.game.skills.map((s) => s.skill as SkillId),
+            unlockedAt: r.unlockedAt,
+            suspicious: r.suspicious,
+          },
+        ]
+      : [],
+  );
 }
 
 /**
@@ -257,6 +260,11 @@ async function applyMissions(userId: string, now: Date, topSkills: SkillId[]): P
   }
   return completedAny;
 }
+
+/** Distinct local days (America/Sao_Paulo) of these unlocks; undated ones have none. */
+export const unlockDays = (unlocks: { unlockedAt: Date | null }[]): string[] => [
+  ...new Set(unlocks.flatMap((u) => (u.unlockedAt ? [toLocalDay(u.unlockedAt)] : []))),
+];
 
 /** Valid (non-suspicious) unlocks of every platform, with what the attributes need. */
 function loadValidUnlocks(userId: string) {
@@ -395,10 +403,11 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
 
   // Once per console: the same PSN trophy in two regional lists counts one time in attributes and
   // rank stats. Streak and active days take every valid unlock: playing is playing (as hours are),
-  // so a day whose only unlock is a second region's copy is still an active day.
+  // so a day whose only unlock is a second region's copy is still an active day. Unlocks on an
+  // unknown date count everywhere but there (no day to put them on).
   const valid = await loadValidUnlocks(userId);
   const unlocks = countedUnlocks(valid);
-  const days = [...new Set(valid.map((u) => toLocalDay(u.unlockedAt)))];
+  const days = unlockDays(valid);
   const streak = computeStreak(days, toLocalDay(now));
   const attributes = computeAttributes(
     await attributeInput(
@@ -572,8 +581,7 @@ export async function voidFraudEntries(
     return count + listedVoided;
   }, TRANSACTION_OPTIONS);
 
-  const days = [...new Set(unlocks.map((u) => toLocalDay(u.unlockedAt)))];
-  const missionsVoided = await revalidateMissions(userId, days, now);
+  const missionsVoided = await revalidateMissions(userId, unlockDays(unlocks), now);
 
   await recomputeUser(userId, now);
   return voided + missionsVoided;

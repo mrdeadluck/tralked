@@ -281,10 +281,14 @@ export async function settleListXp(
     where: { gameId: { in: ids }, platform },
     select: { id: true, gameId: true, listId: true, apiName: true, globalPct: true, points: true, trophyTier: true },
   });
-  const unlocks = await tx.userAchievement.findMany({
-    where: { userId, achievement: { gameId: { in: ids }, platform } },
-    select: { achievementId: true, unlockedAt: true, suspicious: true, hardcore: true },
-  });
+  // PSN/Xbox/RA syncs date every unlock (seenAt at worst): only Steam keeps unknown dates. Were one
+  // null here, its entry would be dated at this settle, as Steam's undated ones are.
+  const unlocks = (
+    await tx.userAchievement.findMany({
+      where: { userId, achievement: { gameId: { in: ids }, platform } },
+      select: { achievementId: true, unlockedAt: true, suspicious: true, hardcore: true },
+    })
+  ).map((u) => ({ ...u, unlockedAt: u.unlockedAt ?? now }));
   const progress = await tx.userTrophyList.findMany({
     where: { userId, list: { gameId: { in: ids }, platform } },
     select: { listId: true, completedAt: true },

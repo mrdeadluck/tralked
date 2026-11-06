@@ -539,7 +539,11 @@ model SyncCursor {
 model UserAchievement {
   userId          String
   achievementId   String
-  unlockedAt      DateTime
+  /// When it was earned. NULL: earned on a date the platform does not know (Steam answers
+  /// achieved=1 with unlocktime=0 for old achievements, e.g. Team Fortress 2 before 2009): it
+  /// counts in totals and pays XP ("data desconhecida") but stays out of everything dated
+  /// (timeline, streak and active days, missions, recents, first unlock, per-period charts).
+  unlockedAt      DateTime?
   suspicious      Boolean     @default(false)
   /// RetroAchievements: unlocked in hardcore mode.
   hardcore        Boolean     @default(false)
@@ -619,6 +623,10 @@ model XpLedgerEntry {
   skillPoints Json?
   /// psn | xbox | retro; NULL for Steam entries and for entries not tied to a platform (see above).
   platform    String?
+  /// Pays an unlock whose date is unknown (Steam achievement with unlocktime 0, or the platinum of
+  /// a completion that includes one): `createdAt` is when Tralked recorded it, so the entry counts
+  /// in the total but is left out of every time window (XP of the week, weekly highscores).
+  dateUnknown Boolean   @default(false)
   voidedAt    DateTime?
   createdAt   DateTime  @default(now())
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -53,8 +53,8 @@ const DAY = 86_400_000;
 type FakeGame = {
   /** apiName -> global percentage */
   pcts: Record<string, number>;
-  /** apiName -> unlock time (null/absent = locked) */
-  unlocks: Record<string, Date | null>;
+  /** apiName -> unlock time (null/absent = locked; "undated": achieved, unlocktime 0) */
+  unlocks: Record<string, Date | "undated" | null>;
   playtimeMin?: number;
   /** Library name (default `Jogo de Teste <appid>`; null: none). */
   name?: string | null;
@@ -117,10 +117,10 @@ function fakeSteam(games: Record<number, FakeGame>): FakeSteam {
       if (state.privateGames.has(appId)) return "private";
       const g = state.games.get(appId);
       if (!g) return [];
-      return Object.keys(g.pcts).map((apiName) => ({
-        apiName,
-        unlockedAt: g.unlocks[apiName] ?? null,
-      }));
+      return Object.keys(g.pcts).map((apiName) => {
+        const unlock = g.unlocks[apiName] ?? null;
+        return { apiName, achieved: unlock !== null, unlockedAt: unlock === "undated" ? null : unlock };
+      });
     },
     async getWishlist() {
       return state.wishlist;
@@ -315,7 +315,7 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(library[0]).toMatchObject({ unlockedCount: 2, playtimeMin: 0 });
     expect(await prisma.game.count({ where: { steamAppId: outside } })).toBe(0);
     const unlocks = await prisma.userAchievement.findMany({ where: { userId: user.id }, include: { achievement: true } });
-    expect(unlocks.map((u) => u.unlockedAt.toISOString()).sort()).toEqual([
+    expect(unlocks.map((u) => u.unlockedAt?.toISOString()).sort()).toEqual([
       "2022-05-01T10:00:00.000Z",
       "2022-06-01T10:00:00.000Z",
     ]);
@@ -915,6 +915,141 @@ describe.skipIf(!reachable)("syncUser", () => {
     await syncUser(user.id);
     expect((await rowOf(noDate)).lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
     expect((await getRecentlyPlayed(user.id))[0].name).toBe(`Jogo de Teste ${noDate}`);
+  });
+
+  it("an achievement Steam gives as earned without a date is kept: no date, counts, pays XP dated at record time and marked", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { weeklyXpOf } = await import("@/lib/highscores/queries");
+    const appId = newAppId();
+    const dated = new Date("2019-03-01T10:00:00Z");
+    // Team Fortress 2 on 2026-11-05: achieved=1 with unlocktime 0 for its old achievements.
+    steamState.api = fakeSteam({
+      [appId]: { pcts: pctsOf(4, 10), playtimeMin: 60, unlocks: { A0: dated, A1: "undated", A2: "undated" } },
+    }).api;
+    const user = await newUser();
+    const started = Date.now();
+
+    const result = await syncUser(user.id);
+
+    expect(result.newUnlocks).toBe(3);
+    const unlocks = await prisma.userAchievement.findMany({
+      where: { userId: user.id },
+      include: { achievement: { select: { apiName: true } } },
+    });
+    expect(Object.fromEntries(unlocks.map((u) => [u.achievement.apiName, u.unlockedAt]))).toEqual({
+      A0: dated,
+      A1: null,
+      A2: null,
+    });
+    const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+    const userGame = await prisma.userGame.findUniqueOrThrow({
+      where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
+    });
+    // The newest dated unlock dates the game, not the record time.
+    expect(userGame).toMatchObject({ unlockedCount: 3, completedAt: null, lastPlayedAt: dated });
+
+    const ledger = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, source: "achievement" } });
+    expect(ledger).toHaveLength(3);
+    const idOf = new Map(unlocks.map((u) => [u.achievementId, u.achievement.apiName]));
+    for (const entry of ledger) {
+      expect(entry.xp).toBe(xpForAchievement(10));
+      if (idOf.get(entry.sourceKey) === "A0") {
+        expect(entry).toMatchObject({ dateUnknown: false, createdAt: dated });
+      } else {
+        expect(entry.dateUnknown).toBe(true);
+        expect(entry.createdAt.getTime()).toBeGreaterThanOrEqual(started - 1000);
+      }
+    }
+    const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
+    expect(stats.totalXp).toBe(3 * xpForAchievement(10));
+    // Recorded today, but not earned today: no streak, and no XP of the week.
+    expect(stats).toMatchObject({ streakCurrent: 0 });
+    expect(await weeklyXpOf(user.id)).toBe(0);
+    // The trophy-lists snapshot tells the undated part of the Steam numbers apart.
+    const { userNumbers } = await import("@/lib/trophies/numbers");
+    expect(await userNumbers([user.id])).toEqual([
+      expect.objectContaining({
+        steamUnlocks: 3,
+        steamXp: 3 * xpForAchievement(10),
+        steamUndatedUnlocks: 2,
+        steamUndatedXp: 2 * xpForAchievement(10),
+      }),
+    ]);
+  });
+
+  it("a date Steam gives later fills the unknown one in without paying again; a known date is never erased", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const appId = newAppId();
+    const known = new Date("2020-01-01T10:00:00Z");
+    const fake = fakeSteam({ [appId]: { pcts: pctsOf(3, 10), playtimeMin: 60, unlocks: { A0: "undated", A1: known } } });
+    steamState.api = fake.api;
+    const user = await newUser();
+    await syncUser(user.id);
+    const ledgerBefore = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } });
+
+    // Steam now dates A0 and (oddly) loses A1's date; more hours so the game is read again.
+    const later = new Date("2021-06-01T10:00:00Z");
+    fake.games.get(appId)!.unlocks = { A0: later, A1: "undated" };
+    fake.games.get(appId)!.playtimeMin = 120;
+    const second = await syncUser(user.id);
+
+    expect(second.newUnlocks).toBe(0);
+    const unlocks = await prisma.userAchievement.findMany({
+      where: { userId: user.id },
+      include: { achievement: { select: { apiName: true } } },
+    });
+    expect(Object.fromEntries(unlocks.map((u) => [u.achievement.apiName, u.unlockedAt]))).toEqual({ A0: later, A1: known });
+    expect(await prisma.xpLedgerEntry.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } })).toEqual(ledgerBefore);
+  });
+
+  it("a completion with undated unlocks pays the platinum once, marked; completion is the newest dated unlock", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const [mixed, allUndated] = [newAppId(), newAppId()];
+    const dated = new Date("2012-02-02T10:00:00Z");
+    steamState.api = fakeSteam({
+      [mixed]: { pcts: { A0: 10, A1: 20 }, playtimeMin: 60, unlocks: { A0: "undated", A1: dated } },
+      [allUndated]: { pcts: { A0: 10, A1: 20 }, playtimeMin: 60, unlocks: { A0: "undated", A1: "undated" } },
+    }).api;
+    const user = await newUser();
+    const started = Date.now();
+
+    await syncUser(user.id);
+    await syncUser(user.id);
+
+    for (const appId of [mixed, allUndated]) {
+      const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+      const platinum = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, source: "platinum", sourceKey: game.id } });
+      expect(platinum).toHaveLength(1);
+      expect(platinum[0]).toMatchObject({ dateUnknown: true, xp: platinumBonus([xpForAchievement(10), xpForAchievement(20)]) });
+      expect(platinum[0].createdAt.getTime()).toBeGreaterThanOrEqual(started - 1000);
+      const userGame = await prisma.userGame.findUniqueOrThrow({
+        where: { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } },
+      });
+      expect(userGame.unlockedCount).toBe(2);
+      if (appId === mixed) expect(userGame.completedAt).toEqual(dated);
+      else expect(userGame.completedAt!.getTime()).toBeGreaterThanOrEqual(started - 1000);
+    }
+  });
+
+  it("probing without a key keeps a game whose only unlocks are undated", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const { syncGame } = await import("./catalog");
+    const appId = newAppId();
+    const fake = fakeSteam({ [appId]: { pcts: pctsOf(2, 20), unlocks: { A1: "undated" } } });
+    fake.ownedUnsupported = true;
+    steamState.api = fake.api;
+    await syncGame(appId);
+    const user = await newUser();
+
+    await syncUser(user.id);
+
+    const unlocks = await prisma.userAchievement.findMany({ where: { userId: user.id } });
+    expect(unlocks).toHaveLength(1);
+    expect(unlocks[0].unlockedAt).toBeNull();
   });
 
   it("a game without a Steam date but with hours in the last two weeks is dated now, once per two weeks", async () => {

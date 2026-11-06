@@ -42,7 +42,7 @@ describe.skipIf(!reachable)("profile queries (seeded database)", () => {
     const ids = all.flatMap((p) => p.items.map((a) => a.id));
     expect(ids).toHaveLength(valid);
     expect(new Set(ids).size).toBe(valid);
-    const dates = all.flatMap((p) => p.items.map((a) => a.unlockedAt.getTime()));
+    const dates = all.flatMap((p) => p.items.map((a) => a.unlockedAt!.getTime()));
     expect(dates).toEqual([...dates].sort((a, b) => b - a));
 
     // A page past the end shows the last one.
@@ -106,5 +106,48 @@ describe.skipIf(!reachable)("profile queries (seeded database)", () => {
     expect(stats.averageCompletion!).toBeGreaterThanOrEqual(0);
     expect(stats.averageCompletion!).toBeLessThanOrEqual(100);
     expect(await getProfileSummary("nobody")).toBeNull();
+  });
+
+  it("an unlock of unknown date is listed last in every order and counts, but is in no year", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { getProfileStats, listUserAchievements } = await import("./queries");
+    const slug = "test-profile-undated";
+    await prisma.user.deleteMany({ where: { handle: "test_profile_undated" } });
+    await prisma.game.deleteMany({ where: { slug } });
+    const user = await prisma.user.create({ data: { handle: "test_profile_undated", displayName: "Undated" } });
+    const game = await prisma.game.create({
+      data: {
+        slug,
+        name: "Undated",
+        achievementCount: 3,
+        platforms: ["PC"],
+        achievements: { create: ["A", "B", "C"].map((apiName) => ({ apiName, name: apiName, globalPct: 30 })) },
+      },
+      include: { achievements: { orderBy: { apiName: "asc" } } },
+    });
+    const [a, b, c] = game.achievements;
+    await prisma.userAchievement.createMany({
+      data: [
+        { userId: user.id, achievementId: a.id, unlockedAt: new Date("2020-01-01T12:00:00Z") },
+        { userId: user.id, achievementId: b.id, unlockedAt: null },
+        { userId: user.id, achievementId: c.id, unlockedAt: new Date("2024-01-01T12:00:00Z") },
+      ],
+    });
+    try {
+      for (const sort of ["recentes", "antigas", "raras"] as const) {
+        const { items, total } = await listUserAchievements(user.id, {}, { sort });
+        expect(total).toBe(3);
+        expect(items.at(-1)).toMatchObject({ name: "B", unlockedAt: null });
+      }
+      const stats = await getProfileStats(user.id);
+      expect(stats.achievements).toBe(3);
+      expect(stats.achievementsByYear).toEqual([
+        { year: 2020, count: 1 },
+        { year: 2024, count: 1 },
+      ]);
+    } finally {
+      await prisma.user.delete({ where: { id: user.id } });
+      await prisma.game.delete({ where: { id: game.id } });
+    }
   });
 });

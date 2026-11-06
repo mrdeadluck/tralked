@@ -135,7 +135,8 @@ type Window = { where?: object; take: number; reverse?: boolean };
 type WeeklyRow = { userId: string; xp: number };
 
 /**
- * XP of the last 7 days per public player (ledger entries by `createdAt`, voided ones left out),
+ * XP of the last 7 days per public player (ledger entries by `createdAt`, voided ones and those
+ * paying an unlock of unknown date left out: they are dated when Tralked recorded them),
  * most first; `above` keeps only totals over it (closest first when `reverse`). Indexed by
  * XpLedgerEntry(createdAt): only the window's entries are read.
  */
@@ -146,7 +147,7 @@ async function weeklyTotals(
 ): Promise<WeeklyRow[]> {
   const groups = await db.xpLedgerEntry.groupBy({
     by: ["userId"],
-    where: { createdAt: { gte: weekStart(now), lte: now }, voidedAt: null, user: { profilePublic: true } },
+    where: { createdAt: { gte: weekStart(now), lte: now }, voidedAt: null, dateUnknown: false, user: { profilePublic: true } },
     _sum: { xp: true },
     having: { xp: { _sum: { gt: options.above ?? 0 } } },
     orderBy: [{ _sum: { xp: options.reverse ? "asc" : "desc" } }, { userId: "asc" }],
@@ -166,10 +167,10 @@ export const COMMUNITY_SOURCES = [
   "guide_vote",
 ];
 
-/** XP a player earned in the last 7 days (0 when none). */
+/** XP a player earned in the last 7 days (0 when none; unlocks of unknown date never count). */
 export async function weeklyXpOf(userId: string, now: Date = new Date(), db: Db = prisma): Promise<number> {
   const sum = await db.xpLedgerEntry.aggregate({
-    where: { userId, createdAt: { gte: weekStart(now), lte: now }, voidedAt: null },
+    where: { userId, createdAt: { gte: weekStart(now), lte: now }, voidedAt: null, dateUnknown: false },
     _sum: { xp: true },
   });
   return sum._sum.xp ?? 0;

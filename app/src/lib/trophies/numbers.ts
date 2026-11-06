@@ -13,6 +13,12 @@ export type UserNumbers = {
   steamUnlocks: number;
   /** Valid Steam trophy XP: ledger `platform IS NULL`, source achievement/platinum, not voided. */
   steamXp: number;
+  /**
+   * The part of `steamUnlocks` earned on an unknown date (unlockedAt NULL) and of `steamXp` paid
+   * for them (`dateUnknown` entries). Absent in snapshots taken before they existed.
+   */
+  steamUndatedUnlocks?: number;
+  steamUndatedXp?: number;
   psnUnlocks: number;
   xboxUnlocks: number;
   retroUnlocks: number;
@@ -34,13 +40,14 @@ export async function userNumbers(userIds?: string[]): Promise<UserNumbers[]> {
   const ids = users.map((u) => u.id);
   if (ids.length === 0) return [];
   const [unlocks, steamXp] = await Promise.all([
-    prisma.$queryRaw<{ userId: string; platform: string; count: bigint }[]>`
-      SELECT ua."userId", a.platform, COUNT(*) AS count
+    prisma.$queryRaw<{ userId: string; platform: string; count: bigint; undated: bigint }[]>`
+      SELECT ua."userId", a.platform, COUNT(*) AS count, COUNT(*) FILTER (WHERE ua."unlockedAt" IS NULL) AS undated
       FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId"
       WHERE ua."userId" = ANY(${ids}::text[])
       GROUP BY ua."userId", a.platform`,
-    prisma.$queryRaw<{ userId: string; xp: bigint }[]>`
-      SELECT "userId", COALESCE(SUM(xp), 0)::bigint AS xp
+    prisma.$queryRaw<{ userId: string; xp: bigint; undated: bigint }[]>`
+      SELECT "userId", COALESCE(SUM(xp), 0)::bigint AS xp,
+        COALESCE(SUM(xp) FILTER (WHERE "dateUnknown"), 0)::bigint AS undated
       FROM "XpLedgerEntry"
       WHERE "userId" = ANY(${ids}::text[]) AND platform IS NULL
         AND source IN ('achievement', 'platinum') AND "voidedAt" IS NULL
@@ -48,6 +55,8 @@ export async function userNumbers(userIds?: string[]): Promise<UserNumbers[]> {
   ]);
   const count = (userId: string, platform: string) =>
     Number(unlocks.find((u) => u.userId === userId && u.platform === platform)?.count ?? 0);
+  const steamUndated = (userId: string) =>
+    Number(unlocks.find((u) => u.userId === userId && u.platform === "steam")?.undated ?? 0);
   const out: UserNumbers[] = [];
   for (const u of users) {
     const [natives, completions, extras] = await Promise.all([
@@ -55,11 +64,14 @@ export async function userNumbers(userIds?: string[]): Promise<UserNumbers[]> {
       validCompletions(u.id),
       regionalExtras(u.id),
     ]);
+    const xp = steamXp.find((x) => x.userId === u.id);
     out.push({
       userId: u.id,
       handle: u.handle,
       steamUnlocks: count(u.id, "steam"),
-      steamXp: Number(steamXp.find((x) => x.userId === u.id)?.xp ?? 0),
+      steamXp: Number(xp?.xp ?? 0),
+      steamUndatedUnlocks: steamUndated(u.id),
+      steamUndatedXp: Number(xp?.undated ?? 0),
       psnUnlocks: count(u.id, "psn"),
       xboxUnlocks: count(u.id, "xbox"),
       retroUnlocks: count(u.id, "retro"),

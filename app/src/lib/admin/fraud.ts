@@ -35,8 +35,9 @@ export type FraudCase = FraudCaseKey & {
   unlocks: number;
   /** Achievements of the game on that platform. */
   total: number;
-  firstAt: Date;
-  lastAt: Date;
+  /** Earliest and latest known unlock date; null when every unlock of the case is undated. */
+  firstAt: Date | null;
+  lastAt: Date | null;
   /** XP currently counted for these unlocks (entries paid before they were flagged). */
   paidXp: number;
   playtimeMin: number | null;
@@ -62,14 +63,15 @@ export async function listFraudCases(): Promise<FraudCase[]> {
       achievement: { select: { gameId: true, platform: true } },
     },
   });
-  const groups = new Map<string, { key: FraudCaseKey; ids: string[]; firstAt: Date; lastAt: Date }>();
+  const groups = new Map<string, { key: FraudCaseKey; ids: string[]; firstAt: Date | null; lastAt: Date | null }>();
   for (const r of rows) {
     const key = { userId: r.userId, gameId: r.achievement.gameId, platform: r.achievement.platform as FraudCaseKey["platform"] };
     const id = `${key.userId}|${key.gameId}|${key.platform}`;
-    const group = groups.get(id) ?? { key, ids: [], firstAt: r.unlockedAt, lastAt: r.unlockedAt };
+    const group = groups.get(id) ?? { key, ids: [], firstAt: null, lastAt: null };
     group.ids.push(r.achievementId);
-    if (r.unlockedAt < group.firstAt) group.firstAt = r.unlockedAt;
-    if (r.unlockedAt > group.lastAt) group.lastAt = r.unlockedAt;
+    const at = r.unlockedAt;
+    if (at && (!group.firstAt || at < group.firstAt)) group.firstAt = at;
+    if (at && (!group.lastAt || at > group.lastAt)) group.lastAt = at;
     groups.set(id, group);
   }
   if (groups.size === 0) return [];
@@ -224,7 +226,9 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
               platform: ledgerPlatform,
               xp: xpOf(a, u.hardcore),
               skills,
-              createdAt: u.unlockedAt,
+              // As the sync: an undated unlock is dated now and kept out of the time windows.
+              createdAt: u.unlockedAt ?? now,
+              dateUnknown: u.unlockedAt === null,
             },
           ]
         : [];
@@ -238,7 +242,10 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
       key.platform === "steam" && game.achievementCount > 0 ? game.achievementCount : game.achievements.length;
     const clean = unlocks.filter((u) => !u.suspicious);
     if (total > 0 && clean.length >= total) {
-      const completedAt = new Date(Math.max(...clean.map((u) => u.unlockedAt.getTime())));
+      // As the sync: the newest dated unlock (undated ones are older), or now when none is dated.
+      const dated = clean.flatMap((u) => (u.unlockedAt ? [u.unlockedAt.getTime()] : []));
+      const undated = dated.length < clean.length;
+      const completedAt = dated.length > 0 ? new Date(Math.max(...dated)) : now;
       await tx.userGame.updateMany({
         where: { userId: key.userId, gameId: key.gameId, platform: key.platform },
         data: { completedAt },
@@ -251,7 +258,8 @@ export async function releaseFraud(key: FraudCaseKey, now: Date = new Date()): P
         // Over the unlocked (upstream) achievements, as the syncs compute it: orphans add nothing.
         xp: platinumBonus(clean.flatMap((u) => achievementById.get(u.achievementId) ?? []).map((a) => xpOf(a, false))),
         skills,
-        createdAt: completedAt,
+        createdAt: undated ? now : completedAt,
+        dateUnknown: undated,
       });
     }
     // An entry voided earlier (e.g. by a past decision) is restored instead of being skipped by
@@ -306,7 +314,8 @@ async function releaseListed(
   const completion = (rows: { id: string }[]): Date | null => {
     const clean = rows.map((a) => unlockOf.get(a.id)).filter((u) => u && !u.suspicious);
     if (rows.length === 0 || clean.length < rows.length) return null;
-    return new Date(Math.max(...clean.map((u) => u!.unlockedAt.getTime())));
+    // These platforms date every unlock (see settleListXp); `now` only stands in for a missing date.
+    return new Date(Math.max(...clean.map((u) => (u!.unlockedAt ?? now).getTime())));
   };
 
   if (lists.length === 0) {
