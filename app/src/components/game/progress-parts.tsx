@@ -15,6 +15,12 @@ export const PROGRESS_CSS = `
 .gpg p a { color: var(--acc); text-decoration: underline; text-underline-offset: 3px; }
 .gpg-none b { font-size: 26px; text-transform: uppercase; }
 .gpg-none p { max-width: 34ch; line-height: 1.5; }
+/* Version rows under the disc (VersionRows), their caption and the sign-in line. */
+.gpv { display: grid; gap: 6px; width: 100%; }
+.vr-cap { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; width: 100%; }
+.vr-cap small { font-size: 12.5px; color: var(--muted); }
+.vr-login { font-size: 13.5px; color: var(--text-2); text-align: center; }
+.vr-login a { color: var(--acc); text-decoration: underline; text-underline-offset: 3px; }
 .gpt { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; width: 100%; max-width: 380px; margin: 0; padding: 0; list-style: none; }
 .gpt li { background: color-mix(in oklch, var(--surface) 85%, transparent); padding: 8px 4px; text-align: center; }
 .gpt svg { display: block; width: 14px; height: 14px; margin: 0 auto 2px; }

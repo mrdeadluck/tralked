@@ -90,6 +90,19 @@ A variedade de assuntos também deve seguir a da PXN, menos o que o Lucas tirou 
 
 Para entrar, uma imagem precisa passar no item 3 e em pelo menos um dos itens 1 ou 2.
 
+### Galeria em notícia de imagens novas (acréscimo do Lucas, 05/11)
+
+- **O problema:** "Rockstar solta novas imagens de GTA 6 com Jason e Lucia" falava da galeria oficial, com 38 ou 39 capturas, e não mostrou nenhuma. Quando a notícia é sobre imagens novas, as imagens têm que vir.
+- **Quando entra:** quando a notícia é sobre imagens ou galeria nova: novas imagens, screenshots, galeria, capturas, fotos oficiais, key art.
+- **Quais imagens:** as das fontes, pelas mesmas regras da capa:
+  - repetidas em mais de um site, ou vindas de origem oficial;
+  - aprovadas na conferência visual;
+  - sem quase-duplicatas;
+  - nunca a própria capa.
+- **Quantas:** até 8, hospedadas por nós, cada uma com "Divulgação/<Empresa>" e link. Com menos de 3 aprovadas, não há galeria: a matéria fica com capa e imagem do corpo.
+- **No site:** um bloco de galeria em grade (2 colunas no celular, 3 no computador). O clique abre a imagem grande, com Esc para fechar e as setas para navegar.
+- **Posição:** a galeria entra logo depois do primeiro parágrafo. Com galeria, não há imagem avulsa no corpo.
+
 ### Consoles e empresas
 
 - **Acervo próprio, pequeno**, com imagens oficiais:
@@ -183,8 +196,9 @@ As Pautas Tralked continuam no dia a dia, com as mesmas regras (até 2 por dia, 
      - a data.
    - O site mostra o post incorporado oficial do X. O script do X carrega só nas páginas que têm post.
    - Embaixo vai "Não carregou? Abrir no X". Se o script não carregar, aparece o texto guardado com o autor e o link.
-3. **Link de reserva no vídeo.** O bloco `video` passa a mostrar "Não carregou? Abrir no YouTube" embaixo do player.
-4. **Capa das matérias.** Hoje a capa é a primeira imagem do texto. Sem imagem, vira a arte do primeiro jogo ligado à matéria ou, sem jogo, a ilustração genérica. Com o robô colocando a imagem certa como primeira imagem, a capa sai certa sem mudar essa regra. Isso explica os dois erros do Sentinel:
+3. **Bloco de galeria** (`gallery`): de 3 a 12 imagens, cada uma com `url`, `alt`, `credit` e `creditUrl`; grade e imagem grande ao clicar. (Acréscimo de 05/11.)
+4. **Link de reserva no vídeo.** O bloco `video` passa a mostrar "Não carregou? Abrir no YouTube" embaixo do player.
+5. **Capa das matérias.** Hoje a capa é a primeira imagem do texto. Sem imagem, vira a arte do primeiro jogo ligado à matéria ou, sem jogo, a ilustração genérica. Com o robô colocando a imagem certa como primeira imagem, a capa sai certa sem mudar essa regra. Isso explica os dois erros do Sentinel:
    - **o Morrowind:** a matéria foi ligada a um jogo errado da série, cuja arte virou capa;
    - **os morros verdes:** como faltava imagem, o site usou a ilustração genérica.
 

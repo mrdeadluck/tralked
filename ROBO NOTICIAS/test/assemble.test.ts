@@ -88,6 +88,10 @@ function outline(blocks: ContentBlock[]): string[] {
         return `table:${b.header.join(",")}/${b.rows.length}`;
       case "achievement":
         return `achievement:${b.apiName}`;
+      case "post":
+        return "post";
+      case "gallery":
+        return "gallery";
       default:
         return b.type;
     }
@@ -95,35 +99,164 @@ function outline(blocks: ContentBlock[]): string[] {
 }
 
 describe("assemble: media", () => {
-  const image = { url: "https://images.igdb.com/igdb/image/upload/t_1080p/s1.jpg", alt: "Cena de Hollow Knight", credit: "Divulgação/Team Cherry" };
+  const cover = { url: "https://blob.test/cover.webp", alt: "Logotipo de Hollow Knight", credit: "Divulgação/Team Cherry" };
+  const bodyImage = { url: "https://blob.test/scene.webp", alt: "Cena de Hollow Knight", credit: "Divulgação/Team Cherry" };
   const trailer = { youtubeId: "TTTTTTTTTTT", title: "Vídeo de Hollow Knight" };
   const video = { youtubeId: "AAAAAAAAAAA", title: "Hollow Knight 1.6 - Official Trailer" };
 
-  it("puts catalog art after the lede and the trailer after the body, and the site accepts it", () => {
-    const payload = assemble(draft(), story, { ...opts(), media: { image, trailer } });
-    expect(payload.blocks[0]!.type).toBe("paragraph");
-    expect(payload.blocks[1]).toEqual({ type: "image", ...image });
+  it("lede, cover, the story's video, the body with the body image after its 3rd block, then the trailer", () => {
+    const payload = assemble(draft(), story, { ...opts(), media: { cover, video, bodyImage } });
+    expect(outline(payload.blocks).slice(0, 7)).toEqual([
+      "p:A Team Cherry lançou nesta sexta a versão 1.6 de Hollow Knight.",
+      "image",
+      "video",
+      "h2:O que muda",
+      "list:Modo de desafio | Correções",
+      "image",
+      "quote:Queríamos agradecer a comunidade — Team Cherry",
+    ]);
+    expect(payload.blocks[1]).toEqual({ type: "image", ...cover });
+    expect(payload.blocks[5]).toEqual({ type: "image", ...bodyImage });
+    expect(articlePayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("the cover is the first image block, and the trailer closes the body when there is no video", () => {
+    const payload = assemble(draft(), story, { ...opts(), media: { cover, bodyImage, trailer } });
+    expect(payload.blocks.find((b) => b.type === "image")).toEqual({ type: "image", ...cover });
     const trailerAt = payload.blocks.findIndex((b) => b.type === "video");
     expect(payload.blocks[trailerAt - 1]!.type).toBe("table");
     expect(payload.blocks[trailerAt + 1]).toEqual({ type: "heading", level: 2, text: "No Tralked" });
     expect(articlePayloadSchema.safeParse(payload).success).toBe(true);
   });
 
-  it("the story's own video replaces catalog art and trailer", () => {
-    const payload = assemble(draft(), story, { ...opts(), media: { video, image, trailer } });
+  it("the story's own video replaces the catalog trailer", () => {
+    const payload = assemble(draft(), story, { ...opts(), media: { video, trailer } });
     expect(payload.blocks[1]).toEqual({ type: "video", ...video });
-    expect(payload.blocks.filter((b) => b.type === "video" || b.type === "image")).toHaveLength(1);
+    expect(payload.blocks.filter((b) => b.type === "video")).toHaveLength(1);
+  });
+
+  it("a body image equal to the cover is not repeated", () => {
+    const payload = assemble(draft(), story, { ...opts(), media: { cover, bodyImage: { ...cover } } });
+    expect(payload.blocks.filter((b) => b.type === "image")).toHaveLength(1);
+  });
+
+  it("keeps an https creditUrl and drops any other", () => {
+    const linked = assemble(draft(), story, { ...opts(), media: { cover: { ...cover, creditUrl: "https://news.xbox.com/a" } } });
+    expect(linked.blocks[1]).toEqual({ type: "image", ...cover, creditUrl: "https://news.xbox.com/a" });
+    expect(articlePayloadSchema.safeParse(linked).success).toBe(true);
+    const insecure = assemble(draft(), story, { ...opts(), media: { cover: { ...cover, creditUrl: "http://news.xbox.com/a" } } });
+    expect(insecure.blocks[1]).toEqual({ type: "image", ...cover });
+    const script = assemble(draft(), story, { ...opts(), media: { cover: { ...cover, creditUrl: "javascript:alert(1)" } } });
+    expect(script.blocks[1]).toEqual({ type: "image", ...cover });
+  });
+
+  const post = {
+    url: "https://x.com/ToddHoward/status/1850000000000000002",
+    authorName: "Todd Howard",
+    authorHandle: "ToddHoward",
+    text: "Sentinel is the next chapter.",
+    postedAt: "2026-11-03T12:00:00.000Z",
+  };
+  const quoting = (over: Partial<Draft> = {}) =>
+    draft({
+      corpo: [
+        { p: "A Bethesda revelou o nome." },
+        { p: "Detalhes do anúncio." },
+        { p: "Todd Howard comentou o nome no X." },
+        { p: "Mais contexto." },
+      ],
+      ...over,
+    });
+
+  it("a post goes after the first body paragraph that quotes its author, and the site accepts it", () => {
+    const payload = assemble(quoting(), story, { ...opts(), media: { cover, video, posts: [post] } });
+    expect(outline(payload.blocks).slice(0, 7)).toEqual([
+      "p:A Bethesda revelou o nome.",
+      "image",
+      "video",
+      "p:Detalhes do anúncio.",
+      "p:Todd Howard comentou o nome no X.",
+      "post",
+      "p:Mais contexto.",
+    ]);
+    expect(payload.blocks[5]).toEqual({ type: "post", network: "x", ...post });
     expect(articlePayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("a post nobody quotes goes after the video (or the cover, or the lede)", () => {
+    const anon = { ...post, authorName: "Bethesda", authorHandle: "bethesda", url: "https://x.com/bethesda/status/1" };
+    expect(outline(assemble(quoting(), story, { ...opts(), media: { cover, video, posts: [anon] } }).blocks).slice(0, 4)).toEqual([
+      "p:A Bethesda revelou o nome.",
+      "image",
+      "video",
+      "post",
+    ]);
+    expect(outline(assemble(quoting(), story, { ...opts(), media: { posts: [anon] } }).blocks).slice(0, 2)).toEqual([
+      "p:A Bethesda revelou o nome.",
+      "post",
+    ]);
+  });
+
+  it("drops a post with an unsafe url or handle, and cleans its text for the site", () => {
+    const bad = assemble(quoting(), story, { ...opts(), media: { posts: [{ ...post, url: "https://evil.com/x/status/1" }] } });
+    expect(bad.blocks.some((b) => b.type === "post")).toBe(false);
+    const html = assemble(quoting(), story, { ...opts(), media: { posts: [{ ...post, text: "<b>Sentinel</b> chega" }] } });
+    expect(html.blocks.find((b) => b.type === "post")).toMatchObject({ text: "Sentinel chega" });
+    expect(articlePayloadSchema.safeParse(html).success).toBe(true);
+  });
+
+  it("the model's text never links to X: the post is embedded instead", () => {
+    const payload = assemble(
+      quoting({ corpo: [{ p: "Veja [o post](https://x.com/bethesda/status/1) e https://twitter.com/bethesda/status/2 também." }] }),
+      story,
+      opts(),
+    );
+    expect(JSON.stringify(payload.blocks)).not.toMatch(/x\.com\/|twitter\.com\//);
+    expect(payload.blocks[0]).toEqual({ type: "paragraph", text: "Veja o post e também." });
+  });
+
+  const shots = [1, 2, 3, 4].map((n) => ({ url: `https://blob.test/s${n}.webp`, alt: `Captura ${n}`, credit: "Divulgação/Team Cherry", creditUrl: "https://teamcherry.com.au/a" }));
+
+  it("a gallery goes after the lede and the cover, before the video, and replaces the body image", () => {
+    const payload = assemble(draft(), story, { ...opts(), media: { cover, video, bodyImage, gallery: shots } });
+    expect(outline(payload.blocks).slice(0, 4)).toEqual(["p:A Team Cherry lançou nesta sexta a versão 1.6 de Hollow Knight.", "image", "gallery", "video"]);
+    expect(payload.blocks.filter((b) => b.type === "image")).toHaveLength(1);
+    expect(payload.blocks[2]).toEqual({ type: "gallery", images: shots });
+    expect(articlePayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("a gallery with fewer than 3 safe images is dropped, and the body image comes back", () => {
+    const unsafe = [shots[0]!, shots[1]!, { ...shots[2]!, url: "http://x.test/a.jpg" }];
+    const payload = assemble(draft(), story, { ...opts(), media: { cover, bodyImage, gallery: unsafe } });
+    expect(payload.blocks.some((b) => b.type === "gallery")).toBe(false);
+    expect(payload.blocks.filter((b) => b.type === "image")).toHaveLength(2);
   });
 
   it("drops unsafe media: bad video ids, non-https images, HTML in titles", () => {
     const payload = assemble(draft(), story, {
       ...opts(),
-      media: { image: { ...image, url: "http://x.test/a.jpg" }, trailer: { youtubeId: "short", title: "x" } },
+      media: { cover: { ...cover, url: "http://x.test/a.jpg" }, trailer: { youtubeId: "short", title: "x" } },
     });
     expect(payload.blocks.some((b) => b.type === "image" || b.type === "video")).toBe(false);
     const titled = assemble(draft(), story, { ...opts(), media: { video: { ...video, title: "<b>Trailer</b>" } } });
     expect(titled.blocks[1]).toEqual({ type: "video", youtubeId: "AAAAAAAAAAA", title: "Trailer" });
+  });
+});
+
+describe("assemble: sources", () => {
+  it("cites each outlet once, with the link of its best-ranked item", () => {
+    const sources = [
+      ...Array.from({ length: 7 }, (_, i) => ({ name: "Steam News", url: `https://store.steampowered.com/news/app/1/view/${i}` })),
+      { name: "Xbox Wire", url: "https://news.xbox.com/en-us/tes-vi" },
+      { name: "steam  news", url: "https://store.steampowered.com/news/app/1/view/99" },
+    ];
+    const payload = assemble(draft(), { sources, candidates: story.candidates }, opts());
+    const fontes = payload.blocks.at(-1)!;
+    expect(fontes).toEqual({
+      type: "list",
+      ordered: false,
+      items: ["[Steam News](https://store.steampowered.com/news/app/1/view/0)", "[Xbox Wire](https://news.xbox.com/en-us/tes-vi)"],
+    });
   });
 });
 

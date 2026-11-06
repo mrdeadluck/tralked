@@ -7,6 +7,7 @@ import {
   type ContentBlock,
   type Insights,
 } from "./tralked.js";
+import type { XPost } from "./media/xposts.js";
 import { normalizeUrl } from "./url.js";
 
 /**
@@ -37,6 +38,8 @@ const LIMITS = {
   imageCredit: 200,
   imageUrl: 2048,
   videoTitle: 200,
+  postAuthor: 120,
+  postText: 1000,
 } as const;
 
 const MAX_ACHIEVEMENTS = 3;
@@ -73,10 +76,15 @@ function stripHtml(text: string): string {
   return out.replace(/<(?=[a-zA-Z!/?])/g, "< ");
 }
 
-/** Text with inline markup: no HTML, no script schemes, links only to https. */
+/** A link to X: posts are embedded by code (`post` blocks), never linked by the model. */
+const X_TARGET = /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\//i;
+const BARE_X_URL = /https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/\S*/gi;
+
+/** Text with inline markup: no HTML, no script schemes, links only to https and never to X. */
 function inline(text: string): string {
   const cleaned = stripHtml(text.replace(CONTROL_CHARS, ""))
-    .replace(INLINE_LINK, (match, label: string, target: string) => (isHttps(target) ? match : label))
+    .replace(INLINE_LINK, (match, label: string, target: string) => (isHttps(target) && !X_TARGET.test(target) ? match : label))
+    .replace(BARE_X_URL, "")
     .replace(SCRIPT_SCHEME, "$1");
   return collapse(cleaned);
 }
@@ -191,8 +199,19 @@ function noTralkedBlocks(noTralked: Draft["noTralked"], insights: Map<string, In
   return blocks.length > 0 ? [heading("No Tralked"), ...blocks] : [];
 }
 
+/** An outlet's name as compared: "Steam News" = "steam  news". */
+const outletKey = (name: string) =>
+  name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+/** "Fontes": each outlet once (the first, best-ranked of its items), each URL once, https only. */
 function sourceBlocks(sources: { name: string; url: string }[]): ContentBlock[] {
   const seen = new Set<string>();
+  const outlets = new Set<string>();
   const items: string[] = [];
   for (const source of sources) {
     const url = source.url.trim();
@@ -202,10 +221,13 @@ function sourceBlocks(sources: { name: string; url: string }[]): ContentBlock[] 
     const key = normalizeUrl(url);
     if (seen.has(key)) continue;
     const name = plain(source.name).replace(/[[\]]/g, "") || new URL(url).hostname;
+    const outlet = outletKey(name);
+    if (outlets.has(outlet)) continue;
     const item = `[${clip(name, 200)}](${url})`;
     // Clipping would cut the link in half: a source that cannot fit is left out.
     if (item.length > LIMITS.listItem) continue;
     seen.add(key);
+    outlets.add(outlet);
     items.push(item);
   }
   return items.length > 0 ? [heading("Fontes"), list(items.slice(0, LIMITS.listItems))] : [];
@@ -221,17 +243,58 @@ export type AssembleStory = {
   candidates?: { slug: string }[];
 };
 
+/** An image hosted by the site, with its credit and, for outside material, a link to where it came from. */
+export type MediaImage = { url: string; alt: string; credit: string; creditUrl?: string };
+
 /**
- * Media added by code, never by the model (the sources give the robot no pictures):
- * - `video`: the story's own official video (a YouTube channel item), right after the lede;
- * - `image`: catalog art of the article's game, after the lede, only when there is no `video`;
+ * Media added by code, never by the model (src/media/ picks it):
+ * - `cover`: the article's main image, right after the lede; the first image block is the site's card;
+ * - `video`: the story's own official video, after the cover;
+ * - `bodyImage`: a second image (a catalog scene of the exact game), after the 3rd block of the body;
  * - `trailer`: the game's video from the catalog, after the body, only when there is no `video`.
  */
 export type ArticleMedia = {
   video?: { youtubeId: string; title: string };
-  image?: { url: string; alt: string; credit: string };
+  cover?: MediaImage;
+  bodyImage?: MediaImage;
   trailer?: { youtubeId: string; title: string };
+  /** Official X posts of the story: each after the first body paragraph that quotes its author. */
+  posts?: XPost[];
+  /** News about new images: the official pictures, after the cover; replaces `bodyImage`. */
+  gallery?: MediaImage[];
 };
+
+const GALLERY_MIN = 3;
+const GALLERY_MAX = 12;
+
+/** The gallery block when at least 3 of its images are safe for the site; else nothing. */
+function galleryBlock(images: MediaImage[] | undefined): ContentBlock[] {
+  const safe = (images ?? []).flatMap((i) => imageBlock(i)).flatMap((b) => (b.type === "image" ? [b] : []));
+  const unique = safe.filter((b, i) => safe.findIndex((o) => o.url === b.url) === i).slice(0, GALLERY_MAX);
+  if (unique.length < GALLERY_MIN) return [];
+  return [{ type: "gallery", images: unique.map(({ type: _type, ...rest }) => rest) }];
+}
+
+/** A post on X as the site takes it (app/src/lib/content/schema.ts `postBlockSchema`). */
+const X_POST_URL = /^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d{1,25}$/;
+const X_HANDLE = /^[A-Za-z0-9_]{1,15}$/;
+
+function postBlock(post: XPost): ContentBlock | null {
+  const url = post.url.trim();
+  if (!X_POST_URL.test(url) || !X_HANDLE.test(post.authorHandle)) return null;
+  const authorName = plainText(post.authorName, LIMITS.postAuthor);
+  const text = plainText(post.text, LIMITS.postText);
+  if (!authorName || !text) return null;
+  const postedAt = post.postedAt && Number.isFinite(Date.parse(post.postedAt)) ? new Date(post.postedAt).toISOString() : undefined;
+  return { type: "post", network: "x", url, authorName, authorHandle: post.authorHandle, text, ...(postedAt ? { postedAt } : {}) };
+}
+
+/** Whether a body block quotes the post's author (by name or @handle). */
+function quotes(block: ContentBlock, post: XPost): boolean {
+  if (block.type !== "paragraph" && block.type !== "quote" && block.type !== "list") return false;
+  const text = (block.type === "list" ? block.items.join(" ") : block.text).toLowerCase();
+  return text.includes(post.authorName.toLowerCase()) || text.includes(`@${post.authorHandle.toLowerCase()}`);
+}
 
 export type AssembleOpts = {
   insights: Map<string, Insights>;
@@ -242,6 +305,8 @@ export type AssembleOpts = {
 };
 
 const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+/** The body image goes after this many body blocks (the lede counts). */
+const BODY_IMAGE_AFTER = 3;
 
 function videoBlock(video: { youtubeId: string; title: string } | undefined): ContentBlock[] {
   if (!video || !YOUTUBE_ID.test(video.youtubeId)) return [];
@@ -249,13 +314,16 @@ function videoBlock(video: { youtubeId: string; title: string } | undefined): Co
   return [title ? { type: "video", youtubeId: video.youtubeId, title } : { type: "video", youtubeId: video.youtubeId }];
 }
 
-function imageBlock(image: ArticleMedia["image"]): ContentBlock[] {
+function imageBlock(image: MediaImage | undefined): ContentBlock[] {
   if (!image) return [];
   const url = image.url.trim();
   if (!isHttps(url) || /[\s()<>"]/.test(url) || url.length > LIMITS.imageUrl) return [];
   const alt = plainText(image.alt, LIMITS.imageAlt);
   const credit = plainText(image.credit, LIMITS.imageCredit);
-  return alt && credit ? [{ type: "image", url, alt, credit }] : [];
+  if (!alt || !credit) return [];
+  const creditUrl = image.creditUrl?.trim();
+  const linked = creditUrl && isHttps(creditUrl) && !/[\s<>"]/.test(creditUrl) && creditUrl.length <= LIMITS.imageUrl;
+  return [linked ? { type: "image", url, alt, credit, creditUrl } : { type: "image", url, alt, credit }];
 }
 
 /** `Entenda o caso: [title](url)`, or null when the link would not be a safe https link. */
@@ -286,9 +354,28 @@ export function assemble(draft: AssembleDraft, story: AssembleStory, opts: Assem
   });
   const media = opts.media ?? {};
   const own = videoBlock(media.video);
-  const afterLede = own.length > 0 ? own : imageBlock(media.image);
+  const cover = imageBlock(media.cover);
+  const gallery = galleryBlock(media.gallery);
+  const second =
+    gallery.length === 0 && media.bodyImage && media.bodyImage.url.trim() !== media.cover?.url.trim() ? imageBlock(media.bodyImage) : [];
   const afterBody = own.length > 0 ? [] : videoBlock(media.trailer);
-  blocks.push(...corpo.slice(0, 1), ...afterLede, ...corpo.slice(1), ...afterBody);
+
+  // What goes after each body block: the cover and the video after the lede, the body image after the
+  // 3rd block, each post after the first block that quotes its author (else with the lede's media).
+  const after = new Map<number, ContentBlock[]>();
+  const put = (i: number, b: ContentBlock[]) => after.set(i, [...(after.get(i) ?? []), ...b]);
+  put(0, [...cover, ...gallery, ...own]);
+  if (second.length > 0) put(Math.min(BODY_IMAGE_AFTER, corpo.length) - 1, second);
+  const seenPosts = new Set<string>();
+  for (const post of media.posts ?? []) {
+    const block = postBlock(post);
+    if (!block || seenPosts.has(post.url)) continue;
+    seenPosts.add(post.url);
+    put(Math.max(0, corpo.findIndex((b) => quotes(b, post))), [block]);
+  }
+  if (corpo.length === 0) blocks.push(...(after.get(0) ?? []));
+  corpo.forEach((b, i) => blocks.push(b, ...(after.get(i) ?? [])));
+  blocks.push(...afterBody);
 
   blocks.push(...noTralkedBlocks(draft.noTralked, opts.insights));
 

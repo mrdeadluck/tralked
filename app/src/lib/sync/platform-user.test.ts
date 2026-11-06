@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { xpForPlatformAchievement } from "@/lib/engine/trophies";
 import { platinumBonus } from "@/lib/engine/xp";
 import { env } from "@/lib/env";
+import type { PsnTrophy } from "@/lib/integrations/psn/types";
 
 // Uses the offline PSN/Xbox/RA fixtures (no keys in tests) against the seeded catalog.
 // Needs Postgres up and seeded (see db.test.ts); skipped when unreachable.
@@ -744,6 +745,104 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     } finally {
       logged.mockRestore();
       fake.restore();
+    }
+  });
+
+  it("an answer with another list's trophies is a failed read; a list stored with them is read again and rebuilt", async () => {
+    // Production, 11-05: Sony answered Guns, Gore and Cannoli's definitions with The Crew 2's list
+    // (in Arabic); the sync wrote it as the list's own (35 rows, a platinum) and never read it again.
+    const { prisma } = await import("@/lib/db");
+    const { getPsn } = await import("@/lib/integrations");
+    const { syncPlatformAccount } = await import("./platform-user");
+    const psn = getPsn();
+    const id = `${FAKE_TITLE_PREFIX}GGC`;
+    const at = new Date(Date.UTC(2026, 0, 6, 20));
+    const title = {
+      npTitleId: id,
+      serviceName: "trophy" as const,
+      name: "Canhões Teste",
+      platform: "PS4",
+      progress: 66,
+      trophyCounts: { bronze: 3, silver: 0, gold: 0, platinum: 0 },
+      earnedCounts: { bronze: 2, silver: 0, gold: 0, platinum: 0 },
+      lastPlayed: at,
+    };
+    const trophy = (tid: string, i: number) => ({
+      trophyId: tid,
+      description: null,
+      hidden: false,
+      earned: i < 2,
+      earnedAt: i < 2 ? at : null,
+      rarityPct: 40 - i,
+    });
+    const right = ["0", "1", "2"].map((tid, i) => ({ ...trophy(tid, i), name: `Certo ${tid}`, iconUrl: null, tier: "bronze" as const }));
+    // Another list's definitions; the earned part (asked per user) is still this list's.
+    const wrongTiers = ["platinum", "gold", "silver", "silver"] as const;
+    const wrong = ["0", "1", "2", "3"].map((tid, i) => ({
+      ...trophy(tid, i),
+      name: `Errado ${tid}`,
+      iconUrl: `https://image.api.playstation.com/trophy/np/NPWR99904_00_00D20733C8935EA453/${tid}.PNG`,
+      tier: wrongTiers[i],
+    }));
+    // A second, sound title: a sync whose every title fails is an outage (it throws).
+    const other = { ...title, npTitleId: `${id}_OK`, name: "Outro Teste", lastPlayed: new Date(at.getTime() - 86_400_000) };
+    let answer: PsnTrophy[] = wrong;
+    const titles = vi.spyOn(psn, "getTitles").mockResolvedValue([title, other]);
+    const trophies = vi.spyOn(psn, "getTrophies").mockImplementation(async (_account, npTitleId) => (npTitleId === id ? answer : right));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const user = await userWith("psn", "test-foreign-list-account", "Lista-Alheia-Teste");
+      const where = { platform_externalId: { platform: "psn", externalId: id } };
+
+      // 1. The wrong answer is a failed read: nothing written, retried on the next run.
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ status: "ok", recordedTitles: [other.npTitleId], failedTitles: [id] });
+      expect(await prisma.trophyList.findUnique({ where })).toBeNull();
+      const line = logged.mock.calls.find((c) => String(c[0]).includes(id));
+      expect(String((line?.[1] as Error).message)).toMatch(/do not match.*4 trophies.*defines 3.*icons of NPWR99904_00/);
+      trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn");
+      expect(trophies.mock.calls.map((c) => c[1])).toEqual([id]);
+
+      // 2. Sony answers right: the list is recorded.
+      answer = right;
+      await expect(syncPlatformAccount(user.id, "psn")).resolves.toMatchObject({ recordedTitles: [id], failedTitles: [] });
+      const list = await prisma.trophyList.findUniqueOrThrow({ where });
+      const rowsOf = () =>
+        prisma.achievement.findMany({ where: { listId: list.id }, orderBy: { apiName: "asc" }, select: { id: true, apiName: true, name: true, trophyTier: true } });
+      const good = await rowsOf();
+      expect(good.map((r) => [r.apiName, r.trophyTier])).toEqual([["0", "bronze"], ["1", "bronze"], ["2", "bronze"]]);
+      const ledger = () =>
+        prisma.xpLedgerEntry.findMany({ where: { userId: user.id, source: "achievement", sourceKey: { in: good.map((r) => r.id) } }, orderBy: { sourceKey: "asc" }, select: { sourceKey: true, xp: true, voidedAt: true } });
+      const paid = await ledger();
+      expect(paid).toHaveLength(2);
+
+      // 3. The list as the sync stored it before this guard: the wrong definitions over the rows.
+      for (const [i, r] of good.entries()) {
+        await prisma.achievement.update({ where: { id: r.id }, data: { name: `Errado ${r.apiName}`, trophyTier: wrongTiers[i] } });
+      }
+      await prisma.achievement.create({
+        data: { gameId: list.gameId, platform: "psn", listId: list.id, apiName: "3", name: "Errado 3", trophyTier: "silver" },
+      });
+      await prisma.trophyList.update({ where: { id: list.id }, data: { trophyCount: 4 } });
+
+      // The listed counts still match (2 earned): the stored tiers differ from definedTrophies, so it is read again.
+      trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn");
+      expect(trophies.mock.calls.map((c) => c[1])).toEqual([id]);
+      const rebuilt = await rowsOf();
+      expect(rebuilt).toEqual(good);
+      expect((await prisma.trophyList.findUniqueOrThrow({ where })).trophyCount).toBe(3);
+      // XP of PSN trophies with a rarity does not depend on the tier: the ledger is as it was.
+      expect(await ledger()).toEqual(paid);
+
+      // 4. Rebuilt: the next sync reads nothing.
+      trophies.mockClear();
+      await syncPlatformAccount(user.id, "psn");
+      expect(trophies).not.toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+      titles.mockRestore();
+      trophies.mockRestore();
     }
   });
 

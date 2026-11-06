@@ -34,6 +34,11 @@ export type BlockDraft = {
   header: string;
   apiName: string;
   platform: AchievementPlatform;
+  /** Image credit link (https), when the image is outside material. */
+  creditUrl: string;
+  /** Blocks the robot writes and the editor only shows (`READ_ONLY_TYPES`): kept as they are. */
+  readOnly: boolean;
+  raw: ContentBlock | null;
 };
 
 export const BLOCK_TYPE_LABEL: Record<ContentBlockType, string> = {
@@ -47,9 +52,15 @@ export const BLOCK_TYPE_LABEL: Record<ContentBlockType, string> = {
   table: "Tabela",
   achievement: "Conquista",
   divider: "Divisória",
+  post: "Post do X",
+  gallery: "Galeria",
 };
 
-export const BLOCK_TYPES = Object.keys(BLOCK_TYPE_LABEL) as ContentBlockType[];
+/** Written by the news robot (an X post, an image gallery): the editor shows them and keeps them, but cannot add or edit them. */
+export const READ_ONLY_TYPES: ContentBlockType[] = ["post", "gallery"];
+
+/** The block types the editor can add. */
+export const BLOCK_TYPES = (Object.keys(BLOCK_TYPE_LABEL) as ContentBlockType[]).filter((t) => !READ_ONLY_TYPES.includes(t));
 
 const CELL_SEPARATOR = " | ";
 const splitLines = (text: string) => text.split("\n").map((line) => line.trim()).filter(Boolean);
@@ -73,11 +84,15 @@ export function emptyDraft(type: ContentBlockType): BlockDraft {
     header: "",
     apiName: "",
     platform: "steam",
+    creditUrl: "",
+    readOnly: false,
+    raw: null,
   };
 }
 
 export function draftFromBlock(block: ContentBlock): BlockDraft {
   const draft = emptyDraft(block.type);
+  if (READ_ONLY_TYPES.includes(block.type)) return { ...draft, readOnly: true, raw: block };
   switch (block.type) {
     case "heading":
       return { ...draft, text: block.text, level: block.level };
@@ -88,7 +103,7 @@ export function draftFromBlock(block: ContentBlock): BlockDraft {
     case "quote":
       return { ...draft, text: block.text, author: block.author ?? "" };
     case "image":
-      return { ...draft, url: block.url, alt: block.alt, author: block.credit };
+      return { ...draft, url: block.url, alt: block.alt, author: block.credit, creditUrl: block.creditUrl ?? "" };
     case "video":
       return { ...draft, video: block.youtubeId, alt: block.title ?? "" };
     case "callout":
@@ -98,6 +113,8 @@ export function draftFromBlock(block: ContentBlock): BlockDraft {
     case "achievement":
       return { ...draft, apiName: block.apiName, platform: block.platform };
     case "divider":
+    case "post":
+    case "gallery":
       return draft;
   }
 }
@@ -113,6 +130,7 @@ export function youtubeIdFrom(value: string): string {
 
 /** The block a draft describes (not validated: see `validateDrafts`). Empty optionals are left out. */
 export function blockFromDraft(draft: BlockDraft): unknown {
+  if (draft.readOnly) return draft.raw;
   switch (draft.type) {
     case "heading":
       return { type: "heading", level: draft.level, text: draft.text };
@@ -123,7 +141,13 @@ export function blockFromDraft(draft: BlockDraft): unknown {
     case "quote":
       return { type: "quote", text: draft.text, ...(draft.author.trim() ? { author: draft.author } : {}) };
     case "image":
-      return { type: "image", url: draft.url.trim(), alt: draft.alt, credit: draft.author };
+      return {
+        type: "image",
+        url: draft.url.trim(),
+        alt: draft.alt,
+        credit: draft.author,
+        ...(draft.creditUrl.trim() ? { creditUrl: draft.creditUrl.trim() } : {}),
+      };
     case "video":
       return { type: "video", youtubeId: youtubeIdFrom(draft.video), ...(draft.alt.trim() ? { title: draft.alt } : {}) };
     case "callout":
@@ -134,6 +158,9 @@ export function blockFromDraft(draft: BlockDraft): unknown {
       return { type: "achievement", apiName: draft.apiName.trim(), platform: draft.platform };
     case "divider":
       return { type: "divider" };
+    case "post":
+    case "gallery":
+      return draft.raw;
   }
 }
 
@@ -155,6 +182,7 @@ const FIELD_LABEL: Record<string, string> = {
   header: "Cabeçalho",
   rows: "Linhas",
   apiName: "apiName",
+  creditUrl: "Link do crédito",
 };
 
 export function validateDrafts(drafts: BlockDraft[]): DraftCheck {

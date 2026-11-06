@@ -576,7 +576,7 @@ export async function getArticle(slug: string): Promise<ArticleFull | null> {
     reviewed: row.reviewedAt !== null,
     heroUrl:
       gameScene(gameRows, row.slug, new Set(blocks.flatMap((b) => (b.type === "image" ? [b.url] : [])))) ??
-      (await companyArt(`${row.title} ${row.subtitle ?? ""}`, row.slug)),
+      (await companyArt(`${row.title} ${row.subtitle ?? ""}`)),
     heroArt: gamesArt(gameRows),
     heroExclude: blocks.flatMap((b) => (b.type === "image" ? [b.url] : [])),
     game: games[0] ?? null,
