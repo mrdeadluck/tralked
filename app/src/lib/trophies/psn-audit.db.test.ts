@@ -129,4 +129,36 @@ describe("auditPsnLists", () => {
     expect(report.accounts).toEqual([{ handle: `${PREFIX}-a`, status: "private", titles: 0 }]);
     expect(report.mismatches).toEqual([]);
   });
+
+  it("a catalog list nobody holds and without rows yet is not a mismatch; a held one still is", async () => {
+    const { listProblems } = await import("./psn-audit");
+    const ids = ["NPWR99010_00", "NPWR99011_00", "NPWR99012_00"];
+    try {
+      // 10: catalog, nobody holds it, no rows (as matchPsnCatalog leaves it). 11: catalog, held by
+      // a player, no rows. 12: not a catalog list, no rows.
+      for (const id of ids) {
+        await list(id, [], 5);
+        if (id !== "NPWR99012_00") {
+          await prisma.psnCatalogList.create({
+            data: { id, name: id, console: "PS4", serviceName: "trophy", trophyCount: 5, tiers: { bronze: 5, silver: 0, gold: 0, platinum: 0 } },
+          });
+        }
+      }
+      const held = await prisma.trophyList.findUniqueOrThrow({ where: { platform_externalId: { platform: "psn", externalId: "NPWR99011_00" } } });
+      const user = await prisma.user.findFirstOrThrow({ where: { handle: `${PREFIX}-a` } });
+      await prisma.userTrophyList.create({ data: { userId: user.id, listId: held.id, unlockedCount: 0 } });
+
+      const report = await auditPsnLists(fakePsn({}));
+      const flagged = report.mismatches.filter((m) => ids.includes(m.externalId)).map((m) => m.externalId);
+      expect(flagged).toEqual(["NPWR99011_00", "NPWR99012_00"]);
+
+      const base = { externalId: "x", gameSlug: null, console: "PS4", trophyCount: 5, stored: { bronze: 0, silver: 0, gold: 0, platinum: 0 }, sony: null, foreignIcons: [] };
+      expect(listProblems({ ...base, rows: 0, catalog: true })).toEqual([]);
+      expect(listProblems({ ...base, rows: 0 })).toEqual(["trophyCount 5 but 0 rows"]);
+      // Once its rows arrive, a catalog list gets every check.
+      expect(listProblems({ ...base, rows: 4, catalog: true })).toEqual(["trophyCount 5 but 4 rows"]);
+    } finally {
+      await prisma.psnCatalogList.deleteMany({ where: { id: { in: ids } } });
+    }
+  });
 });
