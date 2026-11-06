@@ -486,9 +486,10 @@ type RememberedCounts = { unlocked: number; hardcore?: number };
 
 /**
  * Version of the remembered "read, no achievements" entries. Bump it to make every such entry
- * stale (the titles are read again), e.g. after the Xbox 360 route is checked against the live API.
+ * stale (the titles are read again). 2: Xbox 360 titles are read on their own routes (before, the
+ * player route answered them empty, and they were remembered so).
  */
-export const EMPTY_TITLES_VERSION = 1;
+export const EMPTY_TITLES_VERSION = 2;
 
 /** SyncCursor holding a connection's remembered title counts (see rememberTitles). */
 export const titleMemoryKey = (accountId: string) => `platform-titles:${accountId}`;

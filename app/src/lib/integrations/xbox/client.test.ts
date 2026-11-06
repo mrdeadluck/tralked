@@ -11,11 +11,11 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function setup(handler: (url: URL) => Response, options: { x360Route?: boolean } = { x360Route: true }) {
+function setup(handler: (url: URL) => Response) {
   const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
     async (input) => handler(new URL(String(input))),
   );
-  const client = createXboxClient({ apiKey: KEY, fetch: fetchMock as unknown as typeof fetch, ...options });
+  const client = createXboxClient({ apiKey: KEY, fetch: fetchMock as unknown as typeof fetch });
   return { client, fetchMock };
 }
 
@@ -234,56 +234,123 @@ describe("xbox client (OpenXBL)", () => {
     expect(titles === "private" ? [] : titles.map((t) => t.devices)).toEqual([["Xbox360"], ["XboxOne", "XboxSeries", "PC"], []]);
   });
 
-  it("by default a 360 title is read on the player route only (the 360 route lists only earned achievements)", async () => {
+  // Recorded shapes (2026-11-05, ids masked): the definitions route lists every achievement of a
+  // 360 title with a placeholder state (never unlocked, a 2002 date); the 360 route only the earned.
+  const DEFINITIONS = "/api/v2/achievements/player/2535000000000001/title/1096157000";
+  const EARNED = "/api/v2/achievements/x360/2535000000000001/title/1096157000";
+  const definition = (id: number, extra: Record<string, unknown> = {}) => ({
+    id,
+    titleId: 1096157000,
+    name: `Def ${id}`,
+    description: `Do ${id}`,
+    lockedDescription: `Hint ${id}`,
+    isSecret: false,
+    unlocked: false,
+    unlockedOnline: false,
+    gamerscore: 10 * id,
+    imageId: 254 + id,
+    timeUnlocked: "2002-11-15T00:00:00.0000000Z",
+    platform: 255,
+    rarity: { currentPercentage: id },
+    ...extra,
+  });
+  const earned = (id: number, timeUnlocked: string) => ({ ...definition(id), unlocked: true, unlockedOnline: true, timeUnlocked, platform: 1 });
+  const paged = (achievements: unknown[], continuationToken: string | null = null) => ({
+    content: { achievements, version: "1", pagingInfo: { continuationToken, totalRecords: achievements.length } },
+    code: 200,
+  });
+
+  it("a 360 title joins every achievement (definitions route) with the earned ones (360 route) by id", async () => {
     const seen: string[] = [];
     const { client } = setup((url) => {
       seen.push(url.pathname);
-      return json({ achievements: [] });
-    }, {});
-    await expect(client.getAchievements("2535", "11", ["Xbox360"])).resolves.toEqual([]);
-    expect(seen).toEqual(["/api/v2/achievements/player/2535/11"]);
-  });
-
-  it("a 360 title reads achievements from the 360 route", async () => {
-    // Recorded shape of OpenXBL's /achievements/x360/{xuid}/title/{titleId} (ids masked).
-    const { client, fetchMock } = setup((url) => {
-      if (url.pathname === "/api/v2/achievements/x360/2535000000000001/title/1096157000") {
-        return json({
-          achievements: [
-            { id: 1, titleId: 1096157000, name: "Skull", description: "Find it", lockedDescription: "Secret", isSecret: false, unlocked: true, unlockedOnline: true, gamerscore: 20, imageId: 255, timeUnlocked: "2010-05-04T12:00:00.0000000Z", rarity: { currentPercentage: 12.5 } },
-            { id: 2, titleId: 1096157000, name: "Hidden one", lockedDescription: "Play more", isSecret: true, unlocked: false, unlockedOnline: false, gamerscore: 10, imageId: 256, timeUnlocked: "0001-01-01T00:00:00.0000000Z" },
-          ],
-        });
+      if (url.pathname === DEFINITIONS) {
+        return json(paged([definition(1), definition(2, { isSecret: true, description: "" }), definition(3)]));
       }
-      return json({ achievements: [] });
+      if (url.pathname === EARNED) return json(paged([earned(2, "2010-05-04T12:00:00.0000000Z")]));
+      throw new Error(`unexpected ${url}`);
     });
-    const list = await client.getAchievements("2535000000000001", "1096157000", ["Xbox360"]);
+    const list = await client.getAchievements("2535000000000001", "1096157000", ["Xbox360", "XboxOne", "XboxSeries"]);
     if (list === "private") throw new Error("private");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Two requests, never the player route (empty for 360).
+    expect(seen).toEqual([DEFINITIONS, EARNED]);
+    // The real total: three achievements, one earned (the definitions' placeholder state ignored).
     expect(list.map((a) => [a.id, a.name, a.unlocked, a.gamerscore, a.hidden])).toEqual([
-      ["1", "Skull", true, 20, false],
-      ["2", "Hidden one", false, 10, true],
+      ["1", "Def 1", false, 10, false],
+      ["2", "Def 2", true, 20, true],
+      ["3", "Def 3", false, 30, false],
     ]);
-    expect(list[0].unlockedAt).toEqual(new Date("2010-05-04T12:00:00Z"));
-    expect(list[1].unlockedAt).toBeNull();
-    expect(list[1].description).toBe("Play more");
-    expect(list[0].rarityPct).toBe(12.5);
+    expect(list[1].unlockedAt).toEqual(new Date("2010-05-04T12:00:00Z"));
+    expect(list[0].unlockedAt).toBeNull();
+    expect(list[1].description).toBe("Hint 2");
+    expect(list[0].description).toBe("Do 1");
+    expect(list[0].rarityPct).toBe(1);
+    // The 360 image CDN: title and image ids in hex.
+    expect(list[0].iconUrl).toBe("https://image-ssl.xboxlive.com/global/t.41560748/ach/0/ff");
   });
 
-  it("a non-360 title keeps the player route, and an empty 360 answer falls back to it", async () => {
+  it("a 360 title earned with no date keeps the unlock (the sync dates it when first seen)", async () => {
+    const { client } = setup((url) =>
+      url.pathname === DEFINITIONS ? json(paged([definition(1)])) : json(paged([earned(1, "0001-01-01T00:00:00.0000000Z")])),
+    );
+    const list = await client.getAchievements("2535000000000001", "1096157000", ["Xbox360"]);
+    expect(list === "private" ? [] : list.map((a) => [a.unlocked, a.unlockedAt])).toEqual([[true, null]]);
+  });
+
+  it("a 360 title is a failed read (nothing partial) when either route fails or answers something else", async () => {
+    const answers: { definitions: () => Response; earned: () => Response }[] = [
+      { definitions: () => json({}, 404), earned: () => json(paged([])) },
+      { definitions: () => json({ surprise: true }), earned: () => json(paged([])) },
+      { definitions: () => json({}, 500), earned: () => json(paged([])) },
+      { definitions: () => json(paged([definition(1)])), earned: () => json({}, 404) },
+      { definitions: () => json(paged([definition(1)])), earned: () => json({ surprise: true }) },
+      { definitions: () => json(paged([definition(1)])), earned: () => json({}, 500) },
+    ];
+    for (const answer of answers) {
+      const { client, fetchMock } = setup((url) => (url.pathname === DEFINITIONS ? answer.definitions() : answer.earned()));
+      await expect(client.getAchievements("2535000000000001", "1096157000", ["Xbox360"])).rejects.toThrow(/Xbox 360/);
+      expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("a 360 title whose earned achievements are not all in its definitions is a failed read", async () => {
+    const { client } = setup((url) =>
+      url.pathname === DEFINITIONS
+        ? json(paged([definition(1)]))
+        : json(paged([earned(1, "2010-05-04T12:00:00Z"), earned(7, "2010-05-05T12:00:00Z")])),
+    );
+    await expect(client.getAchievements("2535000000000001", "1096157000", ["Xbox360"])).rejects.toThrow(/not in its list/);
+  });
+
+  it("a 360 title whose definitions span more than one page is a failed read (never a cut list)", async () => {
+    const { client } = setup((url) =>
+      url.pathname === DEFINITIONS ? json(paged([definition(1)], "150")) : json(paged([])),
+    );
+    await expect(client.getAchievements("2535000000000001", "1096157000", ["Xbox360"])).rejects.toThrow(/page/);
+  });
+
+  it("a 360 title with no definitions and nothing earned is empty, in two requests", async () => {
+    const { client, fetchMock } = setup(() => json(paged([])));
+    await expect(client.getAchievements("2535000000000001", "1096157000", ["Xbox360"])).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("a 360 title is private when either route says so", async () => {
+    for (const privateRoute of [DEFINITIONS, EARNED]) {
+      const { client } = setup((url) => (url.pathname === privateRoute ? json({}, 403) : json(paged([definition(1)]))));
+      await expect(client.getAchievements("2535000000000001", "1096157000", ["Xbox360"])).resolves.toBe("private");
+    }
+  });
+
+  it("a non-360 title keeps the player route, in one request", async () => {
     const seen: string[] = [];
     const { client } = setup((url) => {
       seen.push(url.pathname);
-      return url.pathname.includes("/x360/")
-        ? json({ achievements: [] })
-        : json({ achievements: [{ id: "9", name: "A", progressState: "Achieved", progression: { timeUnlocked: "2021-01-01T00:00:00Z" } }] });
+      return json({ achievements: [{ id: "9", name: "A", progressState: "Achieved", progression: { timeUnlocked: "2021-01-01T00:00:00Z" } }] });
     });
-    await client.getAchievements("2535", "10", ["XboxOne"]);
+    const list = await client.getAchievements("2535", "10", ["XboxOne", "XboxSeries", "PC"]);
     expect(seen).toEqual(["/api/v2/achievements/player/2535/10"]);
-    seen.length = 0;
-    const back = await client.getAchievements("2535", "11", ["Xbox360", "XboxOne"]);
-    expect(seen).toEqual(["/api/v2/achievements/x360/2535/title/11", "/api/v2/achievements/player/2535/11"]);
-    expect(back === "private" ? 0 : back.length).toBe(1);
+    expect(list === "private" ? 0 : list.length).toBe(1);
   });
 
   it("a 404 or an unrecognised body is unknown, not an empty list; a genuinely empty list is empty", async () => {
@@ -293,27 +360,18 @@ describe("xbox client (OpenXBL)", () => {
     await expect(make(() => json({ achievements: [] })).getAchievements("2535", "10")).resolves.toEqual([]);
   });
 
-  it("a 360 route that 404s or answers an unrecognised body falls back to the player route", async () => {
-    for (const x360 of [() => json({}, 404), () => json({ surprise: true })]) {
-      const seen: string[] = [];
-      const { client } = setup((url) => {
-        seen.push(url.pathname);
-        return url.pathname.includes("/x360/") ? x360() : json({ achievements: [{ id: "9", name: "A", progressState: "Achieved" }] });
-      });
-      const list = await client.getAchievements("2535", "11", ["Xbox360"]);
-      expect(seen).toHaveLength(2);
-      expect(list === "private" ? 0 : list.length).toBe(1);
-    }
-  });
-
   it("drops achievement records without an id or a name (360 and player routes)", async () => {
     const { client } = setup((url) =>
-      url.pathname.includes("/x360/")
-        ? json({ achievements: [{ name: "No id", unlocked: true }, { id: 3 }, { id: 4, name: "" }] })
+      url.pathname.includes("/title/")
+        ? url.pathname.includes("/x360/")
+          ? json(paged([]))
+          : json(paged([{ name: "No id" }, definition(3, { name: "" }), definition(5)]))
         : json({ achievements: [{ name: "No id" }, { id: 5, name: "Ok" }, { id: 6 }] }),
     );
-    const list = await client.getAchievements("2535", "11", ["Xbox360"]);
-    expect(list === "private" ? [] : list.map((a) => a.id)).toEqual(["5"]);
+    const x360 = await client.getAchievements("2535", "11", ["Xbox360"]);
+    expect(x360 === "private" ? [] : x360.map((a) => a.id)).toEqual(["5"]);
+    const one = await client.getAchievements("2535", "11", ["XboxOne"]);
+    expect(one === "private" ? [] : one.map((a) => a.id)).toEqual(["5"]);
   });
 
   it("reports private data and keeps the key out of errors", async () => {

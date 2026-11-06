@@ -36,6 +36,8 @@ const CREATED_TITLES = [
   // An Xbox 360 title and its One title (spied library).
   { platform: "xbox", externalId: "90000771" },
   { platform: "xbox", externalId: "90000772" },
+  // A 360 title remembered empty before the 360 routes.
+  { platform: "xbox", externalId: "90000773" },
   { platform: "xbox", externalId: "90000781" },
   { platform: "psn", externalId: "NPWR99901_00" },
   // The only trophy-list link of the adoption-guard test's game.
@@ -369,6 +371,73 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
       bumped.mockRestore();
     } finally {
       read.mockRestore();
+    }
+  });
+
+  it("a 360 title remembered empty before 360 lists were read is read once more, with its real total", async () => {
+    // Until the 360 routes were joined, a 360 title came back empty from the player route and was
+    // remembered as "read, no achievements" (version 1): those entries are stale now.
+    const { prisma } = await import("@/lib/db");
+    const { getXbox } = await import("@/lib/integrations");
+    const { syncPlatformAccount, titleMemoryKey } = await import("./platform-user");
+    const xbox = getXbox();
+    const devices = ["Xbox360", "XboxOne", "XboxSeries"];
+    const titles = vi.spyOn(xbox, "getTitles").mockResolvedValue([
+      {
+        titleId: "90000773",
+        name: "Trezentos e Sessenta Teste",
+        currentAchievements: 2,
+        totalAchievements: 5,
+        currentGamerscore: 20,
+        totalGamerscore: 50,
+        progress: 40,
+        lastPlayed: new Date("2011-03-01T20:00:00Z"),
+        devices,
+      },
+    ]);
+    const achievements = vi.spyOn(xbox, "getAchievements").mockImplementation(async () =>
+      ["1", "2", "3", "4", "5"].map((id, i) => ({
+        id,
+        name: `Conquista ${id}`,
+        description: null,
+        iconUrl: null,
+        hidden: false,
+        gamerscore: 10,
+        unlocked: i < 2,
+        unlockedAt: i < 2 ? new Date(Date.UTC(2011, 1, 1 + i * 30, 20)) : null,
+        rarityPct: 30,
+      })),
+    );
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    const account = await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: user.id, platform: "xbox" } } });
+    await prisma.syncCursor.create({
+      data: {
+        key: titleMemoryKey(account.id),
+        value: { externalId: account.externalId, linkedAt: account.linkedAt!.toISOString(), titles: {}, empty: { "90000773": { c: [2], v: 1 } } },
+      },
+    });
+    try {
+      await expect(syncPlatformAccount(user.id, "xbox")).resolves.toMatchObject({ status: "ok", newUnlocks: 2 });
+      expect(achievements.mock.calls.map((c) => [c[1], c[2]])).toEqual([["90000773", devices]]);
+      const list = await prisma.trophyList.findUniqueOrThrow({ where: { platform_externalId: { platform: "xbox", externalId: "90000773" } } });
+      expect([list.console, list.trophyCount]).toEqual(["360", 5]);
+      await expect(
+        prisma.userTrophyList.findUniqueOrThrow({ where: { userId_listId: { userId: user.id, listId: list.id } } }),
+      ).resolves.toMatchObject({ unlockedCount: 2, completedAt: null });
+      // The 360 title is its own version: its two trophies pay XP, with the dates Xbox gave.
+      const ledger = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, voidedAt: null, platform: "xbox", source: "achievement" } });
+      expect(ledger).toHaveLength(2);
+      const unlocks = await prisma.userAchievement.findMany({ where: { userId: user.id }, orderBy: { unlockedAt: "asc" } });
+      expect(unlocks.map((u) => [u.unlockedAt.toISOString(), u.suspicious])).toEqual([
+        ["2011-02-01T20:00:00.000Z", false],
+        ["2011-03-03T20:00:00.000Z", false],
+      ]);
+      await expect(syncPlatformAccount(user.id, "xbox")).resolves.toMatchObject({ titles: { read: 0, upToDate: 1 } });
+      expect(achievements).toHaveBeenCalledTimes(1);
+    } finally {
+      titles.mockRestore();
+      achievements.mockRestore();
+      await prisma.syncCursor.deleteMany({ where: { key: titleMemoryKey(account.id) } });
     }
   });
 

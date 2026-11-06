@@ -35,6 +35,8 @@
     "steam:players": "tsx scripts/steam-players-worker.ts",
     "retro:catalog": "tsx scripts/retro-catalog-worker.ts",
     "psn:catalog": "tsx scripts/psn-catalog-worker.ts",
+    "xbox:consoles": "tsx scripts/xbox-consoles.ts",
+    "xbox:360-measure": "tsx scripts/xbox-360-measure.ts",
     "postinstall": "prisma generate",
     "test:db": "vitest run src/lib/db.test.ts",
     "e2e": "playwright test",
