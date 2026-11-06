@@ -145,30 +145,61 @@ describe("regionalListXp (pnpm trophy-lists:regional-xp)", () => {
     expect(await ledger(user.id)).toEqual(after);
   });
 
-  it("reports a JP entry the old rule voided (merged into the canonical key) as wanted but left voided", async () => {
-    // Production case (phase a finish, 2026-11-05 21h UTC): the JP list was read first and its
-    // trophies paid by own id; the EU rows came later and the old rule moved them to the EU keys.
-    const { user, jp } = await player();
+  /** The player's JP trophy "1" paid by own id, then voided at `voidedAt`; the PSN link made at `linkedAt`. */
+  async function voidedJpEntry(linkedAt: Date, voidedAt: Date) {
+    const p = await player();
     await prisma.linkedAccount.create({
-      data: { userId: user.id, platform: "psn", externalId: `${PREFIX}-acc-${counter}`, handle: "Teste", linkedAt: T0 },
+      data: { userId: p.user.id, platform: "psn", externalId: `${PREFIX}-acc-${counter}`, handle: "Teste", linkedAt },
     });
-    await prisma.xpLedgerEntry.create({
+    const entry = await prisma.xpLedgerEntry.create({
       data: {
-        userId: user.id,
+        userId: p.user.id,
         source: "achievement",
-        sourceKey: jp.trophies[1].id,
+        sourceKey: p.jp.trophies[1].id,
         platform: "psn",
         xp: tierXp("bronze"),
         skills: ["rpg"],
         createdAt: at(21),
-        voidedAt: at(60),
+        voidedAt,
       },
     });
-    const [report] = await regionalListXp({ dryRun: true, handle: user.handle, now: NOW });
+    return { ...p, entry };
+  }
+
+  it("restores, once, a JP own-id entry the old rule voided under the current link (merged into the canonical key)", async () => {
+    // Production case (phase a finish, 2026-11-05 21h UTC): the JP list was read first and its
+    // trophies paid by own id; the EU rows came later and the old rule moved them to the EU keys.
+    const { user, entry, totalXp, bonus } = await voidedJpEntry(T0, at(60));
+    const [dry] = await regionalListXp({ dryRun: true, handle: user.handle, now: NOW });
+    expect(dry).toMatchObject({
+      // JP "0" and the JP platinum created, JP "1" restored.
+      created: { trophies: 2, platinums: 1 },
+      voided: 0,
+      unpaid: { voidedUnderLink: 0, voidedBeforeLink: 0, blocked: 0 },
+      paid: { trophies: [4, 4], platinums: [2, 2] },
+    });
+    expect(await prisma.xpLedgerEntry.findUniqueOrThrow({ where: { id: entry.id } })).toMatchObject({ voidedAt: at(60) });
+
+    const [report] = await regionalListXp({ dryRun: false, handle: user.handle, now: NOW });
+    expect(report).toEqual(dry);
+    // Restored as it was paid (value and date kept).
+    expect(await prisma.xpLedgerEntry.findUniqueOrThrow({ where: { id: entry.id } })).toEqual({ ...entry, voidedAt: null });
+    const added = tierXp("platinum") + tierXp("bronze") + bonus;
+    expect((await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } })).totalXp).toBe(totalXp + added);
+
+    const ledger = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } });
+    const [again] = await regionalListXp({ dryRun: false, handle: user.handle, now: new Date(NOW.getTime() + 60_000) });
+    expect(again).toMatchObject({ created: { trophies: 0, platinums: 0 }, voided: 0, xp: [totalXp + added, totalXp + added] });
+    expect(await prisma.xpLedgerEntry.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } })).toEqual(ledger);
+  });
+
+  it("never restores an entry voided by an unlink (voided before the current link)", async () => {
+    const { user, entry } = await voidedJpEntry(at(100), at(60));
+    const [report] = await regionalListXp({ dryRun: false, handle: user.handle, now: NOW });
     expect(report).toMatchObject({
-      created: { trophies: 1, platinums: 1 },
-      unpaid: { voidedUnderLink: 1, voidedBeforeLink: 0, blocked: 0 },
+      unpaid: { voidedUnderLink: 0, voidedBeforeLink: 1, blocked: 0 },
       paid: { trophies: [3, 4], platinums: [2, 2] },
     });
+    expect(await prisma.xpLedgerEntry.findUniqueOrThrow({ where: { id: entry.id } })).toMatchObject({ voidedAt: at(60) });
   });
 });

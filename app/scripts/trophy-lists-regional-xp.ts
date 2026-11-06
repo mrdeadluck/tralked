@@ -1,7 +1,8 @@
 /**
  * Every regional list pays XP: settles the PSN games with more than one list in a version for
- * every player holding unlocks on them (only the missing per-list entries are added; nothing
- * already paid is voided or paid twice), in batches, then recomputes each player. Prints per
+ * every player holding unlocks on them (only the missing per-list entries are added, and the
+ * regional copies' own-id entries the old once-per-version rule voided under the current link are
+ * restored; nothing already paid is voided or paid twice), in batches, then recomputes each player. Prints per
  * player: new entries, voided (expected 0), XP, level and platinums before -> after. Idempotent.
  *
  * `--dry-run` only reads: the session is opened read-only (default_transaction_read_only=on,
@@ -52,7 +53,7 @@ try {
     }),
     { created: 0, voided: 0, xp: 0 },
   );
-  log.info(`${reports.length} players: ${total.created} new entries, ${total.voided} voided, XP ${total.xp >= 0 ? "+" : ""}${total.xp.toLocaleString("pt-BR")}.`);
+  log.info(`${reports.length} players: ${total.created} new or restored entries, ${total.voided} voided, XP ${total.xp >= 0 ? "+" : ""}${total.xp.toLocaleString("pt-BR")}.`);
   if (total.voided > 0) log.warn("WARNING: entries were voided; the rule should only add. Investigate.");
   for (const r of reports) {
     if (r.paid.trophies[0] !== r.paid.trophies[1] || r.paid.platinums[0] !== r.paid.platinums[1]) {

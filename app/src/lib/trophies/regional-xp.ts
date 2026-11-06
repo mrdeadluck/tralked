@@ -7,8 +7,9 @@ import { recomputeUser } from "@/lib/progression/recompute";
 /*
  * Every regional list pays XP (Lucas, 2026-11-06): the ledger of the PSN games with more than one
  * list in a version only had one version's worth paid. This settles those games for every player
- * holding unlocks on their lists (only the missing per-list entries are added; nothing paid is
- * voided) and recomputes each player. `pnpm trophy-lists:regional-xp`.
+ * holding unlocks on their lists (only the missing per-list entries are added, and the own-id
+ * entries of regional copies the old rule voided under the current link are restored; nothing
+ * paid is voided) and recomputes each player. `pnpm trophy-lists:regional-xp`.
  */
 
 /** Games settled per transaction. */
@@ -110,11 +111,20 @@ export async function regionalListXp(options: {
     const plans: ListXpPlan[] = [];
     for (let i = 0; i < games.length; i += CHUNK) {
       const chunk = games.slice(i, i + CHUNK);
+      // The old rule voided (under the current link) the own-id entries of regional copies it merged
+      // into the canonical key; every list pays now, so those come back through the release path:
+      // only wanted keys, only entries voided at/after LinkedAccount.linkedAt (never an unlink's).
+      const restore = (
+        await prisma.userAchievement.findMany({
+          where: { userId: user.id, suspicious: false, achievement: { platform: "psn", gameId: { in: chunk } } },
+          select: { achievementId: true },
+        })
+      ).map((u) => u.achievementId);
       plans.push(
         options.dryRun
-          ? await planListXp(prisma, user.id, "psn", chunk)
+          ? await planListXp(prisma, user.id, "psn", chunk, { restore })
           : await prisma.$transaction(async (tx) => {
-              const plan = await planListXp(tx, user.id, "psn", chunk);
+              const plan = await planListXp(tx, user.id, "psn", chunk, { restore });
               await applyListXpPlan(tx, plan, now);
               return plan;
             }, TRANSACTION_OPTIONS),
@@ -177,7 +187,7 @@ export function formatReport(r: RegionalXpReport): string {
   const [trophyEntries, unlocks] = r.paid.trophies;
   const [platinumEntries, lists] = r.paid.platinums;
   return (
-    `${r.handle}: ${r.games} games, new entries ${r.created.trophies} trophies + ${r.created.platinums} platinums, ` +
+    `${r.handle}: ${r.games} games, new or restored entries ${r.created.trophies} trophies + ${r.created.platinums} platinums, ` +
     `${r.voided} voided, XP ${arrow(r.xp)}, level ${arrow(r.level)}, platinums ${arrow(r.platinums)} (${r.psnPlatinums} on PSN); ` +
     `after: ${trophyEntries} trophy entries for ${unlocks} unlocks, ${platinumEntries} platinum entries for ${lists} complete lists; ` +
     `unpaid: ${r.unpaid.voidedUnderLink} voided under the link, ${r.unpaid.voidedBeforeLink} voided before it, ${r.unpaid.blocked} blocked`
