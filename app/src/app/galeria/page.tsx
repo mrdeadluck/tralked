@@ -84,12 +84,14 @@ export default async function GalleryPage({ searchParams }: PageProps<"/galeria"
 async function GalleryContent({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const requestedGame = first(params.jogo);
-  // The filter names a game merged into another: the same gallery under the kept slug.
-  const kept = await galleryRedirectHref(params);
-  if (kept) permanentRedirect(kept);
   // Only games with listed photos (the filter), not the whole catalog.
   const withPhotos = await galleryGamesCached();
   const game = await requestedGallery(withPhotos, requestedGame);
+  if (requestedGame && !game) {
+    // Not a game any more: the slug of one merged into another goes to the kept game's gallery.
+    const kept = await galleryRedirectHref(params);
+    if (kept) permanentRedirect(kept);
+  }
   const listing = await listPhotosCached(game?.slug ?? null, pageParam(params.pagina));
   const featured = !game && listing.page === 1 ? await photoOfTheWeekCached() : null;
 

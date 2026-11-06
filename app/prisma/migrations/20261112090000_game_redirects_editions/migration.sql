@@ -12,7 +12,8 @@ CREATE TABLE "GameEdition" (
     "gameId" TEXT NOT NULL,
     "otherId" TEXT NOT NULL,
 
-    CONSTRAINT "GameEdition_pkey" PRIMARY KEY ("gameId","otherId")
+    CONSTRAINT "GameEdition_pkey" PRIMARY KEY ("gameId","otherId"),
+    CONSTRAINT "GameEdition_distinct" CHECK ("gameId" <> "otherId")
 );
 
 -- CreateIndex

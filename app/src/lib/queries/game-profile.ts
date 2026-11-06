@@ -574,9 +574,12 @@ async function loadEditions(gameId: string): Promise<{ slug: string; name: strin
     where: { OR: [{ gameId }, { otherId: gameId }] },
     select: { game: { select: { id: true, slug: true, name: true } }, other: { select: { id: true, slug: true, name: true } } },
   });
-  return rows
-    .map((r) => (r.game.id === gameId ? r.other : r.game))
-    .map(({ slug, name }) => ({ slug, name }))
+  const bySlug = new Map<string, { slug: string; name: string }>();
+  for (const r of rows) {
+    const edition = r.game.id === gameId ? r.other : r.game;
+    bySlug.set(edition.slug, { slug: edition.slug, name: edition.name });
+  }
+  return [...bySlug.values()]
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 }
 

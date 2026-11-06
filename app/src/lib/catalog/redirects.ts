@@ -23,9 +23,13 @@ export async function loadSlugRedirect(slug: string): Promise<string | null> {
 /** `loadSlugRedirect` cached with the slug's game tag; what the pages use. */
 export async function resolveSlugRedirect(slug: string): Promise<string | null> {
   "use cache";
-  cacheLife("hours");
   cacheTag(gameTag(slug));
-  return loadSlugRedirect(slug);
+  const kept = await loadSlugRedirect(slug);
+  // A miss is the common case for a live slug and stops being true the moment a merge writes the
+  // redirect (a script outside Next cannot expire it quickly): it is remembered for a minute only.
+  if (kept) cacheLife("hours");
+  else cacheLife({ stale: 30, revalidate: 60, expire: 60 });
+  return kept;
 }
 
 /** `/jogos/<kept>` plus the sub-path the visitor asked for ("/guia"), or null when the slug is unknown. */
