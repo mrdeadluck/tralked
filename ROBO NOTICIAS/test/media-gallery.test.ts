@@ -68,15 +68,15 @@ function uploader() {
 async function gta(shots: number) {
   const files: Record<string, Buffer> = {};
   const key = await picture(1920, 1080, 0);
-  files["https://rn.test/key.jpg"] = key;
+  files["https://media-rockstargames-com.akamaized.net/key.jpg"] = key;
   files["https://ign.test/key.jpg"] = await sharp(key).resize(1280, 720).jpeg().toBuffer();
-  const rnImages = [{ url: "https://rn.test/key.jpg", role: "og" as const }];
+  const rnImages = [{ url: "https://media-rockstargames-com.akamaized.net/key.jpg", role: "og" as const }];
   const ignImages = [{ url: "https://ign.test/key.jpg", role: "og" as const }];
   for (let i = 1; i <= shots; i++) {
     const shot = await picture(1600, 900, i);
-    files[`https://rn.test/shot${i}.jpg`] = shot;
+    files[`https://media-rockstargames-com.akamaized.net/shot${i}.jpg`] = shot;
     files[`https://ign.test/shot${i}.jpg`] = await sharp(shot).resize(1200, 675).jpeg({ quality: 70 }).toBuffer();
-    rnImages.push({ url: `https://rn.test/shot${i}.jpg`, role: "body" as const } as never);
+    rnImages.push({ url: `https://media-rockstargames-com.akamaized.net/shot${i}.jpg`, role: "body" as const } as never);
     ignImages.push({ url: `https://ign.test/shot${i}.jpg`, role: "body" as const } as never);
   }
   const items = [

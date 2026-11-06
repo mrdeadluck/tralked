@@ -1576,7 +1576,8 @@ describe("catalog media for articles without their own", () => {
     const h = harness();
     const id = seedQueued(h, "Supergiant solta novas imagens de Hades II");
     const [item] = h.db.itemsForStory(id);
-    const urls = [0, 1, 2, 3, 4].map((n) => `https://www.supergiantgames.com/img/${n}.jpg`);
+    // The official page's own pictures (same site as the page).
+    const urls = [0, 1, 2, 3, 4].map((n) => `https://news.test/img/${n}.jpg`);
     for (const [n, url] of urls.entries()) h.pictures.set(url, await scene(n + 3));
     h.db.raw.prepare("UPDATE items SET source_id = 'pub' WHERE id = ?").run(item!.id);
     h.db.setItemMedia(item!.id, { images: urls.map((url) => ({ url, role: "body" as const })), youtube: [], posts: [] });
