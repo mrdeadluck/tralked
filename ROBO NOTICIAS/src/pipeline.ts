@@ -106,6 +106,8 @@ export const MAX_PAUTAS_PER_DAY = 2;
 export const PAUTA_SCORE_BELOW = 60;
 /** From this local hour, a day without a pauta gives the slot to one, whatever the news score. */
 export const PAUTA_HOUR = 20;
+/** Pautas the check or the model refused on one local day after which no pauta is tried that day (each costs 4 AI calls). */
+export const MAX_PAUTA_FAILURES_PER_DAY = 2;
 /** Games tried in one slot before it falls back to news (each costs only fetches, no AI). */
 const PAUTA_GAME_ATTEMPTS = 3;
 /**
@@ -1580,16 +1582,24 @@ function refusal(deps: PublicaDeps, now: Date): string | null {
 }
 
 /**
- * Whether this slot goes to a Pauta Tralked: fewer than 2 pautas today, and either the best queued news
- * scores below 60 (or there is none), or it is 20:00 or later and no pauta went out today.
+ * Whether this slot goes to a Pauta Tralked: fewer than 2 pautas today, fewer than
+ * `MAX_PAUTA_FAILURES_PER_DAY` refused today, no queued bomb, and either the best queued news scores below 60
+ * (or there is none), or it is 20:00 or later and no pauta went out today.
  */
 function wantsPauta(deps: PublicaDeps, now: Date): boolean {
   if (!deps.famousGames || deps.famousGames.length === 0) return false;
-  const today = pautasPublishedOn(deps.db, localDay(now));
+  const day = localDay(now);
+  const today = pautasPublishedOn(deps.db, day);
   if (today >= MAX_PAUTAS_PER_DAY) return false;
+  const failed = deps.db.raw
+    .prepare("SELECT COUNT(*) AS n FROM pautas WHERE mode = 'live' AND status = 'failed' AND story_date = ?")
+    .get(day) as { n: number };
+  if (failed.n >= MAX_PAUTA_FAILURES_PER_DAY) return false;
+  const queued = eligibleQueued(deps, now);
+  if (queued.some((s) => s.bomb === 1)) return false;
   // The best raw score, not the mix's pick: the mix may take a 58 over an 80 for variety, and the slot
   // still belongs to the news.
-  const best = Math.max(-Infinity, ...eligibleQueued(deps, now).map((s) => s.score));
+  const best = Math.max(-Infinity, ...queued.map((s) => s.score));
   return best < PAUTA_SCORE_BELOW || (localHour(now) >= PAUTA_HOUR && today === 0);
 }
 
@@ -1682,7 +1692,10 @@ async function publishLivePauta(deps: PublicaDeps, now: Date): Promise<{ id: str
   } catch (error) {
     if (error instanceof TralkedError) {
       alert(db, "api", `Falha ao publicar a pauta ${row.id} "${payload.title}": ${error.status} ${error.message}`, now);
-      if (error.status >= 400 && error.status < 500 && error.status !== 429) markPauta(db, row.id, { status: "failed", error: error.message });
+      // A 4xx never goes through; a 5xx, 429 or network error is retried once, in a later pauta slot.
+      const permanent = error.status >= 400 && error.status < 500 && error.status !== 429;
+      if (permanent || row.error) markPauta(db, row.id, { status: "failed", error: error.message });
+      else markPauta(db, row.id, { error: error.message });
     }
     throw error;
   }
@@ -1723,8 +1736,9 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
       } catch (error) {
         if (error instanceof UsageLimitError) return { published: null, reason: error.message };
         if (error instanceof BudgetExceededError) return { published: null, reason: `orçamento diário esgotado (${error.message})` };
-        if (error instanceof TralkedError) return { published: null, reason: `erro da API do site: ${error.status} ${error.message}` };
-        throw error;
+        if (!(error instanceof TralkedError)) throw error;
+        // The site refused the pauta: the slot goes to the news (if the site is down, the news fails too).
+        deps.log?.(`pauta: erro da API do site (${error.status} ${error.message}); o horário fica com a notícia`);
       }
     }
 

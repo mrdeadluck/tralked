@@ -387,18 +387,58 @@ function mentionsMissable(text: string): boolean {
   return a.some((i) => b.some((j) => Math.abs(i - j) <= NEAR_CHARS));
 }
 
+const PLATFORM_LABEL: Record<string, string> = { steam: "Steam", psn: "PlayStation", xbox: "Xbox", retro: "RetroAchievements" };
+
+export type AchievementList = {
+  platform: string;
+  /** "Steam", "PlayStation"… */
+  label: string;
+  /** The platform's visible achievements, rarest first, one per name. */
+  rows: Dossier["achievements"];
+  /** The trusted total (Steam's `achievementCount`); null when unknown (console lists come without the hidden ones). */
+  total: number | null;
+  /** Every achievement of the list is in `rows` (no hidden ones left out). */
+  complete: boolean;
+};
+
+/**
+ * The one achievement list a pauta talks about (review 06/11/2026): the unified game holds the rows of
+ * every platform (Steam, PS4 and PS5 lists, Xbox, Retro) sorted together, and their counts and percentages
+ * must not mix. The Steam list when the game is on Steam, else the largest list, a repeated name once.
+ */
+export function achievementList(d: Dossier): AchievementList {
+  const by = new Map<string, Dossier["achievements"]>();
+  for (const a of d.achievements) by.set(a.platform, [...(by.get(a.platform) ?? []), a]);
+  const steamRows = by.get("steam") ?? [];
+  const platform =
+    steamRows.length > 0 && (d.game.steamAppId !== null || d.game.achievementCount > 0)
+      ? "steam"
+      : ([...by.entries()].sort((a, b) => b[1].length - a[1].length)[0]?.[0] ?? "steam");
+  const seen = new Set<string>();
+  const rows = (by.get(platform) ?? []).filter((a) => {
+    const key = a.name.trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const total = platform === "steam" && d.game.achievementCount > 0 ? d.game.achievementCount : null;
+  return { platform, label: PLATFORM_LABEL[platform] ?? platform, rows, total, complete: total !== null && total <= rows.length };
+}
+
 function eligibleFormats(sources: PautaSources): PautaFormat[] {
   const dossier = sources.dossier;
   if (!dossier) return [];
+  const list = achievementList(dossier);
   const steam = sources.steam?.text.trim() ?? "";
   const wikis = sources.wiki.map((w) => w.text.trim()).filter((t) => t !== "");
   // Ruling: a pauta needs the dossier plus Steam or wiki text.
   if (steam === "" && wikis.length === 0) return [];
   const textChars = steam.length + wikis.reduce((sum, t) => sum + t.length, 0);
   const ok: Record<PautaFormat, boolean> = {
-    "vale-o-100": dossier.achievements.length >= MIN_ACHIEVEMENTS_100,
-    "mais-raras": dossier.achievements.filter((a) => a.globalPct !== null).length >= MIN_RARE_ACHIEVEMENTS,
-    perdiveis: wikis.some(mentionsMissable),
+    // The title states the count: only with a trusted total.
+    "vale-o-100": list.total !== null && list.rows.length >= MIN_ACHIEVEMENTS_100,
+    "mais-raras": list.rows.filter((a) => a.globalPct !== null).length >= MIN_RARE_ACHIEVEMENTS,
+    perdiveis: list.rows.length > 0 && wikis.some(mentionsMissable),
     iniciantes: textChars >= MIN_BEGINNER_CHARS,
   };
   return PAUTA_FORMATS.filter((f) => ok[f]);
@@ -420,13 +460,15 @@ export function chooseFormat(sources: PautaSources, recent: PautaFormat[], rand:
 export const pautaCategory = (format: PautaFormat): ArticleCategory =>
   format === "vale-o-100" || format === "mais-raras" ? "GAMES" : "GUIAS";
 
-/** The spec's title of each format. */
-export function pautaTitle(format: PautaFormat, game: string, achievements: number): string {
+/** The spec's title of each format; "visíveis" when the data leaves hidden achievements out. */
+export function pautaTitle(format: PautaFormat, game: string, achievements: number, hiddenLeftOut = false): string {
   switch (format) {
     case "vale-o-100":
       return `${game} tem ${achievements} conquistas: vale a pena caçar o 100%?`;
     case "mais-raras":
-      return `As 5 conquistas mais raras de ${game} e o que cada uma pede`;
+      return hiddenLeftOut
+        ? `As 5 conquistas visíveis mais raras de ${game} e o que cada uma pede`
+        : `As 5 conquistas mais raras de ${game} e o que cada uma pede`;
     case "perdiveis":
       return `Conquistas perdíveis de ${game}: o que saber antes de começar`;
     case "iniciantes":
@@ -454,25 +496,30 @@ const minutes = (m: number | null) => (m === null ? "sem dado" : `${m} minutos`)
 /** The dossier as plain text: the "Tralked" source of the writer and the checker. */
 function dossierText(d: Dossier): string {
   const g = d.game;
+  const list = achievementList(d);
   const lines = [
     `Jogo: ${g.name} (slug ${g.slug})`,
     `Desenvolvedora: ${g.developer ?? "sem dado"}; publicadora: ${g.publisher ?? "sem dado"}`,
     `Lançamento: ${g.releaseDate ?? "sem dado"}; plataformas: ${g.platforms.join(", ") || "sem dado"}; nota da crítica: ${g.criticScore ?? "sem dado"}`,
     `Resumo do catálogo: ${g.summary ?? "sem dado"}`,
-    `Total de conquistas: ${g.achievementCount}`,
+    list.total !== null
+      ? `Total de conquistas: ${list.total} (${list.label})`
+      : `Total de conquistas: sem dado (a lista é da ${list.label} e não traz as conquistas secretas)`,
     `Tempo para completar 100%: ${minutes(g.timeToBeatCompleteMin)}`,
     `Jogadores no Tralked: ${d.tralked.players}; horas médias dos jogadores no Tralked: ${minutes(d.tralked.avgPlaytimeMin)}; jogadores que completaram no Tralked: ${d.tralked.completedPlayers}`,
-    `Conquistas visíveis (da mais rara para a mais comum; apiName | nome | o que pede | % global de jogadores que têm):`,
-    ...d.achievements
+    `Conquistas visíveis na ${list.label} (da mais rara para a mais comum; apiName | nome | o que pede | % dos jogadores da ${list.label} que têm):`,
+    ...list.rows
       .slice(0, DOSSIER_ACHIEVEMENTS_MAX)
       .map((a) => `- ${a.apiName} | ${a.name} | ${a.description ?? "sem descrição"} | ${a.globalPct === null ? "sem dado" : `${a.globalPct}%`}`),
   ];
-  if (d.achievements.length > DOSSIER_ACHIEVEMENTS_MAX) lines.push(`(mais ${d.achievements.length - DOSSIER_ACHIEVEMENTS_MAX} conquistas comuns fora da lista)`);
+  if (list.rows.length > DOSSIER_ACHIEVEMENTS_MAX) lines.push(`(mais ${list.rows.length - DOSSIER_ACHIEVEMENTS_MAX} conquistas comuns fora da lista)`);
+  if (!list.complete) lines.push("As conquistas secretas não estão nesta lista: nunca diga que estas são as mais raras do jogo inteiro.");
   return lines.join("\n");
 }
 
 /** The dossier in the shape "No Tralked" uses (and `assemble` checks achievement cards against). */
 export function insightsFromDossier(d: Dossier): Insights {
+  const list = achievementList(d);
   return {
     game: {
       slug: d.game.slug,
@@ -483,7 +530,7 @@ export function insightsFromDossier(d: Dossier): Insights {
       timeToBeatCompleteMin: d.game.timeToBeatCompleteMin,
     },
     tralked: { players: d.tralked.players, avgPlaytimeMin: d.tralked.avgPlaytimeMin },
-    rarest: d.achievements
+    rarest: list.rows
       .filter((a): a is typeof a & { globalPct: number } => a.globalPct !== null)
       .slice(0, RAREST_MAX)
       .map((a) => ({ platform: a.platform, apiName: a.apiName, name: a.name, globalPct: a.globalPct })),
@@ -504,7 +551,8 @@ export function pautaStory(sources: PautaSources, format: PautaFormat, id = 0): 
   const dossier = sources.dossier;
   const slug = sources.slug;
   if (!dossier || !slug) throw new Error(`Pauta sem dossiê: ${sources.entry.name}`);
-  const title = pautaTitle(format, dossier.game.name, dossier.game.achievementCount || dossier.achievements.length);
+  const achievements = achievementList(dossier);
+  const title = pautaTitle(format, dossier.game.name, achievements.total ?? achievements.rows.length, !achievements.complete);
   const list: StorySource[] = [];
   if (sources.steam) list.push({ name: "Steam", tier: "oficial", url: sources.steam.url, publishedAt: null, text: sources.steam.text });
   for (const w of sources.wiki) list.push({ name: wikiName(w.url), tier: "outro", url: w.url, publishedAt: null, text: w.text });

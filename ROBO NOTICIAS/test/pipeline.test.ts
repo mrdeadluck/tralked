@@ -1480,6 +1480,48 @@ describe("publica: pautas", () => {
     expect(h.site.created).toHaveLength(1);
   });
 
+  it("a queued bomb goes before the 20:00 pauta", async () => {
+    const h = harness(local("2026-10-31T20:30"));
+    withPautas(h);
+    seedQueued(h, "GTA 6 é adiado", { score: 92, bomb: true });
+    await h.publica();
+    expect(h.site.created[0]!.key).toMatch(/^robo-live-story-/);
+    expect(pautaRows(h.db)).toHaveLength(0);
+  });
+
+  it("after 2 pautas rejected today no pauta is attempted again that day, so the slot goes to the news", async () => {
+    const h = harness(local("2026-10-31T15:00"));
+    withPautas(h);
+    for (const i of [0, 1]) {
+      recordPauta(h.db, { gameName: `Reprovado ${i}`, gameSlug: `reprovado-${i}`, format: "mais-raras", status: "failed", mode: "live", storyDate: "2026-10-31", error: "checagem" }, local("2026-10-31T09:00"));
+    }
+    seedQueued(h, "Notícia fraca", { score: 55 });
+    await h.publica();
+    expect(h.site.created[0]!.key).toMatch(/^robo-live-story-/);
+    expect(pautaRows(h.db)).toHaveLength(2);
+  });
+
+  it("a pauta the site refuses with a 5xx gives the slot to the news, and a second refusal drops it", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    withPautas(h);
+    const create = h.site.tralked.createArticle;
+    h.site.tralked.createArticle = async (payload, key) => {
+      if (isPauta(key)) throw new TralkedError(500, "server_error", "boom");
+      return create(payload, key);
+    };
+    seedQueued(h, "Notícia fraca", { score: 55 });
+    seedQueued(h, "Outra notícia fraca", { score: 54 });
+    const first = await h.publica();
+    expect(first.published).toBe("site-1");
+    expect(h.site.created[0]!.key).toMatch(/^robo-live-story-/);
+    expect(pautaRows(h.db).map((r) => r.status)).toEqual(["ready"]);
+
+    h.at(local("2026-10-31T10:30"));
+    await h.publica();
+    expect(h.site.created[1]!.key).toMatch(/^robo-live-story-/);
+    expect(pautaRows(h.db).map((r) => r.status)).toEqual(["failed"]);
+  });
+
   it("at 20:00 with no pauta yet today it publishes a pauta even when the news scores 80", async () => {
     const h = harness(local("2026-10-31T20:00"));
     withPautas(h);

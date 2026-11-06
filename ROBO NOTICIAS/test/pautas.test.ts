@@ -7,9 +7,11 @@ import {
   PautaRejectedError,
   chooseFormat,
   gatherPautaSources,
+  insightsFromDossier,
   loadFamousGames,
   loadPautaStyle,
   pautaKey,
+  pautaStory,
   pickPautaGame,
   recordPauta,
   writePauta,
@@ -128,6 +130,68 @@ describe("chooseFormat", () => {
     // Every eligible format used recently: any eligible one, chosen by `rand`.
     const picked = new Set([0, 0.3, 0.6, 0.99].map((r) => chooseFormat(all, [...PAUTA_FORMATS], () => r)));
     expect(picked).toEqual(new Set(PAUTA_FORMATS));
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// One achievement list (review 06/11/2026: the unified game mixes Steam and PSN rows)
+// ---------------------------------------------------------------------------------------------
+
+/** Rows of one platform, rarest first; `dup` repeats each name (a PS4 and a PS5 list of the same trophies). */
+const rowsOf = (platform: string, n: number, prefix: string, dup = false) =>
+  Array.from({ length: n }, (_, i) => i).flatMap((i) =>
+    Array.from({ length: dup ? 2 : 1 }, (_, k) => ({
+      platform,
+      apiName: `${prefix}_${i + 1}_${k}`,
+      name: `${prefix} ${i + 1}`,
+      description: `Faça ${i + 1}.`,
+      globalPct: 0.1 + i + k * 0.05,
+    })),
+  );
+
+const tralkedText = (s: PautaSources, f: PautaFormat) => pautaStory(s, f).sources.find((x) => x.name === "Tralked")!.text;
+
+describe("one achievement list per pauta", () => {
+  it("a Steam game uses only its Steam list, labelled, with the Steam total", () => {
+    const d = dossierOf("Elden Ring", { achievements: 20 });
+    d.achievements = [...rowsOf("psn", 30, "Troféu"), ...d.achievements].sort((a, b) => (a.globalPct ?? 99) - (b.globalPct ?? 99));
+    const s = sources({ dossier: d });
+    const text = tralkedText(s, "mais-raras");
+    expect(text).not.toContain("Troféu");
+    expect(text).toContain("Total de conquistas: 20 (Steam)");
+    expect(text).toMatch(/Conquistas visíveis na Steam/);
+    expect(pautaStory(s, "vale-o-100").headline).toBe("Elden Ring tem 20 conquistas: vale a pena caçar o 100%?");
+    expect(insightsFromDossier(d).rarest.every((r) => r.platform === "steam")).toBe(true);
+  });
+
+  it("a console-only game uses its largest list without repeats and has no trusted total, so no vale-o-100", () => {
+    const d = dossierOf("Bloodborne", { achievements: 0, steamAppId: null });
+    d.achievements = [...rowsOf("psn", 12, "Troféu", true), ...rowsOf("xbox", 3, "Xbox")];
+    const s = sources({ dossier: d, steam: null });
+    const text = tralkedText(s, "mais-raras");
+    expect(text.match(/\| Troféu 1 \|/g)).toHaveLength(1);
+    expect(text).not.toContain("Xbox 1");
+    expect(text).toMatch(/Conquistas visíveis na PlayStation/);
+    expect(text).toContain("Total de conquistas: sem dado");
+    for (const r of [0, 0.3, 0.6, 0.99]) expect(chooseFormat(s, [], () => r)).not.toBe("vale-o-100");
+  });
+
+  it("'as 5 mais raras' says visíveis when hidden achievements are left out of the data", () => {
+    const hidden = dossierOf("Hollow Knight", { achievements: 20 });
+    hidden.game.achievementCount = 25; // 5 hidden ones are not in the dossier
+    expect(pautaStory(sources({ dossier: hidden }), "mais-raras").headline).toBe(
+      "As 5 conquistas visíveis mais raras de Hollow Knight e o que cada uma pede",
+    );
+    expect(pautaStory(sources(), "mais-raras").headline).toBe("As 5 conquistas mais raras de Hollow Knight e o que cada uma pede");
+    const psn = dossierOf("Bloodborne", { achievements: 0, steamAppId: null });
+    psn.achievements = rowsOf("psn", 8, "Troféu");
+    expect(pautaStory(sources({ dossier: psn }), "mais-raras").headline).toContain("visíveis");
+  });
+
+  it("perdiveis needs a game with achievements", () => {
+    const none = dossierOf("Super Mario Odyssey", { achievements: 0, steamAppId: null });
+    const s = sources({ dossier: none, steam: short, wiki: [{ url: "https://wiki.test/x", text: "Some achievements are missable." }] });
+    expect(chooseFormat(s, [], () => 0)).toBeNull();
   });
 });
 
