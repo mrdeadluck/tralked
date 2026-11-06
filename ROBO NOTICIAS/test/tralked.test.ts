@@ -3,6 +3,8 @@ import {
   type ArticlePayload,
   articleKey,
   createTralked,
+  exactGame,
+  searchSpellings,
   slugify,
   TralkedError,
   updateKey,
@@ -298,6 +300,18 @@ describe("reads and patch", () => {
     queries.length = 0;
     await expect(client.findGame("The Elder Scrolls 7")).resolves.toBeNull();
     expect(queries.length).toBeLessThanOrEqual(6);
+  });
+
+  it("findGame never takes 'Mega Man 10' for 'Mega Man X': a lone X is a title word, not a numeral", async () => {
+    const catalog = [{ slug: "mega-man-10", name: "Mega Man 10", aliases: [] }];
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      const q = new URL(String(input)).searchParams.get("q")!;
+      return reply(200, { games: catalog.filter((g) => g.name.toLowerCase().includes(q.toLowerCase())) });
+    });
+    const client = createTralked({ baseUrl: `${BASE}/`, key: KEY, fetchFn });
+    await expect(client.findGame("Mega Man X")).resolves.toBeNull();
+    expect(exactGame("Mega Man X", [{ name: "Mega Man 10" }])).toBeNull();
+    expect(searchSpellings("Mega Man X")).toEqual(["Mega Man X"]);
   });
 
   it("uploadImage posts the raw bytes to /api/v1/media with the idempotency key", async () => {

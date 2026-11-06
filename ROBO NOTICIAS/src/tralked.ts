@@ -197,7 +197,11 @@ function storyIdOf(idempotencyKey: string): string {
   return pauta ? `pauta-${pauta}` : idempotencyKey;
 }
 
-const ROMAN: Record<string, string> = { ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7", viii: "8", ix: "9", x: "10" };
+/**
+ * Roman numerals II–IX. A lone "X" is left out: it is a title word as often as a numeral ("Mega Man X" is
+ * not "Mega Man 10", "Xenoblade Chronicles X"), and a wrong game is worse than none.
+ */
+const ROMAN: Record<string, string> = { ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7", viii: "8", ix: "9" };
 
 /** A game name compared loosely: accents, case, punctuation and roman numerals ("VI" = "6") do not count. */
 export function gameNameKey(name: string): string {
@@ -213,7 +217,7 @@ export function gameNameKey(name: string): string {
     .join(" ");
 }
 
-const ROMAN_OF: Record<string, string> = { "2": "II", "3": "III", "4": "IV", "5": "V", "6": "VI", "7": "VII", "8": "VIII", "9": "IX", "10": "X" };
+const ROMAN_OF: Record<string, string> = { "2": "II", "3": "III", "4": "IV", "5": "V", "6": "VI", "7": "VII", "8": "VIII", "9": "IX" };
 const DIGIT_OF: Record<string, string> = Object.fromEntries(Object.entries(ROMAN_OF).map(([d, r]) => [r, d]));
 
 /**

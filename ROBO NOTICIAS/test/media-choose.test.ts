@@ -167,6 +167,35 @@ describe("chooseImages", () => {
     expect(up.tralked.uploadImage).not.toHaveBeenCalled();
   });
 
+  it("an old video's cover that the sources carry (the 2018 teaser) never becomes the cover; a recent one may", async () => {
+    // The same cover in two sizes on two sites: a repetition, so official enough for the vision check.
+    const thumb = "https://i.ytimg.com/vi/OkFdqqyI8y4/maxresdefault.jpg";
+    const small = "https://i.ytimg.com/vi_webp/OkFdqqyI8y4/sddefault.webp";
+    const big = await picture(1280, 720, 4);
+    const files = { [thumb]: big, [small]: await sharp(big).resize(1100, 619).jpeg().toBuffer() };
+    const items = [
+      item("ign", "https://www.ign.com/articles/tes-vi", { images: [{ url: thumb, role: "og" }] }),
+      item("pxn", "https://pxngames.com/noticia/tes-vi", { images: [{ url: small, role: "og" }] }),
+    ];
+    const withWatch = (published: string) => {
+      const pics = images(files);
+      return vi.fn(async (url: string) =>
+        url === "https://www.youtube.com/watch?v=OkFdqqyI8y4"
+          ? new Response(`<meta itemprop="datePublished" content="${published}">`, { status: 200 })
+          : pics(url),
+      );
+    };
+    const storyAt = new Date("2026-11-03T15:00:00Z");
+    const old = visionAi();
+    const oldOut = await chooseImages(input(items, { officialVideoIds: [], storyAt }), deps(old.ai, withWatch("2018-06-10T19:54:48-07:00"), uploader().tralked));
+    expect(oldOut).toEqual({});
+    expect(old.calls).toHaveLength(0);
+
+    const recent = visionAi();
+    const recentOut = await chooseImages(input(items, { officialVideoIds: [], storyAt }), deps(recent.ai, withWatch("2026-11-03T07:07:34-08:00"), uploader().tralked));
+    expect(recentOut.cover?.url).toBe("https://blob.test/1.webp");
+  });
+
   it("vision refusing everything gives no image", async () => {
     const { files, items } = await sentinel();
     const { ai } = visionAi(() => true);
