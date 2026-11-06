@@ -1,6 +1,6 @@
 /*
  * Content panels over the parallax backdrop (Lucas, 11-06). Blocks of the page that have no box of
- * their own (lists, sections, forms, section titles) get the preview's panel: graphite at 90%, a
+ * their own (lists, sections, forms, section titles) get the preview's panel: graphite at 80%, a
  * margin around the content and a hairline edge (parallax-backdrop.css, [data-tk-panel]). The margin
  * is drawn outside the block, so two blocks closer than two margins would stack their frames: those
  * share one panel instead, on their closest common ancestor. Recomputed when the page changes.
@@ -11,8 +11,8 @@ const BLOCKS = "section, aside, article, header, nav, form, ul, ol, table, h1, h
 const OWN_BG = '[class^="bg-"], [class*=" bg-"], [style*="background"]';
 export const PANEL_CANDIDATES = `#principal :is(${BLOCKS}):not(${OWN_BG}):not(#principal :is(${BLOCKS}, ${OWN_BG}) *)`;
 
-/** Two frames of 17 px each, plus a little air. */
-export const MERGE_GAP = 36;
+/** Two frames of 7 px each, plus a little air. */
+export const MERGE_GAP = 20;
 
 type Box = { left: number; right: number; top: number; bottom: number };
 

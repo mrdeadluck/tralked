@@ -45,7 +45,7 @@ export function Footer() {
   return (
     // The page's parallax backdrop stays visible beside the footer: only its column is solid.
     <footer className="border-t border-line">
-      <div className="mx-auto flex max-w-[1320px] flex-col gap-12 bg-bg-deep/90 px-5 pt-14 pb-8">
+      <div className="mx-auto flex max-w-[1320px] flex-col gap-12 bg-bg-deep/80 px-5 pt-14 pb-8">
         {/* One line everywhere; the news pages end on the lime block instead (see Newsletter). */}
         <div className="[body:has([data-newsletter-block])_&]:hidden">
           <Newsletter variant="line" />
