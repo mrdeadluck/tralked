@@ -99,6 +99,8 @@ const LAST_PUBLISH_KEY = "publica.lastAt";
 /** Stories a publishing slot may try, and rejections it accepts before giving the hour up. */
 const SLOT_ATTEMPTS = 5;
 const SLOT_REJECTIONS = 4;
+/** Failures other than the budget, the limit or the site after which a story is dropped (each may be 10 min of the writer). */
+export const MAX_WRITE_FAILURES = 2;
 /** News older than this when published is dated when it broke (see publishStory). */
 const OLD_STORY_MS = 12 * 3_600_000;
 const FETCH_CONCURRENCY = 6;
@@ -1801,7 +1803,15 @@ export async function runPublica(deps: PublicaDeps): Promise<PublicaResult> {
         if (error instanceof UsageLimitError) return { published: null, reason: error.message };
         if (error instanceof BudgetExceededError) return { published: null, reason: `orçamento diário esgotado (${error.message})` };
         if (error instanceof TralkedError) return { published: null, reason: `erro da API do site: ${error.status} ${error.message}` };
-        throw error;
+        // Anything else (a writer timeout, a malformed answer): the story is back in the queue and would be
+        // picked again every 7 minutes. Its second failure drops it, with an alert.
+        const key = `write_failures:${story.id}`;
+        const failures = Number(deps.db.getMeta(key) ?? "0") + 1;
+        deps.db.setMeta(key, String(failures));
+        if (failures >= MAX_WRITE_FAILURES && deps.db.setStoryStatusIf(story.id, "dropped", ["queued"])) {
+          alert(deps.db, "erro", `História ${story.id} "${story.headline}" descartada depois de ${failures} falhas ao escrever: ${errorMessage(error)}`, now);
+        }
+        return { published: null, reason: `erro ao escrever a história ${story.id}: ${errorMessage(error)}` };
       }
     }
     return { published: null, reason: `checagem reprovou ${rejected} histórias seguidas` };

@@ -988,6 +988,26 @@ describe("failures", () => {
     expect(JSON.stringify(alert)).toMatch(/limite da assinatura/i);
   });
 
+  it("a story the writer fails on twice (a timeout) is dropped with an alert, never retried every run", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    const id = seedQueued(h, "Primeira", { score: 90 });
+    h.fake.state.writeError = new Error("claude -p: tempo esgotado depois de 600000 ms");
+
+    const first = await h.publica();
+    expect(first.published).toBeNull();
+    expect(first.reason).toMatch(/tempo esgotado/);
+    expect(stories(h.db).find((s) => s.id === id)!.status).toBe("queued");
+
+    h.at(local("2026-10-31T10:10"));
+    await h.publica();
+    expect(stories(h.db).find((s) => s.id === id)!.status).toBe("dropped");
+    expect(h.db.alerts().some((a) => a.kind === "erro" && a.message.includes("Primeira"))).toBe(true);
+
+    h.at(local("2026-10-31T10:20"));
+    expect((await h.publica()).reason).toBe("fila vazia");
+    expect(h.fake.calls.filter((c) => c.purpose === "write")).toHaveLength(2);
+  });
+
   it("--revisao sends the article as a draft (status review)", async () => {
     const h = harness(local("2026-10-31T10:00"));
     seedQueued(h, "Primeira", { score: 90 });
