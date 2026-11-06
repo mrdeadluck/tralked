@@ -624,6 +624,8 @@ model GameOpen {
 ///   guide_vote     -> `${tipId}:${voterUserId}` (Sábio XP for the author of a voted tip)
 ///   photo_approved -> photoId (gallery upload XP, daily-limited; voided when moderation removes it)
 ///   forum_solved   -> forumPostId (answer marked "Resolveu"; voided when the answer is removed)
+///   comment_posted -> commentId (5 XP), forum_post -> forumPostId (10 XP), forum_thread ->
+///                     forumThreadId (10 XP): one shared daily cap; voided when moderation removes it
 ///   reaction_given -> `${targetType}:${targetId}` (like or dislike given; once per item ever,
 ///                     daily-capped, never for one's own content: lib/community/reactions.ts)
 ///   reaction_received -> `${targetType}:${targetId}:${likerUserId}` (like received; once per

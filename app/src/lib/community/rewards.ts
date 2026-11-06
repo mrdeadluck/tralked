@@ -14,7 +14,9 @@ export const REACTION_RECEIVED_XP = 5;
 export const REACTION_GIVEN_DAILY_CAP = 20;
 /** At most this many received likes per user per day pay `REACTION_RECEIVED_XP`. */
 export const REACTION_RECEIVED_DAILY_CAP = 50;
-/** XP for each comment or reply (articles, photos, guides) and each forum reply. */
+/** XP for each comment or reply on articles, photos and guides. */
 export const COMMENT_XP = 5;
-/** At most this many comments and forum replies per user per day (America/Sao_Paulo) pay `COMMENT_XP`. */
+/** XP for each forum post: a new thread or a reply in one (Lucas, 06/11: forum posts pay double). */
+export const FORUM_POST_XP = 10;
+/** At most this many comments, threads and forum replies per user per day (America/Sao_Paulo) pay XP. */
 export const COMMENT_XP_DAILY_CAP = 10;

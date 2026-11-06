@@ -114,7 +114,7 @@ export async function moderateContent(
     const tags: string[] = [];
     let current: string;
     /** XP to void when the content is removed: [author, ledger source, sourceKey]. */
-    let earned: [string | null, string, string] | null = null;
+    const earned: [string | null, string, string][] = [];
     /** Thread whose "Resolveu" mark goes away with the removed answer. */
     let unsolveThreadId: string | null = null;
     /** Article whose comment count follows this comment's status. */
@@ -131,7 +131,7 @@ export async function moderateContent(
         if (!comment) return NOT_FOUND;
         current = comment.status;
         ownerId = comment.authorId;
-        earned = [comment.authorId, "comment_posted", targetId];
+        earned.push([comment.authorId, "comment_posted", targetId]);
         if (comment.targetType === "photo") tags.push(photoTag(comment.targetId), GALLERY_TAG);
         if (comment.targetType === "thread") tags.push(threadTag(comment.targetId));
         if (comment.targetType === "article") articleCommentOf = comment.targetId;
@@ -144,7 +144,7 @@ export async function moderateContent(
         ownerId = photo.authorId;
         photoUrl = photo.url;
         tags.push(photoTag(targetId), GALLERY_TAG);
-        earned = [photo.authorId, "photo_approved", targetId];
+        earned.push([photo.authorId, "photo_approved", targetId]);
         break;
       }
       case "post": {
@@ -156,10 +156,10 @@ export async function moderateContent(
         current = post.status;
         ownerId = post.authorId;
         tags.push(threadTag(post.threadId), FORUM_TAG);
-        earned = [post.authorId, "forum_post", targetId];
+        earned.push([post.authorId, "forum_post", targetId]);
         if (post.solves) {
-          // The answer no longer stands: its "Resolveu" XP goes and the thread author may mark another.
-          earned = [post.authorId, "forum_solved", targetId];
+          // The answer no longer stands: its "Resolveu" XP goes too and the thread author may mark another.
+          earned.push([post.authorId, "forum_solved", targetId]);
           unsolveThreadId = post.threadId;
         }
         break;
@@ -173,7 +173,8 @@ export async function moderateContent(
         current = thread.status;
         ownerId = thread.authorId;
         tags.push(threadTag(targetId), FORUM_TAG);
-        if (thread.solvedPost) earned = [thread.solvedPost.authorId, "forum_solved", thread.solvedPost.id];
+        earned.push([thread.authorId, "forum_thread", targetId]);
+        if (thread.solvedPost) earned.push([thread.solvedPost.authorId, "forum_solved", thread.solvedPost.id]);
         break;
       }
     }
@@ -206,10 +207,10 @@ export async function moderateContent(
     const recompute: string[] = [];
     let voided = 0;
     if (next === "removed") {
-      if (earned) {
-        const [authorId, source, sourceKey] = earned;
-        voided = await voidEntries(tx, authorId, source, sourceKey, now);
-        if (voided > 0 && authorId) recompute.push(authorId);
+      for (const [authorId, source, sourceKey] of earned) {
+        const n = await voidEntries(tx, authorId, source, sourceKey, now);
+        voided += n;
+        if (n > 0 && authorId && !recompute.includes(authorId)) recompute.push(authorId);
       }
       if (unsolveThreadId) {
         await tx.forumThread.update({ where: { id: unsolveThreadId }, data: { solvedPostId: null } });

@@ -161,6 +161,7 @@ export const COMMUNITY_SOURCES = [
   "photo_approved",
   "comment_posted",
   "forum_post",
+  "forum_thread",
   "reaction_given",
   "reaction_received",
   "forum_solved",

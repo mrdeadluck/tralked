@@ -31,7 +31,7 @@ import { RATE_LIMIT_MESSAGES } from "./limits";
 import { createReport, reportSchema } from "./reports";
 import { weeklyXpOf } from "@/lib/highscores/queries";
 import { levelChange, levelProgress, rewardOf, type Reward } from "@/lib/progression/reward";
-import { awardCommentXp, COMMENT_XP, recomputeQuietly, type CommentSource } from "./xp";
+import { awardCommentXp, commentXpOf, recomputeQuietly, type CommentSource } from "./xp";
 import { articleTag, NEWS_TAG } from "@/lib/queries/news";
 
 /** Common failure shapes; `message` is pt-BR and ready to show. */
@@ -80,8 +80,8 @@ export async function loadMoreComments(raw: unknown): Promise<CommentPage | Fail
 }
 
 /**
- * Pays `COMMENT_XP` for a comment, reply or forum reply (within the shared daily cap) and builds
- * the "+5 XP" toast: the level bar, the week's total and a level-up when it happened.
+ * Pays commentXpOf(source) for a comment, reply, forum reply or thread (within the shared daily
+ * cap) and builds the "+N XP" toast: the level bar, the week's total and a level-up when it happened.
  */
 async function commentReward(userId: string, source: CommentSource, key: string, reason: string): Promise<Reward | null> {
   const awarded = await prisma.$transaction((tx) => awardCommentXp(tx, userId, source, key));
@@ -90,9 +90,10 @@ async function commentReward(userId: string, source: CommentSource, key: string,
   const before = await statsOf();
   await recomputeQuietly(userId);
   const after = await statsOf();
-  return rewardOf(COMMENT_XP, reason, {
+  const xp = commentXpOf(source);
+  return rewardOf(xp, reason, {
     levelUp: levelChange(before?.level, after?.level),
-    progress: after ? levelProgress(after.totalXp, COMMENT_XP) : null,
+    progress: after ? levelProgress(after.totalXp, xp) : null,
     weekXp: after ? await weeklyXpOf(userId) : null,
   });
 }
@@ -160,6 +161,8 @@ export async function startThread(raw: unknown): Promise<{ status: "ok"; threadI
   if (result.status === "not_found") return NOT_FOUND;
   if (result.status === "rate_limited") return { status: "rate_limited", message: RATE_LIMIT_MESSAGES.post };
   updateTag(FORUM_TAG);
+  // The page moves to the new thread, so there is no toast: the XP shows in the level bar.
+  await commentReward(ready.user.id, "forum_thread", result.threadId, "Tópico no fórum");
   return result;
 }
 

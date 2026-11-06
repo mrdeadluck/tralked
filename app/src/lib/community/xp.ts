@@ -1,18 +1,22 @@
 import { toLocalDay } from "@/lib/engine/streak";
 import { recomputeUser } from "@/lib/progression/recompute";
 import type { Db } from "./limits";
-import { COMMENT_XP, COMMENT_XP_DAILY_CAP, FORUM_SOLVED_XP, PHOTO_XP, PHOTO_XP_DAILY_CAP } from "./rewards";
+import { COMMENT_XP, COMMENT_XP_DAILY_CAP, FORUM_POST_XP, FORUM_SOLVED_XP, PHOTO_XP, PHOTO_XP_DAILY_CAP } from "./rewards";
 
-export { COMMENT_XP, COMMENT_XP_DAILY_CAP, FORUM_SOLVED_XP, PHOTO_XP, PHOTO_XP_DAILY_CAP };
+export { COMMENT_XP, COMMENT_XP_DAILY_CAP, FORUM_POST_XP, FORUM_SOLVED_XP, PHOTO_XP, PHOTO_XP_DAILY_CAP };
 
-/** Ledger sources of the comment XP: a comment or reply, and a forum reply (shared daily cap). */
-export const COMMENT_SOURCES = ["comment_posted", "forum_post"] as const;
+/** Ledger sources of the comment XP: a comment or reply, a forum reply and a new thread (shared daily cap). */
+export const COMMENT_SOURCES = ["comment_posted", "forum_post", "forum_thread"] as const;
 export type CommentSource = (typeof COMMENT_SOURCES)[number];
 
+/** XP one item of `source` pays: comments 5, forum threads and replies 10. */
+export const commentXpOf = (source: CommentSource) => (source === "comment_posted" ? COMMENT_XP : FORUM_POST_XP);
+
 /**
- * Credits `COMMENT_XP` (no skills) for a comment or reply (`comment_posted`, sourceKey = commentId)
- * or a forum reply (`forum_post`, sourceKey = postId), unless the user already earned it
- * `COMMENT_XP_DAILY_CAP` times today across both. Locks the user's row like the photo XP, so two
+ * Credits commentXpOf(source) (no skills) for a comment or reply (`comment_posted`, sourceKey =
+ * commentId, 5 XP), a forum reply (`forum_post`, sourceKey = postId, 10 XP) or a new forum thread
+ * (`forum_thread`, sourceKey = threadId, 10 XP), unless the user already earned
+ * `COMMENT_XP_DAILY_CAP` of them today across the three. Locks the user's row like the photo XP, so two
  * posts at once cannot both take the last slot. Idempotent per item. Moderation's "Remover" voids
  * it (lib/admin/moderation). Returns whether a ledger entry was created.
  */
@@ -31,7 +35,7 @@ export async function awardCommentXp(
   const today = toLocalDay(now);
   if (recent.filter((e) => toLocalDay(e.createdAt) === today).length >= COMMENT_XP_DAILY_CAP) return false;
   const created = await tx.xpLedgerEntry.createMany({
-    data: [{ userId, source, sourceKey, xp: COMMENT_XP, skills: [], createdAt: now }],
+    data: [{ userId, source, sourceKey, xp: commentXpOf(source), skills: [], createdAt: now }],
     skipDuplicates: true,
   });
   return created.count > 0;

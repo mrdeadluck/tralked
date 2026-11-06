@@ -6,6 +6,7 @@ import {
   FORUM_SOLVED_XP,
   COMMENT_XP,
   COMMENT_XP_DAILY_CAP,
+  FORUM_POST_XP,
   PHOTO_XP,
   PHOTO_XP_DAILY_CAP,
   REACTION_GIVEN_DAILY_CAP,
@@ -112,8 +113,14 @@ const COMMUNITY: Source[] = [
   {
     icon: "like",
     name: "Comentar ou responder",
-    text: `Um comentário numa notícia, foto ou guia, uma resposta a alguém ou uma resposta no fórum. Até ${COMMENT_XP_DAILY_CAP} por dia.`,
+    text: `Um comentário numa notícia, foto ou guia, ou uma resposta a alguém. Até ${COMMENT_XP_DAILY_CAP} por dia, somando com o fórum.`,
     xp: `+${COMMENT_XP} XP`,
+  },
+  {
+    icon: "like",
+    name: "Postar no fórum",
+    text: `Abrir um tópico ou responder num tópico do fórum. Até ${COMMENT_XP_DAILY_CAP} por dia, somando com os comentários.`,
+    xp: `+${FORUM_POST_XP} XP`,
   },
   {
     icon: "like",

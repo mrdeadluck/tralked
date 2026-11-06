@@ -144,6 +144,26 @@ describe("forum", () => {
     expect((await prisma.forumPost.findUniqueOrThrow({ where: { id: answerId } })).status).toBe("removed");
   });
 
+  it("removing a thread voids its author's thread XP and the solved answer's XP", async () => {
+    const category = await prisma.forumCategory.findFirstOrThrow();
+    const other = await prisma.forumThread.create({
+      data: { categoryId: category.id, authorId: author, title: "Outro tópico", slug: "outro-topico", posts: { create: { authorId: author, body: "Oi" } } },
+    });
+    const answer = await prisma.forumPost.create({ data: { threadId: other.id, authorId: helper, body: "Resposta." } });
+    await prisma.forumThread.update({ where: { id: other.id }, data: { solvedPostId: answer.id } });
+    await prisma.xpLedgerEntry.createMany({
+      data: [
+        { userId: author, source: "forum_thread", sourceKey: other.id, xp: 10, skills: [], createdAt: NOW },
+        { userId: helper, source: "forum_solved", sourceKey: answer.id, xp: 40, skills: ["sabio"], skillPoints: { sabio: 40 }, createdAt: NOW },
+      ],
+    });
+    const result = await moderateContent({ targetType: "thread", targetId: other.id, action: "remove" }, moderator, NOW);
+    expect(result).toMatchObject({ ok: true, voided: 2 });
+    expect(new Set((result as { recompute: string[] }).recompute)).toEqual(new Set([author, helper]));
+    const voided = await prisma.xpLedgerEntry.findMany({ where: { sourceKey: { in: [other.id, answer.id] } }, select: { voidedAt: true } });
+    expect(voided.every((e) => e.voidedAt?.getTime() === NOW.getTime())).toBe(true);
+  });
+
   it("lists content by status with its open reports", async () => {
     await prisma.report.create({ data: { reporterId: reporter, targetType: "thread", targetId: threadId, reason: "Outro motivo" } });
     const { rows } = await listContent("thread", "all", 1);
