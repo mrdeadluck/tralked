@@ -101,6 +101,15 @@ describe("platinumTally", () => {
     expect(await platinumTally(user.id)).toMatchObject({ platinums: 0, tralked: 2, tralkedByPlatform: { xbox: 2 } });
   });
 
+  it("Xbox with NULL points: a completed list is Tralked through completedAt, not through the 1000G path", async () => {
+    const user = await newUser();
+    const game = await newGame("SemPontos");
+    // No points on the achievements: the 1000G path reads 0, so only completedAt counts the first list.
+    await addList(user.id, game.id, { platform: "xbox", console: "ONE", earned: 3, completed: true });
+    await addList(user.id, game.id, { platform: "xbox", console: "PC", earned: 3 });
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 0, tralked: 1, tralkedByPlatform: { xbox: 1 } });
+  });
+
   it("Xbox with two titleIds both complete = 2 Tralked", async () => {
     const user = await newUser();
     const game = await newGame("Halo");

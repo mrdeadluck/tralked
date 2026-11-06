@@ -14,7 +14,8 @@ async function main() {
   const [{ default_transaction_read_only: ro }] = await prisma.$queryRaw<{ default_transaction_read_only: string }[]>`SHOW default_transaction_read_only`;
   if (ro !== "on") {
     console.error(`Session is not read-only (default_transaction_read_only = ${ro}).`);
-    process.exit(2);
+    process.exitCode = 2;
+    return;
   }
   console.log(`default_transaction_read_only = ${ro}`);
   for (const handle of process.argv.slice(2)) {
@@ -26,6 +27,11 @@ async function main() {
     const t = await platinumTallyOf(user.id);
     console.log(`${user.handle}: Tralked ${t.tralked} ${JSON.stringify(t.tralkedByPlatform)} | Platinas ${t.platinums} ${JSON.stringify(t.byPlatform)}`);
   }
-  await prisma.$disconnect();
 }
-main();
+
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => prisma.$disconnect());
