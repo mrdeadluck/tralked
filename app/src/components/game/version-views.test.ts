@@ -29,15 +29,13 @@ describe("the ficha's Conquistas", () => {
       { family: "Steam", total: 77 },
       { family: "Xbox", total: 49 },
     ]);
-    const steamMain = { platform: "steam" as const, total: 77, legendary: 1 };
-    expect(achievementsFact(GTA, steamMain, [])).toEqual({
-      value: 78,
-      note: "na PlayStation · 77 na Steam · 49 no Xbox · 1 lendária",
-    });
+    // As the approved mockup: no "lendária" suffix (it counted regional copies).
+    const steamMain = { platform: "steam" as const, total: 77 };
+    expect(achievementsFact(GTA, steamMain, [])).toEqual({ value: 78, note: "na PlayStation · 77 na Steam · 49 no Xbox" });
   });
 
   it("without versions, the catalog's per-platform numbers as before", () => {
-    const main = { platform: "steam" as const, total: 40, legendary: 0 };
+    const main = { platform: "steam" as const, total: 40 };
     expect(achievementsFact([], main, [main, { platform: "xbox", total: 12 }])).toEqual({ value: 40, note: "na Steam · 12 no Xbox" });
   });
 });

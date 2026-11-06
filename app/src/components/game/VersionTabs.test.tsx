@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GameVersion, PlayerVersion, VersionTrophy } from "@/lib/queries/game-versions";
-import { FIRST_ROWS, restOfVersion, versionMarks, versionTabs, type TabsMarks } from "./version-views";
+import { FIRST_ROWS, publicTrophies, versionMarks, versionTabs, type TabsMarks, type VersionTabTrophy } from "./version-views";
 import { VersionTabs } from "./VersionTabs";
 
 afterEach(cleanup);
@@ -79,9 +79,14 @@ const MINE: PlayerVersion = {
 };
 
 const noMore = vi.fn(async () => null);
+/** The action's answer: a version's whole public list (from a snapshot of the versions). */
+const fullOf = (versions: GameVersion[]) => async (key: string) => {
+  const v = versions.find((x) => x.key === key);
+  return v ? publicTrophies(v) : null;
+};
 const props = { label: "Versões de GTA V", title: "Troféus e conquistas", aside: null };
 
-async function show(marks: TabsMarks | null, loadMore: (key: string) => Promise<ReturnType<typeof restOfVersion>> = noMore) {
+async function show(marks: TabsMarks | null, loadMore: (key: string) => Promise<VersionTabTrophy[] | null> = noMore) {
   await act(async () => {
     render(<VersionTabs {...props} tabs={versionTabs(VERSIONS)} marks={Promise.resolve(marks)} loadMore={loadMore} />);
   });
@@ -98,8 +103,7 @@ describe("versionTabs (the public part, once in the page)", () => {
     const payload = JSON.stringify(tabs);
     expect(payload).not.toContain("Extra 20");
     expect(payload).not.toContain("Segredo");
-    expect(restOfVersion(VERSIONS, "psn:PS5")!.map((t) => t.apiName)).toEqual(PS5_TROPHIES.slice(FIRST_ROWS).map((t) => t.apiName));
-    expect(restOfVersion(VERSIONS, "psn:PS9")).toBeNull();
+    expect(publicTrophies(PS5).map((t) => t.apiName)).toEqual(PS5_TROPHIES.map((t) => t.apiName));
   });
 });
 
@@ -138,7 +142,7 @@ describe("VersionTabs", () => {
   });
 
   it('"Ver a lista inteira" loads the rest, and the player\'s marks apply to the rows loaded later', async () => {
-    const loadMore = vi.fn(async (key: string) => restOfVersion(VERSIONS, key));
+    const loadMore = vi.fn(fullOf(VERSIONS));
     await show(versionMarks(VERSIONS, [MINE]), loadMore);
     const panel = screen.getByRole("tabpanel");
     expect(within(panel).getAllByRole("listitem")).toHaveLength(FIRST_ROWS);
@@ -151,11 +155,25 @@ describe("VersionTabs", () => {
     expect(late).toHaveTextContent("25/04/2022");
     expect(within(panel).getByRole("heading", { name: "Extra 21" }).closest("li")).toHaveTextContent("não obtido");
 
+    expect(panel).toHaveTextContent("Mostrando 23 de 23");
     // Closing and opening again does not read the list twice.
     await act(async () => fireEvent.click(within(panel).getByRole("button", { name: "Mostrar menos" })));
     expect(within(panel).getAllByRole("listitem")).toHaveLength(FIRST_ROWS);
     await act(async () => fireEvent.click(within(panel).getByRole("button", { name: "Ver a lista inteira" })));
     expect(loadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("a list read later in another order replaces the first rows: no duplicate, no missing trophy", async () => {
+    // Between the page and the click a sync reordered the list (Steam reorders by rarity).
+    const later = [{ ...PS5, trophies: [...PS5_TROPHIES].reverse() }, PS4, XBOX];
+    await show(null, fullOf(later));
+    const panel = screen.getByRole("tabpanel");
+    await act(async () => fireEvent.click(within(panel).getByRole("button", { name: "Ver a lista inteira" })));
+    const names = within(panel).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(names).toHaveLength(23);
+    expect(new Set(names).size).toBe(23);
+    expect(names[0]).toBe("Extra 22");
+    expect(panel).toHaveTextContent("Mostrando 23 de 23");
   });
 
   it("a player's tab opens on the disc's version and marks where each trophy was earned", async () => {

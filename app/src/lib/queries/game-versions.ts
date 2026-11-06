@@ -325,6 +325,25 @@ export async function getGameVersions(gameId: string): Promise<GameVersion[]> {
   return buildGameVersions(lists, achievements, steamCount);
 }
 
+/**
+ * One version of the game `slug` (its full trophy list), reading only that version: its lists and
+ * the rows of its first list (Steam: every Steam row). Null for an unknown game or version.
+ */
+export async function getGameVersion(slug: string, key: string): Promise<GameVersion | null> {
+  const game = await prisma.game.findUnique({ where: { slug }, select: { id: true, achievementCount: true } });
+  if (!game) return null;
+  const lists = (await prisma.trophyList.findMany({ where: { gameId: game.id }, select: LIST_SELECT })).filter(
+    (l) => versionKey(l) === key,
+  );
+  const steam = key === "steam";
+  if (!steam && lists.length === 0) return null;
+  const achievements = await prisma.achievement.findMany({
+    where: steam ? { gameId: game.id, platform: "steam" } : { listId: [...lists].sort(oldestFirst)[0].id },
+    select: ACH_SELECT,
+  });
+  return buildGameVersions(lists, achievements, steam ? game.achievementCount : 0).find((v) => v.key === key) ?? null;
+}
+
 /** One player's versions of a game: reads only ids, tiers and rarity of the trophies (never their text). */
 export async function getPlayerVersions(gameId: string, userId: string): Promise<PlayerVersion[]> {
   const [{ steamCount, lists, achievements }, unlocks, userLists, steamGame] = await Promise.all([

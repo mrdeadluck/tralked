@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
-import { getGameVersions, getPlayerVersions } from "./game-versions";
+import { getGameVersion, getGameVersions, getPlayerVersions } from "./game-versions";
 
 // Test database only (vitest.db-guard.ts). A GTA V-like game: Steam, PS3, PS4 and a PS5 with two
 // regional lists. Fixtures use the `test-gv` prefix and are removed.
@@ -117,6 +117,15 @@ describe("getGameVersions", () => {
     });
     const paid = (await getPlayerVersions(gameId, userId)).find((v) => v.key === "psn:PS5")!;
     expect(paid.xp).toEqual({ "1": 2400 });
+  });
+
+  it("getGameVersion reads one version, the same as in the whole game's", async () => {
+    const all = await getGameVersions(gameId);
+    for (const key of ["psn:PS5", "psn:PS3", "steam"]) {
+      expect(await getGameVersion(`${PREFIX}-gta`, key)).toEqual(all.find((v) => v.key === key));
+    }
+    expect(await getGameVersion(`${PREFIX}-gta`, "psn:PS9")).toBeNull();
+    expect(await getGameVersion(`${PREFIX}-nope`, "steam")).toBeNull();
   });
 
   it("a visitor sees the first region's trophies", async () => {

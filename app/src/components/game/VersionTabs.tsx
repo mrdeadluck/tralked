@@ -1,14 +1,28 @@
 "use client";
 
-import { Suspense, use, useId, useState, type CSSProperties, type KeyboardEvent } from "react";
-import type { TabsMarks, TrophyMark, VersionTab, VersionTabTrophy } from "./version-views";
+import {
+  createContext,
+  Suspense,
+  use,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
+import type { TabsMarks, VersionMarks, VersionTab, VersionTabTrophy } from "./version-views";
 
 /*
  * "Troféus e conquistas", under the hero and its ficha: one tab per version of the game, each with
- * that version's trophy list. The public tabs (the first rows of each version) come once, in the
- * static shell; the player's marks (date, XP, the regional lists a trophy was earned in) stream in
- * as a small map read with `use`, and the rest of a list loads on "Ver a lista inteira" from the
- * cached game profile. Without JS the first panel shows, unmarked.
+ * that version's trophy list. The public tabs (the first rows of each version) render once, in the
+ * static shell; the player's marks (badge, meta line, date, XP, the regional lists a trophy was
+ * earned in) stream in as a small map, read with `use` only by the small parts that show them, each
+ * under its own Suspense (its fallback is the visitor's copy). "Ver a lista inteira" swaps the first
+ * rows for the version's whole list, read from its own cache. Without JS the first panel shows,
+ * unmarked.
  */
 
 const CSS = `
@@ -33,10 +47,10 @@ const CSS = `
 .vt-ic { width: 44px; height: 44px; display: grid; place-items: center; overflow: hidden; background: var(--moss-2); }
 .vt-ic img { width: 100%; height: 100%; object-fit: cover; }
 .vt-ic svg { width: 20px; height: 20px; }
-.vt-tr[data-off] .vt-ic { background: var(--stripes); }
-.vt-tr[data-off] .vt-ic svg, .vt-tr[data-off] .vt-ic img { opacity: .45; }
-.vt-tr[data-off] .vt-ic img { filter: grayscale(1); }
-.vt-tr[data-off] h3 { color: var(--text-2); }
+.vt-tr:has(.vt-no) .vt-ic { background: var(--stripes); }
+.vt-tr:has(.vt-no) .vt-ic svg, .vt-tr:has(.vt-no) .vt-ic img { opacity: .45; }
+.vt-tr:has(.vt-no) .vt-ic img { filter: grayscale(1); }
+.vt-tr:has(.vt-no) h3 { color: var(--text-2); }
 .vt-tr h3 { font-size: 15px; line-height: 1.25; font-weight: 700; }
 .vt-tr p { margin-top: 1px; font-size: 13.5px; color: var(--muted); }
 .vt-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 6px; }
@@ -61,8 +75,24 @@ const CSS = `
 
 const fmt = (n: number) => n.toLocaleString("pt-BR");
 
-/** The rest of a version's list (after the rows the tab carries); null when it cannot be read. */
+/** A version's whole public list; null when it cannot be read. */
 export type LoadMoreTrophies = (key: string) => Promise<VersionTabTrophy[] | null>;
+
+/** The player's marks, per request; resolves to null for a visitor. */
+const MarksContext = createContext<Promise<TabsMarks | null>>(Promise.resolve(null));
+
+function MarksRender({ render }: { render: (marks: TabsMarks | null) => ReactNode }) {
+  return <>{render(use(useContext(MarksContext)))}</>;
+}
+
+/** A mark-dependent part: `fallback` (the visitor's copy) until the marks arrive, then `render`. */
+function WithMarks({ fallback = null, render }: { fallback?: ReactNode; render: (marks: TabsMarks | null) => ReactNode }) {
+  return (
+    <Suspense fallback={fallback}>
+      <MarksRender render={render} />
+    </Suspense>
+  );
+}
 
 function TrophyIcon({ color }: { color: string }) {
   return (
@@ -72,46 +102,99 @@ function TrophyIcon({ color }: { color: string }) {
   );
 }
 
-function RegionChip({ label, date }: { label: string; date: string }) {
+function Ok() {
   return (
-    <span className="vt-chip" title={date ? `Obtido em ${date}` : undefined}>
-      {label}
-      <span className="vt-ok" aria-hidden="true">
-        ✓
-      </span>
+    <span className="vt-ok" aria-hidden="true">
+      ✓
     </span>
   );
 }
 
-/** `owned`: the player has this version (a trophy without a mark is "não obtido"). */
-function TrophyRow({
-  t,
-  mark,
-  owned,
-  noun,
-}: {
-  t: VersionTabTrophy;
-  mark: TrophyMark | null;
-  owned: boolean;
-  noun: VersionTab["noun"];
-}) {
-  const feminine = noun === "conquista";
-  const name = mark?.reveal?.name ?? t.name;
-  const description = mark?.reveal ? mark.reveal.description : t.description;
-  const iconUrl = mark?.reveal ? mark.reveal.iconUrl : t.iconUrl;
+/** The marks of one trophy: region chips (in the tags line) or date, XP and the XP note (row end). */
+function RowMarks({ apiName, versionKey, noun, part }: { apiName: string; versionKey: string; noun: VersionTab["noun"]; part: "tags" | "end" }) {
+  const empty = part === "end" ? <div className="vt-r" /> : null;
   return (
-    <li className="vt-tr" data-off={owned && !mark ? "" : undefined}>
+    <WithMarks
+      fallback={empty}
+      render={(marks) => {
+        const mine = marks?.byKey[versionKey];
+        const mark = mine?.earned[apiName];
+        if (part === "tags") {
+          if (!mark || mark.lists.length === 0) return null;
+          return (
+            <>
+              {mark.lists.map((l) => (
+                <span key={l.label} className="vt-chip" title={l.date ? `Obtido em ${l.date}` : undefined}>
+                  {l.label}
+                  <Ok />
+                </span>
+              ))}
+              <span className="sr-only">{`obtido em: ${mark.lists.map((l) => `${l.label} (${l.date})`).join(", ")}`}</span>
+            </>
+          );
+        }
+        if (!mark) {
+          return (
+            <div className="vt-r">
+              {mine ? <span className="vt-no">{noun === "conquista" ? "não obtida" : "não obtido"}</span> : null}
+            </div>
+          );
+        }
+        return (
+          <>
+            <div className="vt-r">
+              {mark.date}
+              {mark.xp ? <b>{`+${fmt(mark.xp)} XP`}</b> : null}
+            </div>
+            {mark.why ? <p className="vt-why">{mark.why}</p> : null}
+          </>
+        );
+      }}
+    />
+  );
+}
+
+function TrophyRow({ t, versionKey, noun }: { t: VersionTabTrophy; versionKey: string; noun: VersionTab["noun"] }) {
+  const feminine = noun === "conquista";
+  const masked = (
+    <>
+      <h3>{feminine ? "Conquista oculta" : "Troféu oculto"}</h3>
+      <p>{feminine ? "Oculta até ser obtida." : "Oculto até ser obtido."}</p>
+    </>
+  );
+  return (
+    <li className="vt-tr">
       <span className="vt-ic">
-        {iconUrl ? (
+        {t.iconUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={iconUrl} alt="" width={44} height={44} loading="lazy" />
+          <img src={t.iconUrl} alt="" width={44} height={44} loading="lazy" />
         ) : (
           <TrophyIcon color={t.chip?.color ?? "var(--muted)"} />
         )}
       </span>
       <div>
-        <h3>{name ?? (feminine ? "Conquista oculta" : "Troféu oculto")}</h3>
-        <p>{name === null ? (feminine ? "Oculta até ser obtida." : "Oculto até ser obtido.") : description}</p>
+        {t.name === null ? (
+          // A hidden trophy: its text only for the player who earned it (from the marks).
+          <WithMarks
+            fallback={masked}
+            render={(marks) => {
+              const reveal = marks?.byKey[versionKey]?.earned[t.apiName]?.reveal;
+              return reveal ? (
+                <>
+                  <h3>{reveal.name}</h3>
+                  <p>{reveal.description}</p>
+                </>
+              ) : (
+                masked
+              );
+            }}
+          />
+        ) : (
+          <>
+            <h3>{t.name}</h3>
+            <p>{t.description}</p>
+          </>
+        )}
         <div className="vt-tags">
           {t.chip ? (
             <span className="vt-tier" style={{ "--c": t.chip.color } as CSSProperties}>
@@ -119,33 +202,43 @@ function TrophyRow({
             </span>
           ) : null}
           {t.share ? <span className="vt-share">{t.share}</span> : null}
-          {mark?.lists.map((l) => <RegionChip key={l.label} label={l.label} date={l.date} />)}
-          {mark && mark.lists.length > 0 ? (
-            <span className="sr-only">{`obtido em: ${mark.lists.map((l) => `${l.label} (${l.date})`).join(", ")}`}</span>
-          ) : null}
+          <RowMarks apiName={t.apiName} versionKey={versionKey} noun={noun} part="tags" />
         </div>
       </div>
-      <div className="vt-r">
-        {mark ? (
-          <>
-            {mark.date}
-            {mark.xp ? <b>{`+${fmt(mark.xp)} XP`}</b> : null}
-          </>
-        ) : owned ? (
-          <span className="vt-no">{feminine ? "não obtida" : "não obtido"}</span>
-        ) : null}
-      </div>
-      {mark?.why ? <p className="vt-why">{mark.why}</p> : null}
+      <RowMarks apiName={t.apiName} versionKey={versionKey} noun={noun} part="end" />
     </li>
   );
 }
 
-type Rest = VersionTabTrophy[] | "loading" | "failed";
+function Meta({ tab, mine }: { tab: VersionTab; mine: VersionMarks | null }) {
+  const meta = mine?.meta ?? { ...tab.meta, chips: [], note: null };
+  return (
+    <p className="vt-meta">
+      <span>
+        <b>{meta.strong}</b>
+        {meta.rest}
+      </span>
+      {meta.chips.map((c) => (
+        <span key={c.label} className="vt-chip">
+          {c.label}
+          {c.ok ? (
+            <>
+              <Ok />
+              <span className="sr-only">completa</span>
+            </>
+          ) : null}
+        </span>
+      ))}
+      {meta.note ? <span>{meta.note}</span> : null}
+    </p>
+  );
+}
+
+type Full = VersionTabTrophy[] | "loading" | "failed";
 
 function Panel({
   tab,
-  marks,
-  rest,
+  full,
   open,
   onMore,
   id,
@@ -153,52 +246,32 @@ function Panel({
   hidden,
 }: {
   tab: VersionTab;
-  marks: TabsMarks["byKey"][string] | null;
-  rest: Rest | undefined;
+  full: Full | undefined;
   open: boolean;
   onMore: () => void;
   id?: string;
   labelledBy?: string;
   hidden?: boolean;
 }) {
-  const loaded = Array.isArray(rest) ? rest : [];
-  const shown = open ? [...tab.trophies, ...loaded] : tab.trophies;
+  // Opened, the whole list replaces the first rows: one snapshot, never two joined.
+  const rows = open && Array.isArray(full) ? full : tab.trophies;
+  const total = open && Array.isArray(full) ? full.length : tab.count;
   const role = labelledBy ? "tabpanel" : undefined;
-  const meta = marks?.meta ?? { ...tab.meta, chips: [], note: null };
   return (
     <div className="vt-panel" role={role} id={id} aria-labelledby={labelledBy} tabIndex={role ? 0 : undefined} hidden={hidden}>
-      <p className="vt-meta">
-        <span>
-          <b>{meta.strong}</b>
-          {meta.rest}
-        </span>
-        {meta.chips.map((c) => (
-          <span key={c.label} className="vt-chip">
-            {c.label}
-            {c.ok ? (
-              <>
-                <span className="vt-ok" aria-hidden="true">
-                  ✓
-                </span>
-                <span className="sr-only">completa</span>
-              </>
-            ) : null}
-          </span>
-        ))}
-        {meta.note ? <span>{meta.note}</span> : null}
-      </p>
+      <WithMarks fallback={<Meta tab={tab} mine={null} />} render={(marks) => <Meta tab={tab} mine={marks?.byKey[tab.key] ?? null} />} />
       <ul className="vt-list">
-        {shown.map((t) => (
-          <TrophyRow key={t.apiName} t={t} mark={marks?.earned[t.apiName] ?? null} owned={marks !== null} noun={tab.noun} />
+        {rows.map((t) => (
+          <TrophyRow key={t.apiName} t={t} versionKey={tab.key} noun={tab.noun} />
         ))}
       </ul>
       {tab.count > tab.trophies.length ? (
         <p className="vt-more">
           <span>
-            {rest === "failed" ? "Não foi possível carregar a lista agora." : `Mostrando ${fmt(shown.length)} de ${fmt(tab.count)}`}
+            {full === "failed" ? "Não foi possível carregar a lista agora." : `Mostrando ${fmt(rows.length)} de ${fmt(total)}`}
           </span>
-          <button type="button" aria-expanded={open} disabled={rest === "loading"} onClick={onMore}>
-            {rest === "loading" ? "Carregando…" : open ? "Mostrar menos" : "Ver a lista inteira"}
+          <button type="button" aria-expanded={open} disabled={full === "loading"} onClick={onMore}>
+            {full === "loading" ? "Carregando…" : open ? "Mostrar menos" : "Ver a lista inteira"}
           </button>
         </p>
       ) : null}
@@ -206,9 +279,19 @@ function Panel({
   );
 }
 
-type TabsProps = {
+/** Opens the player's tab (the disc's version) once the marks arrive, unless a tab was already picked. */
+function OpenInitial({ initial, onOpen }: { initial: string | null; onOpen: (key: string) => void }) {
+  useEffect(() => {
+    if (initial) onOpen(initial);
+  }, [initial, onOpen]);
+  return null;
+}
+
+type VersionTabsProps = {
   tabs: VersionTab[];
-  /** The rest of each list, from the cached game profile (a bound Server Action on the page). */
+  /** The player's marks (per request; null for a visitor), read only by the parts that show them. */
+  marks: Promise<TabsMarks | null>;
+  /** A version's whole list, from its own cache (a bound Server Action on the page). */
   loadMore: LoadMoreTrophies;
   /** Accessible name of the tab list ("Versões de Grand Theft Auto V"). */
   label: string;
@@ -218,14 +301,22 @@ type TabsProps = {
   aside: string | null;
 };
 
-function Tabs({ tabs, marks, loadMore, label, title, aside }: TabsProps & { marks: TabsMarks | null }) {
+export function VersionTabs({ tabs, marks, loadMore, label, title, aside }: VersionTabsProps) {
   const base = useId();
-  const first = marks && tabs.some((t) => t.key === marks.initial) ? marks.initial : (tabs[0]?.key ?? "");
-  const [selected, setSelected] = useState(first);
-  const [rest, setRest] = useState<Record<string, Rest>>({});
+  const [selected, setSelected] = useState(tabs[0]?.key ?? "");
+  const picked = useRef(false);
+  const [full, setFull] = useState<Record<string, Full>>({});
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [openInitial] = useState(() => (key: string) => {
+    if (!picked.current && tabs.some((t) => t.key === key)) setSelected(key);
+  });
+  if (tabs.length === 0) return null;
   const tabId = (i: number) => `${base}-t${i}`;
   const panelId = (i: number) => `${base}-p${i}`;
+  const pick = (key: string) => {
+    picked.current = true;
+    setSelected(key);
+  };
 
   const more = (key: string) => {
     if (open[key]) {
@@ -233,11 +324,11 @@ function Tabs({ tabs, marks, loadMore, label, title, aside }: TabsProps & { mark
       return;
     }
     setOpen({ ...open, [key]: true });
-    if (Array.isArray(rest[key]) || rest[key] === "loading") return;
-    setRest((r) => ({ ...r, [key]: "loading" }));
+    if (Array.isArray(full[key]) || full[key] === "loading") return;
+    setFull((f) => ({ ...f, [key]: "loading" }));
     loadMore(key).then(
-      (rows) => setRest((r) => ({ ...r, [key]: rows ?? "failed" })),
-      () => setRest((r) => ({ ...r, [key]: "failed" })),
+      (rows) => setFull((f) => ({ ...f, [key]: rows ?? "failed" })),
+      () => setFull((f) => ({ ...f, [key]: "failed" })),
     );
   };
 
@@ -255,83 +346,69 @@ function Tabs({ tabs, marks, loadMore, label, title, aside }: TabsProps & { mark
               : null;
     if (next === null) return;
     e.preventDefault();
-    setSelected(tabs[next].key);
+    pick(tabs[next].key);
     document.getElementById(tabId(next))?.focus();
   };
 
   const panel = (t: VersionTab, extra?: { id: string; labelledBy: string; hidden: boolean }) => (
-    <Panel
-      key={t.key}
-      tab={t}
-      marks={marks?.byKey[t.key] ?? null}
-      rest={rest[t.key]}
-      open={Boolean(open[t.key])}
-      onMore={() => more(t.key)}
-      {...extra}
-    />
+    <Panel key={t.key} tab={t} full={full[t.key]} open={Boolean(open[t.key])} onMore={() => more(t.key)} {...extra} />
   );
-  const side = marks?.aside ?? aside;
+  const visitorAside = aside ? <span className="gp-aside">{aside}</span> : null;
 
   return (
-    <section className="gp-veil" aria-labelledby={`${base}-h`}>
-      <style href="tralked-game-version-tabs" precedence="default">
-        {CSS}
-      </style>
-      <div className="gp-head">
-        <h2 id={`${base}-h`}>{title}</h2>
-        {side ? <span className="gp-aside">{side}</span> : null}
-      </div>
-      {tabs.length === 1 ? (
-        panel(tabs[0])
-      ) : (
-        <>
-          <div className="vt-tabs" role="tablist" aria-label={label}>
-            {tabs.map((t, i) => {
-              const on = t.key === selected;
-              const mine = marks?.byKey[t.key];
-              return (
-                <button
-                  key={t.key}
-                  type="button"
-                  className="vt-tab"
-                  role="tab"
-                  id={tabId(i)}
-                  aria-controls={panelId(i)}
-                  aria-selected={on}
-                  tabIndex={on ? 0 : -1}
-                  title={t.label === t.fullLabel ? undefined : t.fullLabel}
-                  style={{ "--c": t.color } as CSSProperties}
-                  onClick={() => setSelected(t.key)}
-                  onKeyDown={onKeyDown}
-                >
-                  {t.label}
-                  {t.label === t.fullLabel ? null : <span className="sr-only"> ({t.fullLabel})</span>}
-                  <span data-done={mine?.done ? "" : undefined}>{mine?.badge ?? t.badge}</span>
-                </button>
-              );
-            })}
-          </div>
-          {tabs.map((t, i) => panel(t, { id: panelId(i), labelledBy: tabId(i), hidden: t.key !== selected }))}
-        </>
-      )}
-    </section>
-  );
-}
-
-function Marked({ marks, ...props }: TabsProps & { marks: Promise<TabsMarks | null> }) {
-  const resolved = use(marks);
-  return <Tabs {...props} marks={resolved} />;
-}
-
-/**
- * The tabs, unmarked until `marks` (the player's, per request) resolves; a visitor's resolves to
- * null. The public `tabs` are sent once and shared by both renders.
- */
-export function VersionTabs({ marks, ...props }: TabsProps & { marks: Promise<TabsMarks | null> }) {
-  if (props.tabs.length === 0) return null;
-  return (
-    <Suspense fallback={<Tabs {...props} marks={null} />}>
-      <Marked {...props} marks={marks} />
-    </Suspense>
+    <MarksContext value={marks}>
+      <section className="gp-veil" aria-labelledby={`${base}-h`}>
+        <style href="tralked-game-version-tabs" precedence="default">
+          {CSS}
+        </style>
+        <WithMarks render={(m) => <OpenInitial initial={m?.initial ?? null} onOpen={openInitial} />} />
+        <div className="gp-head">
+          <h2 id={`${base}-h`}>{title}</h2>
+          <WithMarks
+            fallback={visitorAside}
+            render={(m) => (m?.aside ? <span className="gp-aside">{m.aside}</span> : visitorAside)}
+          />
+        </div>
+        {tabs.length === 1 ? (
+          panel(tabs[0])
+        ) : (
+          <>
+            <div className="vt-tabs" role="tablist" aria-label={label}>
+              {tabs.map((t, i) => {
+                const on = t.key === selected;
+                const visitorBadge = <span>{t.badge}</span>;
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    className="vt-tab"
+                    role="tab"
+                    id={tabId(i)}
+                    aria-controls={panelId(i)}
+                    aria-selected={on}
+                    tabIndex={on ? 0 : -1}
+                    title={t.label === t.fullLabel ? undefined : t.fullLabel}
+                    style={{ "--c": t.color } as CSSProperties}
+                    onClick={() => pick(t.key)}
+                    onKeyDown={onKeyDown}
+                  >
+                    {t.label}
+                    {t.label === t.fullLabel ? null : <span className="sr-only"> ({t.fullLabel})</span>}
+                    <WithMarks
+                      fallback={visitorBadge}
+                      render={(m) => {
+                        const mine = m?.byKey[t.key];
+                        return mine ? <span data-done={mine.done ? "" : undefined}>{mine.badge}</span> : visitorBadge;
+                      }}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+            {tabs.map((t, i) => panel(t, { id: panelId(i), labelledBy: tabId(i), hidden: t.key !== selected }))}
+          </>
+        )}
+      </section>
+    </MarksContext>
   );
 }

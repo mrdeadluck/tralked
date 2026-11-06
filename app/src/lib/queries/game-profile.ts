@@ -18,7 +18,7 @@ import { achievementTotal } from "@/lib/games/achievement-total";
 import { platinumSourceKey } from "@/lib/progression/recompute";
 import { skillPointTotals } from "@/lib/progression/skills-from-ledger";
 import { timeAgo } from "@/lib/time-ago";
-import { getGameVersions, getPlayerVersions, type GameVersion, type PlayerVersion } from "./game-versions";
+import { getGameVersion, getGameVersions, getPlayerVersions, type GameVersion, type PlayerVersion } from "./game-versions";
 import { gameTag } from "./games-cached";
 import { loadTimeTo100, type TimeTo100 } from "./time-to-100";
 import {
@@ -607,6 +607,17 @@ export async function getGameProfile(slug: string): Promise<GameProfile | null> 
   cacheLife("hours");
   cacheTag(gameTag(slug), NEWS_TAG, GALLERY_TAG);
   return loadGameProfile(slug);
+}
+
+/**
+ * One version's full public trophy list ("Ver a lista inteira" on the game page), cached apart
+ * from the profile so a click reads only that version; tagged with the game like the profile.
+ */
+export async function getGameVersionCached(slug: string, key: string): Promise<GameVersion | null> {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(gameTag(slug));
+  return getGameVersion(slug, key);
 }
 
 // ---------- Per-user ----------

@@ -10,7 +10,7 @@ import type { GameVersion, PlayerVersion } from "@/lib/queries/game-versions";
  * Copy and view data for a game's versions (the hero's version rows and the trophy tabs under the
  * hero), built on the server in pt-BR. The tabs get the public part once (versionTabs, the first
  * rows of each version) and the player's marks apart (versionMarks, a small map by apiName), so a
- * long list never travels twice; the rest of a list comes on demand (restOfVersion).
+ * long list never travels twice; the whole list comes on demand (publicTrophies).
  */
 
 const fmt = (n: number) => n.toLocaleString("pt-BR");
@@ -74,22 +74,21 @@ const onFamily = (name: string) => `${name === "Xbox" || name === "RetroAchievem
 
 /**
  * The ficha's "Conquistas" cell: the largest family's count, then the others ("78" · "na
- * PlayStation · 77 na Steam · 49 no Xbox"), and the legendary ones of the headline platform.
- * Without versions (lists not known yet), the catalog's per-platform numbers as before.
+ * PlayStation · 77 na Steam · 49 no Xbox"), as the approved mockup. Without versions (lists not
+ * known yet), the catalog's per-platform numbers.
  */
 export function achievementsFact(
   versions: GameVersion[],
-  main: { platform: PlatformId; total: number; legendary: number },
+  main: { platform: PlatformId; total: number },
   byPlatform: { platform: PlatformId; total: number }[],
 ): { value: number; note: string } {
-  const legendary = main.legendary > 0 ? `${fmt(main.legendary)} ${main.legendary === 1 ? "lendária" : "lendárias"}` : null;
   const families = versions.length > 0
     ? familyTotals(versions)
     : [main, ...byPlatform.filter((p) => p.platform !== main.platform)].map((p) => ({ family: PLATFORM_NAME[p.platform], total: p.total }));
   const [head, ...rest] = families;
   return {
     value: head.total,
-    note: [onFamily(head.family), ...rest.map((f) => `${fmt(f.total)} ${onFamily(f.family)}`), legendary].filter(Boolean).join(" · "),
+    note: [onFamily(head.family), ...rest.map((f) => `${fmt(f.total)} ${onFamily(f.family)}`)].join(" · "),
   };
 }
 
@@ -104,7 +103,7 @@ const TIER_UI: Record<TrophyTier, { label: string; color: string }> = {
 
 export type TabChip = { label: string; ok: boolean };
 
-/** Rows a tab carries in the page; the rest comes on "Ver a lista inteira" (restOfVersion). */
+/** Rows a tab carries in the page; the whole list comes on "Ver a lista inteira" (publicTrophies). */
 export const FIRST_ROWS = 12;
 
 /** One trophy as anyone sees it (no marks): the same for every viewer, so it can be cached. */
@@ -145,7 +144,7 @@ export type TrophyMark = {
   /** Where the XP came from; on the version's first trophy earned in several lists only. */
   why: string | null;
   /** A hidden trophy the player earned: its text, for them only. */
-  reveal: { name: string; description: string | null; iconUrl: string | null } | null;
+  reveal: { name: string; description: string | null } | null;
 };
 
 /** The player's marks on one version they have: badge, meta line and each earned trophy. */
@@ -207,10 +206,12 @@ export function versionTabs(versions: GameVersion[]): VersionTab[] {
   });
 }
 
-/** The trophies of version `key` after the first FIRST_ROWS (null: no such version). */
-export function restOfVersion(versions: GameVersion[], key: string): VersionTabTrophy[] | null {
-  const v = versions.find((x) => x.key === key);
-  return v ? v.trophies.slice(FIRST_ROWS).map((t) => publicTrophy(v, t)) : null;
+/**
+ * A version's whole public list ("Ver a lista inteira"): the panel replaces its first rows with it,
+ * so a list read later (a sync may have reordered it) never mixes with the one in the page.
+ */
+export function publicTrophies(v: GameVersion): VersionTabTrophy[] {
+  return v.trophies.map((t) => publicTrophy(v, t));
 }
 
 function versionMarksOf(v: GameVersion, mine: PlayerVersion): VersionMarks {
@@ -236,7 +237,7 @@ function versionMarksOf(v: GameVersion, mine: PlayerVersion): VersionMarks {
       xp: mine.xp[t.apiName] ?? null,
       lists: (mine.earnedIn[t.apiName] ?? []).map((label) => ({ label, date: dateIn.get(label) ?? "" })),
       why,
-      reveal: t.hidden ? { name: t.name, description: t.description, iconUrl: safeMediaUrl(t.iconUrl) } : null,
+      reveal: t.hidden ? { name: t.name, description: t.description } : null,
     };
   }
   return {

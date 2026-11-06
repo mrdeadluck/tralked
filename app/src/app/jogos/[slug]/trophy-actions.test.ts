@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameVersion } from "@/lib/queries/game-versions";
 
-const getGameProfile = vi.fn();
+const getGameVersionCached = vi.fn();
 vi.mock("@/lib/queries/game-profile", async (original) => ({
   ...(await original<typeof import("@/lib/queries/game-profile")>()),
-  getGameProfile,
+  getGameVersionCached,
 }));
 
 const trophies = Array.from({ length: 15 }, (_, i) => ({
@@ -27,26 +27,24 @@ const PS4: GameVersion = {
   trophies,
 };
 
-beforeEach(() => getGameProfile.mockReset());
+beforeEach(() => getGameVersionCached.mockReset());
 
 describe("moreVersionTrophies", () => {
-  it("returns the rows after the first ones, from the cached profile, hidden ones masked", async () => {
-    getGameProfile.mockResolvedValue({ versions: [PS4] });
+  it("returns the version's whole public list from its own cached read, hidden ones masked", async () => {
+    getGameVersionCached.mockResolvedValue(PS4);
     const { moreVersionTrophies } = await import("./trophy-actions");
     const rows = await moreVersionTrophies("gta", "psn:PS4");
-    expect(getGameProfile).toHaveBeenCalledWith("gta");
-    expect(rows!.map((r) => r.apiName)).toEqual(["12", "13", "14"]);
-    expect(rows![2].name).toBeNull();
+    expect(getGameVersionCached).toHaveBeenCalledWith("gta", "psn:PS4");
+    expect(rows!.map((r) => r.apiName)).toEqual(trophies.map((t) => t.apiName));
+    expect(rows![14].name).toBeNull();
   });
 
   it("refuses bad input and answers null for an unknown game or version", async () => {
     const { moreVersionTrophies } = await import("./trophy-actions");
     expect(await moreVersionTrophies(42, "psn:PS4")).toBeNull();
     expect(await moreVersionTrophies("gta", "x".repeat(500))).toBeNull();
-    expect(getGameProfile).not.toHaveBeenCalled();
-    getGameProfile.mockResolvedValue(null);
+    expect(getGameVersionCached).not.toHaveBeenCalled();
+    getGameVersionCached.mockResolvedValue(null);
     expect(await moreVersionTrophies("nope", "psn:PS4")).toBeNull();
-    getGameProfile.mockResolvedValue({ versions: [PS4] });
-    expect(await moreVersionTrophies("gta", "psn:PS9")).toBeNull();
   });
 });
