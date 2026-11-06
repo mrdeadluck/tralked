@@ -36,6 +36,7 @@ import {
   writePauta,
   type FamousGame,
 } from "./pautas.js";
+import { mixScore } from "./mix.js";
 import { recurringKey } from "./recurring.js";
 import { TIER_WEIGHT, isBomb, isExpired, isPublishable, storyScore, type Tier } from "./rank.js";
 import {
@@ -1468,11 +1469,13 @@ export async function runColeta(deps: PipelineDeps): Promise<ColetaReport> {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The highest-score queued live story that is not expired; expired ones are marked on the way. Video
- * stories are skipped (left queued) once `MAX_VIDEO_STORIES_PER_DAY` went out today.
+ * The queued live story this slot goes to, among those not expired (expired ones are marked on the way):
+ * a bomb first (highest score), otherwise the highest `mixScore` against what came out today, ties by
+ * score order. Video stories are skipped (left queued) once `MAX_VIDEO_STORIES_PER_DAY` went out today.
  */
 function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
   let videoCap: boolean | null = null;
+  const eligible: StoryRow[] = [];
   for (const story of deps.db.storiesByStatus("queued", 100_000)) {
     if (story.mode !== "live") continue;
     if (expired(story, deps, now)) {
@@ -1483,9 +1486,17 @@ function nextQueued(deps: PipelineDeps, now: Date): StoryRow | null {
       videoCap ??= videoCapReached(deps.db, now);
       if (videoCap) continue;
     }
-    return story;
+    eligible.push(story);
   }
-  return null;
+  const bomb = eligible.find((s) => s.bomb === 1);
+  if (bomb) return bomb;
+  const today = deps.db.publishedTodayMix(localDay(now));
+  let best: { story: StoryRow; mix: number } | null = null;
+  for (const story of eligible) {
+    const mix = mixScore({ score: story.score, topic: story.topic, platforms: parseGames(story.platforms_json) }, today);
+    if (!best || mix > best.mix) best = { story, mix };
+  }
+  return best?.story ?? null;
 }
 
 function refusal(deps: PublicaDeps, now: Date): string | null {

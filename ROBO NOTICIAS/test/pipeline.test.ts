@@ -340,7 +340,15 @@ const stories = (db: Db) => db.raw.prepare("SELECT * FROM stories ORDER BY id").
 function seedQueued(
   h: H,
   headline: string,
-  opts: { score?: number; firstSeenAt?: Date; itemAt?: Date; bomb?: boolean; status?: StoryRow["status"] } = {},
+  opts: {
+    score?: number;
+    firstSeenAt?: Date;
+    itemAt?: Date;
+    bomb?: boolean;
+    status?: StoryRow["status"];
+    topic?: string;
+    platforms?: string[];
+  } = {},
 ): number {
   const seen = opts.firstSeenAt ?? h.clock.now;
   const itemAt = opts.itemAt ?? seen;
@@ -364,6 +372,8 @@ function seedQueued(
       mode: "live",
       status: opts.status ?? "queued",
       lastItemAt: itemAt.toISOString(),
+      topic: opts.topic ?? null,
+      platformsJson: JSON.stringify(opts.platforms ?? []),
     },
     seen,
   );
@@ -1125,6 +1135,37 @@ describe("topic, platforms and recurring items", () => {
     const report = await h.coleta();
     expect(report.queued).toBe(1);
     expect(stories(h.db).find((s) => s.id !== old)!.recurring_key).toBe("ps-plus:2026-11");
+  });
+});
+
+describe("publica: daily mix", () => {
+  it("at the same score the Steam/PC story goes first", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    seedQueued(h, "Hades II chega ao PS5", { score: 70, topic: "lancamento", platforms: ["playstation"] });
+    seedQueued(h, "Hades II ganha evento na Steam", { score: 70, topic: "atualizacao", platforms: ["steam-pc"] });
+    const result = await h.publica({ agora: true });
+    expect(result.reason).toContain("Hades II ganha evento na Steam");
+  });
+
+  it("a topic that already came out 3 times today gives way to another topic", async () => {
+    const h = harness(local("2026-10-31T15:00"));
+    for (const [i, hour] of ["08", "09", "10"].entries()) {
+      seedQueued(h, `Lançamento ${i}`, { status: "published", topic: "lancamento", firstSeenAt: local(`2026-10-31T${hour}:00`) });
+      const id = stories(h.db).at(-1)!.id;
+      h.db.saveArticle({ storyId: id, payloadJson: "{}", status: "published", siteId: `l-${i}`, publishedAt: local(`2026-10-31T${hour}:00`).toISOString() });
+    }
+    seedQueued(h, "Hades II chega em dezembro", { score: 80, topic: "lancamento", platforms: ["multi"] });
+    seedQueued(h, "Hades II vende 5 milhões", { score: 60, topic: "vendas", platforms: ["multi"] });
+    const result = await h.publica({ agora: true });
+    expect(result.reason).toContain("Hades II vende 5 milhões");
+  });
+
+  it("a queued bomb still goes before everything", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    seedQueued(h, "Hades II ganha evento na Steam", { score: 90, topic: "atualizacao", platforms: ["steam-pc"] });
+    seedQueued(h, "GTA 6 é adiado", { score: 88, bomb: true, topic: "lancamento", platforms: ["multi"] });
+    const result = await h.publica({ agora: true });
+    expect(result.reason).toContain("GTA 6 é adiado");
   });
 });
 

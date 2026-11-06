@@ -443,6 +443,8 @@ export interface Db {
   collectionUsage(since: Date): { runs: number; tokens: number; usdEquivalent: number };
 
   publishedCountOn(day: string): number;
+  /** Topics and platforms of the live news published on the local `day` (pautas have neither). */
+  publishedTodayMix(day: string): { topics: Record<string, number>; platforms: Record<string, number> };
   /** Insert or update by story id; returns the article id. */
   saveArticle(article: ArticleInput, now?: Date): number;
   markArticle(storyId: number, patch: ArticlePatch, now?: Date): void;
@@ -732,6 +734,31 @@ export function openDb(dir: string): Db {
         from,
         to,
       ).filter((r) => localDay(new Date(r.published_at)) === day).length;
+    },
+
+    publishedTodayMix(day) {
+      const mid = Date.parse(`${day}T12:00:00Z`);
+      const list = rows<{ published_at: string; topic: string | null; platforms_json: string }>(
+        `SELECT a.published_at, s.topic, s.platforms_json FROM articles a JOIN stories s ON s.id = a.story_id
+          WHERE a.status = 'published' AND s.mode = 'live' AND a.published_at >= ? AND a.published_at <= ?`,
+        iso(new Date(mid - 2 * DAY_MS)),
+        iso(new Date(mid + 2 * DAY_MS)),
+      ).filter((r) => localDay(new Date(r.published_at)) === day);
+      const topics: Record<string, number> = {};
+      const platforms: Record<string, number> = {};
+      for (const r of list) {
+        if (r.topic) topics[r.topic] = (topics[r.topic] ?? 0) + 1;
+        let ps: unknown = [];
+        try {
+          ps = JSON.parse(r.platforms_json);
+        } catch {
+          // a damaged row counts no platform
+        }
+        for (const p of new Set(Array.isArray(ps) ? ps.filter((x): x is string => typeof x === "string") : [])) {
+          platforms[p] = (platforms[p] ?? 0) + 1;
+        }
+      }
+      return { topics, platforms };
     },
 
     saveArticle(a, now = new Date()) {
