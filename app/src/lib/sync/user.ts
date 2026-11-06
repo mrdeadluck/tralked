@@ -174,12 +174,15 @@ async function assertSteamStillLinked(tx: Prisma.TransactionClient, userId: stri
   }
 }
 
-/** `cleared`: an admin released the unlock (fraudReview), so the rules no longer flag it. */
-type KnownUnlock = { unlockedAt: Date | null; suspicious: boolean; cleared: boolean };
+/** What is stored about an unlock: its verdict (admin release included) is kept by a resync. */
+type KnownUnlock = { unlockedAt: Date | null; suspicious: boolean };
 
-/** Sticky flag OR the rules, except for an unlock an admin released: it keeps its stored flag. */
+/**
+ * An unlock already stored keeps its stored verdict (suspicious stays suspicious, an admin-released
+ * one stays clean); only an unlock seen for the first time is judged by the rules.
+ */
 const suspiciousVerdict = (before: KnownUnlock | undefined, ruleMatches: boolean) =>
-  before?.cleared ? before.suspicious : Boolean(before?.suspicious) || ruleMatches;
+  before ? before.suspicious : ruleMatches;
 
 /** The newest of these unlock dates (unknown ones left out); null when none is known. */
 function newestDate(unlocks: { unlockedAt: Date | null }[]): Date | null {
@@ -216,8 +219,9 @@ async function recordGame(
   const undatedCompletion = complete && dated.some((u) => u.unlockedAt === null);
   // Without playtime there is no evidence of a speed run, so the rule cannot apply. Nor to a
   // completion that includes undated unlocks: those are Steam's own unlocktime 0, from an era
-  // whose playtime Steam did not record reliably (0 minutes is common), so the hours prove nothing
-  // and the flag would also taint the game's dated unlocks that were valid before.
+  // whose playtime Steam did not record reliably (0 minutes is common), so the hours prove nothing.
+  // Stored unlocks keep their verdict anyway, so this only spares the first-seen unlocks and the
+  // platinum bonus of such a completion from a speed flag the data cannot support.
   const speedRun =
     complete &&
     playtimeKnown &&
@@ -226,10 +230,8 @@ async function recordGame(
 
   const rows = dated.map((u) => ({
     ...u,
-    // Sticky: the stored flag is OR-ed in, so no sync ever clears it. Bursts (over all of the
-    // user's unlocks) and the speed-platinum rule are re-evaluated on every sync, so clearing the
-    // flag by hand does not last while either rule still matches: the next sync sets it again,
-    // unless the admin released it in the fraud queue (fraudReview "cleared").
+    // Stored unlocks keep their verdict; only new unlocks are judged by the burst rule (over all
+    // of the user's unlocks) and the speed-platinum rule.
     suspicious: suspiciousVerdict(known.get(u.achievementId), bursts.has(u.achievementId) || speedRun),
   }));
   // Undated unlocks are old ones (Steam did not keep dates then), so the newest dated unlock is
@@ -238,11 +240,21 @@ async function recordGame(
   // dated unlock is recent: the completion's real date is not known, so it never counts in a time
   // window ("Esta semana" included).
   const newest = newestDate(rows);
-  const completedAt = complete ? (newest ?? now) : null;
+  const completedAtNew = complete ? (newest ?? now) : null;
   const pctById = new Map(game.achievements.map((a) => [a.id, a.globalPct]));
 
   return prisma.$transaction(async (tx) => {
     await assertSteamStillLinked(tx, userId, link);
+    // A completion with no dated unlock has no date but the one Tralked recorded it at: keep that
+    // one instead of moving it to `now` on every re-read.
+    const stored =
+      complete && !newest
+        ? await tx.userGame.findUnique({
+            where: { userId_gameId_platform: { userId, gameId: game.id, platform: "steam" } },
+            select: { completedAt: true },
+          })
+        : null;
+    const completedAt = stored?.completedAt ?? completedAtNew;
     await tx.userGame.createMany({
       data: [
         { userId, gameId: game.id, platform: "steam", playtimeMin, unlockedCount: unlocks.length, completedAt },
@@ -605,12 +617,12 @@ async function loadKnownUnlocks(userId: string): Promise<Map<string, KnownUnlock
   const rows = await prisma.userAchievement.findMany({
     // Steam unlocks only: other platforms are imported (and checked) by their own sync.
     where: { userId, achievement: { platform: "steam" } },
-    select: { achievementId: true, unlockedAt: true, suspicious: true, fraudReview: true },
+    select: { achievementId: true, unlockedAt: true, suspicious: true },
   });
   return new Map(
     rows.map((r) => [
       r.achievementId,
-      { unlockedAt: r.unlockedAt, suspicious: r.suspicious, cleared: r.fraudReview === "cleared" },
+      { unlockedAt: r.unlockedAt, suspicious: r.suspicious },
     ]),
   );
 }

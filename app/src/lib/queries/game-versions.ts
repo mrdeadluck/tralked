@@ -230,7 +230,7 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
     let platinumTrophy = false;
     for (const e of entries) {
       for (const a of earnedRows(e.rows)) {
-        const when = unlockById.get(a.id)!;
+        const when = unlockById.get(a.id) ?? null;
         // A dated unlock wins over an undated one; the dates of the version's lists: the oldest.
         const prev = unlockedAt[a.apiName];
         if (!(a.apiName in unlockedAt) || (when && (!prev || when < prev))) unlockedAt[a.apiName] = when;

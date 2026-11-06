@@ -143,12 +143,45 @@ O exemplo abaixo usa todos os tipos de bloco:
       "type": "image",
       "url": "https://cdn.exemplo.com.br/hades/provacoes.jpg",
       "alt": "Zagreus diante do quadro de provações no saguão da Casa de Hades",
-      "credit": "Divulgação/Supergiant Games"
+      "credit": "Divulgação/Supergiant Games",
+      "creditUrl": "https://www.supergiantgames.com/blog/hades-ii-provacoes"
     },
     {
       "type": "video",
       "youtubeId": "ID_DO_VIDEO",
       "title": "Trailer do modo de provações de Hades II"
+    },
+    {
+      "type": "post",
+      "network": "x",
+      "url": "https://x.com/SupergiantGames/status/1850000000000000000",
+      "authorName": "Supergiant Games",
+      "authorHandle": "SupergiantGames",
+      "text": "O modo de provações chega a Hades II na próxima semana.",
+      "postedAt": "2026-10-30T15:00:00-03:00"
+    },
+    {
+      "type": "gallery",
+      "images": [
+        {
+          "url": "https://cdn.exemplo.com.br/hades/provacoes-1.jpg",
+          "alt": "Cena 1 do modo de provações de Hades II",
+          "credit": "Divulgação/Supergiant Games",
+          "creditUrl": "https://www.supergiantgames.com/blog/hades-ii-provacoes"
+        },
+        {
+          "url": "https://cdn.exemplo.com.br/hades/provacoes-2.jpg",
+          "alt": "Cena 2 do modo de provações de Hades II",
+          "credit": "Divulgação/Supergiant Games",
+          "creditUrl": "https://www.supergiantgames.com/blog/hades-ii-provacoes"
+        },
+        {
+          "url": "https://cdn.exemplo.com.br/hades/provacoes-3.jpg",
+          "alt": "Cena 3 do modo de provações de Hades II",
+          "credit": "Divulgação/Supergiant Games",
+          "creditUrl": "https://www.supergiantgames.com/blog/hades-ii-provacoes"
+        }
+      ]
     },
     {
       "type": "callout",

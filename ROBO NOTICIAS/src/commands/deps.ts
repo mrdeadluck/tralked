@@ -2,6 +2,7 @@ import "dotenv/config";
 import { createRobotAi } from "../ai/backend.js";
 import { loadConfig, loadSources } from "../config.js";
 import { openDb } from "../db.js";
+import { loadXProfiles } from "../media/xposts.js";
 import { loadFamousGames } from "../pautas.js";
 import type { PipelineDeps } from "../pipeline.js";
 import { createTralked } from "../tralked.js";
@@ -38,5 +39,6 @@ export function realDeps(): PipelineDeps {
     fetchFn: (input, init) => fetch(input, init),
     log: (line) => console.log(line),
     famousGames: loadFamousGames(),
+    xProfiles: loadXProfiles(),
   };
 }

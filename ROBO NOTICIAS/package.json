@@ -13,6 +13,7 @@
     "despublicar": "tsx src/commands/despublicar.ts",
     "resumo": "tsx src/commands/resumo.ts",
     "gasto": "tsx src/commands/gasto.ts",
+    "midia": "tsx src/commands/midia.ts",
     "guia": "tsx src/commands/guia.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

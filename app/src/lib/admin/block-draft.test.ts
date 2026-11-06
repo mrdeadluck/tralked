@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ContentBlock } from "@/lib/content/schema";
-import { blockFromDraft, draftFromBlock, emptyDraft, moveDraft, validateDrafts, youtubeIdFrom } from "./block-draft";
+import { BLOCK_TYPES, blockFromDraft, draftFromBlock, emptyDraft, moveDraft, validateDrafts, youtubeIdFrom } from "./block-draft";
 
 const EVERY_BLOCK: ContentBlock[] = [
   { type: "heading", level: 3, text: "Seção" },
@@ -60,5 +60,48 @@ describe("block drafts", () => {
     const same = ["a", "b"];
     expect(moveDraft(same, 0, -1)).toBe(same);
     expect(moveDraft(same, 1, 1)).toBe(same);
+  });
+});
+
+describe("blocks the robot writes (read-only in the editor)", () => {
+  const post = {
+    type: "post" as const,
+    network: "x" as const,
+    url: "https://x.com/bethesda/status/1",
+    authorName: "Bethesda",
+    authorHandle: "bethesda",
+    text: "The next chapter.",
+    postedAt: "2026-11-03T17:00:00.000Z",
+  };
+
+  it("an X post survives a round trip through the editor unchanged", () => {
+    const draft = draftFromBlock(post);
+    expect(draft.readOnly).toBe(true);
+    expect(blockFromDraft(draft)).toEqual(post);
+    expect(validateDrafts([draft]).blocks).toEqual([post]);
+  });
+
+  it("the editor cannot add an X post", () => {
+    expect(BLOCK_TYPES).not.toContain("post");
+  });
+
+  it("an image keeps its credit link", () => {
+    const image = { type: "image" as const, url: "https://blob.test/a.webp", alt: "Logo", credit: "Divulgação/Bethesda", creditUrl: "https://news.xbox.com/a" };
+    expect(blockFromDraft(draftFromBlock(image))).toEqual(image);
+    const plain = { type: image.type, url: image.url, alt: image.alt, credit: image.credit };
+    expect(blockFromDraft(draftFromBlock(plain))).toEqual(plain);
+  });
+});
+
+describe("gallery (read-only in the editor)", () => {
+  const gallery = {
+    type: "gallery" as const,
+    images: [1, 2, 3].map((n) => ({ url: `https://blob.test/${n}.webp`, alt: `Captura ${n}`, credit: "Divulgação/Rockstar Games" })),
+  };
+  it("survives a round trip and cannot be added", () => {
+    const draft = draftFromBlock(gallery);
+    expect(draft.readOnly).toBe(true);
+    expect(validateDrafts([draft]).blocks).toEqual([gallery]);
+    expect(BLOCK_TYPES).not.toContain("gallery");
   });
 });

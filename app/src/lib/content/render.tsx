@@ -1,5 +1,7 @@
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { RARITY_COLOR, RARITY_LABEL } from "@/components/character/format";
+import { Gallery } from "@/components/content/Gallery";
+import { XPostEmbed } from "@/components/content/XPostEmbed";
 import { rarityTier, xpForAchievement } from "@/lib/engine/xp";
 import { sizedImage } from "@/lib/images/sized";
 import {
@@ -241,7 +243,21 @@ function Block({
             decoding="async"
             className="w-full rounded-[3px] bg-surface"
           />
-          <figcaption className="font-mono text-xs text-dim">Crédito: {block.credit}</figcaption>
+          <figcaption className="font-mono text-xs text-dim">
+            Crédito:{" "}
+            {block.creditUrl ? (
+              <a
+                href={block.creditUrl}
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+                className="underline decoration-1 underline-offset-[3px] hover:text-text-2"
+              >
+                {block.credit}
+              </a>
+            ) : (
+              block.credit
+            )}
+          </figcaption>
         </figure>
       );
     }
@@ -260,9 +276,26 @@ function Block({
               className="size-full border-0"
             />
           </div>
-          {block.title ? <figcaption className="font-mono text-xs text-dim">{block.title}</figcaption> : null}
+          <figcaption className="flex flex-wrap justify-between gap-x-4 gap-y-1 font-mono text-xs text-dim">
+            {block.title ? <span>{block.title}</span> : null}
+            <span>
+              Não carregou?{" "}
+              <a
+                href={`https://www.youtube.com/watch?v=${block.youtubeId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-1 underline-offset-[3px] hover:text-text-2"
+              >
+                Abrir no YouTube
+              </a>
+            </span>
+          </figcaption>
         </figure>
       );
+    case "post":
+      return <XPostEmbed block={block} />;
+    case "gallery":
+      return <Gallery block={block} />;
     case "callout": {
       const style = { "--c": CALLOUT_COLOR[block.tone] } as CSSProperties;
       const label = (

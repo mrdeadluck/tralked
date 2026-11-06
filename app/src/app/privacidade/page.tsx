@@ -142,6 +142,13 @@ export default function PrivacidadePage() {
             </tbody>
           </table>
         </div>
+        <p>
+          Algumas notícias trazem posts do X (antigo Twitter). O script do X, que mostra o post como no X,
+          só é carregado se você escolher &quot;Aceitar todos&quot; ou clicar em &quot;Carregar post&quot;
+          naquele post. Quando carrega, o X pode gravar cookies próprios, que seguem a política de
+          privacidade do X. Sem isso, você vê o texto do post guardado por nós e um link para abri-lo no
+          X. Os vídeos do YouTube usam o modo de privacidade aprimorada (youtube-nocookie.com).
+        </p>
         <CookiePreferences />
       </LegalSection>
 

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { assemble } from "../assemble.js";
 import type { Config, Source } from "../config.js";
 import type { SpendBucket } from "../db.js";
+import type { XPost } from "../media/xposts.js";
 import { ARTICLE_CATEGORIES, ARTICLE_PLATFORMS, type ArticleCategory, type ArticlePlatform, type Insights } from "../tralked.js";
 import type { Ai } from "./client.js";
 import { checkDraft } from "./checker.js";
@@ -72,6 +73,8 @@ export type StoryForWriting = {
    * has no text source besides the video (a video story: new trailer or gameplay).
    */
   video?: { youtubeId: string; title: string; channel: string; only: boolean };
+  /** Official X posts the article embeds (src/media/xposts.ts), placed by `assemble`. */
+  posts?: XPost[];
 };
 
 export type Models = Pick<Config, "MODEL_WRITER" | "MODEL_FAST">;
@@ -232,6 +235,21 @@ export function writePrompt(story: StoryForWriting, now: Date = new Date()): str
           ? "Esta é uma matéria sobre o vídeo (um trailer ou gameplay novo): o fato é o lançamento do vídeo. Conte o que ele apresenta a partir do título e da descrição na fonte do canal. Não descreva cenas, falas ou duração que não estejam nesse texto, e não diga que o texto é curto ou que faltam detalhes."
           : "O vídeo complementa a notícia; pode mencioná-lo numa frase (\"o trailer, logo abaixo, mostra...\") só com o que a descrição dele sustenta.",
       ].join("\n\n"),
+    );
+  }
+
+  if (story.posts?.length) {
+    parts.push(
+      [
+        "## Posts no X",
+        ...story.posts.map(
+          (p) => `- ${body(p.authorName)} (@${body(p.authorHandle)}${p.official === false ? ", perfil não oficial" : ""}): "${body(p.text)}"`,
+        ),
+        "Cada post acima aparece incorporado automaticamente na matéria, depois do parágrafo que cita o autor dele (ou logo no começo, se nenhum citar). Pode citar o autor e o que o post diz, como fonte; não escreva o link do post nem copie o post inteiro no texto.",
+        ...(story.posts.some((p) => p.official === false)
+          ? ["Quando o post é de perfil não oficial, deixe claro no texto quem é o autor (por exemplo, um perfil de vazamentos ou um jornalista) e trate o que ele diz como rumor, nunca como anúncio oficial."]
+          : []),
+      ].join("\n"),
     );
   }
 

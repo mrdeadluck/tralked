@@ -379,7 +379,11 @@ async function settleHolder(
   });
   const prior = await tx.userTrophyList.findUnique({ where: { userId_listId: { userId, listId: list.id } }, select: { completedAt: true } });
   const complete = unlocks.length > 0 && unlocks.length >= trophyCount;
-  const latest = () => new Date(Math.max(...unlocks.map((u) => u.unlockedAt?.getTime() ?? 0)));
+  // Dates the player has; an unknown one is left out and, with none known, it is now (never epoch 0).
+  const latest = () => {
+    const times = unlocks.flatMap((u) => (u.unlockedAt ? [u.unlockedAt.getTime()] : []));
+    return times.length > 0 ? new Date(Math.max(...times)) : now;
+  };
   const progress = {
     unlockedCount: unlocks.length,
     hardcoreCount: unlocks.filter((u) => u.hardcore).length,
@@ -413,7 +417,8 @@ async function staleEntries(tx: Prisma.TransactionClient, userId: string, gameId
       where: { gameId, platform: "psn" },
       select: { id: true, listId: true, apiName: true, globalPct: true, points: true, trophyTier: true },
     }),
-    // PSN dates every unlock; were one null, it is dated now (as list-xp does).
+    // Unreachable fallback: platform-user always stores seenAt for PSN, so no PSN unlock is undated.
+    // Were one null, it is dated now (as list-xp does).
     tx.userAchievement
       .findMany({
         where: { userId, achievement: { gameId, platform: "psn" } },

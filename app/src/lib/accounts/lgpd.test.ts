@@ -156,6 +156,15 @@ describe.skipIf(!reachable)("LGPD export and account deletion", () => {
       ]),
     );
     expect(data!.progress.ledger.every((e) => !String(e.sourceKey).includes(b.id))).toBe(true);
+    // The ledger tells entries with an unknown date apart.
+    await prisma.xpLedgerEntry.create({
+      data: { userId: a.id, source: "achievement", sourceKey: `${MARK}-undated`, xp: 7, dateUnknown: true },
+    });
+    const again = await exportUserData(a.id);
+    expect(again!.progress.ledger).toEqual(
+      expect.arrayContaining([expect.objectContaining({ sourceKey: `${MARK}-undated`, dateUnknown: true })]),
+    );
+    expect(again!.progress.ledger.find((e) => e.xp === 1234)).toMatchObject({ dateUnknown: false });
     expect(json).not.toContain(b.id);
     expect(data!.progress.achievements).toHaveLength(1);
     expect(data!.community.photos).toEqual([expect.objectContaining({ id: mineA.photo.id, likeCount: 1 })]);

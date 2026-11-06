@@ -516,6 +516,43 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "achievement", voidedAt: null } })).toBe(10);
   });
 
+  it("a resync never re-judges stored unlocks: an old burst stays valid, a new unlock in it is flagged", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const appId = newAppId();
+    const unlocks: Record<string, Date> = {};
+    // Ten valid unlocks on separate days, then Steam reports them within 30 s (an old burst).
+    for (let i = 0; i < 10; i++) unlocks[`A${i}`] = new Date(Date.UTC(2024, 0, 1 + i, 20));
+    const steam = fakeSteam({ [appId]: { pcts: pctsOf(12, 10), unlocks } });
+    steamState.api = steam.api;
+    const user = await newUser();
+    await syncUser(user.id);
+    expect(await prisma.userAchievement.count({ where: { userId: user.id, suspicious: true } })).toBe(0);
+    const ledger = () => prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "achievement", voidedAt: null } });
+    const validBefore = await ledger();
+    expect(validBefore).toBe(10);
+
+    const burstAt = new Date("2024-05-05T20:00:00Z");
+    const game = steam.games.get(appId)!;
+    for (let i = 0; i < 10; i++) game.unlocks[`A${i}`] = new Date(burstAt.getTime() + i * 3000);
+    await prisma.userAchievement.updateMany({ where: { userId: user.id }, data: { unlockedAt: burstAt } });
+    game.playtimeMin = 660;
+    await syncUser(user.id);
+    expect(await prisma.userAchievement.count({ where: { userId: user.id, suspicious: true } })).toBe(0);
+    expect(await ledger()).toBe(validBefore);
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, voidedAt: { not: null } } })).toBe(0);
+
+    // A new unlock inside that burst is still judged by the rules.
+    game.unlocks.A10 = new Date(burstAt.getTime() + 15000);
+    game.playtimeMin = 700;
+    await syncUser(user.id);
+    const flagged = await prisma.userAchievement.findMany({
+      where: { userId: user.id, suspicious: true },
+      include: { achievement: true },
+    });
+    expect(flagged.map((r) => r.achievement.apiName)).toEqual(["A10"]);
+  });
+
   it("returns { status: 'private' } without throwing for private profiles", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");
@@ -1075,6 +1112,25 @@ describe.skipIf(!reachable)("syncUser", () => {
       if (appId === mixed) expect(userGame.completedAt).toEqual(dated);
       else expect(userGame.completedAt!.getTime()).toBeGreaterThanOrEqual(started - 1000);
     }
+  });
+
+  it("an all-undated completion keeps the completedAt Tralked recorded when the game is read again", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const appId = newAppId();
+    const fake = fakeSteam({ [appId]: { pcts: { A0: 10, A1: 20 }, playtimeMin: 60, unlocks: { A0: "undated", A1: "undated" } } });
+    steamState.api = fake.api;
+    const user = await newUser();
+    await syncUser(user.id);
+    const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+    const where = { userId_gameId_platform: { userId: user.id, gameId: game.id, platform: "steam" } };
+    const recorded = new Date("2026-01-15T10:00:00Z");
+    await prisma.userGame.update({ where, data: { completedAt: recorded } });
+
+    fake.games.get(appId)!.playtimeMin = 120; // more hours: the game is read again
+    await syncUser(user.id);
+
+    expect((await prisma.userGame.findUniqueOrThrow({ where })).completedAt).toEqual(recorded);
   });
 
   it("probing without a key keeps a game whose only unlocks are undated", async () => {

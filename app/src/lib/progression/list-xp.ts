@@ -281,7 +281,8 @@ export async function settleListXp(
     where: { gameId: { in: ids }, platform },
     select: { id: true, gameId: true, listId: true, apiName: true, globalPct: true, points: true, trophyTier: true },
   });
-  // PSN/Xbox/RA syncs date every unlock (seenAt at worst): only Steam keeps unknown dates. Were one
+  // PSN/Xbox/RA syncs date every unlock (platform-user always stores seenAt), so this fallback is
+  // unreachable for them: only Steam keeps unknown dates. Were one
   // null here, its entry would be dated at this settle, as Steam's undated ones are.
   const unlocks = (
     await tx.userAchievement.findMany({

@@ -224,13 +224,91 @@ describe("reads and patch", () => {
     expect(urlOf(fetchFn, 0)).toBe(`${BASE}/api/v1/games?q=gow`);
   });
 
-  it("findGame falls back to the first hit, then to null", async () => {
-    const { client } = setup(
-      reply(200, { games: [{ slug: "hades-2", name: "Hades II", aliases: [] }] }),
-      reply(200, { games: [] }),
-    );
-    await expect(client.findGame("Hades")).resolves.toEqual({ slug: "hades-2", name: "Hades II" });
+  /** A fake site with the real search: games whose name contains q (case-insensitive). */
+  function catalogSite(catalog: { slug: string; name: string; aliases?: string[] }[]) {
+    const queries: string[] = [];
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      const q = new URL(String(input)).searchParams.get("q")!;
+      queries.push(q);
+      return reply(200, { games: catalog.filter((g) => g.name.toLowerCase().includes(q.toLowerCase())).map((g) => ({ aliases: [], ...g })) });
+    });
+    return { client: createTralked({ baseUrl: `${BASE}/`, key: KEY, fetchFn }), queries };
+  }
+
+  it("findGame never falls back to another game of the series", async () => {
+    const { client } = catalogSite([
+      { slug: "hades-2", name: "Hades II" },
+      { slug: "tes-iii-morrowind", name: "The Elder Scrolls III: Morrowind" },
+    ]);
+    await expect(client.findGame("Hades")).resolves.toBeNull();
     await expect(client.findGame("Nada")).resolves.toBeNull();
+    await expect(client.findGame("The Elder Scrolls VI")).resolves.toBeNull();
+  });
+
+  it("findGame takes the name without its subtitle, and loose spelling (case, accents, roman numerals)", async () => {
+    const { client } = catalogSite([
+      { slug: "tes-vi", name: "The Elder Scrolls VI" },
+      { slug: "hades-2", name: "Hades II" },
+      { slug: "hollow-knight", name: "Hollow Knight" },
+      { slug: "hollow-knight-silksong", name: "Hollow Knight: Silksong" },
+      { slug: "wolverine", name: "Marvel’s Wolverine" },
+    ]);
+    await expect(client.findGame("The Elder Scrolls VI: Sentinel")).resolves.toEqual({ slug: "tes-vi", name: "The Elder Scrolls VI" });
+    await expect(client.findGame("hades 2")).resolves.toEqual({ slug: "hades-2", name: "Hades II" });
+    // The full name wins over the name without subtitle.
+    await expect(client.findGame("Hollow Knight: Silksong")).resolves.toEqual({ slug: "hollow-knight-silksong", name: "Hollow Knight: Silksong" });
+    await expect(client.findGame("Marvel's Wolverine")).resolves.toEqual({ slug: "wolverine", name: "Marvel’s Wolverine" });
+  });
+
+  it("I5: a numbered name finds its subtitled entry; a series name or a subtitle base without number never resolves", async () => {
+    const { client, queries } = catalogSite([
+      { slug: "ds2", name: "Death Stranding 2: On the Beach" },
+      { slug: "re4", name: "Resident Evil 4" },
+      { slug: "re8", name: "Resident Evil Village" },
+      { slug: "cod-warzone", name: "Call of Duty: Warzone" },
+    ]);
+    await expect(client.findGame("Death Stranding 2")).resolves.toEqual({ slug: "ds2", name: "Death Stranding 2: On the Beach" });
+    await expect(client.findGame("Resident Evil")).resolves.toBeNull();
+    queries.length = 0;
+    // "Call of Duty" (the base of "Black Ops 7") is a series, not a game: never searched alone.
+    await expect(client.findGame("Call of Duty: Black Ops 7")).resolves.toBeNull();
+    expect(queries).not.toContain("Call of Duty");
+  });
+
+  it("findGame retries the spellings the site's 'contains' search misses: colon spacing and 6 ↔ VI", async () => {
+    // A fake site with the real search: names that contain q (case-insensitive).
+    const catalog = [
+      { slug: "nier-automata", name: "NieR:Automata", aliases: [] },
+      { slug: "the-elder-scrolls-vi", name: "The Elder Scrolls VI", aliases: [] },
+      { slug: "tes-iii", name: "The Elder Scrolls III: Morrowind", aliases: [] },
+      { slug: "ff7r", name: "Final Fantasy VII Remake", aliases: [] },
+    ];
+    const queries: string[] = [];
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      const q = new URL(String(input)).searchParams.get("q")!;
+      queries.push(q);
+      return reply(200, { games: catalog.filter((g) => g.name.toLowerCase().includes(q.toLowerCase())) });
+    });
+    const client = createTralked({ baseUrl: `${BASE}/`, key: KEY, fetchFn });
+    await expect(client.findGame("NieR: Automata")).resolves.toEqual({ slug: "nier-automata", name: "NieR:Automata" });
+    await expect(client.findGame("The Elder Scrolls 6")).resolves.toEqual({ slug: "the-elder-scrolls-vi", name: "The Elder Scrolls VI" });
+    await expect(client.findGame("The Elder Scrolls 6: Sentinel")).resolves.toEqual({ slug: "the-elder-scrolls-vi", name: "The Elder Scrolls VI" });
+    await expect(client.findGame("Final Fantasy 7 Remake")).resolves.toEqual({ slug: "ff7r", name: "Final Fantasy VII Remake" });
+    // Never another game of the series, and a bounded number of searches.
+    queries.length = 0;
+    await expect(client.findGame("The Elder Scrolls 7")).resolves.toBeNull();
+    expect(queries.length).toBeLessThanOrEqual(6);
+  });
+
+  it("uploadImage posts the raw bytes to /api/v1/media with the idempotency key", async () => {
+    const { client, fetchFn } = setup(reply(201, { url: "https://blob.test/a.webp", width: 1600, height: 900 }));
+    await expect(client.uploadImage(new Uint8Array([1, 2, 3]), "image/jpeg", "noticia-img-abc")).resolves.toMatchObject({
+      url: "https://blob.test/a.webp",
+    });
+    expect(urlOf(fetchFn, 0)).toBe(`${BASE}/api/v1/media`);
+    expect(initOf(fetchFn, 0).method).toBe("POST");
+    expect(headerOf(fetchFn, 0, "content-type")).toBe("image/jpeg");
+    expect(headerOf(fetchFn, 0, "idempotency-key")).toBe("noticia-img-abc");
   });
 
   it("findGame skips the request for names the site would reject", async () => {
