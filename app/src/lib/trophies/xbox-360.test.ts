@@ -73,12 +73,25 @@ describe("measureX360", () => {
 
   it("stops at the request budget and counts the player's other unlocks in the burst check", async () => {
     const at = new Date(Date.UTC(2010, 0, 1, 20));
-    const xbox = fake({ "1": [achievement(1, at), achievement(2, null)] });
+    const xbox = fake({ "1": [achievement(1, at), achievement(2, null), achievement(3, null), achievement(4, null)] });
     const others = Array.from({ length: 9 }, (_, i) => ({ achievementId: `one:${i}`, unlockedAt: new Date(at.getTime() + i * 1000) }));
     const measure = await measureX360(xbox, "xuid", { maxTitles: 1, others });
     if (measure === "private") throw new Error("private");
     expect(xbox.asked).toHaveLength(1);
     expect(measure.skipped).toBe(2);
     expect(measure.bursts).toBe(1);
+  });
+});
+
+describe("measureX360 size check", () => {
+  it("a list shorter than the history's total counts as failed, as in the sync", async () => {
+    const xbox: Pick<XboxApi, "getTitles" | "getAchievements"> = {
+      getTitles: async () => [title("7", ["Xbox360"], 1, 10)],
+      getAchievements: async () => [achievement(1, new Date(Date.UTC(2010, 0, 1))), achievement(2, null)],
+    };
+    const measure = await measureX360(xbox, "xuid");
+    if (measure === "private") throw new Error("private");
+    expect(measure.titles.map((t) => [t.status, t.error])).toEqual([["failed", expect.stringMatching(/2 of the 10/)]]);
+    expect(measure.totals.titles).toBe(0);
   });
 });

@@ -485,22 +485,36 @@ async function rememberCheckedTitles(
 type RememberedCounts = { unlocked: number; hardcore?: number };
 
 /**
- * Version of the remembered "read, no achievements" entries. Bump it to make every such entry
- * stale (the titles are read again). 2: Xbox 360 titles are read on their own routes (before, the
- * player route answered them empty, and they were remembered so).
+ * Version of the remembered "read, no achievements" entries, per platform. Bump a platform's to make
+ * its entries stale (the titles are read again). Xbox 2: Xbox 360 titles are read on their own
+ * routes (before, the player route answered them empty, and they were remembered so).
  */
-export const EMPTY_TITLES_VERSION = 2;
+export const EMPTY_TITLES_VERSION: Record<CodePlatform, number> = { psn: 1, xbox: 2, retro: 1 };
+
+/**
+ * An Xbox 360 title whose read failed is tried again only this long after the failure: each try is
+ * two requests on OpenXBL's quota (150 an hour, shared with every sync), and a title whose routes
+ * disagree would otherwise spend them on every sync.
+ */
+export const X360_RETRY_MS = 24 * 3_600_000;
 
 /** SyncCursor holding a connection's remembered title counts (see rememberTitles). */
 export const titleMemoryKey = (accountId: string) => `platform-titles:${accountId}`;
 
+type TitleMemory = {
+  /** Listed counts per title (recorded titles, and empty ones at the platform's current version). */
+  counts: Map<string, RememberedCounts>;
+  /** Titles whose read failed and waits (Xbox 360, see X360_RETRY_MS) → when it failed (ms). */
+  failed: Map<string, number>;
+};
+
 /**
- * Title counts remembered for this connection: empty for another account or link on the same
- * row (a relink starts over).
+ * What is remembered for this connection's titles: nothing for another account or link on the
+ * same row (a relink starts over).
  */
-async function rememberedTitles(account: AccountSnapshot, accountId: string): Promise<Map<string, RememberedCounts>> {
+async function rememberedTitles(account: AccountSnapshot, accountId: string): Promise<TitleMemory> {
   const row = await prisma.syncCursor.findUnique({ where: { key: titleMemoryKey(accountId) } });
-  const value = row?.value as { externalId?: unknown; linkedAt?: unknown; titles?: unknown; empty?: unknown } | undefined;
+  const value = row?.value as { externalId?: unknown; linkedAt?: unknown; titles?: unknown; empty?: unknown; failed?: unknown } | undefined;
   if (
     !value ||
     value.externalId !== account.externalId ||
@@ -508,29 +522,32 @@ async function rememberedTitles(account: AccountSnapshot, accountId: string): Pr
     !value.titles ||
     typeof value.titles !== "object"
   ) {
-    return new Map();
+    return { counts: new Map(), failed: new Map() };
   }
   const fromCounts = (id: string, counts: unknown): [string, RememberedCounts][] =>
     Array.isArray(counts) && typeof counts[0] === "number"
       ? [[id, { unlocked: counts[0], ...(typeof counts[1] === "number" && { hardcore: counts[1] }) }]]
       : [];
-  // Empty titles (read, no achievements) count only at the current version; recorded titles win.
-  const empty = Object.entries((value.empty && typeof value.empty === "object" ? value.empty : {}) as Record<string, unknown>).flatMap(
-    ([id, entry]) => {
-      const e = entry as { c?: unknown; v?: unknown } | null;
-      return e && e.v === EMPTY_TITLES_VERSION ? fromCounts(id, e.c) : [];
-    },
-  );
-  return new Map([
-    ...empty,
-    ...Object.entries(value.titles as Record<string, unknown>).flatMap(([id, counts]) => fromCounts(id, counts)),
-  ]);
+  const objectOf = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+  // Empty titles (read, no achievements) count only at the platform's current version; recorded titles win.
+  const version = EMPTY_TITLES_VERSION[account.platform];
+  const empty = Object.entries(objectOf(value.empty)).flatMap(([id, entry]) => {
+    const e = entry as { c?: unknown; v?: unknown } | null;
+    return e && e.v === version ? fromCounts(id, e.c) : [];
+  });
+  return {
+    counts: new Map([...empty, ...Object.entries(value.titles as Record<string, unknown>).flatMap(([id, counts]) => fromCounts(id, counts))]),
+    failed: new Map(
+      Object.entries(objectOf(value.failed)).flatMap(([id, ms]) => (typeof ms === "number" && Number.isFinite(ms) ? [[id, ms] as const] : [])),
+    ),
+  };
 }
 
 /**
  * Remembers (merging) the counts the platform listed for each title recorded this run. A game with
  * several lists (PS4 and PS5) has one UserGame row whose count matches at most one list: without
  * this, the other list was read again on every sync, and a big library never finished importing.
+ * Also when each `failed` title failed (`failedAt`), and forgets that of the titles read this run.
  * Guarded like the titles: nothing is written on a connection unlinked (or replaced) meanwhile.
  */
 async function rememberTitles(
@@ -538,9 +555,11 @@ async function rememberTitles(
   accountId: string,
   titles: readonly { externalId: string; listed?: RememberedCounts }[],
   empties: readonly { externalId: string; listed: RememberedCounts }[] = [],
+  failed: readonly string[] = [],
+  failedAt = Date.now(),
 ): Promise<void> {
   const counts = titles.flatMap((t) => (t.listed ? [[t.externalId, t.listed] as const] : []));
-  if (counts.length === 0 && empties.length === 0) return;
+  if (counts.length === 0 && empties.length === 0 && failed.length === 0) return;
   await prisma.$transaction(async (tx) => {
     const linked = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM "LinkedAccount"
@@ -550,18 +569,29 @@ async function rememberTitles(
     const key = titleMemoryKey(accountId);
     const row = await tx.syncCursor.findUnique({ where: { key } });
     const before = row?.value as
-      | { externalId?: unknown; linkedAt?: unknown; titles?: Record<string, unknown>; empty?: Record<string, unknown> }
+      | {
+          externalId?: unknown;
+          linkedAt?: unknown;
+          titles?: Record<string, unknown>;
+          empty?: Record<string, unknown>;
+          failed?: Record<string, unknown>;
+        }
       | undefined;
     const same = before?.externalId === account.externalId && before?.linkedAt === account.linkedAt.toISOString();
-    const merged = { ...(same && before?.titles ? before.titles : {}) } as Prisma.InputJsonObject & Record<string, Prisma.InputJsonValue>;
+    type JsonRecord = Prisma.InputJsonObject & Record<string, Prisma.InputJsonValue>;
+    const merged = { ...(same && before?.titles ? before.titles : {}) } as JsonRecord;
     for (const [id, c] of counts) merged[id] = c.hardcore === undefined ? [c.unlocked] : [c.unlocked, c.hardcore];
     // Empty titles live apart, tagged with the version they were remembered under.
-    const mergedEmpty = { ...(same && before?.empty ? before.empty : {}) } as Prisma.InputJsonObject & Record<string, Prisma.InputJsonValue>;
+    const mergedEmpty = { ...(same && before?.empty ? before.empty : {}) } as JsonRecord;
     for (const [id] of counts) delete mergedEmpty[id];
+    const version = EMPTY_TITLES_VERSION[account.platform];
     for (const e of empties) {
-      mergedEmpty[e.externalId] = { c: e.listed.hardcore === undefined ? [e.listed.unlocked] : [e.listed.unlocked, e.listed.hardcore], v: EMPTY_TITLES_VERSION };
+      mergedEmpty[e.externalId] = { c: e.listed.hardcore === undefined ? [e.listed.unlocked] : [e.listed.unlocked, e.listed.hardcore], v: version };
     }
-    const value = { externalId: account.externalId, linkedAt: account.linkedAt.toISOString(), titles: merged, empty: mergedEmpty };
+    const mergedFailed = { ...(same && before?.failed ? before.failed : {}) } as JsonRecord;
+    for (const id of [...counts.map(([id]) => id), ...empties.map((e) => e.externalId)]) delete mergedFailed[id];
+    for (const id of failed) mergedFailed[id] = failedAt;
+    const value = { externalId: account.externalId, linkedAt: account.linkedAt.toISOString(), titles: merged, empty: mergedEmpty, failed: mergedFailed };
     await tx.syncCursor.upsert({ where: { key }, create: { key, value }, update: { value } });
   }, TRANSACTION_OPTIONS);
 }
@@ -729,11 +759,15 @@ export async function syncPlatformAccount(
   const readDeadline =
     options.deadline === undefined ? undefined : Date.now() + Math.max(0, options.deadline - Date.now()) * READ_SHARE;
   const snapshot: AccountSnapshot = { userId, platform, externalId: account.externalId, linkedAt: account.linkedAt };
+  const memory = await rememberedTitles(snapshot, account.id);
+  // Xbox 360 titles that failed less than X360_RETRY_MS ago wait (even on a full resync).
+  const waiting = [...memory.failed].filter(([, at]) => startedAt.getTime() - at < X360_RETRY_MS).map(([id]) => id);
+  const skip = waiting.length > 0 ? new Set([...(options.skipTitles ?? []), ...waiting]) : options.skipTitles;
   const library = await readLibrary(
     platform,
     { externalId: account.externalId, handle: account.handle },
     {
-      stored: options.full ? undefined : await storedProgress(userId, platform, await rememberedTitles(snapshot, account.id)),
+      stored: options.full ? undefined : await storedProgress(userId, platform, memory.counts),
       // A resync in passes (skipTitles) keeps the titles whose minutes were asked: over 250 titles
       // (MAX_MINUTES_TITLES a run), a plain full read would leave every pass partial.
       checkedTitles:
@@ -741,7 +775,7 @@ export async function syncPlatformAccount(
       linkedAccountId: platform === "psn" ? account.id : undefined,
       deadline: readDeadline,
       maxTitles: options.maxTitles,
-      skip: options.skipTitles,
+      skip,
     },
   );
   if (library === "private") {
@@ -756,8 +790,11 @@ export async function syncPlatformAccount(
       failure.error,
     );
   }
-  // Nothing readable at all (every title failed, none up to date): an outage, not a bad title.
+  const backoff = library.failures.filter((f) => f.backoff).map((f) => f.externalId);
+  // Nothing readable at all (every title failed, none up to date): an outage, not a bad title. The
+  // failed 360 titles still wait, so an account with nothing else does not spend the quota every run.
   if (library.titles.length === 0 && library.upToDate === 0 && library.failures.length > 0) {
+    await rememberTitles(snapshot, account.id, [], [], backoff, startedAt.getTime());
     throw library.failures[0].error;
   }
 
@@ -859,7 +896,7 @@ export async function syncPlatformAccount(
       throw error;
     }
   }
-  await rememberTitles(snapshot, account.id, resolved.map((r) => r.title), library.empty);
+  await rememberTitles(snapshot, account.id, resolved.map((r) => r.title), library.empty, backoff, startedAt.getTime());
   let playtime: { partial: boolean; written: Set<string> };
   try {
     playtime = await recordPlaytime(snapshot, library.playtime, names, startedAt, options.deadline, Date.now, conceptOptions);

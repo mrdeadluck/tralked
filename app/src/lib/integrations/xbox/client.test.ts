@@ -361,6 +361,8 @@ describe("xbox client (OpenXBL)", () => {
   });
 
   it("drops achievement records without an id or a name (360 and player routes)", async () => {
+    // The left-out records are reported (one 360 record without an id, one without a name).
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { client } = setup((url) =>
       url.pathname.includes("/title/")
         ? url.pathname.includes("/x360/")
@@ -372,6 +374,27 @@ describe("xbox client (OpenXBL)", () => {
     expect(x360 === "private" ? [] : x360.map((a) => a.id)).toEqual(["5"]);
     const one = await client.getAchievements("2535", "11", ["XboxOne"]);
     expect(one === "private" ? [] : one.map((a) => a.id)).toEqual(["5"]);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it("a 360 definition listed twice counts once; an earned record without an id is reported", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { client } = setup((url) =>
+        url.pathname === DEFINITIONS
+          ? json(paged([definition(1), definition(2), definition(1, { name: "Again" })]))
+          : json(paged([earned(2, "2010-05-04T12:00:00Z"), { name: "No id", unlocked: true }])),
+      );
+      const list = await client.getAchievements("2535000000000001", "1096157000", ["Xbox360"]);
+      expect(list === "private" ? [] : list.map((a) => [a.id, a.name, a.unlocked])).toEqual([
+        ["1", "Def 1", false],
+        ["2", "Def 2", true],
+      ]);
+      expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([expect.stringMatching(/360 earned achievements: 1 record\(s\) without an id/)]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("reports private data and keeps the key out of errors", async () => {

@@ -1,5 +1,6 @@
 import { findBursts } from "@/lib/engine/fraud";
 import type { XboxApi } from "@/lib/integrations/xbox/types";
+import { x360SizeProblem } from "@/lib/sync/platform-library";
 import { describeError } from "@/lib/worker/errors";
 
 export type X360TitleMeasure = {
@@ -53,6 +54,9 @@ export async function measureX360(
     try {
       const list = await xbox.getAchievements(xuid, t.titleId, t.devices);
       if (list === "private") return "private";
+      // As the sync: a list shorter than the history's total is a failed read.
+      const problem = x360SizeProblem(t, list.length);
+      if (problem) throw new Error(`Xbox 360 title ${t.titleId}: ${problem}`);
       const earned = list.filter((a) => a.unlocked);
       sampleIcon ??= list.find((a) => a.iconUrl)?.iconUrl ?? null;
       for (const a of earned) if (a.unlockedAt) dated.push({ achievementId: `x360:${t.titleId}:${a.id}`, unlockedAt: a.unlockedAt });

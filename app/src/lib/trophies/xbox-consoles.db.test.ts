@@ -57,6 +57,9 @@ async function player(name: string, xuid: string, lists: { id: string }[], linke
   return user;
 }
 
+/** Only this file's lists: the test database may hold other Xbox lists without a console. */
+const only = { lists: { externalId: { startsWith: PREFIX } } };
+
 const consoles = async () =>
   Object.fromEntries(
     (await prisma.trophyList.findMany({ where: { externalId: { startsWith: PREFIX } }, select: { externalId: true, console: true } })).map((l) => [
@@ -91,13 +94,13 @@ describe("fillXboxConsoles", () => {
     ];
 
     const dry = fakeXbox({ "xuid-many": history, "xuid-few": history });
-    const preview = await fillXboxConsoles(dry, { dryRun: true });
+    const preview = await fillXboxConsoles(dry, { dryRun: true, ...only });
     expect(preview).toMatchObject({ filled: { "360": 1, ONE: 1, PC: 1 }, unresolved: [id("orphan")], written: false });
-    expect(preview.missing).toBeGreaterThanOrEqual(4);
+    expect(preview.missing).toBe(4);
     expect(await consoles()).toEqual({ x360: null, one: null, pc: null, kept: "ONE", orphan: null });
 
     const xbox = fakeXbox({ "xuid-many": history, "xuid-few": history });
-    const report = await fillXboxConsoles(xbox, { dryRun: false });
+    const report = await fillXboxConsoles(xbox, { dryRun: false, ...only });
     expect(report).toMatchObject({ filled: { "360": 1, ONE: 1, PC: 1 }, written: true });
     expect(report.accounts[0]).toMatchObject({ handle: "many", status: "ok", titles: 5 });
     expect(await consoles()).toEqual({ x360: "360", one: "ONE", pc: "PC", kept: "ONE", orphan: null });
@@ -113,32 +116,27 @@ describe("fillXboxConsoles", () => {
     await player("knows", "xuid-knows", []);
     await player("unasked", "xuid-unasked", [], new Date(Date.now() + 60_000));
     const id = (s: string) => `${PREFIX}-${s}`;
-    // Only the lists of this test are missing a console in the test database.
     const xbox = fakeXbox({
       "xuid-private": "private",
       "xuid-broken": new Error("Xbox titles failed with HTTP 500"),
       "xuid-knows": [title(id("a"), ["XboxOne"]), title(id("b"), ["PC"])],
     });
-    const others = await prisma.trophyList.count({ where: { platform: "xbox", console: null, NOT: { externalId: { startsWith: PREFIX } } } });
-    const report = await fillXboxConsoles(xbox, { dryRun: false });
+    const report = await fillXboxConsoles(xbox, { dryRun: false, ...only });
     expect(report.accounts.slice(0, 2).map((x) => [x.handle, x.status])).toEqual([
       ["private", "private"],
       ["broken", "failed"],
     ]);
     expect(report.accounts[1].error).toContain("HTTP 500");
     expect(await consoles()).toEqual({ a: "ONE", b: "PC" });
-    if (others === 0) expect(xbox.calls).not.toContain("xuid-unasked");
+    expect(xbox.calls).not.toContain("xuid-unasked");
   });
 
   it("asks nothing when every Xbox list has a console", async () => {
     await list("done", "360");
     await player("someone", "xuid-someone", []);
-    const others = await prisma.trophyList.count({ where: { platform: "xbox", console: null } });
     const xbox = fakeXbox({});
-    const report = await fillXboxConsoles(xbox, { dryRun: false });
-    if (others === 0) {
-      expect(xbox.calls).toEqual([]);
-      expect(report).toMatchObject({ missing: 0, written: false, filled: {} });
-    }
+    const report = await fillXboxConsoles(xbox, { dryRun: false, ...only });
+    expect(xbox.calls).toEqual([]);
+    expect(report).toMatchObject({ missing: 0, written: false, filled: {} });
   });
 });

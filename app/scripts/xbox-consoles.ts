@@ -3,7 +3,8 @@
  * backfill created had no device data), from the title history of the linked Xbox accounts: one
  * OpenXBL request per account, the accounts holding the most of those lists first, none once every
  * list is known; nothing at all when no list is missing its console. A stored console is never
- * rewritten. `--dry-run` reads and prints, writes nothing.
+ * rewritten. `--dry-run` reads and prints, writes nothing: its database session is opened read-only
+ * and checked (SHOW default_transaction_read_only) before any query.
  *
  * Production: use the direct URL (DATABASE_URL_UNPOOLED), not the pooled one.
  *
@@ -13,12 +14,15 @@
  */
 import { parseArgs } from "node:util";
 import { readKeys } from "./lib/keys";
+import { assertReadOnly, readOnlyUrl } from "./lib/read-only";
 import { requireDatabaseUrl } from "./lib/run";
 
 const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false } } });
 const dryRun = values["dry-run"] === true;
 
 const db = requireDatabaseUrl();
+// A dry run is read-only: every session opens read-only, checked before any query.
+if (dryRun) process.env.DATABASE_URL = readOnlyUrl(db.url);
 const apiKey = readKeys().get("XBOX_OPENXBL_KEY");
 if (!apiKey) {
   console.error("No XBOX_OPENXBL_KEY in C:\\projetos\\Nova pasta\\.env.chaves.");
@@ -29,6 +33,21 @@ if (!apiKey) {
 const { prisma } = await import("@/lib/db");
 const { createXboxClient } = await import("@/lib/integrations/xbox/client");
 const { fillXboxConsoles } = await import("@/lib/trophies/xbox-consoles");
+
+const readOnly = async () => {
+  try {
+    await assertReadOnly(async () => {
+      const rows = await prisma.$queryRaw<{ default_transaction_read_only: string }[]>`SHOW default_transaction_read_only`;
+      return rows[0]?.default_transaction_read_only;
+    });
+  } catch (error) {
+    console.error(`Refusing to run: ${error instanceof Error ? error.message : String(error)}`);
+    await prisma.$disconnect();
+    process.exit(2);
+  }
+  console.log("Database session is read-only (default_transaction_read_only = on).");
+};
+if (dryRun) await readOnly();
 
 try {
   console.log(`Xbox list consoles of ${db.name}${dryRun ? " (dry run, nothing written)" : ""}…`);

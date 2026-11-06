@@ -229,9 +229,14 @@ export function createXboxClient({ apiKey, fetch: fetchImpl = globalThis.fetch }
     if (!Array.isArray(body) && body.pagingInfo?.continuationToken) {
       throw new Error(`Xbox ${what}: the list has more than one page (${raw.length} records on the first)`);
     }
-    return (raw as (X360AchievementRecord | null)[]).filter(
+    const records = (raw as (X360AchievementRecord | null)[]).filter(
       (a): a is X360AchievementRecord => !!a && (typeof a.id === "string" || typeof a.id === "number"),
     );
+    if (records.length < raw.length) console.warn(`Xbox ${what}: ${raw.length - records.length} record(s) without an id left out`);
+    // One record per id (the first): a repeated id would count an achievement twice.
+    const byId = new Map<string, X360AchievementRecord>();
+    for (const a of records) if (!byId.has(String(a.id))) byId.set(String(a.id), a);
+    return [...byId.values()];
   }
 
   /**
@@ -242,6 +247,7 @@ export function createXboxClient({ apiKey, fetch: fetchImpl = globalThis.fetch }
   async function x360Achievements(xuid: string, titleId: string): Promise<XboxAchievement[] | "private"> {
     const path = `${encodeURIComponent(xuid)}/title/${encodeURIComponent(titleId)}`;
     const definitions = await x360Records(`/achievements/player/${path}`, "360 achievements");
+    // A 403 on either 360 route marks the account private, as on the player route.
     if (definitions === "private") return "private";
     const earnedRecords = await x360Records(`/achievements/x360/${path}`, "360 earned achievements");
     if (earnedRecords === "private") return "private";

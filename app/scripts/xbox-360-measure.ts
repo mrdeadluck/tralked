@@ -2,6 +2,7 @@
  * Read-only: what a sync would import of a player's Xbox 360 titles (their lists through the
  * client's two 360 routes, the earned ones, those with a date, and how many the burst rule would
  * flag together with the player's stored Xbox unlocks). Writes nothing, to the database or OpenXBL.
+ * The database session is opened read-only and checked (SHOW default_transaction_read_only) first.
  * Requests: 1 (title history) + 2 per 360 title, at most `--max-titles` titles (default 24, so 49
  * requests; OpenXBL's quota of 150 an hour is shared with production).
  *
@@ -11,6 +12,7 @@
  */
 import { parseArgs } from "node:util";
 import { readKeys } from "./lib/keys";
+import { assertReadOnly, readOnlyUrl } from "./lib/read-only";
 import { requireDatabaseUrl } from "./lib/run";
 
 const { values } = parseArgs({ options: { user: { type: "string" }, "max-titles": { type: "string", default: "24" } } });
@@ -21,6 +23,8 @@ if (!values.user || !Number.isInteger(maxTitles) || maxTitles < 0) {
 }
 
 const db = requireDatabaseUrl();
+// Read-only: every session opens read-only, checked before any query.
+process.env.DATABASE_URL = readOnlyUrl(db.url);
 const apiKey = readKeys().get("XBOX_OPENXBL_KEY");
 if (!apiKey) {
   console.error("No XBOX_OPENXBL_KEY in C:\\projetos\\Nova pasta\\.env.chaves.");
@@ -41,6 +45,21 @@ const countingFetch: typeof fetch = async (input, init) => {
   if (remaining !== null) quota = `${remaining} of ${res.headers.get("x-ratelimit-limit") ?? "?"} left this hour`;
   return res;
 };
+
+const readOnly = async () => {
+  try {
+    await assertReadOnly(async () => {
+      const rows = await prisma.$queryRaw<{ default_transaction_read_only: string }[]>`SHOW default_transaction_read_only`;
+      return rows[0]?.default_transaction_read_only;
+    });
+  } catch (error) {
+    console.error(`Refusing to run: ${error instanceof Error ? error.message : String(error)}`);
+    await prisma.$disconnect();
+    process.exit(2);
+  }
+  console.log("Database session is read-only (default_transaction_read_only = on).");
+};
+await readOnly();
 
 try {
   const account = await prisma.linkedAccount.findFirst({

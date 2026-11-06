@@ -38,6 +38,8 @@ const CREATED_TITLES = [
   { platform: "xbox", externalId: "90000772" },
   // A 360 title remembered empty before the 360 routes.
   { platform: "xbox", externalId: "90000773" },
+  // A 360 title whose read fails, then works.
+  { platform: "xbox", externalId: "90000774" },
   { platform: "xbox", externalId: "90000781" },
   { platform: "psn", externalId: "NPWR99901_00" },
   // The only trophy-list link of the adoption-guard test's game.
@@ -437,6 +439,109 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     } finally {
       titles.mockRestore();
       achievements.mockRestore();
+      await prisma.syncCursor.deleteMany({ where: { key: titleMemoryKey(account.id) } });
+    }
+  });
+
+  it("a 360 title whose read failed is retried at most once a day, and forgotten once read", async () => {
+    // Two requests per try on OpenXBL's shared 150-an-hour quota: a title that keeps failing waits.
+    const { prisma } = await import("@/lib/db");
+    const { getXbox } = await import("@/lib/integrations");
+    const { syncPlatformAccount, titleMemoryKey } = await import("./platform-user");
+    const xbox = getXbox();
+    const titles = vi.spyOn(xbox, "getTitles").mockResolvedValue([
+      {
+        titleId: "90000774",
+        name: "Trezentos Falhando Teste",
+        currentAchievements: 1,
+        totalAchievements: 2,
+        currentGamerscore: 10,
+        totalGamerscore: 20,
+        progress: 50,
+        lastPlayed: new Date("2011-03-01T20:00:00Z"),
+        devices: ["Xbox360"],
+      },
+      {
+        titleId: "90000001",
+        name: "Hollow Knight",
+        currentAchievements: 1,
+        totalAchievements: 0,
+        currentGamerscore: 0,
+        totalGamerscore: 0,
+        progress: 0,
+        lastPlayed: new Date("2026-01-12T20:00:00Z"),
+        devices: ["XboxOne"],
+      },
+    ]);
+    let failing = true;
+    const achievements = vi.spyOn(xbox, "getAchievements").mockImplementation(async (_xuid, titleId) => {
+      if (titleId !== "90000774") {
+        return [{ id: "1", name: "Um", description: null, iconUrl: null, hidden: false, gamerscore: 5, unlocked: true, unlockedAt: new Date("2026-01-12T20:00:00Z"), rarityPct: null }];
+      }
+      if (failing) throw new Error("Xbox 360 title 90000774: earned achievement(s) 9 not in its list");
+      return ["1", "2"].map((id, i) => ({
+        id,
+        name: `Conquista ${id}`,
+        description: null,
+        iconUrl: null,
+        hidden: false,
+        gamerscore: 10,
+        unlocked: i === 0,
+        unlockedAt: i === 0 ? new Date("2011-02-01T20:00:00Z") : null,
+        rarityPct: null,
+      }));
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const reads = () => achievements.mock.calls.filter((c) => c[1] === "90000774").length;
+    const user = await userWith("xbox", "2535400000000002", "Tralked Teste");
+    const account = await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: user.id, platform: "xbox" } } });
+    const t0 = new Date("2026-11-06T12:00:00Z");
+    const hours = (h: number) => new Date(t0.getTime() + h * 3_600_000);
+    try {
+      await syncPlatformAccount(user.id, "xbox", { now: t0 });
+      expect(reads()).toBe(1);
+      await syncPlatformAccount(user.id, "xbox", { now: hours(1) });
+      await syncPlatformAccount(user.id, "xbox", { now: hours(23) });
+      expect(reads()).toBe(1);
+      await syncPlatformAccount(user.id, "xbox", { now: hours(25) });
+      expect(reads()).toBe(2);
+      failing = false;
+      await syncPlatformAccount(user.id, "xbox", { now: hours(26) });
+      expect(reads()).toBe(2);
+      await syncPlatformAccount(user.id, "xbox", { now: hours(50) });
+      expect(reads()).toBe(3);
+      const list = await prisma.trophyList.findUniqueOrThrow({ where: { platform_externalId: { platform: "xbox", externalId: "90000774" } } });
+      expect(list.trophyCount).toBe(2);
+      const memory = await prisma.syncCursor.findUniqueOrThrow({ where: { key: titleMemoryKey(account.id) } });
+      expect((memory.value as { failed?: Record<string, number> }).failed ?? {}).toEqual({});
+      await syncPlatformAccount(user.id, "xbox", { now: hours(51) });
+      expect(reads()).toBe(3);
+    } finally {
+      titles.mockRestore();
+      achievements.mockRestore();
+      errors.mockRestore();
+      await prisma.syncCursor.deleteMany({ where: { key: titleMemoryKey(account.id) } });
+    }
+  });
+
+  it("the Xbox 360 memory change leaves remembered empty PSN titles alone", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncPlatformAccount, titleMemoryKey } = await import("./platform-user");
+    const fake = await fakePsnLibrary(1);
+    const user = await userWith("psn", "test-empty-psn-memory", "Vazio-Teste");
+    const account = await prisma.linkedAccount.findUniqueOrThrow({ where: { userId_platform: { userId: user.id, platform: "psn" } } });
+    // Remembered "read, no achievements" before the Xbox 360 change (version 1).
+    await prisma.syncCursor.create({
+      data: {
+        key: titleMemoryKey(account.id),
+        value: { externalId: account.externalId, linkedAt: account.linkedAt!.toISOString(), titles: {}, empty: { [fake.id(0)]: { c: [1], v: 1 } } },
+      },
+    });
+    try {
+      await syncPlatformAccount(user.id, "psn");
+      expect(fake.trophies).not.toHaveBeenCalled();
+    } finally {
+      fake.restore();
       await prisma.syncCursor.deleteMany({ where: { key: titleMemoryKey(account.id) } });
     }
   });

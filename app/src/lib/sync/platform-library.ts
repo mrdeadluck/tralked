@@ -1,6 +1,7 @@
 import type { TrophyTier } from "@/lib/engine/trophies";
 import { getPsn, getRetro, getXbox } from "@/lib/integrations";
 import type { PsnPlayedGame } from "@/lib/integrations/psn/types";
+import type { XboxTitle } from "@/lib/integrations/xbox/types";
 import { psnConsoleCode, regionOf, xboxConsoleOf } from "@/lib/trophies/lists";
 import { definitionsProblem, knownCounts, sameTierCounts, type TierCounts } from "@/lib/trophies/psn-definitions";
 import { mapNewTitles } from "./psn-concepts";
@@ -133,8 +134,11 @@ export const MAX_MINUTES_TITLES = 250;
 
 export type LibraryResult = {
   titles: LibraryTitle[];
-  /** Titles the sync could not read; the rest of the library is still imported. */
-  failures: { externalId: string; error: unknown }[];
+  /**
+   * Titles the sync could not read; the rest of the library is still imported. `backoff`: an Xbox
+   * 360 title (two requests a try), retried at most once a day (platform-user.ts X360_RETRY_MS).
+   */
+  failures: { externalId: string; error: unknown; backoff?: boolean }[];
   /** Some titles were left for the next run (time or title budget). */
   partial: boolean;
   /** Titles already up to date (not read). */
@@ -323,6 +327,19 @@ async function conceptsOf(
   return { npToConcept, conceptTitleIds, conceptNames };
 }
 
+/**
+ * Why an Xbox 360 list cannot be the title's (null when it can): the history's totals are real for
+ * 360 titles, so a list shorter than `totalAchievements`, or empty while the history counts unlocks,
+ * is a failed read, never a list recorded smaller (or a 100% that is not one).
+ */
+export function x360SizeProblem(title: XboxTitle, listed: number): string | null {
+  if (listed === 0 && title.currentAchievements > 0) {
+    return `no achievements listed, ${title.currentAchievements} unlocked in the history`;
+  }
+  if (listed < title.totalAchievements) return `${listed} of the ${title.totalAchievements} achievements of the history listed`;
+  return null;
+}
+
 async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<LibraryResult | "private"> {
   const xbox = getXbox();
   const titles = await xbox.getTitles(account.externalId);
@@ -333,6 +350,8 @@ async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<
   const result = await collect(played, options, async (t) => {
     const list = await xbox.getAchievements(account.externalId, t.titleId, t.devices);
     if (list === "private") return "private";
+    const problem = t.devices.includes("Xbox360") ? x360SizeProblem(t, list.length) : null;
+    if (problem) throw new Error(`Xbox 360 title ${t.titleId}: ${problem}`);
     return {
       externalId: t.titleId,
       name: t.name,
@@ -355,6 +374,8 @@ async function readXbox(account: LibraryAccount, options: ReadOptions): Promise<
     };
   });
   if (result === "private") return result;
+  const x360 = new Set(titles.filter((t) => t.devices.includes("Xbox360")).map((t) => t.titleId));
+  for (const f of result.failures) if (x360.has(f.externalId)) f.backoff = true;
   // Minutes played of every title in the history (achievements or not), asked only for titles
   // played since they were last asked (or since the stored row), at most MAX_MINUTES_TITLES per
   // run, in batches, and not after the deadline. Best effort, like PSN's.

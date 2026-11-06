@@ -1,3 +1,4 @@
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import type { XboxApi } from "@/lib/integrations/xbox/types";
 import { describeError } from "@/lib/worker/errors";
@@ -21,11 +22,15 @@ export type XboxConsolesReport = {
  * most of those lists first, none once every list is known. A console already stored is never
  * rewritten (it is part of the lists' identity). Lists created by the trophy-list backfill had no
  * device data; a sync fills a list's console only when it reads the title again.
- * With `dryRun` nothing is written. No list without a console: one query, no request.
+ * With `dryRun` nothing is written. No list without a console: one query, no request. `lists`
+ * narrows the lists considered (tests).
  */
-export async function fillXboxConsoles(xbox: Pick<XboxApi, "getTitles">, { dryRun }: { dryRun: boolean }): Promise<XboxConsolesReport> {
+export async function fillXboxConsoles(
+  xbox: Pick<XboxApi, "getTitles">,
+  { dryRun, lists: scope = {} }: { dryRun: boolean; lists?: Prisma.TrophyListWhereInput },
+): Promise<XboxConsolesReport> {
   const lists = await prisma.trophyList.findMany({
-    where: { platform: "xbox", console: null },
+    where: { AND: [{ platform: "xbox", console: null }, scope] },
     select: { id: true, externalId: true },
   });
   const report: XboxConsolesReport = { missing: lists.length, accounts: [], filled: {}, unresolved: [], written: false };
