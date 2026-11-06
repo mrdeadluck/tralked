@@ -417,6 +417,8 @@ export interface Db {
   setItemMedia(id: number, media: SourceMedia): void;
   /** The story's items, in id order. */
   itemsForStory(storyId: number): ItemRow[];
+  /** Official channel video items (`video_id` set) published between `from` and `to`, in id order. */
+  videoItemsPublishedBetween(from: Date, to: Date): ItemRow[];
 
   /** Insert or update by `key`; returns the story id. */
   upsertStory(story: StoryInput, now?: Date): number;
@@ -545,6 +547,14 @@ export function openDb(dir: string): Db {
       return rows<ItemRow>(
         "SELECT items.* FROM items JOIN story_items ON story_items.item_id = items.id WHERE story_items.story_id = ? ORDER BY items.id",
         storyId,
+      );
+    },
+
+    videoItemsPublishedBetween(from, to) {
+      return rows<ItemRow>(
+        "SELECT * FROM items WHERE video_id IS NOT NULL AND published_at >= ? AND published_at <= ? ORDER BY id",
+        iso(from),
+        iso(to),
       );
     },
 

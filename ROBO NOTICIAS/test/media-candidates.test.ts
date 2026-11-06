@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SourceMedia } from "../src/collect/media.js";
 import type { Source } from "../src/config.js";
 import type { ItemRow } from "../src/db.js";
-import { collectCandidates, fitsBody, fitsCover, isEligible, markRepeated, type ImageCandidate } from "../src/media/candidates.js";
+import { collectCandidates, fitsBody, fitsCover, isEligible, markRepeated, youtubeThumbnailId, type ImageCandidate } from "../src/media/candidates.js";
 import { blankShare, type FetchedImage } from "../src/media/images.js";
 
 const src = (id: string, name: string, tier: Source["tier"]): Source => ({
@@ -136,6 +136,37 @@ describe("collectCandidates", () => {
       catalog: [],
     });
     expect(c).toMatchObject({ sourceName: "Eurogamer", host: "eurogamer.net" });
+  });
+});
+
+describe("old videos' covers", () => {
+  it("youtubeThumbnailId reads the video id of a YouTube cover URL", () => {
+    expect(youtubeThumbnailId("https://i.ytimg.com/vi/OkFdqqyI8y4/maxresdefault.jpg")).toBe("OkFdqqyI8y4");
+    expect(youtubeThumbnailId("https://i.ytimg.com/vi_webp/OkFdqqyI8y4/hqdefault.webp")).toBe("OkFdqqyI8y4");
+    expect(youtubeThumbnailId("https://img.youtube.com/vi/OkFdqqyI8y4/0.jpg")).toBe("OkFdqqyI8y4");
+    expect(youtubeThumbnailId("https://cdn.ign.com/vi/OkFdqqyI8y4/x.jpg")).toBeNull();
+    expect(youtubeThumbnailId("not a url")).toBeNull();
+  });
+
+  it("the cover of a video in staleVideoIds is no candidate, as a source image or as the official video's cover", () => {
+    const cands = collectCandidates({
+      items: [
+        item("ign", "https://www.ign.com/a", {
+          images: [
+            { url: "https://i.ytimg.com/vi/OkFdqqyI8y4/maxresdefault.jpg", role: "og" },
+            { url: "https://cdn.ign.com/logo.jpg", role: "body" },
+          ],
+        }),
+      ],
+      sources: SOURCES,
+      officialVideoIds: ["OkFdqqyI8y4", "mFu8t9735IY"],
+      catalog: [],
+      staleVideoIds: new Set(["OkFdqqyI8y4"]),
+    });
+    expect(cands.map((c) => c.url)).toEqual([
+      "https://i.ytimg.com/vi/mFu8t9735IY/maxresdefault.jpg",
+      "https://cdn.ign.com/logo.jpg",
+    ]);
   });
 });
 

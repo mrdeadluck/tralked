@@ -257,8 +257,8 @@ function harness(start = local("2026-10-31T10:00")) {
   const brokenPages = new Set<string>();
   /** Image bytes served by URL (catalog art, source images). */
   const pictures = new Map<string, Buffer>();
-  /** YouTube oEmbed answers by video id. */
-  const oembeds = new Map<string, { title: string; author_name: string }>();
+  /** YouTube oEmbed answers by video id; the watch page dates the video `published` (default: an hour ago). */
+  const oembeds = new Map<string, { title: string; author_name: string; published?: string }>();
   /** X oEmbed answers by status id. */
   const xposts = new Map<string, { author_name: string; author_url: string; html: string }>();
 
@@ -273,7 +273,12 @@ function harness(start = local("2026-10-31T10:00")) {
     if (input.startsWith("https://www.youtube.com/oembed?")) {
       const id = new URL(new URL(input).searchParams.get("url")!).searchParams.get("v")!;
       const meta = oembeds.get(id);
-      return meta ? new Response(JSON.stringify(meta), { status: 200 }) : new Response("no", { status: 404 });
+      return meta ? new Response(JSON.stringify({ title: meta.title, author_name: meta.author_name }), { status: 200 }) : new Response("no", { status: 404 });
+    }
+    if (input.startsWith("https://www.youtube.com/watch?v=")) {
+      const meta = oembeds.get(new URL(input).searchParams.get("v")!);
+      const published = meta?.published ?? new Date(clock.now.getTime() - HOUR).toISOString();
+      return meta ? new Response(`<meta itemprop="datePublished" content="${published}">`, { status: 200 }) : new Response("no", { status: 404 });
     }
     const picture = pictures.get(input);
     if (picture) return new Response(new Uint8Array(picture), { status: 200, headers: { "content-type": "image/jpeg" } });
@@ -1696,6 +1701,40 @@ describe("catalog media for articles without their own", () => {
     expect(blocks[1]).toEqual({ type: "video", youtubeId: "SSSSSSSSSSS", title: "Hades II - Official Launch Trailer" });
     const write = h.fake.calls.find((c) => c.purpose === "write")!;
     expect(write.user).toContain("O vídeo complementa a notícia");
+  });
+
+  it("never embeds an old official video the source cites (story 4929: the 2018 teaser)", async () => {
+    const h = harness();
+    h.oembeds.set("OkFdqqyI8y4", { title: "Hades II - Official Announcement Teaser", author_name: "PlayStation", published: "2018-06-10T19:54:48-07:00" });
+    const id = seedQueued(h, "Hades II ganha trailer de lançamento");
+    const [item] = h.db.itemsForStory(id);
+    h.db.setItemMedia(item!.id, { images: [], youtube: ["OkFdqqyI8y4"], posts: [] });
+    await h.publica({ agora: true });
+    expect(h.site.created[0]!.payload.blocks.some((b) => b.type === "video")).toBe(false);
+  });
+
+  it("a video story whose sources carry no usable video gets the official channel's video of the game, published close to it", async () => {
+    const h = harness();
+    const id = seedQueued(h, "Hades II ganha trailer de lançamento");
+    // The channel's video was collected but clustered into another story.
+    h.db.insertItemIfNew(
+      { url: "https://www.youtube.com/watch?v=CCCCCCCCCCC", sourceId: "yt", title: "Hades II - Launch Trailer", publishedAt: new Date(h.clock.now.getTime() - 2 * HOUR).toISOString(), videoId: "CCCCCCCCCCC" },
+      h.clock.now,
+    );
+    await h.publica({ agora: true });
+    expect(h.db.storyById(id)!.status).toBe("published");
+    expect(h.site.created[0]!.payload.blocks).toContainEqual({ type: "video", youtubeId: "CCCCCCCCCCC", title: "Hades II - Launch Trailer" });
+  });
+
+  it("a story not about a video does not borrow a channel video", async () => {
+    const h = harness();
+    seedQueued(h, "Hades II recebe arma nova");
+    h.db.insertItemIfNew(
+      { url: "https://www.youtube.com/watch?v=CCCCCCCCCCC", sourceId: "yt", title: "Hades II - Launch Trailer", publishedAt: new Date(h.clock.now.getTime() - 2 * HOUR).toISOString(), videoId: "CCCCCCCCCCC" },
+      h.clock.now,
+    );
+    await h.publica({ agora: true });
+    expect(h.site.created[0]!.payload.blocks.some((b) => b.type === "video" && b.youtubeId === "CCCCCCCCCCC")).toBe(false);
   });
 
   it("embeds an official X post a source page carries and tells the writer about it", async () => {

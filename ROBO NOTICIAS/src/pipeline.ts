@@ -18,7 +18,7 @@ import { gameDestination } from "./game-destination.js";
 import { acquireLock, type Lock } from "./lock.js";
 import { chooseImages } from "./media/choose.js";
 import { isImagesStory } from "./media/gallery.js";
-import { aboutVideo, officialSourceVideo } from "./media/video.js";
+import { CHANNEL_VIDEO_WINDOW_MS, aboutVideo, channelVideoFor, officialSourceVideo } from "./media/video.js";
 import { storyPosts, type XProfile } from "./media/xposts.js";
 import {
   PautaRejectedError,
@@ -579,13 +579,26 @@ export async function storyForWriting(
   const parent = parentOf(story, deps);
   const items = deps.db.itemsForStory(story.id);
   const video = storyVideo(items, deps.sources);
-  // No official channel item: the official video a source page carries, when the story is about it.
+  const storyAt = storyStartedAt(story, deps.db, deps.now());
+  // No official channel item: the official video a source page carries, when the story is about it;
+  // else, for a story about a video, the official channel's video of the game collected close to it.
   const fromSource = video
     ? null
-    : await officialSourceVideo(
-        { items, sources: deps.sources, games: parseGames(story.games_json), companies: storyCompanies(items) },
+    : ((await officialSourceVideo(
+        { items, sources: deps.sources, games: parseGames(story.games_json), companies: storyCompanies(items), storyAt },
         deps.fetchFn,
-      );
+      )) ??
+      (aboutVideo(story, items)
+        ? channelVideoFor({
+            candidates: deps.db.videoItemsPublishedBetween(
+              new Date(storyAt.getTime() - CHANNEL_VIDEO_WINDOW_MS),
+              new Date(storyAt.getTime() + CHANNEL_VIDEO_WINDOW_MS),
+            ),
+            sources: deps.sources,
+            games: parseGames(story.games_json),
+            storyAt,
+          })
+        : null));
   const posts = await storyPosts(
     {
       items,
@@ -665,7 +678,7 @@ export async function articleMedia(
   story: StoryRow,
   writing: StoryForWriting,
   payload: ArticlePayload,
-  deps: Pick<PipelineDeps, "tralked" | "log" | "db" | "ai" | "config" | "fetchFn" | "sources" | "mediaTrace">,
+  deps: Pick<PipelineDeps, "tralked" | "log" | "db" | "ai" | "config" | "fetchFn" | "sources" | "mediaTrace" | "now">,
   reuse?: Pick<ArticleMedia, "cover" | "bodyImage" | "gallery">,
 ): Promise<ArticleMedia> {
   const items = deps.db.itemsForStory(story.id);
@@ -698,6 +711,7 @@ export async function articleMedia(
         subject,
         catalog: set,
         officialVideoIds: writing.video ? [writing.video.youtubeId] : [],
+        storyAt: storyStartedAt(story, deps.db, deps.now()),
       },
       {
         ai: deps.ai,
