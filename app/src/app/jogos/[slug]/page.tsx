@@ -10,6 +10,7 @@ import { CommunityInvite } from "@/components/game/CommunityInvite";
 import { IntroVeil } from "@/components/game/IntroVeil";
 import { FamilyPlayers } from "@/components/game/FamilyPlayers";
 import { MediaRail } from "@/components/game/MediaRail";
+import { PsnTrophiesLoader } from "@/components/game/PsnTrophiesLoader";
 import { RetroAchievementsLoader } from "@/components/game/RetroAchievementsLoader";
 import { ShotsRail } from "@/components/game/ShotsRail";
 import { introDisc, listedVersions, trophyWord, versionMarks, versionTabs, type TabsMarks } from "@/components/game/version-views";
@@ -28,6 +29,7 @@ import {
   type GameProfile,
 } from "@/lib/queries/game-profile";
 import { listGameSlugs } from "@/lib/queries/games";
+import { getPsnTrophiesDue } from "@/lib/queries/psn-catalog-trophies";
 import { getRetroAchievementsDue } from "@/lib/queries/retro-achievements";
 import { getSteamPlayers, type SteamPlayersView } from "@/lib/queries/steam-players";
 import { JsonLd, videoGameJsonLd } from "@/lib/seo/json-ld";
@@ -216,11 +218,12 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
   const { slug } = await params;
   const profile = await getGameProfile(slug);
   if (!profile) notFound();
-  // Cached on their own: the hourly Steam samples change faster than the profile, and the RA flag
-  // is expired by the action that reads the RA list.
-  const [steamPlayers, retroDue] = await Promise.all([
+  // Cached on their own: the hourly Steam samples change faster than the profile, and the RA and PSN
+  // flags are expired by the actions that read those lists.
+  const [steamPlayers, retroDue, psnDue] = await Promise.all([
     getSteamPlayers(profile.id),
     getRetroAchievementsDue(profile.id, profile.slug),
+    getPsnTrophiesDue(profile.id, profile.slug),
   ]);
 
   const login = loginHref(`/jogos/${profile.slug}`);
@@ -245,6 +248,7 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
       />
       <IntroVeil slug={profile.slug} />
       {retroDue ? <RetroAchievementsLoader gameId={profile.id} /> : null}
+      {psnDue ? <PsnTrophiesLoader gameId={profile.id} /> : null}
       <style href="tralked-game-page" precedence="default">
         {CSS}
       </style>

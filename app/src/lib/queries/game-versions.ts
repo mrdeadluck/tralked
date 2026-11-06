@@ -28,7 +28,7 @@ export type GameVersion = {
   tiers: TierCounts;
   nativePlatinum: boolean;
   lists: VersionList[];
-  /** The first list's trophies (what a visitor sees). */
+  /** The trophies of the oldest list that has rows (what a visitor sees). */
   trophies: VersionTrophy[];
 };
 export type PlayerVersion = {
@@ -104,7 +104,10 @@ type Group<R extends SlimAchRow> = {
   label: string;
   /** Oldest first ("Lista 1" first); empty for a Steam game without a list row. */
   lists: (ListRow & { label: string | null; rows: R[] })[];
-  /** Rows of the first list (every Steam row for Steam). */
+  /**
+   * Rows of the oldest list that has any (every Steam row for Steam): a PSN catalog list matched
+   * before anyone read its trophies has none, and must not hide a player's list of the same version.
+   */
   rows: R[];
   total: number;
   tiers: TierCounts;
@@ -139,7 +142,7 @@ function groupVersions<R extends SlimAchRow>(listRows: ListRow[], achievements: 
       label: labels.get(l.id) ?? null,
       rows: platform === "steam" ? steamRows : achievements.filter((a) => a.listId === l.id).sort(numeric),
     }));
-    const rows = platform === "steam" ? steamRows : (withRows[0]?.rows ?? []);
+    const rows = platform === "steam" ? steamRows : (withRows.find((l) => l.rows.length > 0)?.rows ?? []);
     const cat = catalogPlatforms(rows, platform === "steam" ? steamCount : 0)[0];
     if (!cat) continue; // no trophies known for this version
     groups.push({
@@ -325,7 +328,8 @@ export async function getGameVersions(gameId: string): Promise<GameVersion[]> {
 
 /**
  * One version of the game `slug` (its full trophy list), reading only that version: its lists and
- * the rows of its first list (Steam: every Steam row). Null for an unknown game or version.
+ * the rows of its oldest list that has rows (Steam: every Steam row). Null for an unknown game or
+ * version, or a version none of whose lists has rows yet.
  */
 export async function getGameVersion(slug: string, key: string): Promise<GameVersion | null> {
   const game = await prisma.game.findUnique({ where: { slug }, select: { id: true, achievementCount: true } });
@@ -335,10 +339,22 @@ export async function getGameVersion(slug: string, key: string): Promise<GameVer
   );
   const steam = key === "steam";
   if (!steam && lists.length === 0) return null;
-  const achievements = await prisma.achievement.findMany({
-    where: steam ? { gameId: game.id, platform: "steam" } : { listId: [...lists].sort(oldestFirst)[0].id },
-    select: ACH_SELECT,
-  });
+  let where: { gameId: string; platform: "steam" } | { listId: string };
+  if (steam) where = { gameId: game.id, platform: "steam" };
+  else {
+    // An empty list (a catalog list nobody read yet) is passed over for the next oldest with rows.
+    const filled = new Set(
+      (
+        await prisma.$queryRaw<{ id: string }[]>`
+          SELECT l.id FROM unnest(${lists.map((l) => l.id)}::text[]) AS l(id)
+          WHERE EXISTS (SELECT 1 FROM "Achievement" a WHERE a."listId" = l.id)`
+      ).map((r) => r.id),
+    );
+    const first = [...lists].sort(oldestFirst).find((l) => filled.has(l.id));
+    if (!first) return null;
+    where = { listId: first.id };
+  }
+  const achievements = await prisma.achievement.findMany({ where, select: ACH_SELECT });
   return buildGameVersions(lists, achievements, steam ? game.achievementCount : 0).find((v) => v.key === key) ?? null;
 }
 

@@ -121,3 +121,6 @@ export function resetAuthLimits(): void {
     limiter.clear();
   }
 }
+
+/** Page-open reads of PSN trophy lists (loadPsnTrophies): per IP, on top of the site-wide budget. */
+export const psnOpenIpLimiter = createLimiter({ limit: 30, windowMs: 60 * MINUTE });

@@ -532,6 +532,30 @@ model RetroCatalogGame {
   achievementsSyncedAt DateTime?
 }
 
+/// Light index of the Sony trophy lists (npCommunicationId), filled by scanning NPWRnnnnn_00 ids
+/// (scripts/psn-catalog-worker.ts). Trophies are read on demand, never stored here.
+model PsnCatalogList {
+  /// npCommunicationId, e.g. NPWR10000_00.
+  id               String    @id
+  name             String
+  /// psnConsoleCode of trophyTitlePlatform ("PS4", "PS5", "PS3+PSVITA"); null when Sony names none we know.
+  console          String?
+  /// trophy | trophy2: the service that answered.
+  serviceName      String
+  trophyCount      Int
+  /// definedTrophies: { bronze, silver, gold, platinum }.
+  tiers            Json
+  /// When the worker last tried to link it to a catalog Game (null: not tried yet).
+  matchedAt        DateTime?
+  /// Set while a page open holds the list (claim) and after its trophies were written; cleared when a read fails.
+  trophiesSyncedAt DateTime?
+  /// When the last page-open read of the trophies started (backoff of a failing list).
+  trophiesTriedAt  DateTime?
+  /// Failed page-open reads in a row (backoff 1 h, 6 h, 24 h, then 7 d); 0 after a success.
+  trophiesAttempts Int       @default(0)
+  checkedAt        DateTime  @default(now())
+}
+
 /// Resumable position of a long-running import (e.g. `steam-applist`: the Steam app list cursor).
 model SyncCursor {
   key       String   @id

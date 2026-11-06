@@ -12,13 +12,6 @@ const BASE = "https://xbl.io/api/v2";
 export type XboxClientConfig = {
   apiKey: string;
   fetch?: typeof fetch;
-  /**
-   * Read Xbox 360 titles on OpenXBL's 360 route. Off by default: read live on 2026-11-05 it listed
-   * only the earned achievements (21 titles, every record unlocked; GTA IV showed 1 of 50), so each
-   * 360 list would look complete. Until the full list of a 360 title is known, 360 titles stay on
-   * the player route, as before the trophy lists.
-   */
-  x360Route?: boolean;
 };
 
 type Setting = { id: string; value: string };
@@ -51,7 +44,11 @@ type AchievementRecord = {
   rarity?: { currentPercentage?: number };
 };
 
-/** Xbox 360 achievement of OpenXBL's `/achievements/x360/{xuid}/title/{titleId}` (the 360 service's shape). */
+/**
+ * Xbox 360 achievement in the 360 service's shape: of `/achievements/player/{xuid}/title/{titleId}`
+ * (every achievement of the title, state a placeholder) and `/achievements/x360/{xuid}/title/{titleId}`
+ * (only those the player earned, with the real state and date).
+ */
 type X360AchievementRecord = {
   id: string | number;
   name: string;
@@ -65,6 +62,9 @@ type X360AchievementRecord = {
   timeUnlocked?: string;
   rarity?: { currentPercentage?: number };
 };
+
+/** A 360 route's answer (unwrapped from `content`); a bare array is accepted too. */
+type X360Response = { achievements?: unknown; pagingInfo?: { continuationToken?: string | null } } | unknown[];
 
 type StatsResponse = {
   statlistscollection?: {
@@ -119,9 +119,13 @@ const dateOrNull = (value: string | undefined) => {
 const validRecord = (a: { id?: unknown; name?: unknown } | null): boolean =>
   !!a && (typeof a.id === "string" || typeof a.id === "number") && typeof a.name === "string" && a.name.trim() !== "";
 
-/** An Xbox 360 achievement in the app's shape; the icon is the 360 image CDN's (title and image ids in hex). */
-function x360Achievement(a: X360AchievementRecord, titleId: string): XboxAchievement {
-  const unlocked = a.unlocked === true || a.unlockedOnline === true;
+/**
+ * An Xbox 360 achievement in the app's shape: what it is from its definition, the player's state
+ * only from the earned record (the definition's state is a placeholder: never unlocked, a 2002
+ * date). The icon is the 360 image CDN's (title and image ids in hex).
+ */
+function x360Achievement(a: X360AchievementRecord, earned: X360AchievementRecord | undefined, titleId: string): XboxAchievement {
+  const unlocked = earned !== undefined && (earned.unlocked === true || earned.unlockedOnline === true);
   const title = Number(titleId);
   const image = Number(a.imageId);
   return {
@@ -135,16 +139,12 @@ function x360Achievement(a: X360AchievementRecord, titleId: string): XboxAchieve
     hidden: a.isSecret ?? false,
     gamerscore: Number(a.gamerscore ?? 0) || 0,
     unlocked,
-    unlockedAt: unlocked ? dateOrNull(a.timeUnlocked) : null,
-    rarityPct: a.rarity?.currentPercentage ?? null,
+    unlockedAt: unlocked ? dateOrNull(earned.timeUnlocked) : null,
+    rarityPct: a.rarity?.currentPercentage ?? earned?.rarity?.currentPercentage ?? null,
   };
 }
 
-export function createXboxClient({
-  apiKey,
-  fetch: fetchImpl = globalThis.fetch,
-  x360Route = false,
-}: XboxClientConfig): XboxApi {
+export function createXboxClient({ apiKey, fetch: fetchImpl = globalThis.fetch }: XboxClientConfig): XboxApi {
   async function get<T>(path: string, what: string, body?: unknown): Promise<T | "private" | null> {
     const res = await fetchImpl(`${BASE}${path}`, {
       method: body === undefined ? "GET" : "POST",
@@ -216,6 +216,56 @@ export function createXboxClient({
     });
   }
 
+  /**
+   * The records of one 360 route. As on the player route, a 404, a body of another shape or a list
+   * cut into pages (a continuation token) is unknown and throws: the title is a failed read. A 403
+   * throws too: the account's history answered (getTitles), so a refusal of one 360 route is that
+   * title's failure (retried after X360_RETRY_MS), never the account turning private.
+   */
+  async function x360Records(path: string, what: string): Promise<X360AchievementRecord[]> {
+    const body = await get<X360Response>(path, what);
+    if (body === "private") throw new Error(`Xbox ${what}: refused (HTTP 403)`);
+    if (body === null) throw new Error(`Xbox ${what}: title not found (HTTP 404)`);
+    const raw = Array.isArray(body) ? body : body.achievements;
+    if (!Array.isArray(raw)) throw new Error(`Xbox ${what}: unexpected answer`);
+    if (!Array.isArray(body) && body.pagingInfo?.continuationToken) {
+      throw new Error(`Xbox ${what}: the list has more than one page (${raw.length} records on the first)`);
+    }
+    const records = (raw as (X360AchievementRecord | null)[]).filter(
+      (a): a is X360AchievementRecord => !!a && (typeof a.id === "string" || typeof a.id === "number"),
+    );
+    if (records.length < raw.length) console.warn(`Xbox ${what}: ${raw.length - records.length} record(s) without an id left out`);
+    // One record per id (the first): a repeated id would count an achievement twice.
+    const byId = new Map<string, X360AchievementRecord>();
+    for (const a of records) if (!byId.has(String(a.id))) byId.set(String(a.id), a);
+    return [...byId.values()];
+  }
+
+  /**
+   * An Xbox 360 title, in two requests: every achievement of the title (the definitions route, whose
+   * state is a placeholder) joined by id with the player's earned ones (the 360 route), so the list
+   * has its real size. Both must answer: else the title is a failed read and nothing is written.
+   */
+  async function x360Achievements(xuid: string, titleId: string): Promise<XboxAchievement[]> {
+    const path = `${encodeURIComponent(xuid)}/title/${encodeURIComponent(titleId)}`;
+    // A 403 on either route throws (x360Records): the title fails, the account stays as it is.
+    const definitions = await x360Records(`/achievements/player/${path}`, "360 achievements");
+    const earnedRecords = await x360Records(`/achievements/x360/${path}`, "360 earned achievements");
+    const earned = new Map(earnedRecords.map((a) => [String(a.id), a]));
+    // A definition without a name takes the earned record's; one with neither is left out.
+    const named = definitions.map((a) => (validRecord(a) ? a : { ...a, name: earned.get(String(a.id))?.name ?? "" }));
+    const usable = named.filter(validRecord);
+    if (usable.length < named.length) {
+      console.warn(`Xbox 360 title ${titleId}: ${named.length - usable.length} achievement(s) without a name left out`);
+    }
+    const listed = new Set(usable.map((a) => String(a.id)));
+    const missing = [...earned.keys()].filter((id) => !listed.has(id));
+    if (missing.length > 0) {
+      throw new Error(`Xbox 360 title ${titleId}: earned achievement(s) ${missing.join(", ")} not in its list`);
+    }
+    return usable.map((a) => x360Achievement(a, earned.get(String(a.id)), titleId));
+  }
+
   return {
     async findProfile(gamertag): Promise<XboxProfile | null> {
       const search = await get<{
@@ -265,19 +315,8 @@ export function createXboxClient({
     },
 
     async getAchievements(xuid, titleId, devices = []): Promise<XboxAchievement[] | "private"> {
-      // Xbox 360 titles answer empty on the player route; the 360 route (only with x360Route, see
-      // XboxClientConfig) lists them. An empty 360 answer still falls back to the player route.
-      if (x360Route && devices.includes("Xbox360")) {
-        const x360 = await get<{ achievements?: X360AchievementRecord[] } | X360AchievementRecord[]>(
-          `/achievements/x360/${encodeURIComponent(xuid)}/title/${encodeURIComponent(titleId)}`,
-          "360 achievements",
-        );
-        if (x360 === "private") return "private";
-        const raw = Array.isArray(x360) ? x360 : x360?.achievements;
-        const records = Array.isArray(raw) ? raw.filter(validRecord) : [];
-        if (records.length > 0) return records.map((a) => x360Achievement(a, titleId));
-      }
-      return playerAchievements(xuid, titleId);
+      // Xbox 360 titles answer empty on the player route: they have routes of their own.
+      return devices.includes("Xbox360") ? x360Achievements(xuid, titleId) : playerAchievements(xuid, titleId);
     },
 
     async getMinutesPlayed(xuid, titleIds): Promise<Map<string, number> | "private"> {

@@ -149,4 +149,37 @@ describe("getGameVersions", () => {
     ]);
     expect(ps5.lists[0].id).toBe(listIds.ps5a);
   });
+
+  it("an empty catalog list older than a player's list never hides the version", async () => {
+    // A PSN catalog list matched before anyone read its trophies (no rows), and a newer list of the
+    // same version that a player's sync filled.
+    const g = await prisma.game.create({ data: { slug: `${PREFIX}-empty`, name: "Empty first", achievementCount: 0, platforms: [] } });
+    const catalog = await prisma.trophyList.create({
+      data: { gameId: g.id, platform: "psn", externalId: `${PREFIX}-empty-cat`, console: "PS4", name: "Empty first", trophyCount: 3, createdAt: at(1) },
+    });
+    const played = await prisma.trophyList.create({
+      data: { gameId: g.id, platform: "psn", externalId: `${PREFIX}-empty-play`, console: "PS4", name: "Empty first", region: "jp", trophyCount: 2, createdAt: at(2) },
+    });
+    await prisma.achievement.createMany({
+      data: [
+        { gameId: g.id, platform: "psn", listId: played.id, apiName: "0", name: "Platina", trophyTier: "platinum" },
+        { gameId: g.id, platform: "psn", listId: played.id, apiName: "1", name: "Bronze", trophyTier: "bronze" },
+      ],
+    });
+
+    const [ps4] = await getGameVersions(g.id);
+    expect(ps4).toMatchObject({ key: "psn:PS4", total: 2, nativePlatinum: true });
+    expect(ps4.trophies.map((t) => t.apiName)).toEqual(["0", "1"]);
+    // Both lists are still listed, oldest first; the empty one with its catalog size.
+    expect(ps4.lists.map((l) => [l.id, l.trophyCount])).toEqual([
+      [catalog.id, 3],
+      [played.id, 2],
+    ]);
+    expect(await getGameVersion(`${PREFIX}-empty`, "psn:PS4")).toEqual(ps4);
+
+    // A version whose only list has no rows yet is not shown at all.
+    await prisma.achievement.deleteMany({ where: { listId: played.id } });
+    expect(await getGameVersions(g.id)).toEqual([]);
+    expect(await getGameVersion(`${PREFIX}-empty`, "psn:PS4")).toBeNull();
+  });
 });

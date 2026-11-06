@@ -42,7 +42,9 @@ export interface XboxApi {
   getTitles(xuid: string): Promise<XboxTitle[] | "private">;
   /**
    * Every achievement of the title (unlocked or not) with the player's progress. `devices` (from the
-   * title history) routes Xbox 360 titles to OpenXBL's 360 route.
+   * title history) routes Xbox 360 titles to OpenXBL's 360 routes (two requests: the title's
+   * achievements, and the player's earned ones). `'private'` comes from the player route only: a 403
+   * on a 360 route throws, a failure of that title alone.
    */
   getAchievements(xuid: string, titleId: string, devices?: string[]): Promise<XboxAchievement[] | "private">;
   /**

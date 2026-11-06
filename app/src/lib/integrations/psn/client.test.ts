@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPsnClient, parsePlayDuration, PsnAuthError } from "./client";
+import { createPsnClient, parsePlayDuration, PsnAuthError, PsnHttpError } from "./client";
 import { createPsnFixture } from "./fixture";
 
 const NPSSO = "npsso-secret-value-0123456789";
@@ -391,6 +391,69 @@ describe("psn client", () => {
     const apiError = await serverError.client.getTitles("1").catch((e: Error) => e);
     expect((apiError as Error).message).toBe("PSN trophy titles failed with HTTP 500");
     expect((apiError as Error).message).not.toContain("T1");
+  });
+});
+
+describe("psn catalog list info", () => {
+  it("reads name, platform and counts of any list, on the asked service", async () => {
+    const { client, fetchMock } = setup((url) => {
+      if (url.pathname.endsWith("/npCommunicationIds/NPWR10000_00/trophyGroups") && url.searchParams.get("npServiceName") === "trophy") {
+        return json({ trophyTitleName: "Fairune", trophyTitlePlatform: "PSVITA", definedTrophies: { bronze: 10, silver: 2, gold: 1, platinum: 1 } });
+      }
+      if (url.pathname.endsWith("/trophyGroups")) return json({ error: { message: "not found" } }, 404);
+      throw new Error(`unexpected ${url}`);
+    });
+    await expect(client.getListInfo("NPWR10000_00", "trophy")).resolves.toEqual({
+      npTitleId: "NPWR10000_00",
+      serviceName: "trophy",
+      name: "Fairune",
+      platform: "PSVITA",
+      trophyCounts: { bronze: 10, silver: 2, gold: 1, platinum: 1 },
+    });
+    await expect(client.getListInfo("NPWR10000_00", "trophy2")).resolves.toBeNull();
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("npServiceName"))).toBe(true);
+  });
+
+  it("getListTrophies reads a list's definitions without a player, and says null when Sony has none", async () => {
+    const { client, fetchMock } = setup((url) => {
+      if (url.pathname.includes("/users/")) throw new Error("no player involved");
+      if (url.pathname.includes("NPWR10000_00") && url.pathname.endsWith("/trophyGroups/all/trophies")) {
+        return json({
+          trophies: [
+            { trophyId: 0, trophyType: "platinum", trophyName: "Tudo", trophyDetail: "Ganhe todos", trophyIconUrl: "https://i/NPWR10000_00.png", trophyHidden: false },
+            { trophyId: 1, trophyType: "bronze", trophyHidden: true },
+          ],
+        });
+      }
+      return json({}, 404);
+    });
+    await expect(client.getListTrophies("NPWR10000_00", "trophy")).resolves.toEqual([
+      { trophyId: "0", name: "Tudo", description: "Ganhe todos", iconUrl: "https://i/NPWR10000_00.png", hidden: false, tier: "platinum", earned: false, earnedAt: null, rarityPct: null },
+      { trophyId: "1", name: "Troféu 1", description: null, iconUrl: null, hidden: true, tier: "bronze", earned: false, earnedAt: null, rarityPct: null },
+    ]);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("npServiceName=trophy"))).toBe(true);
+    await expect(client.getListTrophies("NPWR10001_00", "trophy2")).resolves.toBeNull();
+    const refused = setup(() => json({ error: { message: "forbidden" } }, 403));
+    await expect(refused.client.getListTrophies("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("getListTrophies throws PsnHttpError on 429 and 5xx (with Retry-After), like every other read", async () => {
+    const limited = setup(() => new Response("{}", { status: 429, headers: { "retry-after": "20" } }));
+    await expect(limited.client.getListTrophies("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 429, retryAfterMs: 20_000 });
+    const down = setup(() => new Response("{}", { status: 503 }));
+    const error = await down.client.getListTrophies("NPWR10000_00", "trophy2").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(PsnHttpError);
+    expect((error as Error).message).toBe("PSN list trophies failed with HTTP 503");
+    // The other reads keep their message too (now a PsnHttpError).
+    await expect(down.client.getTitles("1")).rejects.toThrow("PSN trophy titles failed with HTTP 503");
+  });
+
+  it("throws PsnHttpError with the status and Retry-After on 429 and 5xx", async () => {
+    const { client } = setup(() => new Response("{}", { status: 429, headers: { "retry-after": "30" } }));
+    await expect(client.getListInfo("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 429, retryAfterMs: 30_000 });
+    await expect(client.getListInfo("NPWR10000_00", "trophy2")).rejects.toBeInstanceOf(PsnHttpError);
+    const down = setup(() => new Response("{}", { status: 503 }));
+    await expect(down.client.getListInfo("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 503, retryAfterMs: null });
   });
 });
 
