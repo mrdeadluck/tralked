@@ -208,14 +208,24 @@ async function recordGame(
   const gameSkills = game.skills.map((s) => s.skill);
   const total = Math.max(game.achievementCount, game.achievements.length);
   const complete = unlocks.length >= total;
-  // Without playtime there is no evidence of a speed run, so the rule cannot apply.
-  const speedRun =
-    complete && playtimeKnown && isSpeedPlatinum(playtimeMin, game.timeToBeatCompleteMin);
-
-  const rows = unlocks.map((u) => ({
+  // A date Steam gave before is never erased by a later answer without one.
+  const dated = unlocks.map((u) => ({
     achievementId: u.achievementId,
-    // A date Steam gave before is never erased by a later answer without one.
     unlockedAt: u.unlockedAt ?? known.get(u.achievementId)?.unlockedAt ?? null,
+  }));
+  const undatedCompletion = complete && dated.some((u) => u.unlockedAt === null);
+  // Without playtime there is no evidence of a speed run, so the rule cannot apply. Nor to a
+  // completion that includes undated unlocks: those are Steam's own unlocktime 0, from an era
+  // whose playtime Steam did not record reliably (0 minutes is common), so the hours prove nothing
+  // and the flag would also taint the game's dated unlocks that were valid before.
+  const speedRun =
+    complete &&
+    playtimeKnown &&
+    !undatedCompletion &&
+    isSpeedPlatinum(playtimeMin, game.timeToBeatCompleteMin);
+
+  const rows = dated.map((u) => ({
+    ...u,
     // Sticky: the stored flag is OR-ed in, so no sync ever clears it. Bursts (over all of the
     // user's unlocks) and the speed-platinum rule are re-evaluated on every sync, so clearing the
     // flag by hand does not last while either rule still matches: the next sync sets it again,
@@ -223,10 +233,12 @@ async function recordGame(
     suspicious: suspiciousVerdict(known.get(u.achievementId), bursts.has(u.achievementId) || speedRun),
   }));
   // Undated unlocks are old ones (Steam did not keep dates then), so the newest dated unlock is
-  // when the game was completed; with no dated unlock at all, when Tralked records it.
+  // when the game was completed; with no dated unlock at all, when Tralked records it (see
+  // UserGame.completedAt). The platinum of such a completion is `dateUnknown` even when the newest
+  // dated unlock is recent: the completion's real date is not known, so it never counts in a time
+  // window ("Esta semana" included).
   const newest = newestDate(rows);
   const completedAt = complete ? (newest ?? now) : null;
-  const undatedCompletion = complete && rows.some((r) => r.unlockedAt === null);
   const pctById = new Map(game.achievements.map((a) => [a.id, a.globalPct]));
 
   return prisma.$transaction(async (tx) => {

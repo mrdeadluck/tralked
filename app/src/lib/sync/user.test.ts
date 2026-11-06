@@ -612,6 +612,49 @@ describe.skipIf(!reachable)("syncUser", () => {
     expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, ...NOT_PLAYTIME } })).toBe(0);
   });
 
+  it("a completion that includes undated unlocks is exempt from the speed-platinum rule: nothing gets flagged", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { syncUser } = await import("./user");
+    const appId = newAppId();
+    await prisma.game.create({
+      data: {
+        slug: `test-sync-speed-undated-${appId}`,
+        name: "Old speed game",
+        steamAppId: appId,
+        achievementCount: 3,
+        platforms: ["PC"],
+        timeToBeatCompleteMin: 6000,
+        achievements: { create: ["A0", "A1", "A2"].map((apiName) => ({ apiName, name: apiName, globalPct: 10 })) },
+      },
+    });
+    // Valid dated unlocks first, the game not complete; Steam's playtime is tiny (< 5% of 6000).
+    const fake = fakeSteam({
+      [appId]: {
+        pcts: pctsOf(3),
+        playtimeMin: 100,
+        unlocks: { A0: new Date("2010-01-01T10:00:00Z"), A1: new Date("2010-01-05T10:00:00Z") },
+      },
+    });
+    steamState.api = fake.api;
+    const user = await newUser();
+    await syncUser(user.id);
+    expect(await prisma.userAchievement.count({ where: { userId: user.id, suspicious: false } })).toBe(2);
+
+    // The undated one (unlocktime 0) completes it.
+    fake.games.get(appId)!.unlocks.A2 = "undated";
+    fake.games.get(appId)!.playtimeMin = 110;
+    await syncUser(user.id);
+
+    const rows = await prisma.userAchievement.findMany({ where: { userId: user.id } });
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => !r.suspicious)).toBe(true);
+    const game = await prisma.game.findUniqueOrThrow({ where: { steamAppId: appId } });
+    const platinum = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, source: "platinum", sourceKey: game.id } });
+    expect(platinum).toHaveLength(1);
+    expect(platinum[0].dateUnknown).toBe(true);
+    expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "achievement", voidedAt: null } })).toBe(3);
+  });
+
   it("keeps games without achievements in the library as name-only stubs (playtime, no unlocks)", async () => {
     const { prisma } = await import("@/lib/db");
     const { syncUser } = await import("./user");

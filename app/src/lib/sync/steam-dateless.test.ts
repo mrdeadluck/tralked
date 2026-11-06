@@ -28,6 +28,8 @@ vi.mock("next/cache", async (importOriginal) => ({
 /** appId -> what GetPlayerAchievements answers; `asked` records every call. */
 const steamState = vi.hoisted(() => ({
   answers: new Map<number, SteamPlayerAchievement[] | "private">(),
+  /** appId -> HTTP statuses Steam answers first, one per call ("always": every call). */
+  failures: new Map<number, number[] | "always">(),
   asked: [] as number[],
 }));
 vi.mock("@/lib/integrations", async (importOriginal) => {
@@ -35,6 +37,9 @@ vi.mock("@/lib/integrations", async (importOriginal) => {
   const api: Partial<SteamApi> = {
     async getPlayerAchievements(_steamId, appId) {
       steamState.asked.push(appId);
+      const failures = steamState.failures.get(appId);
+      const status = failures === "always" ? 500 : failures?.shift();
+      if (status) throw new Error(`Steam API /ISteamUserStats/GetPlayerAchievements/v1/ failed with HTTP ${status}`);
       return steamState.answers.get(appId) ?? [];
     },
     async getSchemaForGame() {
@@ -57,7 +62,8 @@ vi.mock("@/lib/integrations", async (importOriginal) => {
 });
 
 const PREFIX = "test-dateless-";
-const APP = { gap: 96100001, even: 96100002, done: 96100003, finish: 96100004 };
+const APP = { gap: 96100001, even: 96100002, done: 96100003, finish: 96100004, flaky: 96100005, broken: 96100006 };
+const NO_WAIT = { retryDelaysMs: [1, 1, 1], sleep: async () => {} };
 const DATED = new Date("2015-05-05T10:00:00Z");
 const got = (apiName: string, unlockedAt: Date | null = null): SteamPlayerAchievement => ({ apiName, achieved: true, unlockedAt });
 const locked = (apiName: string): SteamPlayerAchievement => ({ apiName, achieved: false, unlockedAt: null });
@@ -72,7 +78,7 @@ describe.skipIf(!reachable)("steam:dateless", () => {
   }
 
   /** A Steam game with achievements A0..A(n-1) at `pct`, and the user's dated unlocks of the first `have`. */
-  async function game(appId: number, n: number, have: number, pct = 10) {
+  async function game(appId: number, n: number, have: number, pct = 10, timeToBeatCompleteMin: number | null = null) {
     const { prisma } = await import("@/lib/db");
     const row = await prisma.game.create({
       data: {
@@ -81,6 +87,7 @@ describe.skipIf(!reachable)("steam:dateless", () => {
         steamAppId: appId,
         achievementCount: n,
         platforms: ["PC"],
+        timeToBeatCompleteMin,
         achievements: { create: Array.from({ length: n }, (_, i) => ({ apiName: `A${i}`, name: `A${i}`, globalPct: pct })) },
       },
       include: { achievements: { orderBy: { apiName: "asc" } } },
@@ -119,9 +126,17 @@ describe.skipIf(!reachable)("steam:dateless", () => {
     steamState.answers.set(APP.even, [got("A0", DATED), locked("A1")]);
     // Complete already: Steam is not even asked.
     await game(APP.done, 1, 1);
-    // The undated ones complete it: the platinum comes too.
-    await game(APP.finish, 2, 1, 20);
+    // The undated one completes it: the platinum comes too. 600 min against a 100 000 min game
+    // would be a speed platinum, but a completion with undated unlocks is exempt.
+    await game(APP.finish, 2, 1, 20, 100_000);
     steamState.answers.set(APP.finish, [got("A0", DATED), got("A1")]);
+    // Steam rate-limits twice, then answers: a dated unlock Tralked never read.
+    await game(APP.flaky, 2, 0);
+    steamState.answers.set(APP.flaky, [got("A0", DATED), locked("A1")]);
+    steamState.failures.set(APP.flaky, [429, 503]);
+    // Steam keeps failing: listed as not read, the rest of the plan stands.
+    await game(APP.broken, 2, 0);
+    steamState.failures.set(APP.broken, "always");
     await recomputeUser(userId);
   });
 
@@ -137,17 +152,31 @@ describe.skipIf(!reachable)("steam:dateless", () => {
     steamState.asked = [];
     const xpBefore = (await prisma.userStats.findUniqueOrThrow({ where: { userId } })).totalXp;
 
-    const plan = await planDateless(userId);
+    const plan = await planDateless(userId, NO_WAIT);
 
-    expect(steamState.asked.sort()).toEqual([APP.gap, APP.even, APP.finish].sort());
+    // Every incomplete game is asked once; the flaky one 3 times (2 retries), the broken one 4.
+    const count = (appId: number) => steamState.asked.filter((a) => a === appId).length;
+    expect([APP.gap, APP.even, APP.done, APP.finish, APP.flaky, APP.broken].map(count)).toEqual([1, 1, 0, 1, 3, 4]);
     expect(plan.status).toBe("ok");
-    expect(plan.games.map((g) => ({ appId: g.appId, steam: g.steamEarned, tralked: g.tralkedEarned, missing: g.missing, undated: g.undated }))).toEqual([
-      { appId: APP.finish, steam: 2, tralked: 1, missing: 1, undated: 1 },
-      { appId: APP.gap, steam: 3, tralked: 1, missing: 2, undated: 2 },
-    ].sort((a, b) => a.appId - b.appId));
-    const finishXp = xpForAchievement(20) + platinumBonus([xpForAchievement(20), xpForAchievement(20)]);
+    const bonus = platinumBonus([xpForAchievement(20), xpForAchievement(20)]);
+    expect(
+      plan.games.map((g) => ({
+        appId: g.appId,
+        steam: g.steamEarned,
+        tralked: g.tralkedEarned,
+        missing: g.missing,
+        undated: g.undated,
+        completes: g.completes,
+        bonus: g.platinumBonus,
+      })),
+    ).toEqual([
+      { appId: APP.gap, steam: 3, tralked: 1, missing: 2, undated: 2, completes: false, bonus: 0 },
+      { appId: APP.finish, steam: 2, tralked: 1, missing: 1, undated: 1, completes: true, bonus },
+      { appId: APP.flaky, steam: 1, tralked: 0, missing: 1, undated: 0, completes: false, bonus: 0 },
+    ]);
+    expect(plan.notRead).toEqual([{ appId: APP.broken, name: `Dateless ${APP.broken}`, error: expect.stringContaining("HTTP 500") }]);
     expect(plan.xpBefore).toBe(xpBefore);
-    expect(plan.xpAfter).toBe(xpBefore + 2 * xpForAchievement(10) + finishXp);
+    expect(plan.xpAfter).toBe(xpBefore + 3 * xpForAchievement(10) + xpForAchievement(20) + bonus);
     // Planning writes nothing.
     expect(await prisma.userAchievement.count({ where: { userId } })).toBe(4);
   });
@@ -155,23 +184,25 @@ describe.skipIf(!reachable)("steam:dateless", () => {
   it("records what is missing and recomputes; a second run finds nothing", async () => {
     const { prisma } = await import("@/lib/db");
     const { applyDateless, planDateless } = await import("./steam-dateless");
-    const plan = await planDateless(userId);
+    const plan = await planDateless(userId, NO_WAIT);
 
     const result = await applyDateless(userId, plan);
 
-    expect(result).toEqual({ recorded: 3, failed: [], xpAfter: plan.xpAfter });
+    expect(result).toEqual({ recorded: 4, failed: [], xpAfter: plan.xpAfter });
+    // The completion through an undated unlock was not taken for a speed platinum.
+    expect(await prisma.userAchievement.count({ where: { userId, suspicious: true } })).toBe(0);
     expect((await prisma.userStats.findUniqueOrThrow({ where: { userId } })).totalXp).toBe(plan.xpAfter);
     const undated = await prisma.userAchievement.findMany({ where: { userId, unlockedAt: null } });
     expect(undated).toHaveLength(3);
     const entries = await prisma.xpLedgerEntry.findMany({ where: { userId, dateUnknown: true } });
     expect(entries.map((e) => e.source).sort()).toEqual(["achievement", "achievement", "achievement", "platinum"]);
-    expect((await planDateless(userId)).games).toEqual([]);
+    expect((await planDateless(userId, NO_WAIT)).games).toEqual([]);
   });
 
   it("a private profile is reported, not read further", async () => {
     const { planDateless } = await import("./steam-dateless");
     steamState.answers.set(APP.even, "private");
-    expect((await planDateless(userId)).status).toBe("private");
+    expect((await planDateless(userId, NO_WAIT)).status).toBe("private");
     steamState.answers.set(APP.even, [got("A0", DATED), locked("A1")]);
   });
 });

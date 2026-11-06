@@ -413,6 +413,9 @@ model UserGame {
   /// Playtime the platform reports (minutes). 0 when never played or not reported.
   playtimeMin        Int
   unlockedCount      Int
+  /// When the game reached 100% (null: not complete). A Steam completion that includes unlocks of
+  /// unknown date holds the newest dated unlock; when none is dated, the time Tralked recorded it,
+  /// not a real date (no reader shows or windows this value: only `!= null` is read).
   completedAt        DateTime?
   /// Steam `playtime_2weeks` (minutes); null when the platform does not say.
   playtime2WeeksMin  Int?
@@ -625,7 +628,9 @@ model XpLedgerEntry {
   platform    String?
   /// Pays an unlock whose date is unknown (Steam achievement with unlocktime 0, or the platinum of
   /// a completion that includes one): `createdAt` is when Tralked recorded it, so the entry counts
-  /// in the total but is left out of every time window (XP of the week, weekly highscores).
+  /// in the total but is left out of every time window (XP of the week, weekly highscores). The
+  /// platinum of a completion with any undated unlock is marked even when its newest dated unlock
+  /// is this week: the completion's real date is not known, so it stays out of "Esta semana".
   dateUnknown Boolean   @default(false)
   voidedAt    DateTime?
   createdAt   DateTime  @default(now())
