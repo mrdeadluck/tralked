@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Third-party EmulatorJS release vendored by scripts/emulator-vendor.ts.
+    "public/emulator/**",
   ]),
 ]);
 

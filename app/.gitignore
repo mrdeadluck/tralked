@@ -52,3 +52,5 @@ next-env.d.ts
 /public/uploads/
 # script progress logs
 /scripts/.logs/
+# EmulatorJS release vendored by scripts/emulator-vendor.ts (postinstall)
+/public/emulator/
