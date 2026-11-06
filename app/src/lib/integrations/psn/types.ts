@@ -110,4 +110,10 @@ export interface PsnApi {
    * 429 and 5xx, so a scan can back off.
    */
   getListInfo(npTitleId: string, serviceName: PsnServiceName): Promise<PsnListInfo | null>;
+  /**
+   * The trophy definitions of a list (`trophyGroups/all/trophies`), for any list, without a
+   * player: nobody has earned anything (`earned` false, no rarity). Null when Sony has no such
+   * list or no trophies in it. Throws on 403, 429 and 5xx: a caller reading on demand tries later.
+   */
+  getListTrophies(npTitleId: string, serviceName: PsnServiceName): Promise<PsnTrophy[] | null>;
 }

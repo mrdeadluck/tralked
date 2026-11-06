@@ -414,6 +414,29 @@ describe("psn catalog list info", () => {
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("npServiceName"))).toBe(true);
   });
 
+  it("getListTrophies reads a list's definitions without a player, and says null when Sony has none", async () => {
+    const { client, fetchMock } = setup((url) => {
+      if (url.pathname.includes("/users/")) throw new Error("no player involved");
+      if (url.pathname.includes("NPWR10000_00") && url.pathname.endsWith("/trophyGroups/all/trophies")) {
+        return json({
+          trophies: [
+            { trophyId: 0, trophyType: "platinum", trophyName: "Tudo", trophyDetail: "Ganhe todos", trophyIconUrl: "https://i/NPWR10000_00.png", trophyHidden: false },
+            { trophyId: 1, trophyType: "bronze", trophyHidden: true },
+          ],
+        });
+      }
+      return json({}, 404);
+    });
+    await expect(client.getListTrophies("NPWR10000_00", "trophy")).resolves.toEqual([
+      { trophyId: "0", name: "Tudo", description: "Ganhe todos", iconUrl: "https://i/NPWR10000_00.png", hidden: false, tier: "platinum", earned: false, earnedAt: null, rarityPct: null },
+      { trophyId: "1", name: "Troféu 1", description: null, iconUrl: null, hidden: true, tier: "bronze", earned: false, earnedAt: null, rarityPct: null },
+    ]);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("npServiceName=trophy"))).toBe(true);
+    await expect(client.getListTrophies("NPWR10001_00", "trophy2")).resolves.toBeNull();
+    const refused = setup(() => json({ error: { message: "forbidden" } }, 403));
+    await expect(refused.client.getListTrophies("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 403 });
+  });
+
   it("throws PsnHttpError with the status and Retry-After on 429 and 5xx", async () => {
     const { client } = setup(() => new Response("{}", { status: 429, headers: { "retry-after": "30" } }));
     await expect(client.getListInfo("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 429, retryAfterMs: 30_000 });

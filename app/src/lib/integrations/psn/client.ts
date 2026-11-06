@@ -97,6 +97,19 @@ const rateOrNull = (value: string | undefined) => {
   return Number.isFinite(pct) ? pct : null;
 };
 
+const definedTrophy = (
+  d: TrophyDefinition,
+  progress: Pick<PsnTrophy, "earned" | "earnedAt" | "rarityPct"> = { earned: false, earnedAt: null, rarityPct: null },
+): PsnTrophy => ({
+  trophyId: String(d.trophyId),
+  name: d.trophyName ?? `Troféu ${d.trophyId}`,
+  description: d.trophyDetail ?? null,
+  iconUrl: d.trophyIconUrl ?? null,
+  hidden: d.trophyHidden ?? false,
+  tier: tierOf(d.trophyType),
+  ...progress,
+});
+
 type PlayedRecord = {
   titleId?: string;
   name?: string;
@@ -346,6 +359,17 @@ export function createPsnClient({
       };
     },
 
+    async getListTrophies(npTitleId, serviceName): Promise<PsnTrophy[] | null> {
+      const definitions = await get<{ trophies?: TrophyDefinition[] }>(
+        `${TROPHY_BASE}/npCommunicationIds/${encodeURIComponent(npTitleId)}/trophyGroups/all/trophies${serviceQuery(serviceName)}`,
+        "list trophies",
+      );
+      // 403 here is Sony refusing, not a player's privacy: the caller treats it as "try later".
+      if (definitions === "private") throw new PsnHttpError("list trophies", 403, null);
+      if (!definitions?.trophies?.length) return null;
+      return definitions.trophies.map((d) => definedTrophy(d));
+    },
+
     async getTrophies(accountId, npTitleId, serviceName): Promise<PsnTrophy[] | "private"> {
       const title = encodeURIComponent(npTitleId);
       const query = serviceQuery(serviceName);
@@ -363,17 +387,11 @@ export function createPsnClient({
       return (definitions?.trophies ?? []).map((d) => {
         const mine = earnedById.get(d.trophyId);
         const isEarned = mine?.earned === true;
-        return {
-          trophyId: String(d.trophyId),
-          name: d.trophyName ?? `Troféu ${d.trophyId}`,
-          description: d.trophyDetail ?? null,
-          iconUrl: d.trophyIconUrl ?? null,
-          hidden: d.trophyHidden ?? false,
-          tier: tierOf(d.trophyType),
+        return definedTrophy(d, {
           earned: isEarned,
           earnedAt: isEarned ? dateOrNull(mine?.earnedDateTime) : null,
           rarityPct: rateOrNull(mine?.trophyEarnedRate),
-        };
+        });
       });
     },
 

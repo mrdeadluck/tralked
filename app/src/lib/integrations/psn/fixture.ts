@@ -285,6 +285,9 @@ export function createPsnFixture(): PsnApi {
     async getListInfo() {
       return null; // the offline fixture has no catalog
     },
+    async getListTrophies() {
+      return null;
+    },
     async getTrophyListsOfTitles(accountId, titleIds) {
       const found = account(accountId);
       if (found?.isPrivate) return "private";
