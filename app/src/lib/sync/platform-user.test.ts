@@ -1987,6 +1987,13 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
       const { prisma } = await import("@/lib/db");
       const { syncPlatformAccount } = await import("./platform-user");
       const fake = await fakePsnLibrary(10);
+      try {
+      // Earlier tests' games and lists of the same fake titles: gone, so these lists are new to the run.
+      for (let i = 0; i < 10; i++) {
+        await prisma.game.deleteMany({ where: { platformLinks: { some: { platform: "psn", externalId: fake.id(i) } } } });
+        await prisma.trophyList.deleteMany({ where: { platform: "psn", externalId: fake.id(i) } });
+      }
+      expect(await prisma.trophyList.count({ where: { platform: "psn", externalId: { in: Array.from({ length: 10 }, (_, i) => fake.id(i)) } } })).toBe(0);
       // Ten brand-new titles (no list, no trophy row yet), every trophy earned within seconds.
       fake.trophies.mockImplementation(async (_account, npTitleId) => {
         const i = Number(npTitleId.slice(FAKE_TITLE_PREFIX.length));
@@ -1995,7 +2002,6 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
           { trophyId: "2", name: "Dois", description: null, iconUrl: null, hidden: false, tier: "bronze" as const, earned: false, earnedAt: null, rarityPct: 30 },
         ];
       });
-      try {
         const user = await userWith("psn", "test-new-lists-account", "Listas-Novas");
         await syncPlatformAccount(user.id, "psn", { full: true });
         const all = await prisma.userAchievement.findMany({ where: { userId: user.id } });
@@ -2023,6 +2029,55 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
       }
       const flagged = await prisma.userAchievement.findMany({ where: { userId: user.id, suspicious: true } });
       expect(flagged.map((u) => u.achievementId)).toEqual([stored[0].achievementId]);
+    });
+
+    /** The `Tres-Consoles` GTA V lists (PS3, PS4, PS5) with only the given trophy ids earned, at the given time. */
+    async function gtaEarned(earnedAt: (listId: string, trophyId: number) => Date | null) {
+      const { getPsn } = await import("@/lib/integrations");
+      const psn = getPsn();
+      const original = psn.getTrophies.bind(psn);
+      return vi.spyOn(psn, "getTrophies").mockImplementation(async (account, npTitleId, ...rest) => {
+        const list = await original(account, npTitleId, ...rest);
+        if (list === "private") return list;
+        return list.map((t) => {
+          const at = earnedAt(npTitleId, Number(t.trophyId));
+          return at ? { ...t, earned: true, earnedAt: at } : { ...t, earned: false, earnedAt: null };
+        });
+      });
+    }
+
+    it("the same trophy earned at once on sibling lists counts once: 4 trophies on 3 lists are not a burst", async () => {
+      const { prisma } = await import("@/lib/db");
+      const { syncPlatformAccount } = await import("./platform-user");
+      const user = await userWith("psn", "9000000000000000005", "Tres-Consoles");
+      // PS3 and PS4 get trophies 1-4, PS5 gets 1-3: 11 unlocks, 4 distinct trophies, same seconds.
+      const spy = await gtaEarned((list, id) => {
+        const max = list === "NPWR90013_00" ? 3 : list === "NPWR90011_00" || list === "NPWR90012_00" ? 4 : 0;
+        return id >= 1 && id <= max ? new Date(BURST_AT.getTime() + id * 1000) : null;
+      });
+      try {
+        await syncPlatformAccount(user.id, "psn", { full: true });
+      } finally {
+        spy.mockRestore();
+      }
+      const all = await prisma.userAchievement.findMany({ where: { userId: user.id } });
+      expect(all).toHaveLength(11);
+      expect(all.some((u) => u.suspicious)).toBe(false);
+    });
+
+    it("10 distinct trophies within 60 s are still a burst", async () => {
+      const { prisma } = await import("@/lib/db");
+      const { syncPlatformAccount } = await import("./platform-user");
+      const user = await userWith("psn", "9000000000000000005", "Tres-Consoles");
+      const spy = await gtaEarned((list, id) => (list === "NPWR90012_00" && id >= 1 && id <= 10 ? new Date(BURST_AT.getTime() + id * 3000) : null));
+      try {
+        await syncPlatformAccount(user.id, "psn", { full: true });
+      } finally {
+        spy.mockRestore();
+      }
+      const all = await prisma.userAchievement.findMany({ where: { userId: user.id } });
+      expect(all).toHaveLength(10);
+      expect(all.every((u) => u.suspicious)).toBe(true);
     });
 
     it("RetroAchievements: a speed platinum whose last unlock is new is still caught", async () => {

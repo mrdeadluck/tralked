@@ -808,9 +808,10 @@ export async function syncPlatformAccount(
   }
   const lists = await prisma.trophyList.findMany({
     where: { platform, externalId: { in: resolved.map((r) => r.title.externalId) } },
-    select: { id: true, externalId: true },
+    select: { id: true, externalId: true, gameId: true },
   });
   const listIdOf = new Map(lists.map((l) => [l.externalId, l.id]));
+  const listGameOf = new Map(lists.map((l) => [l.externalId, l.gameId]));
   const ids = await prisma.achievement.findMany({
     where: { listId: { in: lists.map((l) => l.id) } },
     select: { id: true, listId: true, apiName: true },
@@ -830,13 +831,14 @@ export async function syncPlatformAccount(
       : []
     ).map((l) => l.gameId),
   ]);
-  const everyUnlock = new Map<string, { achievementId: string; unlockedAt: Date }>();
+  const everyUnlock = new Map<string, { achievementId: string; unlockedAt: Date; gameId: string; apiName: string }>();
   for (const { achievement: a, achievementId, unlockedAt } of unlockRows) {
-    if (a.listId) everyUnlock.set(listKey(a.listId, a.apiName), { achievementId, unlockedAt });
-    else if (!listedGames.has(a.gameId)) everyUnlock.set(`${a.gameId}:${a.apiName}`, { achievementId, unlockedAt });
+    if (a.listId) everyUnlock.set(listKey(a.listId, a.apiName), { achievementId, unlockedAt, gameId: a.gameId, apiName: a.apiName });
+    else if (!listedGames.has(a.gameId)) everyUnlock.set(`${a.gameId}:${a.apiName}`, { achievementId, unlockedAt, gameId: a.gameId, apiName: a.apiName });
   }
-  for (const { title } of resolved) {
+  for (const { title, gameId: resolvedGameId } of resolved) {
     const listId = listIdOf.get(title.externalId);
+    const gameId = listGameOf.get(title.externalId) ?? resolvedGameId;
     for (const a of title.achievements) {
       if (!a.unlocked) continue;
       const key = listId ? listKey(listId, a.apiName) : undefined;
@@ -844,14 +846,26 @@ export async function syncPlatformAccount(
       if (!key || !id) {
         // A list or trophy new to the catalog has no row yet: its dated unlocks join the burst
         // check under a synthetic key, since recordTitle judges them (only) this run.
-        if (a.unlockedAt) everyUnlock.set(newKey(title.externalId, a.apiName), { achievementId: newKey(title.externalId, a.apiName), unlockedAt: a.unlockedAt });
+        if (a.unlockedAt) everyUnlock.set(newKey(title.externalId, a.apiName), { achievementId: newKey(title.externalId, a.apiName), unlockedAt: a.unlockedAt, gameId, apiName: a.apiName });
         continue;
       }
       if (!a.unlockedAt) everyUnlock.delete(key);
-      else if (!known.byList.has(key)) everyUnlock.set(key, { achievementId: id, unlockedAt: a.unlockedAt });
+      else if (!known.byList.has(key)) everyUnlock.set(key, { achievementId: id, unlockedAt: a.unlockedAt, gameId, apiName: a.apiName });
     }
   }
-  const bursts = findBursts([...everyUnlock.values()]);
+  // One trophy counts once however many sibling lists of the game hold it (cross-buy, cross-gen
+  // copies earned at the same second): the density is of distinct trophies. Every key of a group
+  // is in the burst when its kept twin is.
+  const groups = new Map<string, typeof everyUnlock extends Map<string, infer V> ? V[] : never>();
+  for (const u of everyUnlock.values()) {
+    const group = `${u.gameId}:${u.apiName}:${Math.floor(u.unlockedAt.getTime() / 1000)}`;
+    groups.set(group, [...(groups.get(group) ?? []), u]);
+  }
+  const burstOfKept = findBursts([...groups.values()].map((g) => g[0]));
+  const bursts = new Set<string>();
+  for (const g of groups.values()) {
+    if (burstOfKept.has(g[0].achievementId)) for (const u of g) bursts.add(u.achievementId);
+  }
 
   let newUnlocks = 0;
   for (const { gameId, title, conceptId } of resolved) {
