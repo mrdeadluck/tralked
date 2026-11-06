@@ -40,7 +40,8 @@ describe("moreVersionTrophies", () => {
     const { moreVersionTrophies } = await import("./trophy-actions");
     const rows = await moreVersionTrophies("gta", "psn:PS4");
     expect(getGameVersionCached).toHaveBeenCalledWith("gta", "psn:PS4");
-    expect(rows!.map((r) => r.apiName)).toEqual(trophies.map((t) => t.apiName));
+    const { rowKey } = await import("@/components/game/version-views");
+    expect(rows!.map((r) => r.apiName)).toEqual(trophies.map(rowKey));
     expect(rows![14].name).toBeNull();
   });
 

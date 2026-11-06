@@ -16,6 +16,7 @@ const articleById = await import("./articles/[id]/route");
 const guides = await import("./guides/route");
 const guideById = await import("./guides/[id]/route");
 const games = await import("./games/route");
+const { findGame } = await import("@/lib/api/games");
 const insights = await import("./games/[slug]/insights/route");
 const dossier = await import("./games/[slug]/dossie/route");
 const media = await import("./games/[slug]/media/route");
@@ -833,6 +834,22 @@ describe("GET /api/v1/games", () => {
       expect(await hits("?igdbId=990020001")).toEqual([]);
       expect(await hits("?slug=t20-stub-saga")).toEqual([]);
       expect(await hits("?slug=t20-real-saga")).toEqual(["t20-real-saga"]);
+    });
+
+    it("the IGDB id or old slug of a merged duplicate finds the game it was joined into", async () => {
+      const target = await prisma.game.findUniqueOrThrow({ where: { slug: "t20-real-saga" }, select: { id: true } });
+      await prisma.gameIgdbAlias.create({ data: { igdbId: 990020009, gameId: target.id } });
+      await prisma.gameSlugRedirect.create({ data: { fromSlug: "t20-merged-saga", gameId: target.id } });
+      try {
+        expect(await hits("?igdbId=990020009")).toEqual(["t20-real-saga"]);
+        expect(await hits("?slug=t20-merged-saga")).toEqual(["t20-real-saga"]);
+        expect(await findGame({ igdbId: 990020009 })).toEqual(expect.objectContaining({ slug: "t20-real-saga" }));
+        expect(await findGame({ slug: "t20-merged-saga" })).toEqual(expect.objectContaining({ slug: "t20-real-saga" }));
+        expect(await findGame({ igdbId: 990020099 })).toBeNull();
+      } finally {
+        await prisma.gameIgdbAlias.deleteMany({ where: { igdbId: 990020009 } });
+        await prisma.gameSlugRedirect.deleteMany({ where: { fromSlug: "t20-merged-saga" } });
+      }
     });
   });
 

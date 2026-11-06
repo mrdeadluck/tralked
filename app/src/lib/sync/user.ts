@@ -11,6 +11,7 @@ import { syncGame } from "./catalog";
 import { busyImports, busyPairs } from "./import-lease";
 import { settlePlaytime } from "./playtime";
 import { ensureSteamGames, placeholderGames, renamePlaceholderGame } from "./steam-games";
+import { realSteamDate } from "@/lib/integrations/steam/client";
 
 export type SyncUserResult = {
   /** `unlinked`: the Steam account was disconnected (or claimed by another profile) mid-run. */
@@ -211,10 +212,11 @@ async function recordGame(
   const gameSkills = game.skills.map((s) => s.skill);
   const total = Math.max(game.achievementCount, game.achievements.length);
   const complete = unlocks.length >= total;
-  // A date Steam gave before is never erased by a later answer without one.
+  // A date Steam gave before is never erased by a later answer without one (a placeholder from
+  // before Steam existed is not a date).
   const dated = unlocks.map((u) => ({
     achievementId: u.achievementId,
-    unlockedAt: u.unlockedAt ?? known.get(u.achievementId)?.unlockedAt ?? null,
+    unlockedAt: u.unlockedAt ?? realSteamDate(known.get(u.achievementId)?.unlockedAt),
   }));
   const undatedCompletion = complete && dated.some((u) => u.unlockedAt === null);
   // Without playtime there is no evidence of a speed run, so the rule cannot apply. Nor to a

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSteamClient } from "./client";
+import { createSteamClient, realSteamDate, steamTime } from "./client";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -296,5 +296,22 @@ describe("steam client", () => {
   it("throws on unexpected HTTP errors", async () => {
     const { client } = setup({}, 500);
     await expect(client.getOwnedGames("765")).rejects.toThrow(/500/);
+  });
+});
+
+describe("Steam dates before Steam existed", () => {
+  it("an unlock time before 2003-09-12 is a placeholder, not a date", () => {
+    expect(steamTime(0)).toBeNull();
+    expect(steamTime(1)).toBeNull();
+    expect(steamTime(1_063_324_799)).toBeNull();
+    expect(steamTime(1_700_000_000)).toEqual(new Date(1_700_000_000_000));
+  });
+
+  it("a stored 1970-01-01 00:00:01 (an old import's placeholder) reads as no date", () => {
+    expect(realSteamDate(new Date(1000))).toBeNull();
+    expect(realSteamDate(null)).toBeNull();
+    expect(realSteamDate(undefined)).toBeNull();
+    const real = new Date("2012-05-01T10:00:00Z");
+    expect(realSteamDate(real)).toBe(real);
   });
 });

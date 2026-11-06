@@ -1370,12 +1370,13 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     const { prisma } = await import("@/lib/db");
     const { syncPlatformAccount } = await import("./platform-user");
     await removeConceptGames();
-    // Reading the one list takes 2 s: the read share of a 3 s budget (1.8 s) is over by then.
-    const fake = await conceptLibrary({ readDelayMs: 2000 });
+    // Reading the one list takes 2.8 s: the read share of a 4.5 s budget (2.7 s) is over by then,
+    // and the writes keep 1.7 s (a 1 s margin was flaky on the shared test database).
+    const fake = await conceptLibrary({ readDelayMs: 2800 });
     fake.library.push("NPWR_EN");
     try {
       const user = await userWith("psn", "test-concept-account", "Conceito-Teste");
-      await expect(syncPlatformAccount(user.id, "psn", { deadline: Date.now() + 3000 })).resolves.toMatchObject({
+      await expect(syncPlatformAccount(user.id, "psn", { deadline: Date.now() + 4500 })).resolves.toMatchObject({
         status: "ok",
         newUnlocks: 2,
       });

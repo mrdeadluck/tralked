@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GameVersion, PlayerVersion, VersionTrophy } from "@/lib/queries/game-versions";
-import { FIRST_ROWS, publicTrophies, versionMarks, versionTabs, type TabsMarks, type VersionTabTrophy } from "./version-views";
+import { FIRST_ROWS, publicTrophies, rowKey, versionMarks, versionTabs, type TabsMarks, type VersionTabTrophy } from "./version-views";
 import { VersionTabs } from "./VersionTabs";
 
 afterEach(cleanup);
@@ -105,7 +105,11 @@ describe("versionTabs (the public part, once in the page)", () => {
     const payload = JSON.stringify(tabs);
     expect(payload).not.toContain("Extra 20");
     expect(payload).not.toContain("Segredo");
-    expect(publicTrophies(PS5).map((t) => t.apiName)).toEqual(PS5_TROPHIES.map((t) => t.apiName));
+    expect(publicTrophies(PS5).map((t) => t.apiName)).toEqual(PS5_TROPHIES.map(rowKey));
+    // A hidden trophy's apiName never reaches the visitor: its row is known by an opaque key.
+    const hidden = PS5_TROPHIES.filter((t) => t.hidden);
+    expect(hidden.length).toBeGreaterThan(0);
+    for (const t of hidden) expect(JSON.stringify(publicTrophies(PS5))).not.toContain(`"${t.apiName}"`);
   });
 });
 

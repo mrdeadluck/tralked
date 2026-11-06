@@ -131,8 +131,24 @@ export type TabChip = { label: string; ok: boolean };
 /** Rows a tab carries in the page; the whole list comes on "Ver a lista inteira" (publicTrophies). */
 export const FIRST_ROWS = 12;
 
+/**
+ * The key a row is known by in the page: the apiName, except for a hidden trophy, whose apiName can
+ * spell the secret ("ACH_SECRET_ENDING"): an opaque hash of it, stable across syncs and caches, so
+ * the public rows and the player's marks still meet.
+ */
+export function rowKey(t: { apiName: string; hidden: boolean }): string {
+  if (!t.hidden) return t.apiName;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.apiName.length; i++) {
+    h ^= t.apiName.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `oculto-${(h >>> 0).toString(36)}`;
+}
+
 /** One trophy as anyone sees it (no marks): the same for every viewer, so it can be cached. */
 export type VersionTabTrophy = {
+  /** rowKey: the apiName, or an opaque key for a hidden trophy. */
   apiName: string;
   /** Null for a hidden trophy: its text never leaves the server unless the viewer earned it. */
   name: string | null;
@@ -179,7 +195,7 @@ export type VersionMarks = {
   /** The badge reads as done (gold): the platinum or the 100%. */
   done: boolean;
   meta: { strong: string; rest: string; chips: TabChip[]; note: string | null };
-  /** apiName -> mark; a trophy missing here is "não obtido". */
+  /** rowKey -> mark; a trophy missing here is "não obtido". */
   earned: Record<string, TrophyMark>;
 };
 
@@ -200,7 +216,7 @@ function publicTrophy(v: GameVersion, t: GameVersion["trophies"][number]): Versi
       ? { label: `${RARITY_UI[rarity].label} · ${formatGlobalPct(t.globalPct!)}`, color: RARITY_UI[rarity].color }
       : null;
   return {
-    apiName: t.apiName,
+    apiName: rowKey(t),
     name: t.hidden ? null : t.name,
     description: t.hidden ? null : t.description,
     iconUrl: t.hidden ? null : safeMediaUrl(t.iconUrl),
@@ -259,7 +275,7 @@ function versionMarksOf(v: GameVersion, mine: PlayerVersion): VersionMarks {
     // The XP note is said once per version (on its first trophy earned in several lists).
     const why = dates.length > 1 && !said ? `Obtido ${whereWhen(dates)}. Cada lista soma o seu XP.` : null;
     if (why) said = true;
-    earned[t.apiName] = {
+    earned[rowKey(t)] = {
       date: dayLabel(at),
       xp: mine.xp[t.apiName] ?? null,
       lists: (mine.earnedIn[t.apiName] ?? []).map((label) => ({ label, date: dateIn.get(label) ?? "" })),

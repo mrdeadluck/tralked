@@ -585,9 +585,10 @@ describe("rebuildListXp", () => {
     expect(await steamRows(user.id)).toEqual(before);
   });
 
-  it("a game none of whose lists the player holds keeps its XP through rebuildListXp", async () => {
-    // A player with unlocks of the game but no UserTrophyList of it (lists not read for this
-    // player) keeps every entry, legacy platinum included.
+  it("a game none of whose lists the player holds keeps its trophy XP; the legacy platinum is not paid", async () => {
+    // A player with unlocks of the game but no UserTrophyList of it keeps every trophy entry. The
+    // legacy platinum key (before trophy lists; none is live in production since 11-06) is voided:
+    // a platinum waits for the player's list.
     const user = await newUser();
     const game = await newGame();
     const ps4 = await newList(game.id, "PS4", T0);
@@ -626,8 +627,8 @@ describe("rebuildListXp", () => {
     const before = await trophyEntries();
     expect(before).toHaveLength(3);
 
-    expect(await rebuildListXp(user.id, NOW)).toEqual({ paid: 0, voided: 0 });
-    expect(await trophyEntries()).toEqual(before);
+    expect(await rebuildListXp(user.id, NOW)).toEqual({ paid: 0, voided: 1 });
+    expect(await trophyEntries()).toEqual(before.filter((e) => e.source === "achievement"));
   });
 
   it("rebuildListXp twice changes nothing the second time", async () => {

@@ -47,8 +47,15 @@ type AppListResponse = {
 };
 
 /** A Unix time from Steam (seconds; 0 = unknown) as a Date, or null. */
+/** Steam's launch (2003-09-12): an unlock or play time before it is a placeholder, not a date. */
+export const STEAM_EPOCH_S = 1_063_324_800;
+
 export const steamTime = (seconds: number | undefined): Date | null =>
-  seconds && seconds > 0 ? new Date(seconds * 1000) : null;
+  seconds && seconds >= STEAM_EPOCH_S ? new Date(seconds * 1000) : null;
+
+/** A stored Steam date older than Steam itself (an old import wrote 1970-01-01 00:00:01): no date. */
+export const realSteamDate = (at: Date | null | undefined): Date | null =>
+  at && at.getTime() >= STEAM_EPOCH_S * 1000 ? at : null;
 
 /** Parses IWishlistService/GetWishlist (shared by the keyed and keyless adapters). */
 export function parseWishlist(data: WishlistResponse) {
@@ -260,7 +267,7 @@ export function createSteamClient({
         // An unlock time always meant unlocked (unchanged); achieved=1 without one is an unlock on an
         // unknown date.
         achieved: a.achieved === 1 || Boolean(a.unlocktime),
-        unlockedAt: a.unlocktime ? new Date(a.unlocktime * 1000) : null,
+        unlockedAt: steamTime(a.unlocktime),
       }));
     },
   };
