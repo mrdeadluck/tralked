@@ -12,6 +12,8 @@ import { FamilyPlayers } from "@/components/game/FamilyPlayers";
 import { MediaRail } from "@/components/game/MediaRail";
 import { RetroAchievementsLoader } from "@/components/game/RetroAchievementsLoader";
 import { ShotsRail } from "@/components/game/ShotsRail";
+import { trophyWord, versionTabs } from "@/components/game/version-views";
+import { VersionTabs } from "@/components/game/VersionTabs";
 import { SimilarShelf } from "@/components/game/SimilarShelf";
 import { loginHref } from "@/components/guide/format";
 import { NewsTabs } from "@/components/news/NewsTabs";
@@ -25,6 +27,7 @@ import {
   PLATFORM_NAME,
   type GameProfile,
 } from "@/lib/queries/game-profile";
+import type { PlayerVersion } from "@/lib/queries/game-versions";
 import { listGameSlugs } from "@/lib/queries/games";
 import { getRetroAchievementsDue } from "@/lib/queries/retro-achievements";
 import { getSteamPlayers, type SteamPlayersView } from "@/lib/queries/steam-players";
@@ -157,6 +160,28 @@ async function ProgressIsland({ profile, login }: { profile: GameProfile; login:
   return <BookletProgress profile={profile} user={me ? (me.profile ?? null) : undefined} loginHref={login} />;
 }
 
+/** The trophy tabs under the hero: the game's lists (cached), with the player's marks when there are any. */
+function TrophyTabs({ profile, player }: { profile: GameProfile; player: PlayerVersion[] | null }) {
+  const mine = player && player.length > 0 ? player : null;
+  const { tabs, initial } = versionTabs(profile.versions, mine);
+  const several = tabs.length > 1;
+  return (
+    <VersionTabs
+      key={mine ? "player" : "visitor"}
+      tabs={tabs}
+      initial={initial}
+      label={`Versões de ${profile.name}`}
+      title={trophyWord(profile.versions)}
+      aside={mine ? (several ? "Uma aba por versão · as suas marcas em cada uma" : "Com as suas marcas") : several ? "Uma aba por versão" : null}
+    />
+  );
+}
+
+async function TrophyTabsIsland({ profile }: { profile: GameProfile }) {
+  const me = await visitor(profile.slug);
+  return <TrophyTabs profile={profile} player={me?.profile?.versions ?? null} />;
+}
+
 function attributesAside(profile: NonNullable<Awaited<ReturnType<typeof getGameProfileForUser>>>) {
   const progress = profile.progress;
   if (!progress) return null;
@@ -251,6 +276,13 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
           </Suspense>
         }
       />
+
+      {/* The trophy lists of each version: public in the shell, the player's marks per request. */}
+      {profile.versions.length > 0 ? (
+        <Suspense fallback={<TrophyTabs profile={profile} player={null} />}>
+          <TrophyTabsIsland profile={profile} />
+        </Suspense>
+      ) : null}
 
       <Suspense
         fallback={

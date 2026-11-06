@@ -32,6 +32,10 @@ export type GameVersion = {
 };
 export type PlayerVersion = {
   key: string;
+  /** Same as the GameVersion's (the per-user island draws its rows without the cached profile). */
+  label: string;
+  platform: PlatformId;
+  nativePlatinum: boolean;
   unlocked: number;
   total: number;
   pct: number;
@@ -48,6 +52,10 @@ export type PlayerVersion = {
   unlockedAt: Record<string, Date>;
   /** Tiers of the trophies earned in the best list (the platinum also when only the 100% earns it). */
   tiersEarned: TierCounts;
+  /** apiName -> the lists it was earned in, oldest unlock first (only on a version with several lists). */
+  earnedAt: Record<string, { label: string; at: Date }[]>;
+  /** apiName -> XP the ledger paid for it (entries not voided). */
+  xp: Record<string, number>;
 };
 
 export type ListRow = {
@@ -71,13 +79,17 @@ export type AchRow = {
   hidden: boolean;
   trophyTier: string | null;
 };
+/** What the player side reads of each trophy row (no name, description nor icon). */
+export type SlimAchRow = Pick<AchRow, "id" | "listId" | "platform" | "apiName" | "globalPct" | "trophyTier">;
 export type PlayerInput = {
   lists: ListRow[];
-  achievements: AchRow[];
+  achievements: SlimAchRow[];
   steamCount: number;
   unlocks: { achievementId: string; unlockedAt: Date }[];
   userLists: { listId: string; unlockedCount: number; completedAt: Date | null }[];
   steamGame: { unlockedCount: number; completedAt: Date | null } | null;
+  /** Achievement ledger entries of the game, not voided (sourceKey = an Achievement id). */
+  ledger?: { sourceKey: string; xp: number }[];
 };
 
 const PSN_RANK: Record<string, number> = { PS5: 0, PS4: 1, PS3: 2, PSVITA: 3, PSPC: 4 };
@@ -93,14 +105,14 @@ export function versionRank(v: { key: string; platform: string }): number {
   return base + best * 10 + (codes.length - 1);
 }
 
-type Group = {
+type Group<R extends SlimAchRow> = {
   key: string;
   platform: PlatformId;
   label: string;
   /** Oldest first ("Lista 1" first); empty for a Steam game without a list row. */
-  lists: (ListRow & { label: string | null; rows: AchRow[] })[];
+  lists: (ListRow & { label: string | null; rows: R[] })[];
   /** Rows of the first list (every Steam row for Steam). */
-  rows: AchRow[];
+  rows: R[];
   total: number;
   tiers: TierCounts;
   nativePlatinum: boolean;
@@ -109,16 +121,19 @@ type Group = {
 // Same order as canonicalList: oldest first, tie by externalId.
 const oldestFirst = (a: ListRow, b: ListRow) =>
   a.createdAt.getTime() - b.createdAt.getTime() || (a.externalId < b.externalId ? -1 : a.externalId > b.externalId ? 1 : 0);
-const numeric = (a: AchRow, b: AchRow) => a.apiName.localeCompare(b.apiName, undefined, { numeric: true });
+const numeric = (a: SlimAchRow, b: SlimAchRow) => a.apiName.localeCompare(b.apiName, undefined, { numeric: true });
 
-function groupVersions(listRows: ListRow[], achievements: AchRow[], steamCount: number): Group[] {
+function groupVersions<R extends SlimAchRow>(listRows: ListRow[], achievements: R[], steamCount: number): Group<R>[] {
   const byKey = new Map<string, ListRow[]>();
   for (const l of listRows) {
     const key = versionKey(l);
     byKey.set(key, [...(byKey.get(key) ?? []), l]);
   }
-  const groups: Group[] = [];
-  const steamRows = achievements.filter((a) => a.platform === "steam");
+  const groups: Group<R>[] = [];
+  // Steam has no trophy order of its own: the commonest first, as its store lists them.
+  const steamRows = achievements
+    .filter((a) => a.platform === "steam")
+    .sort((a, b) => (b.globalPct ?? -1) - (a.globalPct ?? -1) || numeric(a, b));
   if (steamRows.length > 0 || steamCount > 0 || byKey.has("steam")) {
     if (!byKey.has("steam")) byKey.set("steam", []);
   }
@@ -172,14 +187,16 @@ export function buildGameVersions(lists: ListRow[], achievements: AchRow[], stea
 export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
   const unlockById = new Map(input.unlocks.map((u) => [u.achievementId, u.unlockedAt]));
   const progress = new Map(input.userLists.map((u) => [u.listId, u]));
+  const paidByKey = new Map<string, number>();
+  for (const e of input.ledger ?? []) paidByKey.set(e.sourceKey, (paidByKey.get(e.sourceKey) ?? 0) + e.xp);
   const out: PlayerVersion[] = [];
 
   for (const g of groupVersions(input.lists, input.achievements, input.steamCount)) {
     const isSteam = g.platform === "steam";
-    const earnedRows = (rows: AchRow[]) => rows.filter((a) => unlockById.has(a.id));
+    const earnedRows = (rows: SlimAchRow[]) => rows.filter((a) => unlockById.has(a.id));
 
     // Steam keeps one row per game (UserGame); the other platforms one per list (UserTrophyList).
-    type Entry = { id: string | null; label: string | null; total: number; unlocked: number; complete: boolean; rows: AchRow[] };
+    type Entry = { id: string | null; label: string | null; total: number; unlocked: number; complete: boolean; rows: SlimAchRow[] };
     let entries: Entry[];
     if (isSteam) {
       const earned = earnedRows(g.rows);
@@ -216,12 +233,27 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
     const best = entries.reduce((b, e) => (pctOf(e) > pctOf(b) || (pctOf(e) === pctOf(b) && e.unlocked > b.unlocked) ? e : b));
 
     const earnedIn: Record<string, string[]> = {};
+    const earnedAt: Record<string, { label: string; at: Date }[]> = {};
     const unlockedAt: Record<string, Date> = {};
+    let platinumTrophy = false;
     for (const e of entries) {
       for (const a of earnedRows(e.rows)) {
         const when = unlockById.get(a.id)!;
         if (!unlockedAt[a.apiName] || when < unlockedAt[a.apiName]) unlockedAt[a.apiName] = when;
-        if (e.label) (earnedIn[a.apiName] ??= []).push(e.label);
+        if (e.label) {
+          (earnedIn[a.apiName] ??= []).push(e.label);
+          (earnedAt[a.apiName] ??= []).push({ label: e.label, at: when });
+        }
+        if (tierOf(a) === "platinum") platinumTrophy = true;
+      }
+    }
+    for (const dates of Object.values(earnedAt)) dates.sort((x, y) => x.at.getTime() - y.at.getTime());
+
+    const xp: Record<string, number> = {};
+    for (const e of entries) {
+      for (const a of e.rows) {
+        const paid = paidByKey.get(a.id);
+        if (paid) xp[a.apiName] = (xp[a.apiName] ?? 0) + paid;
       }
     }
 
@@ -232,16 +264,22 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
 
     out.push({
       key: g.key,
+      label: g.label,
+      platform: g.platform,
+      nativePlatinum: g.nativePlatinum,
       unlocked: best.unlocked,
       total: best.total,
       pct: best.total > 0 ? Math.min(100, Math.round((best.unlocked / best.total) * 100)) : 0,
-      platinum: g.nativePlatinum ? tiersEarned.platinum > 0 || complete : complete,
+      // Any list of the version: its platinum trophy, or (no native platinum) its 100%.
+      platinum: g.nativePlatinum ? platinumTrophy : complete,
       lists: isSteam ? [] : entries.map((e) => ({ id: e.id!, label: e.label, complete: e.complete, unlocked: e.unlocked })),
       countedNote: !isSteam && entries.length > 1 ? `${entries.length} listas · conta 1` : null,
       earnedIn,
       bestListId: best.id,
       unlockedAt,
       tiersEarned,
+      earnedAt,
+      xp,
     });
   }
   return out;
@@ -260,26 +298,35 @@ const ACH_SELECT = {
   trophyTier: true,
 } as const;
 
-async function loadGame(gameId: string) {
+const LIST_SELECT = {
+  id: true,
+  platform: true,
+  console: true,
+  externalId: true,
+  region: true,
+  createdAt: true,
+  trophyCount: true,
+} as const;
+const SLIM_SELECT = { id: true, listId: true, platform: true, apiName: true, globalPct: true, trophyTier: true } as const;
+
+async function loadGame<S extends typeof ACH_SELECT | typeof SLIM_SELECT>(gameId: string, select: S) {
   const [game, lists, achievements] = await Promise.all([
     prisma.game.findUnique({ where: { id: gameId }, select: { achievementCount: true } }),
-    prisma.trophyList.findMany({
-      where: { gameId },
-      select: { id: true, platform: true, console: true, externalId: true, region: true, createdAt: true, trophyCount: true },
-    }),
-    prisma.achievement.findMany({ where: { gameId }, select: ACH_SELECT }),
+    prisma.trophyList.findMany({ where: { gameId }, select: LIST_SELECT }),
+    prisma.achievement.findMany({ where: { gameId }, select }),
   ]);
   return { steamCount: game?.achievementCount ?? 0, lists, achievements };
 }
 
 export async function getGameVersions(gameId: string): Promise<GameVersion[]> {
-  const { steamCount, lists, achievements } = await loadGame(gameId);
+  const { steamCount, lists, achievements } = await loadGame(gameId, ACH_SELECT);
   return buildGameVersions(lists, achievements, steamCount);
 }
 
+/** One player's versions of a game: reads only ids, tiers and rarity of the trophies (never their text). */
 export async function getPlayerVersions(gameId: string, userId: string): Promise<PlayerVersion[]> {
   const [{ steamCount, lists, achievements }, unlocks, userLists, steamGame] = await Promise.all([
-    loadGame(gameId),
+    loadGame(gameId, SLIM_SELECT),
     prisma.userAchievement.findMany({
       where: { userId, achievement: { gameId } },
       select: { achievementId: true, unlockedAt: true },
@@ -293,5 +340,13 @@ export async function getPlayerVersions(gameId: string, userId: string): Promise
       select: { unlockedCount: true, completedAt: true },
     }),
   ]);
-  return buildPlayerVersions({ lists, achievements, steamCount, unlocks, userLists, steamGame });
+  // Ledger keys of a PSN trophy may be another list's copy (the canonical one): read by every id.
+  const ledger =
+    unlocks.length === 0
+      ? []
+      : await prisma.xpLedgerEntry.findMany({
+          where: { userId, source: "achievement", voidedAt: null, sourceKey: { in: achievements.map((a) => a.id) } },
+          select: { sourceKey: true, xp: true },
+        });
+  return buildPlayerVersions({ lists, achievements, steamCount, unlocks, userLists, steamGame, ledger });
 }

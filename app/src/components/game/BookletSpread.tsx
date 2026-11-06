@@ -7,9 +7,9 @@ import { BackdropLoop } from "./BackdropLoop";
 import { CaseReplayButton } from "./case-replay";
 import { DiscProgress } from "./DiscProgress";
 import { HeroTitle } from "./HeroTitle";
-import { PlatformProgressSwitch } from "./PlatformProgressSwitch";
 import { PROGRESS_CSS, TrophyGrid } from "./progress-parts";
-import { catalogViews, progressViews } from "./progress-views";
+import { bestVersion, leftLabel, nounOf, onVersion, trophyWord } from "./version-views";
+import { VersionRows } from "./VersionRows";
 import { titleFitStyle } from "./title-fit";
 
 /*
@@ -104,7 +104,7 @@ export function BookletProgress({
   loginHref: string;
 }) {
   const progress = user?.progress ?? null;
-  const { main, byPlatform } = profile.achievements;
+  const { main } = profile.achievements;
   const disc = { hues: profile.hues, seed: profile.seed, art: profile.art.disc, name: profile.name };
 
   // A game without achievements: no "0", no platinum to preview. Its hours are what counts.
@@ -135,33 +135,154 @@ export function BookletProgress({
     );
   }
 
-  // Played on more than one platform: tabs per platform (and "Todas"), on the best one first.
-  const split = progress ? progressViews(progress) : null;
-  // No progress (logged out, or never played): the game's own numbers, one platform at a time.
-  const catalog = progress
-    ? null
-    : catalogViews(byPlatform, main, user
-        ? { prefix: "Você ainda não jogou · ", link: { href: "/conta/conexoes", label: "conecte suas contas" } }
-        : { link: { href: loginHref, label: "entre para ver o seu progresso" } });
-  const views = split ?? catalog;
-  if (views) {
-    return <PlatformProgressSwitch views={views.views} initial={views.initial} {...disc} />;
+  const versions = profile.versions;
+  const mine = user?.versions ?? [];
+  const best = bestVersion(mine);
+
+  // The player's versions: the disc shows the best one, the rows every one, the grid the best one's tiers.
+  if (best) {
+    const on = onVersion(best);
+    const platinums = mine.filter((v) => v.platinum).length;
+    const state = best.platinum
+      ? best.pct >= 100
+        ? "100% · Tralked!"
+        : `${best.pct}% · com a platina`
+      : best.pct >= 100
+        ? "100% · Tralked!"
+        : `${best.pct}% · ${leftLabel(best.unlocked, best.total)} para ${best.nativePlatinum ? "platinar" : "a Platina Tralked"}`;
+    const which = mine.length > 1 ? ` · o disco mostra a melhor das ${mine.length} versões` : "";
+    return (
+      <>
+        <style href="tralked-game-booklet-progress" precedence="default">
+          {PROGRESS_CSS}
+        </style>
+        <DiscProgress
+          {...disc}
+          pct={best.pct}
+          platinum={best.platinum || best.pct >= 100}
+          label="TRALKED · DISCO 1"
+          platLabel={`TRALKED! · ${best.unlocked}/${best.total}`}
+        >
+          <div className="gpg gp-veil" style={delay(".3s")}>
+            <b>
+              {fmt(best.unlocked)}
+              <span>/</span>
+              {fmt(best.total)}
+            </b>
+            <p>{`${nounOf(best, best.total)} ${on} · ${state}${which}`}</p>
+          </div>
+          {mine.length > 1 || best.lists.length > 1 ? (
+            <div className="gpv gp-veil" style={delay(".26s")}>
+              <div className="vr-cap">
+                <span className="tk-lbl">Suas versões</span>
+                <small>
+                  {[
+                    mine.length === 1 ? "1 versão" : `${mine.length} versões`,
+                    platinums === 0 ? null : platinums === 1 ? "1 platina" : `${platinums} platinas`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </small>
+              </div>
+              <VersionRows versions={versions} player={mine} label="Seu progresso por versão" />
+            </div>
+          ) : null}
+          <TrophyGrid
+            style={delay(".38s")}
+            tralked={!best.nativePlatinum}
+            label={`Seus troféus ${on}, por nível`}
+            values={{
+              platinum: `${best.tiersEarned.platinum}/1`,
+              gold: fmt(best.tiersEarned.gold),
+              silver: fmt(best.tiersEarned.silver),
+              bronze: fmt(best.tiersEarned.bronze),
+            }}
+          />
+        </DiscProgress>
+      </>
+    );
   }
 
-  const best = progress!.best;
-  const completed = Boolean(progress?.completed);
+  // No version of the player (logged out, or never played): the game's versions, unmarked.
+  if (!progress) {
+    const link = user ? (
+      <>
+        Você ainda não jogou · <a href="/conta/conexoes">conecte suas contas</a>
+      </>
+    ) : (
+      <a href={loginHref}>Entre para ver o seu progresso</a>
+    );
+    const only = versions.length === 1 ? versions[0] : null;
+    // A single version (or none known): its numbers and tiers, as one platform was shown before.
+    const one = only ?? (versions.length === 0 ? { ...main, label: PLATFORM_NAME[main.platform] } : null);
+    return (
+      <>
+        <style href="tralked-game-booklet-progress" precedence="default">
+          {PROGRESS_CSS}
+        </style>
+        <DiscProgress
+          {...disc}
+          pct={0}
+          platinum={false}
+          label="TRALKED · DISCO 1"
+          platLabel={`TRALKED! · ${fmt(one?.total ?? main.total)}/${fmt(one?.total ?? main.total)}`}
+        >
+          {one ? (
+            <>
+              <div className="gpg gp-veil" style={delay(".3s")}>
+                <b>{fmt(one.total)}</b>
+                <p>{`${nounOf(one, one.total)} ${onVersion(one)}`}</p>
+              </div>
+              <TrophyGrid
+                style={delay(".38s")}
+                tralked={!one.nativePlatinum}
+                label={
+                  one.nativePlatinum
+                    ? `Troféus do jogo ${onVersion(one)}, por nível`
+                    : `Troféus do jogo ${onVersion(one)}, por nível, mais a platina do Tralked pelos 100%`
+                }
+                values={{
+                  platinum: one.nativePlatinum ? fmt(one.tiers.platinum) : "+1",
+                  gold: fmt(one.tiers.gold),
+                  silver: fmt(one.tiers.silver),
+                  bronze: fmt(one.tiers.bronze),
+                }}
+              />
+            </>
+          ) : (
+            <>
+              <div className="gpg gp-veil" style={delay(".3s")}>
+                <b>{`${versions.length} versões`}</b>
+                <p>{`${trophyWord(versions)} de cada console e loja`}</p>
+              </div>
+              <div className="gpv gp-veil" style={delay(".26s")}>
+                <VersionRows versions={versions} label={`Versões de ${profile.name}`} />
+              </div>
+            </>
+          )}
+          <p className="vr-login gp-veil" style={delay(".4s")}>
+            {link}
+          </p>
+        </DiscProgress>
+      </>
+    );
+  }
+
+  // Progress on a platform whose trophy lists are not known yet: its numbers as before.
+  const bestPlatform = progress.best;
+  const completed = Boolean(progress.completed);
   const trophies = user?.trophies ?? null;
-  const left = Math.max(0, best.total - best.unlocked);
+  const left = Math.max(0, bestPlatform.total - bestPlatform.unlocked);
   const headline: ReactNode = (
     <>
-      {fmt(best.unlocked)}
+      {fmt(bestPlatform.unlocked)}
       <span>/</span>
-      {fmt(best.total)}
+      {fmt(bestPlatform.total)}
     </>
   );
   const detail = completed
-    ? `conquistas na ${PLATFORM_NAME[best.platform]} · 100% · Tralked!`
-    : `conquistas na ${PLATFORM_NAME[best.platform]} · ${best.pct}% · ${left === 1 ? "falta 1" : `faltam ${fmt(left)}`} para platinar`;
+    ? `conquistas na ${PLATFORM_NAME[bestPlatform.platform]} · 100% · Tralked!`
+    : `conquistas na ${PLATFORM_NAME[bestPlatform.platform]} · ${bestPlatform.pct}% · ${left === 1 ? "falta 1" : `faltam ${fmt(left)}`} para platinar`;
 
   return (
     <>
@@ -170,10 +291,10 @@ export function BookletProgress({
       </style>
       <DiscProgress
         {...disc}
-        pct={best.pct}
+        pct={bestPlatform.pct}
         platinum={completed}
         label="TRALKED · DISCO 1"
-        platLabel={`TRALKED! · ${best.unlocked}/${best.total}`}
+        platLabel={`TRALKED! · ${bestPlatform.unlocked}/${bestPlatform.total}`}
       >
         <div className="gpg gp-veil" style={delay(".3s")}>
           <b>{headline}</b>
@@ -182,8 +303,8 @@ export function BookletProgress({
         {trophies ? (
           <TrophyGrid
             style={delay(".38s")}
-            tralked={!progress?.byPlatform.find((p) => p.platform === best.platform)?.platinumTrophy}
-            label={`Seus troféus na ${PLATFORM_NAME[best.platform]}, por nível`}
+            tralked={!progress.byPlatform.find((p) => p.platform === bestPlatform.platform)?.platinumTrophy}
+            label={`Seus troféus na ${PLATFORM_NAME[bestPlatform.platform]}, por nível`}
             values={{ platinum: `${trophies.platinum}/${trophies.platinumOf}`, gold: fmt(trophies.gold), silver: fmt(trophies.silver), bronze: fmt(trophies.bronze) }}
           />
         ) : null}

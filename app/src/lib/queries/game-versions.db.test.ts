@@ -106,6 +106,17 @@ describe("getGameVersions", () => {
     expect(ps5.platinum).toBe(true);
     expect(ps5.lists.map((l) => l.complete)).toEqual([false, true]);
     expect(ps5.tiersEarned).toEqual({ platinum: 1, gold: 0, silver: 0, bronze: 1 });
+    expect(ps5.earnedAt["1"].map((e) => e.label)).toEqual(["🇯🇵 Ásia", "Lista 1"]);
+
+    // The XP of a trophy is what the ledger paid (keyed by the canonical list's copy), voided ones aside.
+    await prisma.xpLedgerEntry.createMany({
+      data: [
+        { userId, source: "achievement", sourceKey: of("ps5a", "1"), xp: 2400, skills: [] },
+        { userId, source: "achievement", sourceKey: of("ps5a", "0"), xp: 9000, skills: [], voidedAt: at(30) },
+      ],
+    });
+    const paid = (await getPlayerVersions(gameId, userId)).find((v) => v.key === "psn:PS5")!;
+    expect(paid.xp).toEqual({ "1": 2400 });
   });
 
   it("a visitor sees the first region's trophies", async () => {

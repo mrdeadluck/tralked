@@ -18,6 +18,7 @@ import { achievementTotal } from "@/lib/games/achievement-total";
 import { platinumSourceKey } from "@/lib/progression/recompute";
 import { skillPointTotals } from "@/lib/progression/skills-from-ledger";
 import { timeAgo } from "@/lib/time-ago";
+import { getGameVersions, getPlayerVersions, type GameVersion, type PlayerVersion } from "./game-versions";
 import { gameTag } from "./games-cached";
 import { loadTimeTo100, type TimeTo100 } from "./time-to-100";
 import {
@@ -124,6 +125,8 @@ export type GameProfile = {
      */
     main: CatalogPlatform | null;
   };
+  /** The game's versions (Steam, each PSN console, each Xbox title, each RA set): rows and trophy tabs. */
+  versions: GameVersion[];
   /** Hours to 100%: Tralked players who completed it, else IGDB (see `TimeTo100`). */
   timeTo100: TimeTo100 | null;
   /**
@@ -446,11 +449,12 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
   const art = { ...images, disc: discLabelArt(game.media, images) };
   const hues = artHues(slug, slug);
 
-  const [achievementRows, timeTo100, articles, external, gallery, similar] = await Promise.all([
+  const [achievementRows, versions, timeTo100, articles, external, gallery, similar] = await Promise.all([
     prisma.achievement.findMany({
       where: { gameId: game.id },
       select: { platform: true, globalPct: true, trophyTier: true },
     }),
+    getGameVersions(game.id),
     loadTimeTo100(game.id, game.timeToBeatCompleteMin),
     getArticlesForGame(game.id, 12),
     getExternalHeadlines(8, [slug]),
@@ -515,6 +519,7 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
     hues,
     seed: hashSeed(slug),
     achievements: { steam: game.achievementCount, byPlatform, main },
+    versions,
     timeTo100,
     sample,
     timesToBeat:
@@ -592,7 +597,11 @@ async function loadSimilar(gameId: string, skills: SkillId[]): Promise<SimilarGa
   }));
 }
 
-/** Cached public profile: tagged with the game, the news and the gallery so their updates show. */
+/**
+ * Cached public profile: tagged with the game, the news and the gallery so their updates show. The
+ * versions (trophy lists and their trophies) are the game's own rows, so `gameTag` covers them too
+ * (the RA list read and the admin game edits expire it).
+ */
 export async function getGameProfile(slug: string): Promise<GameProfile | null> {
   "use cache";
   cacheLife("hours");
@@ -697,6 +706,8 @@ export function splitByPlatform(
 
 export type GameUserProfile = {
   opened: boolean;
+  /** The player's versions of the game (rows under the disc, marks in the trophy tabs). */
+  versions: PlayerVersion[];
   /** Null when the user never played the game on any linked platform. */
   progress: {
     platforms: PlatformProgress[];
@@ -754,7 +765,7 @@ export async function getGameProfileForUser(slug: string, userId: string): Promi
   if (!game) return null;
   const gameId = game.id;
 
-  const [opened, userGames, totalsByPlatform, unlocks, membership] = await Promise.all([
+  const [opened, userGames, totalsByPlatform, unlocks, membership, versions] = await Promise.all([
     prisma.gameOpen.findUnique({ where: { userId_gameId: { userId, gameId } }, select: { userId: true } }),
     prisma.userGame.findMany({ where: { userId, gameId } }),
     prisma.achievement.groupBy({ by: ["platform"], where: { gameId }, _count: { _all: true } }),
@@ -768,6 +779,7 @@ export async function getGameProfileForUser(slug: string, userId: string): Promi
       },
     }),
     prisma.familyMember.findUnique({ where: { userId }, select: { familyId: true } }),
+    getPlayerVersions(gameId, userId),
   ]);
 
   const totalOf = achievementTotals(game.achievementCount, totalsByPlatform);
@@ -851,6 +863,7 @@ export async function getGameProfileForUser(slug: string, userId: string): Promi
 
   return {
     opened: opened !== null,
+    versions,
     progress: best ? { platforms, best, byPlatform: split.byPlatform, combined: split.combined, playtimeMin, completed } : null,
     trophies: platforms.length > 0 ? split.combined.trophies : null,
     attributes,
@@ -874,6 +887,8 @@ export type PlayerGamePlatforms = {
   combined: CombinedProgress;
   /** The platform with the most progress (bestProgress). */
   best: PlatformId;
+  /** The same progress by version (a PSN console, an Xbox title, ...). */
+  versions: PlayerVersion[];
 };
 
 /**
@@ -886,13 +901,14 @@ export async function getPlayerGamePlatforms(slug: string, userId: string): Prom
     select: { id: true, slug: true, name: true, achievementCount: true },
   });
   if (!game) return null;
-  const [userGames, totals, unlocks] = await Promise.all([
+  const [userGames, totals, unlocks, versions] = await Promise.all([
     prisma.userGame.findMany({ where: { userId, gameId: game.id } }),
     prisma.achievement.groupBy({ by: ["platform"], where: { gameId: game.id }, _count: { _all: true } }),
     prisma.userAchievement.findMany({
       where: { userId, suspicious: false, achievement: { gameId: game.id } },
       select: { achievement: { select: { platform: true, globalPct: true, trophyTier: true } } },
     }),
+    getPlayerVersions(game.id, userId),
   ]);
   const totalOf = achievementTotals(game.achievementCount, totals);
   const platforms = userGames
@@ -904,7 +920,7 @@ export async function getPlayerGamePlatforms(slug: string, userId: string): Prom
     platforms,
     unlocks.map((u) => ({ platform: u.achievement.platform, tier: tierOf(u.achievement) })),
   );
-  return { slug: game.slug, name: game.name, ...split, best: best.platform };
+  return { slug: game.slug, name: game.name, ...split, best: best.platform, versions };
 }
 
 async function familyPlayers(

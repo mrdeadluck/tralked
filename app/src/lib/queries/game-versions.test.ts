@@ -53,6 +53,15 @@ describe("buildGameVersions", () => {
     expect(v[0].nativePlatinum).toBe(true);
     expect(v[0].tiers.platinum).toBe(1);
   });
+
+  it("lists Steam achievements commonest first", () => {
+    const rows = [
+      { ...ach("r", null, "steam", "RARE", null), globalPct: 2 },
+      { ...ach("u", null, "steam", "UNKNOWN", null), globalPct: null },
+      { ...ach("c", null, "steam", "COMMON", null), globalPct: 80 },
+    ];
+    expect(buildGameVersions([], rows, 3)[0].trophies.map((t) => t.apiName)).toEqual(["COMMON", "RARE", "UNKNOWN"]);
+  });
 });
 
 describe("buildPlayerVersions", () => {
@@ -84,5 +93,91 @@ describe("buildPlayerVersions", () => {
       ["Lista 1", false],
       ["🇯🇵 Ásia", true],
     ]);
+    expect(v.label).toBe("PS4");
+    expect(v.earnedAt["0"]).toEqual([
+      { label: "🇯🇵 Ásia", at: at(5) },
+      { label: "Lista 1", at: at(10) },
+    ]);
+  });
+
+  it("Steam: UserGame progress over achievementCount; no progress -> omitted", () => {
+    const rows = [ach("s1", null, "steam", "A", null), ach("s2", null, "steam", "B", null)];
+    const base = { lists: [], achievements: rows, steamCount: 4, userLists: [] };
+    expect(buildPlayerVersions({ ...base, unlocks: [], steamGame: null })).toEqual([]);
+
+    const [v] = buildPlayerVersions({
+      ...base,
+      unlocks: [{ achievementId: "s1", unlockedAt: at(1) }],
+      steamGame: { unlockedCount: 3, completedAt: null },
+    });
+    expect([v.key, v.label, v.platform]).toEqual(["steam", "PC · Steam", "steam"]);
+    expect([v.unlocked, v.total, v.pct, v.platinum]).toEqual([3, 4, 75, false]);
+    expect(v.lists).toEqual([]);
+    expect(v.unlockedAt).toEqual({ A: at(1) });
+
+    const [done] = buildPlayerVersions({ ...base, unlocks: [], steamGame: { unlockedCount: 4, completedAt: at(2) } });
+    expect([done.pct, done.platinum, done.tiersEarned.platinum]).toEqual([100, true, 1]);
+  });
+
+  it("without a native platinum, any complete list is the platinum", () => {
+    const lists = [list("x1", "xbox", "ONE", 1), list("x2", "retro", "SNES", 2)];
+    const rows = [ach("a", "x1", "xbox", "1", null), ach("b", "x2", "retro", "1", null)];
+    const [xbox, retro] = buildPlayerVersions({
+      lists,
+      achievements: rows,
+      steamCount: 0,
+      unlocks: [{ achievementId: "a", unlockedAt: at(1) }],
+      userLists: [
+        { listId: "x1", unlockedCount: 1, completedAt: at(1) },
+        { listId: "x2", unlockedCount: 0, completedAt: null },
+      ],
+      steamGame: null,
+    });
+    expect([xbox.key, xbox.platinum, xbox.nativePlatinum, xbox.tiersEarned.platinum]).toEqual(["xbox:x1", true, false, 1]);
+    expect([retro.key, retro.platinum]).toEqual(["retro:x2", false]);
+  });
+
+  it("platinum when any list has the platinum trophy, though the best list is another", () => {
+    const lists = [list("a", "psn", "PS5", 1), list("b", "psn", "PS5", 2, { region: "jp", trophyCount: 3 })];
+    const rows = [
+      ach("a0", "a", "psn", "0", "platinum"),
+      ach("a1", "a", "psn", "1"),
+      ach("b0", "b", "psn", "0", "platinum"),
+      ach("b1", "b", "psn", "1"),
+      ach("b2", "b", "psn", "2"),
+    ];
+    const [v] = buildPlayerVersions({
+      lists,
+      achievements: rows,
+      steamCount: 0,
+      unlocks: [
+        { achievementId: "b0", unlockedAt: at(1) },
+        { achievementId: "a1", unlockedAt: at(2) },
+      ],
+      // "a" (1/2, 50%) beats "b" (1/3), but only "b" has the platinum.
+      userLists: [
+        { listId: "a", unlockedCount: 1, completedAt: null },
+        { listId: "b", unlockedCount: 1, completedAt: null },
+      ],
+      steamGame: null,
+    });
+    expect(v.bestListId).toBe("a");
+    expect(v.platinum).toBe(true);
+    expect(v.tiersEarned.platinum).toBe(0);
+  });
+
+  it("xp maps the paid ledger entries to the trophy's apiName", () => {
+    const lists = [list("a", "psn", "PS4", 1), list("b", "psn", "PS4", 2, { region: "jp" })];
+    const rows = [ach("a1", "a", "psn", "0"), ach("b1", "b", "psn", "0"), ach("a2", "a", "psn", "1")];
+    const [v] = buildPlayerVersions({
+      lists,
+      achievements: rows,
+      steamCount: 0,
+      unlocks: [{ achievementId: "b1", unlockedAt: at(1) }],
+      userLists: [{ listId: "b", unlockedCount: 1, completedAt: null }],
+      steamGame: null,
+      ledger: [{ sourceKey: "a1", xp: 2500 }],
+    });
+    expect(v.xp).toEqual({ "0": 2500 });
   });
 });
