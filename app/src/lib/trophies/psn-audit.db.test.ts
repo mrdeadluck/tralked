@@ -34,6 +34,7 @@ function fakePsn(byAccount: Record<string, PsnTitle[] | "private">): PsnApi & { 
     getTrophies: unused,
     getPlayedGames: unused,
     getTrophyListsOfTitles: unused,
+    getListInfo: unused,
     async getTitles(accountId) {
       calls.push(accountId);
       return byAccount[accountId] ?? [];

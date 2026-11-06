@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPsnClient, parsePlayDuration, PsnAuthError } from "./client";
+import { createPsnClient, parsePlayDuration, PsnAuthError, PsnHttpError } from "./client";
 import { createPsnFixture } from "./fixture";
 
 const NPSSO = "npsso-secret-value-0123456789";
@@ -391,6 +391,35 @@ describe("psn client", () => {
     const apiError = await serverError.client.getTitles("1").catch((e: Error) => e);
     expect((apiError as Error).message).toBe("PSN trophy titles failed with HTTP 500");
     expect((apiError as Error).message).not.toContain("T1");
+  });
+});
+
+describe("psn catalog list info", () => {
+  it("reads name, platform and counts of any list, on the asked service", async () => {
+    const { client, fetchMock } = setup((url) => {
+      if (url.pathname.endsWith("/npCommunicationIds/NPWR10000_00/trophyGroups") && url.searchParams.get("npServiceName") === "trophy") {
+        return json({ trophyTitleName: "Fairune", trophyTitlePlatform: "PSVITA", definedTrophies: { bronze: 10, silver: 2, gold: 1, platinum: 1 } });
+      }
+      if (url.pathname.endsWith("/trophyGroups")) return json({ error: { message: "not found" } }, 404);
+      throw new Error(`unexpected ${url}`);
+    });
+    await expect(client.getListInfo("NPWR10000_00", "trophy")).resolves.toEqual({
+      npTitleId: "NPWR10000_00",
+      serviceName: "trophy",
+      name: "Fairune",
+      platform: "PSVITA",
+      trophyCounts: { bronze: 10, silver: 2, gold: 1, platinum: 1 },
+    });
+    await expect(client.getListInfo("NPWR10000_00", "trophy2")).resolves.toBeNull();
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("npServiceName"))).toBe(true);
+  });
+
+  it("throws PsnHttpError with the status and Retry-After on 429 and 5xx", async () => {
+    const { client } = setup(() => new Response("{}", { status: 429, headers: { "retry-after": "30" } }));
+    await expect(client.getListInfo("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 429, retryAfterMs: 30_000 });
+    await expect(client.getListInfo("NPWR10000_00", "trophy2")).rejects.toBeInstanceOf(PsnHttpError);
+    const down = setup(() => new Response("{}", { status: 503 }));
+    await expect(down.client.getListInfo("NPWR10000_00", "trophy2")).rejects.toMatchObject({ status: 503, retryAfterMs: null });
   });
 });
 

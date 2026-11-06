@@ -95,10 +95,10 @@ async function upsertEntries(games: RetroCatalogEntry[]): Promise<number> {
 }
 
 type QueueRow = { id: number; title: string; consoleName: string };
-type Candidate = { input: string; id: string; platforms: string[]; links: string[] };
+export type Candidate = { input: string; id: string; platforms: string[]; links: string[] };
 
 /** Catalog games named like each input: same lower(name) (expression index) or same folded searchName (trigram index). */
-async function candidatesByName(tx: Prisma.TransactionClient, names: string[]): Promise<Map<string, Candidate[]>> {
+export async function candidatesByName(tx: Prisma.TransactionClient, names: string[]): Promise<Map<string, Candidate[]>> {
   const out = new Map<string, Candidate[]>();
   if (names.length === 0) return out;
   const rows = await tx.$queryRaw<Candidate[]>`

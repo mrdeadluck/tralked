@@ -1,6 +1,6 @@
 import type { TrophyTier } from "@/lib/engine/trophies";
 import { timeoutSignal } from "../http";
-import type { PsnApi, PsnPlayedGame, PsnProfile, PsnServiceName, PsnTitle, PsnTrophy } from "./types";
+import type { PsnApi, PsnListInfo, PsnPlayedGame, PsnProfile, PsnServiceName, PsnTitle, PsnTrophy } from "./types";
 
 /**
  * Unofficial PlayStation Network client (the endpoints the PlayStation App uses, as documented
@@ -125,6 +125,24 @@ export function parsePlayDuration(value: string | undefined): number | null {
     Number(days ?? 0) * 1440 + Number(hours ?? 0) * 60 + Number(minutes ?? 0) + Number(seconds ?? 0) / 60;
   return Number.isFinite(total) ? Math.floor(total) : null;
 }
+
+/** A Sony answer that was not a success: only the endpoint name and the status, never a token. */
+export class PsnHttpError extends Error {
+  constructor(
+    what: string,
+    readonly status: number,
+    /** Retry-After in ms when Sony sent one. */
+    readonly retryAfterMs: number | null,
+  ) {
+    super(`PSN ${what} failed with HTTP ${status}`);
+    this.name = "PsnHttpError";
+  }
+}
+
+const retryAfterOf = (res: Response): number | null => {
+  const seconds = Number(res.headers.get("retry-after"));
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : null;
+};
 
 export class PsnAuthError extends Error {
   /** `reason`: Sony's OAuth error code (e.g. `login_required`), never the NPSSO or a token. */
@@ -302,6 +320,30 @@ export function createPsnClient({
         if (!page.nextOffset || page.nextOffset <= offset) return titles;
         offset = page.nextOffset;
       }
+    },
+
+    async getListInfo(npTitleId, serviceName): Promise<PsnListInfo | null> {
+      const token = await accessToken();
+      const res = await fetchImpl(`${TROPHY_BASE}/npCommunicationIds/${encodeURIComponent(npTitleId)}/trophyGroups${serviceQuery(serviceName)}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Accept-Language": "en-US" },
+        signal: timeoutSignal(),
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new PsnHttpError("trophy groups", res.status, retryAfterOf(res));
+      const body = (await res.json()) as {
+        npServiceName?: string;
+        trophyTitleName?: string;
+        trophyTitlePlatform?: string;
+        definedTrophies?: Counts;
+      };
+      if (!body.trophyTitleName) return null;
+      return {
+        npTitleId,
+        serviceName,
+        name: body.trophyTitleName,
+        platform: body.trophyTitlePlatform ?? "",
+        trophyCounts: counts(body.definedTrophies),
+      };
     },
 
     async getTrophies(accountId, npTitleId, serviceName): Promise<PsnTrophy[] | "private"> {

@@ -226,6 +226,9 @@ Horários (UTC; Brasília = UTC−3):
 | `catalog-enrich.yml` | 04:37 | até 0,6 h | mídia do IGDB/SteamGridDB e notas da Steam |
 | `steam-players.yml` | :23 das horas ímpares | 1–3 min | jogadores agora / picos na Steam (top 2.000) |
 | `retro-catalog.yml` | domingo 03:21 | ~1 min (1ª rodada: minutos) | catálogo do RetroAchievements |
+| `psn-catalog.yml` | 10:03, 16:03 e 22:03 | até 50 min (1 pedido à Sony a cada 2 s) | índice das listas de troféus da PSN (`PsnCatalogList`) |
+
+**Índice da PSN (`psn-catalog.yml`).** `pnpm psn:catalog` (`scripts/psn-catalog-worker.ts`, lógica em `src/lib/sync/psn-catalog.ts`) varre os ids `NPWR00001_00`, `NPWR00002_00`… pedindo `trophyGroups` à Sony (primeiro no serviço que respondeu por último, depois no outro; sufixos `_01` e acima ainda não), **um pedido a cada 2 s, nunca mais rápido**. Em 429, 5xx ou timeout espera (5, 15 e 45 s) e, se continuar, encerra a rodada guardando a posição (`SyncCursor` `psn-catalog-scan`); em 403 também encerra. Nome, console e contagens de troféus vão para `PsnCatalogList`, em lotes de 50 por transação; os troféus não são gravados. Uma volta termina depois de 2.000 ids seguidos sem lista (`PSN_MISS_LIMIT`) e a próxima só começa 30 dias depois. Depois da varredura, `matchPsnCatalog` liga a lista ao jogo de mesmo nome normalizado quando ele é único e da família PlayStation (cria `TrophyList` sem troféus e `GamePlatformLink`); listas que um jogador já tem não são tocadas. Precisa dos segredos `DATABASE_URL` e `PSN_NPSSO`. Os horários (10:03, 16:03 e 22:03) caem em horas pares sem nenhum outro job e acabam antes das :17/:23/:29 seguintes. Disparo manual: `gh workflow run psn-catalog.yml -f minutes=50`.
 
 Orçamento de CU-h por mês (estimado a 0,25 CU, contando os 5 min que o compute fica ligado depois da última consulta):
 

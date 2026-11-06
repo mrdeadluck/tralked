@@ -282,6 +282,9 @@ export function createPsnFixture(): PsnApi {
       if (found.isPrivate) return "private";
       return (found.library === "gta-v" ? [] : PLAYED).map((g) => ({ ...g }));
     },
+    async getListInfo() {
+      return null; // the offline fixture has no catalog
+    },
     async getTrophyListsOfTitles(accountId, titleIds) {
       const found = account(accountId);
       if (found?.isPrivate) return "private";

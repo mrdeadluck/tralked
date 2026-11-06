@@ -62,6 +62,17 @@ export type PsnPlayedGame = {
   conceptName: string | null;
 };
 
+/** What one trophyGroups call says about a list, with no player involved. */
+export type PsnListInfo = {
+  /** npCommunicationId asked. */
+  npTitleId: string;
+  serviceName: PsnServiceName;
+  name: string;
+  /** e.g. `PS4`, `PS5`, `PSVITA,PS4`. */
+  platform: string;
+  trophyCounts: Record<TrophyTier, number>;
+};
+
 export type TrophyListsOptions = {
   /**
    * Epoch ms after which no further request is started: the ids not asked are left out of the
@@ -93,4 +104,10 @@ export interface PsnApi {
     titleIds: string[],
     options?: TrophyListsOptions,
   ): Promise<Map<string, string[]> | "private">;
+  /**
+   * The name, platform and trophy counts of a list (`trophyGroups`), for any list, without a
+   * player. Null when Sony has no such list on that service (404). Throws PsnHttpError on 403,
+   * 429 and 5xx, so a scan can back off.
+   */
+  getListInfo(npTitleId: string, serviceName: PsnServiceName): Promise<PsnListInfo | null>;
 }

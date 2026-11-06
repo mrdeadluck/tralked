@@ -61,6 +61,7 @@ function fakePsn(trophies: () => PsnTrophy[], titles?: PsnTitle[]): PsnApi & { c
     findProfile: unused,
     getPlayedGames: unused,
     getTrophyListsOfTitles: unused,
+    getListInfo: unused,
     async getTitles(accountId) {
       calls.push(`titles:${accountId}`);
       return titles ?? [title];
