@@ -3,12 +3,14 @@ import { formatGlobalPct } from "@/components/profile/format";
 import { RARITY_UI } from "@/components/guide/format";
 import type { PlatformId, TrophyTier } from "@/lib/engine/trophies";
 import { rarityTier } from "@/lib/engine/xp";
-import { safeMediaUrl } from "@/lib/queries/game-profile";
+import { PLATFORM_NAME, safeMediaUrl } from "@/lib/queries/game-profile";
 import type { GameVersion, PlayerVersion } from "@/lib/queries/game-versions";
 
 /*
  * Copy and view data for a game's versions (the hero's version rows and the trophy tabs under the
- * hero), built on the server in pt-BR so the tabs (a client island) only pick one.
+ * hero), built on the server in pt-BR. The tabs get the public part once (versionTabs, the first
+ * rows of each version) and the player's marks apart (versionMarks, a small map by apiName), so a
+ * long list never travels twice; the rest of a list comes on demand (restOfVersion).
  */
 
 const fmt = (n: number) => n.toLocaleString("pt-BR");
@@ -55,6 +57,42 @@ export const leftLabel = (unlocked: number, total: number) => {
   return n === 1 ? "falta 1" : `faltam ${fmt(n)}`;
 };
 
+const FAMILY: Record<PlatformId, string> = { psn: "PlayStation", xbox: "Xbox", steam: "Steam", retro: "RetroAchievements" };
+
+/**
+ * The ficha's "Conquistas": per family (PlayStation, Xbox, Steam, RA) the trophies of its largest
+ * version, never the regional lists added up; the largest family first (ties: the versions' order).
+ */
+export function familyTotals(versions: GameVersion[]): { family: string; total: number }[] {
+  const best = new Map<string, number>();
+  for (const v of versions) best.set(FAMILY[v.platform], Math.max(best.get(FAMILY[v.platform]) ?? 0, v.total));
+  return [...best].map(([family, total]) => ({ family, total })).sort((a, b) => b.total - a.total);
+}
+
+/** "na Steam", "no Xbox". */
+const onFamily = (name: string) => `${name === "Xbox" || name === "RetroAchievements" ? "no" : "na"} ${name}`;
+
+/**
+ * The ficha's "Conquistas" cell: the largest family's count, then the others ("78" · "na
+ * PlayStation · 77 na Steam · 49 no Xbox"), and the legendary ones of the headline platform.
+ * Without versions (lists not known yet), the catalog's per-platform numbers as before.
+ */
+export function achievementsFact(
+  versions: GameVersion[],
+  main: { platform: PlatformId; total: number; legendary: number },
+  byPlatform: { platform: PlatformId; total: number }[],
+): { value: number; note: string } {
+  const legendary = main.legendary > 0 ? `${fmt(main.legendary)} ${main.legendary === 1 ? "lendária" : "lendárias"}` : null;
+  const families = versions.length > 0
+    ? familyTotals(versions)
+    : [main, ...byPlatform.filter((p) => p.platform !== main.platform)].map((p) => ({ family: PLATFORM_NAME[p.platform], total: p.total }));
+  const [head, ...rest] = families;
+  return {
+    value: head.total,
+    note: [onFamily(head.family), ...rest.map((f) => `${fmt(f.total)} ${onFamily(f.family)}`), legendary].filter(Boolean).join(" · "),
+  };
+}
+
 // ---------- Trophy tabs ----------
 
 const TIER_UI: Record<TrophyTier, { label: string; color: string }> = {
@@ -66,9 +104,13 @@ const TIER_UI: Record<TrophyTier, { label: string; color: string }> = {
 
 export type TabChip = { label: string; ok: boolean };
 
+/** Rows a tab carries in the page; the rest comes on "Ver a lista inteira" (restOfVersion). */
+export const FIRST_ROWS = 12;
+
+/** One trophy as anyone sees it (no marks): the same for every viewer, so it can be cached. */
 export type VersionTabTrophy = {
   apiName: string;
-  /** Null for a hidden trophy the viewer has not earned: its text stays on the server. */
+  /** Null for a hidden trophy: its text never leaves the server unless the viewer earned it. */
   name: string | null;
   description: string | null;
   iconUrl: string | null;
@@ -76,35 +118,49 @@ export type VersionTabTrophy = {
   chip: { label: string; color: string } | null;
   /** "4,1% dos jogadores" (PSN; elsewhere the share is in the chip). */
   share: string | null;
-  /** The viewer's mark: null for a visitor or a version the player does not have. */
-  mark:
-    | { earned: false }
-    | {
-        earned: true;
-        date: string;
-        xp: number | null;
-        /** The regional lists it was earned in, each with its date (a version with several lists). */
-        lists: { label: string; date: string }[];
-        /** Where the XP came from; on the panel's first trophy earned in several lists only. */
-        why: string | null;
-      }
-    | null;
 };
 
+/** The public part of a tab: the version, its visitor copy and its first FIRST_ROWS trophies. */
 export type VersionTab = {
   key: string;
   label: string;
   fullLabel: string;
   color: string;
-  /** "78", "Platina", "20/59", "64%". */
+  /** "troféu" or "conquista" (gender of "não obtido"/"não obtida", "oculto"/"oculta"). */
+  noun: "troféu" | "conquista";
+  /** The visitor's badge: the number of trophies. */
+  badge: string;
+  meta: { strong: string; rest: string };
+  trophies: VersionTabTrophy[];
+  /** Every trophy of the version (the rows shown come first). */
+  count: number;
+};
+
+/** One earned trophy of the player. */
+export type TrophyMark = {
+  date: string;
+  xp: number | null;
+  /** The regional lists it was earned in, each with its date (a version with several lists). */
+  lists: { label: string; date: string }[];
+  /** Where the XP came from; on the version's first trophy earned in several lists only. */
+  why: string | null;
+  /** A hidden trophy the player earned: its text, for them only. */
+  reveal: { name: string; description: string | null; iconUrl: string | null } | null;
+};
+
+/** The player's marks on one version they have: badge, meta line and each earned trophy. */
+export type VersionMarks = {
+  /** "Platina", "100%", "20/59", "64%". */
   badge: string;
   /** The badge reads as done (gold): the platinum or the 100%. */
   done: boolean;
-  /** "troféu" or "conquista" (gender of "não obtido"/"não obtida", "oculto"/"oculta"). */
-  noun: "troféu" | "conquista";
   meta: { strong: string; rest: string; chips: TabChip[]; note: string | null };
-  trophies: VersionTabTrophy[];
+  /** apiName -> mark; a trophy missing here is "não obtido". */
+  earned: Record<string, TrophyMark>;
 };
+
+/** What the per-user island streams into the tabs: the marks by version and the tab to open on. */
+export type TabsMarks = { initial: string; aside: string | null; byKey: Record<string, VersionMarks> };
 
 /** "na Lista 1 em 14/04/2022 e na 🇯🇵 Ásia em 02/09/2023". */
 function whereWhen(dates: { label: string; at: Date }[]): string {
@@ -112,117 +168,120 @@ function whereWhen(dates: { label: string; at: Date }[]): string {
   return parts.length < 2 ? parts.join("") : `${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}`;
 }
 
-function trophyView(v: GameVersion, t: GameVersion["trophies"][number], mine: PlayerVersion | null): VersionTabTrophy {
-  const at = mine?.unlockedAt[t.apiName] ?? null;
-  const masked = t.hidden && !at;
+function publicTrophy(v: GameVersion, t: GameVersion["trophies"][number]): VersionTabTrophy {
   const rarity = t.globalPct === null ? null : rarityTier(t.globalPct);
   const chip = isTrophy(v)
     ? TIER_UI[t.tier]
     : rarity
       ? { label: `${RARITY_UI[rarity].label} · ${formatGlobalPct(t.globalPct!)}`, color: RARITY_UI[rarity].color }
       : null;
-  let mark: VersionTabTrophy["mark"] = null;
-  if (mine) {
-    if (!at) mark = { earned: false };
-    else {
-      const dates = mine.earnedAt[t.apiName] ?? [];
-      const dateIn = new Map(dates.map((d) => [d.label, dayLabel(d.at)]));
-      mark = {
-        earned: true,
-        date: dayLabel(at),
-        xp: mine.xp[t.apiName] ?? null,
-        lists: (mine.earnedIn[t.apiName] ?? []).map((label) => ({ label, date: dateIn.get(label) ?? "" })),
-        why:
-          dates.length > 1
-            ? `Obtido ${whereWhen(dates)}. O XP veio da primeira; ${
-                dates.length === 2 ? "a segunda aparece, mas não soma" : "as outras aparecem, mas não somam"
-              }.`
-            : null,
-      };
-    }
-  }
   return {
     apiName: t.apiName,
-    name: masked ? null : t.name,
-    description: masked ? null : t.description,
-    iconUrl: masked ? null : safeMediaUrl(t.iconUrl),
+    name: t.hidden ? null : t.name,
+    description: t.hidden ? null : t.description,
+    iconUrl: t.hidden ? null : safeMediaUrl(t.iconUrl),
     chip,
     share: isTrophy(v) && t.globalPct !== null ? `${formatGlobalPct(t.globalPct)} dos jogadores` : null,
-    mark,
   };
 }
 
-/** The XP note is said once per list (on its first trophy earned in several lists), not on every row. */
-function oneWhy(trophies: VersionTabTrophy[]): VersionTabTrophy[] {
-  let said = false;
-  return trophies.map((t) => {
-    if (!t.mark?.earned || !t.mark.why) return t;
-    if (!said) {
-      said = true;
-      return t;
-    }
-    return { ...t, mark: { ...t.mark, why: null } };
-  });
-}
-
-function tabMeta(v: GameVersion, mine: PlayerVersion | null): VersionTab["meta"] {
-  const on = onVersion(v);
-  const labelled = v.lists.filter((l) => l.label);
-  if (!mine) {
-    const first = labelled[0]?.label;
-    return {
-      strong: `${fmt(v.total)} ${nounOf(v, v.total)}`,
-      rest: first ? ` ${on} · ${labelled.length} listas regionais, mostrando a ${first}` : ` ${on}`,
-      chips: [],
-      note: null,
-    };
-  }
-  const chips = mine.lists.filter((l) => l.label).map((l) => ({ label: l.label!, ok: l.complete }));
-  const rest =
-    mine.pct >= 100
-      ? ` ${on} · 100%`
-      : ` ${on} · ${leftLabel(mine.unlocked, mine.total)} para ${v.nativePlatinum ? "platinar" : "a Platina Tralked"}`;
-  return {
-    strong: `${fmt(mine.unlocked)} de ${fmt(mine.total)} ${nounOf(v, mine.total)}`,
-    rest,
-    chips,
-    note:
-      chips.length > 1
-        ? "As listas regionais são iguais: cada troféu mostra em quais você o obteve, e o XP conta uma vez."
-        : null,
-  };
-}
-
-/**
- * One tab per version, in the versions' order. With `player`, the versions the player has carry
- * their marks and the first selected is the disc's (bestVersion); the others read as a visitor's.
- */
-export function versionTabs(versions: GameVersion[], player: PlayerVersion[] | null): { tabs: VersionTab[]; initial: string } {
-  const mineByKey = new Map((player ?? []).map((p) => [p.key, p]));
-  const tabs = versions.map((v): VersionTab => {
-    const mine = mineByKey.get(v.key) ?? null;
-    const done = Boolean(mine && (mine.platinum || mine.pct >= 100));
-    const badge = !mine
-      ? fmt(v.total)
-      : mine.platinum
-        ? "Platina"
-        : mine.pct >= 100
-          ? "100%"
-          : isTrophy(v)
-            ? `${fmt(mine.unlocked)}/${fmt(mine.total)}`
-            : `${mine.pct}%`;
+/** One tab per version, in the versions' order, with the first FIRST_ROWS trophies of each. */
+export function versionTabs(versions: GameVersion[]): VersionTab[] {
+  return versions.map((v) => {
+    const labelled = v.lists.filter((l) => l.label);
+    const on = onVersion(v);
     return {
       key: v.key,
       label: shortLabel(v),
       fullLabel: v.label,
       color: versionColor(v),
-      badge,
-      done,
       noun: isTrophy(v) ? "troféu" : "conquista",
-      meta: tabMeta(v, mine),
-      trophies: oneWhy(v.trophies.map((t) => trophyView(v, t, mine))),
+      badge: fmt(v.total),
+      meta: {
+        strong: `${fmt(v.total)} ${nounOf(v, v.total)}`,
+        rest: labelled[0] ? ` ${on} · ${labelled.length} listas regionais, mostrando a ${labelled[0].label}` : ` ${on}`,
+      },
+      trophies: v.trophies.slice(0, FIRST_ROWS).map((t) => publicTrophy(v, t)),
+      count: v.trophies.length,
     };
   });
-  const best = bestVersion([...mineByKey.values()].filter((p) => versions.some((v) => v.key === p.key)));
-  return { tabs, initial: best?.key ?? tabs[0]?.key ?? "" };
+}
+
+/** The trophies of version `key` after the first FIRST_ROWS (null: no such version). */
+export function restOfVersion(versions: GameVersion[], key: string): VersionTabTrophy[] | null {
+  const v = versions.find((x) => x.key === key);
+  return v ? v.trophies.slice(FIRST_ROWS).map((t) => publicTrophy(v, t)) : null;
+}
+
+function versionMarksOf(v: GameVersion, mine: PlayerVersion): VersionMarks {
+  const on = onVersion(v);
+  const chips = mine.lists.filter((l) => l.label).map((l) => ({ label: l.label!, ok: l.complete }));
+  const earned: Record<string, TrophyMark> = {};
+  let said = false;
+  for (const t of v.trophies) {
+    const at = mine.unlockedAt[t.apiName];
+    if (!at) continue;
+    const dates = mine.earnedAt[t.apiName] ?? [];
+    const dateIn = new Map(dates.map((d) => [d.label, dayLabel(d.at)]));
+    // The XP note is said once per version (on its first trophy earned in several lists).
+    const why =
+      dates.length > 1 && !said
+        ? `Obtido ${whereWhen(dates)}. O XP veio da primeira; ${
+            dates.length === 2 ? "a segunda aparece, mas não soma" : "as outras aparecem, mas não somam"
+          }.`
+        : null;
+    if (why) said = true;
+    earned[t.apiName] = {
+      date: dayLabel(at),
+      xp: mine.xp[t.apiName] ?? null,
+      lists: (mine.earnedIn[t.apiName] ?? []).map((label) => ({ label, date: dateIn.get(label) ?? "" })),
+      why,
+      reveal: t.hidden ? { name: t.name, description: t.description, iconUrl: safeMediaUrl(t.iconUrl) } : null,
+    };
+  }
+  return {
+    badge: mine.platinum
+      ? "Platina"
+      : mine.pct >= 100
+        ? "100%"
+        : isTrophy(v)
+          ? `${fmt(mine.unlocked)}/${fmt(mine.total)}`
+          : `${mine.pct}%`,
+    done: mine.platinum || mine.pct >= 100,
+    meta: {
+      strong: `${fmt(mine.unlocked)} de ${fmt(mine.total)} ${nounOf(v, mine.total)}`,
+      rest:
+        mine.pct >= 100
+          ? ` ${on} · 100%`
+          : ` ${on} · ${leftLabel(mine.unlocked, mine.total)} para ${v.nativePlatinum ? "platinar" : "a Platina Tralked"}`,
+      chips,
+      note:
+        chips.length > 1
+          ? "As listas regionais são iguais: cada troféu mostra em quais você o obteve, e o XP conta uma vez."
+          : null,
+    },
+    earned,
+  };
+}
+
+/**
+ * The player's marks on the tabs: one entry per version they have (the others read as a
+ * visitor's), opening on the disc's version (bestVersion). Null for a player without any.
+ */
+export function versionMarks(versions: GameVersion[], player: PlayerVersion[] | null): TabsMarks | null {
+  const byKey: Record<string, VersionMarks> = {};
+  const mine: PlayerVersion[] = [];
+  for (const p of player ?? []) {
+    const v = versions.find((x) => x.key === p.key);
+    if (!v) continue;
+    byKey[p.key] = versionMarksOf(v, p);
+    mine.push(p);
+  }
+  const best = bestVersion(mine);
+  if (!best) return null;
+  return {
+    initial: best.key,
+    aside: versions.length > 1 ? "Uma aba por versão · as suas marcas em cada uma" : "Com as suas marcas",
+    byKey,
+  };
 }

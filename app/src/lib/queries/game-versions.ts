@@ -93,10 +93,10 @@ export type PlayerInput = {
 };
 
 const PSN_RANK: Record<string, number> = { PS5: 0, PS4: 1, PS3: 2, PSVITA: 3, PSPC: 4 };
-const PLATFORM_BASE: Record<string, number> = { steam: 0, psn: 100, xbox: 200, retro: 300 };
+const PLATFORM_BASE: Record<string, number> = { psn: 0, xbox: 100, steam: 200, retro: 300 };
 const emptyTiers = (): TierCounts => ({ platinum: 0, gold: 0, silver: 0, bronze: 0 });
 
-/** Display order: Steam, PSN (PS5, PS4, PS3, Vita), Xbox, RA. */
+/** Display order (approved mockup): PSN (PS5, PS4, PS3, Vita), Xbox, Steam, RA. */
 export function versionRank(v: { key: string; platform: string }): number {
   const base = PLATFORM_BASE[v.platform] ?? 400;
   if (v.platform !== "psn") return base;
@@ -260,7 +260,10 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
     const tiersEarned = emptyTiers();
     for (const a of earnedRows(best.rows)) tiersEarned[tierOf(a)]++;
     const complete = entries.some((e) => e.complete);
-    if (!g.nativePlatinum && complete) tiersEarned.platinum = 1;
+    // Any list of the version: its platinum trophy, or (no native platinum) its 100%.
+    const platinum = g.nativePlatinum ? platinumTrophy : complete;
+    // The grid agrees with the disc: the version's platinum counts even if another list earned it.
+    if (platinum) tiersEarned.platinum = 1;
 
     out.push({
       key: g.key,
@@ -270,8 +273,7 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
       unlocked: best.unlocked,
       total: best.total,
       pct: best.total > 0 ? Math.min(100, Math.round((best.unlocked / best.total) * 100)) : 0,
-      // Any list of the version: its platinum trophy, or (no native platinum) its 100%.
-      platinum: g.nativePlatinum ? platinumTrophy : complete,
+      platinum,
       lists: isSteam ? [] : entries.map((e) => ({ id: e.id!, label: e.label, complete: e.complete, unlocked: e.unlocked })),
       countedNote: !isSteam && entries.length > 1 ? `${entries.length} listas · conta 1` : null,
       earnedIn,

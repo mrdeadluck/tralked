@@ -425,8 +425,9 @@ describe.skipIf(!reachable)("game profile (seeded database)", () => {
     const view = await getPlayerGamePlatforms("hollow-knight", lucas.id);
     expect(view).toMatchObject({ slug: "hollow-knight", best: "psn", combined: progress.combined });
     expect(view!.byPlatform).toEqual(progress.byPlatform);
-    // The same progress by version, as the game page's rows draw it.
-    expect(view!.versions).toEqual(me!.versions);
+    // Without asking, no versions are read (the conquistas page); asked, the game page's same ones.
+    expect(view!.versions).toBeUndefined();
+    expect((await getPlayerGamePlatforms("hollow-knight", lucas.id, { versions: true }))!.versions).toEqual(me!.versions);
     expect(me!.versions.length).toBeGreaterThan(0);
     expect(await getPlayerGamePlatforms("jogo-que-nao-existe", lucas.id)).toBeNull();
     const kairo = await prisma.user.findUniqueOrThrow({ where: { handle: "Cacador_Joaquim" } });

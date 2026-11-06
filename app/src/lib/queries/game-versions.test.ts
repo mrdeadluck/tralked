@@ -26,18 +26,18 @@ const ach = (id: string, listId: string | null, platform: string, apiName: strin
 });
 
 describe("versionRank", () => {
-  it("orders Steam, PS5, PS4, PS3, Vita, then Xbox and RA", () => {
+  it("orders PS5, PS4, PS3, Vita, then Xbox, Steam and RA", () => {
     const keys = ["retro:1", "xbox:1", "psn:PS3+PSVITA", "psn:PSVITA", "psn:PS3", "psn:PS4", "psn:PS5", "steam"];
     const platforms: Record<string, string> = { "retro:1": "retro", "xbox:1": "xbox", steam: "steam" };
     const rank = (key: string) => versionRank({ key, platform: platforms[key] ?? "psn" });
     expect([...keys].sort((a, b) => rank(a) - rank(b))).toEqual([
-      "steam",
       "psn:PS5",
       "psn:PS4",
       "psn:PS3",
       "psn:PS3+PSVITA",
       "psn:PSVITA",
       "xbox:1",
+      "steam",
       "retro:1",
     ]);
   });
@@ -163,7 +163,8 @@ describe("buildPlayerVersions", () => {
     });
     expect(v.bestListId).toBe("a");
     expect(v.platinum).toBe(true);
-    expect(v.tiersEarned.platinum).toBe(0);
+    // The grid agrees with the disc: the best list lacks it, the version has it.
+    expect(v.tiersEarned.platinum).toBe(1);
   });
 
   it("xp maps the paid ledger entries to the trophy's apiName", () => {

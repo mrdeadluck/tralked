@@ -126,15 +126,17 @@ function VisitorRow({ v }: { v: GameVersion }) {
 }
 
 /**
- * With `player`: the player's versions (one row each, in the versions' order). Without: every
- * version of the game, unmarked.
+ * Player mode (`player`): one row per version the player has, in their order; `versions` is not
+ * read. Visitor mode (`versions` only): every version of the game, unmarked.
  */
 export function VersionRows({
-  versions,
+  versions = [],
   player,
   label,
 }: {
-  versions: GameVersion[];
+  /** The game's versions (visitor mode). */
+  versions?: GameVersion[];
+  /** The player's versions; given, the rows are theirs. */
   player?: PlayerVersion[] | null;
   label: string;
 }) {

@@ -8,7 +8,7 @@ import { CaseReplayButton } from "./case-replay";
 import { DiscProgress } from "./DiscProgress";
 import { HeroTitle } from "./HeroTitle";
 import { PROGRESS_CSS, TrophyGrid } from "./progress-parts";
-import { bestVersion, leftLabel, nounOf, onVersion, trophyWord } from "./version-views";
+import { achievementsFact, bestVersion, leftLabel, nounOf, onVersion, trophyWord } from "./version-views";
 import { VersionRows } from "./VersionRows";
 import { titleFitStyle } from "./title-fit";
 
@@ -72,8 +72,6 @@ const PLATFORM_CHIPS: Record<string, { label: string; color: string }> = {
 
 const fmt = (n: number) => n.toLocaleString("pt-BR");
 const delay = (d: string) => ({ "--d": d }) as CSSProperties;
-/** "na Steam", "no Xbox". */
-const onPlatform = (name: string) => `${name === "Xbox" || name === "RetroAchievements" ? "no" : "na"} ${name}`;
 /** "A, B e C". */
 const listPt = (items: string[]) =>
   items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} e ${items[items.length - 1]}`;
@@ -184,7 +182,7 @@ export function BookletProgress({
                     .join(" · ")}
                 </small>
               </div>
-              <VersionRows versions={versions} player={mine} label="Seu progresso por versão" />
+              <VersionRows player={mine} label="Seu progresso por versão" />
             </div>
           ) : null}
           <TrophyGrid
@@ -390,7 +388,7 @@ export function BookletSpread({
     timesToBeat?.normalMin ? { k: "história", v: hours(timesToBeat.normalMin) } : null,
   ].filter((x): x is { k: string; v: string } => x !== null);
   const platformNames = profile.platforms.map((p) => PLATFORM_CHIPS[p]?.label ?? p);
-  const others = main ? achievements.byPlatform.filter((p) => p.platform !== main.platform) : [];
+  const counts = main ? achievementsFact(profile.versions, main, achievements.byPlatform) : null;
   const studioNote = [
     profile.publisher && profile.publisher !== studio ? profile.publisher : null,
     profile.releaseYear ? `Lançamento em ${profile.releaseYear}` : null,
@@ -496,19 +494,9 @@ export function BookletSpread({
         ) : null}
         <Fact
           term="Conquistas"
-          note={
-            main
-              ? [
-                  onPlatform(PLATFORM_NAME[main.platform]),
-                  ...others.map((p) => `${fmt(p.total)} ${onPlatform(PLATFORM_NAME[p.platform])}`),
-                  main.legendary > 0 ? `${fmt(main.legendary)} ${main.legendary === 1 ? "lendária" : "lendárias"}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : "aqui vale o tempo jogado"
-          }
+          note={counts ? counts.note : "aqui vale o tempo jogado"}
         >
-          {main ? fmt(main.total) : "Nenhuma"}
+          {counts ? fmt(counts.value) : "Nenhuma"}
         </Fact>
         {guide ? (
           <Fact

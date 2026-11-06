@@ -887,15 +887,20 @@ export type PlayerGamePlatforms = {
   combined: CombinedProgress;
   /** The platform with the most progress (bestProgress). */
   best: PlatformId;
-  /** The same progress by version (a PSN console, an Xbox title, ...). */
-  versions: PlayerVersion[];
+  /** The same progress by version (a PSN console, an Xbox title, ...); only when asked for. */
+  versions?: PlayerVersion[];
 };
 
 /**
  * `userId`'s progress in the game `slug` split by platform; null when the game is unknown or the
  * player has it on no platform. The caller checks that the profile may be seen.
  */
-export async function getPlayerGamePlatforms(slug: string, userId: string): Promise<PlayerGamePlatforms | null> {
+export async function getPlayerGamePlatforms(
+  slug: string,
+  userId: string,
+  /** `versions`: also the progress by version (an extra read; the conquistas page does without). */
+  opts: { versions?: boolean } = {},
+): Promise<PlayerGamePlatforms | null> {
   const game = await prisma.game.findUnique({
     where: { slug },
     select: { id: true, slug: true, name: true, achievementCount: true },
@@ -908,7 +913,7 @@ export async function getPlayerGamePlatforms(slug: string, userId: string): Prom
       where: { userId, suspicious: false, achievement: { gameId: game.id } },
       select: { achievement: { select: { platform: true, globalPct: true, trophyTier: true } } },
     }),
-    getPlayerVersions(game.id, userId),
+    opts.versions ? getPlayerVersions(game.id, userId) : null,
   ]);
   const totalOf = achievementTotals(game.achievementCount, totals);
   const platforms = userGames
@@ -920,7 +925,7 @@ export async function getPlayerGamePlatforms(slug: string, userId: string): Prom
     platforms,
     unlocks.map((u) => ({ platform: u.achievement.platform, tier: tierOf(u.achievement) })),
   );
-  return { slug: game.slug, name: game.name, ...split, best: best.platform, versions };
+  return { slug: game.slug, name: game.name, ...split, best: best.platform, ...(versions ? { versions } : {}) };
 }
 
 async function familyPlayers(

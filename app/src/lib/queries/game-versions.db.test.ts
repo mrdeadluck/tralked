@@ -58,14 +58,14 @@ describe("getGameVersions", () => {
   it("GTA V has three PSN versions and Steam in order", async () => {
     const versions = await getGameVersions(gameId);
     expect(versions.map((v) => [v.key, v.label])).toEqual([
-      ["steam", "PC · Steam"],
       ["psn:PS5", "PS5"],
       ["psn:PS4", "PS4"],
       ["psn:PS3", "PS3"],
+      ["steam", "PC · Steam"],
     ]);
+    expect(versions[3].total).toBe(2);
     expect(versions[0].total).toBe(2);
-    expect(versions[1].total).toBe(2);
-    expect(versions[1].nativePlatinum).toBe(true);
+    expect(versions[0].nativePlatinum).toBe(true);
   });
 
   it('a version with two regions shows both labels and the note "2 listas · conta 1"', async () => {
