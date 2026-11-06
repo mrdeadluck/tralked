@@ -21,9 +21,12 @@ import { definitionsProblem, type TierCounts } from "@/lib/trophies/psn-definiti
  * - a failed list waits PSN_RETRY_MS[attempts - 1] before it is due again, and lists never tried
  *   go first, so one failing list does not hold back the game's other lists;
  * - a site-wide budget (`psn-open-budget`): at most PSN_OPEN_PER_MINUTE reads a minute and
- *   PSN_OPEN_PER_DAY a day (the day cap also bounds the growth of the database);
+ *   PSN_OPEN_PER_DAY a day (the day cap also bounds the growth of the database, ~1.4 MB a day);
+ * - no read at all once the database passes PSN_DB_SIZE_LIMIT_BYTES (the free Neon plan has 1 GB),
+ *   a size each instance reads at most once every PSN_DB_SIZE_CHECK_MS;
  * - a 429, 5xx, 403 or authentication error from Sony stops every open for PSN_COOLDOWN_MS
- *   (`psn-open-cooldown`).
+ *   (`psn-open-cooldown`); the psn-catalog scan writes the same row for 4 h when Sony throttles it,
+ *   and skips its own slots while it holds.
  * A Sony failure is "try later": nothing is written and the call never throws.
  */
 
@@ -42,7 +45,11 @@ export const PSN_CLAIM_MS = 10 * 60_000;
 /** Pause of every page-open read after Sony refused or failed. */
 export const PSN_COOLDOWN_MS = 3_600_000;
 export const PSN_OPEN_PER_MINUTE = 6;
-export const PSN_OPEN_PER_DAY = 500;
+export const PSN_OPEN_PER_DAY = 100;
+/** Over this database size (pg_database_size) page opens read nothing more. */
+export const PSN_DB_SIZE_LIMIT_BYTES = 900 * 1024 * 1024;
+/** How long an instance trusts the size it read. */
+export const PSN_DB_SIZE_CHECK_MS = 3_600_000;
 export const PSN_OPEN_BUDGET_KEY = "psn-open-budget";
 export const PSN_OPEN_COOLDOWN_KEY = "psn-open-cooldown";
 
@@ -95,20 +102,54 @@ async function claim(gameId: string, now: Date): Promise<Due | null> {
   return rows[0] ? { externalId: rows[0].id, serviceName: rows[0].serviceName, tiers: rows[0].tiers } : null;
 }
 
-/** True while a refusal of Sony keeps every page open away from it. */
-async function coolingDown(now: Date): Promise<boolean> {
-  const row = await prisma.syncCursor.findUnique({ where: { key: PSN_OPEN_COOLDOWN_KEY } });
+/**
+ * Epoch ms until which every Sony call of the site pauses (`psn-open-cooldown`), or null when no
+ * pause holds at `now`. Page opens and the psn-catalog worker both read it.
+ */
+export async function psnCooldownUntil(now: Date = new Date(), db: Pick<Prisma.TransactionClient, "syncCursor"> = prisma): Promise<number | null> {
+  const row = await db.syncCursor.findUnique({ where: { key: PSN_OPEN_COOLDOWN_KEY } });
   const until = Number((row?.value as { until?: unknown } | null)?.until);
-  return Number.isFinite(until) && until > now.getTime();
+  return Number.isFinite(until) && until > now.getTime() ? until : null;
 }
 
-async function startCooldown(now: Date): Promise<void> {
-  const value = { until: now.getTime() + PSN_COOLDOWN_MS };
-  await prisma.syncCursor.upsert({
-    where: { key: PSN_OPEN_COOLDOWN_KEY },
-    create: { key: PSN_OPEN_COOLDOWN_KEY, value },
-    update: { value },
-  });
+/**
+ * Pauses every Sony call of the site until `until` (epoch ms). One statement; a pause already
+ * running longer is kept (a page open's 1 h never shortens the scan's 4 h).
+ */
+export async function startPsnCooldown(until: number, db: Pick<Prisma.TransactionClient, "$executeRaw"> = prisma): Promise<void> {
+  const value = JSON.stringify({ until });
+  await db.$executeRaw`
+    INSERT INTO "SyncCursor" AS s (key, value, "updatedAt") VALUES (${PSN_OPEN_COOLDOWN_KEY}, ${value}::jsonb, now())
+    ON CONFLICT (key) DO UPDATE SET "updatedAt" = now(), value = CASE
+      WHEN s.value->>'until' ~ '^[0-9]+$' AND (s.value->>'until')::bigint >= ${until}::bigint THEN s.value
+      ELSE EXCLUDED.value END`;
+}
+
+/** Bytes of the current database (one cheap catalog read). */
+const readDatabaseBytes = async (): Promise<number> =>
+  Number((await prisma.$queryRaw<{ bytes: bigint }[]>`SELECT pg_database_size(current_database()) AS bytes`)[0]?.bytes ?? 0);
+
+let sizeCache: { at: number; bytes: number; read: () => Promise<number> } | null = null;
+
+/** Forgets the size this instance read (tests). */
+export function resetPsnDbSizeCache(): void {
+  sizeCache = null;
+}
+
+/**
+ * True when the database is over PSN_DB_SIZE_LIMIT_BYTES, by a size read at most once every
+ * PSN_DB_SIZE_CHECK_MS per instance. A failed read counts as too big (and is not kept).
+ */
+async function databaseTooBig(now: Date, read: () => Promise<number>): Promise<boolean> {
+  if (!sizeCache || sizeCache.read !== read || now.getTime() - sizeCache.at >= PSN_DB_SIZE_CHECK_MS || now.getTime() < sizeCache.at) {
+    try {
+      sizeCache = { at: now.getTime(), bytes: await read(), read };
+    } catch (error) {
+      console.warn(`PSN page open: database size unknown: ${error instanceof Error ? error.message : String(error)}`);
+      return true;
+    }
+  }
+  return sizeCache.bytes > PSN_DB_SIZE_LIMIT_BYTES;
 }
 
 /**
@@ -165,16 +206,20 @@ const isSonyDown = (error: unknown) =>
  * (listId, apiName), so it fills in the rarity and the unlocks without duplicating anything.
  * The answer must pass `definitionsProblem` against the catalog's counts, as in the sync.
  * Without `api`, the service account's client is used, and nothing is read when PSN has no credential.
+ * `databaseBytes` replaces the database size read (tests).
  */
 export async function loadPsnCatalogTrophies(
   gameId: string,
   api?: Pick<PsnApi, "getListTrophies">,
   now: Date = new Date(),
+  { databaseBytes = readDatabaseBytes }: { databaseBytes?: () => Promise<number> } = {},
 ): Promise<PsnTrophiesResult> {
   if (!api && !platformCredential("psn")) return "none"; // offline fixtures have no lists to read
-  // Cheap gates first: nothing due costs one read; no Sony call while cooling down or over budget.
+  // Cheap gates first: nothing due costs one read; no Sony call while cooling down, with the
+  // database near its plan's size, or over budget.
   if (!(await hasPsnCatalogTrophiesDue(gameId, now))) return "none";
-  if (await coolingDown(now)) return "none";
+  if ((await psnCooldownUntil(now)) !== null) return "none";
+  if (await databaseTooBig(now, databaseBytes)) return "none";
   if (!(await takePsnOpenBudget(now))) return "none";
   const due = await claim(gameId, now);
   if (!due) {
@@ -220,7 +265,7 @@ export async function loadPsnCatalogTrophies(
     return "loaded";
   } catch (error) {
     await giveBack();
-    if (isSonyDown(error)) await startCooldown(now).catch(() => undefined);
+    if (isSonyDown(error)) await startPsnCooldown(now.getTime() + PSN_COOLDOWN_MS).catch(() => undefined);
     console.warn(`PSN trophies of ${due.externalId} (page open): ${error instanceof Error ? error.message : String(error)}`);
     return "failed";
   }

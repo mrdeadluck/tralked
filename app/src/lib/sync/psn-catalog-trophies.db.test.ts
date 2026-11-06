@@ -312,9 +312,10 @@ describe.skipIf(!reachable)("PSN trophies read when the page opens", () => {
     expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_COOLDOWN_KEY } })).value).toMatchObject({ until: expect.any(Number) });
   });
 
-  it("the site-wide budget allows 6 reads a minute and 500 a day", async () => {
+  it("the site-wide budget allows 6 reads a minute and 100 a day", async () => {
     const { prisma } = await import("@/lib/db");
-    const { takePsnOpenBudget } = await import("./psn-catalog-trophies");
+    const { PSN_OPEN_PER_DAY, takePsnOpenBudget } = await import("./psn-catalog-trophies");
+    expect(PSN_OPEN_PER_DAY).toBe(100);
     const t0 = new Date("2026-11-06T10:00:00Z").getTime();
     const taken: boolean[] = [];
     for (let i = 0; i < 8; i++) taken.push(await takePsnOpenBudget(new Date(t0 + i * 1000)));
@@ -322,11 +323,11 @@ describe.skipIf(!reachable)("PSN trophies read when the page opens", () => {
     // A minute later the window opens again (7 reads today).
     expect(await takePsnOpenBudget(new Date(t0 + 61_000))).toBe(true);
     let n = 7;
-    for (let minute = 3; n < 500; minute++) {
-      for (let i = 0; i < 6 && n < 500; i++, n++) expect(await takePsnOpenBudget(new Date(t0 + minute * 60_000 + i))).toBe(true);
+    for (let minute = 3; n < 100; minute++) {
+      for (let i = 0; i < 6 && n < 100; i++, n++) expect(await takePsnOpenBudget(new Date(t0 + minute * 60_000 + i))).toBe(true);
     }
     expect(await takePsnOpenBudget(new Date(t0 + 600 * 60_000))).toBe(false);
-    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_BUDGET_KEY } })).value).toMatchObject({ dayCount: 500 });
+    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_BUDGET_KEY } })).value).toMatchObject({ dayCount: 100 });
     // The next day starts a new count.
     expect(await takePsnOpenBudget(new Date(t0 + 25 * HOUR))).toBe(true);
   });
@@ -430,5 +431,76 @@ describe.skipIf(!reachable)("PSN trophies read when the page opens", () => {
     expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_BUDGET_KEY } })).value).toMatchObject({ count: 2, dayCount: 2 });
     for (let i = 0; i < 4; i++) expect(await takePsnOpenBudget(now)).toBe(true); // 6 in the minute again
     expect(await takePsnOpenBudget(now)).toBe(false);
+  });
+
+  it("a database over 900 MB reads nothing more, by a size read at most once an hour", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadPsnCatalogTrophies, PSN_DB_SIZE_CHECK_MS, PSN_DB_SIZE_LIMIT_BYTES, resetPsnDbSizeCache } = await import("./psn-catalog-trophies");
+    expect(PSN_DB_SIZE_LIMIT_BYTES).toBe(900 * 1024 * 1024);
+    expect(PSN_DB_SIZE_CHECK_MS).toBe(HOUR);
+    resetPsnDbSizeCache();
+    const game = await seed([LIST, OTHER]);
+    const t0 = Date.now();
+    let bytes = PSN_DB_SIZE_LIMIT_BYTES + 1;
+    let reads = 0;
+    const databaseBytes = async () => (reads++, bytes);
+    const api = fakeApi();
+
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0), { databaseBytes })).toBe("none");
+    expect(api.calls).toEqual([]);
+    // No budget taken and no claim.
+    expect(await prisma.syncCursor.findUnique({ where: { key: PSN_OPEN_BUDGET_KEY } })).toBeNull();
+    expect((await prisma.psnCatalogList.findUniqueOrThrow({ where: { id: LIST } })).trophiesSyncedAt).toBeNull();
+
+    // The database shrinks, but the instance keeps the size it read for an hour.
+    bytes = 1024;
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 30 * 60_000), { databaseBytes })).toBe("none");
+    expect(reads).toBe(1);
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + HOUR), { databaseBytes })).toBe("loaded");
+    expect(reads).toBe(2);
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + HOUR + 60_000), { databaseBytes })).toBe("loaded");
+    expect(reads).toBe(2);
+    expect(api.calls).toEqual([LIST, OTHER]);
+
+    // A size that cannot be read counts as too big and is read again on the next open.
+    resetPsnDbSizeCache();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await prisma.achievement.deleteMany({ where: { gameId: game.id } });
+      await prisma.psnCatalogList.updateMany({ where: { id: { in: [LIST, OTHER] } }, data: { trophiesSyncedAt: null } });
+      const broken = async (): Promise<number> => {
+        reads++;
+        throw new Error("no size");
+      };
+      expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 2 * HOUR), { databaseBytes: broken })).toBe("none");
+      expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 2 * HOUR + 1), { databaseBytes: broken })).toBe("none");
+      expect(reads).toBe(4);
+    } finally {
+      warn.mockRestore();
+    }
+    // The real size of the test database is far under the limit.
+    resetPsnDbSizeCache();
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 3 * HOUR))).toBe("loaded");
+  });
+
+  it("a page open's 1 h pause never shortens a longer one (the catalog scan's 4 h)", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadPsnCatalogTrophies, psnCooldownUntil, startPsnCooldown } = await import("./psn-catalog-trophies");
+    const game = await seed();
+    const t0 = Date.now();
+    expect(await psnCooldownUntil(new Date(t0))).toBeNull();
+    await startPsnCooldown(t0 + 4 * HOUR);
+    expect(await psnCooldownUntil(new Date(t0))).toBe(t0 + 4 * HOUR);
+    expect(await psnCooldownUntil(new Date(t0 + 4 * HOUR))).toBeNull();
+    const api = fakeApi();
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 3 * HOUR))).toBe("none");
+    expect(api.calls).toEqual([]);
+
+    // A shorter pause is ignored, a longer one replaces it.
+    await startPsnCooldown(t0 + HOUR);
+    expect(await psnCooldownUntil(new Date(t0))).toBe(t0 + 4 * HOUR);
+    await startPsnCooldown(t0 + 5 * HOUR);
+    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_COOLDOWN_KEY } })).value).toEqual({ until: t0 + 5 * HOUR });
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 5 * HOUR))).toBe("loaded");
   });
 });
