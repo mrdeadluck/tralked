@@ -26,7 +26,8 @@ function rng(seed: number) {
 }
 
 export function hueFor(gameSlug: string | null | undefined): [number, number] {
-  if (gameSlug && GAME_HUES[gameSlug]) return GAME_HUES[gameSlug];
+  // Own keys only: a slug such as "constructor" must not read Object.prototype.
+  if (gameSlug && Object.hasOwn(GAME_HUES, gameSlug)) return GAME_HUES[gameSlug];
   const h = hash(gameSlug ?? "tralked");
   const h1 = h % 360;
   return [h1, (h1 + 30 + ((h >>> 9) % 60)) % 360];

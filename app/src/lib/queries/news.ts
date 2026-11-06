@@ -740,7 +740,8 @@ export function hashSeed(text: string): number {
 }
 
 export function artHues(gameSlug: string | null | undefined, fallbackKey: string): Hues {
-  if (gameSlug && GAME_HUES[gameSlug]) return GAME_HUES[gameSlug];
+  // Own keys only: a slug such as "constructor" must not read Object.prototype.
+  if (gameSlug && Object.hasOwn(GAME_HUES, gameSlug)) return GAME_HUES[gameSlug];
   const h1 = hashSeed(gameSlug ?? fallbackKey) % 360;
   return [h1, (h1 + 32) % 360];
 }
