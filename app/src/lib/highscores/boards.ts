@@ -69,7 +69,7 @@ export const METRIC_HINT: Record<Metric, string> = {
   horas: "Horas reais informadas pelas plataformas, somadas de todos os jogos.",
   conquistas: "Conquistas e troféus válidos desbloqueados.",
   raras: "Conquistas que até 20% dos jogadores têm; lendárias (até 3%) desempatam.",
-  platinas: "Jogos completados em 100%, contando a platina.",
+  platinas: "Platinas de cada lista de troféus e 100% sem platina, contadas como no perfil.",
   acervo: "Jogos jogados valem 10 pontos; os que você tem e nunca jogou valem 5.",
   genero: "Nível de cada habilidade, do Soulslike ao Sábio.",
 };

@@ -91,6 +91,11 @@ export type DesiredInput = {
    * this user yet, keeps its XP).
    */
   legacyCompletedAt?: Date | null;
+  /**
+   * Achievement ids with a valid `achievement` entry under their own id (settleListXp passes the
+   * ledger): a copy already paid that way keeps its key, it never becomes the stand-in.
+   */
+  paidOwnIds?: ReadonlySet<string>;
 };
 
 /**
@@ -156,12 +161,15 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
   );
   // A trophy whose canonical row the user does not hold validly: its earliest valid copy in the
   // version's other lists keeps the canonical row's id (the key the rule paid before every list
-  // counted), so an entry already paid is neither voided nor paid twice.
+  // counted), so an entry already paid is neither voided nor paid twice. A copy already paid under
+  // its own id (valid entry) keeps it: it is never voided because the canonical rows came later.
+  const paidOwn = input.paidOwnIds ?? new Set<string>();
   const standIn = new Map<string, string>(); // group -> achievement id paid under the canonical id
   const byUnlock = [...valid].sort((x, y) =>
     byTimeThenId({ at: x.unlockedAt, id: x.achievementId }, { at: y.unlockedAt, id: y.achievementId }),
   );
   for (const u of byUnlock) {
+    if (paidOwn.has(u.achievementId)) continue;
     const g = groupOf(achievementById.get(u.achievementId)!);
     const canonical = g ? canonicalIdOf.get(g) : undefined;
     if (g && canonical && !validIds.has(canonical) && !standIn.has(g)) standIn.set(g, u.achievementId);
@@ -184,8 +192,7 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
     if (!sourceKey) continue;
     const g = groupOf(a);
     // Every copy of the trophy in the version: a release of any of them may move the canonical key
-    // back to its own row (this copy's entry voided meanwhile is restored), and an unlink forfeits
-    // the trophy in every list of the version.
+    // back to its own row (this copy's entry voided meanwhile is restored).
     const group = g ? groupRows.get(g)! : [a.id];
     drafts.push({
       source: "achievement",
@@ -195,7 +202,9 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
       createdAt: u.unlockedAt,
       skills,
       origin: group,
-      predecessors: group.filter((id) => id !== sourceKey).map((id) => entryKey("achievement", id)),
+      // An unlink forfeits only the copy an entry paid: the stand-in's own-id entry blocks it under
+      // the canonical id; a copy never paid is paid once after a relink.
+      predecessors: sourceKey === a.id ? [] : [entryKey("achievement", a.id)],
     });
   }
 
@@ -225,12 +234,9 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
           createdAt: completedAt.get(l.id)!,
           skills,
           origin: versionRows,
-          // The version key's predecessor is the legacy key (settleListXp); another list's are the
-          // version's other platinum keys.
-          predecessors:
-            l === holder
-              ? []
-              : keys.filter((k) => k !== sourceKey).map((k) => entryKey("platinum", k)),
+          // Each list's key pays only that list (an unlink-voided key blocks itself only); the
+          // legacy key is handled by settleListXp.
+          predecessors: [],
         });
       }
     }
@@ -291,11 +297,12 @@ export type SettleOptions = {
 };
 
 /** What settleListXp would change: entries to void, voided entries to restore, entries to create. */
-type PlannedEntry = { id: string; source: string; xp: number };
+type PlannedEntry = { id: string; source: string; sourceKey: string; xp: number };
+/** An entry that is voided now, with its voidedAt (restore: the old one). */
 type VoidedEntry = PlannedEntry & { voidedAt: Date };
 export type ListXpPlan = {
   toVoid: PlannedEntry[];
-  toRestore: PlannedEntry[];
+  toRestore: VoidedEntry[];
   toCreate: (Prisma.XpLedgerEntryCreateManyInput & { source: LedgerDraft["source"] })[];
   /** Wanted entries left unpaid: their key exists voided (under / before the current link), or a predecessor blocks them. */
   unpaid: { voidedUnderLink: VoidedEntry[]; voidedBeforeLink: VoidedEntry[]; blocked: number };
@@ -310,16 +317,14 @@ export type ListXpPlan = {
  * fraud, replaced legacy key) is never paid again, except through `restore`. XP of existing
  * entries is never rewritten.
  *
- * A wanted key with no row is not created either when what it stands beside exists only voided,
- * and voided before the current link of the platform (XP an unlink forfeited is not paid again
- * under another key after a relink; a predecessor voided under the current link, e.g. by an
- * earlier settle, does not block):
- * - a platinum, when the game's legacy `${platform}:${gameId}` platinum is voided and the game has
- *   no other platinum row (in any state), or when the other platinum keys of its PSN version exist
- *   and are all voided;
- * - a trophy, when the entries of its other copies in the PSN version (and of itself) exist and
- *   are all voided.
- * A predecessor still valid (the migration case) does not block.
+ * An unlink forfeits only what an entry paid: a wanted key with no row is not created either when
+ * the entry that paid the same copy under another key exists voided before the current link of
+ * the platform (a predecessor voided under the current link, e.g. by an earlier settle, does not
+ * block):
+ * - the earliest list platinum of a game whose legacy `${platform}:${gameId}` platinum is voided;
+ * - a PSN copy paid under the canonical row's id (stand-in), when its own-id entry is voided.
+ * Never-paid sibling copies and lists are paid once after a relink. A predecessor still valid (the
+ * migration case) does not block.
  */
 export async function planListXp(
   db: Prisma.TransactionClient,
@@ -368,6 +373,7 @@ export async function planListXp(
   const gameOfEntry = (e: { source: string; sourceKey: string }) =>
     e.source === "achievement" ? gameOfAchievement.get(e.sourceKey) : platinumGameId(e.sourceKey);
   const existingByKey = new Map(existing.map((e) => [entryKey(e.source, e.sourceKey), e]));
+  const paidOwnIds = new Set(existing.filter((e) => e.source === "achievement" && e.voidedAt === null).map((e) => e.sourceKey));
   const restore = new Set(options.restore ?? []);
   const linkedAt =
     (await db.linkedAccount.findUnique({ where: { userId_platform: { userId, platform } }, select: { linkedAt: true } }))
@@ -398,31 +404,32 @@ export async function planListXp(
       unlocks: unlocks.filter((u) => gameOfAchievement.get(u.achievementId) === gameId),
       progress: progress.filter((p) => lists.some((l) => l.id === p.listId && l.gameId === gameId)),
       legacyCompletedAt: userGames.find((g) => g.gameId === gameId)?.completedAt ?? null,
+      paidOwnIds,
     });
     const wanted = new Set(drafts.map((d) => entryKey(d.source, d.sourceKey)));
     for (const e of existing) {
       if (gameOfEntry(e) === gameId && e.voidedAt === null && !wanted.has(entryKey(e.source, e.sourceKey))) {
-        plan.toVoid.push({ id: e.id, source: e.source, xp: e.xp });
+        plan.toVoid.push({ id: e.id, source: e.source, sourceKey: e.sourceKey, xp: e.xp });
       }
     }
     const legacyKey = legacyPlatinumSourceKey(platform, gameId);
-    const otherPlatinums = existing.filter(
-      (e) => e.source === "platinum" && e.sourceKey !== legacyKey && gameOfEntry(e) === gameId,
-    );
+    // The legacy platinum paid the game's one (earliest) completion: voided by an unlink, it blocks
+    // that platinum only (the earliest list platinum the rule wants).
+    const legacyBlocks = voidedBeforeLink([existingByKey.get(entryKey("platinum", legacyKey))])
+        ? drafts
+            .filter((d) => d.source === "platinum" && d.sourceKey !== legacyKey)
+            .sort((x, y) => byTimeThenId({ at: x.createdAt, id: x.sourceKey }, { at: y.createdAt, id: y.sourceKey }))[0]
+        : undefined;
     for (const { origin, predecessors, ...d } of drafts) {
       const row = existingByKey.get(entryKey(d.source, d.sourceKey));
       if (row) {
         if (row.voidedAt === null) continue;
-        const entry = { id: row.id, source: row.source, xp: row.xp, voidedAt: row.voidedAt };
+        const entry = { id: row.id, source: row.source, sourceKey: row.sourceKey, xp: row.xp, voidedAt: row.voidedAt };
         if (origin.some((id) => restore.has(id)) && restorable(row)) plan.toRestore.push(entry);
         else (restorable(row) ? plan.unpaid.voidedUnderLink : plan.unpaid.voidedBeforeLink).push(entry);
         continue;
       }
-      const replacesLegacy =
-        d.source === "platinum" &&
-        d.sourceKey !== legacyKey &&
-        otherPlatinums.length === 0 &&
-        voidedBeforeLink([existingByKey.get(entryKey("platinum", legacyKey))]);
+      const replacesLegacy = legacyBlocks !== undefined && d.source === "platinum" && d.sourceKey === legacyBlocks.sourceKey;
       if (replacesLegacy || voidedBeforeLink(predecessors.map((k) => existingByKey.get(k)))) {
         plan.unpaid.blocked++;
         continue;

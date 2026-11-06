@@ -1,3 +1,4 @@
+import { platinumTally } from "@/lib/character/counts";
 import { prisma } from "@/lib/db";
 import { computeRankStats, RANK_SCOPES, type RankScope, type RankStatsValues } from "./stats";
 
@@ -5,28 +6,18 @@ type ValidUnlock = { achievement: { gameId: string; platform: string; globalPct:
 
 /**
  * One user's highscores totals. `unlocks` are the valid unlocks (the recompute already loaded
- * them); the library and the tainted games are read here. Every list counts (a PSN trophy earned
- * in two regional lists is two).
+ * them); the library and the platinums (the profile's, one per list) are read here. Every list
+ * counts (a PSN trophy earned in two regional lists is two).
  */
 export async function loadRankStats(
   userId: string,
   unlocks: ValidUnlock[],
 ): Promise<Record<RankScope, RankStatsValues>> {
-  const [games, tainted] = await Promise.all([
-    prisma.userGame.findMany({
-      where: { userId },
-      select: { gameId: true, platform: true, playtimeMin: true, completedAt: true },
-    }),
-    prisma.userAchievement.findMany({
-      where: { userId, suspicious: true },
-      select: { achievement: { select: { gameId: true, platform: true } } },
-    }),
+  const [games, platinums] = await Promise.all([
+    prisma.userGame.findMany({ where: { userId }, select: { gameId: true, platform: true, playtimeMin: true } }),
+    platinumTally(userId),
   ]);
-  return computeRankStats({
-    games,
-    unlocks: unlocks.map((u) => u.achievement),
-    taintedKeys: new Set(tainted.map((t) => `${t.achievement.gameId}:${t.achievement.platform}`)),
-  });
+  return computeRankStats({ games, unlocks: unlocks.map((u) => u.achievement), platinums });
 }
 
 /**

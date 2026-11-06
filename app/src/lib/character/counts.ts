@@ -38,6 +38,8 @@ export type PlatinumCounts = {
   psnPlatinums: number;
   /** The same platinums counted once per version (game, platform, versionKey): the rule before every regional list counted, for the migration reports. */
   perVersion: number;
+  /** `platinums` by platform (steam, psn, xbox, retro): the highscores "Platinas e 100%" scopes. */
+  byPlatform: Record<string, number>;
 };
 
 /**
@@ -58,16 +60,16 @@ export function platinumCount(
   completions: { gameId: string; platform: string }[],
 ): PlatinumCounts {
   // Each platinum by its list (`list:<id>`), or by game and platform where it has no list.
-  const out = new Map<string, { version: string; psn: boolean }>();
-  const add = (k: string, version: string, psn = false) => {
+  const out = new Map<string, { platform: string; version: string; psn: boolean }>();
+  const add = (k: string, c: { gameId: string; platform: string; versionKey: string }, psn = false) => {
     const seen = out.get(k);
-    out.set(k, { version, psn: psn || Boolean(seen?.psn) });
+    out.set(k, { platform: c.platform, version: versionedKey(c), psn: psn || Boolean(seen?.psn) });
   };
   const withLists = new Set<string>();
   for (const l of lists) {
     if (l.platform === "steam") continue;
     withLists.add(key(l));
-    if (l.completed && !l.tainted) add(`list:${l.listId}`, versionedKey(l));
+    if (l.completed && !l.tainted) add(`list:${l.listId}`, l);
   }
   // The trophies a list row already holds validly, by game and platform (apiName "" when unknown).
   const onLists = new Map<string, Set<string>>();
@@ -82,20 +84,22 @@ export function platinumCount(
       const held = onLists.get(key(n));
       if (held && (held.has(n.apiName ?? "") || n.apiName === undefined || held.has(""))) continue;
     }
-    const version = versionedKey(n);
-    add(n.listId ? `list:${n.listId}` : version, version, n.platform === "psn");
+    add(n.listId ? `list:${n.listId}` : versionedKey(n), n, n.platform === "psn");
   }
   for (const c of completions) {
     if (c.platform === "steam" || !withLists.has(key(c))) {
-      const version = versionedKey({ ...c, versionKey: c.platform });
-      add(version, version);
+      const legacy = { ...c, versionKey: c.platform };
+      add(versionedKey(legacy), legacy);
     }
   }
   const items = [...out.values()];
+  const byPlatform: Record<string, number> = {};
+  for (const i of items) byPlatform[i.platform] = (byPlatform[i.platform] ?? 0) + 1;
   return {
     platinums: items.length,
     psnPlatinums: items.filter((i) => i.psn).length,
     perVersion: new Set(items.map((i) => i.version)).size,
+    byPlatform,
   };
 }
 

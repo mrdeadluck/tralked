@@ -21,8 +21,10 @@ export type RegionalXpReport = {
   handle: string;
   /** Games of the player with several lists in one PSN version. */
   games: number;
-  /** Ledger entries created (or restored): trophies and list platinums. */
+  /** Ledger entries created: trophies and list platinums. */
   created: { trophies: number; platinums: number };
+  /** Voided entries restored (regional copies the old once-per-version rule voided under the current link). */
+  restored: number;
   /** Ledger entries voided (expected 0). */
   voided: number;
   /** Wanted entries left unpaid: key voided under the current link, voided before it (unlink), blocked by a voided predecessor. */
@@ -40,6 +42,8 @@ export type RegionalXpReport = {
   platinums: [number, number];
   /** The PSN platinum trophies ("N na PSN"). */
   psnPlatinums: number;
+  /** What the run wrote (or would write): created keys (`source:sourceKey`) and restored entries with their old voidedAt. */
+  entries: { created: string[]; restored: { id: string; source: string; sourceKey: string; voidedAt: string }[] };
 };
 
 /** PSN games with two or more lists of one console (version), by id. */
@@ -130,7 +134,9 @@ export async function regionalListXp(options: {
             }, TRANSACTION_OPTIONS),
       );
     }
-    const added = plans.flatMap((p) => [...p.toCreate, ...p.toRestore]);
+    const createdEntries = plans.flatMap((p) => p.toCreate);
+    const restoredEntries = plans.flatMap((p) => p.toRestore);
+    const added = [...createdEntries, ...restoredEntries];
     const removed = plans.flatMap((p) => p.toVoid);
     const net = (source: string) => count(added, source) - count(removed, source);
     let xpAfter = xpBefore + added.reduce((sum, e) => sum + e.xp, 0) - removed.reduce((sum, e) => sum + e.xp, 0);
@@ -149,7 +155,8 @@ export async function regionalListXp(options: {
       userId: user.id,
       handle: user.handle,
       games: games.length,
-      created: { trophies: count(added, "achievement"), platinums: count(added, "platinum") },
+      created: { trophies: count(createdEntries, "achievement"), platinums: count(createdEntries, "platinum") },
+      restored: restoredEntries.length,
       voided: removed.length,
       unpaid: {
         voidedUnderLink: plans.reduce((n, p) => n + p.unpaid.voidedUnderLink.length, 0),
@@ -161,18 +168,21 @@ export async function regionalListXp(options: {
       level: [levelFromXp(xpBefore).level, levelFromXp(xpAfter).level],
       platinums: [tally.perVersion, tally.platinums],
       psnPlatinums: tally.psnPlatinums,
+      entries: {
+        created: createdEntries.map((e) => `${e.source}:${e.sourceKey}`).sort(),
+        restored: restoredEntries.map((e) => ({ id: e.id, source: e.source, sourceKey: e.sourceKey, voidedAt: e.voidedAt.toISOString() })),
+      },
     };
     options.log?.(formatReport(report));
-    // When the voided-but-wanted entries were voided (UTC hour) and their XP: tells which run voided them.
-    const left = plans.flatMap((p) => p.unpaid.voidedUnderLink);
-    const byHour = new Map<string, { n: number; xp: number }>();
-    for (const e of left) {
-      const hour = `${e.voidedAt.toISOString().slice(0, 13)}h`;
-      const acc = byHour.get(hour) ?? { n: 0, xp: 0 };
-      byHour.set(hour, { n: acc.n + 1, xp: acc.xp + e.xp });
-    }
-    for (const [hour, { n, xp }] of [...byHour].sort()) {
-      options.log?.(`  ${user.handle}: ${n} wanted entries voided at ${hour} (${fmt(xp)} XP), left voided`);
+    // When the restored and the left-voided entries were voided (UTC hour), with their XP: tells
+    // which run voided them.
+    for (const [what, list] of [
+      ["restored", restoredEntries],
+      ["left voided", plans.flatMap((p) => p.unpaid.voidedUnderLink)],
+    ] as const) {
+      for (const [hour, { n, xp }] of byVoidedHour(list)) {
+        options.log?.(`  ${user.handle}: ${n} entries voided at ${hour} (${fmt(xp)} XP), ${what}`);
+      }
     }
     reports.push(report);
   }
@@ -180,6 +190,17 @@ export async function regionalListXp(options: {
 }
 
 const fmt = (n: number) => n.toLocaleString("pt-BR");
+
+/** Count and XP of voided entries by the UTC hour of their voidedAt, in order. */
+function byVoidedHour(entries: { voidedAt: Date; xp: number }[]): [string, { n: number; xp: number }][] {
+  const byHour = new Map<string, { n: number; xp: number }>();
+  for (const e of entries) {
+    const hour = `${e.voidedAt.toISOString().slice(0, 13)}h`;
+    const acc = byHour.get(hour) ?? { n: 0, xp: 0 };
+    byHour.set(hour, { n: acc.n + 1, xp: acc.xp + e.xp });
+  }
+  return [...byHour].sort(([a], [b]) => (a < b ? -1 : 1));
+}
 const arrow = ([before, after]: [number, number]) => (before === after ? fmt(before) : `${fmt(before)} -> ${fmt(after)}`);
 
 /** One line per player: games, entries created and voided, XP, level and platinums before -> after, coverage. */
@@ -187,7 +208,7 @@ export function formatReport(r: RegionalXpReport): string {
   const [trophyEntries, unlocks] = r.paid.trophies;
   const [platinumEntries, lists] = r.paid.platinums;
   return (
-    `${r.handle}: ${r.games} games, new or restored entries ${r.created.trophies} trophies + ${r.created.platinums} platinums, ` +
+    `${r.handle}: ${r.games} games, new entries ${r.created.trophies} trophies + ${r.created.platinums} platinums, ${r.restored} restored, ` +
     `${r.voided} voided, XP ${arrow(r.xp)}, level ${arrow(r.level)}, platinums ${arrow(r.platinums)} (${r.psnPlatinums} on PSN); ` +
     `after: ${trophyEntries} trophy entries for ${unlocks} unlocks, ${platinumEntries} platinum entries for ${lists} complete lists; ` +
     `unpaid: ${r.unpaid.voidedUnderLink} voided under the link, ${r.unpaid.voidedBeforeLink} voided before it, ${r.unpaid.blocked} blocked`

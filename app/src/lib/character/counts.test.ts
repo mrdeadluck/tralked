@@ -24,8 +24,8 @@ describe("platinumCount (one per list)", () => {
   it("every PSN platinum trophy counts, two regions of one console are two", () => {
     const natives = [native("gta", "eu5", "psn:PS5"), native("gta", "jp5", "psn:PS5"), native("gta", "eu4", "psn:PS4")];
     const lists = [list("eu5", "gta", "psn", "psn:PS5"), list("jp5", "gta", "psn", "psn:PS5"), list("eu4", "gta", "psn", "psn:PS4")];
-    expect(platinumCount(natives, lists, [])).toEqual({ platinums: 3, psnPlatinums: 3, perVersion: 2 });
-    expect(platinumCount([], [], [])).toEqual({ platinums: 0, psnPlatinums: 0, perVersion: 0 });
+    expect(platinumCount(natives, lists, [])).toMatchObject({ platinums: 3, psnPlatinums: 3, perVersion: 2 });
+    expect(platinumCount([], [], [])).toMatchObject({ platinums: 0, psnPlatinums: 0, perVersion: 0 });
   });
 
   it("a platinum trophy counts whatever the list's %, once with its own 100%", () => {
@@ -43,7 +43,7 @@ describe("platinumCount (one per list)", () => {
       list("r1", "snes", "retro", "retro:77"),
     ];
     // The PSN 100%s without a platinum trophy are platinums, but not "na PSN" (Sony counts trophies).
-    expect(platinumCount([], lists, [])).toEqual({ platinums: 6, psnPlatinums: 0, perVersion: 5 });
+    expect(platinumCount([], lists, [])).toEqual({ platinums: 6, psnPlatinums: 0, perVersion: 5, byPlatform: { psn: 3, xbox: 2, retro: 1 } });
   });
 
   it("a list short of 100% or with a suspicious unlock pays no bonus", () => {
@@ -59,7 +59,7 @@ describe("platinumCount (one per list)", () => {
     ];
     expect(
       platinumCount([native("old", null, "psn")], [list("a", "gta", "psn", "psn:PS4", { completed: false })], completions),
-    ).toEqual({ platinums: 2, psnPlatinums: 1, perVersion: 2 });
+    ).toEqual({ platinums: 2, psnPlatinums: 1, perVersion: 2, byPlatform: { psn: 1, steam: 1 } });
   });
 
   it("a list-less platinum keeps counting until a list row holds the same trophy", () => {

@@ -76,7 +76,7 @@ describe("platinumTally", () => {
     for (const console of ["PS4", "PS5", "PS5"]) {
       await addList(user.id, game.id, { platform: "psn", console, platinumTrophy: true, earned: 3, completed: true });
     }
-    expect(await platinumTally(user.id)).toEqual({ platinums: 3, psnPlatinums: 3, perVersion: 2 });
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 3, psnPlatinums: 3, perVersion: 2 });
   });
 
   it("PS4 + PS5 without a platinum trophy, both 100% = 2", async () => {
@@ -99,7 +99,7 @@ describe("platinumTally", () => {
     const user = await newUser();
     const game = await newGame("DLC");
     await addList(user.id, game.id, { platform: "psn", console: "PS4", platinumTrophy: true, earned: 2 });
-    expect(await platinumTally(user.id)).toEqual({ platinums: 1, psnPlatinums: 1, perVersion: 1 });
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 1, psnPlatinums: 1, perVersion: 1 });
   });
 
   it("the header equals the platinums the ledger pays (one per list), on a mixed library", async () => {

@@ -5,8 +5,9 @@ import { catalogPlatforms, tierOf, type TierCounts } from "./game-profile";
 
 /*
  * A game's versions: one per Steam, per PSN console, per Xbox title and per RA set. A version with
- * several regional lists counts once (its best list). `getGameVersions` is the public part (cached
- * with the game profile); `getPlayerVersions` is one player's progress, never cached.
+ * several regional lists shows its best list's progress (every list still pays its own XP and
+ * platinum). `getGameVersions` is the public part (cached with the game profile);
+ * `getPlayerVersions` is one player's progress, never cached.
  */
 
 export type VersionList = { id: string; label: string | null; trophyCount: number };

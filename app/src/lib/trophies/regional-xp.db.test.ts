@@ -169,16 +169,24 @@ describe("regionalListXp (pnpm trophy-lists:regional-xp)", () => {
   it("restores, once, a JP own-id entry the old rule voided under the current link (merged into the canonical key)", async () => {
     // Production case (phase a finish, 2026-11-05 21h UTC): the JP list was read first and its
     // trophies paid by own id; the EU rows came later and the old rule moved them to the EU keys.
-    const { user, entry, totalXp, bonus } = await voidedJpEntry(T0, at(60));
-    const [dry] = await regionalListXp({ dryRun: true, handle: user.handle, now: NOW });
+    const { user, game, jp, entry, totalXp, bonus } = await voidedJpEntry(T0, at(60));
+    const lines: string[] = [];
+    const [dry] = await regionalListXp({ dryRun: true, handle: user.handle, now: NOW, log: (l) => lines.push(l) });
     expect(dry).toMatchObject({
       // JP "0" and the JP platinum created, JP "1" restored.
-      created: { trophies: 2, platinums: 1 },
+      created: { trophies: 1, platinums: 1 },
+      restored: 1,
+      entries: {
+        created: [`achievement:${jp.trophies[0].id}`, `platinum:psn:${jp.list.externalId}:${game.id}`].sort(),
+        restored: [{ id: entry.id, source: "achievement", sourceKey: jp.trophies[1].id, voidedAt: at(60).toISOString() }],
+      },
       voided: 0,
       unpaid: { voidedUnderLink: 0, voidedBeforeLink: 0, blocked: 0 },
       paid: { trophies: [4, 4], platinums: [2, 2] },
     });
     expect(await prisma.xpLedgerEntry.findUniqueOrThrow({ where: { id: entry.id } })).toMatchObject({ voidedAt: at(60) });
+    // The restored entries are logged by the hour they were voided.
+    expect(lines).toContain(`  ${user.handle}: 1 entries voided at ${at(60).toISOString().slice(0, 13)}h (${tierXp("bronze").toLocaleString("pt-BR")} XP), restored`);
 
     const [report] = await regionalListXp({ dryRun: false, handle: user.handle, now: NOW });
     expect(report).toEqual(dry);
@@ -189,7 +197,7 @@ describe("regionalListXp (pnpm trophy-lists:regional-xp)", () => {
 
     const ledger = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } });
     const [again] = await regionalListXp({ dryRun: false, handle: user.handle, now: new Date(NOW.getTime() + 60_000) });
-    expect(again).toMatchObject({ created: { trophies: 0, platinums: 0 }, voided: 0, xp: [totalXp + added, totalXp + added] });
+    expect(again).toMatchObject({ created: { trophies: 0, platinums: 0 }, restored: 0, voided: 0, xp: [totalXp + added, totalXp + added] });
     expect(await prisma.xpLedgerEntry.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } })).toEqual(ledger);
   });
 
