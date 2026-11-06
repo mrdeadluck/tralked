@@ -641,6 +641,26 @@ describe("coleta + publica", () => {
     expect((await h.publica()).published).toBeNull();
   });
 
+  it("a story whose game lookup failed (429) is not queued that run, so a covered news is not published twice", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    h.site.state.feed = [
+      { id: "ed-1", slug: "x", title: "Hades II recebe arma nova", category: "GAMES", publishedAt: h.clock.now.toISOString(), source: "editorial", games: ["hades-ii"] },
+    ];
+    const findGame = h.site.tralked.findGame;
+    h.site.tralked.findGame = async () => {
+      throw new TralkedError(429, "rate_limited", "calma");
+    };
+    h.post("ign", "Hades II ganha arma nova", { headline: "Hades II recebe arma nova", importance: 60 });
+    h.post("kotaku", "Hades II adds a new weapon", { headline: "Hades II recebe arma nova", importance: 60 });
+    const first = await h.coleta();
+    expect(first.queued).toBe(0);
+    expect(stories(h.db)[0]!.status).toBe("open");
+
+    h.site.tralked.findGame = findGame;
+    h.at(local("2026-10-31T09:30"));
+    expect((await h.coleta()).covered).toBe(1);
+  });
+
   it("keeps a story whose title matches a feed article about another game", async () => {
     const h = harness(local("2026-10-31T09:00"));
     h.site.state.feed = [

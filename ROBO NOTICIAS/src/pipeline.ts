@@ -328,7 +328,7 @@ export async function pool<T>(items: T[], concurrency: number, worker: (item: T)
  * A game with a destination (`gameDestination`: Mass Effect 1-3 → Legendary Edition) resolves to it,
  * whether the triage named it or the catalog search found it.
  */
-function gameResolver(tralked: Tralked) {
+function gameResolver(tralked: Tralked, onError?: (name: string, error: unknown) => void) {
   const cache = new Map<string, Promise<{ slug: string; name: string } | null>>();
   return (name: string) => {
     const key = name.trim().toLowerCase();
@@ -340,7 +340,10 @@ function gameResolver(tralked: Tralked) {
         : tralked
             .findGame(name)
             .then((found) => (found ? (gameDestination(found.name) ?? gameDestination(found.slug) ?? found) : null))
-            .catch(() => null);
+            .catch((error: unknown) => {
+              onError?.(name, error);
+              return null;
+            });
       cache.set(key, hit);
     }
     return hit;
@@ -1287,27 +1290,33 @@ function expireStale(deps: PipelineDeps, report: ColetaReport, now: Date): void 
  * - a company in common, for a story without a catalog game (itch.io twice on 03/11). The article's
  *   companies are the ones stored when the robot published it (`articles.companies_json`, or its story's
  *   triage for older rows); for an article the robot did not write, a company named in its title counts.
- * A follow-up never counts as covered by its own parent article.
+ * A follow-up never counts as covered by its own parent article. A story whose game lookup failed (the
+ * site's 429 or a network error) goes in `opts.uncertain` instead of being judged without its games.
  */
 export async function coveredStories(
   candidates: StoryRow[],
   feed: FeedArticle[],
   deps: PipelineDeps,
   bucket: SpendBucket = "live",
+  opts: { uncertain?: Set<number> } = {},
 ): Promise<Set<number>> {
   const { db, ai, config } = deps;
   const covered = new Set<number>();
   if (candidates.length === 0 || feed.length === 0) return covered;
 
-  const resolve = gameResolver(deps.tralked);
+  const failedNames = new Set<string>();
+  const resolve = gameResolver(deps.tralked, (name) => failedNames.add(name));
   const slugs = new Map<number, string[]>();
   for (const story of candidates) {
     const found: string[] = [];
+    let failed = false;
     for (const name of parseGames(story.games_json)) {
       const hit = await resolve(name);
       if (hit) found.push(hit.slug);
+      else if (failedNames.has(name)) failed = true;
     }
     slugs.set(story.id, found);
+    if (failed) opts.uncertain?.add(story.id);
   }
 
   const feedByKey = new Map(feed.map((a) => [`${FEED_KEY_PREFIX}${a.id}`, a]));
@@ -1388,8 +1397,13 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
 
   const fresh = dropRecurringRepeats(candidates, deps, report);
   const remaining = await dedupeVideoStories(fresh, feed, deps, report, now);
-  const covered = await coveredStories(remaining, feed, deps);
+  const uncertain = new Set<number>();
+  const covered = await coveredStories(remaining, feed, deps, "live", { uncertain });
   for (const story of remaining) {
+    if (uncertain.has(story.id) && !covered.has(story.id)) {
+      deps.log?.(`história ${story.id} fica para a próxima coleta (a busca do jogo no site falhou)`);
+      continue;
+    }
     if (covered.has(story.id)) {
       if (db.setStoryStatusIf(story.id, "dropped", ["open", "queued"])) report.covered++;
     } else if (story.status === "open") {
