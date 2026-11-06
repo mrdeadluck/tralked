@@ -1,5 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
-import { rarityCounts } from "@/lib/character/counts";
+import { platinumTally, rarityCounts } from "@/lib/character/counts";
 import { prisma } from "@/lib/db";
 import type { PlatformId } from "@/lib/engine/trophies";
 import type { RarityTier } from "@/lib/engine/types";
@@ -34,7 +34,12 @@ export type ProfileSummary = {
   totalXp: number;
   /** Playtime over every platform (minutes). */
   playtimeMin: number;
-  gamesOwned: number;
+  /** "Jogos": distinct games of the library, each once over its platforms (the Jogos tab count). */
+  gamesCount: number;
+  /** "Platinas (contam no XP)": one per version (PS4 and PS5 are two), as the sheet counts them. */
+  platinums: number;
+  /** "Listas regionais extras": platinum lists beyond the first of each version (no XP). */
+  regionalExtras: number;
   /** Valid unlocks over every platform (the Conquistas tab count). */
   achievements: number;
   /** Games on the wishlist (the Lista de desejos tab count). */
@@ -54,9 +59,9 @@ export async function getTotalPlaytimeMin(userId: string): Promise<number> {
   return playtime._sum.playtimeMin ?? 0;
 }
 
-/** The header of every profile tab (avatar, level, XP, platforms, hours, tab counts). */
+/** The header of every profile tab (avatar, level, XP, platforms, hours, counters, tab counts). */
 export async function getProfileSummary(userId: string): Promise<ProfileSummary | null> {
-  const [user, playtimeMin, owned, achievements, wishlist, accounts, recent, top] = await Promise.all([
+  const [user, playtimeMin, owned, achievements, wishlist, accounts, recent, top, tally] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -88,6 +93,7 @@ export async function getProfileSummary(userId: string): Promise<ProfileSummary 
       take: BACKDROP_GAMES * 2,
       select: { gameId: true, game: { select: GAME_ART_SELECT } },
     }),
+    platinumTally(userId),
   ]);
   if (!user) return null;
   const byPlatform = new Map(accounts.map((a) => [a.platform, a]));
@@ -101,7 +107,9 @@ export async function getProfileSummary(userId: string): Promise<ProfileSummary 
     vocation: user.stats?.vocation ?? "Recruta",
     totalXp: user.stats?.totalXp ?? 0,
     playtimeMin,
-    gamesOwned: owned.length,
+    gamesCount: owned.length,
+    platinums: tally.platinums,
+    regionalExtras: tally.regionalExtras,
     achievements,
     wishlist,
     platforms: PLATFORM_ORDER.flatMap((platform) => {

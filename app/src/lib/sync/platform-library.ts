@@ -2,6 +2,7 @@ import type { TrophyTier } from "@/lib/engine/trophies";
 import { getPsn, getRetro, getXbox } from "@/lib/integrations";
 import type { PsnPlayedGame } from "@/lib/integrations/psn/types";
 import { psnConsoleCode, regionOf, xboxConsoleOf } from "@/lib/trophies/lists";
+import { definitionsProblem, knownCounts, sameTierCounts, type TierCounts } from "@/lib/trophies/psn-definitions";
 import { mapNewTitles } from "./psn-concepts";
 
 /** Platforms imported by the platform sync (Steam is linked by code too, but has its own sync: lib/sync/user.ts). */
@@ -100,6 +101,8 @@ export type StoredProgress = {
   /** The row's playtime was written by a Plano 4 sync (`playtimeUpdatedAt`). */
   playtimeSynced?: boolean;
   lastPlayedAt?: Date | null;
+  /** PSN: the trophy list's stored rows per tier (a list read for this user). */
+  definitions?: TierCounts;
 };
 
 export type ReadOptions = {
@@ -160,16 +163,23 @@ type Listed<T> = {
   hardcore?: number;
   /** The title also carries play time: a row whose playtime predates Plano 4 is read again once. */
   carriesPlaytime?: boolean;
+  /** PSN: the trophies the list defines per tier (`definedTrophies`); all zero when Sony gave none. */
+  defined?: TierCounts;
 };
 
 const sameCounts = (listed: Listed<unknown>, counts: { unlocked: number; hardcore?: number }) =>
   counts.unlocked === listed.unlocked && (listed.hardcore === undefined || counts.hardcore === listed.hardcore);
 
-/** Stored counts (or the listed counts remembered for the title) match the list; play time read. */
+/**
+ * Stored counts (or the listed counts remembered for the title) match the list; play time read;
+ * PSN: the stored trophies per tier are the ones the list defines (a list stored with another
+ * list's trophies is read again and rebuilt).
+ */
 const upToDate = (listed: Listed<unknown>, stored: StoredProgress | undefined) =>
   stored !== undefined &&
   (sameCounts(listed, stored) || (stored.listed !== undefined && sameCounts(listed, stored.listed))) &&
-  (!listed.carriesPlaytime || stored.playtimeSynced === true);
+  (!listed.carriesPlaytime || stored.playtimeSynced === true) &&
+  (!knownCounts(listed.defined) || stored.definitions === undefined || sameTierCounts(listed.defined, stored.definitions));
 
 async function collect<T>(
   items: Listed<T>[],
@@ -223,10 +233,15 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
       id: t.npTitleId,
       lastUpdated: t.lastPlayed,
       unlocked: Object.values(t.earnedCounts).reduce((sum, n) => sum + n, 0),
+      defined: t.trophyCounts,
     }));
   const result = await collect(played, options, async (t) => {
     const trophies = await psn.getTrophies(account.externalId, t.npTitleId, t.serviceName);
     if (trophies === "private") return "private";
+    // An answer that cannot be this list's (Sony once served another title's list for an id) is a
+    // failed read: nothing is written and the next run reads the title again.
+    const problem = definitionsProblem(t.npTitleId, t.trophyCounts, trophies);
+    if (problem) throw new Error(`PSN trophy definitions of ${t.npTitleId} do not match the list: ${problem}`);
     return {
       externalId: t.npTitleId,
       name: t.name,

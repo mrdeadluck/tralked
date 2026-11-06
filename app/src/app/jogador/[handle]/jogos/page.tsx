@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { PLATFORM_LABEL, PLATFORM_TOKEN } from "@/components/character/platforms";
+import { LibraryCoverGrid } from "@/components/profile/LibraryCoverGrid";
 import { LibraryGameRow } from "@/components/profile/LibraryGameRow";
 import { PrivateProfile, SectionSkeleton } from "@/components/profile/PrivateProfile";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
@@ -27,7 +28,7 @@ import type { PlayerHeader } from "@/lib/queries/players";
 import { getPlayerHeaderCached } from "@/lib/queries/players-cached";
 import { cleanQuery } from "@/lib/search/fold";
 
-const KEYS = ["q", "plataforma", "ordem", "secao", "por", PAGE_PARAM] as const;
+const KEYS = ["q", "plataforma", "ordem", "secao", "vista", "por", PAGE_PARAM] as const;
 const SORT_LABEL: Record<ProfileGameSort, string> = {
   horas: "Horas",
   recentes: "Recentes",
@@ -68,7 +69,7 @@ async function ProfileGames({
   if (!visible) return <PrivateProfile displayName={header.displayName} />;
 
   const params = await searchParams;
-  const [summary, library] = await Promise.all([getProfileSummary(header.id), getUserLibrary(header.id)]);
+  const [summary, library] = await Promise.all([getProfileSummary(header.id), getUserLibrary(header.id, { versions: true })]);
   if (!summary) notFound();
 
   const state = pickParams(params, KEYS);
@@ -76,6 +77,8 @@ async function ProfileGames({
   const platform = platforms.find((p) => p === state.plataforma) as PlatformId | undefined;
   const sort = (PROFILE_GAME_SORTS as readonly string[]).includes(state.ordem ?? "") ? (state.ordem as ProfileGameSort) : "horas";
   const section: LibrarySection = state.secao === "nunca" ? "nunca" : "jogados";
+  // The cover grid is the main view; the rows (hours, unlocks, last played) stay one click away.
+  const view = state.vista === "lista" ? "lista" : "capas";
   const q = cleanQuery(state.q);
   const { page, perPage } = parsePagination(params);
 
@@ -85,6 +88,7 @@ async function ProfileGames({
     plataforma: platform,
     ordem: sort === "horas" ? undefined : sort,
     secao: section === "nunca" ? "nunca" : undefined,
+    vista: view === "lista" ? "lista" : undefined,
     por: perPageParam(perPage),
   };
   const link = (changes: Record<string, string | undefined>) => hrefWith(base, kept, { ...changes, [PAGE_PARAM]: undefined });
@@ -147,6 +151,15 @@ async function ProfileGames({
               }))}
               current={sort}
             />
+            <LinkChips
+              label="Ver como capas ou lista"
+              caption="Ver"
+              options={[
+                { id: "capas", label: "Capas", href: link({ vista: undefined }) },
+                { id: "lista", label: "Lista", href: link({ vista: "lista" }) },
+              ]}
+              current={view}
+            />
           </div>
 
           <section aria-labelledby="lista-jogos">
@@ -156,11 +169,15 @@ async function ProfileGames({
               {q ? ` para “${q}”` : ""}
             </h2>
             {list.items.length > 0 ? (
-              <ul className="m-0 grid list-none gap-0.5 p-0">
-                {list.items.map((game) => (
-                  <LibraryGameRow key={game.gameId} game={game} />
-                ))}
-              </ul>
+              view === "capas" ? (
+                <LibraryCoverGrid games={list.items} label="Jogos da biblioteca" />
+              ) : (
+                <ul className="m-0 grid list-none gap-0.5 p-0">
+                  {list.items.map((game) => (
+                    <LibraryGameRow key={game.gameId} game={game} />
+                  ))}
+                </ul>
+              )
             ) : (
               <p className="py-6 text-muted">
                 {section === "nunca" ? "Nenhum jogo parado na estante com esses filtros." : "Nenhum jogo com esses filtros."}

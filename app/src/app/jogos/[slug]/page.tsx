@@ -12,6 +12,8 @@ import { FamilyPlayers } from "@/components/game/FamilyPlayers";
 import { MediaRail } from "@/components/game/MediaRail";
 import { RetroAchievementsLoader } from "@/components/game/RetroAchievementsLoader";
 import { ShotsRail } from "@/components/game/ShotsRail";
+import { introDisc, listedVersions, trophyWord, versionMarks, versionTabs, type TabsMarks } from "@/components/game/version-views";
+import { VersionTabs } from "@/components/game/VersionTabs";
 import { SimilarShelf } from "@/components/game/SimilarShelf";
 import { loginHref } from "@/components/guide/format";
 import { NewsTabs } from "@/components/news/NewsTabs";
@@ -30,6 +32,7 @@ import { getRetroAchievementsDue } from "@/lib/queries/retro-achievements";
 import { getSteamPlayers, type SteamPlayersView } from "@/lib/queries/steam-players";
 import { JsonLd, videoGameJsonLd } from "@/lib/seo/json-ld";
 import { gameMetadata } from "./metadata";
+import { moreVersionTrophies } from "./trophy-actions";
 
 export async function generateStaticParams() {
   // The most played games (capped). Cache Components needs at least one sample: on an empty
@@ -123,6 +126,7 @@ const delay = (d: string) => ({ "--d": d }) as CSSProperties;
 async function IntroIsland({ profile, steamPlayers }: { profile: GameProfile; steamPlayers: SteamPlayersView | null }) {
   const me = await visitor(profile.slug);
   const best = me?.profile?.progress;
+  const disc = introDisc(me?.profile?.versions ?? null);
   const platformLabel = best
     ? best.platforms.map((p) => PLATFORM_NAME[p.platform]).join(" · ").toUpperCase()
     : profile.platforms.includes("PC")
@@ -144,8 +148,8 @@ async function IntroIsland({ profile, steamPlayers }: { profile: GameProfile; st
       back={backCover(profile, steamPlayers)}
       disc={profile.art.disc}
       platformLabel={platformLabel}
-      plat={Boolean(best?.completed)}
-      discLabel={best?.completed ? `TRALKED! · ${best.best.unlocked}/${best.best.total}` : "TRALKED · DISCO 1"}
+      plat={disc.plat}
+      discLabel={disc.discLabel}
       bookletNote={profile.guide ? "Guia de conquistas 100%" : "Encarte do jogo"}
       account={me ? { opened: Boolean(me.profile?.opened), introOff: me.introOff } : null}
     />
@@ -155,6 +159,12 @@ async function IntroIsland({ profile, steamPlayers }: { profile: GameProfile; st
 async function ProgressIsland({ profile, login }: { profile: GameProfile; login: string }) {
   const me = await visitor(profile.slug);
   return <BookletProgress profile={profile} user={me ? (me.profile ?? null) : undefined} loginHref={login} />;
+}
+
+/** The player's marks on the trophy tabs (per request); null for a visitor or a player without the game. */
+async function trophyMarks(profile: GameProfile): Promise<TabsMarks | null> {
+  const me = await visitor(profile.slug);
+  return versionMarks(profile.versions, me?.profile?.versions ?? null);
 }
 
 function attributesAside(profile: NonNullable<Awaited<ReturnType<typeof getGameProfileForUser>>>) {
@@ -250,6 +260,17 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
             <ProgressIsland profile={profile} login={login} />
           </Suspense>
         }
+      />
+
+      {/* The trophy lists of each version: the public tabs once in the shell (the first rows of
+          each list), the player's marks streamed in as a promise, the rest of a list on demand. */}
+      <VersionTabs
+        tabs={versionTabs(profile.versions)}
+        marks={trophyMarks(profile)}
+        loadMore={moreVersionTrophies.bind(null, profile.slug)}
+        label={`Versões de ${profile.name}`}
+        title={trophyWord(listedVersions(profile.versions))}
+        aside={listedVersions(profile.versions).length > 1 ? "Uma aba por versão" : null}
       />
 
       <Suspense

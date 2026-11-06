@@ -3,9 +3,7 @@ import type { PhotoCardView } from "@/lib/community/gallery";
 import { prisma } from "@/lib/db";
 import { ATTRIBUTES, attributeLevel, type AttributeId } from "@/lib/engine/attributes";
 import { trophyTierFromRarity, type PlatformId, type TrophyTier } from "@/lib/engine/trophies";
-import { validCompletions } from "@/lib/progression/completions";
-import { versionKey } from "@/lib/trophies/lists";
-import { platinumCount } from "./counts";
+import { platinumTally } from "./counts";
 
 /**
  * Character sheet v2 (Plan 2): attributes, linked platforms, trophies by tier and the player's
@@ -66,33 +64,25 @@ type UnlockRow = {
   platform: string;
   trophyTier: string | null;
   globalPct: number | null;
-  /** Version of the trophy list (PS4 and PS5 platinums are two); absent for list-less rows. */
-  versionKey?: string;
 };
 
 const TIERS = new Set<string>(["bronze", "silver", "gold", "platinum"]);
 
 /**
- * Trophies by tier, with the same rules as the Glória attribute: the native tier (PSN) when there
- * is one, otherwise the tier from the global rarity; a game completed on a platform without a
- * native platinum (Steam, Xbox, RetroAchievements) counts as one platinum.
+ * Trophies by tier: the native tier (PSN) when there is one, otherwise the tier from the global
+ * rarity. The platinum tier is `platinums`, the header's "Platinas (contam no XP)"
+ * (lib/character/counts platinumCount: one per version, as the ledger pays them).
  */
-export function summarizeTrophies(
-  unlocks: UnlockRow[],
-  completions: { gameId: string; platform: string }[],
-): TrophySummary {
+export function summarizeTrophies(unlocks: UnlockRow[], platinums: number): TrophySummary {
   const tiers: TrophyTotals = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
   const perPlatform = new Map<string, number>();
-  const nativePlatinum: UnlockRow[] = [];
   for (const u of unlocks) {
     const tier =
       u.trophyTier && TIERS.has(u.trophyTier) ? (u.trophyTier as TrophyTier) : trophyTierFromRarity(u.globalPct);
-    if (tier === "platinum") nativePlatinum.push(u);
-    else tiers[tier]++;
+    if (tier !== "platinum") tiers[tier]++;
     perPlatform.set(u.platform, (perPlatform.get(u.platform) ?? 0) + 1);
   }
-  // The sheet's "Platinas" counts with the same function (lib/character/counts).
-  tiers.platinum = platinumCount(nativePlatinum, completions);
+  tiers.platinum = platinums;
   return {
     tiers,
     byPlatform: PLATFORM_ORDER.filter((p) => perPlatform.has(p)).map((platform) => ({
@@ -116,7 +106,7 @@ export type CharacterSheetExtras = {
 };
 
 export async function getCharacterSheetExtras(userId: string): Promise<CharacterSheetExtras> {
-  const [user, attributeRows, accounts, unlocks, completions, photos] = await Promise.all([
+  const [user, attributeRows, accounts, unlocks, tally, photos] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { bio: true, steamId: true, lastSyncedAt: true, lastSyncAttemptAt: true },
@@ -135,13 +125,12 @@ export async function getCharacterSheetExtras(userId: string): Promise<Character
             platform: true,
             trophyTier: true,
             globalPct: true,
-            list: { select: { platform: true, console: true, externalId: true } },
           },
         },
       },
     }),
-    // A tainted 100% (suspicious unlock) is no platinum, as in Glória and the sheet's counters.
-    validCompletions(userId),
+    // The same platinums as the profile header (a tainted 100% is no platinum).
+    platinumTally(userId),
     listPhotosByAuthor(userId, SHEET_PHOTO_LIMIT),
   ]);
 
@@ -167,8 +156,8 @@ export async function getCharacterSheetExtras(userId: string): Promise<Character
     attributes,
     platforms,
     trophies: summarizeTrophies(
-      unlocks.map(({ achievement: { list, ...a } }) => ({ ...a, versionKey: list ? versionKey(list) : a.platform })),
-      completions,
+      unlocks.map((u) => u.achievement),
+      tally.platinums,
     ),
     photos: { items: photos.photos, total: photos.total },
   };

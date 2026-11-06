@@ -9,7 +9,9 @@ function game(name: string, over: Partial<LibraryGame> = {}): LibraryGame {
     name,
     coverUrl: null,
     steamAppId: null,
+    portraitChecked: false,
     stub: false,
+    versions: [],
     platforms: [
       { platform: "steam", playtimeMin: 0, playtime2WeeksMin: null, lastPlayedAt: null, unlockedCount: 0, achievementTotal: 0, completedAt: null },
     ],

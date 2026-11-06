@@ -97,7 +97,7 @@ describe.skipIf(!reachable)("profile queries (seeded database)", () => {
       getPlaytimeTotals(user.id),
       listUserAchievements(user.id, {}),
     ]);
-    expect(summary).toMatchObject({ handle: "lucas", playtimeMin: totals.totalMin, gamesOwned: totals.gamesOwned });
+    expect(summary).toMatchObject({ handle: "lucas", playtimeMin: totals.totalMin, gamesCount: totals.gamesOwned });
     expect(stats.achievements).toBe(all.total);
     expect(stats.achievementsByPlatform.reduce((s, r) => s + r.count, 0)).toBe(all.total);
     expect(stats.achievementsByYear.reduce((s, r) => s + r.count, 0)).toBe(all.total);
