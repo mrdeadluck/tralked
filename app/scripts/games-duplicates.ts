@@ -43,7 +43,9 @@ try {
   mkdirSync(outDir, { recursive: true });
   const jsonFile = join(outDir, `duplicados-${date}.json`);
   const mdFile = join(outDir, `duplicados-${date}.md`);
-  writeFileSync(jsonFile, `${JSON.stringify({ date, summary, groups }, null, 2)}\n`);
+  // One group per line: the file is large and a line-based diff stays readable.
+  const lines = groups.map((g) => JSON.stringify(g)).join(",\n");
+  writeFileSync(jsonFile, `{"date":${JSON.stringify(date)},"summary":${JSON.stringify(summary)},"groups":[\n${lines}\n]}\n`);
   writeFileSync(mdFile, renderMarkdown(groups, date));
   log.info(`${groups.length} candidate groups: ${JSON.stringify(summary)}`);
   log.info(`Wrote ${jsonFile} and ${mdFile}. Nothing written to the database. Done in ${formatDuration(Date.now() - started)}.`);
