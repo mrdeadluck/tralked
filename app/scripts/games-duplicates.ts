@@ -61,8 +61,8 @@ ${lines}
 ]}
 `);
   };
-  // The repository gets the groups that move something and every other-edition group; the .md lists the rest.
-  const heavy = groups.filter((g) => hasContent(g) || g.verdict === "outra-edicao");
+  // The repository gets the groups that move something, every review and every other-edition group; placeholders stay out; the .md lists the rest.
+  const heavy = groups.filter((g) => g.verdict !== "placeholder" && (hasContent(g) || g.verdict === "outra-edicao" || g.verdict === "revisar"));
   write(fullFile, groups, { slice: "completo" });
   write(jsonFile, heavy, { slice: "grupos com conteúdo para mover e todos os de outra edição", omitted: groups.length - heavy.length });
   writeFileSync(mdFile, renderMarkdown(groups, date));
