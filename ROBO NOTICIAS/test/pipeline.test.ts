@@ -96,7 +96,17 @@ function page(title: string): string {
 // Fake AI: triage, clustering, writer and checker, answered by purpose
 // ---------------------------------------------------------------------------------------------
 
-type Fact = { headline: string; importance: number; games?: string[]; keep?: boolean; rumor?: boolean };
+type Fact = {
+  headline: string;
+  importance: number;
+  games?: string[];
+  keep?: boolean;
+  rumor?: boolean;
+  companies?: string[];
+  topic?: string;
+  platforms?: string[];
+  recurring?: string | null;
+};
 
 const DRAFT: Draft = {
   title: "Matéria do robô",
@@ -142,10 +152,13 @@ function fakeAi(facts: Map<string, Fact>) {
               keep: f.keep ?? true,
               category: "GAMES",
               games: f.games ?? ["Hades II"],
-              companies: [],
+              companies: f.companies ?? [],
               rumor: f.rumor ?? false,
               importance: f.importance,
               headlinePt: f.headline,
+              topic: f.topic ?? "atualizacao",
+              platforms: f.platforms ?? ["multi"],
+              recurring: f.recurring ?? null,
             },
           ];
         }),
@@ -1067,6 +1080,51 @@ describe("coverage and feed", () => {
     h.site.state.feedError = null;
     h.at(local("2026-10-31T09:30"));
     expect((await h.coleta()).queued).toBe(1);
+  });
+});
+
+describe("topic, platforms and recurring items", () => {
+  it("the story takes the topic of its most important item and the union of the platforms", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    h.post("ign", "Hades II ganha trailer", { headline: "Hades II ganha trailer", importance: 80, topic: "trailer", platforms: ["steam-pc"] });
+    h.post("kotaku", "Hades II trailer", { headline: "Hades II ganha trailer", importance: 50, topic: "anuncio", platforms: ["steam-pc", "nintendo"] });
+    await h.coleta();
+    const [story] = stories(h.db);
+    expect(story!.topic).toBe("trailer");
+    expect(JSON.parse(story!.platforms_json)).toEqual(["steam-pc", "nintendo"]);
+    expect(story!.recurring_key).toBeNull();
+  });
+
+  it("a recurring announcement already published (same key) is dropped, not queued again", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    const old = h.db.upsertStory(
+      { key: "old-psplus", headline: "PS Plus de novembro", category: "GAMES", score: 70, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", recurringKey: "ps-plus:2026-10" },
+      local("2026-10-29T10:00"),
+    );
+    h.db.saveArticle({ storyId: old, payloadJson: "{}", status: "published", siteId: "old-1", publishedAt: local("2026-10-29T10:00").toISOString() });
+    const fact = { headline: "PS Plus revela os jogos de novembro", importance: 60, games: [], topic: "assinaturas-gratis", platforms: ["playstation"], recurring: "ps-plus" };
+    h.post("ign", "PS Plus revela jogos de novembro", fact);
+    h.post("kotaku", "PS Plus November games", fact);
+    const report = await h.coleta();
+    const story = stories(h.db).find((s) => s.id !== old)!;
+    expect(story.recurring_key).toBe("ps-plus:2026-10");
+    expect(story.status).toBe("dropped");
+    expect(report.queued).toBe(0);
+  });
+
+  it("the next month's PS Plus is queued", async () => {
+    const h = harness(local("2026-11-26T09:00"));
+    const old = h.db.upsertStory(
+      { key: "old-psplus", headline: "PS Plus de novembro", category: "GAMES", score: 70, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", recurringKey: "ps-plus:2026-10" },
+      local("2026-10-29T10:00"),
+    );
+    h.db.saveArticle({ storyId: old, payloadJson: "{}", status: "published", siteId: "old-1", publishedAt: local("2026-10-29T10:00").toISOString() });
+    const fact = { headline: "PS Plus revela os jogos de dezembro", importance: 60, games: [], topic: "assinaturas-gratis", platforms: ["playstation"], recurring: "ps-plus" };
+    h.post("ign", "PS Plus revela jogos de dezembro", fact);
+    h.post("kotaku", "PS Plus December games", fact);
+    const report = await h.coleta();
+    expect(report.queued).toBe(1);
+    expect(stories(h.db).find((s) => s.id !== old)!.recurring_key).toBe("ps-plus:2026-11");
   });
 });
 

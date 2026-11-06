@@ -65,6 +65,12 @@ export interface StoryRow {
   story_date: string | null;
   /** Set on a follow-up story: the article it follows up on. */
   parent_article_id: number | null;
+  /** The triage topic of the story's most important item (`TOPICS`), null before topics existed. */
+  topic: string | null;
+  /** JSON array: the union of the items' triage platforms (`PLATFORMS`). */
+  platforms_json: string;
+  /** Recurring announcement key (`recurringKey`): PS Plus, Game Pass, Epic free game. */
+  recurring_key: string | null;
 }
 
 export interface ArticleRow {
@@ -122,6 +128,10 @@ export interface StoryInput {
   lastItemAt?: string;
   /** Follow-up stories: the article they follow up on. Set on insert only. */
   parentArticleId?: number | null;
+  /** Left as stored when omitted. */
+  topic?: string | null;
+  platformsJson?: string;
+  recurringKey?: string | null;
 }
 
 export interface ArticleInput {
@@ -233,7 +243,10 @@ CREATE TABLE IF NOT EXISTS stories (
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','queued','written','published','dropped','expired')),
   mode TEXT NOT NULL DEFAULT 'live' CHECK (mode IN ('live','backfill')),
   story_date TEXT,
-  parent_article_id INTEGER
+  parent_article_id INTEGER,
+  topic TEXT,
+  platforms_json TEXT NOT NULL DEFAULT '[]',
+  recurring_key TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_stories_status ON stories(status);
 
@@ -340,6 +353,9 @@ const ADDED_COLUMNS: [table: string, column: string, ddl: string][] = [
   ["stories", "parent_article_id", "INTEGER"],
   ["items", "video_id", "TEXT"],
   ["items", "media_json", "TEXT"],
+  ["stories", "topic", "TEXT"],
+  ["stories", "platforms_json", "TEXT NOT NULL DEFAULT '[]'"],
+  ["stories", "recurring_key", "TEXT"],
 ];
 
 function addMissingColumns(raw: DatabaseSync): void {
@@ -408,6 +424,8 @@ export interface Db {
   storyByKey(key: string): StoryRow | undefined;
   /** Follow-up stories of an article, newest first. */
   followUpsOf(articleId: number): StoryRow[];
+  /** Stories of one recurring announcement (`recurringKey`), in id order. */
+  storiesWithRecurringKey(key: string): StoryRow[];
 
   recordSpend(bucket: SpendBucket, purpose: string, model: string, usd: number, at?: Date): void;
   spentToday(bucket: SpendBucket, now?: Date): number;
@@ -523,10 +541,17 @@ export function openDb(dir: string): Db {
 
     upsertStory(s, now = new Date()) {
       const last = s.lastItemAt ?? iso(now);
+      const optional = [
+        ["status", s.status] as const,
+        ["topic", s.topic] as const,
+        ["platforms_json", s.platformsJson] as const,
+        ["recurring_key", s.recurringKey] as const,
+      ].filter(([, v]) => v !== undefined);
+      const updates = optional.map(([col]) => `, ${col} = excluded.${col}`).join("");
       raw
         .prepare(
-          `INSERT INTO stories (key, headline, category, score, bomb, rumor, games_json, first_seen_at, last_item_at, status, mode, story_date, parent_article_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO stories (key, headline, category, score, bomb, rumor, games_json, first_seen_at, last_item_at, status, mode, story_date, parent_article_id, topic, platforms_json, recurring_key)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(key) DO UPDATE SET
              headline = excluded.headline,
              category = excluded.category,
@@ -536,9 +561,7 @@ export function openDb(dir: string): Db {
              games_json = excluded.games_json,
              last_item_at = excluded.last_item_at,
              mode = excluded.mode,
-             story_date = COALESCE(excluded.story_date, stories.story_date)${
-               s.status ? ",\n             status = excluded.status" : ""
-             }`,
+             story_date = COALESCE(excluded.story_date, stories.story_date)${updates}`,
         )
         .run(
           s.key,
@@ -554,8 +577,15 @@ export function openDb(dir: string): Db {
           s.mode,
           s.storyDate ?? null,
           s.parentArticleId ?? null,
+          s.topic ?? null,
+          s.platformsJson ?? "[]",
+          s.recurringKey ?? null,
         );
       return one<{ id: number }>("SELECT id FROM stories WHERE key = ?", s.key)!.id;
+    },
+
+    storiesWithRecurringKey(key) {
+      return rows<StoryRow>("SELECT * FROM stories WHERE recurring_key = ? ORDER BY id", key);
     },
 
     attachItem(storyId, itemId) {

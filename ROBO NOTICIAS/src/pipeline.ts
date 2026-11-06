@@ -4,7 +4,7 @@ import { BudgetExceededError, RefusalError, UsageLimitError, type Ai } from "./a
 import { withUsageRef } from "./ai/usage-context.js";
 import { clusterItems, openStories, storyKeyOf, type ClusterItem, type OpenStory } from "./ai/cluster.js";
 import { checkNovelty } from "./ai/novelty.js";
-import { CATEGORIES, triageItems, type Triage, type TriageInput } from "./ai/triage.js";
+import { CATEGORIES, PLATFORMS, RECURRING, TOPICS, triageItems, type Topic, type Triage, type TriageInput } from "./ai/triage.js";
 import { writeAndCheck, type StoryForWriting, type StorySource } from "./ai/writer.js";
 import { alert, alertOncePerDay, checkSourceHealth } from "./alerts.js";
 import { assemble, type ArticleMedia, type MediaImage } from "./assemble.js";
@@ -36,6 +36,7 @@ import {
   writePauta,
   type FamousGame,
 } from "./pautas.js";
+import { recurringKey } from "./recurring.js";
 import { TIER_WEIGHT, isBomb, isExpired, isPublishable, storyScore, type Tier } from "./rank.js";
 import {
   TralkedError,
@@ -405,6 +406,12 @@ export type StoryFacts = {
   lastItemAt: number;
   /** No text source besides an official video (see `isVideoOnly`). */
   videoOnly: boolean;
+  /** The topic of the most important item; null when its triage predates topics. */
+  topic: Topic | null;
+  /** The union of the items' platforms, in first-seen order. */
+  platforms: string[];
+  /** `recurringKey` of the most important recurring item, dated by the story's earliest item. */
+  recurringKey: string | null;
 };
 
 export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): StoryFacts {
@@ -424,7 +431,15 @@ export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): Stor
     triages.some((t) => t.rumor) && !withTriage.some(({ item, t }) => tierOf(item) === "oficial" && !t.rumor);
   // R15: at least one source with extracted text (title-only Google News items have none).
   const hasFullText = items.some((i) => i.text_unavailable !== 1 && hasRealText(i.text));
-  const top = [...triages].sort((a, b) => b.importance - a.importance)[0];
+  const ranked = [...triages].sort((a, b) => b.importance - a.importance);
+  const top = ranked[0];
+  // Triages stored before topics existed have none of these fields.
+  const topic = top && (TOPICS as readonly string[]).includes(top.topic) ? top.topic : null;
+  const platforms = [
+    ...new Set(triages.flatMap((t) => (Array.isArray(t.platforms) ? t.platforms : [])).filter((p) => (PLATFORMS as readonly string[]).includes(p))),
+  ];
+  const recurring = ranked.find((t) => (RECURRING as readonly unknown[]).includes(t.recurring))?.recurring ?? null;
+  const startedAt = items.length > 0 ? Math.min(...items.map((i) => itemTime(i, now))) : Date.parse(story.first_seen_at);
   const stats = { maxImportance, tiers, sourceCount, rumor };
   // A video story stands on the official video alone: a relevant one (importance >= 60), never a rumor.
   const videoOnly = isVideoOnly(items);
@@ -443,10 +458,16 @@ export function storyFacts(story: StoryRow, deps: PipelineDeps, now: Date): Stor
     games: [...new Set(triages.flatMap((t) => t.games))],
     lastItemAt: Math.max(0, ...items.map((i) => itemTime(i, now))),
     videoOnly,
+    topic,
+    platforms,
+    recurringKey: recurring ? recurringKey(recurring, new Date(startedAt)) : null,
   };
 }
 
-/** Recomputes score, bomb, rumor, category, games and last item time; keeps headline, status and mode. */
+/**
+ * Recomputes score, bomb, rumor, category, games, topic, platforms, recurring key and last item time; keeps
+ * headline, status and mode.
+ */
 export function recomputeStory(storyId: number, deps: PipelineDeps, now: Date): StoryFacts | null {
   const story = deps.db.storyById(storyId);
   if (!story) return null;
@@ -462,6 +483,9 @@ export function recomputeStory(storyId: number, deps: PipelineDeps, now: Date): 
       gamesJson: JSON.stringify(facts.games),
       mode: story.mode,
       lastItemAt: new Date(facts.lastItemAt || now.getTime()).toISOString(),
+      topic: facts.topic,
+      platformsJson: JSON.stringify(facts.platforms),
+      recurringKey: facts.recurringKey,
     },
     now,
   );
@@ -1260,7 +1284,8 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
     throw error;
   }
 
-  const remaining = await dedupeVideoStories(candidates, feed, deps, report, now);
+  const fresh = dropRecurringRepeats(candidates, deps, report);
+  const remaining = await dedupeVideoStories(fresh, feed, deps, report, now);
   const covered = await coveredStories(remaining, feed, deps);
   for (const story of remaining) {
     if (covered.has(story.id)) {
@@ -1269,6 +1294,34 @@ async function queueStories(deps: PipelineDeps, report: ColetaReport, now: Date)
       if (db.setStoryStatusIf(story.id, "queued", ["open"])) report.queued++;
     }
   }
+}
+
+/**
+ * A recurring announcement (PS Plus, Game Pass, Epic free game) is covered once: a candidate whose
+ * `recurring_key` belongs to a story already published or being written is dropped, and among candidates
+ * sharing a key only the highest score stays. Returns the candidates still standing.
+ */
+function dropRecurringRepeats(candidates: StoryRow[], deps: PipelineDeps, report: ColetaReport): StoryRow[] {
+  const { db } = deps;
+  const kept = new Set<string>();
+  const dropped = new Set<number>();
+  for (const story of [...candidates].sort((a, b) => b.score - a.score || a.id - b.id)) {
+    const key = story.recurring_key;
+    if (!key) continue;
+    const done = db
+      .storiesWithRecurringKey(key)
+      .some((s) => s.id !== story.id && (s.status === "published" || s.status === "written"));
+    if (done || kept.has(key)) {
+      if (db.setStoryStatusIf(story.id, "dropped", ["open", "queued"])) {
+        dropped.add(story.id);
+        report.covered++;
+        deps.log?.(`item recorrente já coberto (${key}): história ${story.id}`);
+      }
+      continue;
+    }
+    kept.add(key);
+  }
+  return candidates.filter((s) => !dropped.has(s.id));
 }
 
 /**
