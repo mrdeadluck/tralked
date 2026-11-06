@@ -1,0 +1,50 @@
+# One-off manual run of the per-console IGDB backfill (app/scripts/igdb-consoles-backfill.ts), in
+# batches over the non-stub games of the catalog. Manual only: there is no schedule.
+# Needs the repository secrets DATABASE_URL, IGDB_CLIENT_ID and IGDB_CLIENT_SECRET.
+# After a real run (dry_run off), do `VACUUM (ANALYZE) "Game"` once: the backfill leaves dead rows and old statistics.
+name: igdb-consoles
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only print what would change"
+        type: boolean
+        default: true
+
+concurrency:
+  group: igdb-consoles
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Backfill the consoles from IGDB
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
+          IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
+        run: |
+          # Production mode asks for these two; the worker signs nothing, so throwaway values do.
+          export SESSION_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 16)"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            pnpm igdb:consoles --dry-run
+          else
+            pnpm igdb:consoles
+          fi

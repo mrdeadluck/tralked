@@ -3,7 +3,8 @@ import type { CSSProperties } from "react";
 import { RARITY_COLOR, RARITY_LABEL } from "@/components/character/format";
 import { PLATFORM_LABEL } from "@/components/character/platforms";
 import type { ProfileAchievement } from "@/lib/profile/queries";
-import { formatDate, formatGlobalPct } from "./format";
+import { formatGlobalPct } from "./format";
+import { UnlockDate } from "./UnlockDate";
 
 /*
  * "Mais raras" as a showcase of tiles, rarest first: the trophy's icon, its name and game, and the
@@ -58,7 +59,7 @@ export function RareShowcase({ achievements }: RareShowcaseProps) {
               <Link href={`/jogos/${a.game.slug}`} className="text-text-2 hover:text-acc hover:underline">
                 {a.game.name}
               </Link>{" "}
-              · {PLATFORM_LABEL[a.platform]} · <time dateTime={a.unlockedAt.toISOString()}>{formatDate(a.unlockedAt)}</time>
+              · {PLATFORM_LABEL[a.platform]} · <UnlockDate date={a.unlockedAt} />
             </small>
             <span className="mt-1 flex items-baseline gap-1.5 text-[12.5px]">
               <b className="font-extrabold text-text tabular-nums">{pct(a)}</b>

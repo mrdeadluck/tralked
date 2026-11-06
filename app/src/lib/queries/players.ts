@@ -196,8 +196,9 @@ export async function getCharacter(
       },
       orderBy: [{ kind: "asc" }, { title: "asc" }],
     }),
+    // "Recentes": undated unlocks are not recent (and `desc` would put their NULL first).
     db.userAchievement.findMany({
-      where: { userId: user.id, suspicious: false },
+      where: { userId: user.id, suspicious: false, unlockedAt: { not: null } },
       orderBy: { unlockedAt: "desc" },
       take: 6,
       include: {
@@ -304,7 +305,7 @@ export async function getCharacter(
       current: user.stats?.streakCurrent ?? 0,
       best: user.stats?.streakBest ?? 0,
       shields: user.stats?.shields ?? 0,
-      week: lastSevenDays(now, new Set(recentDays.map((r) => toLocalDay(r.unlockedAt)))),
+      week: lastSevenDays(now, new Set(recentDays.flatMap((r) => (r.unlockedAt ? [toLocalDay(r.unlockedAt)] : [])))),
     },
     skills: [...earnable, ...sabio],
     missions: missions.map((m) => {
@@ -319,15 +320,21 @@ export async function getCharacter(
         done: m.completedAt !== null || m.progress >= goal,
       };
     }),
-    recent: recent.map((r) => ({
-      achievementName: r.achievement.name,
-      gameName: r.achievement.game.name,
-      gameSlug: r.achievement.game.slug,
-      globalPct: r.achievement.globalPct,
-      rarity: rarityTier(r.achievement.globalPct ?? 50),
-      xp: xpForAchievement(r.achievement.globalPct),
-      unlockedAt: r.unlockedAt,
-    })),
+    recent: recent.flatMap((r) =>
+      r.unlockedAt
+        ? [
+            {
+              achievementName: r.achievement.name,
+              gameName: r.achievement.game.name,
+              gameSlug: r.achievement.game.slug,
+              globalPct: r.achievement.globalPct,
+              rarity: rarityTier(r.achievement.globalPct ?? 50),
+              xp: xpForAchievement(r.achievement.globalPct),
+              unlockedAt: r.unlockedAt,
+            },
+          ]
+        : [],
+    ),
     almostThere,
   };
 }

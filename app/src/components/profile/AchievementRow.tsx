@@ -5,7 +5,8 @@ import { SkillIcon } from "@/components/character/SkillIcon";
 import { Chip } from "@/components/ui/Chip";
 import type { ProfileAchievement } from "@/lib/profile/queries";
 import { formatCompact } from "@/lib/xp-format";
-import { formatDate, formatGlobalPct } from "./format";
+import { formatGlobalPct } from "./format";
+import { UnlockDate } from "./UnlockDate";
 
 const TROPHY_LABEL: Record<string, string> = { platinum: "Platina", gold: "Ouro", silver: "Prata", bronze: "Bronze" };
 
@@ -61,7 +62,7 @@ export function AchievementRow({ achievement }: { achievement: ProfileAchievemen
         </div>
       </div>
       <div className="flex-none text-right text-[12.5px] text-muted tabular-nums">
-        <time dateTime={achievement.unlockedAt.toISOString()}>{formatDate(achievement.unlockedAt)}</time>
+        <UnlockDate date={achievement.unlockedAt} />
         <p className="mt-1 font-extrabold text-acc">+{formatCompact(achievement.xp)} XP</p>
       </div>
     </li>

@@ -1,10 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { LinkChips, type LinkChip } from "@/components/ui/LinkChips";
 
 type ChipGroup = { options: LinkChip[]; current: string };
+
+type Toggles = {
+  /** "Só exclusivos" is on. */
+  exclusive: boolean;
+  /** "Só com troféus" is on (and in effect: never true on Nintendo). */
+  trophies: boolean;
+  /** Where each button leads (the other params kept, its own flipped). */
+  exclusiveHref: string;
+  trophiesHref: string;
+};
 
 type CatalogFiltersProps = {
   /** "Todos", "Quase 100%", "Com guia completo", then the genres. */
@@ -13,7 +23,9 @@ type CatalogFiltersProps = {
   leading: number;
   platforms: ChipGroup;
   sorts: ChipGroup;
-  /** Active filters (category, platform): the "Filtrar (n)" count. */
+  /** The two on/off cuts after the platform. */
+  toggles: Toggles;
+  /** Active filters (category, platform, the two toggles): the "Filtrar (n)" count. */
   activeCount: number;
   /** Games matching the current filters ("Ver 1.234 jogos"). */
   total: number;
@@ -26,15 +38,108 @@ const GENRES_SHOWN = 6;
 
 const GROUP_TITLE = "font-mono text-xs tracking-[0.12em] text-dim-2 uppercase";
 
+const NINTENDO_HINT = "Jogos da Nintendo não têm troféus nem conquistas.";
+const RETRO_HINT = "Exclusivos valem para PC, PlayStation, Xbox e Nintendo.";
+
+const TOGGLE =
+  "inline-flex h-11 items-center gap-2 px-3 text-[12.5px] font-bold font-stretch-[80%] tracking-[0.06em] whitespace-nowrap uppercase transition-colors duration-150 sm:h-9";
+const TOGGLE_ON = "bg-track text-text shadow-[inset_0_-2px_0_var(--acc)]";
+const TOGGLE_OFF = "text-text-2 hover:bg-surface-2 hover:text-text";
+
+/** A link acting as an on/off button: Space flips it too, like a real button. */
+function onSpace(e: KeyboardEvent<HTMLAnchorElement>) {
+  if (e.key === " ") {
+    e.preventDefault();
+    e.currentTarget.click();
+  }
+}
+
+function ToggleBox({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`grid size-[15px] flex-none place-items-center ${on ? "bg-acc text-bg" : "shadow-[inset_0_0_0_1.5px_var(--border-2)]"}`}
+    >
+      <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="square" className={on ? "" : "opacity-0"}>
+        <path d="m5 12.5 4.5 4.5L19 7" />
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * "Só exclusivos" / "Só com troféus": two on/off cuts, links like the chips (the state lives in the URL).
+ * With Nintendo chosen the trophies one stays in place, switched off; with Retro the exclusives one
+ * does (Retro never counts in the exclusivity). The hint (`hintId`) describes the disabled one.
+ */
+function CutToggles({ toggles, nintendo, retro, hintId }: { toggles: Toggles; nintendo: boolean; retro: boolean; hintId: string }) {
+  return (
+    <div
+      role="group"
+      aria-label="Recortes do catálogo"
+      className="flex w-fit max-w-full flex-wrap items-center gap-x-0.5 gap-y-1 bg-bg shadow-[inset_0_0_0_1px_var(--border)]"
+    >
+      {retro ? (
+        <button type="button" aria-disabled="true" aria-pressed="false" aria-describedby={hintId} className={`${TOGGLE} cursor-not-allowed text-dim`}>
+          <span aria-hidden="true" className="size-[15px] flex-none shadow-[inset_0_0_0_1.5px_var(--border)]" />
+          Só exclusivos
+        </button>
+      ) : (
+        <Link
+          href={toggles.exclusiveHref}
+          rel="nofollow"
+          role="button"
+          aria-pressed={toggles.exclusive}
+          onKeyDown={onSpace}
+          scroll={false}
+          className={`${TOGGLE} ${toggles.exclusive ? TOGGLE_ON : TOGGLE_OFF}`}
+        >
+          <ToggleBox on={toggles.exclusive} />
+          Só exclusivos
+        </Link>
+      )}
+      {nintendo ? (
+        <button type="button" aria-disabled="true" aria-pressed="false" aria-describedby={hintId} className={`${TOGGLE} cursor-not-allowed text-dim`}>
+          <span aria-hidden="true" className="size-[15px] flex-none shadow-[inset_0_0_0_1.5px_var(--border)]" />
+          Só com troféus
+        </button>
+      ) : (
+        <Link
+          href={toggles.trophiesHref}
+          rel="nofollow"
+          role="button"
+          aria-pressed={toggles.trophies}
+          onKeyDown={onSpace}
+          scroll={false}
+          className={`${TOGGLE} ${toggles.trophies ? TOGGLE_ON : TOGGLE_OFF}`}
+        >
+          <ToggleBox on={toggles.trophies} />
+          Só com troféus
+        </Link>
+      )}
+    </div>
+  );
+}
+
 /**
  * The catalog's filters. Wide screens: the chip bar, with the genres past the first six behind
  * "Mais gêneros". Phones: one "Filtrar (n)" button that opens every filter in a bottom sheet, so the
  * first covers show on the first screen. Every chip is a link (the state lives in the URL).
  */
-export function CatalogFilters({ categories, leading, platforms, sorts, activeCount, total, clearHref }: CatalogFiltersProps) {
+export function CatalogFilters({ categories, leading, platforms: platformGroup, sorts, toggles, activeCount, total, clearHref }: CatalogFiltersProps) {
   const [moreGenres, setMoreGenres] = useState(false);
   const sheet = useRef<HTMLDialogElement>(null);
   const sheetTitle = useId();
+  const barHint = useId();
+  const sheetHint = useId();
+  // The PC filter is the Steam library: say so on the chip.
+  const platforms: ChipGroup = {
+    ...platformGroup,
+    options: platformGroup.options.map((o) => (o.id === "PC" ? { ...o, label: "PC · Steam" } : o)),
+  };
+  const nintendo = platforms.current === "NINTENDO";
+  const retro = platforms.current === "RETRO";
+  const hint = nintendo ? NINTENDO_HINT : retro ? RETRO_HINT : null;
 
   const lead = categories.options.slice(0, leading);
   const genres = categories.options.slice(leading);
@@ -50,6 +155,8 @@ export function CatalogFilters({ categories, leading, platforms, sorts, activeCo
     platforms.current !== platforms.options[0]?.id
       ? platforms.options.find((o) => o.id === platforms.current)?.label
       : null,
+    toggles.exclusive ? "Só exclusivos" : null,
+    toggles.trophies ? "Só com troféus" : null,
     `Ordem: ${sorts.options.find((o) => o.id === sorts.current)?.label ?? ""}`,
   ]
     .filter(Boolean)
@@ -79,8 +186,14 @@ export function CatalogFilters({ categories, leading, platforms, sorts, activeCo
         />
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
           <LinkChips label="Filtrar por plataforma" caption="Plataforma" options={platforms.options} current={platforms.current} />
+          <CutToggles toggles={toggles} nintendo={nintendo} retro={retro} hintId={barHint} />
           <LinkChips label="Ordenar jogos" caption="Ordenar" options={sorts.options} current={sorts.current} />
         </div>
+        {hint ? (
+          <p id={barHint} className="text-[13px] text-muted">
+            {hint}
+          </p>
+        ) : null}
       </div>
 
       {/* Phones: one button, every filter in a bottom sheet. */}
@@ -141,6 +254,12 @@ export function CatalogFilters({ categories, leading, platforms, sorts, activeCo
             <section className="flex flex-col gap-2.5">
               <h3 className={GROUP_TITLE}>Plataforma</h3>
               <LinkChips label="Filtrar por plataforma" options={platforms.options} current={platforms.current} />
+              <CutToggles toggles={toggles} nintendo={nintendo} retro={retro} hintId={sheetHint} />
+              {hint ? (
+                <p id={sheetHint} className="text-[13px] text-muted">
+                  {hint}
+                </p>
+              ) : null}
             </section>
             <section className="flex flex-col gap-2.5">
               <h3 className={GROUP_TITLE}>Ordenar</h3>

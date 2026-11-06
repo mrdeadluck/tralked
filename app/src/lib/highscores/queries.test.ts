@@ -117,6 +117,23 @@ describe.skipIf(!reachable)("highscores queries (seeded database)", () => {
     expect(seen).toEqual({ listed: false, standing: null, top: handle, rank: 1, nivelTop: handle });
   });
 
+  it("'Esta semana' leaves out XP of unlocks of unknown date (recorded this week, not earned this week)", async () => {
+    const handle = `semdata-hs-${Date.now()}`;
+    const seen: Record<string, unknown> = {};
+    await inRollback(async (tx) => {
+      const now = new Date();
+      const user = await tx.user.create({ data: { handle, displayName: handle, profilePublic: true } });
+      const entry = { userId: user.id, source: "achievement", xp: 900_000_000, skills: [], createdAt: now };
+      await tx.xpLedgerEntry.create({ data: { ...entry, sourceKey: "undated", dateUnknown: true } });
+      const semana = { metric: "semana" } as const;
+      seen.undatedListed = (await getRanking(semana, 500, tx, now)).some((r) => r.handle === handle);
+      seen.undatedStanding = await getStanding(user.id, semana, now, tx);
+      await tx.xpLedgerEntry.create({ data: { ...entry, sourceKey: "dated", xp: 5 } });
+      seen.datedXp = (await getStanding(user.id, semana, now, tx))?.row.value;
+    });
+    expect(seen).toEqual({ undatedListed: false, undatedStanding: null, datedXp: 5 });
+  });
+
   it("two overlapping snapshot runs write each board once, with one consistent ranking", async () => {
     const { prisma } = await import("@/lib/db");
     // A day no other test or cron touches; pruning off so nothing else is deleted.

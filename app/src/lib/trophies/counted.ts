@@ -7,7 +7,8 @@ type CountedRow = {
     apiName: string;
     list: { platform: string; console: string | null; externalId: string } | null;
   };
-  unlockedAt: Date;
+  /** Null: unlocked on an unknown date (a dated copy is preferred). */
+  unlockedAt: Date | null;
 };
 
 /**
@@ -27,7 +28,7 @@ export function countedUnlocks<T extends CountedRow>(rows: T[]): T[] {
     const key = keyOf(r);
     if (key === null) continue;
     const best = earliest.get(key);
-    if (!best || r.unlockedAt.getTime() < best.unlockedAt.getTime()) earliest.set(key, r);
+    if (!best || (r.unlockedAt?.getTime() ?? Infinity) < (best.unlockedAt?.getTime() ?? Infinity)) earliest.set(key, r);
   }
   return rows.filter((r) => {
     const key = keyOf(r);

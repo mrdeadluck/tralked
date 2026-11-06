@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { CatalogFilters } from "@/components/catalog/CatalogFilters";
+import { countLine, effectiveCuts } from "@/components/catalog/count-line";
 import { loginHref } from "@/components/guide/format";
 import { GAME_MENU_OPTIONS } from "@/components/layout/game-menu";
 import { CaseItem, CaseShelf } from "@/components/shelf/CaseShelf";
@@ -31,7 +32,7 @@ export const metadata: Metadata = {
 
 const BASE = "/jogos";
 /** URL state of the catalog (`pagina` included: links built from it reset or set it). */
-const KEYS = ["q", "plataforma", "genero", "quase", "guia", "ordem", "por", PAGE_PARAM] as const;
+const KEYS = ["q", "plataforma", "genero", "quase", "guia", "ordem", "por", "exclusivos", "trofeus", PAGE_PARAM] as const;
 
 const PLATFORMS = new Set<string>(CATALOG_PLATFORMS);
 const PLATFORM_OPTION = new Map(
@@ -61,6 +62,10 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
   const q = cleanQuery(state.q);
   const plataforma = state.plataforma?.toUpperCase();
   const platform = plataforma && PLATFORMS.has(plataforma) ? plataforma : undefined;
+  const exclusiveParam = state.exclusivos === "1";
+  const trophiesParam = state.trofeus === "1";
+  // Kept in the links on Retro / Nintendo (going back to another platform restores them), but without effect there.
+  const { exclusive, withTrophies } = effectiveCuts(platform, exclusiveParam, trophiesParam);
   const sort = (CATALOG_SORTS as readonly string[]).includes(state.ordem ?? "") ? (state.ordem as CatalogSort) : "popular";
   const { page: requested, perPage } = parsePagination(params);
 
@@ -71,12 +76,14 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
     genero: skill,
     quase: almost ? "1" : undefined,
     guia: withGuide ? "1" : undefined,
+    exclusivos: exclusiveParam ? "1" : undefined,
+    trofeus: trophiesParam ? "1" : undefined,
     ordem: sort === "popular" ? undefined : sort,
     por: perPageParam(perPage),
   };
   const link = (changes: Record<string, string | undefined>) => hrefWith(BASE, kept, { ...changes, [PAGE_PARAM]: undefined });
 
-  const filter: GameFilter = { skill, almost, withGuide, q, platform };
+  const filter: GameFilter = { skill, almost, withGuide, q, platform, exclusive, withTrophies };
   const [result, catalogSize] = await Promise.all([
     listGames(filter, { page: requested, perPage, sort }, user?.id),
     countGames(),
@@ -130,15 +137,20 @@ async function Catalog({ searchParams }: Pick<PageProps<"/jogos">, "searchParams
           leading={3}
           platforms={{ options: platformChips, current: platform ?? "todas" }}
           sorts={{ options: sortChips, current: sort }}
-          activeCount={(category === "todos" ? 0 : 1) + (platform ? 1 : 0)}
+          toggles={{
+            exclusive,
+            trophies: withTrophies,
+            exclusiveHref: link({ exclusivos: exclusiveParam ? undefined : "1" }),
+            trophiesHref: link({ trofeus: trophiesParam ? undefined : "1" }),
+          }}
+          activeCount={(category === "todos" ? 0 : 1) + (platform ? 1 : 0) + (exclusive ? 1 : 0) + (withTrophies ? 1 : 0)}
           total={total}
-          clearHref={link({ ...noFilter, plataforma: undefined })}
+          clearHref={link({ ...noFilter, plataforma: undefined, exclusivos: undefined, trofeus: undefined })}
         />
       </div>
 
-      <p className="mb-3.5 font-mono text-xs tracking-[0.06em] text-dim" aria-live="polite">
-        {total.toLocaleString("pt-BR")} {total === 1 ? "JOGO" : "JOGOS"}
-        {q ? ` PARA “${q.toUpperCase()}”` : ""}
+      <p className="mb-3.5 font-mono text-xs tracking-[0.06em] text-dim uppercase" aria-live="polite">
+        {countLine({ total, platform, exclusive, withTrophies, q })}
       </p>
 
       {items.length > 0 ? (

@@ -24,8 +24,19 @@ export async function loadTimeTo100(gameId: string, igdbCompleteMin: number | nu
     where: { gameId, completedAt: { not: null }, playtimeMin: { gt: 0 } },
     select: { userId: true, playtimeMin: true },
   });
+  // A completion with an undated unlock is an old one, from an era whose playtime was not recorded
+  // reliably: its hours do not say how long the 100% takes.
+  const undated = new Set(
+    (
+      await prisma.userAchievement.findMany({
+        where: { unlockedAt: null, achievement: { gameId }, userId: { in: completions.map((c) => c.userId) } },
+        select: { userId: true },
+        distinct: ["userId"],
+      })
+    ).map((u) => u.userId),
+  );
   const bestByUser = new Map<string, number>();
-  for (const c of completions) bestByUser.set(c.userId, Math.min(bestByUser.get(c.userId) ?? Infinity, c.playtimeMin));
+  for (const c of completions.filter((c) => !undated.has(c.userId))) bestByUser.set(c.userId, Math.min(bestByUser.get(c.userId) ?? Infinity, c.playtimeMin));
   return timeTo100From([...bestByUser.values()], igdbCompleteMin);
 }
 

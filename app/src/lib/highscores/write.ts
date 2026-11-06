@@ -3,7 +3,7 @@ import { countedUnlocks } from "@/lib/trophies/counted";
 import { computeRankStats, RANK_SCOPES, type RankScope, type RankStatsValues } from "./stats";
 
 type ValidUnlock = {
-  unlockedAt: Date;
+  unlockedAt: Date | null;
   achievement: {
     gameId: string;
     platform: string;
