@@ -70,10 +70,12 @@ try {
     console.error(`No linked Xbox account for ${values.user} in ${db.name}.`);
     process.exit(2);
   }
-  const others = await prisma.userAchievement.findMany({
+  const stored = await prisma.userAchievement.findMany({
     where: { userId: account.userId, achievement: { platform: "xbox" } },
     select: { achievementId: true, unlockedAt: true },
   });
+  // Undated unlocks (phase c, Steam only today) cannot take part in the burst rule; Xbox always stores a date.
+  const others = stored.flatMap((u) => (u.unlockedAt ? [{ achievementId: u.achievementId, unlockedAt: u.unlockedAt }] : []));
   console.log(`Xbox 360 of ${values.user} (${account.handle}), ${db.name}: read-only, ${others.length} Xbox unlocks stored.`);
   const measure = await measureX360(createXboxClient({ apiKey, fetch: countingFetch }), account.externalId, { maxTitles, others });
   if (measure === "private") {

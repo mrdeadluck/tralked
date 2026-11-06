@@ -431,7 +431,7 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
       const ledger = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id, voidedAt: null, platform: "xbox", source: "achievement" } });
       expect(ledger).toHaveLength(2);
       const unlocks = await prisma.userAchievement.findMany({ where: { userId: user.id }, orderBy: { unlockedAt: "asc" } });
-      expect(unlocks.map((u) => [u.unlockedAt.toISOString(), u.suspicious])).toEqual([
+      expect(unlocks.map((u) => [u.unlockedAt?.toISOString(), u.suspicious])).toEqual([
         ["2011-02-01T20:00:00.000Z", false],
         ["2011-03-03T20:00:00.000Z", false],
       ]);
