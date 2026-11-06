@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { alert, checkSourceHealth, sendPendingAlerts } from "../src/alerts.js";
+import { alert, checkSourceHealth, crashAlert, sendPendingAlerts } from "../src/alerts.js";
 import { runDespublicar } from "../src/commands/despublicar.js";
 import { buildResumo, formatResumo } from "../src/commands/resumo.js";
 import { loadConfig, type Config, type Source } from "../src/config.js";
@@ -303,5 +303,20 @@ describe("resumo", () => {
     expect(text).toContain("KOTAKU");
     expect(text).toContain("HTTP 503");
     expect(text).toMatch(/US\$ ?1[.,]50/);
+  });
+});
+
+describe("crashAlert", () => {
+  it("raises one erro alert a day per command when a run crashes, without the stack", () => {
+    const db = openDb(":memory:");
+    const now = new Date("2026-11-06T15:00:00Z");
+    crashAlert(db, "coleta", new Error("claude -p: tempo esgotado"), now);
+    crashAlert(db, "coleta", new Error("claude -p: tempo esgotado"), new Date(now.getTime() + 30 * 60_000));
+    crashAlert(db, "publica", "boom", now);
+    const errors = db.alerts().filter((a) => a.kind === "erro");
+    expect(errors.map((a) => a.message)).toEqual([
+      "coleta parou com erro: claude -p: tempo esgotado",
+      "publica parou com erro: boom",
+    ]);
   });
 });

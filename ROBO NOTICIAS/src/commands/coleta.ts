@@ -1,4 +1,4 @@
-import { sendPendingAlerts } from "../alerts.js";
+import { crashAlert, sendPendingAlerts } from "../alerts.js";
 import { runColeta } from "../pipeline.js";
 import { realDeps } from "./deps.js";
 
@@ -6,7 +6,13 @@ import { realDeps } from "./deps.js";
 async function main(): Promise<void> {
   const deps = realDeps();
   try {
-    const r = await runColeta(deps);
+    let r: Awaited<ReturnType<typeof runColeta>>;
+    try {
+      r = await runColeta(deps);
+    } catch (error) {
+      crashAlert(deps.db, "coleta", error);
+      throw error;
+    }
     if (r.paused) {
       console.log("coleta: PAUSADO, nada feito");
       return;

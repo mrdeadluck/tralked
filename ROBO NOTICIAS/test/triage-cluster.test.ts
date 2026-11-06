@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Ai, StructuredOpts } from "../src/ai/client.js";
+import { BudgetExceededError, type Ai, type StructuredOpts } from "../src/ai/client.js";
 import { clusterInputs, clusterItems, newStoryKey, openStories, storyKeyOf } from "../src/ai/cluster.js";
 import { TRIAGE_CHUNK, triageItems, type Triage } from "../src/ai/triage.js";
 import type { Source } from "../src/config.js";
@@ -88,6 +88,36 @@ describe("triageItems", () => {
       expect(c.maxTokens ?? 16000).toBeLessThanOrEqual(16000);
       expect(c.system).toBe(calls[0]!.system);
     }
+  });
+
+  it("a chunk the model fails on does not stop the other chunks; it is reported and its items stay unanswered", async () => {
+    const items = Array.from({ length: 120 }, (_, i) => ({ id: i + 1, title: `Title ${i + 1}`, summary: null, source: source() }));
+    const answers: (Error | { items: Triage[] })[] = [
+      { items: items.slice(0, 50).map((it) => triageOut(it.id)) },
+      new Error("claude -p: sem structured_output"),
+      { items: items.slice(100, 120).map((it) => triageOut(it.id)) },
+    ];
+    const ai = {
+      structured: vi.fn(async (opts: StructuredOpts<unknown>) => {
+        const next = answers.shift()!;
+        if (next instanceof Error) throw next;
+        return opts.schema.parse(next);
+      }),
+    } as unknown as Ai;
+    const errors: unknown[] = [];
+    const out = await triageItems(ai, items, "live", { onChunkError: (e) => errors.push(e) });
+    expect(out).toHaveLength(70);
+    expect(out.some((t) => t.id === 51)).toBe(false);
+    expect(errors).toHaveLength(1);
+  });
+
+  it("still throws when every chunk fails, and always on the budget or the subscription limit", async () => {
+    const one = [{ id: 1, title: "x", summary: null, source: source() }];
+    const failing = (e: Error) => ({ structured: vi.fn(async () => Promise.reject(e)) }) as unknown as Ai;
+    await expect(triageItems(failing(new Error("boom")), one, "live")).rejects.toThrow("boom");
+    const two = [...one, ...Array.from({ length: 50 }, (_, i) => ({ id: i + 2, title: `t${i}`, summary: null, source: source() }))];
+    const budget = new BudgetExceededError("live", 9, 8);
+    await expect(triageItems(failing(budget), two, "live", { onChunkError: () => {} })).rejects.toBe(budget);
   });
 
   it("uses the given model and bucket", async () => {

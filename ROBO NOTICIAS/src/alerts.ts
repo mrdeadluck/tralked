@@ -10,7 +10,8 @@ import type { AlertRow, Db } from "./db.js";
  * ones through Resend, and runs at the end of every command.
  */
 
-export type AlertKind = "checagem" | "orcamento" | "pausado" | "fonte" | "api" | "recusa";
+/** `erro`: a run failed on something else (a model timeout, a crash): Lucas needs to know. */
+export type AlertKind = "checagem" | "orcamento" | "pausado" | "fonte" | "api" | "recusa" | "erro";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -74,6 +75,12 @@ export function alertOncePerDay(
   if (seen) return false;
   alert(db, kind, message, now);
   return true;
+}
+
+/** A command run that crashed: one `erro` alert a day per command (it runs every 7 or 30 minutes). */
+export function crashAlert(db: Db, command: string, error: unknown, now: Date = new Date()): void {
+  const message = error instanceof Error ? error.message : String(error);
+  alertOncePerDay(db, "erro", `${command} parou com erro: ${message.slice(0, 500)}`, now, `${command} parou com erro`);
 }
 
 /**

@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { sendPendingAlerts } from "../alerts.js";
+import { crashAlert, sendPendingAlerts } from "../alerts.js";
 import { runPublica } from "../pipeline.js";
 import { runIfMain } from "./run.js";
 
@@ -48,12 +48,18 @@ async function main(): Promise<void> {
   const { realDeps } = await import("./deps.js");
   const deps = realDeps();
   try {
-    const result = await runPublica({
-      ...deps,
-      sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-      rand: Math.random,
-      ...flags,
-    });
+    let result: Awaited<ReturnType<typeof runPublica>>;
+    try {
+      result = await runPublica({
+        ...deps,
+        sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+        rand: Math.random,
+        ...flags,
+      });
+    } catch (error) {
+      crashAlert(deps.db, "publica", error);
+      throw error;
+    }
     const outcome = result.published ? `${flags.revisao ? "rascunho" : "publicada"} ${result.published}` : "nada publicado";
     console.log(`publica ${new Date().toISOString()}: ${outcome} (${result.reason})`);
   } finally {

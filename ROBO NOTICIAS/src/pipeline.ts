@@ -1070,7 +1070,11 @@ async function triageNew(deps: PipelineDeps, report: ColetaReport, now: Date): P
     inputs.push({ id: item.id, title: item.title, summary: item.summary, source });
   }
   if (inputs.length === 0) return;
-  const triages = await triageItems(ai, inputs, "live", { model: config.MODEL_FAST });
+  const triages = await triageItems(ai, inputs, "live", {
+    model: config.MODEL_FAST,
+    onChunkError: (error) =>
+      alertOncePerDay(db, "erro", `Triagem: o modelo falhou num bloco de itens, que fica para a próxima coleta (${errorMessage(error)})`, now, "Triagem: o modelo falhou"),
+  });
   for (const t of triages) {
     db.setItemStatus(t.id, t.keep ? "triaged" : "dropped", JSON.stringify(t));
     report.triaged++;
@@ -1081,9 +1085,15 @@ async function triageNew(deps: PipelineDeps, report: ColetaReport, now: Date): P
 
 /**
  * Downloads and extracts the article text of the given items that have none yet (never for title-only
- * items), 6 at a time. Returns how many texts were stored.
+ * items), 6 at a time. Returns how many texts were stored. An item without a date (listing sources) gets
+ * the page's date; with `dropStaleAt`, one older than 48 h at that instant is dropped (review 06/11/2026: an
+ * old official post rotating into a listing was "today's news").
  */
-export async function fetchItemTexts(items: ItemRow[], deps: Pick<PipelineDeps, "db" | "fetchFn" | "log">): Promise<number> {
+export async function fetchItemTexts(
+  items: ItemRow[],
+  deps: Pick<PipelineDeps, "db" | "fetchFn" | "log">,
+  opts: { dropStaleAt?: Date } = {},
+): Promise<number> {
   const pending = items.filter((i) => i.text_unavailable !== 1 && (i.text ?? "").trim() === "");
   let fetched = 0;
   await pool(pending, FETCH_CONCURRENCY, async (item) => {
@@ -1091,6 +1101,13 @@ export async function fetchItemTexts(items: ItemRow[], deps: Pick<PipelineDeps, 
       const { text, finalUrl } = await fetchPage(item.url, deps.fetchFn);
       deps.db.setItemMedia(item.id, extractMedia(text, finalUrl));
       const extracted = extractText(text, finalUrl);
+      if (item.published_at === null && extracted?.publishedAt) {
+        deps.db.setItemPublishedAtIfNull(item.id, extracted.publishedAt.toISOString());
+        if (opts.dropStaleAt && opts.dropStaleAt.getTime() - extracted.publishedAt.getTime() > STALE_ITEM_MS) {
+          deps.db.setItemStatus(item.id, "dropped");
+          return;
+        }
+      }
       if (extracted?.text) {
         deps.db.setItemText(item.id, extracted.text);
         fetched++;
@@ -1104,7 +1121,7 @@ export async function fetchItemTexts(items: ItemRow[], deps: Pick<PipelineDeps, 
 
 /** Downloads and extracts the article text of kept items (never for title-only items). */
 async function fetchTexts(deps: PipelineDeps, report: ColetaReport): Promise<void> {
-  report.textsFetched += await fetchItemTexts(deps.db.itemsByStatus("triaged", 100_000), deps);
+  report.textsFetched += await fetchItemTexts(deps.db.itemsByStatus("triaged", 100_000), deps, { dropStaleAt: deps.now() });
 }
 
 /**

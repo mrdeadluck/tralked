@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Source } from "../config.js";
 import type { SpendBucket } from "../db.js";
-import type { Ai } from "./client.js";
+import { BudgetExceededError, type Ai } from "./client.js";
 
 export const TRIAGE_CHUNK = 50;
 /** Same default as `config.MODEL_FAST`; callers should pass `config.MODEL_FAST`. */
@@ -150,22 +150,33 @@ export async function triageItems(
   ai: Ai,
   items: TriageInput[],
   bucket: SpendBucket,
-  opts: { model?: string } = {},
+  opts: { model?: string; onChunkError?: (error: unknown) => void } = {},
 ): Promise<Triage[]> {
   const model = opts.model ?? DEFAULT_FAST_MODEL;
   const out: Triage[] = [];
+  let failure: { error: unknown } | null = null;
   for (let i = 0; i < items.length; i += TRIAGE_CHUNK) {
     const chunk = items.slice(i, i + TRIAGE_CHUNK);
-    const res = await ai.structured({
-      bucket,
-      purpose: "triage",
-      model,
-      effort: "low",
-      system: TRIAGE_SYSTEM,
-      user: userMessage(chunk),
-      schema: TriageResponse,
-      maxTokens: MAX_TOKENS,
-    });
+    let res: z.infer<typeof TriageResponse>;
+    try {
+      res = await ai.structured({
+        bucket,
+        purpose: "triage",
+        model,
+        effort: "low",
+        system: TRIAGE_SYSTEM,
+        user: userMessage(chunk),
+        schema: TriageResponse,
+        maxTokens: MAX_TOKENS,
+      });
+    } catch (error) {
+      // The budget and the subscription limit stop the run; any other failure (a timeout, a refusal, a
+      // malformed answer) loses only this chunk, whose items stay unanswered for the next run.
+      if (error instanceof BudgetExceededError || !opts.onChunkError) throw error;
+      failure = { error };
+      opts.onChunkError(error);
+      continue;
+    }
     const byId = new Map<number, Triage>();
     for (const t of res.items) {
       if (byId.has(t.id)) continue;
@@ -176,5 +187,6 @@ export async function triageItems(
       if (t) out.push(t);
     }
   }
+  if (failure && out.length === 0) throw failure.error;
   return out;
 }

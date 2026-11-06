@@ -415,6 +415,8 @@ export interface Db {
   itemsByStatus(status: ItemStatus, limit?: number): ItemRow[];
   setItemStatus(id: number, status: ItemStatus, triageJson?: string | null): void;
   setItemText(id: number, text: string): void;
+  /** Dates an item that came without a date (listing sources); a dated item keeps its date. */
+  setItemPublishedAtIfNull(id: number, iso: string): void;
   setItemMedia(id: number, media: SourceMedia): void;
   /** The story's items, in id order. */
   itemsForStory(storyId: number): ItemRow[];
@@ -541,6 +543,10 @@ export function openDb(dir: string): Db {
 
     setItemText(id, text) {
       raw.prepare("UPDATE items SET text = ? WHERE id = ?").run(text, id);
+    },
+
+    setItemPublishedAtIfNull(id, iso) {
+      raw.prepare("UPDATE items SET published_at = ? WHERE id = ? AND published_at IS NULL").run(iso, id);
     },
 
     setItemMedia(id, media) {

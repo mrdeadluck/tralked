@@ -121,3 +121,25 @@ describe("fetchItemTexts keeps the page media", () => {
     expect(db.itemsByStatus("new").find((i) => i.title === "full")?.text).toContain("Texto corrido");
   });
 });
+
+describe("fetchItemTexts dates an undated item from its page (review 06/11/2026)", () => {
+  it("a listing item gets the page's date, and one older than 48 h is dropped", async () => {
+    const db = openDb(":memory:");
+    const now = new Date("2026-11-06T15:00:00Z");
+    db.insertItemIfNew({ url: "https://ea.test/old", sourceId: "ea-news", title: "old" });
+    db.insertItemIfNew({ url: "https://ea.test/new", sourceId: "ea-news", title: "new" });
+    const html = (iso: string) =>
+      `<html><head><meta property="article:published_time" content="${iso}"></head><body><article><p>${"Texto corrido da matéria com detalhes. ".repeat(20)}</p></article></body></html>`;
+    const fetchFn = async (url: string) =>
+      new Response(url.endsWith("/old") ? html("2026-10-20T10:00:00Z") : html("2026-11-06T12:00:00Z"), {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    await fetchItemTexts(db.itemsByStatus("new"), { db, fetchFn }, { dropStaleAt: now });
+    const all = db.raw.prepare("SELECT title, status, published_at FROM items ORDER BY id").all() as { title: string; status: string; published_at: string | null }[];
+    expect(all).toEqual([
+      { title: "old", status: "dropped", published_at: "2026-10-20T10:00:00.000Z" },
+      { title: "new", status: "new", published_at: "2026-11-06T12:00:00.000Z" },
+    ]);
+  });
+});
