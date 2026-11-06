@@ -31,10 +31,18 @@ export class MergeRefused extends Error {
 export type MergeReport = {
   /**
    * Rows of the drop handled, by GAME_REFS key (moved to the keep or folded into the keep's row),
-   * plus `ledger`: the drop's `platinum` / `playtime` ledger entries. A real run adds `ledgerKept`:
-   * hours milestones that stay valid under the drop's key (see rekeyLedger).
+   * plus `ledger`: the drop's `platinum` / `playtime` ledger entries, and `platinumCollisions`: valid
+   * platinums of the drop whose key on the keep is already taken (rekeyLedger finds them another
+   * slot or refuses). A real run adds `ledgerKept`: hours milestones that stay valid under the
+   * drop's key (see rekeyLedger).
    */
   moved: Record<string, number>;
+  /**
+   * A platinum collision the join will most likely refuse: a Steam one (key = gameId) or a legacy
+   * list-less `psn:<gameId>` one, which no list platinum of the keep can take. A dry run cannot be
+   * sure (the free slots are known only once the rows moved); the real run decides.
+   */
+  likelyRefused: boolean;
   /** Users whose ledger was settled and who were recomputed (a dry run: who would be). */
   usersRecomputed: string[];
   /** Old slugs that now lead to the keep: the drop's own and the redirects that pointed at the drop. */
@@ -42,7 +50,15 @@ export type MergeReport = {
   keepSlug: string;
 };
 
-export type MergeOptions = { dryRun?: boolean; now?: Date };
+export type MergeOptions = {
+  dryRun?: boolean;
+  now?: Date;
+  /**
+   * recomputeUser of the affected users after the transaction (default true). A batch of joins
+   * passes false and recomputes each user once at the end (`pnpm games:merge`).
+   */
+  recompute?: boolean;
+};
 
 /**
  * Joins `dropId` into `keepId` (see the file header). What happens to each table:
@@ -51,14 +67,16 @@ export type MergeOptions = { dryRun?: boolean; now?: Date };
  * - GameMedia moves without a url (or video) the keep already has; GameSkill is the union;
  *   WishlistItem, GameOpen and ArticleGame keep one row per key; GameRelease keeps the keep's per
  *   platform; SteamPlayerCount moves when the keep has none;
- * - UserGame, per user and platform: hours added, unlocks recounted, earliest completion, latest
- *   play, highest two-week hours, the keep's checkedPlaytimeMin / playtimePaidMin;
+ * - UserGame, per user and platform: hours added, earliest completion, latest play, highest
+ *   two-week hours, the keep's checkedPlaytimeMin / playtimePaidMin; then the unlock count of every
+ *   keep row of every affected user is recounted (unlocks may arrive without a drop row);
+ * - GameOpen keeps the earliest openedAt of the two;
  * - GameEdition pairs of the drop become pairs of the keep (stored once, never a self-pair);
  * - GameSlugRedirect: the redirects to the drop now lead to the keep, and drop.slug -> keep;
  * - the keep inherits the ids, texts and art it lacks (steamAppId cleared on the drop first), and
  *   the drop's name and aliases become aliases; the drop is deleted;
  * - ledger: see rekeyLedger (settleListXp of every affected user on PSN/Xbox/RA), and after the
- *   transaction recomputeUser of each.
+ *   transaction recomputeUser of each (unless `recompute: false`).
  * A missing GAME_REFS table aborts (it is never "nothing to move"). `dryRun` only reads: the same
  * checks and refusals, and the counts of what would move.
  */
@@ -70,14 +88,14 @@ export async function mergeGames(keepId: string, dropId: string, options: MergeO
     // Rows that would reference either game wait for the join (an FK check locks the game row).
     await tx.$queryRaw`SELECT id FROM "Game" WHERE id = ANY(${[keepId, dropId]}::text[]) FOR UPDATE`;
     const { keep, drop, report, ledger } = await prepare(tx, keepId, dropId);
-    await moveRows(tx, keep, drop);
+    await moveRows(tx, keep, drop, report.usersRecomputed);
     report.moved.ledgerKept = await rekeyLedger(tx, keepId, ledger, report.usersRecomputed, now);
     await assertNothingLeft(tx, dropId);
     await inheritGame(tx, keep, drop);
     await tx.game.delete({ where: { id: dropId } });
     return report;
   }, TRANSACTION_OPTIONS);
-  for (const userId of report.usersRecomputed) await recomputeUser(userId, now);
+  if (options.recompute ?? true) for (const userId of report.usersRecomputed) await recomputeUser(userId, now);
   return report;
 }
 
@@ -95,6 +113,17 @@ async function prepare(db: Db, keepId: string, dropId: string) {
   for (const ref of GAME_REFS) moved[ref.key] = (moved[ref.key] ?? 0) + (await countRefs(db, ref, dropId));
   const ledger = await dropLedger(db, dropId);
   moved.ledger = ledger.length;
+  const valid = ledger.filter((e) => e.voidedAt === null && e.source === "platinum");
+  const takenKeys = valid.length
+    ? await db.xpLedgerEntry.findMany({
+        where: { OR: valid.map((e) => ({ userId: e.userId, source: e.source, sourceKey: keepKey(e, keepId) })) },
+        select: { userId: true, sourceKey: true },
+      })
+    : [];
+  const collisions = valid.filter((e) => takenKeys.some((t) => t.userId === e.userId && t.sourceKey === keepKey(e, keepId)));
+  moved.platinumCollisions = collisions.length;
+  // Steam's key is the bare gameId; the legacy list-less PSN/Xbox/RA key is `<platform>:<gameId>`.
+  const likelyRefused = collisions.some((e) => e.platform === null || e.sourceKey.split(":").length === 2);
   const users = await db.$queryRaw<{ userId: string }[]>`
     SELECT "userId" FROM "UserGame" WHERE "gameId" = ${dropId}
     UNION SELECT ua."userId" FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId" WHERE a."gameId" = ${dropId}
@@ -106,6 +135,7 @@ async function prepare(db: Db, keepId: string, dropId: string) {
     usersRecomputed,
     redirects: [drop.slug, ...redirects.map((r) => r.fromSlug)],
     keepSlug: keep.slug,
+    likelyRefused,
   };
   return { keep, drop, report, ledger };
 }
@@ -155,7 +185,7 @@ async function dropLedger(db: Db, dropId: string): Promise<LedgerRow[]> {
   return rows.filter((e) => (e.source === "platinum" ? platinumGameId(e.sourceKey) : playtimeGameId(e.sourceKey)) === dropId);
 }
 
-async function moveRows(tx: Prisma.TransactionClient, keep: Game, drop: Game): Promise<void> {
+async function moveRows(tx: Prisma.TransactionClient, keep: Game, drop: Game, users: string[]): Promise<void> {
   const keepId = keep.id;
   const dropId = drop.id;
   const move = { where: { gameId: dropId }, data: { gameId: keepId } };
@@ -187,6 +217,10 @@ async function moveRows(tx: Prisma.TransactionClient, keep: Game, drop: Game): P
     DELETE FROM "WishlistItem" d USING "WishlistItem" k
     WHERE d."gameId" = ${dropId} AND k."gameId" = ${keepId} AND k."userId" = d."userId" AND k.platform = d.platform`;
   await tx.wishlistItem.updateMany(move);
+  // The first time the player opened either page.
+  await tx.$executeRaw`
+    UPDATE "GameOpen" k SET "openedAt" = LEAST(k."openedAt", d."openedAt") FROM "GameOpen" d
+    WHERE k."gameId" = ${keepId} AND d."gameId" = ${dropId} AND d."userId" = k."userId"`;
   await tx.$executeRaw`
     DELETE FROM "GameOpen" d USING "GameOpen" k WHERE d."gameId" = ${dropId} AND k."gameId" = ${keepId} AND k."userId" = d."userId"`;
   await tx.gameOpen.updateMany(move);
@@ -203,6 +237,7 @@ async function moveRows(tx: Prisma.TransactionClient, keep: Game, drop: Game): P
   }
 
   await mergeUserGames(tx, keepId, dropId);
+  await recountUnlocks(tx, keepId, users);
 
   const pairs = await tx.gameEdition.findMany({ where: { OR: [{ gameId: dropId }, { otherId: dropId }] } });
   await tx.gameEdition.deleteMany({ where: { OR: [{ gameId: dropId }, { otherId: dropId }] } });
@@ -249,14 +284,23 @@ async function mergeUserGames(tx: Prisma.TransactionClient, keepId: string, drop
       });
       await tx.userGame.delete({ where: { userId_gameId_platform: { userId: d.userId, gameId: dropId, platform: d.platform } } });
     }
-    // As the syncs count: Steam every unlock of the game; PSN/Xbox/RA the unlocks on its lists
-    // (list-less rows of older syncs only when the game has none on a list).
-    const achievement = { gameId: keepId, platform: d.platform };
-    let unlockedCount = isListPlatform(d.platform)
-      ? await tx.userAchievement.count({ where: { userId: d.userId, achievement: { ...achievement, listId: { not: null } } } })
+  }
+}
+
+/**
+ * UserGame.unlockedCount of the keep's rows of these users (every user with a drop row, unlock,
+ * list progress or ledger entry), as the syncs count: Steam every unlock of the game; PSN/Xbox/RA
+ * the unlocks on its lists (list-less rows of older syncs only when the game has none on a list).
+ */
+async function recountUnlocks(tx: Prisma.TransactionClient, keepId: string, users: string[]): Promise<void> {
+  const rows = await tx.userGame.findMany({ where: { gameId: keepId, userId: { in: users } }, select: { userId: true, platform: true } });
+  for (const { userId, platform } of rows) {
+    const achievement = { gameId: keepId, platform };
+    let unlockedCount = isListPlatform(platform)
+      ? await tx.userAchievement.count({ where: { userId, achievement: { ...achievement, listId: { not: null } } } })
       : 0;
-    if (unlockedCount === 0) unlockedCount = await tx.userAchievement.count({ where: { userId: d.userId, achievement } });
-    await tx.userGame.update({ where, data: { unlockedCount } });
+    if (unlockedCount === 0) unlockedCount = await tx.userAchievement.count({ where: { userId, achievement } });
+    await tx.userGame.update({ where: { userId_gameId_platform: { userId, gameId: keepId, platform } }, data: { unlockedCount } });
   }
 }
 

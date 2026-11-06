@@ -350,6 +350,144 @@ describe("mergeGames", () => {
   });
 });
 
+describe("mergeGames: folded rows, refusals and the ledger", () => {
+  it("recompute: false leaves the players to the caller", async () => {
+    const user = await newUser();
+    const keep = await newGame();
+    const drop = await newGame();
+    await prisma.userGame.create({ data: { userId: user.id, gameId: drop.id, platform: "psn", playtimeMin: 10, unlockedCount: 0 } });
+    const report = await mergeGames(keep.id, drop.id, { now: NOW, recompute: false });
+    expect(report.usersRecomputed).toEqual([user.id]);
+    expect(await prisma.userStats.findUnique({ where: { userId: user.id } })).toBeNull();
+    // The default recomputes.
+    const other = await newGame();
+    await prisma.userGame.create({ data: { userId: user.id, gameId: other.id, platform: "xbox", playtimeMin: 10, unlockedCount: 0 } });
+    await mergeGames(keep.id, other.id, { now: NOW });
+    expect(await prisma.userStats.findUnique({ where: { userId: user.id } })).not.toBeNull();
+  });
+
+  it("an unlink-voided drop key is copied voided and never paid again on the keep", async () => {
+    const user = await newUser();
+    const voidedAt = at(500);
+    await prisma.linkedAccount.create({ data: { userId: user.id, platform: "psn", externalId: next(), handle: "psn", linkedAt: at(600) } });
+    const keep = await newGame();
+    const drop = await newGame();
+    const list = await newList(drop.id, "PS4", T0);
+    const trophies = await newTrophies(drop.id, list.id);
+    await complete(user.id, list.id, trophies, 0);
+    // Paid before the unlink, voided by it; the relinked account synced the same unlocks again.
+    await prisma.xpLedgerEntry.createMany({
+      data: [
+        ...trophies.map((t, i) => ({ userId: user.id, source: "achievement", sourceKey: t.id, platform: "psn", xp: 10, skills: [], createdAt: at(i), voidedAt })),
+        { userId: user.id, source: "platinum", sourceKey: `psn:PS4:${drop.id}`, platform: "psn", xp: 5, skills: [], createdAt: at(1), voidedAt },
+      ],
+    });
+    expect(await settle(user.id, drop.id)).toEqual({ paid: 0, voided: 0 });
+
+    await mergeGames(keep.id, drop.id, { now: NOW });
+
+    const copy = await prisma.xpLedgerEntry.findUniqueOrThrow({
+      where: { userId_source_sourceKey: { userId: user.id, source: "platinum", sourceKey: `psn:PS4:${keep.id}` } },
+    });
+    expect([copy.voidedAt, copy.xp, copy.createdAt]).toEqual([voidedAt, 5, at(1)]);
+    expect(await validLedger(user.id)).toEqual([]);
+    expect(await settle(user.id, keep.id)).toEqual({ paid: 0, voided: 0 });
+  });
+
+  it("a platinum with no slot on the keep is refused and rolls back fully (legacy keys)", async () => {
+    const user = await newUser();
+    const keep = await newGame();
+    const drop = await newGame();
+    for (const g of [keep, drop]) {
+      await prisma.userGame.create({ data: { userId: user.id, gameId: g.id, platform: "psn", playtimeMin: 0, unlockedCount: 0, completedAt: at(1) } });
+      await prisma.xpLedgerEntry.create({ data: { userId: user.id, source: "platinum", sourceKey: `psn:${g.id}`, platform: "psn", xp: 50, skills: [] } });
+    }
+    const dry = await mergeGames(keep.id, drop.id, { dryRun: true, now: NOW });
+    expect([dry.moved.platinumCollisions, dry.likelyRefused]).toEqual([1, true]);
+    const before = await countRows();
+    const ledgerBefore = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } });
+
+    await expect(mergeGames(keep.id, drop.id, { now: NOW })).rejects.toBeInstanceOf(MergeRefused);
+
+    expect(await countRows()).toEqual(before);
+    expect(await prisma.xpLedgerEntry.findMany({ where: { userId: user.id }, orderBy: { id: "asc" } })).toEqual(ledgerBefore);
+    expect(await prisma.userGame.count({ where: { gameId: drop.id } })).toBe(1);
+  });
+
+  it("two Steam platinums of the same player are refused", async () => {
+    const user = await newUser();
+    const keep = await newGame();
+    const drop = await newGame();
+    for (const g of [keep, drop]) {
+      await prisma.userGame.create({ data: { userId: user.id, gameId: g.id, platform: "steam", playtimeMin: 0, unlockedCount: 0, completedAt: at(1) } });
+      await prisma.xpLedgerEntry.create({ data: { userId: user.id, source: "platinum", sourceKey: g.id, platform: null, xp: 70, skills: [] } });
+    }
+    const dry = await mergeGames(keep.id, drop.id, { dryRun: true, now: NOW });
+    expect([dry.moved.platinumCollisions, dry.likelyRefused]).toEqual([1, true]);
+    const before = await countRows();
+    await expect(mergeGames(keep.id, drop.id, { now: NOW })).rejects.toThrow(/platina/);
+    expect(await countRows()).toEqual(before);
+    expect(await validLedger(user.id)).toHaveLength(2);
+  });
+
+  it("rewrites a mission condition that names the drop", async () => {
+    const user = await newUser();
+    const keep = await newGame();
+    const drop = await newGame();
+    const mission = await prisma.mission.create({
+      data: { userId: user.id, kind: "daily", periodKey: "2020-01-01", title: next(), condition: { minCount: 1, gameId: drop.id }, rewardXp: 0 },
+    });
+    await mergeGames(keep.id, drop.id, { now: NOW });
+    expect((await prisma.mission.findUniqueOrThrow({ where: { id: mission.id } })).condition).toEqual({ minCount: 1, gameId: keep.id });
+  });
+
+  it("media are not repeated (url, video, placeholder of a kind) and GameOpen keeps the earliest open", async () => {
+    const user = await newUser();
+    const keep = await newGame();
+    const drop = await newGame();
+    const media = (gameId: string, kind: string, url: string | null, youtubeId: string | null = null) =>
+      prisma.gameMedia.create({ data: { gameId, kind, url, youtubeId, source: "fixture" } });
+    await media(keep.id, "video", null, "abc");
+    await media(keep.id, "cover", null);
+    await media(keep.id, "cover", `https://${PREFIX}/u1.png`);
+    await media(drop.id, "video", null, "abc"); // same video
+    await media(drop.id, "video", null, "xyz");
+    await media(drop.id, "cover", null); // a cover placeholder the keep has
+    await media(drop.id, "hero", null);
+    await media(drop.id, "cover", `https://${PREFIX}/u1.png`); // same url
+    await media(drop.id, "cover", `https://${PREFIX}/u2.png`);
+    await prisma.gameOpen.create({ data: { userId: user.id, gameId: keep.id, openedAt: at(100) } });
+    await prisma.gameOpen.create({ data: { userId: user.id, gameId: drop.id, openedAt: at(5) } });
+
+    await mergeGames(keep.id, drop.id, { now: NOW });
+
+    const rows = await prisma.gameMedia.findMany({ where: { gameId: keep.id } });
+    expect(rows.map((m) => `${m.kind}:${m.url ?? m.youtubeId ?? "-"}`).sort()).toEqual(
+      ["cover:-", `cover:https://${PREFIX}/u1.png`, `cover:https://${PREFIX}/u2.png`, "hero:-", "video:abc", "video:xyz"].sort(),
+    );
+    expect(await prisma.gameOpen.findMany({ where: { userId: user.id }, select: { gameId: true, openedAt: true } })).toEqual([
+      { gameId: keep.id, openedAt: at(5) },
+    ]);
+  });
+
+  it("recounts the keep's row of a player whose unlocks came without a drop row", async () => {
+    const user = await newUser();
+    const keep = await newGame();
+    const drop = await newGame();
+    const keepList = await newList(keep.id, "PS4", T0);
+    const dropList = await newList(drop.id, "PS5", at(1));
+    const [, keepBronze] = await newTrophies(keep.id, keepList.id);
+    await prisma.userAchievement.create({ data: { userId: user.id, achievementId: keepBronze.id, unlockedAt: at(2) } });
+    await prisma.userGame.create({ data: { userId: user.id, gameId: keep.id, platform: "psn", playtimeMin: 0, unlockedCount: 1 } });
+    await complete(user.id, dropList.id, await newTrophies(drop.id, dropList.id), 10);
+
+    await mergeGames(keep.id, drop.id, { now: NOW });
+
+    const row = await prisma.userGame.findUniqueOrThrow({ where: { userId_gameId_platform: { userId: user.id, gameId: keep.id, platform: "psn" } } });
+    expect(row.unlockedCount).toBe(3);
+  });
+});
+
 describe("mergeOrder", () => {
   it("runs a chain A→B, B→C from its leaf, whatever the order of the list", async () => {
     expect(mergeOrder([{ keep: "c", drop: "b" }, { keep: "b", drop: "a" }])).toEqual([

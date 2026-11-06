@@ -102,11 +102,25 @@ describe("pnpm games:merge", () => {
       expect(await prisma.gameEdition.findUnique({ where: { gameId_otherId: editionPair(s2.id, e.id) } })).not.toBeNull();
       const records = readdirSync(dir).filter((f) => f.startsWith("games-merge-"));
       expect(records).toHaveLength(1);
-      expect(JSON.parse(readFileSync(join(dir, records[0]), "utf8")).merges).toHaveLength(3);
+      const first = JSON.parse(readFileSync(join(dir, records[0]), "utf8"));
+      expect(first.merges).toHaveLength(3);
+      // The player was in both joins of the chain and is recomputed once, after the last one.
+      expect([first.recomputed, first.pendingRecompute]).toEqual([[user.id], []]);
+      expect(await prisma.userStats.findUnique({ where: { userId: user.id } })).not.toBeNull();
 
-      // A second run finds the joins done.
+      // A run that stopped after its joins left a player to recompute: the next run does it.
+      const stranded = await prisma.user.create({ data: { handle: next(), displayName: "Teste" } });
+      const stopped = join(dir, "games-merge-2026-11-06T00-00-00-000Z.json");
+      writeFileSync(stopped, JSON.stringify({ merges: [], pendingRecompute: [stranded.id], recomputed: [] }));
       const again = await script(["--file", file, "--skip-revalidate", "--out", dir]);
       expect(again.stdout).toMatch(/0 joined, 2 already joined, 1 refused/);
+      expect(await prisma.userStats.findUnique({ where: { userId: stranded.id } })).not.toBeNull();
+      expect(JSON.parse(readFileSync(stopped, "utf8")).pendingRecompute).toEqual([]);
+      const second = readdirSync(dir).filter((f) => f.startsWith("games-merge-") && f !== records[0] && join(dir, f) !== stopped);
+      const record = JSON.parse(readFileSync(join(dir, second[0]), "utf8"));
+      expect(record.recomputed).toEqual([stranded.id]);
+      // The pairs already joined still have their old, kept and redirect-target slugs expired.
+      expect(record.slugs).toEqual([a.slug, b.slug, c.slug, e.slug, s2.slug].sort());
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
