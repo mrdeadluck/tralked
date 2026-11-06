@@ -56,24 +56,39 @@ const isStoreAsset = (url: string): boolean => {
   return /(^|\.)steamstatic\.com$/.test(u.hostname) && u.pathname.includes("/store_item_assets/");
 };
 
+/** The video id of a YouTube cover URL (`i.ytimg.com/vi/<id>/…`, `vi_webp`, `img.youtube.com`), or null. */
+export function youtubeThumbnailId(url: string): string | null {
+  if (!URL.canParse(url)) return null;
+  const u = new URL(url);
+  if (!/^(i\d?\.ytimg\.com|img\.youtube\.com)$/.test(u.hostname)) return null;
+  const m = /^\/vi(?:_webp)?\/([A-Za-z0-9_-]{11})\//.exec(u.pathname);
+  return m ? m[1]! : null;
+}
+
 /**
  * Every image the article could use, in order of preference: official source pages, official video
  * covers, other news sites, Steam store art found on the pages, then the catalog of the exact game.
- * The images are not fetched here (`image` is filled later). Only https, no URL twice.
+ * The images are not fetched here (`image` is filled later). Only https, no URL twice. The cover of a
+ * video in `staleVideoIds` (published long before the story, or of unknown date) is never a candidate.
  */
 export function collectCandidates(input: {
   items: ItemRow[];
   sources: Source[];
   officialVideoIds: string[];
   catalog: { url: string; gameName: string }[];
+  staleVideoIds?: ReadonlySet<string>;
 }): ImageCandidate[] {
   const byId = new Map(input.sources.map((s) => [s.id, s]));
   const official: ImageCandidate[] = [];
   const other: ImageCandidate[] = [];
   const store: ImageCandidate[] = [];
   const seen = new Set<string>();
+  const stale = (url: string) => {
+    const id = youtubeThumbnailId(url);
+    return id !== null && (input.staleVideoIds?.has(id) ?? false);
+  };
   const fresh = (url: string) => {
-    if (!isHttps(url) || seen.has(url)) return false;
+    if (!isHttps(url) || seen.has(url) || stale(url)) return false;
     seen.add(url);
     return true;
   };

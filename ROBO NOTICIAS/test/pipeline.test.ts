@@ -96,7 +96,17 @@ function page(title: string): string {
 // Fake AI: triage, clustering, writer and checker, answered by purpose
 // ---------------------------------------------------------------------------------------------
 
-type Fact = { headline: string; importance: number; games?: string[]; keep?: boolean; rumor?: boolean };
+type Fact = {
+  headline: string;
+  importance: number;
+  games?: string[];
+  keep?: boolean;
+  rumor?: boolean;
+  companies?: string[];
+  topic?: string;
+  platforms?: string[];
+  recurring?: string | null;
+};
 
 const DRAFT: Draft = {
   title: "Matéria do robô",
@@ -142,10 +152,13 @@ function fakeAi(facts: Map<string, Fact>) {
               keep: f.keep ?? true,
               category: "GAMES",
               games: f.games ?? ["Hades II"],
-              companies: [],
+              companies: f.companies ?? [],
               rumor: f.rumor ?? false,
               importance: f.importance,
               headlinePt: f.headline,
+              topic: f.topic ?? "atualizacao",
+              platforms: f.platforms ?? ["multi"],
+              recurring: f.recurring ?? null,
             },
           ];
         }),
@@ -244,8 +257,8 @@ function harness(start = local("2026-10-31T10:00")) {
   const brokenPages = new Set<string>();
   /** Image bytes served by URL (catalog art, source images). */
   const pictures = new Map<string, Buffer>();
-  /** YouTube oEmbed answers by video id. */
-  const oembeds = new Map<string, { title: string; author_name: string }>();
+  /** YouTube oEmbed answers by video id; the watch page dates the video `published` (default: an hour ago). */
+  const oembeds = new Map<string, { title: string; author_name: string; published?: string }>();
   /** X oEmbed answers by status id. */
   const xposts = new Map<string, { author_name: string; author_url: string; html: string }>();
 
@@ -260,7 +273,12 @@ function harness(start = local("2026-10-31T10:00")) {
     if (input.startsWith("https://www.youtube.com/oembed?")) {
       const id = new URL(new URL(input).searchParams.get("url")!).searchParams.get("v")!;
       const meta = oembeds.get(id);
-      return meta ? new Response(JSON.stringify(meta), { status: 200 }) : new Response("no", { status: 404 });
+      return meta ? new Response(JSON.stringify({ title: meta.title, author_name: meta.author_name }), { status: 200 }) : new Response("no", { status: 404 });
+    }
+    if (input.startsWith("https://www.youtube.com/watch?v=")) {
+      const meta = oembeds.get(new URL(input).searchParams.get("v")!);
+      const published = meta?.published ?? new Date(clock.now.getTime() - HOUR).toISOString();
+      return meta ? new Response(`<meta itemprop="datePublished" content="${published}">`, { status: 200 }) : new Response("no", { status: 404 });
     }
     const picture = pictures.get(input);
     if (picture) return new Response(new Uint8Array(picture), { status: 200, headers: { "content-type": "image/jpeg" } });
@@ -327,7 +345,15 @@ const stories = (db: Db) => db.raw.prepare("SELECT * FROM stories ORDER BY id").
 function seedQueued(
   h: H,
   headline: string,
-  opts: { score?: number; firstSeenAt?: Date; itemAt?: Date; bomb?: boolean; status?: StoryRow["status"] } = {},
+  opts: {
+    score?: number;
+    firstSeenAt?: Date;
+    itemAt?: Date;
+    bomb?: boolean;
+    status?: StoryRow["status"];
+    topic?: string;
+    platforms?: string[];
+  } = {},
 ): number {
   const seen = opts.firstSeenAt ?? h.clock.now;
   const itemAt = opts.itemAt ?? seen;
@@ -351,6 +377,8 @@ function seedQueued(
       mode: "live",
       status: opts.status ?? "queued",
       lastItemAt: itemAt.toISOString(),
+      topic: opts.topic ?? null,
+      platformsJson: JSON.stringify(opts.platforms ?? []),
     },
     seen,
   );
@@ -1070,6 +1098,155 @@ describe("coverage and feed", () => {
   });
 });
 
+describe("topic, platforms and recurring items", () => {
+  it("the story takes the topic of its most important item and the union of the platforms", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    h.post("ign", "Hades II ganha trailer", { headline: "Hades II ganha trailer", importance: 80, topic: "trailer", platforms: ["steam-pc"] });
+    h.post("kotaku", "Hades II trailer", { headline: "Hades II ganha trailer", importance: 50, topic: "anuncio", platforms: ["steam-pc", "nintendo"] });
+    await h.coleta();
+    const [story] = stories(h.db);
+    expect(story!.topic).toBe("trailer");
+    expect(JSON.parse(story!.platforms_json)).toEqual(["steam-pc", "nintendo"]);
+    expect(story!.recurring_key).toBeNull();
+  });
+
+  it("a recurring announcement already published (same key) is dropped, not queued again", async () => {
+    const h = harness(local("2026-10-31T09:00"));
+    const old = h.db.upsertStory(
+      { key: "old-psplus", headline: "PS Plus de novembro", category: "GAMES", score: 70, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", recurringKey: "ps-plus:2026-10-29" },
+      local("2026-10-29T10:00"),
+    );
+    h.db.saveArticle({ storyId: old, payloadJson: "{}", status: "published", siteId: "old-1", publishedAt: local("2026-10-29T10:00").toISOString() });
+    const fact = { headline: "PS Plus revela os jogos de novembro", importance: 60, games: [], topic: "assinaturas-gratis", platforms: ["playstation"], recurring: "ps-plus" };
+    h.post("ign", "PS Plus revela jogos de novembro", fact);
+    h.post("kotaku", "PS Plus November games", fact);
+    const report = await h.coleta();
+    const story = stories(h.db).find((s) => s.id !== old)!;
+    expect(story.recurring_key).toBe("ps-plus:2026-10-31");
+    expect(story.status).toBe("dropped");
+    expect(report.queued).toBe(0);
+  });
+
+  it("the next month's PS Plus is queued", async () => {
+    const h = harness(local("2026-11-26T09:00"));
+    const old = h.db.upsertStory(
+      { key: "old-psplus", headline: "PS Plus de novembro", category: "GAMES", score: 70, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", recurringKey: "ps-plus:2026-10-29" },
+      local("2026-10-29T10:00"),
+    );
+    h.db.saveArticle({ storyId: old, payloadJson: "{}", status: "published", siteId: "old-1", publishedAt: local("2026-10-29T10:00").toISOString() });
+    const fact = { headline: "PS Plus revela os jogos de dezembro", importance: 60, games: [], topic: "assinaturas-gratis", platforms: ["playstation"], recurring: "ps-plus" };
+    h.post("ign", "PS Plus revela jogos de dezembro", fact);
+    h.post("kotaku", "PS Plus December games", fact);
+    const report = await h.coleta();
+    expect(report.queued).toBe(1);
+    expect(stories(h.db).find((s) => s.id !== old)!.recurring_key).toBe("ps-plus:2026-11-26");
+  });
+
+  it("PS Plus Extra (mid-month) and Essential (end of month) are two announcements of the same month", async () => {
+    const h = harness(local("2026-11-25T09:00"));
+    const extra = h.db.upsertStory(
+      { key: "old-extra", headline: "PS Plus Extra de novembro", category: "GAMES", score: 70, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published", recurringKey: "ps-plus:2026-11-11" },
+      local("2026-11-11T10:00"),
+    );
+    h.db.saveArticle({ storyId: extra, payloadJson: "{}", status: "published", siteId: "old-1", publishedAt: local("2026-11-11T10:00").toISOString() });
+    const fact = { headline: "PS Plus Essential de dezembro", importance: 60, games: [], topic: "assinaturas-gratis", platforms: ["playstation"], recurring: "ps-plus" };
+    h.post("ign", "PS Plus Essential de dezembro", fact);
+    h.post("kotaku", "PS Plus Essential December", fact);
+    expect((await h.coleta()).queued).toBe(1);
+  });
+});
+
+describe("publica: daily mix", () => {
+  it("at the same score the Steam/PC story goes first", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    seedQueued(h, "Hades II chega ao PS5", { score: 70, topic: "lancamento", platforms: ["playstation"] });
+    seedQueued(h, "Hades II ganha evento na Steam", { score: 70, topic: "atualizacao", platforms: ["steam-pc"] });
+    const result = await h.publica({ agora: true });
+    expect(result.reason).toContain("Hades II ganha evento na Steam");
+  });
+
+  it("a topic that already came out 3 times today gives way to another topic", async () => {
+    const h = harness(local("2026-10-31T15:00"));
+    for (const [i, hour] of ["08", "09", "10"].entries()) {
+      seedQueued(h, `Lançamento ${i}`, { status: "published", topic: "lancamento", firstSeenAt: local(`2026-10-31T${hour}:00`) });
+      const id = stories(h.db).at(-1)!.id;
+      h.db.saveArticle({ storyId: id, payloadJson: "{}", status: "published", siteId: `l-${i}`, publishedAt: local(`2026-10-31T${hour}:00`).toISOString() });
+    }
+    seedQueued(h, "Hades II chega em dezembro", { score: 80, topic: "lancamento", platforms: ["multi"] });
+    seedQueued(h, "Hades II vende 5 milhões", { score: 60, topic: "vendas", platforms: ["multi"] });
+    const result = await h.publica({ agora: true });
+    expect(result.reason).toContain("Hades II vende 5 milhões");
+  });
+
+  it("a queued bomb still goes before everything", async () => {
+    const h = harness(local("2026-10-31T10:00"));
+    seedQueued(h, "Hades II ganha evento na Steam", { score: 90, topic: "atualizacao", platforms: ["steam-pc"] });
+    seedQueued(h, "GTA 6 é adiado", { score: 88, bomb: true, topic: "lancamento", platforms: ["multi"] });
+    const result = await h.publica({ agora: true });
+    expect(result.reason).toContain("GTA 6 é adiado");
+  });
+});
+
+describe("coverage without a game (same news, same company)", () => {
+  const itchFeed = (h: H) => {
+    const old = h.db.upsertStory(
+      { key: "old-itch", headline: "itch.io terá filtro sem IA na busca de jogos", category: "GAMES", score: 60, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published" },
+      h.clock.now,
+    );
+    h.db.saveArticle({ storyId: old, payloadJson: "{}", status: "published", siteId: "site-itch", publishedAt: h.clock.now.toISOString(), companiesJson: '["itch.io"]' });
+    h.site.state.feed = [
+      { id: "site-itch", slug: "itch", title: "itch.io terá filtro sem IA na busca de jogos", category: "GAMES", publishedAt: h.clock.now.toISOString(), source: "bot", games: [] },
+    ];
+  };
+
+  it("a story about the same fact of a company the site covered today is dropped", async () => {
+    const h = harness(local("2026-11-03T10:00"));
+    itchFeed(h);
+    const fact = { headline: "itch.io leva filtro de IA generativa para a busca", importance: 60, games: [], companies: ["Itch.io"] };
+    h.post("ign", "itch.io ganha filtro de IA", fact);
+    h.post("kotaku", "itch.io adds AI filter", fact);
+    h.fake.state.route.set(fact.headline, "feed-site-itch");
+    const report = await h.coleta();
+    expect(report.covered).toBe(1);
+    expect(stories(h.db).find((s) => s.headline === fact.headline)!.status).toBe("dropped");
+  });
+
+  it("without a company in common it is not covered", async () => {
+    const h = harness(local("2026-11-03T10:00"));
+    itchFeed(h);
+    const fact = { headline: "Steam leva filtro de IA generativa para a busca", importance: 60, games: [], companies: ["Valve"] };
+    h.post("ign", "Steam ganha filtro de IA", fact);
+    h.post("kotaku", "Steam adds AI filter", fact);
+    h.fake.state.route.set(fact.headline, "feed-site-itch");
+    const report = await h.coleta();
+    expect(report.covered).toBe(0);
+    expect(report.queued).toBe(1);
+  });
+
+  it("an editorial article (not the robot's) counts a company named in its title", async () => {
+    const h = harness(local("2026-11-03T10:00"));
+    h.site.state.feed = [
+      { id: "ed-ms", slug: "ms", title: "Microsoft confirma demissões no Xbox", category: "MERCADO", publishedAt: h.clock.now.toISOString(), source: "editorial", games: [] },
+    ];
+    const fact = { headline: "Microsoft demite equipe do Xbox", importance: 60, games: [], companies: ["Microsoft"] };
+    h.post("ign", "Microsoft demite no Xbox", fact);
+    h.post("kotaku", "Microsoft layoffs at Xbox", fact);
+    h.fake.state.route.set(fact.headline, "feed-ed-ms");
+    expect((await h.coleta()).covered).toBe(1);
+  });
+
+  it("an article published by the robot keeps the story's companies", async () => {
+    const h = harness(local("2026-11-03T10:00"));
+    const fact = { headline: "Supergiant anuncia evento", importance: 60, companies: ["Supergiant Games"] };
+    h.post("ign", "Supergiant anuncia evento", fact);
+    h.post("kotaku", "Supergiant announces event", fact);
+    await h.coleta();
+    await h.publica({ agora: true });
+    const row = h.db.raw.prepare("SELECT companies_json FROM articles WHERE status = 'published'").get() as { companies_json: string };
+    expect(JSON.parse(row.companies_json)).toEqual(["Supergiant Games"]);
+  });
+});
+
 describe("expiry from the earliest item", () => {
   it("a story first seen now but built on a 30-hour-old item is expired, never picked", async () => {
     const h = harness(local("2026-10-31T10:00"));
@@ -1239,6 +1416,21 @@ describe("publica: pautas", () => {
     const result = await h.publica();
     expect(result.published).toBe("site-1");
     expect(h.site.created[0]!.key).toMatch(/^robo-live-story-\d+$/);
+    expect(pautaRows(h.db)).toHaveLength(0);
+  });
+
+  it("the mix picking a news below 60 does not hand the slot to a pauta while a news of 60+ is queued", async () => {
+    const h = harness(local("2026-10-31T15:00"));
+    withPautas(h);
+    for (const [i, hour] of ["08", "09", "10"].entries()) {
+      seedQueued(h, `Lançamento ${i}`, { status: "published", topic: "lancamento", firstSeenAt: local(`2026-10-31T${hour}:00`) });
+      const id = stories(h.db).at(-1)!.id;
+      h.db.saveArticle({ storyId: id, payloadJson: "{}", status: "published", siteId: `l-${i}`, publishedAt: local(`2026-10-31T${hour}:00`).toISOString() });
+    }
+    seedQueued(h, "Hades II chega em dezembro", { score: 80, topic: "lancamento", platforms: ["multi"] });
+    seedQueued(h, "Hades II vende 5 milhões", { score: 58, topic: "vendas", platforms: ["multi"] });
+    const result = await h.publica();
+    expect(result.reason).toContain("Hades II vende 5 milhões");
     expect(pautaRows(h.db)).toHaveLength(0);
   });
 
@@ -1537,6 +1729,40 @@ describe("catalog media for articles without their own", () => {
     expect(blocks[1]).toEqual({ type: "video", youtubeId: "SSSSSSSSSSS", title: "Hades II - Official Launch Trailer" });
     const write = h.fake.calls.find((c) => c.purpose === "write")!;
     expect(write.user).toContain("O vídeo complementa a notícia");
+  });
+
+  it("never embeds an old official video the source cites (story 4929: the 2018 teaser)", async () => {
+    const h = harness();
+    h.oembeds.set("OkFdqqyI8y4", { title: "Hades II - Official Announcement Teaser", author_name: "PlayStation", published: "2018-06-10T19:54:48-07:00" });
+    const id = seedQueued(h, "Hades II ganha trailer de lançamento");
+    const [item] = h.db.itemsForStory(id);
+    h.db.setItemMedia(item!.id, { images: [], youtube: ["OkFdqqyI8y4"], posts: [] });
+    await h.publica({ agora: true });
+    expect(h.site.created[0]!.payload.blocks.some((b) => b.type === "video")).toBe(false);
+  });
+
+  it("a video story whose sources carry no usable video gets the official channel's video of the game, published close to it", async () => {
+    const h = harness();
+    const id = seedQueued(h, "Hades II ganha trailer de lançamento");
+    // The channel's video was collected but clustered into another story.
+    h.db.insertItemIfNew(
+      { url: "https://www.youtube.com/watch?v=CCCCCCCCCCC", sourceId: "yt", title: "Hades II - Launch Trailer", publishedAt: new Date(h.clock.now.getTime() - 2 * HOUR).toISOString(), videoId: "CCCCCCCCCCC" },
+      h.clock.now,
+    );
+    await h.publica({ agora: true });
+    expect(h.db.storyById(id)!.status).toBe("published");
+    expect(h.site.created[0]!.payload.blocks).toContainEqual({ type: "video", youtubeId: "CCCCCCCCCCC", title: "Hades II - Launch Trailer" });
+  });
+
+  it("a story not about a video does not borrow a channel video", async () => {
+    const h = harness();
+    seedQueued(h, "Hades II recebe arma nova");
+    h.db.insertItemIfNew(
+      { url: "https://www.youtube.com/watch?v=CCCCCCCCCCC", sourceId: "yt", title: "Hades II - Launch Trailer", publishedAt: new Date(h.clock.now.getTime() - 2 * HOUR).toISOString(), videoId: "CCCCCCCCCCC" },
+      h.clock.now,
+    );
+    await h.publica({ agora: true });
+    expect(h.site.created[0]!.payload.blocks.some((b) => b.type === "video" && b.youtubeId === "CCCCCCCCCCC")).toBe(false);
   });
 
   it("embeds an official X post a source page carries and tells the writer about it", async () => {

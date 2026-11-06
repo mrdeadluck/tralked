@@ -65,6 +65,12 @@ export interface StoryRow {
   story_date: string | null;
   /** Set on a follow-up story: the article it follows up on. */
   parent_article_id: number | null;
+  /** The triage topic of the story's most important item (`TOPICS`), null before topics existed. */
+  topic: string | null;
+  /** JSON array: the union of the items' triage platforms (`PLATFORMS`). */
+  platforms_json: string;
+  /** Recurring announcement key (`recurringKey`): PS Plus, Game Pass, Epic free game. */
+  recurring_key: string | null;
 }
 
 export interface ArticleRow {
@@ -77,6 +83,8 @@ export interface ArticleRow {
   status: ArticleStatus;
   updated_at: string;
   parent_article_id: number | null;
+  /** JSON array: the story's triage companies when it was published (null before this column). */
+  companies_json: string | null;
 }
 
 export interface SourceHealthRow {
@@ -122,6 +130,10 @@ export interface StoryInput {
   lastItemAt?: string;
   /** Follow-up stories: the article they follow up on. Set on insert only. */
   parentArticleId?: number | null;
+  /** Left as stored when omitted. */
+  topic?: string | null;
+  platformsJson?: string;
+  recurringKey?: string | null;
 }
 
 export interface ArticleInput {
@@ -132,6 +144,8 @@ export interface ArticleInput {
   slug?: string | null;
   publishedAt?: string | null;
   parentArticleId?: number | null;
+  /** JSON array of company names; kept as stored when omitted. */
+  companiesJson?: string | null;
 }
 
 export interface ArticlePatch {
@@ -233,7 +247,10 @@ CREATE TABLE IF NOT EXISTS stories (
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','queued','written','published','dropped','expired')),
   mode TEXT NOT NULL DEFAULT 'live' CHECK (mode IN ('live','backfill')),
   story_date TEXT,
-  parent_article_id INTEGER
+  parent_article_id INTEGER,
+  topic TEXT,
+  platforms_json TEXT NOT NULL DEFAULT '[]',
+  recurring_key TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_stories_status ON stories(status);
 
@@ -252,7 +269,8 @@ CREATE TABLE IF NOT EXISTS articles (
   payload_json TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready','published','failed','archived')),
   updated_at TEXT NOT NULL,
-  parent_article_id INTEGER REFERENCES articles(id)
+  parent_article_id INTEGER REFERENCES articles(id),
+  companies_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(status, published_at);
 
@@ -340,6 +358,10 @@ const ADDED_COLUMNS: [table: string, column: string, ddl: string][] = [
   ["stories", "parent_article_id", "INTEGER"],
   ["items", "video_id", "TEXT"],
   ["items", "media_json", "TEXT"],
+  ["stories", "topic", "TEXT"],
+  ["stories", "platforms_json", "TEXT NOT NULL DEFAULT '[]'"],
+  ["stories", "recurring_key", "TEXT"],
+  ["articles", "companies_json", "TEXT"],
 ];
 
 function addMissingColumns(raw: DatabaseSync): void {
@@ -395,6 +417,8 @@ export interface Db {
   setItemMedia(id: number, media: SourceMedia): void;
   /** The story's items, in id order. */
   itemsForStory(storyId: number): ItemRow[];
+  /** Official channel video items (`video_id` set) published between `from` and `to`, in id order. */
+  videoItemsPublishedBetween(from: Date, to: Date): ItemRow[];
 
   /** Insert or update by `key`; returns the story id. */
   upsertStory(story: StoryInput, now?: Date): number;
@@ -408,6 +432,8 @@ export interface Db {
   storyByKey(key: string): StoryRow | undefined;
   /** Follow-up stories of an article, newest first. */
   followUpsOf(articleId: number): StoryRow[];
+  /** Stories whose recurring key is of one kind (`ps-plus`, …), in id order. */
+  storiesWithRecurringKind(kind: string): StoryRow[];
 
   recordSpend(bucket: SpendBucket, purpose: string, model: string, usd: number, at?: Date): void;
   spentToday(bucket: SpendBucket, now?: Date): number;
@@ -425,11 +451,14 @@ export interface Db {
   collectionUsage(since: Date): { runs: number; tokens: number; usdEquivalent: number };
 
   publishedCountOn(day: string): number;
+  /** Topics and platforms of the live news published on the local `day` (pautas have neither). */
+  publishedTodayMix(day: string): { topics: Record<string, number>; platforms: Record<string, number> };
   /** Insert or update by story id; returns the article id. */
   saveArticle(article: ArticleInput, now?: Date): number;
   markArticle(storyId: number, patch: ArticlePatch, now?: Date): void;
   articleForStory(storyId: number): ArticleRow | undefined;
   articleById(id: number): ArticleRow | undefined;
+  articleBySiteId(siteId: string): ArticleRow | undefined;
   /** Same-day updates (PATCH) of a story's article. */
   recordUpdate(storyId: number, at?: Date): void;
   updateTimes(storyId: number): string[];
@@ -521,12 +550,27 @@ export function openDb(dir: string): Db {
       );
     },
 
+    videoItemsPublishedBetween(from, to) {
+      return rows<ItemRow>(
+        "SELECT * FROM items WHERE video_id IS NOT NULL AND published_at >= ? AND published_at <= ? ORDER BY id",
+        iso(from),
+        iso(to),
+      );
+    },
+
     upsertStory(s, now = new Date()) {
       const last = s.lastItemAt ?? iso(now);
+      const optional = [
+        ["status", s.status] as const,
+        ["topic", s.topic] as const,
+        ["platforms_json", s.platformsJson] as const,
+        ["recurring_key", s.recurringKey] as const,
+      ].filter(([, v]) => v !== undefined);
+      const updates = optional.map(([col]) => `, ${col} = excluded.${col}`).join("");
       raw
         .prepare(
-          `INSERT INTO stories (key, headline, category, score, bomb, rumor, games_json, first_seen_at, last_item_at, status, mode, story_date, parent_article_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO stories (key, headline, category, score, bomb, rumor, games_json, first_seen_at, last_item_at, status, mode, story_date, parent_article_id, topic, platforms_json, recurring_key)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(key) DO UPDATE SET
              headline = excluded.headline,
              category = excluded.category,
@@ -536,9 +580,7 @@ export function openDb(dir: string): Db {
              games_json = excluded.games_json,
              last_item_at = excluded.last_item_at,
              mode = excluded.mode,
-             story_date = COALESCE(excluded.story_date, stories.story_date)${
-               s.status ? ",\n             status = excluded.status" : ""
-             }`,
+             story_date = COALESCE(excluded.story_date, stories.story_date)${updates}`,
         )
         .run(
           s.key,
@@ -554,8 +596,15 @@ export function openDb(dir: string): Db {
           s.mode,
           s.storyDate ?? null,
           s.parentArticleId ?? null,
+          s.topic ?? null,
+          s.platformsJson ?? "[]",
+          s.recurringKey ?? null,
         );
       return one<{ id: number }>("SELECT id FROM stories WHERE key = ?", s.key)!.id;
+    },
+
+    storiesWithRecurringKind(kind) {
+      return rows<StoryRow>("SELECT * FROM stories WHERE recurring_key LIKE ? ORDER BY id", `${kind}:%`);
     },
 
     attachItem(storyId, itemId) {
@@ -704,11 +753,36 @@ export function openDb(dir: string): Db {
       ).filter((r) => localDay(new Date(r.published_at)) === day).length;
     },
 
+    publishedTodayMix(day) {
+      const mid = Date.parse(`${day}T12:00:00Z`);
+      const list = rows<{ published_at: string; topic: string | null; platforms_json: string }>(
+        `SELECT a.published_at, s.topic, s.platforms_json FROM articles a JOIN stories s ON s.id = a.story_id
+          WHERE a.status = 'published' AND s.mode = 'live' AND a.published_at >= ? AND a.published_at <= ?`,
+        iso(new Date(mid - 2 * DAY_MS)),
+        iso(new Date(mid + 2 * DAY_MS)),
+      ).filter((r) => localDay(new Date(r.published_at)) === day);
+      const topics: Record<string, number> = {};
+      const platforms: Record<string, number> = {};
+      for (const r of list) {
+        if (r.topic) topics[r.topic] = (topics[r.topic] ?? 0) + 1;
+        let ps: unknown = [];
+        try {
+          ps = JSON.parse(r.platforms_json);
+        } catch {
+          // a damaged row counts no platform
+        }
+        for (const p of new Set(Array.isArray(ps) ? ps.filter((x): x is string => typeof x === "string") : [])) {
+          platforms[p] = (platforms[p] ?? 0) + 1;
+        }
+      }
+      return { topics, platforms };
+    },
+
     saveArticle(a, now = new Date()) {
       raw
         .prepare(
-          `INSERT INTO articles (story_id, site_id, slug, published_at, payload_json, status, updated_at, parent_article_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO articles (story_id, site_id, slug, published_at, payload_json, status, updated_at, parent_article_id, companies_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(story_id) DO UPDATE SET
              site_id = COALESCE(excluded.site_id, articles.site_id),
              slug = COALESCE(excluded.slug, articles.slug),
@@ -716,7 +790,8 @@ export function openDb(dir: string): Db {
              payload_json = excluded.payload_json,
              status = excluded.status,
              updated_at = excluded.updated_at,
-             parent_article_id = COALESCE(excluded.parent_article_id, articles.parent_article_id)`,
+             parent_article_id = COALESCE(excluded.parent_article_id, articles.parent_article_id),
+             companies_json = COALESCE(excluded.companies_json, articles.companies_json)`,
         )
         .run(
           a.storyId,
@@ -727,6 +802,7 @@ export function openDb(dir: string): Db {
           a.status ?? "ready",
           iso(now),
           a.parentArticleId ?? null,
+          a.companiesJson ?? null,
         );
       return one<{ id: number }>("SELECT id FROM articles WHERE story_id = ?", a.storyId)!.id;
     },
@@ -751,6 +827,10 @@ export function openDb(dir: string): Db {
 
     articleById(id) {
       return one<ArticleRow>("SELECT * FROM articles WHERE id = ?", id);
+    },
+
+    articleBySiteId(siteId) {
+      return one<ArticleRow>("SELECT * FROM articles WHERE site_id = ? ORDER BY id DESC LIMIT 1", siteId);
     },
 
     recordUpdate(storyId, at = new Date()) {
