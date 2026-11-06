@@ -2,6 +2,38 @@
 
 Resumo da sessão de 31/10 a 02/11 com o Lucas (dono da Ludai Labs): o que está no ar e o que ficou pendente. Branch de trabalho: `feat/plano-2-tralked`. A `main` é mantida igual a ela (fast-forward + push), e cada push na `main` publica o site na Vercel.
 
+## Estado em 06/11 à noite (fonte da verdade das pendências)
+
+Branches: a `main` é a única linha viva; `feat/plano-2-tralked` foi alinhada a ela. Cada push na `main` publica o site. A cópia em `C:\projetos\Nova pasta` (onde roda o robô de notícias) fica na `main`.
+
+**No ar hoje (06/11):** unificação de troféus completa e rodada final (`582abbe`); fundo em parallax (`06e68b7` e ajustes); revisões e 20 matérias/dia do robô (`0ed6d4a`, registro em `.superpowers/sdd/2026-11-06-robo-revisoes/progress.md`); rodada de pendências (`9d025b7`): bug do jogo "Constructor" em `/jogos`, API acha jogo juntado pelo IGDB id ou slug antigo, imagens do parallax em WebP (8,9 MB → 1,9 MB), caminho `legacyCompletedAt` removido, troféu oculto sem `apiName` público, datas da Steam anteriores a 2003 tratadas como "data desconhecida" (11 conquistas do diguzz reparadas no banco). Itens 35, 41, 42, 43 e 44 abaixo: feitos (44: as 13 do Exophase não são verificáveis, o site bloqueia leitura automática).
+
+**Descobertas de 06/11:**
+- Os agendamentos do GitHub Actions pararam de disparar sozinhos (nenhum entre 05/11 21h e 06/11 22h UTC, mesmo reativados). Os workers foram disparados à mão. Solução: item 34 (token).
+- CPU de `/jogos/[slug]` 5× maior: `claude-searchbot` (35 mil páginas sem cache em 06/11) e AhrefsBot (9 mil em 05/11). Solução: item 26 (firewall).
+
+### Pendências do Lucas
+1. **Token `GITHUB_DISPATCH_TOKEN` na Vercel (item 34)**: urgente, sem ele os workers dependem de disparo manual.
+2. **Abrir a aba Firewall da Vercel (item 26)**: depois, bloquear AhrefsBot, limitar o ritmo do `claude-searchbot`, Bot Protection, limite por IP, caminhos de scanner.
+3. Teto de gasto da Vercel (27) e limite de autoscaling do Neon.
+4. Convite do Discord (`NEXT_PUBLIC_DISCORD_INVITE_URL`), chaves do Resend e do Google.
+5. Créditos da API da Anthropic para reescrever o guia de Phantom Blade Zero (hoje v1.0, com correções de leitura em `source-talk.ts`).
+6. NPSSO da PSN: trocar perto de janeiro.
+7. Decisões: atualização do robô pode desfazer edição feita no admin (precisa de trava no site); valores de XP das reações; política para jogos "fazenda de conquistas" (Reflex); repositório privado (30); gamificação (36); Tralked Studio (verde #3E6102, perguntas "CONFIRMAR", publicar o reel "Bem-vindos"); filtro "PC · Steam" só com appid da Steam (39, aviso).
+
+### Pendências técnicas (do mais rápido ao mais demorado)
+1. Relatório do mix de 2 dias do robô (assuntos e plataformas), a partir de 08/11.
+2. Robô: subreddits r/PS5, r/XboxSeriesX e r/NintendoSwitch com HTTP 429; resposta perdida após publicação marca a matéria como falha (409).
+3. Antifraude: regra do Steam Achievement Manager (38).
+4. Cores do site: rótulos do menu, Denunciar/SyncActions, demais páginas (visual a aprovar).
+5. Duplicados vazios: 11.104 pares (37).
+6. Robô, menores adiados: revisão de 06/11 (Pautas 7 e 9; coleta 8 a 12; publica 5 a 13), Parte A M2 a M9, Parte B #5 a #10 (registros em `.superpowers/sdd/` e em `C:\Users\luck_\tralked-backups\worktrees-20261106\`).
+7. Polimento do Plano 4 (7 itens, `.superpowers/sdd/2026-10-31-tralked-plano-4/progress.md`).
+8. Varredura da PSN (40): acompanhar a primeira volta (~16 dias).
+9. Cartão do perfil para compartilhar (pedido de 03/11): cartão exportável (avatar, nome, nível e vocação, platinas, troféus, horas, plataformas, últimos jogos, marca e `tralked.com/jogador/<handle>`, grafite + verde), via `opengraph-image` em `/jogador/[handle]` (`next/og`) e botão "Compartilhar / Baixar card". Brainstorm e aprovação visual antes.
+10. F9 Social: código em `origin/backup/f9-social` (7 commits de 31/10, atrás da `main`, com migrations).
+11. Emulador (Plano 3): parado na Task 1; trabalho em `origin/backup/emulador-plano-3`.
+
 ## Atualização de 06/11: unificação de troféus concluída
 
 - **No ar na `main`:** fase a `b5aba98`; b `595d915`; hotfix antifraude `52b675f`; c `079d755`; R1 `7cb43ac`; R2 `758e985`; e `d53bc0b`; d `0e928c2` + `9d5c142`. A rodada final, na branch `fix/final-wave`, ainda não foi publicada: espera o Lucas.
@@ -10,16 +42,16 @@ Resumo da sessão de 31/10 a 02/11 com o Lucas (dono da Ludai Labs): o que está
 - **Backups** em `C:\Users\luck_\tralked-backups\`, arquivos `neon-before-*` de 05/11 e 06/11: phase-b, fraud-hotfix, phase-c, regional-xp, tralked-counter, phase-e, phase-d, d6-cleanup.
 
 **Pendências novas (continuam a numeração):**
-- **35. Publicar a rodada final** (`fix/final-wave`): apelidos de IGDB dos 43 jogos juntados, slug de redirecionamento protegido, psn-repair, página do jogo pela regra Tralked/Platinas e disparo da varredura PSN. O script está pronto em `C:\Users\luck_\AppData\Local\Temp\claude\88d8229872c22355\c18fd4c8-fe0b-4227-82c0-406ee0914047\scratchpad\release-final-wave.sh` e precisa da permissão do Lucas.
+- **35. ✅ Feito (582abbe, 06/11). Publicar a rodada final** (`fix/final-wave`): apelidos de IGDB dos 43 jogos juntados, slug de redirecionamento protegido, psn-repair, página do jogo pela regra Tralked/Platinas e disparo da varredura PSN. O script está pronto em `C:\Users\luck_\AppData\Local\Temp\claude\88d8229872c22355\c18fd4c8-fe0b-4227-82c0-406ee0914047\scratchpad\release-final-wave.sh` e precisa da permissão do Lucas.
 - **36. Gamificação:** proposta de 5 ajustes (régua única de raridade, "Platina" só PSN, moeda de cada plataforma visível com o G do Xbox e os pontos do RA, nomes únicos, progresso visível). O brainstorm está pausado; nada foi aprovado.
 - **37. Duplicados vazios:** 11.104 pares sem conteúdo (incluindo Ghost of Yōtei e Mass Effect 2) não foram juntados.
 - **38. Antifraude:** falta regra para "1 conquista sem data + o resto rápido" (Steam Achievement Manager).
 - **39. Filtro "PC · Steam":** agora só mostra jogos com appid da Steam (jogos só da Epic saem). Avisar o Lucas.
 - **40. Varredura da PSN:** acompanhar a primeira volta (~16 dias) e o log "do not match the list". Leituras ao abrir página + varredura juntas ficam acima do ritmo da psnawp (0,43/s); considerar pausar as leituras de página durante a fatia.
-- **41. Selo de 1000G na biblioteca** ignora troféu suspeito (pequeno).
-- **42. API pública** procura jogo só pelo `igdbId` principal, não pelos apelidos.
-- **43. Limpeza técnica:** caminho `legacyCompletedAt` morto em produção; teste lento/instável em `platform-user.test.ts` (~l. 937); `apiName` de troféu oculto exposto.
-- **44. Steam:** 13 conquistas que o Exophase mostra e a API da Steam não tem; Portal (2) não entrou no `steam:dateless`.
+- **41. ✅ Feito (o selo ignora troféu suspeito). Selo de 1000G na biblioteca** ignora troféu suspeito (pequeno).
+- **42. ✅ Feito (9d025b7). API pública** procura jogo só pelo `igdbId` principal, não pelos apelidos.
+- **43. ✅ Feito (9d025b7). Limpeza técnica:** caminho `legacyCompletedAt` morto em produção; teste lento/instável em `platform-user.test.ts` (~l. 937); `apiName` de troféu oculto exposto.
+- **44. ✅ Feito (9d025b7; as 13 do Exophase não são verificáveis). Steam:** 13 conquistas que o Exophase mostra e a API da Steam não tem; Portal (2) não entrou no `steam:dateless`.
 
 ## Atualização da tarde de 02/11: queda do site e plano de segurança
 
