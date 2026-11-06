@@ -166,8 +166,12 @@ const MOVE_CHUNK = 5000;
 
 async function loadMoves(ids: string[]): Promise<Map<string, Record<string, number>>> {
   const moves = new Map<string, Record<string, number>>(ids.map((id) => [id, {}]));
+  // A table of a migration that is not deployed yet (production before the redirects) counts as zero.
+  const existing = new Set(
+    (await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`).map((t) => t.table_name),
+  );
   const queries: { key: string; sql: string }[] = [
-    ...GAME_REFS.map((r) => ({
+    ...GAME_REFS.filter((r) => existing.has(r.model)).map((r) => ({
       key: r.key,
       sql: `SELECT "${r.column}" AS id, count(*) AS n FROM "${r.model}" WHERE "${r.column}" = ANY($1::text[]) GROUP BY 1`,
     })),
