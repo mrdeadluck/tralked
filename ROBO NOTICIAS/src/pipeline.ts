@@ -18,6 +18,7 @@ import { gameDestination } from "./game-destination.js";
 import { acquireLock, type Lock } from "./lock.js";
 import { chooseImages } from "./media/choose.js";
 import { aboutVideo, officialSourceVideo } from "./media/video.js";
+import { storyPosts, type XProfile } from "./media/xposts.js";
 import {
   PautaRejectedError,
   chooseFormat,
@@ -132,6 +133,8 @@ export type PipelineDeps = {
   famousGames?: FamousGame[];
   /** `publica --revisao`: articles go to the site as drafts (`status: "review"`) for Lucas to check first. */
   revisao?: boolean;
+  /** `config/perfis-x.json`: official X profiles whose posts the articles embed. */
+  xProfiles?: XProfile[];
 };
 
 export type PublicaDeps = PipelineDeps & {
@@ -555,11 +558,18 @@ export async function storyForWriting(
         { items, sources: deps.sources, games: parseGames(story.games_json), companies: storyCompanies(items) },
         deps.fetchFn,
       );
+  const posts = await storyPosts(
+    { items, rumor: story.rumor === 1, sourceTexts: items.map((i) => `${i.title}
+${i.text ?? i.summary ?? ""}`) },
+    deps.fetchFn,
+    deps.xProfiles ?? [],
+  );
   return {
     id: story.id,
     headline: story.headline,
     category: story.category as ArticleCategory,
     rumor: story.rumor === 1,
+    ...(posts.length > 0 ? { posts } : {}),
     sources: writerSources(items, deps.sources),
     candidates: await candidatesFor(story, deps.tralked),
     ...(previous ? { previous } : {}),
@@ -632,6 +642,7 @@ export async function articleMedia(
   }
   const media: ArticleMedia = {};
   if (writing.video) media.video = { youtubeId: writing.video.youtubeId, title: writing.video.title };
+  if (writing.posts?.length) media.posts = writing.posts;
 
   if (reuse?.cover) {
     Object.assign(media, reuse);

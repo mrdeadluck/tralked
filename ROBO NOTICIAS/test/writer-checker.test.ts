@@ -150,6 +150,21 @@ describe("writePrompt", () => {
     expect(prompt).not.toContain("acrescente os fatos novos");
   });
 
+  it("tells the writer the X posts are embedded by code, never to link or copy them", () => {
+    const prompt = writePrompt(
+      story({
+        posts: [{ url: "https://x.com/bethesda/status/1", authorName: "Bethesda", authorHandle: "bethesda", text: "The next <b>chapter</b>." }],
+      }),
+      NOW,
+    );
+    expect(prompt).toContain("## Posts no X");
+    expect(prompt).toContain("Bethesda (@bethesda)");
+    expect(prompt).toContain("aparece incorporado automaticamente");
+    expect(prompt).toContain("não escreva o link");
+    expect(prompt).not.toContain("<b>chapter</b>");
+    expect(writePrompt(story(), NOW)).not.toContain("## Posts no X");
+  });
+
   it("gives title-only sources as headlines, never as full text", () => {
     const prompt = writePrompt(story(), NOW);
     expect(prompt).not.toMatch(/<fonte nome="Eurogamer"/);

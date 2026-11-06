@@ -246,10 +246,17 @@ function harness(start = local("2026-10-31T10:00")) {
   const pictures = new Map<string, Buffer>();
   /** YouTube oEmbed answers by video id. */
   const oembeds = new Map<string, { title: string; author_name: string }>();
+  /** X oEmbed answers by status id. */
+  const xposts = new Map<string, { author_name: string; author_url: string; html: string }>();
 
   const fetchFn = vi.fn(async (input: string) => {
     const source = SOURCES.find((s) => s.url === input);
     if (source) return new Response(rss(feeds.get(source.id) ?? []), { status: 200 });
+    if (input.startsWith("https://publish.twitter.com/oembed?")) {
+      const id = new URL(input).searchParams.get("url")!.split("/").pop()!;
+      const html = xposts.get(id);
+      return html ? new Response(JSON.stringify(html), { status: 200 }) : new Response("no", { status: 404 });
+    }
     if (input.startsWith("https://www.youtube.com/oembed?")) {
       const id = new URL(new URL(input).searchParams.get("url")!).searchParams.get("v")!;
       const meta = oembeds.get(id);
@@ -274,6 +281,7 @@ function harness(start = local("2026-10-31T10:00")) {
     config,
     now: () => clock.now,
     fetchFn,
+    xProfiles: [{ handle: "SupergiantGames", name: "Supergiant Games" }],
   };
   const sleep = vi.fn(async (_ms: number) => {});
 
@@ -295,6 +303,7 @@ function harness(start = local("2026-10-31T10:00")) {
     brokenPages,
     pictures,
     oembeds,
+    xposts,
     fetchFn,
     fake,
     site,
@@ -1528,6 +1537,39 @@ describe("catalog media for articles without their own", () => {
     expect(blocks[1]).toEqual({ type: "video", youtubeId: "SSSSSSSSSSS", title: "Hades II - Official Launch Trailer" });
     const write = h.fake.calls.find((c) => c.purpose === "write")!;
     expect(write.user).toContain("O vídeo complementa a notícia");
+  });
+
+  it("embeds an official X post a source page carries and tells the writer about it", async () => {
+    const h = harness();
+    h.xposts.set("77", {
+      author_name: "Supergiant Games",
+      author_url: "https://twitter.com/SupergiantGames",
+      html: '<blockquote class="twitter-tweet"><p lang="en">New weapon out now!</p>&mdash; Supergiant Games (@SupergiantGames) <a href="https://twitter.com/SupergiantGames/status/77">October 31, 2026</a></blockquote>',
+    });
+    const id = seedQueued(h, "Hades II recebe arma nova");
+    const [item] = h.db.itemsForStory(id);
+    h.db.setItemMedia(item!.id, {
+      images: [],
+      youtube: [],
+      posts: [
+        { url: "https://x.com/SupergiantGames/status/77", handle: "SupergiantGames", statusId: "77" },
+        { url: "https://x.com/fan123/status/78", handle: "fan123", statusId: "78" },
+      ],
+    });
+    await h.publica({ agora: true });
+    const posts = h.site.created[0]!.payload.blocks.filter((b) => b.type === "post");
+    expect(posts).toEqual([
+      {
+        type: "post",
+        network: "x",
+        url: "https://x.com/SupergiantGames/status/77",
+        authorName: "Supergiant Games",
+        authorHandle: "SupergiantGames",
+        text: "New weapon out now!",
+        postedAt: "2026-10-31T12:00:00.000Z",
+      },
+    ]);
+    expect(h.fake.calls.find((c) => c.purpose === "write")!.user).toContain("## Posts no X");
   });
 
   it("a vision failure publishes without images; the subscription limit puts the story back in the queue", async () => {

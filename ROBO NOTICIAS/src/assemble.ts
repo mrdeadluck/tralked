@@ -7,6 +7,7 @@ import {
   type ContentBlock,
   type Insights,
 } from "./tralked.js";
+import type { XPost } from "./media/xposts.js";
 import { normalizeUrl } from "./url.js";
 
 /**
@@ -37,6 +38,8 @@ const LIMITS = {
   imageCredit: 200,
   imageUrl: 2048,
   videoTitle: 200,
+  postAuthor: 120,
+  postText: 1000,
 } as const;
 
 const MAX_ACHIEVEMENTS = 3;
@@ -73,10 +76,15 @@ function stripHtml(text: string): string {
   return out.replace(/<(?=[a-zA-Z!/?])/g, "< ");
 }
 
-/** Text with inline markup: no HTML, no script schemes, links only to https. */
+/** A link to X: posts are embedded by code (`post` blocks), never linked by the model. */
+const X_TARGET = /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\//i;
+const BARE_X_URL = /https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/\S*/gi;
+
+/** Text with inline markup: no HTML, no script schemes, links only to https and never to X. */
 function inline(text: string): string {
   const cleaned = stripHtml(text.replace(CONTROL_CHARS, ""))
-    .replace(INLINE_LINK, (match, label: string, target: string) => (isHttps(target) ? match : label))
+    .replace(INLINE_LINK, (match, label: string, target: string) => (isHttps(target) && !X_TARGET.test(target) ? match : label))
+    .replace(BARE_X_URL, "")
     .replace(SCRIPT_SCHEME, "$1");
   return collapse(cleaned);
 }
@@ -236,7 +244,30 @@ export type ArticleMedia = {
   cover?: MediaImage;
   bodyImage?: MediaImage;
   trailer?: { youtubeId: string; title: string };
+  /** Official X posts of the story: each after the first body paragraph that quotes its author. */
+  posts?: XPost[];
 };
+
+/** A post on X as the site takes it (app/src/lib/content/schema.ts `postBlockSchema`). */
+const X_POST_URL = /^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d{1,25}$/;
+const X_HANDLE = /^[A-Za-z0-9_]{1,15}$/;
+
+function postBlock(post: XPost): ContentBlock | null {
+  const url = post.url.trim();
+  if (!X_POST_URL.test(url) || !X_HANDLE.test(post.authorHandle)) return null;
+  const authorName = plainText(post.authorName, LIMITS.postAuthor);
+  const text = plainText(post.text, LIMITS.postText);
+  if (!authorName || !text) return null;
+  const postedAt = post.postedAt && Number.isFinite(Date.parse(post.postedAt)) ? new Date(post.postedAt).toISOString() : undefined;
+  return { type: "post", network: "x", url, authorName, authorHandle: post.authorHandle, text, ...(postedAt ? { postedAt } : {}) };
+}
+
+/** Whether a body block quotes the post's author (by name or @handle). */
+function quotes(block: ContentBlock, post: XPost): boolean {
+  if (block.type !== "paragraph" && block.type !== "quote" && block.type !== "list") return false;
+  const text = (block.type === "list" ? block.items.join(" ") : block.text).toLowerCase();
+  return text.includes(post.authorName.toLowerCase()) || text.includes(`@${post.authorHandle.toLowerCase()}`);
+}
 
 export type AssembleOpts = {
   insights: Map<string, Insights>;
@@ -299,15 +330,23 @@ export function assemble(draft: AssembleDraft, story: AssembleStory, opts: Assem
   const cover = imageBlock(media.cover);
   const second = media.bodyImage && media.bodyImage.url.trim() !== media.cover?.url.trim() ? imageBlock(media.bodyImage) : [];
   const afterBody = own.length > 0 ? [] : videoBlock(media.trailer);
-  blocks.push(
-    ...corpo.slice(0, 1),
-    ...cover,
-    ...own,
-    ...corpo.slice(1, BODY_IMAGE_AFTER),
-    ...second,
-    ...corpo.slice(BODY_IMAGE_AFTER),
-    ...afterBody,
-  );
+
+  // What goes after each body block: the cover and the video after the lede, the body image after the
+  // 3rd block, each post after the first block that quotes its author (else with the lede's media).
+  const after = new Map<number, ContentBlock[]>();
+  const put = (i: number, b: ContentBlock[]) => after.set(i, [...(after.get(i) ?? []), ...b]);
+  put(0, [...cover, ...own]);
+  if (second.length > 0) put(Math.min(BODY_IMAGE_AFTER, corpo.length) - 1, second);
+  const seenPosts = new Set<string>();
+  for (const post of media.posts ?? []) {
+    const block = postBlock(post);
+    if (!block || seenPosts.has(post.url)) continue;
+    seenPosts.add(post.url);
+    put(Math.max(0, corpo.findIndex((b) => quotes(b, post))), [block]);
+  }
+  if (corpo.length === 0) blocks.push(...(after.get(0) ?? []));
+  corpo.forEach((b, i) => blocks.push(b, ...(after.get(i) ?? [])));
+  blocks.push(...afterBody);
 
   blocks.push(...noTralkedBlocks(draft.noTralked, opts.insights));
 

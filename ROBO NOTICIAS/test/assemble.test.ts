@@ -88,6 +88,8 @@ function outline(blocks: ContentBlock[]): string[] {
         return `table:${b.header.join(",")}/${b.rows.length}`;
       case "achievement":
         return `achievement:${b.apiName}`;
+      case "post":
+        return "post";
       default:
         return b.type;
     }
@@ -144,6 +146,71 @@ describe("assemble: media", () => {
     expect(insecure.blocks[1]).toEqual({ type: "image", ...cover });
     const script = assemble(draft(), story, { ...opts(), media: { cover: { ...cover, creditUrl: "javascript:alert(1)" } } });
     expect(script.blocks[1]).toEqual({ type: "image", ...cover });
+  });
+
+  const post = {
+    url: "https://x.com/ToddHoward/status/1850000000000000002",
+    authorName: "Todd Howard",
+    authorHandle: "ToddHoward",
+    text: "Sentinel is the next chapter.",
+    postedAt: "2026-11-03T12:00:00.000Z",
+  };
+  const quoting = (over: Partial<Draft> = {}) =>
+    draft({
+      corpo: [
+        { p: "A Bethesda revelou o nome." },
+        { p: "Detalhes do anúncio." },
+        { p: "Todd Howard comentou o nome no X." },
+        { p: "Mais contexto." },
+      ],
+      ...over,
+    });
+
+  it("a post goes after the first body paragraph that quotes its author, and the site accepts it", () => {
+    const payload = assemble(quoting(), story, { ...opts(), media: { cover, video, posts: [post] } });
+    expect(outline(payload.blocks).slice(0, 7)).toEqual([
+      "p:A Bethesda revelou o nome.",
+      "image",
+      "video",
+      "p:Detalhes do anúncio.",
+      "p:Todd Howard comentou o nome no X.",
+      "post",
+      "p:Mais contexto.",
+    ]);
+    expect(payload.blocks[5]).toEqual({ type: "post", network: "x", ...post });
+    expect(articlePayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("a post nobody quotes goes after the video (or the cover, or the lede)", () => {
+    const anon = { ...post, authorName: "Bethesda", authorHandle: "bethesda", url: "https://x.com/bethesda/status/1" };
+    expect(outline(assemble(quoting(), story, { ...opts(), media: { cover, video, posts: [anon] } }).blocks).slice(0, 4)).toEqual([
+      "p:A Bethesda revelou o nome.",
+      "image",
+      "video",
+      "post",
+    ]);
+    expect(outline(assemble(quoting(), story, { ...opts(), media: { posts: [anon] } }).blocks).slice(0, 2)).toEqual([
+      "p:A Bethesda revelou o nome.",
+      "post",
+    ]);
+  });
+
+  it("drops a post with an unsafe url or handle, and cleans its text for the site", () => {
+    const bad = assemble(quoting(), story, { ...opts(), media: { posts: [{ ...post, url: "https://evil.com/x/status/1" }] } });
+    expect(bad.blocks.some((b) => b.type === "post")).toBe(false);
+    const html = assemble(quoting(), story, { ...opts(), media: { posts: [{ ...post, text: "<b>Sentinel</b> chega" }] } });
+    expect(html.blocks.find((b) => b.type === "post")).toMatchObject({ text: "Sentinel chega" });
+    expect(articlePayloadSchema.safeParse(html).success).toBe(true);
+  });
+
+  it("the model's text never links to X: the post is embedded instead", () => {
+    const payload = assemble(
+      quoting({ corpo: [{ p: "Veja [o post](https://x.com/bethesda/status/1) e https://twitter.com/bethesda/status/2 também." }] }),
+      story,
+      opts(),
+    );
+    expect(JSON.stringify(payload.blocks)).not.toMatch(/x\.com\/|twitter\.com\//);
+    expect(payload.blocks[0]).toEqual({ type: "paragraph", text: "Veja o post e também." });
   });
 
   it("drops unsafe media: bad video ids, non-https images, HTML in titles", () => {
