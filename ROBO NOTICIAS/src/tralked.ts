@@ -28,7 +28,7 @@ export type ContentBlock =
   | { type: "paragraph"; text: string }
   | { type: "list"; ordered: boolean; items: string[] }
   | { type: "quote"; text: string; author?: string }
-  | { type: "image"; url: string; alt: string; credit: string }
+  | { type: "image"; url: string; alt: string; credit: string; creditUrl?: string }
   | { type: "video"; youtubeId: string; title?: string }
   | { type: "callout"; tone: "info" | "aviso" | "spoiler"; text: string }
   | { type: "table"; header: string[]; rows: string[][] }
@@ -122,6 +122,8 @@ export type Tralked = {
   recentArticles(since: Date): Promise<FeedArticle[]>;
   createArticle(payload: ArticlePayload, idempotencyKey: string): Promise<{ id: string; url: string; slug: string }>;
   patchArticle(id: string, patch: ArticlePatch, idempotencyKey: string): Promise<void>;
+  /** `POST /api/v1/media` (scope `media:write`): the site stores the image as WebP and returns its URL. */
+  uploadImage(bytes: Uint8Array, contentType: "image/png" | "image/jpeg" | "image/webp", idempotencyKey: string): Promise<{ url: string }>;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -193,6 +195,35 @@ function storyIdOf(idempotencyKey: string): string {
   return pauta ? `pauta-${pauta}` : idempotencyKey;
 }
 
+const ROMAN: Record<string, string> = { ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7", viii: "8", ix: "9", x: "10" };
+
+/** A game name compared loosely: accents, case, punctuation and roman numerals ("VI" = "6") do not count. */
+export function gameNameKey(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[’'`]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .map((w) => ROMAN[w] ?? w)
+    .join(" ");
+}
+
+/**
+ * The search hit that is exactly the game asked for: same name or alias, or the asked name without its
+ * subtitle ("The Elder Scrolls VI: Sentinel" is "The Elder Scrolls VI"). Never the first hit by default:
+ * another game of the series ("The Elder Scrolls III: Morrowind") is worse than no game.
+ */
+export function exactGame<G extends { name: string; aliases?: string[] }>(query: string, games: G[]): G | null {
+  const full = gameNameKey(query);
+  const colon = query.indexOf(":");
+  const base = colon > 0 ? gameNameKey(query.slice(0, colon)) : "";
+  const names = (g: G) => [g.name, ...(g.aliases ?? [])].map(gameNameKey);
+  return games.find((g) => names(g).includes(full)) ?? (base ? games.find((g) => names(g).includes(base)) : undefined) ?? null;
+}
+
 function lastPathSegment(url: string): string {
   const path = url.split(/[?#]/)[0] ?? url;
   return path.replace(/\/+$/, "").split("/").pop() ?? "";
@@ -252,11 +283,7 @@ export function createTralked(options: { baseUrl: string; key: string; fetchFn?:
       const result = await json<{ games: { slug: string; name: string; aliases?: string[] }[] }>(
         await call("GET", `/api/v1/games?q=${encodeURIComponent(query)}`),
       );
-      const wanted = query.toLowerCase();
-      const hit =
-        result.games.find(
-          (game) => game.name.toLowerCase() === wanted || (game.aliases ?? []).some((a) => a.toLowerCase() === wanted),
-        ) ?? result.games[0];
+      const hit = exactGame(query, result.games);
       return hit ? { slug: hit.slug, name: hit.name } : null;
     },
 
@@ -280,6 +307,10 @@ export function createTralked(options: { baseUrl: string; key: string; fetchFn?:
 
     async patchArticle(id, patch, idempotencyKey) {
       await call("PATCH", `/api/v1/articles/${encodeURIComponent(id)}`, { body: patch, idempotencyKey });
+    },
+
+    async uploadImage(bytes, contentType, idempotencyKey) {
+      return json<{ url: string }>(await call("POST", "/api/v1/media", { raw: { bytes, contentType }, idempotencyKey }));
     },
   };
 }

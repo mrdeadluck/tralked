@@ -7,7 +7,7 @@ import { checkNovelty } from "./ai/novelty.js";
 import { CATEGORIES, triageItems, type Triage, type TriageInput } from "./ai/triage.js";
 import { writeAndCheck, type StoryForWriting, type StorySource } from "./ai/writer.js";
 import { alert, alertOncePerDay, checkSourceHealth } from "./alerts.js";
-import { assemble, type ArticleMedia } from "./assemble.js";
+import { assemble, type ArticleMedia, type MediaImage } from "./assemble.js";
 import { inSlotWindow, localDay, localHour } from "./clock.js";
 import { collectLive, extractText, fetchPage, type FetchFn } from "./collect/index.js";
 import { extractMedia } from "./collect/media.js";
@@ -16,6 +16,7 @@ import type { Config, Source } from "./config.js";
 import type { ArticleRow, Db, ItemRow, SpendBucket, StoryRow } from "./db.js";
 import { gameDestination } from "./game-destination.js";
 import { acquireLock, type Lock } from "./lock.js";
+import { chooseImages } from "./media/choose.js";
 import {
   PautaRejectedError,
   chooseFormat,
@@ -568,58 +569,99 @@ export async function storyForWriting(
   };
 }
 
+/** The companies the story is about, from its most important items first (triage `companies`). */
+export function storyCompanies(items: ItemRow[]): string[] {
+  const triages = items.flatMap((i) => {
+    const t = triageOf(i);
+    return t ? [t] : [];
+  });
+  const out: string[] = [];
+  for (const t of triages.sort((a, b) => b.importance - a.importance)) {
+    for (const c of t.companies ?? []) if (c.trim() && !out.some((o) => o.toLowerCase() === c.trim().toLowerCase())) out.push(c.trim());
+  }
+  return out;
+}
+
+/** The images an article already has (an update keeps them: no second vision call, no new uploads). */
+function previousImages(blocks: ContentBlock[] | undefined): Pick<ArticleMedia, "cover" | "bodyImage"> {
+  const images = (blocks ?? []).flatMap((b) => (b.type === "image" ? [b] : []));
+  const toMedia = (b: (typeof images)[number]): MediaImage => ({
+    url: b.url,
+    alt: b.alt,
+    credit: b.credit,
+    ...(b.creditUrl ? { creditUrl: b.creditUrl } : {}),
+  });
+  return { ...(images[0] ? { cover: toMedia(images[0]) } : {}), ...(images[1] ? { bodyImage: toMedia(images[1]) } : {}) };
+}
+
 /**
- * The media of an article (see `ArticleMedia`): the story's official video when it has one; otherwise
- * art of its first game from the site catalog (`GET /api/v1/games/{slug}/media`), picked by story id so
- * stories of one game vary, and the game's trailer when the article is about exactly one game. A catalog
- * failure only costs the media, never the article.
+ * The media of an article (see `ArticleMedia`):
+ * - the story's official video when it has one;
+ * - the images `chooseImages` picks (official images of the sources, the catalog of the exact game);
+ * - the game's trailer from the catalog when the article is about exactly one game and has no video.
+ * The catalog is the first game the writer linked (`findGame` resolves exact games only). A catalog or
+ * image failure only costs the media, never the article; the subscription limit stops the run.
  */
 export async function articleMedia(
   story: StoryRow,
   writing: StoryForWriting,
   payload: ArticlePayload,
-  deps: Pick<PipelineDeps, "tralked" | "log">,
+  deps: Pick<PipelineDeps, "tralked" | "log" | "db" | "ai" | "config" | "fetchFn" | "sources">,
+  reuse?: Pick<ArticleMedia, "cover" | "bodyImage">,
 ): Promise<ArticleMedia> {
-  if (writing.video) return { video: { youtubeId: writing.video.youtubeId, title: writing.video.title } };
+  const items = deps.db.itemsForStory(story.id);
   const linked = (payload.games ?? []).flatMap((g) => ("slug" in g ? [g.slug] : []));
   const slug = linked[0] ?? writing.candidates[0]?.slug;
-  if (!slug) return {};
-  let set: GameMedia | null;
-  try {
-    set = await deps.tralked.media(slug);
-  } catch (error) {
-    deps.log?.(`mídia indisponível para ${slug}: ${errorMessage(error)}`);
-    return {};
+  let set: GameMedia | null = null;
+  if (slug) {
+    try {
+      set = await deps.tralked.media(slug);
+    } catch (error) {
+      deps.log?.(`mídia indisponível para ${slug}: ${errorMessage(error)}`);
+    }
   }
-  if (!set) return {};
   const media: ArticleMedia = {};
-  const scenes = set.images.filter((i) => i.kind !== "hero");
-  const pool = scenes.length > 0 ? scenes : set.images;
-  const image = pool[story.id % Math.max(1, pool.length)];
-  if (image) {
-    media.image = {
-      url: image.url,
-      alt: `${image.kind === "screenshot" ? "Cena" : "Arte"} de ${set.game.name}`,
-      credit: set.game.publisher ? `Divulgação/${set.game.publisher}` : "Divulgação",
-    };
+  if (writing.video) media.video = { youtubeId: writing.video.youtubeId, title: writing.video.title };
+
+  if (reuse?.cover) {
+    Object.assign(media, reuse);
+  } else {
+    const companies = storyCompanies(items);
+    const games = parseGames(story.games_json);
+    const subject = games[0] ?? set?.game.name ?? companies[0] ?? story.headline;
+    const images = await chooseImages(
+      {
+        story,
+        items,
+        sources: deps.sources,
+        companies,
+        subject,
+        catalog: set,
+        officialVideoIds: writing.video ? [writing.video.youtubeId] : [],
+      },
+      { ai: deps.ai, config: deps.config, fetchFn: deps.fetchFn, tralked: deps.tralked, ...(deps.log ? { log: deps.log } : {}) },
+    );
+    Object.assign(media, images);
   }
-  const trailer = set.videos[0];
-  if (trailer && linked.length === 1) media.trailer = { youtubeId: trailer.youtubeId, title: `Vídeo de ${set.game.name}` };
+
+  const trailer = set?.videos[0];
+  if (!writing.video && trailer && linked.length === 1) media.trailer = { youtubeId: trailer.youtubeId, title: `Vídeo de ${set!.game.name}` };
   return media;
 }
 
-/** `assemble` with the article's media: the games the writer linked decide which catalog art is used. */
+/** `assemble` with the article's media: the games the writer linked decide which catalog is used. */
 async function assembleWithMedia(
   draft: Parameters<typeof assemble>[0],
   story: StoryRow,
   writing: StoryForWriting,
   deps: PipelineDeps,
   updatedAt?: Date,
+  reuse?: Pick<ArticleMedia, "cover" | "bodyImage">,
 ): Promise<ArticlePayload> {
   const opts = assembleOpts(story, writing, deps, updatedAt);
   const plain = assemble(draft, writing, opts);
-  const media = await articleMedia(story, writing, plain, deps);
-  return media.video || media.image || media.trailer ? assemble(draft, writing, { ...opts, media }) : plain;
+  const media = await articleMedia(story, writing, plain, deps, reuse);
+  return Object.keys(media).length > 0 ? assemble(draft, writing, { ...opts, media }) : plain;
 }
 
 export const insightsOf = (candidates: StoryForWriting["candidates"]) =>
@@ -706,7 +748,12 @@ async function publishOneInner(story: StoryRow, deps: PipelineDeps): Promise<Pub
         );
         return { kind: "rejected" };
       }
-      payload = await assembleWithMedia(result.draft, story, writing, deps);
+      try {
+        payload = await assembleWithMedia(result.draft, story, writing, deps);
+      } catch (error) {
+        if (error instanceof BudgetExceededError) budgetAlert(db, error, now);
+        throw error;
+      }
       // A story that broke more than OLD_STORY_MS ago is dated when it broke, not today: the queue also
       // holds older news, and a batch of them must not look like it all happened at once.
       const brokeAt = storyStartedAt(story, db, now);
@@ -842,7 +889,7 @@ async function updateStoryInner(story: StoryRow, deps: PipelineDeps): Promise<bo
       return false;
     }
 
-    const payload = await assembleWithMedia(result.draft, story, writing, deps, now);
+    const payload = await assembleWithMedia(result.draft, story, writing, deps, now, previousImages(previousPayload.blocks));
     const { status: _status, ...patch } = payload;
     try {
       await tralked.patchArticle(article.site_id, patch, updateKey(article.site_id, db.itemIdsForStory(story.id).length));

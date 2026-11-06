@@ -124,6 +124,7 @@ function fakeAi(facts: Map<string, Fact>) {
     route: new Map<string, string>(),
     /** Resolves when released: lets a test hold the writer mid-call. */
     writeGate: null as Promise<void> | null,
+    visionError: null as Error | null,
   };
 
   const structured = vi.fn(async (opts: StructuredOpts<unknown>) => {
@@ -175,6 +176,11 @@ function fakeAi(facts: Map<string, Fact>) {
       return opts.schema.parse(state.checkOk ? { ok: true, problems: [] } : { ok: false, problems: ["Data errada."] });
     }
     if (opts.purpose === "novelty") return opts.schema.parse(state.novelty);
+    if (opts.purpose === "vision") {
+      if (state.visionError) throw state.visionError;
+      const ids = [...opts.user.matchAll(/^Imagem \d+: (img\d+)/gm)].map((m) => m[1]!);
+      return opts.schema.parse({ verdicts: ids.map((id) => ({ id, ok: true, depicts: "cena de Hades II", reason: "ok" })) });
+    }
     throw new Error(`unexpected purpose ${opts.purpose}`);
   });
 
@@ -188,6 +194,7 @@ function fakeAi(facts: Map<string, Fact>) {
 function fakeTralked() {
   const created: { payload: ArticlePayload; key: string }[] = [];
   const patches: { id: string; patch: ArticlePatch; key: string }[] = [];
+  const uploads: string[] = [];
   const state = {
     feed: [] as FeedArticle[],
     feedError: null as Error | null,
@@ -215,8 +222,12 @@ function fakeTralked() {
     patchArticle: async (id, patch, key) => {
       patches.push({ id, patch, key });
     },
+    uploadImage: async (_bytes, _type, key) => {
+      uploads.push(key);
+      return { url: `https://blob.test/${uploads.length}.webp` };
+    },
   };
-  return { tralked, created, patches, state };
+  return { tralked, created, patches, uploads, state };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -231,10 +242,14 @@ function harness(start = local("2026-10-31T10:00")) {
   const feeds = new Map<string, FeedItem[]>();
   const facts = new Map<string, Fact>();
   const brokenPages = new Set<string>();
+  /** Image bytes served by URL (catalog art, source images). */
+  const pictures = new Map<string, Buffer>();
 
   const fetchFn = vi.fn(async (input: string) => {
     const source = SOURCES.find((s) => s.url === input);
     if (source) return new Response(rss(feeds.get(source.id) ?? []), { status: 200 });
+    const picture = pictures.get(input);
+    if (picture) return new Response(new Uint8Array(picture), { status: 200, headers: { "content-type": "image/jpeg" } });
     if (input.startsWith("https://news.test/") && !brokenPages.has(input)) {
       const item = [...feeds.values()].flat().find((i) => i.url === input);
       return new Response(page(item?.title ?? "Página"), { status: 200 });
@@ -271,6 +286,7 @@ function harness(start = local("2026-10-31T10:00")) {
     feeds,
     facts,
     brokenPages,
+    pictures,
     fetchFn,
     fake,
     site,
@@ -1436,6 +1452,24 @@ describe("video stories (official YouTube channels)", () => {
   });
 });
 
+/** A distinct 1920×1080 JPEG per `n`. */
+async function scene(n: number): Promise<Buffer> {
+  const { default: sharp } = await import("sharp");
+  const w = 1920;
+  const hgt = 1080;
+  const raw = Buffer.alloc(w * hgt * 3);
+  for (let y = 0; y < hgt; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 3;
+      const v = Math.round((255 * ((n % 2 ? 1 - x / w : x / w) + (n % 3 === 2 ? 1 - y / hgt : y / hgt))) / 2);
+      raw[i] = v;
+      raw[i + 1] = (v + n * 70) % 256;
+      raw[i + 2] = 255 - v;
+    }
+  }
+  return sharp(raw, { raw: { width: w, height: hgt, channels: 3 } }).jpeg().toBuffer();
+}
+
 describe("catalog media for articles without their own", () => {
   const media = (over: Partial<GameMedia> = {}): GameMedia => ({
     game: { slug: "hades-ii", name: "Hades II", developer: "Supergiant Games", publisher: "Supergiant Games" },
@@ -1448,20 +1482,41 @@ describe("catalog media for articles without their own", () => {
     ...over,
   });
 
-  it("adds a screenshot after the lede and the game's trailer after the body", async () => {
+  it("adds catalog scenes of the exact game, hosted by the site, and the game's trailer after the body", async () => {
     const h = harness();
     h.site.state.media.set("hades-ii", media());
+    for (const [n, url] of media().images.map((i) => i.url).entries()) h.pictures.set(url, await scene(n));
     const id = seedQueued(h, "Hades II recebe arma nova");
     await h.publica({ agora: true });
     const { blocks } = h.site.created[0]!.payload;
-    expect(blocks[1]).toEqual({
-      type: "image",
-      url: `https://images.igdb.com/igdb/image/upload/t_1080p/s${(id % 2) + 1}.jpg`,
-      alt: "Cena de Hades II",
-      credit: "Divulgação/Supergiant Games",
-    });
-    expect(blocks[2]).toEqual({ type: "video", youtubeId: "TTTTTTTTTTT", title: "Vídeo de Hades II" });
+    expect(blocks[1]).toEqual({ type: "image", url: "https://blob.test/1.webp", alt: "Cena de Hades II", credit: "Divulgação/Supergiant Games" });
+    expect(blocks.filter((b) => b.type === "image")).toHaveLength(2);
+    expect(blocks.find((b) => b.type === "video")).toEqual({ type: "video", youtubeId: "TTTTTTTTTTT", title: "Vídeo de Hades II" });
     expect(blocks.at(-2)).toEqual({ type: "heading", level: 2, text: "Fontes" });
+    // The scene is picked by story id, so articles of one game vary.
+    const vision = h.fake.calls.find((c) => c.purpose === "vision")!;
+    expect(vision.user).toContain(`img1 (de Tralked)`);
+    expect(h.site.uploads).toHaveLength(2);
+    expect(id).toBeGreaterThan(0);
+  });
+
+  it("a vision failure publishes without images; the subscription limit puts the story back in the queue", async () => {
+    const h = harness();
+    h.site.state.media.set("hades-ii", media());
+    for (const [n, url] of media().images.map((i) => i.url).entries()) h.pictures.set(url, await scene(n));
+    seedQueued(h, "Hades II recebe arma nova");
+    h.fake.state.visionError = new Error("timeout");
+    await h.publica({ agora: true });
+    expect(h.site.created[0]!.payload.blocks.some((b) => b.type === "image")).toBe(false);
+
+    const limited = harness();
+    limited.site.state.media.set("hades-ii", media());
+    for (const [n, url] of media().images.map((i) => i.url).entries()) limited.pictures.set(url, await scene(n));
+    const id = seedQueued(limited, "Hades II recebe arma nova");
+    limited.fake.state.visionError = new UsageLimitError("3:45pm");
+    await limited.publica({ agora: true }).catch(() => null);
+    expect(limited.site.created).toHaveLength(0);
+    expect(limited.db.storyById(id)!.status).toBe("queued");
   });
 
   it("publishes without media when the catalog has none or fails", async () => {

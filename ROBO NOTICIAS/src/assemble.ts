@@ -221,15 +221,20 @@ export type AssembleStory = {
   candidates?: { slug: string }[];
 };
 
+/** An image hosted by the site, with its credit and, for outside material, a link to where it came from. */
+export type MediaImage = { url: string; alt: string; credit: string; creditUrl?: string };
+
 /**
- * Media added by code, never by the model (the sources give the robot no pictures):
- * - `video`: the story's own official video (a YouTube channel item), right after the lede;
- * - `image`: catalog art of the article's game, after the lede, only when there is no `video`;
+ * Media added by code, never by the model (src/media/ picks it):
+ * - `cover`: the article's main image, right after the lede; the first image block is the site's card;
+ * - `video`: the story's own official video, after the cover;
+ * - `bodyImage`: a second image (a catalog scene of the exact game), after the 3rd block of the body;
  * - `trailer`: the game's video from the catalog, after the body, only when there is no `video`.
  */
 export type ArticleMedia = {
   video?: { youtubeId: string; title: string };
-  image?: { url: string; alt: string; credit: string };
+  cover?: MediaImage;
+  bodyImage?: MediaImage;
   trailer?: { youtubeId: string; title: string };
 };
 
@@ -242,6 +247,8 @@ export type AssembleOpts = {
 };
 
 const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+/** The body image goes after this many body blocks (the lede counts). */
+const BODY_IMAGE_AFTER = 3;
 
 function videoBlock(video: { youtubeId: string; title: string } | undefined): ContentBlock[] {
   if (!video || !YOUTUBE_ID.test(video.youtubeId)) return [];
@@ -249,13 +256,16 @@ function videoBlock(video: { youtubeId: string; title: string } | undefined): Co
   return [title ? { type: "video", youtubeId: video.youtubeId, title } : { type: "video", youtubeId: video.youtubeId }];
 }
 
-function imageBlock(image: ArticleMedia["image"]): ContentBlock[] {
+function imageBlock(image: MediaImage | undefined): ContentBlock[] {
   if (!image) return [];
   const url = image.url.trim();
   if (!isHttps(url) || /[\s()<>"]/.test(url) || url.length > LIMITS.imageUrl) return [];
   const alt = plainText(image.alt, LIMITS.imageAlt);
   const credit = plainText(image.credit, LIMITS.imageCredit);
-  return alt && credit ? [{ type: "image", url, alt, credit }] : [];
+  if (!alt || !credit) return [];
+  const creditUrl = image.creditUrl?.trim();
+  const linked = creditUrl && isHttps(creditUrl) && !/[\s<>"]/.test(creditUrl) && creditUrl.length <= LIMITS.imageUrl;
+  return [linked ? { type: "image", url, alt, credit, creditUrl } : { type: "image", url, alt, credit }];
 }
 
 /** `Entenda o caso: [title](url)`, or null when the link would not be a safe https link. */
@@ -286,9 +296,18 @@ export function assemble(draft: AssembleDraft, story: AssembleStory, opts: Assem
   });
   const media = opts.media ?? {};
   const own = videoBlock(media.video);
-  const afterLede = own.length > 0 ? own : imageBlock(media.image);
+  const cover = imageBlock(media.cover);
+  const second = media.bodyImage && media.bodyImage.url.trim() !== media.cover?.url.trim() ? imageBlock(media.bodyImage) : [];
   const afterBody = own.length > 0 ? [] : videoBlock(media.trailer);
-  blocks.push(...corpo.slice(0, 1), ...afterLede, ...corpo.slice(1), ...afterBody);
+  blocks.push(
+    ...corpo.slice(0, 1),
+    ...cover,
+    ...own,
+    ...corpo.slice(1, BODY_IMAGE_AFTER),
+    ...second,
+    ...corpo.slice(BODY_IMAGE_AFTER),
+    ...afterBody,
+  );
 
   blocks.push(...noTralkedBlocks(draft.noTralked, opts.insights));
 

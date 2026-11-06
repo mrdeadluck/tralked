@@ -224,13 +224,45 @@ describe("reads and patch", () => {
     expect(urlOf(fetchFn, 0)).toBe(`${BASE}/api/v1/games?q=gow`);
   });
 
-  it("findGame falls back to the first hit, then to null", async () => {
+  it("findGame never falls back to another game of the series", async () => {
     const { client } = setup(
       reply(200, { games: [{ slug: "hades-2", name: "Hades II", aliases: [] }] }),
       reply(200, { games: [] }),
+      reply(200, { games: [{ slug: "tes-iii-morrowind", name: "The Elder Scrolls III: Morrowind", aliases: [] }] }),
     );
-    await expect(client.findGame("Hades")).resolves.toEqual({ slug: "hades-2", name: "Hades II" });
+    await expect(client.findGame("Hades")).resolves.toBeNull();
     await expect(client.findGame("Nada")).resolves.toBeNull();
+    await expect(client.findGame("The Elder Scrolls VI")).resolves.toBeNull();
+  });
+
+  it("findGame takes the name without its subtitle, and loose spelling (case, accents, roman numerals)", async () => {
+    const { client } = setup(
+      reply(200, { games: [{ slug: "tes-vi", name: "The Elder Scrolls VI", aliases: [] }] }),
+      reply(200, { games: [{ slug: "hades-2", name: "Hades II", aliases: [] }] }),
+      reply(200, {
+        games: [
+          { slug: "hollow-knight", name: "Hollow Knight", aliases: [] },
+          { slug: "hollow-knight-silksong", name: "Hollow Knight: Silksong", aliases: [] },
+        ],
+      }),
+      reply(200, { games: [{ slug: "wolverine", name: "Marvel’s Wolverine", aliases: [] }] }),
+    );
+    await expect(client.findGame("The Elder Scrolls VI: Sentinel")).resolves.toEqual({ slug: "tes-vi", name: "The Elder Scrolls VI" });
+    await expect(client.findGame("hades 2")).resolves.toEqual({ slug: "hades-2", name: "Hades II" });
+    // The full name wins over the name without subtitle.
+    await expect(client.findGame("Hollow Knight: Silksong")).resolves.toEqual({ slug: "hollow-knight-silksong", name: "Hollow Knight: Silksong" });
+    await expect(client.findGame("Marvel's Wolverine")).resolves.toEqual({ slug: "wolverine", name: "Marvel’s Wolverine" });
+  });
+
+  it("uploadImage posts the raw bytes to /api/v1/media with the idempotency key", async () => {
+    const { client, fetchFn } = setup(reply(201, { url: "https://blob.test/a.webp", width: 1600, height: 900 }));
+    await expect(client.uploadImage(new Uint8Array([1, 2, 3]), "image/jpeg", "noticia-img-abc")).resolves.toMatchObject({
+      url: "https://blob.test/a.webp",
+    });
+    expect(urlOf(fetchFn, 0)).toBe(`${BASE}/api/v1/media`);
+    expect(initOf(fetchFn, 0).method).toBe("POST");
+    expect(headerOf(fetchFn, 0, "content-type")).toBe("image/jpeg");
+    expect(headerOf(fetchFn, 0, "idempotency-key")).toBe("noticia-img-abc");
   });
 
   it("findGame skips the request for names the site would reject", async () => {
