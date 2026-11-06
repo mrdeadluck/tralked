@@ -2,9 +2,7 @@ import type { CSSProperties } from "react";
 import type { TrophyTier } from "@/lib/engine/trophies";
 
 /*
- * Pieces of the hero's progress column shared by the server render and the
- * platform switch (a client island): headline styles, the platform segmented control and the
- * trophy grid. Presentational only, so both sides can import it.
+ * Pieces of the hero's progress column: headline styles and the trophy grid. Presentational only.
  */
 
 export const PROGRESS_CSS = `
@@ -28,25 +26,6 @@ export const PROGRESS_CSS = `
 .gpt small { display: block; font-stretch: 75%; font-weight: 750; font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
 .gpt li[data-tralked] { background: color-mix(in oklch, var(--moss-2) 70%, transparent); }
 .gpt li[data-tralked] b { color: var(--acc); }
-.gpx { display: flex; flex-wrap: wrap; justify-content: center; max-width: 100%; margin: 0; padding: 0; border: 0; }
-.gpx-row { display: inline-flex; flex-wrap: wrap; justify-content: center; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); }
-.gpx-opt { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; font-stretch: 80%; font-weight: 750; font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); cursor: pointer; white-space: nowrap; transition: background .2s, color .2s; }
-.gpx-opt::before { content: ""; width: 6px; height: 6px; flex: none; background: var(--c, var(--muted)); }
-.gpx-opt[data-all]::before { display: none; }
-.gpx-opt input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.gpx-opt:hover { color: var(--text); }
-.gpx-val { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
-.gpx-opt[data-done] .gpx-val { color: var(--gold); }
-.gpx-opt:has(input:checked) { background: var(--hover-2); color: var(--text); box-shadow: inset 0 -2px 0 var(--acc); }
-.gpx-opt:has(input:checked) .gpx-val { color: var(--text-2); }
-.gpx-opt:has(input:focus-visible) { outline: 2px solid var(--acc); outline-offset: 2px; z-index: 1; }
-@media (max-width: 600px) {
-  .gpx-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-  .gpx-opt { justify-content: center; }
-  /* Three platforms share one row (two-and-one left "Xbox 7" alone on a second line). */
-  .gpx-row[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .gpx-row[data-n="3"] .gpx-opt { padding: 0 6px; gap: 6px; }
-}
 `;
 
 const TROPHY_UI: { tier: TrophyTier; label: string; color: string }[] = [
@@ -99,34 +78,3 @@ export function TrophyGrid({
     </ul>
   );
 }
-
-/**
- * One tab of the platform switch: a platform the player has the game on, or every platform
- * together. Built on the server (pt-BR copy included), so the switch only picks one.
- */
-export type ProgressView = {
-  /** Platform id, or "todas". */
-  id: string;
-  /** Tab label ("Steam", "PSN", "Todas"). */
-  label: string;
-  /** Platform color token; null for "todas". */
-  color: string | null;
-  unlocked: number;
-  total: number;
-  pct: number;
-  completed: boolean;
-  /** "Platina" (the platinum trophy itself), "100%", or null while incomplete. */
-  badge: string | null;
-  /** The game's own numbers (no player progress): the headline is the total alone. */
-  catalog?: boolean;
-  /** Line under the numbers ("conquistas na Steam · 98% · falta 1 para platinar"). */
-  detail: string;
-  /** A link closing the detail line ("entre para ver o seu progresso"). */
-  link?: { href: string; label: string };
-  /** Disc label when platinum. */
-  platLabel: string;
-  trophies: Record<TrophyTier, string>;
-  trophiesLabel: string;
-  /** The platinum is Tralked's (no native platinum trophy on this platform): see TrophyGrid. */
-  tralkedPlatinum?: boolean;
-};

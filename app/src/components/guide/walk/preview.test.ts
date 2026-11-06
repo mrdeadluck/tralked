@@ -52,19 +52,18 @@ describe.skipIf(!reachable)("detonado: spoilers e prévia da equipe", () => {
   beforeAll(async () => {
     const { prisma } = await import("@/lib/db");
     await prisma.game.deleteMany({ where: { slug: SLUG } });
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
     const game = await prisma.game.create({
       data: {
         slug: SLUG,
         name: "Walk Preview Test",
         achievementCount: 2,
-        achievements: {
-          create: [
-            { platform: "steam", apiName: "ACH_HEALER_LEGACY", name: "Healer's Legacy", namePt: "Legado da Curandeira" },
-            { platform: "steam", apiName: "ACH_SCARLET_SPECTRAL_BLADE", name: "Scarlet Spectral Blade", namePt: "Lâmina Espectral Escarlate", hidden: true },
-          ],
-        },
       },
     });
+    await createAchievements(game.id, [
+      { platform: "steam", apiName: "ACH_HEALER_LEGACY", name: "Healer's Legacy", namePt: "Legado da Curandeira" },
+      { platform: "steam", apiName: "ACH_SCARLET_SPECTRAL_BLADE", name: "Scarlet Spectral Blade", namePt: "Lâmina Espectral Escarlate", hidden: true },
+    ]);
     const guide = await prisma.guide.create({
       data: {
         gameId: game.id,

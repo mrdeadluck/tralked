@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
+import { createAchievements } from "@/lib/trophies/test-lists";
 import { xpForPlatformAchievement } from "@/lib/engine/trophies";
 import { platinumBonus, xpForAchievement } from "@/lib/engine/xp";
 import { recomputeUser } from "@/lib/progression/recompute";
@@ -63,12 +64,12 @@ beforeAll(async () => {
       achievementCount: 3,
       platforms: ["PC"],
       skills: { create: [{ skill: "rpg" }] },
-      achievements: { create: PCTS.map((globalPct, i) => ({ apiName: `F_${i}`, name: `F ${i}`, globalPct })) },
     },
-    include: { achievements: { orderBy: { apiName: "asc" } } },
   });
   gameId = game.id;
-  achievementIds = game.achievements.map((a) => a.id);
+  achievementIds = (await createAchievements(game.id, PCTS.map((globalPct, i) => ({ apiName: `F_${i}`, name: `F ${i}`, globalPct })))).map(
+    (a) => a.id,
+  );
 });
 
 afterAll(cleanup);
@@ -186,9 +187,7 @@ describe("fraud queue", () => {
     const userId = await playerWithBurst("orfa", 0);
     // A row Steam no longer lists (old seed / removed achievement): the catalog keeps it, but
     // achievementCount (Steam's count today) stays 3, as the sync sees it.
-    const orphan = await prisma.achievement.create({
-      data: { gameId, platform: "steam", apiName: "F_REMOVED", name: "Removida", globalPct: 1 },
-    });
+    const [orphan] = await createAchievements(gameId, [{ platform: "steam", apiName: "F_REMOVED", name: "Removida", globalPct: 1 }]);
     try {
       const result = await releaseFraud(key(userId), NOW);
       expect(result).toMatchObject({ ok: true, entries: 4 }); // 3 achievements + platinum
@@ -203,9 +202,7 @@ describe("fraud queue", () => {
 
   it("does not release unlocks of a platform account that was unlinked", async () => {
     const userId = await playerWithBurst("desvinculado", 0);
-    const psnAchievement = await prisma.achievement.create({
-      data: { gameId, platform: "psn", apiName: "PSN_1", name: "PSN 1", trophyTier: "gold" },
-    });
+    const [psnAchievement] = await createAchievements(gameId, [{ platform: "psn", apiName: "PSN_1", name: "PSN 1", trophyTier: "gold" }]);
     await prisma.userAchievement.create({
       data: { userId, achievementId: psnAchievement.id, unlockedAt: T0, suspicious: true },
     });

@@ -7,6 +7,7 @@ vi.mock("next/cache", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("@/lib/db");
+const { createAchievements, testListId } = await import("@/lib/trophies/test-lists");
 const { createApiKey, revokeApiKey } = await import("@/lib/api/keys");
 const { consumeRateLimit, RATE_LIMIT, resetRateLimits } = await import("@/lib/api/rate-limit");
 const { EXAMPLE_ARTICLE, EXAMPLE_GUIDE } = await import("@/lib/api/examples");
@@ -962,7 +963,7 @@ describe("GET /api/v1/games/{slug}/insights", () => {
 
   beforeAll(async () => {
     userIds = (await prisma.user.findMany({ take: 3, orderBy: { handle: "asc" }, select: { id: true } })).map((u) => u.id);
-    await prisma.game.create({
+    const game = await prisma.game.create({
       data: {
         slug,
         name: "T4 Insights",
@@ -970,20 +971,18 @@ describe("GET /api/v1/games/{slug}/insights", () => {
         achievementCount: 7,
         timeToBeatCompleteMin: 600,
         releaseDate: new Date("2024-05-06T00:00:00Z"),
-        achievements: {
-          create: [
-            { apiName: "A_COMMON", name: "Comum", globalPct: 80 },
-            { apiName: "A_RARE", name: "Rara", globalPct: 1.5 },
-            { apiName: "A_HIDDEN", name: "Escondida", globalPct: 0.1, hidden: true },
-            { apiName: "A_NULL", name: "Sem dado", globalPct: null },
-            { apiName: "B_20", name: "Vinte", globalPct: 20 },
-            { apiName: "B_10", name: "Dez", globalPct: 10 },
-            { apiName: "B_5", name: "Cinco", globalPct: 5 },
-            { apiName: "B_40", name: "Quarenta", globalPct: 40 },
-          ],
-        },
       },
     });
+    await createAchievements(game.id, [
+      { apiName: "A_COMMON", name: "Comum", globalPct: 80 },
+      { apiName: "A_RARE", name: "Rara", globalPct: 1.5 },
+      { apiName: "A_HIDDEN", name: "Escondida", globalPct: 0.1, hidden: true },
+      { apiName: "A_NULL", name: "Sem dado", globalPct: null },
+      { apiName: "B_20", name: "Vinte", globalPct: 20 },
+      { apiName: "B_10", name: "Dez", globalPct: 10 },
+      { apiName: "B_5", name: "Cinco", globalPct: 5 },
+      { apiName: "B_40", name: "Quarenta", globalPct: 40 },
+    ]);
   });
 
   afterAll(async () => {
@@ -1099,18 +1098,16 @@ describe("GET /api/v1/games/{slug}/dossie", () => {
         achievementCount: 5,
         timeToBeatCompleteMin: 900,
         releaseDate: new Date("2023-03-04T00:00:00Z"),
-        achievements: {
-          create: [
-            { apiName: "D_COMMON", name: "Comum", description: "Faça o básico.", globalPct: 80 },
-            { apiName: "D_RARE", name: "Rara", description: "Faça o difícil.", globalPct: 1.5 },
-            { apiName: "D_HIDDEN", name: "Escondida", description: "Segredo.", globalPct: 0.1, hidden: true },
-            { apiName: "D_NULL", name: "Sem dado", description: null, globalPct: null },
-            { apiName: "D_MID", name: "Meio", description: "No meio.", globalPct: 20 },
-            { platform: "psn", apiName: "D_PSN", name: "Troféu", description: "Troféu PSN.", globalPct: 5 },
-          ],
-        },
       },
     });
+    await createAchievements(game.id, [
+      { apiName: "D_COMMON", name: "Comum", description: "Faça o básico.", globalPct: 80 },
+      { apiName: "D_RARE", name: "Rara", description: "Faça o difícil.", globalPct: 1.5 },
+      { apiName: "D_HIDDEN", name: "Escondida", description: "Segredo.", globalPct: 0.1, hidden: true },
+      { apiName: "D_NULL", name: "Sem dado", description: null, globalPct: null },
+      { apiName: "D_MID", name: "Meio", description: "No meio.", globalPct: 20 },
+      { platform: "psn", apiName: "D_PSN", name: "Troféu", description: "Troféu PSN.", globalPct: 5 },
+    ]);
     gameId = game.id;
   });
 
@@ -1219,8 +1216,9 @@ describe("GET /api/v1/games/{slug}/dossie", () => {
   it("caps the achievements at 500, keeping the rarest", async () => {
     const big = await prisma.game.create({ data: { slug: "t16-dossier-big", name: "T16 Big", platforms: ["PC"], achievementCount: 501 } });
     try {
+      const listId = await testListId(big.id);
       await prisma.achievement.createMany({
-        data: Array.from({ length: 501 }, (_, i) => ({ gameId: big.id, apiName: `BIG_${i}`, name: `Big ${i}`, globalPct: i / 10 })),
+        data: Array.from({ length: 501 }, (_, i) => ({ gameId: big.id, listId, apiName: `BIG_${i}`, name: `Big ${i}`, globalPct: i / 10 })),
       });
       const { achievements } = (await json(await ask("/api/v1/games/t16-dossier-big/dossie"))) as { achievements: { apiName: string }[] };
       expect(achievements).toHaveLength(500);

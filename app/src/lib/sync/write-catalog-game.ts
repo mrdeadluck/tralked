@@ -133,8 +133,6 @@ export async function writeCatalogGame(input: CatalogGameInput): Promise<{ game:
       name: game.name,
       trophyCount: schema.length > 0 ? schema.length : (storedList?.trophyCount ?? 0),
     });
-    // Rows written before lists existed (seed, older syncs) join the list.
-    await tx.achievement.updateMany({ where: { gameId: game.id, platform: "steam", listId: null }, data: { listId: list.id } });
 
     const rows = await tx.achievement.findMany({ where: { listId: list.id } });
     const byApiName = new Map(rows.map((r) => [r.apiName, r]));

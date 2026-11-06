@@ -107,7 +107,7 @@ export async function regionalListXp(options: {
   const holders = await prisma.$queryRaw<{ userId: string; gameId: string }[]>`
     SELECT DISTINCT ua."userId", a."gameId"
     FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId"
-    WHERE a.platform = 'psn' AND a."listId" IS NOT NULL AND a."gameId" = ANY(${gameIds}::text[])`;
+    WHERE a.platform = 'psn' AND a."gameId" = ANY(${gameIds}::text[])`;
   const gamesOf = new Map<string, string[]>();
   for (const h of holders) gamesOf.set(h.userId, [...(gamesOf.get(h.userId) ?? []), h.gameId]);
   const users = await prisma.user.findMany({

@@ -3,6 +3,7 @@ import { env } from "@/lib/env";
 import { dailyPeriodKey, weeklyPeriodKey } from "@/lib/progression/periods";
 import { getRank, getRanking } from "@/lib/highscores/queries";
 import { getCharacter, hoursUntilDailyReset } from "@/lib/queries/players";
+import { createAchievements } from "@/lib/trophies/test-lists";
 
 describe("hoursUntilDailyReset", () => {
   it("counts whole hours to the next America/Sao_Paulo midnight", () => {
@@ -105,17 +106,14 @@ describe.skipIf(!reachable)("player queries (seeded database)", () => {
             name: "Jogo da contagem",
             achievementCount: 0,
             platforms: ["PLAYSTATION", "XBOX"],
-            achievements: {
-              create: [
-                ...Array.from({ length: 10 }, (_, i) => ({ platform: "psn", apiName: `P${i}`, name: `P${i}`, globalPct: 50 })),
-                ...Array.from({ length: 2 }, (_, i) => ({ platform: "xbox", apiName: `X${i}`, name: `X${i}`, globalPct: 2 })),
-              ],
-            },
           },
-          include: { achievements: true },
         });
-        const psn = game.achievements.filter((a) => a.platform === "psn");
-        const xbox = game.achievements.filter((a) => a.platform === "xbox");
+        const achievements = await createAchievements(game.id, [
+          ...Array.from({ length: 10 }, (_, i) => ({ platform: "psn", apiName: `P${i}`, name: `P${i}`, globalPct: 50 })),
+          ...Array.from({ length: 2 }, (_, i) => ({ platform: "xbox", apiName: `X${i}`, name: `X${i}`, globalPct: 2 })),
+        ], tx);
+        const psn = achievements.filter((a) => a.platform === "psn");
+        const xbox = achievements.filter((a) => a.platform === "xbox");
         const at = new Date("2026-10-01T12:00:00Z");
         // PSN: 8 valid + 1 pending review of 10 -> 80% "Quase lá" (the pending one never counts).
         await tx.userGame.create({ data: { userId: user.id, gameId: game.id, platform: "psn", playtimeMin: 0, unlockedCount: 9 } });

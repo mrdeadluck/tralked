@@ -50,8 +50,8 @@ async function newList(gameId: string, console: string | null, createdAt: Date, 
   });
 }
 
-/** Trophies "0" (platinum) and "1" (bronze) of a list (or list-less rows with listId null). */
-async function newTrophies(gameId: string, listId: string | null, apiNames = ["0", "1"]) {
+/** Trophies "0" (platinum) and "1" (bronze) of a list. */
+async function newTrophies(gameId: string, listId: string, apiNames = ["0", "1"]) {
   const rows = [];
   for (const apiName of apiNames) {
     rows.push(
@@ -410,65 +410,6 @@ describe("settleListXp", () => {
     ]);
   });
 
-  it("once the game has a list, entries of list-less rows are voided and the list pays", async () => {
-    const user = await newUser();
-    const game = await newGame();
-    // Rows written before the game had lists (still waiting for the migration's cleanup).
-    const old = await newTrophies(game.id, null, ["0"]);
-    await prisma.userAchievement.create({ data: { userId: user.id, achievementId: old[0].id, unlockedAt: at(0) } });
-    await prisma.xpLedgerEntry.create({
-      data: { userId: user.id, source: "achievement", sourceKey: old[0].id, platform: "psn", xp: 300, skills: ["rpg"], createdAt: at(0) },
-    });
-    expect(await settle(user.id, [game.id])).toEqual({ paid: 0, voided: 0 });
-
-    const list = await newList(game.id, "PS5", at(5));
-    const trophies = await newTrophies(game.id, list.id, ["0"]);
-    await prisma.userAchievement.create({ data: { userId: user.id, achievementId: trophies[0].id, unlockedAt: at(0) } });
-    expect(await settle(user.id, [game.id])).toEqual({ paid: 1, voided: 1 });
-    expect((await valid(user.id)).map((e) => e.sourceKey)).toEqual([trophies[0].id]);
-  });
-
-  it("a list-less unlock covered by a list row is voided, an uncovered one stays paid", async () => {
-    const user = await newUser();
-    const game = await newGame();
-    // A multi-list game after the backfill: the old list-less rows hold the unlocks; the PS5 list
-    // was read once (it holds "1" valid and "2" suspicious), the PS4 one never.
-    await newList(game.id, "PS4", T0);
-    const ps5 = await newList(game.id, "PS5", at(1));
-    const old = await newTrophies(game.id, null, ["0", "1", "2"]);
-    await prisma.userAchievement.createMany({
-      data: old.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(i) })),
-    });
-    await prisma.xpLedgerEntry.createMany({
-      data: old.map((t, i) => ({
-        userId: user.id,
-        source: "achievement",
-        sourceKey: t.id,
-        platform: "psn",
-        xp: tierXp(t.trophyTier ?? "bronze"),
-        skills: ["rpg"],
-        createdAt: at(i),
-      })),
-    });
-    const [ps5One, ps5Two] = await newTrophies(game.id, ps5.id, ["1", "2"]);
-    await prisma.userAchievement.createMany({
-      data: [
-        { userId: user.id, achievementId: ps5One.id, unlockedAt: at(1) },
-        { userId: user.id, achievementId: ps5Two.id, unlockedAt: at(2), suspicious: true },
-      ],
-    });
-    await prisma.userTrophyList.create({ data: { userId: user.id, listId: ps5.id, unlockedCount: 2 } });
-
-    // "1" moves to the list row's key; "0" (no list row) and "2" (only a suspicious copy) stay paid.
-    expect(await settle(user.id, [game.id])).toEqual({ paid: 1, voided: 1 });
-    expect((await valid(user.id)).map((e) => e.sourceKey).sort()).toEqual([old[0].id, old[2].id, ps5One.id].sort());
-    expect(
-      (await prisma.xpLedgerEntry.findUniqueOrThrow({
-        where: { userId_source_sourceKey: { userId: user.id, source: "achievement", sourceKey: old[1].id } },
-      })).voidedAt,
-    ).toEqual(NOW);
-    expect(await settle(user.id, [game.id])).toEqual({ paid: 0, voided: 0 });
-  });
   it("a copy paid under its own id is never moved or voided when the canonical rows arrive later", async () => {
     // The EU list (older: canonical) had no rows when the JP list was read: JP paid by own id.
     const user = await newUser();
@@ -599,8 +540,9 @@ describe("rebuildListXp", () => {
   async function playerWithSteamAndPsn() {
     const user = await newUser();
     const steamGame = await newGame({ steamAppId: STEAM_APP_ID + counter });
+    const steamList = await newList(steamGame.id, "PC", T0, "steam");
     const steamAchievement = await prisma.achievement.create({
-      data: { gameId: steamGame.id, platform: "steam", apiName: "S1", name: "S1", globalPct: 5 },
+      data: { gameId: steamGame.id, platform: "steam", listId: steamList.id, apiName: "S1", name: "S1", globalPct: 5 },
     });
     await prisma.userAchievement.create({ data: { userId: user.id, achievementId: steamAchievement.id, unlockedAt: at(0) } });
     await prisma.userGame.create({
@@ -643,15 +585,14 @@ describe("rebuildListXp", () => {
     expect(await steamRows(user.id)).toEqual(before);
   });
 
-  it("a game whose lists were never read keeps its list-less XP through rebuildListXp", async () => {
-    // After the backfill a multi-list game has its (empty) lists and the old list-less rows; a
-    // player whose lists were not read again (no credential, private, failed, cut short) has no
-    // UserTrophyList of it and keeps every entry, legacy platinum included.
+  it("a game none of whose lists the player holds keeps its XP through rebuildListXp", async () => {
+    // A player with unlocks of the game but no UserTrophyList of it (lists not read for this
+    // player) keeps every entry, legacy platinum included.
     const user = await newUser();
     const game = await newGame();
-    await newList(game.id, "PS4", T0);
+    const ps4 = await newList(game.id, "PS4", T0);
     await newList(game.id, "PS5", at(1));
-    const old = await newTrophies(game.id, null);
+    const old = await newTrophies(game.id, ps4.id);
     await prisma.userAchievement.createMany({
       data: old.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(i) })),
     });

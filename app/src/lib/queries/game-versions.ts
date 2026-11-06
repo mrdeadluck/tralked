@@ -71,7 +71,7 @@ export type ListRow = {
 };
 export type AchRow = {
   id: string;
-  listId: string | null;
+  listId: string;
   platform: string;
   apiName: string;
   name: string;

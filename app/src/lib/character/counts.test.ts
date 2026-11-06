@@ -10,13 +10,12 @@ const list = (listId: string, gameId: string, platform: string, versionKey: stri
   tainted: false,
   ...over,
 });
-/** A valid platinum trophy on a list (`listId`), or list-less (null: versionKey = platform). */
-const native = (gameId: string, listId: string | null, versionKey: string, platform = "psn", apiName?: string): NativePlatinum => ({
+/** A valid platinum trophy on a list (`listId`). */
+const native = (gameId: string, listId: string, versionKey: string, platform = "psn"): NativePlatinum => ({
   gameId,
   platform,
   listId,
   versionKey,
-  apiName,
 });
 const total = (...args: Parameters<typeof platinumCount>) => platinumCount(...args).platinums;
 const tralked = (...args: Parameters<typeof platinumCount>) => platinumCount(...args).tralked;
@@ -41,14 +40,6 @@ describe("Platinas (PSN platinum trophies only)", () => {
       list("r1", "snes", "retro", "retro:77"),
     ];
     expect(platinumCount([], lists, [{ gameId: "g", platform: "steam" }, { gameId: "old", platform: "psn" }]).platinums).toBe(0);
-  });
-
-  it("a list-less platinum keeps counting until a list row holds the same trophy", () => {
-    const incomplete = [list("a", "gta", "psn", "psn:PS4", { completed: false })];
-    expect(total([native("gta", null, "psn", "psn", "0")], incomplete, [])).toBe(1);
-    expect(total([native("gta", null, "psn", "psn", "0"), native("gta", "a", "psn:PS4", "psn", "0")], incomplete, [])).toBe(1);
-    expect(total([native("gta", null, "psn", "psn", "0"), native("gta", "a", "psn:PS4", "psn", "7")], incomplete, [])).toBe(2);
-    expect(total([native("gta", null, "psn", "psn", "0"), native("old", "b", "psn:PS4", "psn", "0")], incomplete, [])).toBe(2);
   });
 });
 

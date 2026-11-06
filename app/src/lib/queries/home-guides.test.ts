@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import example from "@/lib/api/example-walkthrough.json";
 
 const { prisma } = await import("@/lib/db");
+const { createAchievements } = await import("@/lib/trophies/test-lists");
 const { getHomeGuides } = await import("./home-guides");
 
 const PREFIX = "t27-guia-";
@@ -50,16 +51,13 @@ const FIXTURES: Fixture[] = [
 beforeAll(async () => {
   await prisma.game.deleteMany({ where: { slug: { startsWith: PREFIX } } });
   for (const [i, f] of FIXTURES.entries()) {
-    await prisma.game.create({
+    const game = await prisma.game.create({
       data: {
         slug: PREFIX + f.slug,
         name: `Jogo ${f.slug}`,
         coverUrl: `https://cdn.example.com/${f.slug}.jpg`,
         steamAppId: 927_000 + i,
         achievementCount: f.steamAchievements ?? 0,
-        achievements: {
-          create: Array.from({ length: f.steamAchievements ?? 0 }, (_, n) => ({ platform: "steam", apiName: `ACH_${n}`, name: `Conquista ${n}` })),
-        },
         guide: {
           create: {
             status: f.status ?? "published",
@@ -79,6 +77,10 @@ beforeAll(async () => {
         },
       },
     });
+    await createAchievements(
+      game.id,
+      Array.from({ length: f.steamAchievements ?? 0 }, (_, n) => ({ platform: "steam", apiName: `ACH_${n}`, name: `Conquista ${n}` })),
+    );
   }
 });
 

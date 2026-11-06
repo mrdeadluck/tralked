@@ -22,9 +22,9 @@ const list = (id: string, console: string | null, created: number, externalId = 
 });
 
 /** Achievements `${listId}-${apiName}` with tier-only XP (PSN) or gamerscore (Xbox). */
-function achievementsOf(listId: string | null, apiNames: string[], over: Partial<AchievementRow> = {}): AchievementRow[] {
+function achievementsOf(listId: string, apiNames: string[], over: Partial<AchievementRow> = {}): AchievementRow[] {
   return apiNames.map((apiName) => ({
-    id: `${listId ?? "nolist"}-${apiName}`,
+    id: `${listId}-${apiName}`,
     listId,
     apiName,
     globalPct: null,
@@ -261,33 +261,33 @@ describe("desiredListEntries", () => {
     ]);
   });
 
-  it("a game with no list keeps its own-id achievement keys and the legacy platinum while completed", () => {
-    const achievements = achievementsOf(null, ["0", "1"]);
+  it("a game none of whose lists the user holds keeps its own-id achievement keys and the legacy platinum while completed", () => {
+    const lists = [list("ps5", "PS5", 1)];
+    const achievements = achievementsOf("ps5", ["0", "1"]);
     const unlocks = achievements.map((a, i) => unlock(a.id, at(10, i)));
-    const out = desired({ lists: [], achievements, unlocks, legacyCompletedAt: at(10, 1) });
-    expect(keys(out)).toEqual(["achievement:nolist-0", "achievement:nolist-1", `platinum:psn:${G}`]);
+    const out = desired({ lists, achievements, unlocks, legacyCompletedAt: at(10, 1) });
+    expect(keys(out)).toEqual(["achievement:ps5-0", "achievement:ps5-1", `platinum:psn:${G}`]);
     expect(out.find((d) => d.source === "platinum")).toMatchObject({
       xp: platinumBonus(achievements.map(psnXp)),
       createdAt: at(10, 1),
     });
     // Not completed (or the completion was cleared): no platinum.
-    expect(keys(desired({ lists: [], achievements, unlocks }))).toEqual(["achievement:nolist-0", "achievement:nolist-1"]);
+    expect(keys(desired({ lists, achievements, unlocks }))).toEqual(["achievement:ps5-0", "achievement:ps5-1"]);
   });
 
-  it("a game with no list pays no legacy platinum while one of its unlocks is suspicious", () => {
-    const achievements = achievementsOf(null, ["0", "1"]);
+  it("a game none of whose lists the user holds pays no legacy platinum while one of its unlocks is suspicious", () => {
     const out = desired({
-      lists: [],
-      achievements,
-      unlocks: [unlock("nolist-0", at(10)), unlock("nolist-1", at(10, 1), { suspicious: true })],
+      lists: [list("ps5", "PS5", 1)],
+      achievements: achievementsOf("ps5", ["0", "1"]),
+      unlocks: [unlock("ps5-0", at(10)), unlock("ps5-1", at(10, 1), { suspicious: true })],
       legacyCompletedAt: at(10, 1),
     });
-    expect(keys(out)).toEqual(["achievement:nolist-0"]);
+    expect(keys(out)).toEqual(["achievement:ps5-0"]);
   });
 
-  it("once the game has a list, unlocks on list-less rows and the legacy platinum are not desired", () => {
+  it("once the user holds a list of the game, the legacy platinum is not desired", () => {
     const lists = [list("ps5", "PS5", 1)];
-    const achievements = [...achievementsOf(null, ["0", "1"]), ...achievementsOf("ps5", ["0", "1"])];
+    const achievements = achievementsOf("ps5", ["0", "1"]);
     const unlocks = achievements.map((a, i) => unlock(a.id, at(10, i)));
     const out = desired({
       lists,

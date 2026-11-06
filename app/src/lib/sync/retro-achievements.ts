@@ -103,11 +103,6 @@ async function writeSet(
     name: set.title,
     trophyCount: list.length,
   });
-  // Rows a player's sync wrote before lists existed take this set's list (RA ids are unique across sets).
-  await prisma.achievement.updateMany({
-    where: { gameId, platform: "retro", listId: null, apiName: { in: list.map((a) => a.id) } },
-    data: { listId: trophyList.id },
-  });
   const existing = await prisma.achievement.findMany({
     where: { listId: trophyList.id, apiName: { in: list.map((a) => a.id) } },
     select: { id: true, apiName: true, name: true, description: true, iconUrl: true, points: true, globalPct: true },

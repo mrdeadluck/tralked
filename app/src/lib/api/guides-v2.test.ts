@@ -10,6 +10,7 @@ vi.mock("next/cache", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("@/lib/db");
+const { createAchievements } = await import("@/lib/trophies/test-lists");
 const { createApiKey } = await import("@/lib/api/keys");
 const { resetRateLimits } = await import("@/lib/api/rate-limit");
 const { applyPendingUpdate, discardPendingUpdate } = await import("@/lib/api/guide-pending");
@@ -46,17 +47,15 @@ async function makeGame() {
       name: `Jogo ${slug}`,
       platforms: ["PC"],
       achievementCount: 3,
-      achievements: {
-        create: [
-          { platform: "steam", apiName: "ACH_A", name: "A", namePt: "Alfa" },
-          { platform: "steam", apiName: "ACH_B", name: "B", namePt: "Beta" },
-          { platform: "steam", apiName: "ACH_HIDDEN", name: "H", description: "Secret", namePt: "Oculta", descriptionPt: "Segredo", hidden: true },
-          { platform: "psn", apiName: "PSN_1", name: "P" },
-        ],
-      },
     },
     select: { id: true, slug: true },
   });
+  await createAchievements(game.id, [
+    { platform: "steam", apiName: "ACH_A", name: "A", namePt: "Alfa" },
+    { platform: "steam", apiName: "ACH_B", name: "B", namePt: "Beta" },
+    { platform: "steam", apiName: "ACH_HIDDEN", name: "H", description: "Secret", namePt: "Oculta", descriptionPt: "Segredo", hidden: true },
+    { platform: "psn", apiName: "PSN_1", name: "P" },
+  ]);
   return game;
 }
 

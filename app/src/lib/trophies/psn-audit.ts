@@ -102,10 +102,10 @@ export async function auditPsnLists(psn: PsnApi, options: { handle?: string } = 
   const storedOf = new Map<string, TierCounts>();
   const rowsOf = new Map<string, number>();
   for (const t of tiers) {
-    const counts = storedOf.get(t.listId!) ?? tierCounts([]);
+    const counts = storedOf.get(t.listId) ?? tierCounts([]);
     if (t.trophyTier && t.trophyTier in counts) counts[t.trophyTier as keyof TierCounts] += t._count._all;
-    storedOf.set(t.listId!, counts);
-    rowsOf.set(t.listId!, (rowsOf.get(t.listId!) ?? 0) + t._count._all);
+    storedOf.set(t.listId, counts);
+    rowsOf.set(t.listId, (rowsOf.get(t.listId) ?? 0) + t._count._all);
   }
   for (const l of lists) {
     const audit: ListAudit = {

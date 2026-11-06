@@ -73,19 +73,18 @@ describe.skipIf(!reachable)("recomputeUser", () => {
         achievementCount: 8,
         platforms: ["PC"],
         skills: { create: [{ skill: "rpg" }] },
-        achievements: {
-          create: Array.from({ length: 8 }, (_, i) => ({
-            apiName: `ACH_${i}`,
-            name: `Achievement ${i}`,
-            globalPct: i < 6 ? 5 : 60, // 6 rare (<= 20%), 2 common
-          })),
-        },
       },
-      include: { achievements: true },
     });
-    achievementIds = game.achievements
-      .sort((a, b) => a.apiName.localeCompare(b.apiName))
-      .map((a) => a.id);
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
+    const achievements = await createAchievements(
+      game.id,
+      Array.from({ length: 8 }, (_, i) => ({
+        apiName: `ACH_${i}`,
+        name: `Achievement ${i}`,
+        globalPct: i < 6 ? 5 : 60, // 6 rare (<= 20%), 2 common
+      })),
+    );
+    achievementIds = achievements.map((a) => a.id);
   });
 
   afterAll(async () => {

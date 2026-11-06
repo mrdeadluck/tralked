@@ -45,17 +45,18 @@ describe.skipIf(!reachable)("catalog jobs", () => {
   beforeAll(async () => {
     const { prisma } = await import("@/lib/db");
     await cleanup();
+    const { createAchievements } = await import("@/lib/trophies/test-lists");
     for (const appId of [failingApp, healthyApp]) {
-      await prisma.game.create({
+      const game = await prisma.game.create({
         data: {
           slug: `test-catalog-${appId}`,
           name: `Catalog ${appId}`,
           steamAppId: appId,
           achievementCount: 1,
           platforms: ["PC"],
-          achievements: { create: [{ apiName: "A0", name: "A0", globalPct: 10 }] },
         },
       });
+      await createAchievements(game.id, [{ apiName: "A0", name: "A0", globalPct: 10 }]);
     }
     // The healthy game was attempted long ago; the failing one never was (sorts first).
     await prisma.game.update({

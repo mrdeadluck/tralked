@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import example from "@/lib/api/example-walkthrough.json";
 
 const { prisma } = await import("@/lib/db");
+const { createAchievements } = await import("@/lib/trophies/test-lists");
 const { getGuidePublic, loadGuideReport, loadGuideUserState } = await import("./games");
 
 const SLUG = "t12-detonado";
@@ -28,15 +29,13 @@ beforeAll(async () => {
       steamAppId: 912_345_001,
       logoUrl: "https://cdn.example.com/logo.png",
       achievementCount: 3,
-      achievements: {
-        create: [
-          { platform: "steam", apiName: "ACH_TRUE_ENDING", name: "Blood and Heart", namePt: "Sangue e Coração", globalPct: 4.7 },
-          { platform: "steam", apiName: "ACH_HEALER_LEGACY", name: "Healer's Legacy", namePt: "Legado da Curandeira", globalPct: 13.9 },
-          { platform: "steam", apiName: "ACH_SCARLET_SPECTRAL_BLADE", name: "Scarlet Blade", namePt: "Lâmina Escarlate", hidden: true, globalPct: 67.1 },
-        ],
-      },
     },
   });
+  await createAchievements(game.id, [
+    { platform: "steam", apiName: "ACH_TRUE_ENDING", name: "Blood and Heart", namePt: "Sangue e Coração", globalPct: 4.7 },
+    { platform: "steam", apiName: "ACH_HEALER_LEGACY", name: "Healer's Legacy", namePt: "Legado da Curandeira", globalPct: 13.9 },
+    { platform: "steam", apiName: "ACH_SCARLET_SPECTRAL_BLADE", name: "Scarlet Blade", namePt: "Lâmina Escarlate", hidden: true, globalPct: 67.1 },
+  ]);
   const guide = await prisma.guide.create({
     data: {
       gameId: game.id,

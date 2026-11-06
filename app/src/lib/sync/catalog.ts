@@ -131,7 +131,6 @@ export async function syncGame(appId: number): Promise<Game | null> {
         name: game.name,
         trophyCount: schema.length > 0 ? schema.length : (storedList?.trophyCount ?? 0),
       });
-      await tx.achievement.updateMany({ where: { gameId: game.id, platform: "steam", listId: null }, data: { listId: list.id } });
 
       const rows = await tx.achievement.findMany({ where: { listId: list.id } });
       const byApiName = new Map(rows.map((r) => [r.apiName, r]));

@@ -113,7 +113,7 @@ export async function getUserLibrary(userId: string, opts: { versions?: boolean 
       : [],
     opts.versions
       ? prisma.userAchievement.findMany({
-          where: { userId, suspicious: false, achievement: { trophyTier: "platinum", listId: { not: null } } },
+          where: { userId, suspicious: false, achievement: { trophyTier: "platinum" } },
           select: { achievement: { select: { listId: true } } },
         })
       : [],
@@ -123,7 +123,7 @@ export async function getUserLibrary(userId: string, opts: { versions?: boolean 
   for (const t of totals) {
     const key = `${t.gameId}:${t.platform}`;
     totalOf.set(key, (totalOf.get(key) ?? 0) + t._count._all);
-    if (t.listId) listTotal.set(t.listId, t._count._all);
+    listTotal.set(t.listId, t._count._all);
   }
   const platinumLists = new Set(platinumRows.map((u) => u.achievement.listId));
   const listsOf = new Map<string, ListProgress[]>();
