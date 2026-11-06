@@ -1169,6 +1169,66 @@ describe("publica: daily mix", () => {
   });
 });
 
+describe("coverage without a game (same news, same company)", () => {
+  const itchFeed = (h: H) => {
+    const old = h.db.upsertStory(
+      { key: "old-itch", headline: "itch.io terá filtro sem IA na busca de jogos", category: "GAMES", score: 60, bomb: false, rumor: false, gamesJson: "[]", mode: "live", status: "published" },
+      h.clock.now,
+    );
+    h.db.saveArticle({ storyId: old, payloadJson: "{}", status: "published", siteId: "site-itch", publishedAt: h.clock.now.toISOString(), companiesJson: '["itch.io"]' });
+    h.site.state.feed = [
+      { id: "site-itch", slug: "itch", title: "itch.io terá filtro sem IA na busca de jogos", category: "GAMES", publishedAt: h.clock.now.toISOString(), source: "bot", games: [] },
+    ];
+  };
+
+  it("a story about the same fact of a company the site covered today is dropped", async () => {
+    const h = harness(local("2026-11-03T10:00"));
+    itchFeed(h);
+    const fact = { headline: "itch.io leva filtro de IA generativa para a busca", importance: 60, games: [], companies: ["Itch.io"] };
+    h.post("ign", "itch.io ganha filtro de IA", fact);
+    h.post("kotaku", "itch.io adds AI filter", fact);
+    h.fake.state.route.set(fact.headline, "feed-site-itch");
+    const report = await h.coleta();
+    expect(report.covered).toBe(1);
+    expect(stories(h.db).find((s) => s.headline === fact.headline)!.status).toBe("dropped");
+  });
+
+  it("without a company in common it is not covered", async () => {
+    const h = harness(local("2026-11-03T10:00"));
+    itchFeed(h);
+    const fact = { headline: "Steam leva filtro de IA generativa para a busca", importance: 60, games: [], companies: ["Valve"] };
+    h.post("ign", "Steam ganha filtro de IA", fact);
+    h.post("kotaku", "Steam adds AI filter", fact);
+    h.fake.state.route.set(fact.headline, "feed-site-itch");
+    const report = await h.coleta();
+    expect(report.covered).toBe(0);
+    expect(report.queued).toBe(1);
+  });
+
+  it("an editorial article (not the robot's) counts a company named in its title", async () => {
+    const h = harness(local("2026-11-03T10:00"));
+    h.site.state.feed = [
+      { id: "ed-ms", slug: "ms", title: "Microsoft confirma demissões no Xbox", category: "MERCADO", publishedAt: h.clock.now.toISOString(), source: "editorial", games: [] },
+    ];
+    const fact = { headline: "Microsoft demite equipe do Xbox", importance: 60, games: [], companies: ["Microsoft"] };
+    h.post("ign", "Microsoft demite no Xbox", fact);
+    h.post("kotaku", "Microsoft layoffs at Xbox", fact);
+    h.fake.state.route.set(fact.headline, "feed-ed-ms");
+    expect((await h.coleta()).covered).toBe(1);
+  });
+
+  it("an article published by the robot keeps the story's companies", async () => {
+    const h = harness(local("2026-11-03T10:00"));
+    const fact = { headline: "Supergiant anuncia evento", importance: 60, companies: ["Supergiant Games"] };
+    h.post("ign", "Supergiant anuncia evento", fact);
+    h.post("kotaku", "Supergiant announces event", fact);
+    await h.coleta();
+    await h.publica({ agora: true });
+    const row = h.db.raw.prepare("SELECT companies_json FROM articles WHERE status = 'published'").get() as { companies_json: string };
+    expect(JSON.parse(row.companies_json)).toEqual(["Supergiant Games"]);
+  });
+});
+
 describe("expiry from the earliest item", () => {
   it("a story first seen now but built on a 30-hour-old item is expired, never picked", async () => {
     const h = harness(local("2026-10-31T10:00"));

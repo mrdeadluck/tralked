@@ -859,6 +859,7 @@ async function publishOneInner(story: StoryRow, deps: PipelineDeps): Promise<Pub
         slug: created.slug,
         publishedAt: publishedAt.toISOString(),
         parentArticleId: story.parent_article_id,
+        companiesJson: JSON.stringify(storyCompanies(db.itemsForStory(story.id))),
       },
       publishedAt,
     );
@@ -1218,8 +1219,13 @@ function expireStale(deps: PipelineDeps, report: ColetaReport, now: Date): void 
 }
 
 /**
- * Stories the site already covered: the same game slug and a title match decided by `clusterItems`, with
- * the feed articles passed as open stories. A follow-up never counts as covered by its own parent article.
+ * Stories the site already covered: a title match decided by `clusterItems`, with the feed articles passed
+ * as open stories, and
+ * - the same game slug, for a story whose games are in the catalog;
+ * - a company in common, for a story without a catalog game (itch.io twice on 03/11). The article's
+ *   companies are the ones stored when the robot published it (`articles.companies_json`, or its story's
+ *   triage for older rows); for an article the robot did not write, a company named in its title counts.
+ * A follow-up never counts as covered by its own parent article.
  */
 export async function coveredStories(
   candidates: StoryRow[],
@@ -1253,10 +1259,43 @@ export async function coveredStories(
     const story = candidates.find((s) => s.id === r.id);
     if (!story) continue;
     if (story.parent_article_id !== null && db.articleById(story.parent_article_id)?.site_id === article.id) continue;
-    if ((slugs.get(story.id) ?? []).some((slug) => article.games.includes(slug))) covered.add(story.id);
+    const storySlugs = slugs.get(story.id) ?? [];
+    if (storySlugs.length > 0) {
+      if (storySlugs.some((slug) => article.games.includes(slug))) covered.add(story.id);
+    } else if (sharesCompany(storyCompanies(db.itemsForStory(story.id)), article, db)) {
+      covered.add(story.id);
+    }
   }
   return covered;
 }
+
+/** Company names compared loosely: "Itch.io" = "itch.io", "Bandai Namco" = "BANDAI NAMCO". */
+const companyKey = (name: string) => gameKey(name);
+
+/** Whether a story's companies meet a site article's (see `coveredStories`). */
+function sharesCompany(companies: string[], article: FeedArticle, db: Db): boolean {
+  const keys = new Set(companies.map(companyKey).filter((k) => k.length >= 2));
+  if (keys.size === 0) return false;
+  const local = db.articleBySiteId(article.id);
+  if (local) {
+    const stored = local.companies_json === null ? storyCompanies(db.itemsForStory(local.story_id)) : parseGames(local.companies_json);
+    return stored.some((c) => keys.has(companyKey(c)));
+  }
+  const title = ` ${plainWords(article.title)} `;
+  return companies.some((c) => {
+    const words = plainWords(c);
+    return words.length >= 2 && title.includes(` ${words} `);
+  });
+}
+
+/** "Itch.io anuncia" → "itch io anuncia": no accents, lower case, words split by single spaces. */
+const plainWords = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 
 /**
  * Drops covered stories, then queues the publishable open ones. Queued stories are re-checked each run,

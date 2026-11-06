@@ -83,6 +83,8 @@ export interface ArticleRow {
   status: ArticleStatus;
   updated_at: string;
   parent_article_id: number | null;
+  /** JSON array: the story's triage companies when it was published (null before this column). */
+  companies_json: string | null;
 }
 
 export interface SourceHealthRow {
@@ -142,6 +144,8 @@ export interface ArticleInput {
   slug?: string | null;
   publishedAt?: string | null;
   parentArticleId?: number | null;
+  /** JSON array of company names; kept as stored when omitted. */
+  companiesJson?: string | null;
 }
 
 export interface ArticlePatch {
@@ -265,7 +269,8 @@ CREATE TABLE IF NOT EXISTS articles (
   payload_json TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready','published','failed','archived')),
   updated_at TEXT NOT NULL,
-  parent_article_id INTEGER REFERENCES articles(id)
+  parent_article_id INTEGER REFERENCES articles(id),
+  companies_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(status, published_at);
 
@@ -356,6 +361,7 @@ const ADDED_COLUMNS: [table: string, column: string, ddl: string][] = [
   ["stories", "topic", "TEXT"],
   ["stories", "platforms_json", "TEXT NOT NULL DEFAULT '[]'"],
   ["stories", "recurring_key", "TEXT"],
+  ["articles", "companies_json", "TEXT"],
 ];
 
 function addMissingColumns(raw: DatabaseSync): void {
@@ -450,6 +456,7 @@ export interface Db {
   markArticle(storyId: number, patch: ArticlePatch, now?: Date): void;
   articleForStory(storyId: number): ArticleRow | undefined;
   articleById(id: number): ArticleRow | undefined;
+  articleBySiteId(siteId: string): ArticleRow | undefined;
   /** Same-day updates (PATCH) of a story's article. */
   recordUpdate(storyId: number, at?: Date): void;
   updateTimes(storyId: number): string[];
@@ -764,8 +771,8 @@ export function openDb(dir: string): Db {
     saveArticle(a, now = new Date()) {
       raw
         .prepare(
-          `INSERT INTO articles (story_id, site_id, slug, published_at, payload_json, status, updated_at, parent_article_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO articles (story_id, site_id, slug, published_at, payload_json, status, updated_at, parent_article_id, companies_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(story_id) DO UPDATE SET
              site_id = COALESCE(excluded.site_id, articles.site_id),
              slug = COALESCE(excluded.slug, articles.slug),
@@ -773,7 +780,8 @@ export function openDb(dir: string): Db {
              payload_json = excluded.payload_json,
              status = excluded.status,
              updated_at = excluded.updated_at,
-             parent_article_id = COALESCE(excluded.parent_article_id, articles.parent_article_id)`,
+             parent_article_id = COALESCE(excluded.parent_article_id, articles.parent_article_id),
+             companies_json = COALESCE(excluded.companies_json, articles.companies_json)`,
         )
         .run(
           a.storyId,
@@ -784,6 +792,7 @@ export function openDb(dir: string): Db {
           a.status ?? "ready",
           iso(now),
           a.parentArticleId ?? null,
+          a.companiesJson ?? null,
         );
       return one<{ id: number }>("SELECT id FROM articles WHERE story_id = ?", a.storyId)!.id;
     },
@@ -808,6 +817,10 @@ export function openDb(dir: string): Db {
 
     articleById(id) {
       return one<ArticleRow>("SELECT * FROM articles WHERE id = ?", id);
+    },
+
+    articleBySiteId(siteId) {
+      return one<ArticleRow>("SELECT * FROM articles WHERE site_id = ? ORDER BY id DESC LIMIT 1", siteId);
     },
 
     recordUpdate(storyId, at = new Date()) {
