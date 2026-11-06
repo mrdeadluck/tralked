@@ -1,27 +1,32 @@
 # Indexes the Sony trophy lists straight against the production database
 # (scripts/psn-catalog-worker.ts, lib/sync/psn-catalog.ts): walks the npCommunicationIds
-# NPWR00001_00, NPWR00002_00, … asking Sony's `trophyGroups` for each (ONE request every 2 s, never
-# faster; it backs off on 429/5xx and ends the run cleanly, keeping its place in SyncCursor
-# `psn-catalog-scan`), stores name, console and trophy counts in the light PsnCatalogList table, then
-# links the lists whose name is that of exactly one PlayStation catalog game. Trophies are never read here.
-# The scan holds the rows it reads in memory and writes them once, at the end of the slice, so Neon
-# sleeps while it walks (the free plan has 100 CU-h a month); a cancel (SIGTERM) still writes them.
-# ~60.5k ids at 0.5 requests/s (1-2 requests per id): about 1,100 ids per 50-minute slice, 12 slices
-# a day, a lap in ~5 days; a finished lap is not repeated for 30 days.
-# Slots (UTC), each ending before the next job of the timetable in app/README.md:
-#   :20 of 0, 4, 6, 10, 12, 16, 18 and 22 h: 50 min (04:20 only 40 min, catalog-enrich runs at 04:37);
-#   :03 of 2, 8, 14 and 20 h: 25 min (steam-details runs at :37).
+# NPWR00001_00, NPWR00002_00, … asking Sony's `trophyGroups` for each (ONE request every 3 s, never
+# faster: psnawp's 300 per 15 min; it backs off on 429/5xx and ends the run cleanly, keeping its place
+# in SyncCursor `psn-catalog-scan`), stores name, console and trophy counts in the light PsnCatalogList
+# table and, only when the repository variable PSN_CATALOG_MATCH is "true", links the lists whose name
+# is that of exactly one PlayStation catalog game (otherwise it runs with --no-match: off by default
+# until `pnpm psn-catalog:match-check` was read). Trophies are never read here.
+# A slice Sony throttles (429/5xx after the retries) or refuses (403) pauses every Sony call of the site
+# for 4 h (SyncCursor `psn-open-cooldown`, the row the game pages check); the runs in that time exit 0
+# without scanning.
+# The scan holds the rows it reads in memory and writes them once, at the end of the slice (one
+# transaction), so Neon sleeps while it walks (the free plan has 100 CU-h a month); a cancel (SIGTERM)
+# still writes them.
+# ~60.5k ids at 0.33 requests/s (1-2 requests per id): about 700 ids per 50-minute slice, 7 slices a
+# day, a lap in ~12 days; a finished lap is not repeated for 30 days.
+# Slots (UTC): :20 of 0, 6, 10, 12, 16, 18 and 22 h, 50 min each, over before the :23 jobs of the next
+# odd hour (and after platform-import, which ends by :16 of the even hour).
 # GitHub often starts a run 10-30 min late, so the worker computes its window from the real start time
-# (psnSliceMinutes): the slot's size, cut to end 2 min before the next job of the timetable starts
-# (:17 at 0/6/12/18, 03:19, :23 of odd hours, :37 at 2/8/14/20, 04:37); with under 5 min left it exits 0
-# without scanning. The 04 slot therefore ends by 04:35. A manual run passes minutes.
+# (psnSliceMinutes): 50 min, cut to end 2 min before the next job of the timetable in app/README.md
+# starts (:17 at 0/6/12/18, 03:19, :23 of odd hours, :28 at 2/8/14/20 and 04:28 when the :28 dispatcher
+# starts steam-details and catalog-enrich); with under 5 min left, or inside platform-import's window
+# (odd :21 to even :16), it exits 0 without scanning. A manual run passes minutes.
 # Needs the repository secrets DATABASE_URL (Neon, unpooled) and PSN_NPSSO (the service account's).
 name: psn-catalog
 
 on:
   schedule:
-    - cron: "20 0,4,6,10,12,16,18,22 * * *"
-    - cron: "3 2,8,14,20 * * *"
+    - cron: "20 0,6,10,12,16,18,22 * * *"
   workflow_dispatch:
     inputs:
       minutes:
@@ -58,7 +63,9 @@ jobs:
           PSN_NPSSO: ${{ secrets.PSN_NPSSO }}
           APP_URL: https://tralked.com
           MINUTES: ${{ github.event.inputs.minutes }}
+          # Matching (catalog lists -> games) is off unless the repository variable says "true".
+          NO_MATCH: ${{ vars.PSN_CATALOG_MATCH != 'true' && '--no-match' || '' }}
         run: |
           # Production mode asks for these two; the worker signs nothing, so throwaway values do.
           export SESSION_SECRET="$(openssl rand -hex 32)" CRON_SECRET="$(openssl rand -hex 16)"
-          if [ -n "$MINUTES" ]; then pnpm psn:catalog --minutes "$MINUTES"; else pnpm psn:catalog; fi
+          if [ -n "$MINUTES" ]; then pnpm psn:catalog --minutes "$MINUTES" $NO_MATCH; else pnpm psn:catalog $NO_MATCH; fi

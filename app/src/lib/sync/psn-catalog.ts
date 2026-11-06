@@ -1,9 +1,11 @@
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { PsnAuthError, PsnHttpError } from "@/lib/integrations/psn/client";
 import type { PsnApi, PsnListInfo, PsnServiceName } from "@/lib/integrations/psn/types";
 import { ensureTrophyList, psnConsoleCode } from "@/lib/trophies/lists";
 import { candidateFamilies } from "./igdb-games";
-import { candidatesByName } from "./retro-catalog";
+import { startPsnCooldown } from "./psn-catalog-trophies";
+import { candidatesByName, type Candidate } from "./retro-catalog";
 
 /**
  * The PSN trophy-list index (front e of the trophy unification), filled by the psn-catalog worker
@@ -16,22 +18,33 @@ import { candidatesByName } from "./retro-catalog";
  *
  * Only the `_00` suffix is walked; `_01` and above (rare sub-sets) are not read yet.
  * The Sony API is unofficial and the service account is the one the player syncs use, so the
- * scan is slow on purpose: one request every 2 s, and a clean stop on 429/5xx.
- * The database is not touched while the scan runs (Neon sleeps): the rows of a slice (about 1,100)
- * are held in memory and written once at its end, together with the cursor.
+ * scan is slow on purpose: one request every 3 s (psnawp's 300 per 15 min), and a clean stop on
+ * 429/5xx/403 that also pauses every Sony call of the site for 4 h (`psn-open-cooldown`, the row
+ * page opens check; the worker skips its slots while it holds).
+ * The database is not touched while the scan runs (Neon sleeps): the rows of a slice (about 700)
+ * are held in memory and written once at its end, together with the cursor, in one transaction.
  */
 
 /** The SyncCursor of the scan: see `Cursor`. */
 export const PSN_SCAN_CURSOR = "psn-catalog-scan";
-/** Least time between two Sony requests (0.5 requests/s). Enforced inside `scanPsnIds`. */
-export const PSN_MIN_GAP_MS = 2000;
+/**
+ * Least time between two Sony requests: 0.33 requests/s, the 300 per 15 min psnawp keeps to.
+ * Enforced inside `scanPsnIds`.
+ */
+export const PSN_MIN_GAP_MS = 3000;
 /**
  * The scan has no fixed ceiling: it ends a lap after this many consecutive ids with no list on
- * either service (the real ceiling was ~60.5k ids in 11/2026, with ~35% holes in between).
+ * either service (the real ceiling was ~60.5k ids in 11/2026, with ~35% holes in between), and
+ * never below the highest NPWR id a TrophyList already holds.
  */
 export const PSN_MISS_LIMIT = 2000;
-/** Rows per statement of the final write. */
+/** Lists per transaction of matchPsnCatalog. */
 export const PSN_WRITE_BATCH = 50;
+/**
+ * Pause of every Sony call (scan slots and page opens) after Sony throttled the scan (429/5xx
+ * after the retries) or refused it with a 403.
+ */
+export const PSN_SCAN_COOLDOWN_MS = 4 * 3_600_000;
 /** Waits after a 429/5xx/network error before asking the same id again; when they run out the slice ends. */
 export const PSN_BACKOFF_MS = [5_000, 15_000, 45_000];
 /**
@@ -48,18 +61,25 @@ const RETRY_MS = 30 * 24 * 3_600_000;
 export const npwrId = (n: number) => `NPWR${String(n).padStart(5, "0")}_00`;
 
 /**
- * Start times (UTC) of the jobs that write to the database, from app/vercel.json and the
- * workflows: the :17-:19 crons at 0/6/12/18 h, the 03:19-03:22 daily ones (they also cover the
- * Sunday 03:21 retro-catalog), the :23-:29 ones on odd hours (crons, steam-players,
- * platform-import), steam-details at :37 of 2/8/14/20 h, catalog-enrich at 04:37.
+ * Start times (UTC) of the jobs that write to the database, from app/vercel.json, the workflows
+ * and the hourly :28 dispatcher (lib/cron/workers.ts): the :17-:19 crons at 0/6/12/18 h, the
+ * 03:19-03:22 daily ones (they also cover the Sunday retro-catalog), the :23-:29 ones on odd hours
+ * (crons, steam-players, platform-import), steam-details at :28 of 2/8/14/20 h (its :37 schedule
+ * is the fallback) and catalog-enrich at 04:28 (fallback 04:37).
  */
 const NEIGHBOURS: { hours: (h: number) => boolean; minute: number }[] = [
   { hours: (h) => h % 6 === 0, minute: 17 },
   { hours: (h) => h === 3, minute: 19 },
   { hours: (h) => h % 2 === 1, minute: 23 },
-  { hours: (h) => h % 6 === 2, minute: 37 },
-  { hours: (h) => h === 4, minute: 37 },
+  { hours: (h) => h % 6 === 2, minute: 28 },
+  { hours: (h) => h === 4, minute: 28 },
 ];
+/**
+ * platform-import works from :28 of an odd hour for up to 0.8 h (until :16 of the next one): a run
+ * that GitHub starts that late does not scan.
+ */
+const insidePlatformImport = (at: Date) =>
+  at.getUTCHours() % 2 === 1 ? at.getUTCMinutes() >= 21 : at.getUTCMinutes() < 17;
 /** A slice leaves this long before the next neighbour starts. */
 const NEIGHBOUR_MARGIN_MS = 2 * 60_000;
 /** Under this much room left the worker does not start a scan. */
@@ -80,17 +100,19 @@ function nextNeighbourStart(from: number): number {
   return best;
 }
 
+/** Minutes of a slot (the :20 slots of 0, 6, 10, 12, 16, 18 and 22 h). */
+const SLOT_MINUTES = 50;
+
 /**
- * Minutes the worker spends from `start`: the slot's size by the hour it starts in (50; 40 at 04 UTC;
- * 25 at 02/08/14/20 h), cut so that it ends 2 minutes before the next neighbour job starts (GitHub
- * often starts a run 10-30 min late). 0 when under 5 minutes are left: the run exits without scanning.
+ * Minutes the worker spends from `start`: 50, cut so that it ends 2 minutes before the next
+ * neighbour job starts (GitHub often starts a run 10-30 min late). 0 when under 5 minutes are
+ * left, or when it starts inside platform-import's window: the run exits without scanning.
  */
 export function psnSliceMinutes(start: Date): number {
-  const hour = start.getUTCHours();
-  const base = [2, 8, 14, 20].includes(hour) ? 25 : hour === 4 ? 40 : 50;
+  if (insidePlatformImport(start)) return 0;
   const room = nextNeighbourStart(start.getTime()) - NEIGHBOUR_MARGIN_MS - start.getTime();
   if (room < MIN_SLICE_MS) return 0;
-  return Math.min(base, Math.floor(room / 60_000));
+  return Math.min(SLOT_MINUTES, Math.floor(room / 60_000));
 }
 
 export type PsnLog = { info(message: string): void; warn(message: string): void };
@@ -112,7 +134,15 @@ export type Cursor = {
 };
 
 export type ScanStop = "count" | "deadline" | "ceiling" | "throttled" | "forbidden" | "signal";
-export type ScanResult = { scanned: number; hits: number; next: number; misses: number; stopped: ScanStop };
+export type ScanResult = {
+  scanned: number;
+  hits: number;
+  next: number;
+  misses: number;
+  stopped: ScanStop;
+  /** Epoch ms of the Sony pause the slice wrote (throttled, or refused with a 403), else null. */
+  cooldownUntil: number | null;
+};
 
 export type ScanOptions = {
   api: CatalogApi;
@@ -124,6 +154,8 @@ export type ScanOptions = {
   deadline: number;
   /** The cursor already read (`readCursor`); read here when absent. */
   cursor?: Cursor;
+  /** Highest NPWR number a TrophyList holds (a lap never ends below it); read here when absent. */
+  knownCeiling?: number;
   /** True once the process was asked to stop (SIGINT/SIGTERM): the loop ends and the slice is written. */
   shouldStop?: () => boolean;
   log?: PsnLog;
@@ -145,21 +177,31 @@ export async function readCursor(): Promise<Cursor> {
   };
 }
 
+/** Highest NPWR number among the PSN TrophyLists (0 when none). */
+export async function knownPsnCeiling(): Promise<number> {
+  const rows = await prisma.$queryRaw<{ n: number | null }[]>`
+    SELECT max(substring("externalId" from 5 for 5)::int) AS n FROM "TrophyList"
+    WHERE platform = 'psn' AND "externalId" ~ '^NPWR[0-9]{5}_[0-9]{2}$'`;
+  return Number(rows[0]?.n ?? 0);
+}
+
 type Row = { id: string; name: string; console: string | null; serviceName: string; trophyCount: number; tiers: string };
 
-/** Rows (in statements of PSN_WRITE_BATCH) and the cursor, last, in one transaction. */
-async function writeSlice(rows: Row[], cursor: Cursor): Promise<void> {
+/**
+ * The slice's one write, one transaction: the rows (one statement), the cursor and, when Sony
+ * throttled the slice, the pause of every Sony call.
+ */
+async function writeSlice(rows: Row[], cursor: Cursor, cooldownUntil: number | null): Promise<void> {
   await prisma.$transaction(
     async (tx) => {
       const checkedAt = new Date().toISOString();
-      for (let i = 0; i < rows.length; i += PSN_WRITE_BATCH) {
-        const part = rows.slice(i, i + PSN_WRITE_BATCH);
+      if (rows.length > 0) {
         await tx.$executeRaw`
           INSERT INTO "PsnCatalogList" AS p (id, name, console, "serviceName", "trophyCount", tiers, "checkedAt")
           SELECT x.id, x.name, x.console, x.service, x.n, x.tiers::jsonb, ${checkedAt}::timestamp
           FROM unnest(
-            ${part.map((r) => r.id)}::text[], ${part.map((r) => r.name)}::text[], ${part.map((r) => r.console)}::text[],
-            ${part.map((r) => r.serviceName)}::text[], ${part.map((r) => r.trophyCount)}::int[], ${part.map((r) => r.tiers)}::text[]
+            ${rows.map((r) => r.id)}::text[], ${rows.map((r) => r.name)}::text[], ${rows.map((r) => r.console)}::text[],
+            ${rows.map((r) => r.serviceName)}::text[], ${rows.map((r) => r.trophyCount)}::int[], ${rows.map((r) => r.tiers)}::text[]
           ) AS x(id, name, console, service, n, tiers)
           ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name, console = EXCLUDED.console, "serviceName" = EXCLUDED."serviceName",
@@ -171,6 +213,7 @@ async function writeSlice(rows: Row[], cursor: Cursor): Promise<void> {
         create: { key: PSN_SCAN_CURSOR, value: cursor },
         update: { value: cursor },
       });
+      if (cooldownUntil !== null) await startPsnCooldown(cooldownUntil, tx);
     },
     { timeout: 120_000, maxWait: 60_000 },
   );
@@ -201,9 +244,12 @@ function isNetworkError(error: unknown): boolean {
  * transaction, when the loop ends (for any reason, errors included; one retry for a Neon cold
  * start). A 429, 5xx or network error is retried after PSN_BACKOFF_MS; when that runs out the
  * slice ends with the cursor on the id that failed. A 400/403 ends the slice too, and the same id
- * refused in PSN_STUCK_RUNS slices in a row is skipped by the next one. A lap ends after
- * PSN_MISS_LIMIT consecutive ids with no list: the cursor then goes back to 1 with `completedAt`
- * set (cleared again when the next lap starts).
+ * refused in PSN_STUCK_RUNS slices in a row is skipped by the next one. A slice ended by a 429/5xx
+ * (after the retries) or by a 403 (the scan stops at the first one, so that 403 is the burst) also
+ * writes the 4 h pause of every Sony call (PSN_SCAN_COOLDOWN_MS, `psn-open-cooldown`), in its one
+ * write; a network error or a 400 does not. A lap ends after PSN_MISS_LIMIT consecutive ids with no
+ * list, once past the highest NPWR id a TrophyList holds: the cursor then goes back to 1 with
+ * `completedAt` set (cleared again when the next lap starts).
  */
 export async function scanPsnIds({
   api,
@@ -211,12 +257,14 @@ export async function scanPsnIds({
   count,
   deadline,
   cursor,
+  knownCeiling,
   shouldStop = () => false,
   log = quiet,
   now = Date.now,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }: ScanOptions): Promise<ScanResult> {
   const saved = cursor ?? (await readCursor());
+  const ceiling = knownCeiling ?? (await knownPsnCeiling());
   let position = from ?? saved.next;
   let misses = from === undefined ? saved.misses : 0;
   let service = saved.service;
@@ -263,6 +311,9 @@ export async function scanPsnIds({
   let scanned = 0;
   let hits = 0;
   let stopped: ScanStop = "count";
+  /** HTTP status that ended the slice (throttled / forbidden); null for a network error. */
+  let stopStatus: number | null = null;
+  let cooldownUntil: number | null = null;
   let scanError: unknown;
 
   try {
@@ -294,6 +345,7 @@ export async function scanPsnIds({
         if (error instanceof PsnAuthError) throw error;
         const status = error instanceof PsnHttpError ? error.status : null;
         if (status === 401 || (status === null && !isNetworkError(error))) throw error; // a bug, not Sony: fail loudly
+        stopStatus = status;
         if (status === 400 || status === 403) {
           stuck = stuck?.id === id ? { id, runs: stuck.runs + 1 } : { id, runs: 1 };
           stopped = "forbidden";
@@ -316,7 +368,7 @@ export async function scanPsnIds({
       } else {
         misses++;
       }
-      if (misses >= PSN_MISS_LIMIT) {
+      if (misses >= PSN_MISS_LIMIT && position > ceiling) {
         stopped = "ceiling";
         break;
       }
@@ -327,17 +379,23 @@ export async function scanPsnIds({
   } finally {
     // Whatever stopped the loop (even an auth error), what was read is kept: one write, retried once.
     const rows = pending.splice(0);
+    // Sony throttling (429/5xx after the retries) or refusing (403) the service account: every
+    // Sony call of the site pauses, the worker's next slots included.
+    const throttledBySony =
+      (stopped === "throttled" && stopStatus !== null && (stopStatus === 429 || stopStatus >= 500)) ||
+      (stopped === "forbidden" && stopStatus === 403);
+    cooldownUntil = throttledBySony ? Date.now() + PSN_SCAN_COOLDOWN_MS : null;
     const final: Cursor =
       stopped === "ceiling"
         ? { next: 1, misses: 0, service: "trophy2", completedAt: new Date().toISOString(), ...(skipped.length ? { skipped } : {}) }
         : cursorAt(position);
     try {
-      await writeSlice(rows, final);
+      await writeSlice(rows, final, cooldownUntil);
     } catch (error) {
       log.warn(`PSN catalog write failed, trying once more: ${error instanceof Error ? error.message : String(error)}`);
       await sleep(5_000);
       try {
-        await writeSlice(rows, final);
+        await writeSlice(rows, final, cooldownUntil);
       } catch (again) {
         log.warn(`PSN catalog write failed again: ${again instanceof Error ? again.message : String(again)}`);
         // The error that ended the scan is the one to report; the write error only when the scan was fine.
@@ -345,7 +403,14 @@ export async function scanPsnIds({
       }
     }
   }
-  return { scanned, hits, next: stopped === "ceiling" ? 1 : position, misses: stopped === "ceiling" ? 0 : misses, stopped };
+  return {
+    scanned,
+    hits,
+    next: stopped === "ceiling" ? 1 : position,
+    misses: stopped === "ceiling" ? 0 : misses,
+    stopped,
+    cooldownUntil,
+  };
 }
 
 export type MatchResult = { linked: number; ambiguous: number; unmatched: number; existing: number };
@@ -394,13 +459,10 @@ async function matchChunk(queue: QueueRow[], at: Date): Promise<MatchResult> {
       const byName = await candidatesByName(tx, [...new Set(open.map((r) => r.name))]);
 
       for (const row of open) {
-        const games = new Set(
-          (byName.get(row.name) ?? []).filter((c) => candidateFamilies(c).has("PLAYSTATION")).map((c) => c.id),
-        );
-        if (games.size > 1) result.ambiguous++;
-        else if (games.size === 0) result.unmatched++;
+        const gameId = pickPsnMatch(byName.get(row.name) ?? []);
+        if (gameId === "ambiguous") result.ambiguous++;
+        else if (gameId === null) result.unmatched++;
         else {
-          const gameId = [...games][0];
           await ensureTrophyList(tx, {
             gameId,
             platform: "psn",
@@ -419,4 +481,63 @@ async function matchChunk(queue: QueueRow[], at: Date): Promise<MatchResult> {
     { timeout: 120_000, maxWait: 30_000 },
   );
   return result;
+}
+
+/**
+ * The game a PSN list's name points to, among the catalog games named like it (candidatesByName):
+ * the one game of the PlayStation family; "ambiguous" when several are, null when none is.
+ */
+export function pickPsnMatch(candidates: Candidate[]): string | "ambiguous" | null {
+  const games = new Set(candidates.filter((c) => candidateFamilies(c).has("PLAYSTATION")).map((c) => c.id));
+  if (games.size > 1) return "ambiguous";
+  return games.size === 1 ? [...games][0] : null;
+}
+
+export type MatchCheckList = { externalId: string; name: string; gameId: string };
+export type MatchCheck = {
+  /** PSN TrophyLists looked at. */
+  checked: number;
+  /** The matcher picks the game the list already belongs to. */
+  correct: number;
+  /** The matcher picks another game: `matchedGameId` instead of the stored `gameId`. */
+  wrong: (MatchCheckList & { matchedGameId: string })[];
+  /** No pick (no PlayStation game of that name, or several): `ambiguous` of them had several. */
+  noMatch: number;
+  ambiguous: number;
+};
+
+/**
+ * How matchPsnCatalog's pick (candidatesByName + pickPsnMatch) agrees with the game the existing
+ * PSN TrophyLists (players' lists, linked by the sync) belong to, by their names. Reads only
+ * (`pnpm psn-catalog:match-check` runs it on a read-only session).
+ */
+export async function checkPsnMatcher(
+  lists: MatchCheckList[],
+  db: Prisma.TransactionClient = prisma,
+  chunk = 500,
+): Promise<MatchCheck> {
+  const out: MatchCheck = { checked: 0, correct: 0, wrong: [], noMatch: 0, ambiguous: 0 };
+  for (let i = 0; i < lists.length; i += chunk) {
+    const part = lists.slice(i, i + chunk);
+    const byName = await candidatesByName(db, [...new Set(part.map((l) => l.name))]);
+    for (const list of part) {
+      out.checked++;
+      const pick = pickPsnMatch(byName.get(list.name) ?? []);
+      if (pick === list.gameId) out.correct++;
+      else if (pick === null || pick === "ambiguous") {
+        out.noMatch++;
+        if (pick === "ambiguous") out.ambiguous++;
+      } else out.wrong.push({ ...list, matchedGameId: pick });
+    }
+  }
+  return out;
+}
+
+/** The PSN TrophyLists of the database (name and game), for checkPsnMatcher. */
+export async function psnListsForCheck(db: Prisma.TransactionClient = prisma): Promise<MatchCheckList[]> {
+  return db.trophyList.findMany({
+    where: { platform: "psn" },
+    select: { externalId: true, name: true, gameId: true },
+    orderBy: { externalId: "asc" },
+  });
 }
