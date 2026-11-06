@@ -47,8 +47,27 @@ export const EXAMPLE_ARTICLE = {
       url: "https://cdn.exemplo.com.br/hades/provacoes.jpg",
       alt: "Zagreus diante do quadro de provações no saguão da Casa de Hades",
       credit: "Divulgação/Supergiant Games",
+      creditUrl: "https://www.supergiantgames.com/blog/hades-ii-provacoes",
     },
     { type: "video", youtubeId: "ID_DO_VIDEO", title: "Trailer do modo de provações de Hades II" },
+    {
+      type: "post",
+      network: "x",
+      url: "https://x.com/SupergiantGames/status/1850000000000000000",
+      authorName: "Supergiant Games",
+      authorHandle: "SupergiantGames",
+      text: "O modo de provações chega a Hades II na próxima semana.",
+      postedAt: "2026-10-30T15:00:00-03:00",
+    },
+    {
+      type: "gallery",
+      images: [1, 2, 3].map((n) => ({
+        url: `https://cdn.exemplo.com.br/hades/provacoes-${n}.jpg`,
+        alt: `Cena ${n} do modo de provações de Hades II`,
+        credit: "Divulgação/Supergiant Games",
+        creditUrl: "https://www.supergiantgames.com/blog/hades-ii-provacoes",
+      })),
+    },
     {
       type: "callout",
       tone: "info",

@@ -88,7 +88,10 @@ async function assertStillLinked(tx: Prisma.TransactionClient, account: AccountS
   if (rows[0]?.linkedAt?.getTime() !== account.linkedAt.getTime()) throw new AccountChangedError();
 }
 
-/** `fraudReview` "cleared": an admin released the unlock, so the rules no longer flag it. */
+/** Burst-check key of an unlock whose trophy row does not exist yet (created by this run). */
+const newKey = (externalId: string, apiName: string) => `new:${externalId}:${apiName}`;
+
+/** What is stored about an unlock: its verdict (admin release included) is kept by a resync. */
 type KnownUnlock = {
   achievementId: string;
   unlockedAt: Date;
@@ -256,12 +259,12 @@ async function recordTitle(
       const before = u.before ?? u.legacy;
       return {
         ...u,
-        // Sticky like the Steam sync: once suspicious (rule or admin), always suspicious. An unlock
-        // an admin released keeps its stored flag: the rules are not re-applied to it.
-        suspicious:
-          before?.fraudReview === "cleared"
-            ? before.suspicious
-            : before?.suspicious || bursts.has(u.achievementId) || speedRun,
+        // An unlock already stored keeps its stored verdict (suspicious stays suspicious, an
+        // admin-released one stays clean): only unlocks seen for the first time are judged by the
+        // burst and speed rules, so a resync never flags old bursts (save transfers, sibling lists).
+        suspicious: before
+          ? before.suspicious
+          : bursts.has(u.achievementId) || bursts.has(newKey(title.externalId, u.a.apiName)) || speedRun,
         // A softcore unlock later redone in hardcore is upgraded, never downgraded.
         hardcore: u.a.hardcore || (before?.hardcore ?? false),
       };
@@ -843,9 +846,10 @@ export async function syncPlatformAccount(
   }
   const lists = await prisma.trophyList.findMany({
     where: { platform, externalId: { in: resolved.map((r) => r.title.externalId) } },
-    select: { id: true, externalId: true },
+    select: { id: true, externalId: true, gameId: true },
   });
   const listIdOf = new Map(lists.map((l) => [l.externalId, l.id]));
+  const listGameOf = new Map(lists.map((l) => [l.externalId, l.gameId]));
   const ids = await prisma.achievement.findMany({
     where: { listId: { in: lists.map((l) => l.id) } },
     select: { id: true, listId: true, apiName: true },
@@ -865,25 +869,41 @@ export async function syncPlatformAccount(
       : []
     ).map((l) => l.gameId),
   ]);
-  const everyUnlock = new Map<string, { achievementId: string; unlockedAt: Date }>();
+  const everyUnlock = new Map<string, { achievementId: string; unlockedAt: Date; gameId: string; apiName: string }>();
   for (const { achievement: a, achievementId, unlockedAt } of unlockRows) {
-    if (a.listId) everyUnlock.set(listKey(a.listId, a.apiName), { achievementId, unlockedAt });
-    else if (!listedGames.has(a.gameId)) everyUnlock.set(`${a.gameId}:${a.apiName}`, { achievementId, unlockedAt });
+    if (a.listId) everyUnlock.set(listKey(a.listId, a.apiName), { achievementId, unlockedAt, gameId: a.gameId, apiName: a.apiName });
+    else if (!listedGames.has(a.gameId)) everyUnlock.set(`${a.gameId}:${a.apiName}`, { achievementId, unlockedAt, gameId: a.gameId, apiName: a.apiName });
   }
-  for (const { title } of resolved) {
+  for (const { title, gameId: resolvedGameId } of resolved) {
     const listId = listIdOf.get(title.externalId);
-    // Lists and achievements new to the catalog get their ids on record; they join the burst
-    // check next sync.
-    if (!listId) continue;
+    const gameId = listGameOf.get(title.externalId) ?? resolvedGameId;
     for (const a of title.achievements) {
-      const key = listKey(listId, a.apiName);
-      const id = idByKey.get(key);
-      if (!id || !a.unlocked) continue;
+      if (!a.unlocked) continue;
+      const key = listId ? listKey(listId, a.apiName) : undefined;
+      const id = key ? idByKey.get(key) : undefined;
+      if (!key || !id) {
+        // A list or trophy new to the catalog has no row yet: its dated unlocks join the burst
+        // check under a synthetic key, since recordTitle judges them (only) this run.
+        if (a.unlockedAt) everyUnlock.set(newKey(title.externalId, a.apiName), { achievementId: newKey(title.externalId, a.apiName), unlockedAt: a.unlockedAt, gameId, apiName: a.apiName });
+        continue;
+      }
       if (!a.unlockedAt) everyUnlock.delete(key);
-      else if (!known.byList.has(key)) everyUnlock.set(key, { achievementId: id, unlockedAt: a.unlockedAt });
+      else if (!known.byList.has(key)) everyUnlock.set(key, { achievementId: id, unlockedAt: a.unlockedAt, gameId, apiName: a.apiName });
     }
   }
-  const bursts = findBursts([...everyUnlock.values()]);
+  // One trophy counts once however many sibling lists of the game hold it (cross-buy, cross-gen
+  // copies earned at the same second): the density is of distinct trophies. Every key of a group
+  // is in the burst when its kept twin is.
+  const groups = new Map<string, typeof everyUnlock extends Map<string, infer V> ? V[] : never>();
+  for (const u of everyUnlock.values()) {
+    const group = `${u.gameId}:${u.apiName}:${Math.floor(u.unlockedAt.getTime() / 1000)}`;
+    groups.set(group, [...(groups.get(group) ?? []), u]);
+  }
+  const burstOfKept = findBursts([...groups.values()].map((g) => g[0]));
+  const bursts = new Set<string>();
+  for (const g of groups.values()) {
+    if (burstOfKept.has(g[0].achievementId)) for (const u of g) bursts.add(u.achievementId);
+  }
 
   let newUnlocks = 0;
   for (const { gameId, title, conceptId } of resolved) {

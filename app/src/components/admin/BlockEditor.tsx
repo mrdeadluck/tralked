@@ -288,6 +288,19 @@ function BlockFields({ draft, base, onPatch }: { draft: BlockDraft; base: string
           <Field id={`${base}-credit`} label="Crédito">
             <input id={`${base}-credit`} value={draft.author} onChange={(e) => onPatch({ author: e.target.value })} className={INPUT} />
           </Field>
+          <div className="sm:col-span-2">
+            <Field id={`${base}-credit-url`} label="Link do crédito (opcional)" hint="Página de onde a imagem veio. Só https://.">
+              <input
+                id={`${base}-credit-url`}
+                type="url"
+                inputMode="url"
+                value={draft.creditUrl}
+                onChange={(e) => onPatch({ creditUrl: e.target.value })}
+                placeholder="https://"
+                className={INPUT}
+              />
+            </Field>
+          </div>
         </div>
       );
     case "video":
@@ -360,5 +373,42 @@ function BlockFields({ draft, base, onPatch }: { draft: BlockDraft; base: string
       );
     case "divider":
       return <p className={HINT}>Linha divisória entre seções.</p>;
+    case "post":
+    case "gallery":
+      return <ReadOnlyBlock block={draft.raw} />;
   }
+}
+
+/** A block the robot wrote (an X post, a gallery): shown as it is, kept on save, not editable here. */
+function ReadOnlyBlock({ block }: { block: BlockDraft["raw"] }) {
+  if (block?.type === "post") {
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-[14px] text-text-2">
+          <b className="text-text">{block.authorName}</b> <span className="font-mono text-xs text-dim">@{block.authorHandle}</span>
+        </p>
+        <p className="text-[14px] whitespace-pre-line text-text-2">{block.text}</p>
+        <a href={block.url} target="_blank" rel="noopener noreferrer" className="font-mono text-xs text-acc underline">
+          {block.url}
+        </a>
+        <p className={HINT}>Escrito pelo robô. Não dá para editar aqui; dá para mover ou remover.</p>
+      </div>
+    );
+  }
+  if (block?.type === "gallery") {
+    return (
+      <div className="flex flex-col gap-2">
+        <ul className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+          {block.images.map((image) => (
+            <li key={image.url}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- preview of images hosted by us */}
+              <img src={image.url} alt={image.alt} className="aspect-video w-full rounded-[2px] object-cover" />
+            </li>
+          ))}
+        </ul>
+        <p className={HINT}>Galeria de {block.images.length} imagens escrita pelo robô. Não dá para editar aqui; dá para mover ou remover.</p>
+      </div>
+    );
+  }
+  return <p className={HINT}>Bloco escrito pelo robô. Não dá para editar aqui; dá para mover ou remover.</p>;
 }
