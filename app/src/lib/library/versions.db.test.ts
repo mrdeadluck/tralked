@@ -48,6 +48,16 @@ beforeAll(async () => {
       data: { userId, listId: l.id, unlockedCount: unlocked, completedAt: complete ? at(20 + i) : null },
     });
   }
+  // A catalog list nobody holds (front E: matchPsnCatalog creates TrophyLists with no UserTrophyList rows):
+  // a Vita list with a platinum trophy. It must neither show as a version nor count anywhere.
+  const vita = await prisma.trophyList.create({
+    data: { gameId: gta.id, platform: "psn", externalId: `${PREFIX}-vita`, console: "PSVITA", name: "GTA V", trophyCount: 2, createdAt: at(9) },
+  });
+  await prisma.achievement.createMany({
+    data: ["0", "1"].map((apiName) => ({
+      gameId: gta.id, platform: "psn", listId: vita.id, apiName, name: `V${apiName}`, trophyTier: apiName === "0" ? "platinum" : "bronze",
+    })),
+  });
   // Steam: GTA at 64% (16 of 25), Hollow Knight finished.
   for (const [game, total, unlocked] of [
     [gta, 25, 16],
@@ -92,6 +102,16 @@ describe("library versions and the header counters", () => {
     expect(summary.gamesCount).toBe(2);
     // The same numbers as the sheet and the migration snapshot (lib/character/counts).
     expect(await platinumTally(userId)).toMatchObject({ platinums: summary.platinums, psnPlatinums: summary.psnPlatinums, tralked: summary.tralked });
+  });
+
+  it("a catalog list nobody holds is neither a version badge nor a Platina/Tralked", async () => {
+    const library = await getUserLibrary(userId, { versions: true });
+    const gta = library.find((g) => g.slug === `${PREFIX}-gta`)!;
+    expect(gta.versions!.map((v) => v.label)).not.toContain("Vita");
+    expect(gta.versions!).toHaveLength(4);
+    const tally = await platinumTally(userId);
+    expect(tally.platinums).toBe(3);
+    expect(tally.tralked).toBe(3);
   });
 
   it("the versions are read only when asked", async () => {
