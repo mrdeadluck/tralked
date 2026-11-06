@@ -88,7 +88,10 @@ async function assertStillLinked(tx: Prisma.TransactionClient, account: AccountS
   if (rows[0]?.linkedAt?.getTime() !== account.linkedAt.getTime()) throw new AccountChangedError();
 }
 
-/** `fraudReview` "cleared": an admin released the unlock, so the rules no longer flag it. */
+/** Burst-check key of an unlock whose trophy row does not exist yet (created by this run). */
+const newKey = (externalId: string, apiName: string) => `new:${externalId}:${apiName}`;
+
+/** What is stored about an unlock: its verdict (admin release included) is kept by a resync. */
 type KnownUnlock = {
   achievementId: string;
   unlockedAt: Date;
@@ -259,7 +262,9 @@ async function recordTitle(
         // An unlock already stored keeps its stored verdict (suspicious stays suspicious, an
         // admin-released one stays clean): only unlocks seen for the first time are judged by the
         // burst and speed rules, so a resync never flags old bursts (save transfers, sibling lists).
-        suspicious: before ? before.suspicious : bursts.has(u.achievementId) || speedRun,
+        suspicious: before
+          ? before.suspicious
+          : bursts.has(u.achievementId) || bursts.has(newKey(title.externalId, u.a.apiName)) || speedRun,
         // A softcore unlock later redone in hardcore is upgraded, never downgraded.
         hardcore: u.a.hardcore || (before?.hardcore ?? false),
       };
@@ -832,13 +837,16 @@ export async function syncPlatformAccount(
   }
   for (const { title } of resolved) {
     const listId = listIdOf.get(title.externalId);
-    // Lists and achievements new to the catalog get their ids on record; they join the burst
-    // check next sync.
-    if (!listId) continue;
     for (const a of title.achievements) {
-      const key = listKey(listId, a.apiName);
-      const id = idByKey.get(key);
-      if (!id || !a.unlocked) continue;
+      if (!a.unlocked) continue;
+      const key = listId ? listKey(listId, a.apiName) : undefined;
+      const id = key ? idByKey.get(key) : undefined;
+      if (!key || !id) {
+        // A list or trophy new to the catalog has no row yet: its dated unlocks join the burst
+        // check under a synthetic key, since recordTitle judges them (only) this run.
+        if (a.unlockedAt) everyUnlock.set(newKey(title.externalId, a.apiName), { achievementId: newKey(title.externalId, a.apiName), unlockedAt: a.unlockedAt });
+        continue;
+      }
       if (!a.unlockedAt) everyUnlock.delete(key);
       else if (!known.byList.has(key)) everyUnlock.set(key, { achievementId: id, unlockedAt: a.unlockedAt });
     }

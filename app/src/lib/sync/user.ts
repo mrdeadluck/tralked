@@ -170,8 +170,8 @@ async function assertSteamStillLinked(tx: Prisma.TransactionClient, userId: stri
   }
 }
 
-/** `cleared`: an admin released the unlock (fraudReview), so the rules no longer flag it. */
-type KnownUnlock = { unlockedAt: Date; suspicious: boolean; cleared: boolean };
+/** What is stored about an unlock: its verdict (admin release included) is kept by a resync. */
+type KnownUnlock = { unlockedAt: Date; suspicious: boolean };
 
 /**
  * An unlock already stored keeps its stored verdict (suspicious stays suspicious, an admin-released
@@ -567,12 +567,12 @@ async function loadKnownUnlocks(userId: string): Promise<Map<string, KnownUnlock
   const rows = await prisma.userAchievement.findMany({
     // Steam unlocks only: other platforms are imported (and checked) by their own sync.
     where: { userId, achievement: { platform: "steam" } },
-    select: { achievementId: true, unlockedAt: true, suspicious: true, fraudReview: true },
+    select: { achievementId: true, unlockedAt: true, suspicious: true },
   });
   return new Map(
     rows.map((r) => [
       r.achievementId,
-      { unlockedAt: r.unlockedAt, suspicious: r.suspicious, cleared: r.fraudReview === "cleared" },
+      { unlockedAt: r.unlockedAt, suspicious: r.suspicious },
     ]),
   );
 }
