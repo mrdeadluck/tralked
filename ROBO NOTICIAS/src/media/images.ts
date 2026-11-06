@@ -9,6 +9,8 @@ export type FetchedImage = {
   width: number;
   height: number;
   hash: bigint;
+  /** Share of the picture in its dominant tone (0–1): near 1 is an empty frame (a black card with a small logo). */
+  blank: number;
 };
 
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -35,6 +37,21 @@ export async function dHash(bytes: Buffer): Promise<bigint> {
     }
   }
   return hash;
+}
+
+/**
+ * Share of the pixels (grey, 64×36) within ±16 of the most common tone. A cover that is mostly one flat
+ * colour with a small mark in it (the cropped Xbox Wire logo on black) reads as empty in the site's frame.
+ */
+export async function blankShare(bytes: Buffer): Promise<number> {
+  const px = await sharp(bytes).flatten({ background: "#ffffff" }).grayscale().resize(64, 36, { fit: "fill" }).raw().toBuffer();
+  const hist = new Array<number>(256).fill(0);
+  for (const v of px) hist[v]!++;
+  let mode = 0;
+  for (let v = 1; v < 256; v++) if (hist[v]! > hist[mode]!) mode = v;
+  let near = 0;
+  for (let v = Math.max(0, mode - 16); v <= Math.min(255, mode + 16); v++) near += hist[v]!;
+  return near / px.length;
 }
 
 export function hamming(a: bigint, b: bigint): number {
@@ -74,7 +91,15 @@ export async function fetchImage(url: string, fetchFn: FetchFn): Promise<Fetched
       bytes = await sharp(bytes).webp({ quality: 90 }).toBuffer();
       contentType = "image/webp";
     }
-    return { url, bytes, contentType, width: meta.width, height: meta.height, hash: await dHash(bytes) };
+    return {
+      url,
+      bytes,
+      contentType,
+      width: meta.width,
+      height: meta.height,
+      hash: await dHash(bytes),
+      blank: await blankShare(bytes),
+    };
   } catch {
     return null;
   }
