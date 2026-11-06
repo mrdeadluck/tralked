@@ -28,8 +28,10 @@ export type ContentBlock =
   | { type: "paragraph"; text: string }
   | { type: "list"; ordered: boolean; items: string[] }
   | { type: "quote"; text: string; author?: string }
-  | { type: "image"; url: string; alt: string; credit: string }
+  | { type: "image"; url: string; alt: string; credit: string; creditUrl?: string }
   | { type: "video"; youtubeId: string; title?: string }
+  | { type: "gallery"; images: { url: string; alt: string; credit: string; creditUrl?: string }[] }
+  | { type: "post"; network: "x"; url: string; authorName: string; authorHandle: string; text: string; postedAt?: string }
   | { type: "callout"; tone: "info" | "aviso" | "spoiler"; text: string }
   | { type: "table"; header: string[]; rows: string[][] }
   | { type: "achievement"; apiName: string; platform?: "steam" | "psn" | "xbox" | "retro" }
@@ -122,6 +124,8 @@ export type Tralked = {
   recentArticles(since: Date): Promise<FeedArticle[]>;
   createArticle(payload: ArticlePayload, idempotencyKey: string): Promise<{ id: string; url: string; slug: string }>;
   patchArticle(id: string, patch: ArticlePatch, idempotencyKey: string): Promise<void>;
+  /** `POST /api/v1/media` (scope `media:write`): the site stores the image as WebP and returns its URL. */
+  uploadImage(bytes: Uint8Array, contentType: "image/png" | "image/jpeg" | "image/webp", idempotencyKey: string): Promise<{ url: string }>;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -193,6 +197,48 @@ function storyIdOf(idempotencyKey: string): string {
   return pauta ? `pauta-${pauta}` : idempotencyKey;
 }
 
+const ROMAN: Record<string, string> = { ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7", viii: "8", ix: "9", x: "10" };
+
+/** A game name compared loosely: accents, case, punctuation and roman numerals ("VI" = "6") do not count. */
+export function gameNameKey(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[’'`]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .map((w) => ROMAN[w] ?? w)
+    .join(" ");
+}
+
+/** The part before ":" of a game name, when it ends in a number ("The Elder Scrolls VI" of "…VI: Sentinel"); else "". */
+export function numberedBase(name: string): string {
+  const colon = name.indexOf(":");
+  const base = colon > 0 ? name.slice(0, colon).trim() : "";
+  return /\d$/.test(gameNameKey(base)) ? base : "";
+}
+
+/**
+ * The search hit that is exactly the game asked for. Never the first hit by default: another game of the
+ * series ("The Elder Scrolls III: Morrowind") is worse than no game. Accepted:
+ * - the same name or alias (loose spelling: case, accents, punctuation, roman numerals);
+ * - the asked name without its subtitle, when that ends in a number ("…VI: Sentinel" is "…VI");
+ * - a numbered name the catalog lists with a subtitle ("Death Stranding 2" is "Death Stranding 2: On the
+ *   Beach"), when only one hit is like that. A series name ("Resident Evil") never resolves.
+ */
+export function exactGame<G extends { name: string; aliases?: string[] }>(query: string, games: G[]): G | null {
+  const full = gameNameKey(query);
+  const base = gameNameKey(numberedBase(query));
+  const names = (g: G) => [g.name, ...(g.aliases ?? [])].map(gameNameKey);
+  const exact = games.find((g) => names(g).includes(full)) ?? (base ? games.find((g) => names(g).includes(base)) : undefined);
+  if (exact) return exact;
+  if (!/\d$/.test(full)) return null;
+  const subtitled = games.filter((g) => gameNameKey(numberedBase(g.name)) === full);
+  return subtitled.length === 1 ? subtitled[0]! : null;
+}
+
 function lastPathSegment(url: string): string {
   const path = url.split(/[?#]/)[0] ?? url;
   return path.replace(/\/+$/, "").split("/").pop() ?? "";
@@ -252,11 +298,15 @@ export function createTralked(options: { baseUrl: string; key: string; fetchFn?:
       const result = await json<{ games: { slug: string; name: string; aliases?: string[] }[] }>(
         await call("GET", `/api/v1/games?q=${encodeURIComponent(query)}`),
       );
-      const wanted = query.toLowerCase();
-      const hit =
-        result.games.find(
-          (game) => game.name.toLowerCase() === wanted || (game.aliases ?? []).some((a) => a.toLowerCase() === wanted),
-        ) ?? result.games[0];
+      let hit = exactGame(query, result.games);
+      // The site searches `name contains q`: "…VI: Sentinel" can only find "…VI" by its own name.
+      const base = numberedBase(query);
+      if (!hit && base.length >= MIN_QUERY_LENGTH) {
+        const again = await json<{ games: { slug: string; name: string; aliases?: string[] }[] }>(
+          await call("GET", `/api/v1/games?q=${encodeURIComponent(base)}`),
+        );
+        hit = exactGame(base, again.games);
+      }
       return hit ? { slug: hit.slug, name: hit.name } : null;
     },
 
@@ -280,6 +330,10 @@ export function createTralked(options: { baseUrl: string; key: string; fetchFn?:
 
     async patchArticle(id, patch, idempotencyKey) {
       await call("PATCH", `/api/v1/articles/${encodeURIComponent(id)}`, { body: patch, idempotencyKey });
+    },
+
+    async uploadImage(bytes, contentType, idempotencyKey) {
+      return json<{ url: string }>(await call("POST", "/api/v1/media", { raw: { bytes, contentType }, idempotencyKey }));
     },
   };
 }

@@ -218,6 +218,7 @@ function fakeSite() {
     insights: async () => null,
     dossier: async () => null,
     media: async () => null,
+    uploadImage: async () => ({ url: "https://blob.test/x.webp" }),
     recentArticles: async (since) => {
       state.feedSince.push(since);
       if (state.feedError) throw state.feedError;

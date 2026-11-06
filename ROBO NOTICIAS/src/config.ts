@@ -21,6 +21,8 @@ const ConfigSchema = z.object({
   TRALKED_API_KEY: opt(z.string({ error: "TRALKED_API_KEY is required" }).min(1)),
   MODEL_WRITER: opt(z.string().default("claude-opus-5-5")),
   MODEL_FAST: opt(z.string().default("claude-haiku-5-5")),
+  /** The visual check of an article's candidate images (one call per article). */
+  MODEL_VISION: opt(z.string().default("claude-sonnet-5-5")),
   DAILY_BUDGET_USD: opt(z.coerce.number().positive().default(5)),
   BACKFILL_BUDGET_USD: opt(z.coerce.number().positive().default(70)),
   MAX_PER_DAY: opt(z.coerce.number().int().positive().default(15)),
