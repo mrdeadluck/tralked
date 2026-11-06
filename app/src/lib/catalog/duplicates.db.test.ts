@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
-import { readFileSync as readText } from "node:fs";
 import { findDuplicateCandidates, GAME_REFS, movesCell, renderMarkdown, verdictOf, type DuplicateGroup, type GameRef } from "./duplicates";
 
 // Test database only (vitest.db-guard.ts). Fixtures use the `test-dup` prefix and are removed.
@@ -167,13 +166,30 @@ describe("duplicate candidates", () => {
     expect(md).toContain("fica a edição; confira");
   });
 
+  it("a name with a pipe stays in one table cell", () => {
+    const group: DuplicateGroup = {
+      keep: { ...ref("p", "Alice | Mirror"), slug: "alice-pipe" },
+      drop: ref("q", "Alice"),
+      verdict: "junta",
+      reasons: ["mesmo nome"],
+      moves: {},
+      dropGroups: 1,
+      keepIsDropIn: 0,
+      keepIsEdition: false,
+    };
+    const row = renderMarkdown([group], "2026-11-06").split("\n").find((l) => l.includes("alice-pipe"))!;
+    // Five columns make seven parts around six unescaped pipes; the pipe in the name is escaped.
+    expect(row.replaceAll("\\|", "").split("|")).toHaveLength(7);
+    expect(row).toContain("Alice \\| Mirror");
+  });
+
   it("counts singular and plural", () => {
     expect(movesCell({ userGames: 1, trophyLists: 1, achievements: 2, media: 0 })).toBe("1 jogador, 1 lista de troféus, 2 conquistas");
     expect(movesCell({ userGames: 0 })).toBe("nada");
   });
 
   it("every column that references a game is counted", () => {
-    const schema = readText(new URL("../../../prisma/schema.prisma", import.meta.url), "utf8").split("\n");
+    const schema = readFileSync(new URL("../../../prisma/schema.prisma", import.meta.url), "utf8").split("\n");
     const refs: string[] = [];
     let model = "";
     for (const line of schema) {

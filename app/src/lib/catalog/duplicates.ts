@@ -167,6 +167,8 @@ const MOVE_CHUNK = 5000;
 async function loadMoves(ids: string[]): Promise<Map<string, Record<string, number>>> {
   const moves = new Map<string, Record<string, number>>(ids.map((id) => [id, {}]));
   // A table of a migration that is not deployed yet (production before the redirects) counts as zero.
+  // This is for the read-only REPORT only. The join (D3) must fail hard on a missing table and never
+  // treat it as "nothing to move".
   const existing = new Set(
     (await prisma.$queryRaw<{ table_name: string }[]>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`).map((t) => t.table_name),
   );
@@ -332,7 +334,7 @@ const MOVE_LABEL: Record<string, [string, string]> = {
   editions: ["par de outras edições", "pares de outras edições"],
 };
 
-const cell = (s: string) => s.replace(/\|/g, "\|").replace(/\r?\n/g, " ");
+const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 
 function gameCell(g: GameRef): string {
   const steam = g.steamAppId !== null ? `Steam: sim (${g.steamAppId})` : "Steam: não";
