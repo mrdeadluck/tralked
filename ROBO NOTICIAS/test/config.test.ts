@@ -36,8 +36,15 @@ describe("loadConfig", () => {
     expect(c.TRALKED_API_URL).toBe("https://tralked.com");
   });
 
-  it("throws naming ANTHROPIC_API_KEY when it is missing", () => {
-    expect(() => loadConfig({ TRALKED_API_KEY: "tk" })).toThrow(/ANTHROPIC_API_KEY/);
+  it("runs on Claude Code by default, without ANTHROPIC_API_KEY", () => {
+    const c = loadConfig({ TRALKED_API_KEY: "tk" });
+    expect(c.AI_BACKEND).toBe("claude-code");
+    expect(c.CLAUDE_BIN).toBe("claude");
+    expect(c.CLAUDE_WEEKLY_STOP).toBe(0.9);
+  });
+
+  it("throws naming ANTHROPIC_API_KEY when the API backend has no key", () => {
+    expect(() => loadConfig({ TRALKED_API_KEY: "tk", AI_BACKEND: "api" })).toThrow(/ANTHROPIC_API_KEY/);
   });
 
   it("throws naming TRALKED_API_KEY when it is missing", () => {

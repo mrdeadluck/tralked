@@ -19,6 +19,7 @@ import { withHuntCallout } from "@/lib/news/hunt-callout";
 import { Blocks } from "@/lib/content/render";
 import { isSafeHttpUrl } from "@/lib/content/url";
 import { JsonLd, newsArticleJsonLd } from "@/lib/seo/json-ld";
+import { shareImageUrl } from "@/lib/seo/share-image";
 import {
   articleTag,
   artHues,
@@ -73,6 +74,8 @@ export async function generateMetadata({
   const { slug } = await params;
   const article = await loadArticle(slug);
   if (!article) return { title: "Notícia não encontrada | Tralked" };
+  // Shared links show the article's picture (WhatsApp, X, Discord), not the site icon.
+  const image = shareImageUrl(article);
   return {
     title: `${article.title} | Tralked`,
     description: article.excerpt ?? undefined,
@@ -81,7 +84,18 @@ export async function generateMetadata({
       title: article.title,
       description: article.excerpt ?? undefined,
       publishedTime: article.publishedAt.toISOString(),
+      ...(image ? { images: [{ url: image, alt: article.title }] } : {}),
     },
+    ...(image
+      ? {
+          twitter: {
+            card: "summary_large_image",
+            title: article.title,
+            description: article.excerpt ?? undefined,
+            images: [image],
+          },
+        }
+      : {}),
   };
 }
 

@@ -55,6 +55,18 @@ export class BudgetExceededError extends Error {
   }
 }
 
+/**
+ * The Claude subscription's limit was hit (or the robot's weekly reserve, `WeeklyReserveError`). A
+ * subclass of BudgetExceededError on purpose: every place that stops a run on the budget stops on it too.
+ */
+export class UsageLimitError extends BudgetExceededError {
+  constructor(readonly resetText: string) {
+    super("live", 0, 0);
+    this.name = "UsageLimitError";
+    this.message = `limite da assinatura do Claude (${resetText})`;
+  }
+}
+
 export class RefusalError extends Error {
   constructor(
     readonly purpose: string,
