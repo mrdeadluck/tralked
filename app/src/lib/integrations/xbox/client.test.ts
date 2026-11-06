@@ -335,10 +335,15 @@ describe("xbox client (OpenXBL)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("a 360 title is private when either route says so", async () => {
-    for (const privateRoute of [DEFINITIONS, EARNED]) {
-      const { client } = setup((url) => (url.pathname === privateRoute ? json({}, 403) : json(paged([definition(1)]))));
-      await expect(client.getAchievements("2535000000000001", "1096157000", ["Xbox360"])).resolves.toBe("private");
+  it("a 403 on either 360 route fails the title, it never marks the account private", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const refusedRoute of [DEFINITIONS, EARNED]) {
+        const { client } = setup((url) => (url.pathname === refusedRoute ? json({}, 403) : json(paged([definition(1)]))));
+        await expect(client.getAchievements("2535000000000001", "1096157000", ["Xbox360"])).rejects.toThrow(/refused \(HTTP 403\)/);
+      }
+    } finally {
+      warn.mockRestore();
     }
   });
 

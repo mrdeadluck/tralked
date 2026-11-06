@@ -218,11 +218,13 @@ export function createXboxClient({ apiKey, fetch: fetchImpl = globalThis.fetch }
 
   /**
    * The records of one 360 route. As on the player route, a 404, a body of another shape or a list
-   * cut into pages (a continuation token) is unknown and throws: the title is a failed read.
+   * cut into pages (a continuation token) is unknown and throws: the title is a failed read. A 403
+   * throws too: the account's history answered (getTitles), so a refusal of one 360 route is that
+   * title's failure (retried after X360_RETRY_MS), never the account turning private.
    */
-  async function x360Records(path: string, what: string): Promise<X360AchievementRecord[] | "private"> {
+  async function x360Records(path: string, what: string): Promise<X360AchievementRecord[]> {
     const body = await get<X360Response>(path, what);
-    if (body === "private") return "private";
+    if (body === "private") throw new Error(`Xbox ${what}: refused (HTTP 403)`);
     if (body === null) throw new Error(`Xbox ${what}: title not found (HTTP 404)`);
     const raw = Array.isArray(body) ? body : body.achievements;
     if (!Array.isArray(raw)) throw new Error(`Xbox ${what}: unexpected answer`);
@@ -244,13 +246,11 @@ export function createXboxClient({ apiKey, fetch: fetchImpl = globalThis.fetch }
    * state is a placeholder) joined by id with the player's earned ones (the 360 route), so the list
    * has its real size. Both must answer: else the title is a failed read and nothing is written.
    */
-  async function x360Achievements(xuid: string, titleId: string): Promise<XboxAchievement[] | "private"> {
+  async function x360Achievements(xuid: string, titleId: string): Promise<XboxAchievement[]> {
     const path = `${encodeURIComponent(xuid)}/title/${encodeURIComponent(titleId)}`;
+    // A 403 on either route throws (x360Records): the title fails, the account stays as it is.
     const definitions = await x360Records(`/achievements/player/${path}`, "360 achievements");
-    // A 403 on either 360 route marks the account private, as on the player route.
-    if (definitions === "private") return "private";
     const earnedRecords = await x360Records(`/achievements/x360/${path}`, "360 earned achievements");
-    if (earnedRecords === "private") return "private";
     const earned = new Map(earnedRecords.map((a) => [String(a.id), a]));
     // A definition without a name takes the earned record's; one with neither is left out.
     const named = definitions.map((a) => (validRecord(a) ? a : { ...a, name: earned.get(String(a.id))?.name ?? "" }));

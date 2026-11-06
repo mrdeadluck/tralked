@@ -94,4 +94,29 @@ describe("readLibrary: Xbox 360 titles fail closed", () => {
       minutes.mockRestore();
     }
   });
+
+  it("a 360 route refused with 403 is that title's failure (retried once a day), not a private account", async () => {
+    const { vi } = await import("vitest");
+    const { getXbox } = await import("@/lib/integrations");
+    const xbox = getXbox();
+    const titles = vi.spyOn(xbox, "getTitles").mockResolvedValue([x360("1", 1, 2), x360("2", 1, 2)]);
+    const read = vi.spyOn(xbox, "getAchievements").mockImplementation(async (_xuid, titleId) => {
+      if (titleId === "1") throw new Error("Xbox 360 earned achievements: refused (HTTP 403)");
+      return achievements(2, 1);
+    });
+    const minutes = vi.spyOn(xbox, "getMinutesPlayed").mockResolvedValue(new Map());
+    try {
+      const library = await readLibrary("xbox", { externalId: "2535400000000002", handle: "Tralked Teste" });
+      expect(library).not.toBe("private");
+      if (library === "private") return;
+      expect(library.titles.map((t) => t.externalId)).toEqual(["2"]);
+      expect(library.failures.map((f) => [f.externalId, f.backoff, String(f.error)])).toEqual([
+        ["1", true, expect.stringMatching(/HTTP 403/)],
+      ]);
+    } finally {
+      titles.mockRestore();
+      read.mockRestore();
+      minutes.mockRestore();
+    }
+  });
 });
