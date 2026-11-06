@@ -72,7 +72,7 @@ describe("<Blocks>", () => {
     expect(iframe?.getAttribute("src")).toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
     expect(iframe?.getAttribute("title")).toBe("Vídeo do YouTube: Trailer de lançamento");
     expect(iframe?.getAttribute("loading")).toBe("lazy");
-    expect(container.querySelector("figcaption")?.textContent).toBe("Trailer de lançamento");
+    expect(container.querySelector("figcaption")?.firstElementChild?.textContent).toBe("Trailer de lançamento");
     expect(iframe?.parentElement?.className).toContain("aspect-video");
   });
 
@@ -121,5 +121,48 @@ describe("<Blocks>", () => {
 
     expect(container.querySelector("hr")).not.toBeNull();
     expect(container.innerHTML).not.toContain("<script");
+  });
+});
+
+describe("news media", () => {
+  it("a video has a fallback link to YouTube", () => {
+    render(<Blocks blocks={contentBlocksSchema.parse([{ type: "video", youtubeId: "dQw4w9WgXcQ", title: "Trailer" }])} />);
+    const link = screen.getByRole("link", { name: /Abrir no YouTube/ });
+    expect(link).toHaveAttribute("href", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    expect(link.closest("figure")?.textContent).toContain("Não carregou?");
+  });
+
+  it("an image credit with creditUrl links to the original", () => {
+    const { container } = render(
+      <Blocks
+        blocks={contentBlocksSchema.parse([
+          { type: "image", url: "https://blob.test/a.webp", alt: "Logotipo", credit: "Divulgação/Bethesda", creditUrl: "https://news.xbox.com/a" },
+        ])}
+      />,
+    );
+    const link = container.querySelector("figcaption a");
+    expect(link).toHaveAttribute("href", "https://news.xbox.com/a");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer nofollow");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link?.textContent).toBe("Divulgação/Bethesda");
+  });
+
+  it("an X post renders its stored text and a link to X", () => {
+    render(
+      <Blocks
+        blocks={contentBlocksSchema.parse([
+          {
+            type: "post",
+            network: "x",
+            url: "https://x.com/bethesda/status/1",
+            authorName: "Bethesda",
+            authorHandle: "bethesda",
+            text: "The next chapter.",
+          },
+        ])}
+      />,
+    );
+    expect(screen.getByText("The next chapter.")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /Abrir no X/ })[0]).toHaveAttribute("href", "https://x.com/bethesda/status/1");
   });
 });

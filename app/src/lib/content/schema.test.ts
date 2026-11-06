@@ -126,3 +126,50 @@ describe("helpers", () => {
     expect(blocksExcerpt([{ type: "paragraph", text: "palavra ".repeat(50) }], 40)?.endsWith("…")).toBe(true);
   });
 });
+
+describe("news media blocks", () => {
+  const post = {
+    type: "post",
+    network: "x",
+    url: "https://x.com/bethesda/status/1850000000000000001",
+    authorName: "Bethesda",
+    authorHandle: "bethesda",
+    text: "The next chapter of The Elder Scrolls.",
+    postedAt: "2026-11-03T17:00:00.000Z",
+  };
+
+  it("accepts an X post", () => {
+    expect(paths([post])).toEqual([]);
+    expect(paths([{ ...post, postedAt: undefined }])).toEqual([]);
+  });
+
+  it("refuses a post off x.com, over http, with a 16-character handle or HTML in the text", () => {
+    expect(paths([{ ...post, url: "https://evil.com/x/status/1" }])).toEqual(["0/url"]);
+    expect(paths([{ ...post, url: "http://x.com/bethesda/status/1" }])).toEqual(["0/url"]);
+    expect(paths([{ ...post, url: "https://x.com/bethesda/status/1?evil=1" }])).toEqual(["0/url"]);
+    expect(paths([{ ...post, authorHandle: "a".repeat(16) }])).toEqual(["0/authorHandle"]);
+    expect(paths([{ ...post, text: "<script>x</script>" }])).toEqual(["0/text"]);
+    expect(paths([{ ...post, network: "bluesky" }])).toEqual(["0/network"]);
+  });
+
+  it("takes an https creditUrl on an image and refuses http", () => {
+    const image = { type: "image", url: "https://blob.test/a.webp", alt: "Logotipo", credit: "Divulgação/Bethesda" };
+    expect(paths([{ ...image, creditUrl: "https://news.xbox.com/a" }])).toEqual([]);
+    expect(paths([{ ...image, creditUrl: "http://news.xbox.com/a" }])).toEqual(["0/creditUrl"]);
+    expect(paths([{ ...image, creditUrl: "javascript:alert(1)" }])).toEqual(["0/creditUrl"]);
+  });
+});
+
+describe("gallery block", () => {
+  const img = (n: number) => ({ url: `https://blob.test/${n}.webp`, alt: `Captura ${n}`, credit: "Divulgação/Rockstar Games", creditUrl: "https://www.rockstargames.com/a" });
+  it("takes 3 to 12 https images", () => {
+    expect(paths([{ type: "gallery", images: [img(1), img(2), img(3)] }])).toEqual([]);
+    expect(paths([{ type: "gallery", images: Array.from({ length: 12 }, (_, i) => img(i)) }])).toEqual([]);
+  });
+  it("refuses 2 images, 13 images, an http url or an http credit link", () => {
+    expect(paths([{ type: "gallery", images: [img(1), img(2)] }])).toEqual(["0/images"]);
+    expect(paths([{ type: "gallery", images: Array.from({ length: 13 }, (_, i) => img(i)) }])).toEqual(["0/images"]);
+    expect(paths([{ type: "gallery", images: [img(1), img(2), { ...img(3), url: "http://blob.test/3.webp" }] }])).toEqual(["0/images/2/url"]);
+    expect(paths([{ type: "gallery", images: [img(1), img(2), { ...img(3), creditUrl: "http://x.test" }] }])).toEqual(["0/images/2/creditUrl"]);
+  });
+});
