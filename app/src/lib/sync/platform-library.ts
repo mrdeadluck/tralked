@@ -249,7 +249,8 @@ async function readPsn(account: LibraryAccount, options: ReadOptions): Promise<L
     return {
       externalId: t.npTitleId,
       name: t.name,
-      platformLabel: t.platform.split(",")[0] || "PlayStation",
+      // The whole list label ("PS4,PS5"): a game created from it records every console.
+      platformLabel: t.platform || "PlayStation",
       console: psnConsoleCode(t.platform),
       serviceName: t.serviceName,
       playtimeMin: null,

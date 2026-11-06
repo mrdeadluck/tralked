@@ -309,4 +309,14 @@ describe("igdb fixture", () => {
   it("returns null for unknown appIds", async () => {
     await expect(igdb.findBySteamAppId(1)).resolves.toBeNull();
   });
+
+  it("reads the platform ids of up to 500 games in one request", async () => {
+    const { client, fetchMock } = setup({
+      games: () => [{ id: 1, platforms: [48, 167] }, { id: 2 }],
+    });
+    const found = await client.getGamePlatforms([1, 2, 3]);
+    expect(found).toEqual(new Map([[1, [48, 167]], [2, []]]));
+    const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/v4/games"))!;
+    expect(String((call[1] as RequestInit).body)).toBe("fields id,platforms; where id = (1,2,3); limit 500;");
+  });
 });

@@ -151,6 +151,9 @@ describe("sitemap and robots", () => {
     const robots = buildRobots("https://tralked.example", ["ajuda", "ghost-of-yotei"]);
     const rule = (robots.rules as { userAgent: unknown; allow?: string[]; disallow?: string[] }[])[1];
     expect(rule.disallow).toEqual(expect.arrayContaining(["/forum/", "/galeria?jogo=", "/galeria?*&jogo="]));
+    // The /jogos toggles (exclusives, with trophies) are cuts of the catalog, not pages of their own.
+    expect(rule.disallow).toEqual(expect.arrayContaining(["/jogos?*exclusivos=", "/jogos?*trofeus="]));
+    expect(rule.disallow).not.toContain("/jogos");
     expect(rule.allow).toEqual(["/", "/forum/t/", "/forum/ajuda", "/forum/ghost-of-yotei"]);
     // The forum index (/forum) is not under "/forum/"; threads and open sections win as longer rules.
     expect(rule.disallow).not.toContain("/forum");

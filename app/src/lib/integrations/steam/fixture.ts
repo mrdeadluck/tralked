@@ -112,6 +112,7 @@ export function createSteamFixture(): SteamApi {
       if (!hasData(appId)) return [];
       return hollowKnight.playerUnlocks.map((u) => ({
         apiName: u.apiName,
+        achieved: u.unlockTime > 0,
         unlockedAt: u.unlockTime > 0 ? new Date(u.unlockTime * 1000) : null,
       }));
     },

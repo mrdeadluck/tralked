@@ -14,6 +14,7 @@ const PLATFORM_LABEL: Record<string, string> = { steam: "Steam", psn: "PlayStati
 const NUMBER = new Intl.NumberFormat("pt-BR");
 
 function duration(c: FraudCase): string {
+  if (!c.firstAt || !c.lastAt) return "data desconhecida";
   const seconds = Math.round((c.lastAt.getTime() - c.firstAt.getTime()) / 1000);
   if (seconds < 120) return `${seconds} s`;
   if (seconds < 7200) return `${Math.round(seconds / 60)} min`;
@@ -82,9 +83,11 @@ export default async function FraudPage() {
                       </td>
                       <td className={TD}>
                         <span className="font-mono text-[13px] tabular-nums">{duration(c)}</span>
-                        <span className="block">
-                          <When date={c.firstAt} />
-                        </span>
+                        {c.firstAt && (
+                          <span className="block">
+                            <When date={c.firstAt} />
+                          </span>
+                        )}
                       </td>
                       <td className={TD}>
                         <span className={`font-mono text-[14px] tabular-nums ${c.paidXp > 0 ? "text-rarity-lendario" : "text-dim"}`}>

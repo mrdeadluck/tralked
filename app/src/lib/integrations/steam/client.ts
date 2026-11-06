@@ -257,6 +257,9 @@ export function createSteamClient({
       }
       return (data.playerstats?.achievements ?? []).map((a) => ({
         apiName: a.apiname,
+        // An unlock time always meant unlocked (unchanged); achieved=1 without one is an unlock on an
+        // unknown date.
+        achieved: a.achieved === 1 || Boolean(a.unlocktime),
         unlockedAt: a.unlocktime ? new Date(a.unlocktime * 1000) : null,
       }));
     },

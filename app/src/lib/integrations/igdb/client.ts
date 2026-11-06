@@ -2,6 +2,7 @@ import { timeoutSignal } from "../http";
 import { normalizeTitle } from "../title-match";
 import type {
   IgdbCatalogApi,
+  IgdbPlatformsApi,
   IgdbCatalogGame,
   IgdbCatalogPage,
   IgdbDatePrecision,
@@ -96,7 +97,7 @@ export function createIgdbClient({
   fetch: fetchImpl = globalThis.fetch,
   now = Date.now,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-}: IgdbClientConfig): IgdbApi & IgdbCatalogApi {
+}: IgdbClientConfig): IgdbApi & IgdbCatalogApi & IgdbPlatformsApi {
   let token: { value: string; expiresAt: number } | null = null;
   let lastStart = Number.NEGATIVE_INFINITY;
   // Serializes calls so concurrent callers still respect the rate limit.
@@ -296,6 +297,20 @@ export function createIgdbClient({
       if (!list) return [];
       const rows = await query<GameRecord>("games", `fields ${GAME_FIELDS}; where id = (${list}); limit ${MAX_LIMIT};`);
       return rows.filter((r) => typeof r.id === "number" && r.name).map((r) => toGame(r));
+    },
+
+    async getGamePlatforms(gameIds): Promise<Map<number, number[]>> {
+      const list = ids(gameIds.slice(0, MAX_LIMIT));
+      if (!list) return new Map();
+      const rows = await query<{ id?: number; platforms?: number[] }>(
+        "games",
+        `fields id,platforms; where id = (${list}); limit ${MAX_LIMIT};`,
+      );
+      const out = new Map<number, number[]>();
+      for (const row of rows) {
+        if (typeof row.id === "number") out.set(row.id, (row.platforms ?? []).filter((p) => Number.isInteger(p)));
+      }
+      return out;
     },
 
     async getTimesToBeat(gameIds): Promise<Map<number, IgdbTimeToBeat>> {

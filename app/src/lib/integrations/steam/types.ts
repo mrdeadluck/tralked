@@ -27,7 +27,11 @@ export type SteamSchemaAchievement = {
   hidden: boolean;
 };
 
-export type SteamPlayerAchievement = { apiName: string; unlockedAt: Date | null };
+/**
+ * `achieved` with `unlockedAt` null: earned on a date Steam does not know (old achievements come
+ * with unlocktime 0, e.g. most of Team Fortress 2's before 2009).
+ */
+export type SteamPlayerAchievement = { apiName: string; achieved: boolean; unlockedAt: Date | null };
 
 export type SteamWishlistItem = {
   appId: number;

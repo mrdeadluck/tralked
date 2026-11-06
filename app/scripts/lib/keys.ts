@@ -25,6 +25,18 @@ export function readKeys(file = KEYS_FILE): Map<string, string> {
 }
 
 /**
+ * `name` from the first of `files` that has it (read-only; missing files and empty values are
+ * skipped), with the file it came from; null when none has it. Never print the value.
+ */
+export function keyFromFiles(name: string, files: readonly string[]): { value: string; file: string } | null {
+  for (const file of files) {
+    const value = readKeys(file).get(name);
+    if (value) return { value, file };
+  }
+  return null;
+}
+
+/**
  * Puts `names` from the keys file into process.env where they are not set already, before the app
  * modules read the env. Returns the names it set (never the values).
  */

@@ -136,6 +136,31 @@ describe("fraud queue", () => {
     expect(await releaseFraud(key(userId), NOW)).toMatchObject({ ok: false });
   });
 
+  it("a case with unlocks of unknown date: no window when none is dated; Liberar pays them dated now and marked", async () => {
+    const user = await prisma.user.create({ data: { handle: `${PREFIX}-semdata`, displayName: "semdata" } });
+    await prisma.userGame.create({ data: { userId: user.id, gameId, platform: "steam", playtimeMin: 1, unlockedCount: 3 } });
+    // A speed-platinum flag (the burst rule never sees undated unlocks): one dated, two undated.
+    await prisma.userAchievement.createMany({
+      data: achievementIds.map((achievementId, i) => ({
+        userId: user.id,
+        achievementId,
+        unlockedAt: i === 0 ? T0 : null,
+        suspicious: true,
+      })),
+    });
+    expect((await listFraudCases()).find((c) => c.userId === user.id)).toMatchObject({ firstAt: T0, lastAt: T0, unlocks: 3 });
+    await prisma.userAchievement.updateMany({ where: { userId: user.id }, data: { unlockedAt: null } });
+    expect((await listFraudCases()).find((c) => c.userId === user.id)).toMatchObject({ firstAt: null, lastAt: null });
+
+    expect(await releaseFraud(key(user.id), NOW)).toMatchObject({ ok: true, entries: 4 });
+
+    const entries = await prisma.xpLedgerEntry.findMany({ where: { userId: user.id } });
+    expect(entries).toHaveLength(4);
+    expect(entries.every((e) => e.dateUnknown && e.createdAt.getTime() === NOW.getTime())).toBe(true);
+    const owned = await prisma.userGame.findFirstOrThrow({ where: { userId: user.id, gameId } });
+    expect(owned.completedAt).toEqual(NOW);
+  });
+
   it("Liberar restores entries voided earlier instead of skipping them, and is idempotent", async () => {
     const userId = await playerWithBurst("anulado", 2);
     await prisma.xpLedgerEntry.updateMany({ where: { userId }, data: { voidedAt: NOW } });
