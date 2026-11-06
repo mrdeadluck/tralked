@@ -1751,9 +1751,9 @@ Mesmo jogo guardado duas vezes. Marque os que você aprova juntar: o jogo da col
 | `chackn-pop` (Chack'n Pop; sem Steam) | `chackn-pop-ra-13996` (Chack'n Pop; sem Steam) | mesmo nome | 1 ligação de plataforma | [ ] juntar |
 | `chain-reaction` (Chain Reaction; Steam) | `chain-reaction-13475` (Chain Reaction; sem Steam) | mesmo nome | 3 habilidades | [ ] juntar |
 | `challenge-of-the-dragon` (Challenge of the Dragon; sem Steam) | `challenge-of-the-dragon-284093` (Challenge of the Dragon; sem Steam) | mesmo nome | nada | [ ] juntar |
-| `chameleon` (CHAMELEON | くるくるカメレオン; Steam) | `chameleon-120875` (Chameleon; sem Steam) | mesmo nome; **este jogo sai em 2 grupos: escolha um** | nada | [ ] juntar |
-| `chameleon` (CHAMELEON | くるくるカメレオン; Steam) | `chameleon-21452` (Chameleon; sem Steam) | mesmo nome | 1 habilidade | [ ] juntar |
-| `chameleon` (CHAMELEON | くるくるカメレオン; Steam) | `chameleon-legacy` (Chameleon Legacy; sem Steam) | o nome sem a edição é o nome do outro | 1 habilidade | [ ] juntar |
+| `chameleon` (CHAMELEON \| くるくるカメレオン; Steam) | `chameleon-120875` (Chameleon; sem Steam) | mesmo nome; **este jogo sai em 2 grupos: escolha um** | nada | [ ] juntar |
+| `chameleon` (CHAMELEON \| くるくるカメレオン; Steam) | `chameleon-21452` (Chameleon; sem Steam) | mesmo nome | 1 habilidade | [ ] juntar |
+| `chameleon` (CHAMELEON \| くるくるカメレオン; Steam) | `chameleon-legacy` (Chameleon Legacy; sem Steam) | o nome sem a edição é o nome do outro | 1 habilidade | [ ] juntar |
 | `chameleon-21452` (Chameleon; sem Steam) | `chameleon-120875` (Chameleon; sem Steam) | mesmo nome; **este jogo sai em 2 grupos: escolha um**; **o jogo que fica também sai em outro grupo** | nada | [ ] juntar |
 | `chameleon-twist` (Chameleon Twist; sem Steam) | `chameleon-twist-366631` (Chameleon Twist; sem Steam) | mesmo nome | 1 habilidade | [ ] juntar |
 | `chameleon-twist-2` (Chameleon Twist 2; sem Steam) | `chameleon-twist-2-186001` (Chameleon Twist 2; sem Steam) | mesmo nome | 1 habilidade | [ ] juntar |
@@ -4274,7 +4274,7 @@ Mesmo jogo guardado duas vezes. Marque os que você aprova juntar: o jogo da col
 | `hack-g-u-last-recode` (.hack//G.U. Last Recode; Steam) | `hack-g-u-last-recode-premium-edition` (.Hack//G.U. Last Recode: Premium Edition; sem Steam) | o nome sem a edição é o nome do outro | 1 habilidade | [ ] juntar |
 | `hack-the-planet` (Hack the Planet; sem Steam) | `hack-the-planet-402489` (Hack the Planet; sem Steam) | mesmo nome | nada | [ ] juntar |
 | `hades` (Hades; Steam) | `hades-80529` (Hades; sem Steam) | mesmo nome | 1 habilidade | [ ] juntar |
-| `haishin` (ハイシン | Haishin; Steam) | `haishin-376675` (Haishin; sem Steam) | mesmo nome | nada | [ ] juntar |
+| `haishin` (ハイシン \| Haishin; Steam) | `haishin-376675` (Haishin; sem Steam) | mesmo nome | nada | [ ] juntar |
 | `hajime-no-ippo-the-fighting` (Hajime no Ippo: The Fighting!; sem Steam) | `hajime-no-ippo-the-fighting-80746` (Hajime no Ippo: The Fighting!; sem Steam) | mesmo nome | 1 ligação de plataforma | [ ] juntar |
 | `hajime-no-ippo-the-fighting` (Hajime no Ippo: The Fighting!; sem Steam) | `hajime-no-ippo-the-fighting-80747` (Hajime no Ippo: The Fighting!; sem Steam) | mesmo nome | nada | [ ] juntar |
 | `hakuoki-edo-blossoms` (Hakuoki: Edo Blossoms; Steam) | `hakuoki-edo-blossoms-deluxe-edition` (Hakuoki: Edo Blossoms - Deluxe Edition; sem Steam) | o nome sem a edição é o nome do outro | nada | [ ] juntar |
@@ -8925,8 +8925,8 @@ Mesmo jogo guardado duas vezes. Marque os que você aprova juntar: o jogo da col
 | `spot-the-differences` (Spot the Differences; sem Steam) | `spot-the-differences-86258` (Spot the Differences!; sem Steam) | mesmo nome | 2 habilidades | [ ] juntar |
 | `spot-the-video-game` (Spot: The Video Game; sem Steam) | `spot-the-video-game-339277` (Spot: The Video Game; sem Steam) | mesmo nome | 2 habilidades | [ ] juntar |
 | `spray-4229740` (SPRAY; Steam) | `spray` (Spray; sem Steam) | mesmo nome | nada | [ ] juntar |
-| `spring-breeze` (春风 | Spring Breeze; Steam) | `spring-breeze-271258` (Spring Breeze; sem Steam) | mesmo nome | 1 habilidade | [ ] juntar |
-| `spring-breeze` (春风 | Spring Breeze; Steam) | `spring-breeze-271401` (Spring Breeze; sem Steam) | mesmo nome; **este jogo sai em 2 grupos: escolha um** | 1 habilidade | [ ] juntar |
+| `spring-breeze` (春风 \| Spring Breeze; Steam) | `spring-breeze-271258` (Spring Breeze; sem Steam) | mesmo nome | 1 habilidade | [ ] juntar |
+| `spring-breeze` (春风 \| Spring Breeze; Steam) | `spring-breeze-271401` (Spring Breeze; sem Steam) | mesmo nome; **este jogo sai em 2 grupos: escolha um** | 1 habilidade | [ ] juntar |
 | `spring-breeze-271258` (Spring Breeze; sem Steam) | `spring-breeze-271401` (Spring Breeze; sem Steam) | mesmo nome; **este jogo sai em 2 grupos: escolha um**; **o jogo que fica também sai em outro grupo** | 1 habilidade | [ ] juntar |
 | `spring-time` (Spring Time; Steam) | `spring-time-305568` (Spring Time; sem Steam) | mesmo nome | nada | [ ] juntar |
 | `sprout-valley` (Sprout Valley; Steam) | `sprout-valley-special-edition` (Sprout Valley: Special Edition; sem Steam) | o nome sem a edição é o nome do outro | 1 habilidade | [ ] juntar |
@@ -10420,7 +10420,7 @@ Mesmo jogo guardado duas vezes. Marque os que você aprova juntar: o jogo da col
 | `traditional-tactics-ne` (Traditional Tactics Ne; sem Steam) | `traditional-tactics-ne-153818` (Traditional Tactics Ne+; sem Steam) | mesmo nome | 2 habilidades | [ ] juntar |
 | `trailmakers` (Trailmakers; Steam) | `trailmakers-deluxe-edition` (Trailmakers: Deluxe Edition; sem Steam) | o nome sem a edição é o nome do outro | 1 habilidade | [ ] juntar |
 | `train-journey` (Train Journey; Steam) | `train-journey-382209` (Train Journey; sem Steam) | mesmo nome | nada | [ ] juntar |
-| `train-plus` (Train Plus | トレインプラス; Steam) | `train-plus-350847` (Train Plus; sem Steam) | mesmo nome | 1 habilidade | [ ] juntar |
+| `train-plus` (Train Plus \| トレインプラス; Steam) | `train-plus-350847` (Train Plus; sem Steam) | mesmo nome | 1 habilidade | [ ] juntar |
 | `train-plus-japan-drive-western-japan-trains-rapid-service-edition` (Train Plus Japan Drive Western Japan Trains! Rapid Service Edition; Steam) | `train-plus-japan-drive-western-japan-trains-rapid-service-edition-412568` (Train Plus Japan: Drive Western Japan Trains! - Rapid Service Edition; sem Steam) | mesmo nome | 2 habilidades | [ ] juntar |
 | `train-sim-world-2020` (Train Sim World 2020; Steam) | `train-sim-world-2020-collectors-edition` (Train Sim World 2020: Collector's Edition; sem Steam) | o nome sem a edição é o nome do outro | 1 habilidade | [ ] juntar |
 | `train-sim-world-2020` (Train Sim World 2020; Steam) | `train-sim-world-2020-deluxe-edition` (Train Sim World 2020: Deluxe Edition; sem Steam) | o nome sem a edição é o nome do outro | 1 habilidade | [ ] juntar |
@@ -12153,7 +12153,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `alea` (Alea; Steam) e `alea-3913910` (Alea; Steam)
 - `alea` (Alea; Steam) e `alea-4230750` (Alea; Steam)
 - `aleph` (Aleph; Steam) e `aleph-2665180` (ALEPH; Steam)
-- `alice` (Alice!; Steam) e `alice-1952490` (Alice | 愛莉澄; Steam)
+- `alice` (Alice!; Steam) e `alice-1952490` (Alice \| 愛莉澄; Steam)
 - `alice-in-wonderland` (Alice in Wonderland; Steam) e `alice-in-wonderland-544190` (Alice in Wonderland; Steam)
 - `alien-2588740` (Alien; Steam) e `alien` (Alien; Steam)
 - `alien-defense-981480` (Alien Defense; Steam) e `alien-defense` (Alien Defense; Steam)
@@ -12273,7 +12273,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `arena` (Arena; Steam) e `arena-3775400` (Arena; Steam)
 - `arena` (Arena; Steam) e `arena-717300` (Arena; Steam)
 - `argo-530700` (Argo; Steam) e `argo` (Argo; Steam)
-- `aria` (Aria; Steam) e `aria-4218050` (Aria:||; Steam)
+- `aria` (Aria; Steam) e `aria-4218050` (Aria:\|\|; Steam)
 - `aria` (Aria; Steam) e `aria-5300440` (ARIA; Steam)
 - `arkhe` (Arkhe; Steam) e `arkhe-4637510` (Arkhe; Steam)
 - `armada-2526` (Armada 2526; Steam) e `armada-2526-gold-edition` (Armada 2526 Gold Edition; Steam)
@@ -12337,7 +12337,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `autocraft` (Autocraft; Steam) e `autocraft-2588500` (Autocraft; Steam)
 - `automata` (人形作战兵器 Automata; Steam) e `automata-2291160` (Automata; Steam)
 - `automatica` (Automatica; Steam) e `automatica-3312180` (Automatica; Steam)
-- `autumn-leaves` (秋叶|Autumn leaves; Steam) e `autumn-leaves-1693820` (Autumn Leaves; Steam)
+- `autumn-leaves` (秋叶\|Autumn leaves; Steam) e `autumn-leaves-1693820` (Autumn Leaves; Steam)
 - `ava` (AVA; Steam) e `ava-3408510` (Ava; Steam)
 - `avalon` (Avalon; Steam) e `avalon-legacy-edition` (Avalon: Legacy Edition; Steam)
 - `aviators` (Aviators; Steam) e `aviators-2626910` (Aviators; Steam)
@@ -13513,7 +13513,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `endangered` (Endangered; Steam) e `endangered-4607200` (Endangered; Steam)
 - `endless` (Endless; Steam) e `endless-2281230` (Endless; Steam)
 - `endless-dark` (Endless Dark; Steam) e `endless-dark-4381150` (Endless Dark; Steam)
-- `endless-dream` (异梦残响 | Endless Dream; Steam) e `endless-dream-629350` (Endless Dream; Steam)
+- `endless-dream` (异梦残响 \| Endless Dream; Steam) e `endless-dream-629350` (Endless Dream; Steam)
 - `endless-loop` (Endless Loop; Steam) e `endless-loop-3959840` (无尽回环 Endless Loop; Steam)
 - `endless-td-4306460` (Endless TD; Steam) e `endless-td` (Endless TD; Steam)
 - `endless-tower-4294590` (Endless Tower; Steam) e `endless-tower` (Endless Tower; Steam)
@@ -13605,7 +13605,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `evolver` (Evolver; Steam) e `evolver-4444170` (Evolver; Steam)
 - `ex` (聖石傳說EX; Steam) e `ex-3145510` (鉄道にっぽん！路線たびＥＸ 登山電車 小田急箱根編; Steam)
 - `excavator-simulator` (Excavator Simulator; Steam) e `excavator-simulator-remake` (Excavator Simulator REMAKE; Steam)
-- `exception` (Exception; Steam) e `exception-621000` (异常 | Exception; Steam)
+- `exception` (Exception; Steam) e `exception-621000` (异常 \| Exception; Steam)
 - `exe` (.Exe; Steam) e `exe-4173550` (都市伝説.exe; Steam)
 - `exe` (.Exe; Steam) e `exe-5112180` (神谕之窗.exe; Steam)
 - `executor` (执行人 Executor; Steam) e `executor-2110550` (eXecutor; Steam)
@@ -14112,7 +14112,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `haunted-hotel-personal-nightmare-collectors-edition` (Haunted Hotel: Personal Nightmare Collector's Edition; Steam) e `haunted-hotel-personal-nightmare` (Haunted Hotel: Personal Nightmare; Steam)
 - `haunted-house` (Haunted House; Steam) e `haunted-house-2393880` (幽霊屋敷HAUNTED HOUSE; Steam)
 - `haunted-mansion` (Haunted Mansion; Steam) e `haunted-mansion-2514930` (Haunted Mansion; Steam)
-- `haunted-property` (Haunted Property; Steam) e `haunted-property-3400040` (心霊物件 | Haunted Property; Steam)
+- `haunted-property` (Haunted Property; Steam) e `haunted-property-3400040` (心霊物件 \| Haunted Property; Steam)
 - `haven` (Haven; Steam) e `haven-3099490` (Haven; Steam)
 - `haven` (Haven; Steam) e `haven-3180380` (Haven; Steam)
 - `haymaker` (Haymaker; Steam) e `haymaker-2855020` (Haymaker; Steam)
@@ -14673,7 +14673,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `light` (LIGHT; Steam) e `light-2079960` (Light; Steam)
 - `light` (LIGHT; Steam) e `light-271730` (Light; Steam)
 - `light-bringer` (Light Bringer; Steam) e `light-bringer-3817860` (LIGHT-BRINGER; Steam)
-- `light-it` (Light It | てらし鬼; Steam) e `light-it-4951480` (LIGHT IT; Steam)
+- `light-it` (Light It \| てらし鬼; Steam) e `light-it-4951480` (LIGHT IT; Steam)
 - `lightbender` (Lightbender; Steam) e `lightbender-3006920` (Lightbender; Steam)
 - `lightbox-2807100` (Lightbox; Steam) e `lightbox` (Lightbox; Steam)
 - `lighthouse-keeper` (Lighthouse Keeper; Steam) e `lighthouse-keeper-2023050` (Lighthouse Keeper; Steam)
@@ -14927,7 +14927,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `metanoia` (Metanoia; Steam) e `metanoia-856750` (Metanoia; Steam)
 - `metatron` (MetaTron; Steam) e `metatron-993980` (Metatron; Steam)
 - `metempsychosis` (Metempsychosis; Steam) e `metempsychosis-1667110` (Metempsychosis; Steam)
-- `metro-quester-osaka-2731640` (Metro Quester: Osaka; Steam) e `metro-quester-osaka` (METRO QUESTER | OSAKA; Steam)
+- `metro-quester-osaka-2731640` (Metro Quester: Osaka; Steam) e `metro-quester-osaka` (METRO QUESTER \| OSAKA; Steam)
 - `metroland-3129590` (MetroLand; Steam) e `metroland` (Metroland; Steam)
 - `mewmew-pewpew` (MewMew - PewPew; Steam) e `mewmew-pewpew-2407330` (MewMew PewPew; Steam)
 - `microwave-simulator-4179060` (Microwave Simulator; Steam) e `microwave-simulator` (Microwave Simulator; Steam)
@@ -15066,7 +15066,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `my-futa-girlfriend` (My Futa Girlfriend 🔞; Steam) e `my-futa-girlfriend-5454680` (My Futa Girlfriend; Steam)
 - `my-goth-roommate` (My Goth Roommate; Steam) e `my-goth-roommate-5182410` (My Goth Roommate; Steam)
 - `my-house` (My House; Steam) e `my-house-3394760` (MY HOUSE; Steam)
-- `my-kingdom-for-the-princess` (My Kingdom for the Princess; Steam) e `my-kingdom-for-the-princess-2566470` (My Kingdom for the Princess |||; Steam)
+- `my-kingdom-for-the-princess` (My Kingdom for the Princess; Steam) e `my-kingdom-for-the-princess-2566470` (My Kingdom for the Princess \|\|\|; Steam)
 - `my-name-is` (My Name Is...; Steam) e `my-name-is-4493190` (My Name Is; Steam)
 - `my-pet-rock` (My Pet Rock; Steam) e `my-pet-rock-1904400` (My Pet Rock; Steam)
 - `my-sudoku` (My Sudoku; Steam) e `my-sudoku-4900370` (My Sudoku; Steam)
@@ -15962,7 +15962,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `sara` (Sara; Steam) e `sara-4920450` (SARA; Steam)
 - `satori` (SATORI; Steam) e `satori-2730020` (Satori; Steam)
 - `satori` (SATORI; Steam) e `satori-3519830` (さとり (satori); Steam)
-- `satori` (SATORI; Steam) e `satori-3722440` (Satori | 悟り; Steam)
+- `satori` (SATORI; Steam) e `satori-3722440` (Satori \| 悟り; Steam)
 - `satori` (SATORI; Steam) e `satori-4595670` (Satori; Steam)
 - `saturn` (Saturn; Steam) e `saturn-legacy` (SATURN. LEGACY; Steam)
 - `saturnine` (Saturnine; Steam) e `saturnine-3701770` (Saturnine; Steam)
@@ -16695,7 +16695,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `the-last-sunshine` (最后的阳光 The Last Sunshine; Steam) e `the-last-sunshine-390960` (The Last Sunshine; Steam)
 - `the-last-survivor-989540` (The Last Survivor; Steam) e `the-last-survivor` (The Last Survivor; Steam)
 - `the-last-train` (The Last Train; Steam) e `the-last-train-3120190` (The Last Train; Steam)
-- `the-last-train` (The Last Train; Steam) e `the-last-train-3829200` (The Last Train | 最後の列車; Steam)
+- `the-last-train` (The Last Train; Steam) e `the-last-train-3829200` (The Last Train \| 最後の列車; Steam)
 - `the-last-train-definitive-edition` (The Last Train - Definitive Edition; Steam) e `the-last-train` (The Last Train; Steam)
 - `the-last-tree` (The Last Tree; Steam) e `the-last-tree-1735150` (The Last Tree; Steam)
 - `the-last-tree` (The Last Tree; Steam) e `the-last-tree-5353910` (The Last Tree; Steam)
@@ -16820,7 +16820,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `the-watcher-1900830` (The Watcher; Steam) e `the-watcher-4982920` (The Watcher; Steam)
 - `the-way-home` (The Way Home; Steam) e `the-way-home-2351060` (The Way Home; Steam)
 - `the-way-home` (The Way Home; Steam) e `the-way-home-3160770` (The Way Home; Steam)
-- `the-way-home` (The Way Home; Steam) e `the-way-home-4535860` (The Way Home | 집으로 가는 길; Steam)
+- `the-way-home` (The Way Home; Steam) e `the-way-home-4535860` (The Way Home \| 집으로 가는 길; Steam)
 - `the-way-home` (The Way Home; Steam) e `the-way-home-5463610` (The Way Home 퇴근길; Steam)
 - `the-whispered-world-special-edition` (The Whispered World Special Edition; Steam) e `the-whispered-world` (The Whispered World; Steam)
 - `the-witch` (The Witch; Steam) e `the-witch-4747930` (The Witch; Steam)
@@ -17166,7 +17166,7 @@ Cada jogo da Steam tem seu próprio appid, então nunca se juntam. Fica só para
 - `w` (富甲天下W; Steam) e `w-3425720` (슈와[ʃwɑ:]; Steam)
 - `w` (富甲天下W; Steam) e `w-5295670` (W勇者之剑; Steam)
 - `w-a-r-d` (W.A.R.D; Steam) e `w-a-r-d-4210030` (W.A.R.D.; Steam)
-- `wahm` (WAHM | وهم; Steam) e `wahm-3897960` (Wahm; Steam)
+- `wahm` (WAHM \| وهم; Steam) e `wahm-3897960` (Wahm; Steam)
 - `wake` (Wake; Steam) e `wake-2246560` (Wake; Steam)
 - `wake` (Wake; Steam) e `wake-4924780` (Wake; Steam)
 - `wake` (Wake; Steam) e `wake-5003220` (WAKE; Steam)
