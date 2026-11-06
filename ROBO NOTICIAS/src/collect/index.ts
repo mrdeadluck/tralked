@@ -176,7 +176,10 @@ async function collectSource(source: Source, fetchFn: FetchFn, now: Date, timeou
   for (const url of yearUrls(source.url, now)) {
     try {
       const { text } = await fetchPage(url, fetchFn, timeoutMs);
-      return parseListing(text, url, source.listingSelector, source.id);
+      const items = parseListing(text, url, source.listingSelector, source.id);
+      // A listing that answers but shows no item is broken (its selector no longer matches): a failure.
+      if (items.length === 0) throw new Error(`${url}: a listagem não trouxe nenhum item (o seletor "${source.listingSelector}" não acha nada)`);
+      return items;
     } catch (e) {
       lastError = e;
     }

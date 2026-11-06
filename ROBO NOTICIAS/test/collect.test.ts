@@ -297,6 +297,14 @@ describe("collectLive", () => {
     expect(r2.items).toHaveLength(4);
   });
 
+  it("fails a listing whose selector finds nothing (a redesign broke it), so the source alert fires", async () => {
+    const { fn } = mockFetch({ "https://l.test/news/": fx("listing.html") });
+    const r = await collectLive([source({ id: "l", kind: "listing", url: "https://l.test/news/", listingSelector: "a.nope" })], fn);
+    expect(r.items).toEqual([]);
+    expect(r.failures[0]).toMatchObject({ sourceId: "l" });
+    expect(r.failures[0]!.error).toMatch(/nenhum item/);
+  });
+
   it("fails a listing source that has no listingSelector", async () => {
     const { fn } = mockFetch({ "https://example.com/news/": fx("listing.html") });
     const r = await collectLive([source({ id: "l", kind: "listing", url: "https://example.com/news/" })], fn);
