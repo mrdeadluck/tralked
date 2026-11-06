@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { localDay } from "./clock.js";
 import type { ClaudeUsage } from "./ai/claude-code.js";
+import type { SourceMedia } from "./collect/media.js";
 import { normalizeUrl } from "./url.js";
 
 /** One published article (news or pauta) with the Claude Code usage that went into it. */
@@ -44,6 +45,8 @@ export interface ItemRow {
   text_unavailable: number;
   /** YouTube video id when the item is an official channel's video (`video: true` sources). */
   video_id: string | null;
+  /** The page's images, YouTube videos and X posts (`SourceMedia` JSON, src/collect/media.ts), when read. */
+  media_json: string | null;
 }
 
 export interface StoryRow {
@@ -186,6 +189,7 @@ const ITEM_COLUMNS = [
   "publisher",
   "text_unavailable",
   "video_id",
+  "media_json",
 ];
 
 const itemsTable = (name: string) => `
@@ -203,7 +207,8 @@ CREATE TABLE IF NOT EXISTS ${name} (
   triage_json TEXT,
   publisher TEXT,
   text_unavailable INTEGER NOT NULL DEFAULT 0,
-  video_id TEXT
+  video_id TEXT,
+  media_json TEXT
 );`;
 
 const ITEM_INDEXES = `
@@ -334,6 +339,7 @@ const ADDED_COLUMNS: [table: string, column: string, ddl: string][] = [
   ["items", "text_unavailable", "INTEGER NOT NULL DEFAULT 0"],
   ["stories", "parent_article_id", "INTEGER"],
   ["items", "video_id", "TEXT"],
+  ["items", "media_json", "TEXT"],
 ];
 
 function addMissingColumns(raw: DatabaseSync): void {
@@ -386,6 +392,7 @@ export interface Db {
   itemsByStatus(status: ItemStatus, limit?: number): ItemRow[];
   setItemStatus(id: number, status: ItemStatus, triageJson?: string | null): void;
   setItemText(id: number, text: string): void;
+  setItemMedia(id: number, media: SourceMedia): void;
   /** The story's items, in id order. */
   itemsForStory(storyId: number): ItemRow[];
 
@@ -501,6 +508,10 @@ export function openDb(dir: string): Db {
 
     setItemText(id, text) {
       raw.prepare("UPDATE items SET text = ? WHERE id = ?").run(text, id);
+    },
+
+    setItemMedia(id, media) {
+      raw.prepare("UPDATE items SET media_json = ? WHERE id = ?").run(JSON.stringify(media), id);
     },
 
     itemsForStory(storyId) {

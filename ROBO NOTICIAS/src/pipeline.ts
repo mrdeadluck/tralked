@@ -10,6 +10,7 @@ import { alert, alertOncePerDay, checkSourceHealth } from "./alerts.js";
 import { assemble, type ArticleMedia } from "./assemble.js";
 import { inSlotWindow, localDay, localHour } from "./clock.js";
 import { collectLive, extractText, fetchPage, type FetchFn } from "./collect/index.js";
+import { extractMedia } from "./collect/media.js";
 import { isValidYoutubeId } from "./collect/youtube.js";
 import type { Config, Source } from "./config.js";
 import type { ArticleRow, Db, ItemRow, SpendBucket, StoryRow } from "./db.js";
@@ -952,6 +953,7 @@ export async function fetchItemTexts(items: ItemRow[], deps: Pick<PipelineDeps, 
   await pool(pending, FETCH_CONCURRENCY, async (item) => {
     try {
       const { text, finalUrl } = await fetchPage(item.url, deps.fetchFn);
+      deps.db.setItemMedia(item.id, extractMedia(text, finalUrl));
       const extracted = extractText(text, finalUrl);
       if (extracted?.text) {
         deps.db.setItemText(item.id, extracted.text);
