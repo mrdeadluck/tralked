@@ -60,6 +60,36 @@ export function versionLabel(list: { platform: string; console: string | null })
   }
 }
 
+/**
+ * A version's short name on a cover badge (the profile grid): PSN its consoles ("PS5", "PS3 · Vita"),
+ * Steam "PC", Xbox "360" or "Xbox" (One/Series and PC), RA its console's first name ("SNES" for
+ * "SNES/Super Famicom").
+ */
+export function versionBadgeLabel(list: { platform: string; console: string | null }): string {
+  switch (list.platform) {
+    case "psn":
+      return list.console ? versionLabel(list) : "PS";
+    case "steam":
+      return "PC";
+    case "xbox":
+      return list.console === "360" ? "360" : "Xbox";
+    default:
+      return list.console?.split("/")[0].trim() || "Retrô";
+  }
+}
+
+const PSN_RANK: Record<string, number> = { PS5: 0, PS4: 1, PS3: 2, PSVITA: 3, PSPC: 4 };
+const PLATFORM_BASE: Record<string, number> = { psn: 0, xbox: 100, steam: 200, retro: 300 };
+
+/** Display order of versions (approved mockup): PSN (PS5, PS4, PS3, Vita), Xbox, Steam, RA. */
+export function versionRank(v: { key: string; platform: string }): number {
+  const base = PLATFORM_BASE[v.platform] ?? 400;
+  if (v.platform !== "psn") return base;
+  const codes = v.key.slice("psn:".length).split("+");
+  const best = Math.min(...codes.map((c) => PSN_RANK[c] ?? 9));
+  return base + best * 10 + (codes.length - 1);
+}
+
 type Orderable = { createdAt: Date; externalId: string };
 const byCreation = (a: Orderable, b: Orderable) =>
   a.createdAt.getTime() - b.createdAt.getTime() || (a.externalId < b.externalId ? -1 : a.externalId > b.externalId ? 1 : 0);

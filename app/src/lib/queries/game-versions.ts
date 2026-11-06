@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { PlatformId, TrophyTier } from "@/lib/engine/trophies";
-import { regionLabels, versionKey, versionLabel } from "@/lib/trophies/lists";
+import { regionLabels, versionKey, versionLabel, versionRank } from "@/lib/trophies/lists";
 import { catalogPlatforms, tierOf, type TierCounts } from "./game-profile";
 
 /*
@@ -92,18 +92,9 @@ export type PlayerInput = {
   ledger?: { sourceKey: string; xp: number }[];
 };
 
-const PSN_RANK: Record<string, number> = { PS5: 0, PS4: 1, PS3: 2, PSVITA: 3, PSPC: 4 };
-const PLATFORM_BASE: Record<string, number> = { psn: 0, xbox: 100, steam: 200, retro: 300 };
 const emptyTiers = (): TierCounts => ({ platinum: 0, gold: 0, silver: 0, bronze: 0 });
 
-/** Display order (approved mockup): PSN (PS5, PS4, PS3, Vita), Xbox, Steam, RA. */
-export function versionRank(v: { key: string; platform: string }): number {
-  const base = PLATFORM_BASE[v.platform] ?? 400;
-  if (v.platform !== "psn") return base;
-  const codes = v.key.slice("psn:".length).split("+");
-  const best = Math.min(...codes.map((c) => PSN_RANK[c] ?? 9));
-  return base + best * 10 + (codes.length - 1);
-}
+export { versionRank };
 
 type Group<R extends SlimAchRow> = {
   key: string;

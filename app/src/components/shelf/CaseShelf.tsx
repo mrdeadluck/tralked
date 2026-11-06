@@ -70,11 +70,13 @@ type CaseItemProps = {
   flag?: string;
   /** 0–100: the visitor's progress, as a bar at the foot of the case. */
   progress?: number | null;
+  /** Drawn over the cover, above the bar (the profile grid's version badges). */
+  overlay?: ReactNode;
   /** The caption under the case (name and details). */
   children: ReactNode;
 };
 
-export function CaseItem({ href, slug, name, art, platforms, flag, progress, children }: CaseItemProps) {
+export function CaseItem({ href, slug, name, art, platforms, flag, progress, overlay, children }: CaseItemProps) {
   return (
     <li>
       <Link href={href}>
@@ -107,6 +109,7 @@ export function CaseItem({ href, slug, name, art, platforms, flag, progress, chi
             sizes="(max-width: 520px) 45vw, 260px"
           />
           {flag ? <span className="cs-flag">{flag}</span> : null}
+          {overlay}
           {progress != null ? (
             <span className="cs-bar" aria-hidden="true">
               <span style={{ "--pct": `${progress}%` } as CSSProperties} />
