@@ -225,7 +225,7 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
     const best = entries.reduce((b, e) => (pctOf(e) > pctOf(b) || (pctOf(e) === pctOf(b) && e.unlocked > b.unlocked) ? e : b));
 
     const earnedIn: Record<string, string[]> = {};
-    const earnedAt: Record<string, { label: string; at: Date }[]> = {};
+    const earnedAt: Record<string, { label: string; at: Date | null }[]> = {};
     const unlockedAt: Record<string, Date | null> = {};
     let platinumTrophy = false;
     for (const e of entries) {
