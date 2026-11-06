@@ -159,6 +159,8 @@ export type GameProfile = {
   };
   gallery: { photos: PhotoCardView[]; total: number };
   similar: SimilarGame[];
+  /** Other catalog games that are editions of this one (GameEdition, either side), by name. */
+  editions: { slug: string; name: string }[];
 };
 
 /** Only https URLs (or same-site paths) reach `src`/`href`: no mixed content, no other schemes. */
@@ -456,7 +458,7 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
   const art = { ...images, disc: discLabelArt(game.media, images) };
   const hues = artHues(slug, slug);
 
-  const [achievementRows, versions, timeTo100, articles, external, gallery, similar] = await Promise.all([
+  const [achievementRows, versions, timeTo100, articles, external, gallery, similar, editions] = await Promise.all([
     prisma.achievement.findMany({
       where: { gameId: game.id },
       select: { platform: true, globalPct: true, trophyTier: true },
@@ -467,6 +469,7 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
     getExternalHeadlines(8, [slug]),
     listPhotos({ gameSlug: slug, page: 1 }),
     loadSimilar(game.id, skills),
+    loadEditions(game.id),
   ]);
 
   // Per-platform totals and tiers: Steam uses the catalog count (its rows may be partial).
@@ -562,7 +565,22 @@ export async function loadGameProfile(slug: string, now: Date = new Date()): Pro
     },
     gallery: { photos: gallery.photos.slice(0, 9), total: gallery.total },
     similar,
+    editions,
   };
+}
+
+async function loadEditions(gameId: string): Promise<{ slug: string; name: string }[]> {
+  const rows = await prisma.gameEdition.findMany({
+    where: { OR: [{ gameId }, { otherId: gameId }] },
+    select: { game: { select: { id: true, slug: true, name: true } }, other: { select: { id: true, slug: true, name: true } } },
+  });
+  const bySlug = new Map<string, { slug: string; name: string }>();
+  for (const r of rows) {
+    const edition = r.game.id === gameId ? r.other : r.game;
+    bySlug.set(edition.slug, { slug: edition.slug, name: edition.name });
+  }
+  return [...bySlug.values()]
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 }
 
 /** At most this many games sharing a genre are ranked for "Na mesma estante". */

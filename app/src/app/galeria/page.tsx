@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { permanentRedirect } from "next/navigation";
 import { Suspense } from "react";
 import { PageHead } from "@/components/community/PageHead";
 import { Pager, pageParam } from "@/components/community/Pager";
@@ -13,6 +14,7 @@ import {
   CommunityShowcaseSkeleton,
   SHOWCASE_PRIMARY,
 } from "@/components/community/CommunityShowcase";
+import { galleryRedirectHref } from "@/lib/catalog/redirects";
 import { showcaseShotsCached } from "@/lib/community/showcase";
 import { galleryGameCached, galleryGamesCached, listPhotosCached, photoOfTheWeekCached } from "@/lib/community/cached";
 import type { GameOption, PhotoCardView } from "@/lib/community/gallery";
@@ -85,6 +87,11 @@ async function GalleryContent({ searchParams }: { searchParams: SearchParams }) 
   // Only games with listed photos (the filter), not the whole catalog.
   const withPhotos = await galleryGamesCached();
   const game = await requestedGallery(withPhotos, requestedGame);
+  if (requestedGame && !game) {
+    // Not a game any more: the slug of one merged into another goes to the kept game's gallery.
+    const kept = await galleryRedirectHref(params);
+    if (kept) permanentRedirect(kept);
+  }
   const listing = await listPhotosCached(game?.slug ?? null, pageParam(params.pagina));
   const featured = !game && listing.page === 1 ? await photoOfTheWeekCached() : null;
 

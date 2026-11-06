@@ -260,6 +260,9 @@ model Game {
   wishlistedBy  WishlistItem[]
   releases      GameRelease[]
   steamPlayers  SteamPlayerCount?
+  slugRedirects GameSlugRedirect[]
+  editions      GameEdition[]      @relation("Editions")
+  editionOf     GameEdition[]      @relation("EditionOf")
 
   /// Calendar (/calendario): catalog releases of a month.
   @@index([releaseDate])
@@ -1417,4 +1420,27 @@ model NewsletterSubscriber {
   email       String    @unique
   confirmedAt DateTime?
   createdAt   DateTime  @default(now())
+}
+
+/// An old slug of a game that was merged into another: /jogos/<fromSlug> answers a permanent redirect.
+model GameSlugRedirect {
+  fromSlug  String   @id
+  gameId    String
+  createdAt DateTime @default(now())
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([gameId])
+}
+
+/// Two catalog games that are editions of one another (the pair is stored once; both pages link to the other).
+model GameEdition {
+  gameId  String
+  otherId String
+
+  game  Game @relation("Editions", fields: [gameId], references: [id], onDelete: Cascade)
+  other Game @relation("EditionOf", fields: [otherId], references: [id], onDelete: Cascade)
+
+  @@id([gameId, otherId])
+  @@index([otherId])
 }

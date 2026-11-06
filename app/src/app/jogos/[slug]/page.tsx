@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { cache, Suspense, type CSSProperties } from "react";
 import { PhotoGrid } from "@/components/community/PhotoGrid";
 import { AttributesGained } from "@/components/game/AttributesGained";
@@ -19,6 +19,7 @@ import { SimilarShelf } from "@/components/game/SimilarShelf";
 import { loginHref } from "@/components/guide/format";
 import { NewsTabs } from "@/components/news/NewsTabs";
 import { NewsWire } from "@/components/news/NewsWire";
+import { gameRedirectPath } from "@/lib/catalog/redirects";
 import { getSessionUser } from "@/lib/auth/session";
 import { PHOTO_XP } from "@/lib/community/rewards";
 import { prisma } from "@/lib/db";
@@ -83,6 +84,7 @@ a.gp-aside:hover { text-decoration: underline; text-underline-offset: 3px; }
 .gp-btn-s:hover { background: var(--border-2); box-shadow: none; }
 .gp-btn-acc { background: var(--acc); box-shadow: none; color: var(--acc-ink); }
 .gp-btn-acc:hover { filter: brightness(1.08); box-shadow: none; }
+.gp-ed { display: flex; flex-wrap: wrap; gap: 8px; }
 .gp-news { display: flex; flex-direction: column; gap: 4px; }
 .gp-news .gp-head { margin-bottom: 0; }
 .gp-gal { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; align-items: start; }
@@ -217,7 +219,12 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
   // Public data comes from cache, so an unknown slug is a real 404 before anything streams.
   const { slug } = await params;
   const profile = await getGameProfile(slug);
-  if (!profile) notFound();
+  if (!profile) {
+    // A game merged into another keeps its old address: asked only when the slug is not a game.
+    const kept = await gameRedirectPath(slug);
+    if (kept) permanentRedirect(kept);
+    notFound();
+  }
   // Cached on their own: the hourly Steam samples change faster than the profile, and the RA and PSN
   // flags are expired by the actions that read those lists.
   const [steamPlayers, retroDue, psnDue] = await Promise.all([
@@ -276,6 +283,24 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
         title={trophyWord(listedVersions(profile.versions))}
         aside={listedVersions(profile.versions).length > 1 ? "Uma aba por versão" : null}
       />
+
+      {profile.editions.length > 0 ? (
+        <section className="gp-veil" aria-labelledby="gp-h-ed">
+          <div className="gp-head">
+            <h2 id="gp-h-ed">Outras edições</h2>
+            <span className="gp-aside">Edições do mesmo jogo no catálogo</span>
+          </div>
+          <ul className="gp-ed">
+            {profile.editions.map((edition) => (
+              <li key={edition.slug}>
+                <a className="gp-btn gp-btn-s tk-cut-b" href={`/jogos/${edition.slug}`}>
+                  {edition.name}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <Suspense
         fallback={
