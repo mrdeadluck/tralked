@@ -78,7 +78,7 @@ try {
   for (const u of users) {
     console.log(
       `${u.handle}: steam ${u.steamUnlocks} (${u.steamXp} XP), psn ${u.psnUnlocks}, xbox ${u.xboxUnlocks}, ` +
-        `retro ${u.retroUnlocks}, platinums ${u.platinums}, regional extras ${u.regionalExtras}, XP ${u.totalXp}, level ${u.level}`,
+        `retro ${u.retroUnlocks}, platinums ${u.platinums} (${u.psnPlatinums} on PSN), XP ${u.totalXp}, level ${u.level}`,
     );
   }
   console.log(`Snapshot of ${users.length} users written to ${file}.`);

@@ -145,7 +145,7 @@ describe.skipIf(!reachable)("recomputeUser", () => {
     expect(stats.streakBest).toBe(3);
   });
 
-  it("a day whose only activity is a second-region copy still counts as an active day", async () => {
+  it("a day whose only activity is a second-region copy counts as an active day", async () => {
     const { prisma } = await import("@/lib/db");
     const { recomputeUser } = await import("./recompute");
     const user = await newUser();
@@ -172,13 +172,18 @@ describe.skipIf(!reachable)("recomputeUser", () => {
 
     await recomputeUser(user.id, NOW);
 
-    // Playing is playing: both days are active (the trophy itself still counts once elsewhere).
+    // Playing is playing: both days are active.
     const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
     expect(stats.streakBest).toBe(2);
     const constancia = await prisma.attributeProgress.findUniqueOrThrow({
       where: { userId_attribute: { userId: user.id, attribute: "constancia" } },
     });
     expect(constancia.points).toBe(40); // 2 active days (30) + best streak 2 (10)
+    // Every list counts: today's copy is an unlock of today for the missions.
+    const five = await prisma.mission.findFirstOrThrow({
+      where: { userId: user.id, kind: "daily", periodKey: "2026-10-31", title: "Desbloqueie 5 conquistas" },
+    });
+    expect(five.progress).toBe(1);
   });
 
   it("creates daily (3) and weekly (2) missions once per period", async () => {

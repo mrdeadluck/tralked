@@ -164,9 +164,119 @@ describe("settleListXp", () => {
       data: { userId: user.id, listId: jp.id, unlockedCount: 2, completedAt: at(6) },
     });
 
+    // The unlink forfeited the version's trophies and platinum: neither the EU keys nor the JP
+    // list's own keys (the same trophies, the same version) are paid.
     expect(await settle(user.id, [game.id], at(50))).toEqual({ paid: 0, voided: 0 });
     expect(await valid(user.id)).toHaveLength(0);
     expect(await prisma.xpLedgerEntry.count({ where: { userId: user.id } })).toBe(3);
+  });
+
+  /**
+   * A PS5 game with an EU (canonical) and a JP list, both earned, paid by the rule before every list
+   * counted: the trophies once, under the canonical EU ids, and one platinum under psn:PS5.
+   */
+  async function paidOncePerVersion() {
+    const user = await newUser();
+    await prisma.linkedAccount.create({
+      data: { userId: user.id, platform: "psn", externalId: `${PREFIX}-acc-${counter}`, handle: "Teste", linkedAt: T0 },
+    });
+    const game = await newGame();
+    const eu = await newList(game.id, "PS5", T0);
+    const jp = await newList(game.id, "PS5", at(1));
+    const euTrophies = await newTrophies(game.id, eu.id);
+    const jpTrophies = await newTrophies(game.id, jp.id);
+    await prisma.userAchievement.createMany({
+      data: [
+        ...euTrophies.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(10 + i) })),
+        ...jpTrophies.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(20 + i) })),
+      ],
+    });
+    await prisma.userTrophyList.createMany({
+      data: [
+        { userId: user.id, listId: eu.id, unlockedCount: 2, completedAt: at(11) },
+        { userId: user.id, listId: jp.id, unlockedCount: 2, completedAt: at(21) },
+      ],
+    });
+    await prisma.xpLedgerEntry.createMany({
+      data: [
+        // Values unlike what the rule gives now: an existing entry is never rewritten.
+        ...euTrophies.map((t, i) => ({
+          userId: user.id,
+          source: "achievement",
+          sourceKey: t.id,
+          platform: "psn",
+          xp: 7,
+          skills: ["rpg"],
+          createdAt: at(10 + i),
+        })),
+        { userId: user.id, source: "platinum", sourceKey: `psn:PS5:${game.id}`, platform: "psn", xp: 99, skills: ["rpg"], createdAt: at(11) },
+      ],
+    });
+    return { user, game, eu, jp, euTrophies, jpTrophies };
+  }
+
+  it("every regional list pays: the entries already paid stay as they are, the JP list gets its own", async () => {
+    const { user, game, jp, euTrophies, jpTrophies } = await paidOncePerVersion();
+    const before = await valid(user.id);
+
+    expect(await settle(user.id, [game.id])).toEqual({ paid: 3, voided: 0 });
+
+    const after = await valid(user.id);
+    // Nothing paid before is voided or rewritten.
+    expect(after.filter((e) => before.some((b) => b.id === e.id))).toEqual(before);
+    const added = after.filter((e) => !before.some((b) => b.id === e.id));
+    expect(added.map((e) => [e.source, e.sourceKey, e.xp, e.createdAt]).sort()).toEqual(
+      [
+        ["achievement", jpTrophies[0].id, tierXp("platinum"), at(20)],
+        ["achievement", jpTrophies[1].id, tierXp("bronze"), at(21)],
+        ["platinum", `psn:${jp.externalId}:${game.id}`, platinumBonus([tierXp("platinum"), tierXp("bronze")]), at(21)],
+      ].sort(),
+    );
+    // The EU trophies keep their canonical keys (their own ids), paid once.
+    expect(after.filter((e) => euTrophies.some((t) => t.id === e.sourceKey))).toHaveLength(2);
+    expect(await settle(user.id, [game.id])).toEqual({ paid: 0, voided: 0 });
+  });
+
+  it("an entry paid under the canonical key for another list's unlock keeps paying it (no void, no second payment)", async () => {
+    // The player earned only the JP list; the old rule paid its trophies under the canonical EU ids
+    // and the platinum under psn:PS5.
+    const user = await newUser();
+    const game = await newGame();
+    const eu = await newList(game.id, "PS5", T0);
+    const jp = await newList(game.id, "PS5", at(1));
+    const euTrophies = await newTrophies(game.id, eu.id);
+    const jpTrophies = await newTrophies(game.id, jp.id);
+    await prisma.userAchievement.createMany({
+      data: jpTrophies.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(10 + i) })),
+    });
+    await prisma.userTrophyList.create({ data: { userId: user.id, listId: jp.id, unlockedCount: 2, completedAt: at(11) } });
+    await prisma.xpLedgerEntry.createMany({
+      data: [
+        ...euTrophies.map((t, i) => ({
+          userId: user.id,
+          source: "achievement",
+          sourceKey: t.id,
+          platform: "psn",
+          xp: tierXp(t.trophyTier ?? "bronze"),
+          skills: ["rpg"],
+          createdAt: at(10 + i),
+        })),
+        { userId: user.id, source: "platinum", sourceKey: `psn:PS5:${game.id}`, platform: "psn", xp: 99, skills: ["rpg"], createdAt: at(11) },
+      ],
+    });
+    const before = await valid(user.id);
+    expect(await settle(user.id, [game.id])).toEqual({ paid: 0, voided: 0 });
+    expect(await valid(user.id)).toEqual(before);
+
+    // The player earns the EU list later: the canonical keys now speak for it, JP gets its own.
+    await prisma.userAchievement.createMany({
+      data: euTrophies.map((t, i) => ({ userId: user.id, achievementId: t.id, unlockedAt: at(30 + i) })),
+    });
+    await prisma.userTrophyList.create({ data: { userId: user.id, listId: eu.id, unlockedCount: 2, completedAt: at(31) } });
+    expect(await settle(user.id, [game.id])).toEqual({ paid: 3, voided: 0 });
+    expect((await valid(user.id)).map((e) => e.sourceKey).sort()).toEqual(
+      [...euTrophies.map((t) => t.id), ...jpTrophies.map((t) => t.id), `psn:PS5:${game.id}`, `psn:${jp.externalId}:${game.id}`].sort(),
+    );
   });
 
   /**

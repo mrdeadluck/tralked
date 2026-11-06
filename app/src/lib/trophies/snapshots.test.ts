@@ -11,7 +11,7 @@ const user = (over: Partial<UserNumbers> = {}): UserNumbers => ({
   xboxUnlocks: 0,
   retroUnlocks: 0,
   platinums: 1,
-  regionalExtras: 0,
+  psnPlatinums: 1,
   totalXp: 6000,
   level: 10,
   ...over,
@@ -34,5 +34,13 @@ describe("compareSnapshots", () => {
     });
     expect(compareSnapshots(snap("a", [user()]), snap("b", [])).steamChanged).toBe(true);
     expect(compareSnapshots(snap("a", []), snap("b", [user({ steamUnlocks: 0, steamXp: 0 })])).steamChanged).toBe(false);
+  });
+
+  it("a number an older snapshot does not have shows without a delta", () => {
+    // A snapshot taken before every regional list counted has no psnPlatinums.
+    const old: Partial<UserNumbers> = user();
+    delete old.psnPlatinums;
+    const r = compareSnapshots(snap("a", [old as UserNumbers]), snap("b", [user({ platinums: 2, psnPlatinums: 2 })]));
+    expect(r).toEqual({ lines: ["lucas: platinums 1 -> 2 (+1)", "lucas: psnPlatinums — -> 2"], steamChanged: false });
   });
 });

@@ -10,7 +10,7 @@ const FIELDS = [
   "xboxUnlocks",
   "retroUnlocks",
   "platinums",
-  "regionalExtras",
+  "psnPlatinums",
   "totalXp",
   "level",
 ] as const satisfies readonly (keyof UserNumbers)[];
@@ -34,6 +34,11 @@ export function compareSnapshots(a: Snapshot, b: Snapshot): { lines: string[]; s
     }
     for (const field of FIELDS) {
       if (before[field] === after[field]) continue;
+      // A number one snapshot does not have (taken by older code): no delta.
+      if (before[field] === undefined || after[field] === undefined) {
+        lines.push(`${after.handle}: ${field} ${before[field] ?? "—"} -> ${after[field] ?? "—"}`);
+        continue;
+      }
       const steam = STEAM_FIELDS.has(field);
       if (steam) steamChanged = true;
       const delta = after[field] - before[field];

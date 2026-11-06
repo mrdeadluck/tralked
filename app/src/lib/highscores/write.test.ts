@@ -43,8 +43,8 @@ async function psnGame(consoles: { console: string; createdAt: Date }[]) {
 
 const at = (m: number) => new Date(T0.getTime() + m * 60_000);
 
-describe("rank stats count a PSN trophy once per console", () => {
-  it("a trophy earned in two PS5 regions counts once for rank stats", async () => {
+describe("rank stats count a PSN trophy in every list", () => {
+  it("a trophy earned in two PS5 regions counts twice for rank stats and attributes", async () => {
     const user = await newUser();
     const { lists } = await psnGame([
       { console: "PS5", createdAt: at(0) },
@@ -55,12 +55,12 @@ describe("rank stats count a PSN trophy once per console", () => {
     }
     await recomputeUser(user.id, NOW);
     const all = await prisma.userRankStats.findUniqueOrThrow({ where: { userId_scope: { userId: user.id, scope: "all" } } });
-    expect(all.achievements).toBe(1);
+    expect(all.achievements).toBe(2);
     const psn = await prisma.userRankStats.findUniqueOrThrow({ where: { userId_scope: { userId: user.id, scope: "psn" } } });
-    expect(psn.achievements).toBe(1);
-    // Attributes see one bronze trophy too (Glória = tier weight x 10).
+    expect(psn.achievements).toBe(2);
+    // Attributes see two bronze trophies too (Glória = tier weight x 10 each).
     const gloria = await prisma.attributeProgress.findUniqueOrThrow({ where: { userId_attribute: { userId: user.id, attribute: "gloria" } } });
-    expect(gloria.points).toBe(10);
+    expect(gloria.points).toBe(20);
 
     // Direct call with the shape recompute passes.
     const rows = await prisma.userAchievement.findMany({
@@ -73,7 +73,7 @@ describe("rank stats count a PSN trophy once per console", () => {
     expect(rows).toHaveLength(2);
     await prisma.$transaction(await rankStatsWrites(user.id, rows));
     const again = await prisma.userRankStats.findUniqueOrThrow({ where: { userId_scope: { userId: user.id, scope: "all" } } });
-    expect(again.achievements).toBe(1);
+    expect(again.achievements).toBe(2);
   });
 
   it("profile total still counts both", async () => {

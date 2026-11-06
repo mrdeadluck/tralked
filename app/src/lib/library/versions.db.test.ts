@@ -84,14 +84,14 @@ describe("library versions and the header counters", () => {
     ]);
   });
 
-  it("the header's Platinas count one per version (PS5, PS4, the Steam 100%), the second PS5 region apart", async () => {
+  it("the header's Platinas count one per list (both PS5 regions, PS4, the Steam 100%), 3 on PSN", async () => {
     const summary = (await getProfileSummary(userId))!;
     // The PS4 platinum trophy counts though its list is at 3/4.
-    expect(summary.platinums).toBe(3);
-    expect(summary.regionalExtras).toBe(1);
+    expect(summary.platinums).toBe(4);
+    expect(summary.psnPlatinums).toBe(3);
     expect(summary.gamesCount).toBe(2);
     // The same numbers as the sheet and the migration snapshot (lib/character/counts).
-    expect(await platinumTally(userId)).toEqual({ platinums: summary.platinums, regionalExtras: summary.regionalExtras });
+    expect(await platinumTally(userId)).toMatchObject({ platinums: summary.platinums, psnPlatinums: summary.psnPlatinums });
   });
 
   it("the versions are read only when asked", async () => {

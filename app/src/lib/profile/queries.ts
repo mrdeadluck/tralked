@@ -36,10 +36,10 @@ export type ProfileSummary = {
   playtimeMin: number;
   /** "Jogos": distinct games of the library, each once over its platforms (the Jogos tab count). */
   gamesCount: number;
-  /** "Platinas (contam no XP)": one per version (PS4 and PS5 are two), as the sheet counts them. */
+  /** "Platinas": one per list (two regional PSN lists are two), as the sheet counts them. */
   platinums: number;
-  /** "Listas regionais extras": platinum lists beyond the first of each version (no XP). */
-  regionalExtras: number;
+  /** The PSN platinum trophies among them (the note "520 na PSN"). */
+  psnPlatinums: number;
   /** Valid unlocks over every platform (the Conquistas tab count). */
   achievements: number;
   /** Games on the wishlist (the Lista de desejos tab count). */
@@ -109,7 +109,7 @@ export async function getProfileSummary(userId: string): Promise<ProfileSummary 
     playtimeMin,
     gamesCount: owned.length,
     platinums: tally.platinums,
-    regionalExtras: tally.regionalExtras,
+    psnPlatinums: tally.psnPlatinums,
     achievements,
     wishlist,
     platforms: PLATFORM_ORDER.flatMap((platform) => {

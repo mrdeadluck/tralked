@@ -4,8 +4,8 @@ import type { ProfileStat } from "@/components/profile/ProfileHeader";
 import { formatNumber } from "./format";
 
 /**
- * The Ficha's own numbers, after the header strip's shared three (Platinas (contam no XP), Listas
- * regionais extras, Jogos; components/profile/ProfileHeader): its platinums are the strip's.
+ * The Ficha's own numbers, after the header strip's shared two (Platinas, Jogos;
+ * components/profile/ProfileHeader): its platinums are the strip's.
  */
 export function characterStats(stats: Character["stats"], week?: { total: number; community: number }): ProfileStat[] {
   return [
