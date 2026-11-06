@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { Suspense } from "react";
 import { ForumList } from "@/components/community/ForumList";
 import { NewThreadForm } from "@/components/community/NewThreadForm";
 import { PageHead, Trail } from "@/components/community/PageHead";
 import { Pager, pageParam } from "@/components/community/Pager";
+import { forumRedirectPath } from "@/lib/catalog/redirects";
 import { findSectionCached, listSectionThreadsCached } from "@/lib/community/cached";
 import { sectionSegments, type ForumSection } from "@/lib/community/forum";
 import { plural } from "@/lib/community/format";
@@ -19,7 +20,11 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }: PageProps<"/forum/[categoria]">): Promise<Metadata> {
   const { categoria } = await params;
   const section = await findSectionCached(categoria);
-  if (!section) return { title: "Seção não encontrada | Tralked" };
+  if (!section) {
+    const kept = await forumRedirectPath(categoria);
+    if (kept) permanentRedirect(kept);
+    return { title: "Seção não encontrada | Tralked" };
+  }
   // A game's section without topics (nearly every catalog game) is an empty list: out of the
   // index, as robots.txt keeps crawlers off it (lib/seo/robots.ts EMPTY_LISTING_PATHS).
   const empty = section.kind === "game" && (await listSectionThreadsCached(section, 1)).total === 0;
@@ -33,7 +38,12 @@ export async function generateMetadata({ params }: PageProps<"/forum/[categoria]
 export default async function ForumSectionPage({ params, searchParams }: PageProps<"/forum/[categoria]">) {
   const { categoria } = await params;
   const section = await findSectionCached(categoria);
-  if (!section) notFound();
+  if (!section) {
+    // Not a section, but the slug of a game that was merged into another: its section moved with it.
+    const kept = await forumRedirectPath(categoria);
+    if (kept) permanentRedirect(kept);
+    notFound();
+  }
   const returnTo = `/forum/${section.slug}`;
 
   return (

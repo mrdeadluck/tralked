@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound, redirect } from "next/navigation";
+import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { Comments } from "@/components/community/Comments";
 import { ReactionBar } from "@/components/community/ReactionBar";
@@ -29,6 +29,7 @@ import {
 } from "@/components/guide/UserIslands";
 import { GuideUnavailable } from "@/components/guide/walk/GuideUnavailable";
 import { WalkthroughPage } from "@/components/guide/walk/WalkthroughPage";
+import { gameRedirectPath } from "@/lib/catalog/redirects";
 import { guideIdCached } from "@/lib/community/cached";
 import { listGameSlugs } from "@/lib/queries/games";
 import {
@@ -52,7 +53,7 @@ export async function generateMetadata({
   params,
 }: PageProps<"/jogos/[slug]/guia">): Promise<Metadata> {
   const { slug } = await params;
-  return gameMetadata(slug);
+  return gameMetadata(slug, "/guia");
 }
 
 export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/guia">) {
@@ -79,6 +80,8 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
     }
     if (onlyPage) return onlyPage;
     if (await getGameCached(slug)) redirect(`/jogos/${slug}`);
+    const kept = await gameRedirectPath(slug, "/guia");
+    if (kept) permanentRedirect(kept);
     notFound();
   }
 

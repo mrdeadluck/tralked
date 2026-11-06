@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { permanentRedirect } from "next/navigation";
 import { Suspense } from "react";
 import { PageHead } from "@/components/community/PageHead";
 import { Pager, pageParam } from "@/components/community/Pager";
@@ -13,6 +14,7 @@ import {
   CommunityShowcaseSkeleton,
   SHOWCASE_PRIMARY,
 } from "@/components/community/CommunityShowcase";
+import { galleryRedirectHref } from "@/lib/catalog/redirects";
 import { showcaseShotsCached } from "@/lib/community/showcase";
 import { galleryGameCached, galleryGamesCached, listPhotosCached, photoOfTheWeekCached } from "@/lib/community/cached";
 import type { GameOption, PhotoCardView } from "@/lib/community/gallery";
@@ -82,6 +84,9 @@ export default async function GalleryPage({ searchParams }: PageProps<"/galeria"
 async function GalleryContent({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const requestedGame = first(params.jogo);
+  // The filter names a game merged into another: the same gallery under the kept slug.
+  const kept = await galleryRedirectHref(params);
+  if (kept) permanentRedirect(kept);
   // Only games with listed photos (the filter), not the whole catalog.
   const withPhotos = await galleryGamesCached();
   const game = await requestedGallery(withPhotos, requestedGame);
