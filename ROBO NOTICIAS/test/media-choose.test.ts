@@ -230,6 +230,43 @@ describe("chooseImages", () => {
   });
 });
 
+describe("chooseImages: review fixes", () => {
+  it("I1: without a cover, a body image only if it would fit the cover frame (it becomes the card)", async () => {
+    const files = { "https://news.xbox.com/tall.jpg": await picture(700, 1400, 1) };
+    const items = [item("xbox", "https://news.xbox.com/a", { images: [{ url: "https://news.xbox.com/tall.jpg", role: "og" }] })];
+    const out = await chooseImages(input(items, { officialVideoIds: [] }), deps(visionAi().ai, images(files), uploader().tralked));
+    expect(out).toEqual({});
+  });
+
+  it("I2: uploads are re-encoded under the site's 4 MiB limit, and a failed upload tries the next candidate", async () => {
+    const files = {
+      "https://news.xbox.com/a.jpg": await picture(1920, 1080, 1),
+      "https://news.xbox.com/b.jpg": await picture(1920, 1080, 2),
+    };
+    const items = [
+      item("xbox", "https://news.xbox.com/a", {
+        images: [
+          { url: "https://news.xbox.com/a.jpg", role: "og" },
+          { url: "https://news.xbox.com/b.jpg", role: "body" },
+        ],
+      }),
+    ];
+    const sizes: number[] = [];
+    let calls = 0;
+    const tralked = {
+      uploadImage: vi.fn(async (bytes: Uint8Array, type: string) => {
+        sizes.push(bytes.length);
+        expect(type).toBe("image/webp");
+        if (++calls === 1) throw new Error("413");
+        return { url: `https://blob.test/${calls}.webp` };
+      }),
+    };
+    const out = await chooseImages(input(items, { officialVideoIds: [] }), deps(visionAi().ai, images(files), tralked));
+    expect(out.cover?.url).toBe("https://blob.test/2.webp");
+    for (const n of sizes) expect(n).toBeLessThanOrEqual(4 * 1024 * 1024);
+  });
+});
+
 describe("chooseImages downloads", () => {
   it("fetches every source's main (og) image first, then body images, up to the cap", async () => {
     const items = Array.from({ length: 30 }, (_, n) =>

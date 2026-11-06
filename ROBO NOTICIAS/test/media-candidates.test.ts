@@ -116,6 +116,18 @@ describe("collectCandidates", () => {
     ]);
   });
 
+  it("M4: an official feed through Google News (Rockstar Newswire) is official for the site's own pictures", () => {
+    const [c] = collectCandidates({
+      items: [
+        item("xbox", "https://www.rockstargames.com/newswire/article/1", { images: [{ url: "https://media-rockstargames-com.akamaized.net/a.jpg", role: "og" }] }, "Rockstar Games"),
+      ],
+      sources: SOURCES,
+      officialVideoIds: [],
+      catalog: [],
+    });
+    expect(c).toMatchObject({ origin: "fonte-oficial", sourceName: "Rockstar Games" });
+  });
+
   it("credits a Google News item to its publisher", () => {
     const [c] = collectCandidates({
       items: [item("ign", "https://www.eurogamer.net/x", { images: [{ url: "https://cdn.eg.net/a.jpg", role: "og" }] }, "Eurogamer")],
@@ -147,6 +159,12 @@ describe("markRepeated and isEligible", () => {
     expect(isEligible(a, repeated)).toBe(true);
     expect(isEligible(b, repeated)).toBe(true);
     expect(isEligible(c, repeated)).toBe(false);
+  });
+
+  it("M3: two subdomains of one outlet are not a repetition", () => {
+    const a = cand("a", "br.ign.com", "fonte", 0xffff0000ffff0000n);
+    const b = cand("b", "ign.com", "fonte", 0xffff0000ffff0000n);
+    expect(markRepeated([a, b]).size).toBe(0);
   });
 
   it("two copies on the same host are not a repetition", () => {

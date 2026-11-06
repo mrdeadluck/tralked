@@ -28,10 +28,11 @@ export async function companyArt(text: string): Promise<string | null> {
  * names, as their own image (`imageUrl` and `wideImageUrl`, no game `art`), like an article that brings one.
  */
 export async function withCompanyArt<
-  T extends { slug: string; title: string; excerpt: string | null; imageUrl: string | null; wideImageUrl?: string | null },
+  T extends { slug: string; title: string; excerpt: string | null; imageUrl: string | null; wideImageUrl?: string | null; art?: unknown[] | null },
 >(cards: T[]): Promise<T[]> {
   return cards.map((card) => {
-    if (card.imageUrl) return card;
+    // A card with its own image, or with its game's art, keeps it: "Ghost of Yōtei vende no PS5" is about the game.
+    if (card.imageUrl || card.art?.length) return card;
     const found = acervoFor(`${card.title} ${card.excerpt ?? ""}`);
     return found ? { ...card, imageUrl: found.url, wideImageUrl: found.url, art: null } : card;
   });

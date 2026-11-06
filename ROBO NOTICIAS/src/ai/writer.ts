@@ -242,8 +242,13 @@ export function writePrompt(story: StoryForWriting, now: Date = new Date()): str
     parts.push(
       [
         "## Posts no X",
-        ...story.posts.map((p) => `- ${body(p.authorName)} (@${body(p.authorHandle)}): "${body(p.text)}"`),
+        ...story.posts.map(
+          (p) => `- ${body(p.authorName)} (@${body(p.authorHandle)}${p.official === false ? ", perfil não oficial" : ""}): "${body(p.text)}"`,
+        ),
         "Cada post acima aparece incorporado automaticamente na matéria, depois do parágrafo que cita o autor dele (ou logo no começo, se nenhum citar). Pode citar o autor e o que o post diz, como fonte; não escreva o link do post nem copie o post inteiro no texto.",
+        ...(story.posts.some((p) => p.official === false)
+          ? ["Quando o post é de perfil não oficial, deixe claro no texto quem é o autor (por exemplo, um perfil de vazamentos ou um jornalista) e trate o que ele diz como rumor, nunca como anúncio oficial."]
+          : []),
       ].join("\n"),
     );
   }

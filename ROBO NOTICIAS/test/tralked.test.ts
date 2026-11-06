@@ -236,7 +236,9 @@ describe("reads and patch", () => {
   });
 
   it("findGame takes the name without its subtitle, and loose spelling (case, accents, roman numerals)", async () => {
-    const { client } = setup(
+    const { client, fetchFn } = setup(
+      // The site searches `name contains q`: "…VI: Sentinel" finds nothing, so the name without subtitle is searched.
+      reply(200, { games: [] }),
       reply(200, { games: [{ slug: "tes-vi", name: "The Elder Scrolls VI", aliases: [] }] }),
       reply(200, { games: [{ slug: "hades-2", name: "Hades II", aliases: [] }] }),
       reply(200, {
@@ -248,10 +250,24 @@ describe("reads and patch", () => {
       reply(200, { games: [{ slug: "wolverine", name: "Marvel’s Wolverine", aliases: [] }] }),
     );
     await expect(client.findGame("The Elder Scrolls VI: Sentinel")).resolves.toEqual({ slug: "tes-vi", name: "The Elder Scrolls VI" });
+    expect(urlOf(fetchFn, 1)).toBe(`${BASE}/api/v1/games?q=The%20Elder%20Scrolls%20VI`);
     await expect(client.findGame("hades 2")).resolves.toEqual({ slug: "hades-2", name: "Hades II" });
     // The full name wins over the name without subtitle.
     await expect(client.findGame("Hollow Knight: Silksong")).resolves.toEqual({ slug: "hollow-knight-silksong", name: "Hollow Knight: Silksong" });
     await expect(client.findGame("Marvel's Wolverine")).resolves.toEqual({ slug: "wolverine", name: "Marvel’s Wolverine" });
+  });
+
+  it("I5: a numbered name finds its subtitled entry; a series name or a subtitle base without number never resolves", async () => {
+    const { client, fetchFn } = setup(
+      reply(200, { games: [{ slug: "ds2", name: "Death Stranding 2: On the Beach", aliases: [] }] }),
+      reply(200, { games: [{ slug: "re4", name: "Resident Evil 4", aliases: [] }, { slug: "re8", name: "Resident Evil Village", aliases: [] }] }),
+      reply(200, { games: [] }),
+    );
+    await expect(client.findGame("Death Stranding 2")).resolves.toEqual({ slug: "ds2", name: "Death Stranding 2: On the Beach" });
+    await expect(client.findGame("Resident Evil")).resolves.toBeNull();
+    // "Call of Duty" (the base of "Black Ops 7") is a series, not a game: no second search.
+    await expect(client.findGame("Call of Duty: Black Ops 7")).resolves.toBeNull();
+    expect(fetchFn).toHaveBeenCalledTimes(3);
   });
 
   it("uploadImage posts the raw bytes to /api/v1/media with the idempotency key", async () => {

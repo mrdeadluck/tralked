@@ -165,6 +165,15 @@ describe("writePrompt", () => {
     expect(writePrompt(story(), NOW)).not.toContain("## Posts no X");
   });
 
+  it("M10: an unofficial post's author must be named as such in the text", () => {
+    const prompt = writePrompt(
+      story({ posts: [{ url: "https://x.com/leaker/status/1", authorName: "Leaker", authorHandle: "leaker", text: "Leak", official: false }] }),
+      NOW,
+    );
+    expect(prompt).toContain("Leaker (@leaker, perfil não oficial)");
+    expect(prompt).toContain("deixe claro no texto quem é o autor");
+  });
+
   it("gives title-only sources as headlines, never as full text", () => {
     const prompt = writePrompt(story(), NOW);
     expect(prompt).not.toMatch(/<fonte nome="Eurogamer"/);

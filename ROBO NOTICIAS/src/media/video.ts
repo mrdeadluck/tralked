@@ -22,8 +22,10 @@ function gameKeys(games: string[]): string[] {
   const out = new Set<string>();
   for (const g of games) {
     out.add(gameNameKey(g));
+    // "The Elder Scrolls VI: Sentinel" is also "The Elder Scrolls VI"; "Call of Duty: Black Ops 7" is not "Call of Duty".
     const colon = g.indexOf(":");
-    if (colon > 0) out.add(gameNameKey(g.slice(0, colon)));
+    const base = colon > 0 ? gameNameKey(g.slice(0, colon)) : "";
+    if (/\d$/.test(base)) out.add(base);
   }
   out.delete("");
   return [...out];
@@ -47,10 +49,10 @@ async function oembed(id: string, fetchFn: FetchFn): Promise<{ title: string; au
 
 /**
  * The official video a source page embeds or links, when the story is about it (spec "Escolher o vídeo"):
- * - the channel is official: its name is one of the robot's official channels (`video: true` sources), or
- *   names one of the story's companies ("Bethesda Game Studios" for Bethesda);
- * - the title is about the story: it names one of the story's games (with or without the subtitle) or,
- *   when the story has no game, it is a trailer, gameplay, teaser or reveal.
+ * - the channel is official: its name is exactly one of the robot's official channels (`video: true`
+ *   sources) or one of the story's companies;
+ * - the title is about the story: it names one of the story's games (without the subtitle only when the
+ *   name ends in a number) or, when the story has no game, it is a trailer naming one of its companies.
  * A react or a news site's channel never passes. Title and channel come from YouTube's public oEmbed.
  */
 export async function officialSourceVideo(
@@ -67,10 +69,12 @@ export async function officialSourceVideo(
     const meta = await oembed(id, fetchFn);
     if (!meta) continue;
     const channel = channelKey(meta.author_name);
-    const official = channels.has(channel) || companies.some((c) => has(channel, c));
+    // Exactly an official channel or a company of the story: "Nintendo Life" is not "Nintendo".
+    const official = channels.has(channel) || companies.includes(channel);
     if (!official) continue;
     const title = gameNameKey(meta.title);
-    const about = games.length > 0 ? games.some((g) => has(title, g)) : VIDEO_WORDS.test(meta.title);
+    const about =
+      games.length > 0 ? games.some((g) => has(title, g)) : VIDEO_WORDS.test(meta.title) && companies.some((c) => has(title, c));
     if (about) return { youtubeId: id, title: meta.title, channel: meta.author_name };
   }
   return null;

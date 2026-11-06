@@ -1544,7 +1544,7 @@ describe("catalog media for articles without their own", () => {
     h.xposts.set("77", {
       author_name: "Supergiant Games",
       author_url: "https://twitter.com/SupergiantGames",
-      html: '<blockquote class="twitter-tweet"><p lang="en">New weapon out now!</p>&mdash; Supergiant Games (@SupergiantGames) <a href="https://twitter.com/SupergiantGames/status/77">October 31, 2026</a></blockquote>',
+      html: '<blockquote class="twitter-tweet"><p lang="en">Hades II: new weapon out now!</p>&mdash; Supergiant Games (@SupergiantGames) <a href="https://twitter.com/SupergiantGames/status/77">October 31, 2026</a></blockquote>',
     });
     const id = seedQueued(h, "Hades II recebe arma nova");
     const [item] = h.db.itemsForStory(id);
@@ -1565,7 +1565,7 @@ describe("catalog media for articles without their own", () => {
         url: "https://x.com/SupergiantGames/status/77",
         authorName: "Supergiant Games",
         authorHandle: "SupergiantGames",
-        text: "New weapon out now!",
+        text: "Hades II: new weapon out now!",
         postedAt: "2026-10-31T12:00:00.000Z",
       },
     ]);

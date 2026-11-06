@@ -16,6 +16,13 @@ describe("company art (official acervo, never a company game)", () => {
     expect(none).not.toHaveProperty("art");
   });
 
+  it("M5: a card with its game's art keeps it (the console or company picture is only for cards without a game)", async () => {
+    const withGame = { ...card("Ghost of Yōtei vende 3 milhões no PS5"), art: [{ url: "https://cdn.test/ghost.jpg" }] };
+    const [out] = await withCompanyArt([withGame]);
+    expect(out!.imageUrl).toBeNull();
+    expect(out!.art).toEqual([{ url: "https://cdn.test/ghost.jpg" }]);
+  });
+
   it("the article page's hero uses the same picture", async () => {
     expect(await companyArt("EA fecha a BioWare")).toBe("/acervo/ea.webp");
     expect(await companyArt("Hollow Knight ganha DLC")).toBeNull();

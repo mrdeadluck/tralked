@@ -70,15 +70,30 @@ describe("officialSourceVideo", () => {
     expect(await officialSourceVideo(input([item({}, ["BBBBBBBBBBB", "CCCCCCCCCCC"])]), fetchFn)).toBeNull();
   });
 
-  it("a channel named after one of the story's companies counts as official", async () => {
-    const fetchFn = oembed({ DDDDDDDDDDD: { title: "The Elder Scrolls VI teaser", author_name: "Bethesda Game Studios" } });
+  it("a channel named exactly after one of the story's companies counts as official; one that only contains it does not", async () => {
+    const fetchFn = oembed({
+      DDDDDDDDDDD: { title: "The Elder Scrolls VI teaser", author_name: "Bethesda" },
+      FFFFFFFFFFF: { title: "Pokémon Legends: Z-A – Our Honest Reaction", author_name: "Nintendo Life" },
+    });
     expect((await officialSourceVideo(input([item({}, ["DDDDDDDDDDD"])]), fetchFn))?.youtubeId).toBe("DDDDDDDDDDD");
+    const pokemon = { ...input([item({}, ["FFFFFFFFFFF"])]), games: ["Pokémon Legends: Z-A"], companies: ["Nintendo"] };
+    expect(await officialSourceVideo(pokemon, fetchFn)).toBeNull();
   });
 
-  it("without games, a trailer word in the title is enough", async () => {
-    const fetchFn = oembed({ EEEEEEEEEEE: { title: "Xbox Games Showcase 2026 - Official Trailer", author_name: "Bethesda Softworks" } });
-    const out = await officialSourceVideo({ ...input([item({}, ["EEEEEEEEEEE"])]), games: [] }, fetchFn);
-    expect(out?.youtubeId).toBe("EEEEEEEEEEE");
+  it("the name without subtitle counts only when it ends in a number (not another game of the series)", async () => {
+    const fetchFn = oembed({ GGGGGGGGGGG: { title: "Call of Duty: Warzone – Season 3 Official Trailer", author_name: "Bethesda Softworks" } });
+    const cod = { ...input([item({}, ["GGGGGGGGGGG"])]), games: ["Call of Duty: Black Ops 7"] };
+    expect(await officialSourceVideo(cod, fetchFn)).toBeNull();
+  });
+
+  it("without games, the title must name one of the story's companies and be a trailer", async () => {
+    const fetchFn = oembed({
+      EEEEEEEEEEE: { title: "Bethesda Showcase 2026 - Official Trailer", author_name: "Bethesda Softworks" },
+      HHHHHHHHHHH: { title: "DOOM: The Dark Ages - Official Trailer", author_name: "Bethesda Softworks" },
+    });
+    const noGame = (ids: string[]) => ({ ...input([item({}, ids)]), games: [] });
+    expect((await officialSourceVideo(noGame(["EEEEEEEEEEE"]), fetchFn))?.youtubeId).toBe("EEEEEEEEEEE");
+    expect(await officialSourceVideo(noGame(["HHHHHHHHHHH"]), fetchFn)).toBeNull();
   });
 
   it("oEmbed failures cost only that video; at most 5 lookups", async () => {

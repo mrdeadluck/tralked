@@ -86,7 +86,8 @@ export function collectCandidates(input: {
       if (!fresh(image.url)) continue;
       const base = { url: image.url, sourceName, sourceUrl: item.url, host, role: image.role };
       if (isStoreAsset(image.url)) store.push({ ...base, id: "", origin: "loja" });
-      else if (source?.tier === "oficial" && !item.publisher && ownPicture(item.url, image.url)) official.push({ ...base, id: "", origin: "fonte-oficial" });
+      // Official feeds through Google News (Rockstar Newswire, Nintendo IR) count too: the item's URL is the official page.
+      else if (source?.tier === "oficial" && ownPicture(item.url, image.url)) official.push({ ...base, id: "", origin: "fonte-oficial" });
       else other.push({ ...base, id: "", origin: "fonte" });
     }
   }
@@ -112,7 +113,7 @@ export function markRepeated(cands: ImageCandidate[]): Set<string> {
     for (let j = i + 1; j < fetched.length; j++) {
       const a = fetched[i]!;
       const b = fetched[j]!;
-      if (a.host === b.host) continue;
+      if (siteOf(a.host) === siteOf(b.host)) continue; // br.ign.com and ign.com are one outlet
       if (hamming(a.image!.hash, b.image!.hash) <= SAME_IMAGE_MAX_DISTANCE) {
         out.add(a.id);
         out.add(b.id);

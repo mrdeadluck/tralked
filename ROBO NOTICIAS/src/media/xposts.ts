@@ -4,9 +4,18 @@ import { z } from "zod";
 import type { FetchFn } from "../collect/index.js";
 import { mediaOf } from "../collect/media.js";
 import type { ItemRow } from "../db.js";
+import { gameNameKey } from "../tralked.js";
 
 /** A post on X the article embeds (the site's `post` block). */
-export type XPost = { url: string; authorName: string; authorHandle: string; text: string; postedAt?: string };
+export type XPost = {
+  url: string;
+  authorName: string;
+  authorHandle: string;
+  text: string;
+  postedAt?: string;
+  /** The author is one of the official profiles (a leaker's post in a rumor is not: the text says who it is). */
+  official?: boolean;
+};
 
 export type XProfile = { handle: string; name: string };
 
@@ -52,23 +61,56 @@ async function oembed(url: string, fallbackHandle: string, fetchFn: FetchFn): Pr
   }
 }
 
+/** How a story's game can appear in a post: full name, name without subtitle (when it ends in a number), series. */
+function gameMentions(games: string[]): string[] {
+  const out = new Set<string>();
+  for (const g of games) {
+    const full = gameNameKey(g);
+    const colon = g.indexOf(":");
+    const base = colon > 0 ? gameNameKey(g.slice(0, colon)) : full;
+    out.add(full);
+    if (/\d$/.test(base)) out.add(base);
+    const series = base.replace(/^the /, "").replace(/ \d+$/, "");
+    if (series.length >= 3) out.add(series);
+  }
+  out.delete("");
+  return [...out];
+}
+
+const has = (haystack: string, needle: string) => ` ${haystack} `.includes(` ${needle} `);
+
 /**
- * The X posts the article embeds (spec "Incorporar posts do X"): only posts the sources' pages embed or
- * link, in the order they appear, at most 2. A post enters when:
- * - its author is an official profile (`config/perfis-x.json`); or
- * - the sources quote its author (by name or @handle): the statement is the news; or
- * - the story is a rumor (a leaker's post, which the text attributes to its author).
+ * The X posts the article embeds (spec "Incorporar posts do X"): only posts the sources' articles embed or
+ * link, in the order they appear, at most 2. A post enters when its author is:
+ * - an official profile (`config/perfis-x.json`); or
+ * - someone the sources quote: by @handle, or by a name of two words or more that is not a game, a company
+ *   or an outlet ("GTA 6" or "Insider Gaming" quote nobody); or
+ * - anyone, when the story is a rumor (a leaker's post: `official: false`, and the text says who it is).
+ * With games, the post must be about one of them (or their series); without games, name a company.
  * A post X does not describe (deleted, private, offline) is left out.
  */
 export async function storyPosts(
-  input: { items: ItemRow[]; rumor: boolean; sourceTexts: string[] },
+  input: { items: ItemRow[]; rumor: boolean; sourceTexts: string[]; games?: string[]; companies?: string[]; outlets?: string[] },
   fetchFn: FetchFn,
   profiles: XProfile[],
 ): Promise<XPost[]> {
   const official = new Set(profiles.map((p) => p.handle.toLowerCase()));
   const sources = input.sourceTexts.join("\n").toLowerCase();
-  const quoted = (e: Embed) =>
-    sources.includes(`@${e.authorHandle.toLowerCase()}`) || (e.authorName.length >= 4 && sources.includes(e.authorName.toLowerCase()));
+  const games = gameMentions(input.games ?? []);
+  const companies = (input.companies ?? []).map(gameNameKey).filter(Boolean);
+  const things = [...games, ...companies, ...(input.outlets ?? []).map(gameNameKey)].filter(Boolean);
+  const isThing = (name: string) => things.some((t) => has(name, t) || has(t, name));
+  const quoted = (e: Embed) => {
+    if (sources.includes(`@${e.authorHandle.toLowerCase()}`)) return true;
+    const name = gameNameKey(e.authorName);
+    return name.split(" ").length >= 2 && !isThing(name) && sources.includes(e.authorName.toLowerCase());
+  };
+  const onTopic = (e: Embed) => {
+    const text = gameNameKey(e.text);
+    if (games.length > 0) return games.some((g) => has(text, g));
+    if (companies.length > 0) return companies.some((c) => has(text, c) || has(gameNameKey(e.authorName), c));
+    return true;
+  };
 
   const seen = new Set<string>();
   const candidates = input.items.flatMap((i) => mediaOf(i).posts).filter((p) => !seen.has(p.statusId) && seen.add(p.statusId));
@@ -77,8 +119,9 @@ export async function storyPosts(
     if (out.length >= MAX_POSTS) break;
     const e = await oembed(post.url, post.handle, fetchFn);
     if (!e) continue;
-    if (!(official.has(e.authorHandle.toLowerCase()) || quoted(e) || input.rumor)) continue;
-    out.push({ url: `https://x.com/${e.authorHandle}/status/${post.statusId}`, ...e });
+    const isOfficial = official.has(e.authorHandle.toLowerCase());
+    if (!(isOfficial || quoted(e) || input.rumor) || !onTopic(e)) continue;
+    out.push({ url: `https://x.com/${e.authorHandle}/status/${post.statusId}`, ...e, official: isOfficial });
   }
   return out;
 }

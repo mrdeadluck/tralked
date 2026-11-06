@@ -99,14 +99,30 @@ export function catalogPool(catalog: GameMedia | null, storyId: number): { url: 
 
 const capitalize = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 
+/** The site's upload limit (`MAX_MEDIA_BYTES` in app/src/lib/api/media-upload.ts). */
+export const UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+const UPLOAD_MAX_WIDTH = 2560;
+
+/** WebP under the site's upload limit (the site stores WebP anyway): smaller and lower quality until it fits. */
+async function forUpload(bytes: Buffer): Promise<Buffer | null> {
+  for (const [width, quality] of [
+    [UPLOAD_MAX_WIDTH, 85],
+    [UPLOAD_MAX_WIDTH, 70],
+    [1920, 70],
+  ] as const) {
+    const out = await sharp(bytes).resize({ width, withoutEnlargement: true }).webp({ quality }).toBuffer();
+    if (out.length <= UPLOAD_MAX_BYTES) return out;
+  }
+  return null;
+}
+
 async function host(c: ImageCandidate, deps: ChooseDeps): Promise<string | null> {
   const img = c.image!;
-  let bytes: Buffer = img.bytes;
-  let contentType: "image/jpeg" | "image/png" | "image/webp" = img.contentType === "image/gif" ? "image/webp" : img.contentType;
-  if (img.contentType === "image/gif") bytes = await sharp(bytes).webp({ quality: 90 }).toBuffer();
   const key = `noticia-img-${createHash("sha1").update(img.bytes).digest("hex")}`;
   try {
-    return (await deps.tralked.uploadImage(new Uint8Array(bytes), contentType, key)).url;
+    const bytes = await forUpload(img.bytes);
+    if (!bytes) throw new Error("imagem grande demais mesmo reduzida");
+    return (await deps.tralked.uploadImage(new Uint8Array(bytes), "image/webp", key)).url;
   } catch (error) {
     deps.log?.(`envio de imagem falhou (${c.url}): ${errorMessage(error)}`);
     return null;
@@ -193,13 +209,23 @@ export async function chooseImages(
     };
   };
 
+  /** The first candidate of `list` whose upload works (a failed upload tries the next one). */
+  const firstHosted = async (list: ImageCandidate[]): Promise<{ c: ImageCandidate; media: MediaImage } | null> => {
+    for (const c of list) {
+      const media = await toMedia(c);
+      if (media) return { c, media };
+    }
+    return null;
+  };
+
   const out: { cover?: MediaImage; bodyImage?: MediaImage } = {};
-  const coverCand =
-    approved.find((c) => c.origin !== "catalogo" && fitsCover(c.image!)) ?? approved.find((c) => c.origin === "catalogo" && fitsCover(c.image!));
-  if (coverCand) {
-    const cover = await toMedia(coverCand);
-    if (cover) out.cover = cover;
-  }
+  const covers = [
+    ...approved.filter((c) => c.origin !== "catalogo" && fitsCover(c.image!)),
+    ...approved.filter((c) => c.origin === "catalogo" && fitsCover(c.image!)),
+  ];
+  const hostedCover = await firstHosted(covers);
+  const coverCand = hostedCover?.c;
+  if (hostedCover) out.cover = hostedCover.media;
   const rest = approved.filter((c) => c !== coverCand && c.origin !== "video-oficial" && !(coverCand && same(c.image!, coverCand.image!)));
 
   if (opts.gallery) {
@@ -214,10 +240,9 @@ export async function chooseImages(
     }
   }
 
-  const bodyCand = rest.find((c) => c.origin === "catalogo") ?? rest.find((c) => fitsBody(c.image!));
-  if (bodyCand) {
-    const body = await toMedia(bodyCand);
-    if (body) out.bodyImage = body;
-  }
+  // Without a cover, the body image is the article's first image, so the site's card: it must fit the cover frame.
+  const fits = (c: ImageCandidate) => (out.cover ? fitsBody(c.image!) : fitsCover(c.image!));
+  const hostedBody = await firstHosted([...rest.filter((c) => c.origin === "catalogo" && fits(c)), ...rest.filter((c) => c.origin !== "catalogo" && fits(c))]);
+  if (hostedBody) out.bodyImage = hostedBody.media;
   return out;
 }

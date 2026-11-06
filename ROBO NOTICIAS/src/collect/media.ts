@@ -132,8 +132,10 @@ export function extractMedia(html: string, pageUrl: string): SourceMedia {
       const id = url ? youtubeIdOf(url) : null;
       if (id && !ids.has(id) && ids.size < MAX_VIDEOS) ids.add(id);
     };
-    for (const f of Array.from(document.querySelectorAll("iframe"))) addVideo(resolve(f.getAttribute("src") ?? f.getAttribute("data-src"), pageUrl));
-    for (const a of Array.from(document.querySelectorAll("a[href]"))) addVideo(resolve(a.getAttribute("href"), pageUrl));
+    // Videos and posts of the article only: sidebars, "latest trailers" and footers are about other things.
+    const within = (selector: string) => containers.flatMap((c) => Array.from(c.querySelectorAll(selector)));
+    for (const f of within("iframe")) addVideo(resolve(f.getAttribute("src") ?? f.getAttribute("data-src"), pageUrl));
+    for (const a of within("a[href]")) addVideo(resolve(a.getAttribute("href"), pageUrl));
     media.youtube = [...ids];
 
     const posts = new Map<string, SourcePost>();
@@ -141,8 +143,8 @@ export function extractMedia(html: string, pageUrl: string): SourceMedia {
       const p = xPostOf(href);
       if (p && !posts.has(p.statusId) && posts.size < MAX_POSTS) posts.set(p.statusId, p);
     };
-    for (const a of Array.from(document.querySelectorAll('blockquote.twitter-tweet a[href*="/status/"]'))) addPost(a.getAttribute("href"));
-    for (const a of Array.from(document.querySelectorAll("a[href]"))) addPost(a.getAttribute("href"));
+    for (const a of within('blockquote.twitter-tweet a[href*="/status/"]')) addPost(a.getAttribute("href"));
+    for (const a of within("a[href]")) addPost(a.getAttribute("href"));
     media.posts = [...posts.values()];
     return media;
   } catch {

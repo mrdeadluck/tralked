@@ -60,7 +60,7 @@ describe("extractMedia", () => {
   it("collects YouTube ids from embeds and links, valid and unique, at most 5", () => {
     expect(media.youtube).toEqual(["AbCdEfGhIjK", "ZyXwVuTsRqP", "12345678901"]);
     const links = Array.from({ length: 8 }, (_, n) => `<a href="https://youtu.be/AAAAAAAAAA${n}">v</a>`).join("");
-    expect(extractMedia(`<html><body>${links}</body></html>`, PAGE).youtube).toHaveLength(5);
+    expect(extractMedia(`<html><body><article>${links}</article></body></html>`, PAGE).youtube).toHaveLength(5);
   });
 
   it("collects X posts from embeds and links, normalized to x.com, without intent/share/i/web/hashtag links", () => {
@@ -72,7 +72,13 @@ describe("extractMedia", () => {
 
   it("caps X posts at 5", () => {
     const links = Array.from({ length: 7 }, (_, n) => `<a href="https://x.com/a${n}/status/${100 + n}">p</a>`).join("");
-    expect(extractMedia(`<html><body>${links}</body></html>`, PAGE).posts).toHaveLength(5);
+    expect(extractMedia(`<html><body><article>${links}</article></body></html>`, PAGE).posts).toHaveLength(5);
+  });
+
+  it("videos and X posts only from the article, never from sidebars or footers", () => {
+    const html = `<html><body><aside><iframe src="https://www.youtube.com/embed/SIDEBAR0001"></iframe><a href="https://x.com/PlayStation/status/1">p</a></aside>
+      <article><p>Texto.</p></article><footer><a href="https://youtu.be/FOOTER00001">v</a></footer></body></html>`;
+    expect(extractMedia(html, PAGE)).toMatchObject({ youtube: [], posts: [] });
   });
 
   it("returns empty media for an empty or broken page", () => {

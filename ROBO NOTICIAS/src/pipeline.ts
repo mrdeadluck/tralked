@@ -562,8 +562,14 @@ export async function storyForWriting(
         deps.fetchFn,
       );
   const posts = await storyPosts(
-    { items, rumor: story.rumor === 1, sourceTexts: items.map((i) => `${i.title}
-${i.text ?? i.summary ?? ""}`) },
+    {
+      items,
+      rumor: story.rumor === 1,
+      sourceTexts: items.map((i) => `${i.title}\n${i.text ?? i.summary ?? ""}`),
+      games: parseGames(story.games_json),
+      companies: storyCompanies(items),
+      outlets: [...new Set(items.map((i) => i.publisher ?? deps.sources.find((s) => s.id === i.source_id)?.name ?? ""))].filter(Boolean),
+    },
     deps.fetchFn,
     deps.xProfiles ?? [],
   );

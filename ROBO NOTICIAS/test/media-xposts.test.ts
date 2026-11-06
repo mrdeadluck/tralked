@@ -49,6 +49,7 @@ describe("storyPosts", () => {
     const posts = await storyPosts({ items: [item([{ handle: "bethesda", statusId: "11" }])], rumor: false, sourceTexts: [] }, fetchFn, PROFILES);
     expect(posts).toEqual([
       {
+        official: true,
         url: "https://x.com/bethesda/status/11",
         authorName: "Bethesda",
         authorHandle: "bethesda",
@@ -99,6 +100,45 @@ describe("storyPosts", () => {
     expect(posts.map((p) => p.text)).toEqual(["One", "Two"]);
     const broken = vi.fn(async () => Promise.reject(new Error("offline")));
     expect(await storyPosts({ items, rumor: false, sourceTexts: [] }, broken, PROFILES)).toEqual([]);
+  });
+
+  it("I4: a fan account named after the game is not 'quoted' just because the sources name the game", async () => {
+    const fetchFn = oembed({ "31": embed("GTA 6", "gta6countdown", "GTA 6 in 14 days!", "November 5, 2026") });
+    const items = [item([{ handle: "gta6countdown", statusId: "31" }])];
+    const story = { items, rumor: false, sourceTexts: ["Rockstar released new GTA 6 screenshots."], games: ["GTA 6"], companies: ["Rockstar Games"] };
+    expect(await storyPosts(story, fetchFn, PROFILES)).toEqual([]);
+  });
+
+  it("I4: an outlet's own account is not quoted by its own name", async () => {
+    const fetchFn = oembed({ "32": embed("Insider Gaming", "InsiderGamingIG", "Exclusive: TES VI news", "November 5, 2026") });
+    const items = [item([{ handle: "InsiderGamingIG", statusId: "32" }])];
+    const story = { items, rumor: false, sourceTexts: ["Insider Gaming reports..."], outlets: ["Insider Gaming"] };
+    expect(await storyPosts(story, fetchFn, PROFILES)).toEqual([]);
+  });
+
+  it("I4: with games, an official post must be about one of them (or its series)", async () => {
+    const fetchFn = oembed({
+      "41": embed("Bethesda", "bethesda", "Today we're sharing the name of the next Elder Scrolls title.", "November 3, 2026"),
+      "42": embed("Bethesda", "bethesda", "DOOM: The Dark Ages DLC is out now.", "November 3, 2026"),
+    });
+    const items = [
+      item([
+        { handle: "bethesda", statusId: "41" },
+        { handle: "bethesda", statusId: "42" },
+      ]),
+    ];
+    const posts = await storyPosts({ items, rumor: false, sourceTexts: [], games: ["The Elder Scrolls VI: Sentinel"] }, fetchFn, PROFILES);
+    expect(posts.map((p) => p.text)).toEqual(["Today we're sharing the name of the next Elder Scrolls title."]);
+  });
+
+  it("M10: posts say whether their author is an official profile", async () => {
+    const fetchFn = oembed({ "51": embed("Fan 123", "fan123", "Leak!", "November 2, 2026"), "52": embed("Bethesda", "bethesda", "Hi", "November 2, 2026") });
+    const items = [item([{ handle: "fan123", statusId: "51" }, { handle: "bethesda", statusId: "52" }])];
+    const posts = await storyPosts({ items, rumor: true, sourceTexts: [] }, fetchFn, PROFILES);
+    expect(posts.map((p) => [p.authorHandle, p.official])).toEqual([
+      ["fan123", false],
+      ["bethesda", true],
+    ]);
   });
 
   it("the profiles file is valid", () => {

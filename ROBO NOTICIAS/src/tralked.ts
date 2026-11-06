@@ -213,17 +213,30 @@ export function gameNameKey(name: string): string {
     .join(" ");
 }
 
+/** The part before ":" of a game name, when it ends in a number ("The Elder Scrolls VI" of "…VI: Sentinel"); else "". */
+export function numberedBase(name: string): string {
+  const colon = name.indexOf(":");
+  const base = colon > 0 ? name.slice(0, colon).trim() : "";
+  return /\d$/.test(gameNameKey(base)) ? base : "";
+}
+
 /**
- * The search hit that is exactly the game asked for: same name or alias, or the asked name without its
- * subtitle ("The Elder Scrolls VI: Sentinel" is "The Elder Scrolls VI"). Never the first hit by default:
- * another game of the series ("The Elder Scrolls III: Morrowind") is worse than no game.
+ * The search hit that is exactly the game asked for. Never the first hit by default: another game of the
+ * series ("The Elder Scrolls III: Morrowind") is worse than no game. Accepted:
+ * - the same name or alias (loose spelling: case, accents, punctuation, roman numerals);
+ * - the asked name without its subtitle, when that ends in a number ("…VI: Sentinel" is "…VI");
+ * - a numbered name the catalog lists with a subtitle ("Death Stranding 2" is "Death Stranding 2: On the
+ *   Beach"), when only one hit is like that. A series name ("Resident Evil") never resolves.
  */
 export function exactGame<G extends { name: string; aliases?: string[] }>(query: string, games: G[]): G | null {
   const full = gameNameKey(query);
-  const colon = query.indexOf(":");
-  const base = colon > 0 ? gameNameKey(query.slice(0, colon)) : "";
+  const base = gameNameKey(numberedBase(query));
   const names = (g: G) => [g.name, ...(g.aliases ?? [])].map(gameNameKey);
-  return games.find((g) => names(g).includes(full)) ?? (base ? games.find((g) => names(g).includes(base)) : undefined) ?? null;
+  const exact = games.find((g) => names(g).includes(full)) ?? (base ? games.find((g) => names(g).includes(base)) : undefined);
+  if (exact) return exact;
+  if (!/\d$/.test(full)) return null;
+  const subtitled = games.filter((g) => gameNameKey(numberedBase(g.name)) === full);
+  return subtitled.length === 1 ? subtitled[0]! : null;
 }
 
 function lastPathSegment(url: string): string {
@@ -285,7 +298,15 @@ export function createTralked(options: { baseUrl: string; key: string; fetchFn?:
       const result = await json<{ games: { slug: string; name: string; aliases?: string[] }[] }>(
         await call("GET", `/api/v1/games?q=${encodeURIComponent(query)}`),
       );
-      const hit = exactGame(query, result.games);
+      let hit = exactGame(query, result.games);
+      // The site searches `name contains q`: "…VI: Sentinel" can only find "…VI" by its own name.
+      const base = numberedBase(query);
+      if (!hit && base.length >= MIN_QUERY_LENGTH) {
+        const again = await json<{ games: { slug: string; name: string; aliases?: string[] }[] }>(
+          await call("GET", `/api/v1/games?q=${encodeURIComponent(base)}`),
+        );
+        hit = exactGame(base, again.games);
+      }
       return hit ? { slug: hit.slug, name: hit.name } : null;
     },
 
