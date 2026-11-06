@@ -14,7 +14,7 @@ import {
   psnSliceMinutes,
   scanPsnIds,
 } from "./psn-catalog";
-import { PSN_OPEN_COOLDOWN_KEY, psnCooldownUntil } from "./psn-catalog-trophies";
+import { PSN_OPEN_COOLDOWN_KEY, PSN_SCAN_COOLDOWN_KEY, psnCooldownUntil } from "./psn-catalog-trophies";
 
 // Needs Postgres up and migrated (see db.test.ts); skipped when unreachable. No Sony call is made:
 // the catalog API is a stub.
@@ -62,13 +62,13 @@ describe.skipIf(!reachable)("PSN catalog scan", () => {
   async function cleanup() {
     const { prisma } = await import("@/lib/db");
     await prisma.psnCatalogList.deleteMany({ where: { id: { gte: idOf(BASE), lte: idOf(BASE + 99) } } });
-    await prisma.syncCursor.deleteMany({ where: { key: { in: [PSN_SCAN_CURSOR, PSN_OPEN_COOLDOWN_KEY] } } });
+    await prisma.syncCursor.deleteMany({ where: { key: { in: [PSN_SCAN_CURSOR, PSN_OPEN_COOLDOWN_KEY, PSN_SCAN_COOLDOWN_KEY] } } });
     await prisma.game.deleteMany({ where: { slug: { startsWith: "zzpsncat-ceiling" } } });
   }
-  /** The Sony pause the scan left, as the worker and the page opens read it. */
+  /** The scan's own pause (`psn-scan-cooldown`), as the worker and the page opens read it. */
   const pause = async () => {
     const { prisma } = await import("@/lib/db");
-    return prisma.syncCursor.findUnique({ where: { key: PSN_OPEN_COOLDOWN_KEY } });
+    return prisma.syncCursor.findUnique({ where: { key: PSN_SCAN_COOLDOWN_KEY } });
   };
   beforeAll(cleanup);
   beforeEach(cleanup);
@@ -170,6 +170,9 @@ describe.skipIf(!reachable)("PSN catalog scan", () => {
     expect(result.cooldownUntil).toBeGreaterThanOrEqual(wall + PSN_SCAN_COOLDOWN_MS);
     expect(result.cooldownUntil).toBeLessThan(Date.now() + PSN_SCAN_COOLDOWN_MS + 1);
     expect((await pause())?.value).toEqual({ until: result.cooldownUntil });
+    // The scan writes its own key: the worker reads it alone, the page opens read it with theirs.
+    expect(await prisma.syncCursor.findUnique({ where: { key: PSN_OPEN_COOLDOWN_KEY } })).toBeNull();
+    expect(await psnCooldownUntil(new Date(), prisma, [PSN_SCAN_COOLDOWN_KEY])).toBe(result.cooldownUntil);
     expect(await psnCooldownUntil(new Date())).toBe(result.cooldownUntil);
     expect(await psnCooldownUntil(new Date(result.cooldownUntil! + 1))).toBeNull();
     // The row before the failure was kept; the cursor points at the id to ask again.
@@ -188,13 +191,13 @@ describe.skipIf(!reachable)("PSN catalog scan", () => {
     expect(await pause()).not.toBeNull();
 
     const { prisma } = await import("@/lib/db");
-    await prisma.syncCursor.deleteMany({ where: { key: PSN_OPEN_COOLDOWN_KEY } });
+    await prisma.syncCursor.deleteMany({ where: { key: PSN_SCAN_COOLDOWN_KEY } });
     const network = () => Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } });
     const offline = await scanPsnIds({ api: failing(network), from: BASE, count: 5, deadline: Infinity, ...fakeClock() });
     expect(offline).toMatchObject({ stopped: "throttled", cooldownUntil: null });
-    // Every id refused with 400: each one passed over, no burst (only 403s make one).
+    // Every id answered 400: the slice ends at the third ("rejected"), without a pause.
     const bad = await scanPsnIds({ api: failing(() => new PsnHttpError("trophy groups", 400, null)), from: BASE, count: 5, deadline: Infinity, ...fakeClock() });
-    expect(bad).toMatchObject({ stopped: "count", scanned: 5, cooldownUntil: null });
+    expect(bad).toMatchObject({ stopped: "rejected", scanned: 3, cooldownUntil: null });
     expect(await pause()).toBeNull();
   });
 
@@ -352,6 +355,50 @@ describe.skipIf(!reachable)("PSN catalog scan", () => {
       expect(await pause()).toBeNull();
     });
 
+    it("400s on three different new ids end the slice as rejected, without a pause or a run", async () => {
+      const rejected = [idOf(BASE + 1), idOf(BASE + 3), idOf(BASE + 4)];
+      // Two: still passed over.
+      const two = await scanPsnIds({ api: refusing(rejected.slice(0, 2), 400), from: BASE, count: 6, deadline: Infinity, ...fakeClock() });
+      expect(two).toMatchObject({ stopped: "count", cooldownUntil: null });
+      const { prisma } = await import("@/lib/db");
+      await prisma.syncCursor.deleteMany({ where: { key: PSN_SCAN_CURSOR } });
+      const r = await scanPsnIds({ api: refusing(rejected, 400), from: BASE, count: 10, deadline: Infinity, ...fakeClock() });
+      expect(r).toMatchObject({ stopped: "rejected", scanned: 5, hits: 2, next: BASE + 5, cooldownUntil: null });
+      expect(await pause()).toBeNull();
+      expect(await prisma.syncCursor.findUnique({ where: { key: PSN_OPEN_COOLDOWN_KEY } })).toBeNull();
+      // Asked again by the next slice, not counted toward a skip.
+      expect((await cursor()).refused).toEqual(rejected.map((id) => ({ id, runs: 0 })));
+    });
+
+    it("an older cursor whose next is its stuck id: the id is asked once and written once", async () => {
+      const { prisma } = await import("@/lib/db");
+      const stuckId = idOf(BASE + 1);
+      const legacy = { next: BASE + 1, misses: 0, service: "trophy2", completedAt: null, stuck: { id: stuckId, runs: 1 } };
+      // Sony answers it now: one request, one row, and the write does not touch the row twice.
+      await prisma.syncCursor.create({ data: { key: PSN_SCAN_CURSOR, value: legacy } });
+      const calls: string[] = [];
+      const answered = await scanPsnIds({ api: refusing([], 403, calls), count: 3, deadline: Infinity, ...fakeClock() });
+      expect(answered).toMatchObject({ stopped: "count", scanned: 3, hits: 3, next: BASE + 4 });
+      expect(calls.filter((id) => id === stuckId)).toHaveLength(1);
+      expect(await prisma.psnCatalogList.count({ where: { id: { in: [stuckId, idOf(BASE + 2), idOf(BASE + 3)] } } })).toBe(3);
+      expect((await cursor()).refused).toBeUndefined();
+
+      // Still refused: one request, and its runs go up once.
+      await prisma.syncCursor.update({ where: { key: PSN_SCAN_CURSOR }, data: { value: legacy } });
+      calls.length = 0;
+      const refusedAgain = await scanPsnIds({ api: refusing(stuckId, 403, calls), count: 3, deadline: Infinity, ...fakeClock() });
+      expect(refusedAgain).toMatchObject({ stopped: "count", scanned: 3, next: BASE + 4, cooldownUntil: null });
+      expect(calls.filter((id) => id === stuckId)).toHaveLength(1);
+      expect((await cursor()).refused).toEqual([{ id: stuckId, runs: 2 }]);
+
+      // Refused PSN_STUCK_RUNS times: skipped by the retries, and the walk does not ask it either.
+      await prisma.syncCursor.update({ where: { key: PSN_SCAN_CURSOR }, data: { value: { ...legacy, stuck: { id: stuckId, runs: PSN_STUCK_RUNS } } } });
+      calls.length = 0;
+      await scanPsnIds({ api: refusing(stuckId, 403, calls), count: 3, deadline: Infinity, ...fakeClock() });
+      expect(calls).not.toContain(stuckId);
+      expect((await cursor()).skipped).toEqual([stuckId]);
+    });
+
     it("reads the one-id `stuck` of an older cursor as a refused id", async () => {
       const { prisma } = await import("@/lib/db");
       const { readCursor } = await import("./psn-catalog");
@@ -506,7 +553,7 @@ describe.skipIf(!reachable)("PSN catalog match", () => {
 
   it("the match check agrees with the games the players' lists belong to: correct, wrong and no-match", async () => {
     const { prisma } = await import("@/lib/db");
-    const { checkPsnMatcher, pickPsnMatch, psnListsForCheck } = await import("./psn-catalog");
+    const { checkPsnMatcher, psnListsForCheck } = await import("./psn-catalog");
     const mk = (slug: string, name: string, platforms: string[]) =>
       prisma.game.create({ data: { slug, name, platforms, achievementCount: 0 } });
     const right = await mk("zzpsncat-chk-right", `${TAG} Check Right`, ["PLAYSTATION"]);
@@ -518,24 +565,35 @@ describe.skipIf(!reachable)("PSN catalog match", () => {
     const lonely = await mk("zzpsncat-chk-lonely", `${TAG} Check Lonely`, ["PC"]);
     const list = (n: number, gameId: string, name: string) =>
       prisma.trophyList.create({ data: { gameId, platform: "psn", externalId: idOf(BASE + 200 + n), console: "PS5", name } });
-    await list(0, right.id, `${TAG} Check Right`);
-    await list(1, pcCopy.id, `${TAG} Check Wrong`);
-    await list(2, twinA.id, `${TAG} Check Twin`);
-    await list(3, lonely.id, `${TAG} Check Lonely (Sony name)`);
+    const held = [
+      await list(0, right.id, `${TAG} Check Right`),
+      await list(1, pcCopy.id, `${TAG} Check Wrong`),
+      await list(2, twinA.id, `${TAG} Check Twin`),
+      await list(3, lonely.id, `${TAG} Check Lonely (Sony name)`),
+    ];
+    // A list the matcher made (nobody holds it) is not graded, right or wrong.
+    await list(4, pcCopy.id, `${TAG} Check Wrong`);
+    const player = await prisma.user.create({ data: { handle: "zzpsncat_check", displayName: "Check" } });
+    try {
+      await prisma.userTrophyList.createMany({ data: held.map((l) => ({ userId: player.id, listId: l.id, unlockedCount: 0 })) });
+      // Only this test's lists (the database has others); list 4 is left out.
+      const mine = (await psnListsForCheck()).filter((l) => l.name.startsWith(`${TAG} Check`));
+      expect(mine.map((l) => l.externalId)).toEqual([0, 1, 2, 3].map((n) => idOf(BASE + 200 + n)));
+      const result = await checkPsnMatcher(mine, prisma, 2); // chunks of 2: the chunking is covered too
+      expect(result).toEqual({
+        checked: 4,
+        correct: 1,
+        wrong: [{ externalId: idOf(BASE + 201), name: `${TAG} Check Wrong`, gameId: pcCopy.id, matchedGameId: psCopy.id }],
+        noMatch: 2,
+        ambiguous: 1,
+      });
+    } finally {
+      await prisma.user.delete({ where: { id: player.id } });
+    }
+  });
 
-    // Only this test's lists (the database has others).
-    const mine = (await psnListsForCheck()).filter((l) => l.name.startsWith(`${TAG} Check`));
-    expect(mine.map((l) => l.externalId)).toEqual([0, 1, 2, 3].map((n) => idOf(BASE + 200 + n)));
-    const result = await checkPsnMatcher(mine, prisma, 2); // chunks of 2: the chunking is covered too
-    expect(result).toEqual({
-      checked: 4,
-      correct: 1,
-      wrong: [{ externalId: idOf(BASE + 201), name: `${TAG} Check Wrong`, gameId: pcCopy.id, matchedGameId: psCopy.id }],
-      noMatch: 2,
-      ambiguous: 1,
-    });
-
-    // The pick itself: one PlayStation-family game (by platform or by a psn link).
+  it("pickPsnMatch: one PlayStation-family game (by platform or by a psn link)", async () => {
+    const { pickPsnMatch } = await import("./psn-catalog");
     expect(pickPsnMatch([])).toBeNull();
     expect(pickPsnMatch([{ input: "x", id: "a", platforms: ["PC"], links: [] }])).toBeNull();
     expect(pickPsnMatch([{ input: "x", id: "a", platforms: ["PC"], links: ["psn"] }])).toBe("a");

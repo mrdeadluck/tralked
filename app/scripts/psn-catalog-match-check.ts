@@ -2,8 +2,8 @@
  * Read-only accuracy check of the PSN catalog matcher (matchPsnCatalog in lib/sync/psn-catalog.ts),
  * the gate before PSN_CATALOG_MATCH turns matching on in .github/workflows/psn-catalog.yml: runs
  * the matcher's pick (candidatesByName + one game of the PlayStation family) over the names of the
- * PSN TrophyLists already in the database (players' lists, linked to their game by the sync) and
- * compares it with the game each list belongs to.
+ * PSN TrophyLists some player holds (a UserTrophyList: linked to their game by the sync; lists the
+ * matcher made are left out) and compares it with the game each list belongs to.
  *
  *   DATABASE_URL=postgresql://... pnpm psn-catalog:match-check
  *
@@ -36,7 +36,7 @@ try {
   const lists = await psnListsForCheck();
   const result = await checkPsnMatcher(lists);
   const matched = result.correct + result.wrong.length;
-  log.info(`${result.checked} PSN lists checked.`);
+  log.info(`${result.checked} PSN lists held by players checked.`);
   log.info(`matched-correct: ${result.correct} (${pct(result.correct, result.checked)}; ${pct(result.correct, matched)} of the matched)`);
   log.info(`matched-wrong:   ${result.wrong.length} (${pct(result.wrong.length, result.checked)}; ${pct(result.wrong.length, matched)} of the matched)`);
   log.info(`no-match:        ${result.noMatch} (${pct(result.noMatch, result.checked)}), ${result.ambiguous} of them ambiguous`);

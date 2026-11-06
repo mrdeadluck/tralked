@@ -18,7 +18,7 @@ async function databaseReachable(): Promise<boolean> {
   }
 }
 
-import { PSN_OPEN_BUDGET_KEY, PSN_OPEN_COOLDOWN_KEY } from "./psn-catalog-trophies";
+import { PSN_OPEN_BUDGET_KEY, PSN_OPEN_COOLDOWN_KEY, PSN_SCAN_COOLDOWN_KEY } from "./psn-catalog-trophies";
 
 const reachable = await databaseReachable();
 const LIST = "NPWR98001_00";
@@ -62,7 +62,7 @@ describe.skipIf(!reachable)("PSN trophies read when the page opens", () => {
     await prisma.user.deleteMany({ where: { handle: { startsWith: HANDLE } } });
     await prisma.game.deleteMany({ where: { slug: { startsWith: SLUG } } });
     await prisma.psnCatalogList.deleteMany({ where: { id: { in: [LIST, OTHER] } } });
-    await prisma.syncCursor.deleteMany({ where: { key: { in: [PSN_OPEN_BUDGET_KEY, PSN_OPEN_COOLDOWN_KEY] } } });
+    await prisma.syncCursor.deleteMany({ where: { key: { in: [PSN_OPEN_BUDGET_KEY, PSN_OPEN_COOLDOWN_KEY, PSN_SCAN_COOLDOWN_KEY] } } });
   }
 
   /** A game with the catalog lists (as matchPsnCatalog leaves them: TrophyList without trophies, plus the link). */
@@ -483,24 +483,45 @@ describe.skipIf(!reachable)("PSN trophies read when the page opens", () => {
     expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 3 * HOUR))).toBe("loaded");
   });
 
-  it("a page open's 1 h pause never shortens a longer one (the catalog scan's 4 h)", async () => {
+  it("a page open waits for the scan's 4 h pause too; its own 1 h pause never skips a scan slot", async () => {
     const { prisma } = await import("@/lib/db");
     const { loadPsnCatalogTrophies, psnCooldownUntil, startPsnCooldown } = await import("./psn-catalog-trophies");
-    const game = await seed();
+    const game = await seed([LIST, OTHER]);
     const t0 = Date.now();
+    const scanPause = (at: number) => psnCooldownUntil(new Date(at), prisma, [PSN_SCAN_COOLDOWN_KEY]);
     expect(await psnCooldownUntil(new Date(t0))).toBeNull();
-    await startPsnCooldown(t0 + 4 * HOUR);
+
+    // The scan's pause (written by a throttled slice) holds every page open back.
+    await startPsnCooldown(t0 + 4 * HOUR, prisma, PSN_SCAN_COOLDOWN_KEY);
     expect(await psnCooldownUntil(new Date(t0))).toBe(t0 + 4 * HOUR);
-    expect(await psnCooldownUntil(new Date(t0 + 4 * HOUR))).toBeNull();
     const api = fakeApi();
     expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 3 * HOUR))).toBe("none");
     expect(api.calls).toEqual([]);
+    await prisma.syncCursor.deleteMany({ where: { key: PSN_SCAN_COOLDOWN_KEY } });
 
-    // A shorter pause is ignored, a longer one replaces it.
-    await startPsnCooldown(t0 + HOUR);
-    expect(await psnCooldownUntil(new Date(t0))).toBe(t0 + 4 * HOUR);
-    await startPsnCooldown(t0 + 5 * HOUR);
-    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_COOLDOWN_KEY } })).value).toEqual({ until: t0 + 5 * HOUR });
-    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 5 * HOUR))).toBe("loaded");
+    // A page open refused with 403: its 1 h pause, on its own key only; the worker's check stays clear.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const refused = fakeApi(async () => {
+        throw new PsnHttpError("list trophies", 403, null);
+      });
+      expect(await loadPsnCatalogTrophies(game.id, refused, new Date(t0))).toBe("failed");
+    } finally {
+      warn.mockRestore();
+    }
+    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_COOLDOWN_KEY } })).value).toEqual({ until: t0 + HOUR });
+    expect(await prisma.syncCursor.findUnique({ where: { key: PSN_SCAN_COOLDOWN_KEY } })).toBeNull();
+    expect(await scanPause(t0)).toBeNull();
+    expect(await psnCooldownUntil(new Date(t0))).toBe(t0 + HOUR);
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 30 * 60_000))).toBe("none");
+
+    // Both held: the later one is the answer. A shorter pause of a key never shortens it.
+    await startPsnCooldown(t0 + 2 * HOUR, prisma, PSN_SCAN_COOLDOWN_KEY);
+    expect(await psnCooldownUntil(new Date(t0))).toBe(t0 + 2 * HOUR);
+    await startPsnCooldown(t0 + HOUR / 2, prisma, PSN_SCAN_COOLDOWN_KEY);
+    expect(await scanPause(t0)).toBe(t0 + 2 * HOUR);
+    await startPsnCooldown(t0 + HOUR / 2);
+    expect(await psnCooldownUntil(new Date(t0), prisma, [PSN_OPEN_COOLDOWN_KEY])).toBe(t0 + HOUR);
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 2 * HOUR))).toBe("loaded");
   });
 });

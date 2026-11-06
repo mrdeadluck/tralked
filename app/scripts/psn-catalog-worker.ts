@@ -9,8 +9,10 @@
  * Without --minutes the window comes from the start time (psnSliceMinutes: 50 min, cut 2 min before
  * the next job of the timetable; a late start with under 5 min left, or inside platform-import's
  * window, exits 0).
- * While Sony's pause holds (`psn-open-cooldown`: a slice Sony throttled, or refused with 403 on 3
- * different ids, writes it for 4 h; a page open for 1 h) the run skips its slot and exits 0.
+ * While the scan's own pause holds (`psn-scan-cooldown`: a slice Sony throttled, or refused with 403
+ * on 3 different ids, writes it for 4 h) the run skips its slot and exits 0. The page opens' 1 h
+ * pause (`psn-open-cooldown`) does not skip a slot. 400s on 3 different new ids end the slice as
+ * "rejected" and the run exits 1 (Sony's API may have changed).
  * The scan holds its rows in memory and writes once at the end (Neon sleeps meanwhile); SIGINT/SIGTERM
  * (a GitHub cancel) ends the scan early and that write still happens.
  * Run by .github/workflows/psn-catalog.yml (matching only when the repository variable
@@ -44,7 +46,7 @@ const { prisma } = await import("@/lib/db");
 const { hasKey } = await import("@/lib/env");
 const { getPsn } = await import("@/lib/integrations");
 const { matchPsnCatalog, psnSliceMinutes, readCursor, scanPsnIds } = await import("@/lib/sync/psn-catalog");
-const { psnCooldownUntil } = await import("@/lib/sync/psn-catalog-trophies");
+const { PSN_SCAN_COOLDOWN_KEY, psnCooldownUntil } = await import("@/lib/sync/psn-catalog-trophies");
 
 if (!hasKey("PSN_NPSSO")) {
   log.error("Set PSN_NPSSO: without the service account there is no Sony catalog to read.");
@@ -71,10 +73,10 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 let exitCode = 0;
 log.info(`PSN catalog of "${db.name}", up to ${minutes} min${values["no-match"] ? ", no matching" : ""}. Log: ${log.file}`);
 try {
-  const pausedUntil = await psnCooldownUntil();
+  const pausedUntil = await psnCooldownUntil(new Date(), prisma, [PSN_SCAN_COOLDOWN_KEY]);
   if (pausedUntil !== null) {
-    // Sony throttled the service account lately: no scan and no matching in this slot.
-    log.info(`Sony calls are paused until ${new Date(pausedUntil).toISOString()} (psn-open-cooldown): slot skipped.`);
+    // Sony throttled the scan lately: no scan and no matching in this slot.
+    log.info(`The scan is paused until ${new Date(pausedUntil).toISOString()} (psn-scan-cooldown): slot skipped.`);
   } else {
     const cursor = await readCursor();
     const doneAt = cursor.completedAt;
@@ -88,7 +90,7 @@ try {
       if (scan.cooldownUntil !== null) {
         log.warn(`Sony throttled the scan or refused a burst of ids: every Sony call pauses until ${new Date(scan.cooldownUntil).toISOString()}.`);
       }
-      if (scan.stopped === "forbidden") exitCode = 1;
+      if (scan.stopped === "forbidden" || scan.stopped === "rejected") exitCode = 1;
     }
     if (!values["no-match"] && !stopRequested) {
       const match = await matchPsnCatalog({ stopAt });

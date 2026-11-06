@@ -25,8 +25,9 @@ import { definitionsProblem, type TierCounts } from "@/lib/trophies/psn-definiti
  * - no read at all once the database passes PSN_DB_SIZE_LIMIT_BYTES (the free Neon plan has 1 GB),
  *   a size each instance reads at most once every PSN_DB_SIZE_CHECK_MS;
  * - a 429, 5xx, 403 or authentication error from Sony stops every open for PSN_COOLDOWN_MS
- *   (`psn-open-cooldown`); the psn-catalog scan writes the same row for 4 h when Sony throttles it,
- *   and skips its own slots while it holds.
+ *   (`psn-open-cooldown`); opens also wait while the psn-catalog scan's own 4 h pause holds
+ *   (`psn-scan-cooldown`, written when Sony throttles the scan). The scan skips its slots on its
+ *   own key only, so one refused page open never costs a 50-minute scan slot.
  * A Sony failure is "try later": nothing is written and the call never throws.
  */
 
@@ -51,7 +52,12 @@ export const PSN_DB_SIZE_LIMIT_BYTES = 900 * 1024 * 1024;
 /** How long an instance trusts the size it read. */
 export const PSN_DB_SIZE_CHECK_MS = 3_600_000;
 export const PSN_OPEN_BUDGET_KEY = "psn-open-budget";
+/** The page opens' pause (1 h after a Sony failure on an open). */
 export const PSN_OPEN_COOLDOWN_KEY = "psn-open-cooldown";
+/** The psn-catalog scan's pause (4 h after Sony throttled a slice); page opens respect it too. */
+export const PSN_SCAN_COOLDOWN_KEY = "psn-scan-cooldown";
+/** The pauses a page open waits for. */
+const OPEN_PAUSES = [PSN_OPEN_COOLDOWN_KEY, PSN_SCAN_COOLDOWN_KEY] as const;
 
 type Due = { externalId: string; serviceName: string; tiers: unknown };
 
@@ -103,23 +109,33 @@ async function claim(gameId: string, now: Date): Promise<Due | null> {
 }
 
 /**
- * Epoch ms until which every Sony call of the site pauses (`psn-open-cooldown`), or null when no
- * pause holds at `now`. Page opens and the psn-catalog worker both read it.
+ * Epoch ms until which the pauses `keys` hold (the latest of them), or null when none holds at
+ * `now`. Page opens read both pauses (the default); the psn-catalog worker reads only its own.
  */
-export async function psnCooldownUntil(now: Date = new Date(), db: Pick<Prisma.TransactionClient, "syncCursor"> = prisma): Promise<number | null> {
-  const row = await db.syncCursor.findUnique({ where: { key: PSN_OPEN_COOLDOWN_KEY } });
-  const until = Number((row?.value as { until?: unknown } | null)?.until);
-  return Number.isFinite(until) && until > now.getTime() ? until : null;
+export async function psnCooldownUntil(
+  now: Date = new Date(),
+  db: Pick<Prisma.TransactionClient, "syncCursor"> = prisma,
+  keys: readonly string[] = OPEN_PAUSES,
+): Promise<number | null> {
+  const rows = await db.syncCursor.findMany({ where: { key: { in: [...keys] } } });
+  const untils = rows
+    .map((row) => Number((row.value as { until?: unknown } | null)?.until))
+    .filter((until) => Number.isFinite(until) && until > now.getTime());
+  return untils.length ? Math.max(...untils) : null;
 }
 
 /**
- * Pauses every Sony call of the site until `until` (epoch ms). One statement; a pause already
- * running longer is kept (a page open's 1 h never shortens the scan's 4 h).
+ * Starts the pause `key` (the page opens' by default) until `until` (epoch ms). One statement; a
+ * pause of that key already running longer is kept.
  */
-export async function startPsnCooldown(until: number, db: Pick<Prisma.TransactionClient, "$executeRaw"> = prisma): Promise<void> {
+export async function startPsnCooldown(
+  until: number,
+  db: Pick<Prisma.TransactionClient, "$executeRaw"> = prisma,
+  key: string = PSN_OPEN_COOLDOWN_KEY,
+): Promise<void> {
   const value = JSON.stringify({ until });
   await db.$executeRaw`
-    INSERT INTO "SyncCursor" AS s (key, value, "updatedAt") VALUES (${PSN_OPEN_COOLDOWN_KEY}, ${value}::jsonb, now())
+    INSERT INTO "SyncCursor" AS s (key, value, "updatedAt") VALUES (${key}, ${value}::jsonb, now())
     ON CONFLICT (key) DO UPDATE SET "updatedAt" = now(), value = CASE
       WHEN s.value->>'until' ~ '^[0-9]+$' AND (s.value->>'until')::bigint >= ${until}::bigint THEN s.value
       ELSE EXCLUDED.value END`;
