@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
+import { versionKey } from "@/lib/trophies/lists";
 import { LIST_PLATFORMS, settleListXp } from "@/lib/progression/list-xp";
 import { platinumTally } from "./counts";
 
@@ -94,13 +95,20 @@ describe("platinumTally", () => {
     expect((await platinumTally(user.id)).platinums).toBe(2);
   });
 
-  it("the header equals the platinum entries the ledger rule pays, on a mixed library", async () => {
+  it("a platinum trophy on a list short of 100% (DLC) counts 1", async () => {
+    const user = await newUser();
+    const game = await newGame("DLC");
+    await addList(user.id, game.id, { platform: "psn", console: "PS4", platinumTrophy: true, earned: 2 });
+    expect(await platinumTally(user.id)).toEqual({ platinums: 1, regionalExtras: 0 });
+  });
+
+  it("the header equals the versions the ledger pays a platinum for, on a mixed library", async () => {
     const user = await newUser();
     // PSN: a platinum on PS5 plus a PS4 100% without a platinum trophy (no "covered" across versions).
     const mixed = await newGame("Misto");
     await addList(user.id, mixed.id, { platform: "psn", console: "PS5", platinumTrophy: true, earned: 3, completed: true });
     await addList(user.id, mixed.id, { platform: "psn", console: "PS4", earned: 3, completed: true });
-    // PSN: the platinum trophy without the list at 100% (DLC missing): no platinum entry.
+    // PSN: the platinum trophy without the list at 100% (DLC missing): paid as that trophy.
     const dlc = await newGame("DLC");
     await addList(user.id, dlc.id, { platform: "psn", console: "PS4", platinumTrophy: true, earned: 2 });
     // PSN: a list with a suspicious unlock pays no platinum; the clean region of the version does.
@@ -132,12 +140,34 @@ describe("platinumTally", () => {
       const ids = [...lists.filter((l) => l.platform === platform).map((l) => l.gameId), ...(platform === "psn" ? [legacy.id] : [])];
       await prisma.$transaction((tx) => settleListXp(tx, user.id, platform, ids, at(400)));
     }
-    const paid = await prisma.xpLedgerEntry.count({ where: { userId: user.id, source: "platinum", voidedAt: null } });
+    const entries = await prisma.xpLedgerEntry.findMany({
+      where: { userId: user.id, source: { in: ["achievement", "platinum"] }, voidedAt: null },
+      select: { source: true, sourceKey: true },
+    });
+    // Versions whose catalog list has a platinum trophy (their bonus is not a platinum of its own).
+    const platinumRows = await prisma.achievement.findMany({
+      where: { trophyTier: "platinum", game: { slug: { startsWith: PREFIX } } },
+      select: { id: true, gameId: true, list: { select: { platform: true, console: true, externalId: true } } },
+    });
+    const versionOfRow = (r: (typeof platinumRows)[number]) => `${r.gameId}:${versionKey(r.list!)}`;
+    const withTrophy = new Set(platinumRows.map(versionOfRow));
+    const paid = new Set<string>();
+    // A platinum trophy paid (achievement entry, once per version through the canonical key).
+    for (const e of entries.filter((x) => x.source === "achievement")) {
+      const row = platinumRows.find((r) => r.id === e.sourceKey);
+      if (row) paid.add(versionOfRow(row));
+    }
+    // A platinum bonus of a version without a platinum trophy ("<versionKey>:<gameId>", legacy "<platform>:<gameId>").
+    for (const e of entries.filter((x) => x.source === "platinum")) {
+      const cut = e.sourceKey.lastIndexOf(":");
+      const version = `${e.sourceKey.slice(cut + 1)}:${e.sourceKey.slice(0, cut)}`;
+      if (!withTrophy.has(version)) paid.add(version);
+    }
     const steamCompletions = 1;
 
     const { platinums } = await platinumTally(user.id);
-    expect(platinums).toBe(paid + steamCompletions);
-    // Misto 2, DLC 0, Suspeito 1, Halo 2, SNES 1, Legado 1, Steam 1.
-    expect(platinums).toBe(8);
+    expect(platinums).toBe(paid.size + steamCompletions);
+    // Misto 2, DLC 1, Suspeito 1, Halo 2, SNES 1, Legado 1, Steam 1.
+    expect(platinums).toBe(9);
   });
 });

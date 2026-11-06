@@ -84,10 +84,10 @@ describe("library versions and the header counters", () => {
     ]);
   });
 
-  it("the header's Platinas count what the ledger pays (the PS5 100% once, the Steam 100%), the second PS5 region apart", async () => {
+  it("the header's Platinas count one per version (PS5, PS4, the Steam 100%), the second PS5 region apart", async () => {
     const summary = (await getProfileSummary(userId))!;
-    // The PS4 platinum trophy without the list at 100% is paid as a trophy, not as a platinum.
-    expect(summary.platinums).toBe(2);
+    // The PS4 platinum trophy counts though its list is at 3/4.
+    expect(summary.platinums).toBe(3);
     expect(summary.regionalExtras).toBe(1);
     expect(summary.gamesCount).toBe(2);
     // The same numbers as the sheet and the migration snapshot (lib/character/counts).

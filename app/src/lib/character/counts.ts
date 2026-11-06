@@ -26,25 +26,36 @@ export type PlatinumList = {
   tainted: boolean;
 };
 
+/** A valid platinum trophy the player earned, by version (list-less rows: versionKey = platform). */
+export type NativePlatinum = { gameId: string; platform: string; versionKey: string };
+
 /**
- * "Platinas (contam no XP)": the ledger's `platinum` entries (lib/progression/list-xp
- * desiredListEntries), one per version:
- * - PSN, Xbox, RA: each (game, platform, versionKey) with a completed list holding no suspicious
- *   unlock (PS4 and PS5 are two, two regions of one console are one, two Xbox titleIds are two);
- * - a valid 100% (UserGame.completedAt, `completions`) of a non-Steam game and platform where the
- *   player has no list yet: one, under the legacy key;
- * - Steam: each valid 100%.
- * A PSN platinum trophy alone (the list short of 100%, e.g. its DLC) is paid as that trophy, not as a
- * platinum, so it does not count here. A game finished on two platforms is two; "Jogos 100%" counts
- * it once.
+ * "Platinas (contam no XP)": at most one per version (game, platform, versionKey), each paid in the
+ * ledger once per version (lib/progression/list-xp):
+ * - a version where the player earned a valid native platinum trophy, whatever the list's % (DLC
+ *   short of 100%): the trophy is paid once per version through its canonical key;
+ * - a version without one that is complete: a completed list holding no suspicious unlock (PSN,
+ *   Xbox, RA; the `platinum` bonus), a valid 100% (UserGame.completedAt, `completions`) of a
+ *   non-Steam game and platform where the player has no list yet (legacy key), or a valid Steam 100%.
+ * PS4 and PS5 are two, two regions of one console are one, two Xbox titleIds are two, and one
+ * console never covers another. A game finished on two platforms is two; "Jogos 100%" counts it once.
  */
-export function platinumCount(lists: PlatinumList[], completions: { gameId: string; platform: string }[]): number {
+export function platinumCount(
+  natives: NativePlatinum[],
+  lists: PlatinumList[],
+  completions: { gameId: string; platform: string }[],
+): number {
   const out = new Set<string>();
   const withLists = new Set<string>();
   for (const l of lists) {
     if (l.platform === "steam") continue;
     withLists.add(key(l));
     if (l.completed && !l.tainted) out.add(versionedKey(l));
+  }
+  for (const n of natives) {
+    // A list-less row (from before the lists) stands for its game and platform only until they have lists.
+    if (n.versionKey === n.platform && withLists.has(key(n))) continue;
+    out.add(versionedKey(n));
   }
   for (const c of completions) {
     if (c.platform === "steam" || !withLists.has(key(c))) out.add(versionedKey({ ...c, versionKey: c.platform }));
@@ -119,7 +130,12 @@ export async function platinumTally(userId: string, db: Db = prisma): Promise<{ 
     platinumLists(userId, db),
     validCompletions(userId, db),
   ]);
-  return { platinums: platinumCount(lists, completions), regionalExtras: extrasOf(unlocks) };
+  const natives = unlocks.map((u) => ({
+    gameId: u.achievement.gameId,
+    platform: u.achievement.platform,
+    versionKey: versionOf(u.achievement),
+  }));
+  return { platinums: platinumCount(natives, lists, completions), regionalExtras: extrasOf(unlocks) };
 }
 
 /**
