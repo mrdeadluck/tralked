@@ -3,7 +3,7 @@
  * the games' cache tags through POST /api/revalidate-games. Reads APP_URL and CRON_SECRET from the
  * environment of the script.
  */
-export async function revalidateGames(slugs: string[], env: NodeJS.ProcessEnv = process.env): Promise<void> {
+export async function revalidateGames(slugs: string[], env: Readonly<Record<string, string | undefined>> = process.env): Promise<void> {
   const secret = env.CRON_SECRET;
   if (!secret) throw new Error("CRON_SECRET is not set");
   const base = env.APP_URL ?? "https://tralked.com";

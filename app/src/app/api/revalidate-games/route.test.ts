@@ -36,13 +36,14 @@ describe("POST /api/revalidate-games", () => {
     expect(cache.revalidateTag).not.toHaveBeenCalled();
   });
 
-  it("expires every game tag and the forum tag once", async () => {
+  it("expires every game tag, the forum tag and the gallery tag once", async () => {
     const response = await call({ slugs: ["old-game", "kept-game", "old-game"] });
     expect(response.status).toBe(200);
     expect(cache.revalidateTag.mock.calls).toEqual([
       ["game:old-game", { expire: 0 }],
       ["game:kept-game", { expire: 0 }],
       ["forum", { expire: 0 }],
+      ["gallery", { expire: 0 }],
     ]);
   });
 });
