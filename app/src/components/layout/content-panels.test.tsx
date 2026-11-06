@@ -45,7 +45,7 @@ describe("groupPanels", () => {
     );
     const boxes: Record<string, Box> = {
       t: row(0, 40), s: row(50, 70), top: row(0, 70),
-      f1: row(90, 120), f2: row(128, 160), filters: row(90, 160), page: row(0, 160),
+      f1: row(84, 120), f2: row(128, 160), filters: row(84, 160), page: row(0, 160),
     };
     const panels = groupPanels(root, [$("t"), $("s"), $("f1"), $("f2")], (el) => boxes[el.id], () => true);
     expect(panels.map((p) => p.id)).toEqual(["page"]);

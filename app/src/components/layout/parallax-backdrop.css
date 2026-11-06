@@ -180,7 +180,7 @@
 
 /*
  * Content panels (Lucas, 11-06; content-panels.ts): blocks that had no box of their own become the
- * preview's panels: graphite at 90% (a hint of the scene through it), a margin around the content
+ * preview's panels: graphite at 80% (a hint of the scene through it), a margin around the content
  * and the cards' 1 px edge, square. The margin is drawn outside the box with spread shadows, so nothing on the
  * page moves or shrinks. content-panels.ts marks them ([data-tk-panel]) and merges blocks that sit
  * too close into one panel; until it has run (html without data-tk-panels), the outermost blocks
@@ -191,12 +191,13 @@
   /* One compound selector each: no whitespace between :is() and the :not()s. */
   html[data-tk-panels] [data-tk-panel],
   html:not([data-tk-panels]) #principal :is(section, aside, article, header, nav, form, ul, ol, table, h1, h2, h3, h4, p, [data-section-head]):not([class^="bg-"], [class*=" bg-"], [style*="background"]):not(#principal :is(section, aside, article, header, nav, form, ul, ol, table, h1, h2, h3, h4, p, [data-section-head], [class^="bg-"], [class*=" bg-"], [style*="background"]) *) {
-    --tk-panel: color-mix(in oklch, var(--bg) 90%, transparent);
+    --tk-panel: color-mix(in oklch, var(--bg) 80%, transparent);
     background-color: var(--tk-panel);
     /* Square corners on purpose: a spread shadow adds its spread to the corner radius. Edge and
-       margin follow the site's own cards (InviteStrip: border-line, 16-20 px of padding). */
+       margin: the cards' border-line, 6 px out, so a panel stays almost in line with the cards
+       above it without touching its content (Lucas, 11-06). */
     box-shadow:
-      0 0 0 16px var(--tk-panel),
-      0 0 0 17px var(--border);
+      0 0 0 6px var(--tk-panel),
+      0 0 0 7px var(--border);
   }
 }
