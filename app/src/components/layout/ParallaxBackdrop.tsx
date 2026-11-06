@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { type Ref, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { markContentPanels } from "./content-panels";
 import { CAST } from "./parallax-cast";
@@ -179,9 +179,17 @@ export function ParallaxBackdrop() {
     };
   }, [pathname]);
 
-  const full = mode === "full";
+  return <Scene full={mode === "full"} sceneRef={sceneRef} />;
+}
+
+/*
+ * The scene's markup. On its own (no motion) it is the fallback the layout streams while the URL is
+ * not known yet (usePathname suspends on dynamic routes with Cache Components): the opening
+ * composition without the cast, which the real backdrop then takes over.
+ */
+function Scene({ full, sceneRef }: { full: boolean; sceneRef?: Ref<HTMLDivElement> }) {
   return (
-    <div ref={sceneRef} className="tk-scene" data-mode={mode} aria-hidden="true">
+    <div ref={sceneRef} className="tk-scene" data-mode={full ? "full" : "ribbons"} aria-hidden="true">
       <div className="distant" />
       {full &&
         CAST.map((c) => (
@@ -221,4 +229,8 @@ export function ParallaxBackdrop() {
       <div className="reading-shade" />
     </div>
   );
+}
+
+export function ParallaxBackdropFallback() {
+  return <Scene full={false} />;
 }
