@@ -136,6 +136,8 @@ export type PipelineDeps = {
   revisao?: boolean;
   /** `config/perfis-x.json`: official X profiles whose posts the articles embed. */
   xProfiles?: XProfile[];
+  /** `pnpm midia`: detailed lines of the image choice (every candidate). */
+  mediaTrace?: (line: string) => void;
 };
 
 export type PublicaDeps = PipelineDeps & {
@@ -632,7 +634,7 @@ export async function articleMedia(
   story: StoryRow,
   writing: StoryForWriting,
   payload: ArticlePayload,
-  deps: Pick<PipelineDeps, "tralked" | "log" | "db" | "ai" | "config" | "fetchFn" | "sources">,
+  deps: Pick<PipelineDeps, "tralked" | "log" | "db" | "ai" | "config" | "fetchFn" | "sources" | "mediaTrace">,
   reuse?: Pick<ArticleMedia, "cover" | "bodyImage" | "gallery">,
 ): Promise<ArticleMedia> {
   const items = deps.db.itemsForStory(story.id);
@@ -666,7 +668,14 @@ export async function articleMedia(
         catalog: set,
         officialVideoIds: writing.video ? [writing.video.youtubeId] : [],
       },
-      { ai: deps.ai, config: deps.config, fetchFn: deps.fetchFn, tralked: deps.tralked, ...(deps.log ? { log: deps.log } : {}) },
+      {
+        ai: deps.ai,
+        config: deps.config,
+        fetchFn: deps.fetchFn,
+        tralked: deps.tralked,
+        ...(deps.log ? { log: deps.log } : {}),
+        ...(deps.mediaTrace ? { trace: deps.mediaTrace } : {}),
+      },
       { gallery: isImagesStory(story, items) },
     );
     Object.assign(media, images);

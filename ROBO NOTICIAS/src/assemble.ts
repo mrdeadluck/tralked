@@ -199,8 +199,19 @@ function noTralkedBlocks(noTralked: Draft["noTralked"], insights: Map<string, In
   return blocks.length > 0 ? [heading("No Tralked"), ...blocks] : [];
 }
 
+/** An outlet's name as compared: "Steam News" = "steam  news". */
+const outletKey = (name: string) =>
+  name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+/** "Fontes": each outlet once (the first, best-ranked of its items), each URL once, https only. */
 function sourceBlocks(sources: { name: string; url: string }[]): ContentBlock[] {
   const seen = new Set<string>();
+  const outlets = new Set<string>();
   const items: string[] = [];
   for (const source of sources) {
     const url = source.url.trim();
@@ -210,10 +221,13 @@ function sourceBlocks(sources: { name: string; url: string }[]): ContentBlock[] 
     const key = normalizeUrl(url);
     if (seen.has(key)) continue;
     const name = plain(source.name).replace(/[[\]]/g, "") || new URL(url).hostname;
+    const outlet = outletKey(name);
+    if (outlets.has(outlet)) continue;
     const item = `[${clip(name, 200)}](${url})`;
     // Clipping would cut the link in half: a source that cannot fit is left out.
     if (item.length > LIMITS.listItem) continue;
     seen.add(key);
+    outlets.add(outlet);
     items.push(item);
   }
   return items.length > 0 ? [heading("Fontes"), list(items.slice(0, LIMITS.listItems))] : [];

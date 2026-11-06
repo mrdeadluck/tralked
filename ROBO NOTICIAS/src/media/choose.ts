@@ -17,6 +17,8 @@ export type ChooseDeps = {
   fetchFn: FetchFn;
   tralked: Pick<Tralked, "uploadImage">;
   log?: (line: string) => void;
+  /** `pnpm midia`: every candidate, its origin, size and whether it repeats across sites. */
+  trace?: (line: string) => void;
 };
 
 /** Images downloaded per article at most (pages carry up to 10 each; most stories have 2–6 sources). */
@@ -142,6 +144,10 @@ export async function chooseImages(
   });
   await fetchAll(cands, deps.fetchFn);
   const repeated = markRepeated(cands);
+  for (const c of cands) {
+    const size = c.image ? `${c.image.width}×${c.image.height}` : "não baixou";
+    deps.trace?.(`candidata ${c.id} ${c.origin}${repeated.has(c.id) ? " repetida" : ""} (${c.sourceName}, ${size}): ${c.url}`);
+  }
   const pictures = distinctPictures(cands);
   // A picture is repeated when any of its copies is.
   for (const p of pictures) if (cands.some((c) => repeated.has(c.id) && c.image && same(c.image, p.image!))) repeated.add(p.id);

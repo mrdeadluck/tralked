@@ -243,6 +243,23 @@ describe("assemble: media", () => {
   });
 });
 
+describe("assemble: sources", () => {
+  it("cites each outlet once, with the link of its best-ranked item", () => {
+    const sources = [
+      ...Array.from({ length: 7 }, (_, i) => ({ name: "Steam News", url: `https://store.steampowered.com/news/app/1/view/${i}` })),
+      { name: "Xbox Wire", url: "https://news.xbox.com/en-us/tes-vi" },
+      { name: "steam  news", url: "https://store.steampowered.com/news/app/1/view/99" },
+    ];
+    const payload = assemble(draft(), { sources, candidates: story.candidates }, opts());
+    const fontes = payload.blocks.at(-1)!;
+    expect(fontes).toEqual({
+      type: "list",
+      ordered: false,
+      items: ["[Steam News](https://store.steampowered.com/news/app/1/view/0)", "[Xbox Wire](https://news.xbox.com/en-us/tes-vi)"],
+    });
+  });
+});
+
 describe("assemble", () => {
   it("lays the blocks out in the fixed order", () => {
     const payload = assemble(draft(), story, { ...opts(), updatedAt: new Date("2026-10-31T17:05:00Z") });
