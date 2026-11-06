@@ -1,6 +1,6 @@
 /**
  * Per-user numbers of the trophy-list migration, taken before and after each phase: Steam unlocks
- * and Steam trophy XP (must never change), PSN/Xbox/RA unlocks, platinums, regional extras, total
+ * and Steam trophy XP (must never change), PSN/Xbox/RA unlocks, platinums (PSN's separately), total
  * XP and level (lib/trophies/numbers.ts). Read-only.
  *
  * Production: use the direct URL (DATABASE_URL_UNPOOLED), not the pooled one.
@@ -79,7 +79,7 @@ try {
   for (const u of users) {
     console.log(
       `${u.handle}: steam ${u.steamUnlocks} (${u.steamXp} XP; sem data ${u.steamUndatedUnlocks}, ${u.steamUndatedXp} XP), psn ${u.psnUnlocks}, xbox ${u.xboxUnlocks}, ` +
-        `retro ${u.retroUnlocks}, platinums ${u.platinums}, regional extras ${u.regionalExtras}, XP ${u.totalXp}, level ${u.level}`,
+        `retro ${u.retroUnlocks}, platinums ${u.platinums} (${u.psnPlatinums} on PSN), XP ${u.totalXp}, level ${u.level}`,
     );
   }
   console.log(`Snapshot of ${users.length} users written to ${file}.`);

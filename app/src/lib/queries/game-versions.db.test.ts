@@ -68,7 +68,7 @@ describe("getGameVersions", () => {
     expect(versions[0].nativePlatinum).toBe(true);
   });
 
-  it('a version with two regions shows both labels and the note "2 listas · conta 1"', async () => {
+  it('a version with two regions shows both labels and the note "2 listas · cada uma conta"', async () => {
     const versions = await getGameVersions(gameId);
     expect(versions.find((v) => v.key === "psn:PS5")!.lists.map((l) => l.label)).toEqual(["Lista 1", "🇯🇵 Ásia"]);
     expect(versions.find((v) => v.key === "psn:PS4")!.lists.map((l) => l.label)).toEqual([null]);
@@ -86,7 +86,7 @@ describe("getGameVersions", () => {
     await prisma.userTrophyList.create({ data: { userId, listId: listIds.ps5b, unlockedCount: 0 } });
     const [ps5] = await getPlayerVersions(gameId, userId);
     expect(ps5.key).toBe("psn:PS5");
-    expect(ps5.countedNote).toBe("2 listas · conta 1");
+    expect(ps5.countedNote).toBe("2 listas · cada uma conta");
     expect(ps5.lists.map((l) => l.label)).toEqual(["Lista 1", "🇯🇵 Ásia"]);
   });
 

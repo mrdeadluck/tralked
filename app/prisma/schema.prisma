@@ -604,12 +604,15 @@ model GameOpen {
 ///
 /// `source` / `sourceKey` conventions (sourceKey makes the entry idempotent per user):
 ///   achievement    -> achievementId (unique across platforms: Achievement rows are per list).
-///                     PSN: the id of the Achievement with the same `apiName` in the canonical
-///                     list of the version (oldest `createdAt`; ties by `externalId`), or its own
-///                     id when the canonical list lacks that `apiName`, so the same trophy of
-///                     several regional lists is paid once. Xbox | RA: its own id.
-///   platinum       -> gameId for Steam (unchanged); `psn:${console}:${gameId}` for PSN;
-///                     `${platform}:${externalId}:${gameId}` for xbox | retro (one per list).
+///                     Every list pays (the same trophy in two regional PSN lists is two
+///                     entries), each under the unlocked row's own id; except, on PSN, the
+///                     earliest copy of a trophy whose row in the version's canonical list (oldest
+///                     `createdAt`; ties by `externalId`) the user does not hold: it keeps that
+///                     canonical row's id (the key used when a version paid once).
+///   platinum       -> gameId for Steam (unchanged); one per complete list otherwise:
+///                     `${platform}:${externalId}:${gameId}`, except the PSN version key
+///                     `psn:${console}:${gameId}` for the version's canonical list (or its earliest
+///                     completion when the canonical list is not complete).
 ///                     The game id is the part after the last ":" (platinumGameId).
 ///   mission        -> missionId (reward of a completed daily/weekly mission)
 ///   guide_vote     -> `${tipId}:${voterUserId}` (Sábio XP for the author of a voted tip)
@@ -719,7 +722,8 @@ model UserRankStats {
   rareAchievements      Int      @default(0)
   /// Valid unlocks at most 3% global rarity (lendária).
   legendaryAchievements Int      @default(0)
-  /// Valid 100% completions (distinct games for `all`).
+  /// "Platinas e 100%": the profile's Platinas (lib/character/counts platinumCount, one per
+  /// list), by platform; `all` is the total.
   perfectGames          Int      @default(0)
   gamesOwned            Int      @default(0)
   /// Games with playtime or a valid unlock.

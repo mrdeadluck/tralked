@@ -343,7 +343,7 @@ async function recordTitle(
       },
     });
 
-    // XP of the game's trophies and completions, by version (once per console). Hours milestones
+    // XP of the game's trophies and completions, by list (every regional list pays). Hours milestones
     // (RetroAchievements play time comes with the title) are paid by settlePlaytime at the end of
     // the sync, within the per-user caps.
     await settleListXp(tx, userId, platform, [listGameId], seenAt);

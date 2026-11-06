@@ -6,10 +6,10 @@ import type { CodePlatform } from "@/lib/sync/platform-library";
 import { canonicalList, versionKey } from "@/lib/trophies/lists";
 import { recomputeUser } from "./recompute";
 
-// XP of PSN / Xbox / RetroAchievements trophies, by version (see versionKey): one reconcile
-// (settleListXp) computes the ledger entries the rule wants for a game, voids the valid ones it no
-// longer wants and adds the missing ones. Steam never goes through here (its entries carry no
-// platform and keep their Plan 1 keys).
+// XP of PSN / Xbox / RetroAchievements trophies, by list: one reconcile (settleListXp) computes the
+// ledger entries the rule wants for a game, voids the valid ones it no longer wants and adds the
+// missing ones. Every list pays (two regional PSN lists of one console are two). Steam never goes
+// through here (its entries carry no platform and keep their Plan 1 keys).
 
 /** Platforms whose trophies are settled here (Steam never is). */
 export const LIST_PLATFORMS: readonly CodePlatform[] = ["psn", "xbox", "retro"];
@@ -40,6 +40,14 @@ export function platinumSourceKey(
   if (!list) return legacyPlatinumSourceKey(platform, gameId);
   return `${versionKey({ platform, console: list.console, externalId: list.externalId })}:${gameId}`;
 }
+
+/**
+ * sourceKey of the `platinum` entry of one list: `<platform>:<externalId>:<gameId>`. For Xbox / RA
+ * (one list per version) and a PSN list without a console it equals platinumSourceKey's; the lists
+ * of a PSN version get it beside the version key `psn:<console>:<gameId>` (desiredListEntries).
+ */
+export const listPlatinumSourceKey = (platform: string, gameId: string, list: { externalId: string }) =>
+  `${platform}:${list.externalId}:${gameId}`;
 
 /** Game of a `platinum` entry: the part after the last ":" (cuids never contain ":"). */
 export const platinumGameId = (sourceKey: string) => sourceKey.slice(sourceKey.lastIndexOf(":") + 1);
@@ -83,10 +91,21 @@ export type DesiredInput = {
    * this user yet, keeps its XP).
    */
   legacyCompletedAt?: Date | null;
+  /**
+   * Achievement ids with a valid `achievement` entry under their own id (settleListXp passes the
+   * ledger): a copy already paid that way keeps its key, it never becomes the stand-in.
+   */
+  paidOwnIds?: ReadonlySet<string>;
 };
 
-/** A draft and the achievements it comes from (fraud release restores the entries of these). */
-type OriginDraft = LedgerDraft & { origin: string[] };
+/**
+ * A draft, the achievements whose release (fraud "Liberar") restores it, and the entries that stood
+ * for the same trophy or platinum before it (entryKey): when those exist and were all voided by an
+ * unlink, the draft is not paid (settleListXp).
+ */
+type OriginDraft = LedgerDraft & { origin: string[]; predecessors: string[] };
+
+const entryKey = (source: string, sourceKey: string) => `${source}\n${sourceKey}`;
 
 const xpOf = (platform: CodePlatform, a: AchievementRow, hardcore: boolean) =>
   xpForPlatformAchievement({
@@ -97,6 +116,9 @@ const xpOf = (platform: CodePlatform, a: AchievementRow, hardcore: boolean) =>
     hardcore,
   });
 
+const byTimeThenId = (x: { at: Date; id: string }, y: { at: Date; id: string }) =>
+  x.at.getTime() - y.at.getTime() || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+
 function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
   const { platform, gameId, skills } = input;
   const listById = new Map(input.lists.map((l) => [l.id, l]));
@@ -104,59 +126,74 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
 
   const versions = new Map<string, ListRow[]>();
   for (const l of input.lists) versions.set(versionOf(l), [...(versions.get(versionOf(l)) ?? []), l]);
-  const canonicalIdOf = new Map<string, string>(); // `${version}\n${apiName}` -> canonical achievement id
   const canonicalLists = new Set([...versions.values()].map((ls) => canonicalList(ls).id));
-  for (const a of input.achievements) {
-    const l = a.listId ? listById.get(a.listId) : undefined;
-    if (l && canonicalLists.has(l.id)) canonicalIdOf.set(`${versionOf(l)}\n${a.apiName}`, a.id);
-  }
   const achievementById = new Map(input.achievements.map((a) => [a.id, a]));
+  // PSN: the same trophy (apiName) in the lists of one version, `${version}\n${apiName}`: its rows,
+  // and the canonical list's row of it (the key the rule paid before every list counted).
+  const groupOf = (a: AchievementRow): string | null => {
+    const l = platform === "psn" && a.listId ? listById.get(a.listId) : undefined;
+    return l ? `${versionOf(l)}\n${a.apiName}` : null;
+  };
+  const groupRows = new Map<string, string[]>();
+  const canonicalIdOf = new Map<string, string>();
+  for (const a of input.achievements) {
+    const g = groupOf(a);
+    if (!g) continue;
+    groupRows.set(g, [...(groupRows.get(g) ?? []), a.id]);
+    if (canonicalLists.has(a.listId!)) canonicalIdOf.set(g, a.id);
+  }
+
+  const valid = input.unlocks.filter((u) => !u.suspicious && achievementById.has(u.achievementId));
+  const validIds = new Set(valid.map((u) => u.achievementId));
+  const suspiciousLists = new Set(
+    input.unlocks.flatMap((u) => {
+      const listId = u.suspicious ? achievementById.get(u.achievementId)?.listId : null;
+      return listId ? [listId] : [];
+    }),
+  );
   // apiNames the user holds validly on a list row: a list-less unlock of one of these is that same
   // trophy, paid under the list row's key.
   const coveredApiNames = new Set(
-    input.unlocks.flatMap((u) => {
-      const a = achievementById.get(u.achievementId);
-      return a?.listId && listById.has(a.listId) && !u.suspicious ? [a.apiName] : [];
+    valid.flatMap((u) => {
+      const a = achievementById.get(u.achievementId)!;
+      return a.listId && listById.has(a.listId) ? [a.apiName] : [];
     }),
   );
+  // A trophy whose canonical row the user does not hold validly: its earliest valid copy in the
+  // version's other lists keeps the canonical row's id (the key the rule paid before every list
+  // counted), so an entry already paid is neither voided nor paid twice. A copy already paid under
+  // its own id (valid entry) keeps it: it is never voided because the canonical rows came later.
+  const paidOwn = input.paidOwnIds ?? new Set<string>();
+  const standIn = new Map<string, string>(); // group -> achievement id paid under the canonical id
+  const byUnlock = [...valid].sort((x, y) =>
+    byTimeThenId({ at: x.unlockedAt, id: x.achievementId }, { at: y.unlockedAt, id: y.achievementId }),
+  );
+  for (const u of byUnlock) {
+    if (paidOwn.has(u.achievementId)) continue;
+    const g = groupOf(achievementById.get(u.achievementId)!);
+    const canonical = g ? canonicalIdOf.get(g) : undefined;
+    if (g && canonical && !validIds.has(canonical) && !standIn.has(g)) standIn.set(g, u.achievementId);
+  }
 
   /** Ledger key of an unlocked achievement, or null when the rule pays it nothing. */
   const keyOf = (a: AchievementRow): string | null => {
     // A list-less row (written before trophy lists) pays by its own id until a valid unlock of the
     // same trophy on a list row of the game takes over (its lists not read yet: it keeps its XP).
     if (!a.listId) return coveredApiNames.has(a.apiName) ? null : a.id;
-    const l = listById.get(a.listId);
-    if (!l) return null;
-    if (platform !== "psn") return a.id;
-    return canonicalIdOf.get(`${versionOf(l)}\n${a.apiName}`) ?? a.id;
+    if (!listById.has(a.listId)) return null;
+    const g = groupOf(a);
+    return g && standIn.get(g) === a.id ? canonicalIdOf.get(g)! : a.id;
   };
 
   const drafts: OriginDraft[] = [];
-  const byKey = new Map<string, { a: AchievementRow; u: UnlockRow; origin: string[] }>();
-  const suspiciousLists = new Set<string>();
-  const validIds = new Set<string>();
-  for (const u of input.unlocks) {
-    const a = achievementById.get(u.achievementId);
-    if (!a) continue;
-    if (u.suspicious) {
-      if (a.listId) suspiciousLists.add(a.listId);
-      continue;
-    }
-    validIds.add(a.id);
-    const key = keyOf(a);
-    if (!key) continue;
-    const seen = byKey.get(key);
-    if (!seen) {
-      byKey.set(key, { a, u, origin: [a.id] });
-      continue;
-    }
-    // The same trophy in several regional lists: paid once, from the earliest unlock.
-    seen.origin.push(a.id);
-    const t = u.unlockedAt.getTime();
-    const s = seen.u.unlockedAt.getTime();
-    if (t < s || (t === s && a.id < seen.a.id)) Object.assign(seen, { a, u });
-  }
-  for (const [sourceKey, { a, u, origin }] of byKey) {
+  for (const u of valid) {
+    const a = achievementById.get(u.achievementId)!;
+    const sourceKey = keyOf(a);
+    if (!sourceKey) continue;
+    const g = groupOf(a);
+    // Every copy of the trophy in the version: a release of any of them may move the canonical key
+    // back to its own row (this copy's entry voided meanwhile is restored).
+    const group = g ? groupRows.get(g)! : [a.id];
     drafts.push({
       source: "achievement",
       sourceKey,
@@ -164,33 +201,44 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
       platform,
       createdAt: u.unlockedAt,
       skills,
-      origin,
+      origin: group,
+      // An unlink forfeits only the copy an entry paid: the stand-in's own-id entry blocks it under
+      // the canonical id; a copy never paid is paid once after a relink.
+      predecessors: sourceKey === a.id ? [] : [entryKey("achievement", a.id)],
     });
   }
 
   if (input.progress.length > 0) {
-    // One platinum per version: the earliest valid completion among its lists, valued over that list.
+    // One platinum per valid completion of a list, valued over that list. The version key goes to
+    // the canonical list when it is complete, else to the earliest completion (what the rule paid
+    // before every list counted); the version's other lists get their own key.
     const completedAt = new Map(input.progress.flatMap((p) => (p.completedAt ? [[p.listId, p.completedAt] as const] : [])));
     for (const lists of versions.values()) {
       const done = lists
         .filter((l) => completedAt.has(l.id) && !suspiciousLists.has(l.id))
-        .sort(
-          (x, y) =>
-            completedAt.get(x.id)!.getTime() - completedAt.get(y.id)!.getTime() ||
-            (x.externalId < y.externalId ? -1 : x.externalId > y.externalId ? 1 : 0),
-        );
-      const first = done[0];
-      if (!first) continue;
-      const own = input.achievements.filter((a) => a.listId === first.id);
-      drafts.push({
-        source: "platinum",
-        sourceKey: platinumSourceKey(platform, gameId, first),
-        xp: platinumBonus(own.map((a) => xpOf(platform, a, false))),
-        platform,
-        createdAt: completedAt.get(first.id)!,
-        skills,
-        origin: input.achievements.filter((a) => a.listId && lists.some((l) => l.id === a.listId)).map((a) => a.id),
-      });
+        .sort((x, y) => byTimeThenId({ at: completedAt.get(x.id)!, id: x.externalId }, { at: completedAt.get(y.id)!, id: y.externalId }));
+      if (done.length === 0) continue;
+      const canonical = canonicalList(lists);
+      const holder = done.includes(canonical) ? canonical : done[0];
+      const versionPlatinumKey = platinumSourceKey(platform, gameId, holder);
+      const keys = lists.map((l) => (l === holder ? versionPlatinumKey : listPlatinumSourceKey(platform, gameId, l)));
+      const versionRows = input.achievements.filter((a) => a.listId && lists.some((l) => l.id === a.listId)).map((a) => a.id);
+      for (const l of done) {
+        const sourceKey = keys[lists.indexOf(l)];
+        const own = input.achievements.filter((a) => a.listId === l.id);
+        drafts.push({
+          source: "platinum",
+          sourceKey,
+          xp: platinumBonus(own.map((a) => xpOf(platform, a, false))),
+          platform,
+          createdAt: completedAt.get(l.id)!,
+          skills,
+          origin: versionRows,
+          // Each list's key pays only that list (an unlink-voided key blocks itself only); the
+          // legacy key is handled by settleListXp.
+          predecessors: [],
+        });
+      }
     }
   } else if (input.legacyCompletedAt && !input.unlocks.some((u) => u.suspicious && achievementById.has(u.achievementId))) {
     // A game none of whose lists the user holds (no list yet, or not read for this user yet) keeps
@@ -205,17 +253,23 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
       createdAt: input.legacyCompletedAt,
       skills,
       origin: input.achievements.map((a) => a.id),
+      predecessors: [],
     });
   }
   return drafts.sort((x, y) => (x.source + x.sourceKey < y.source + y.sourceKey ? -1 : 1));
 }
 
 /**
- * The `achievement` / `platinum` entries the version rule wants for one game and platform:
- * - a trophy is paid once per version (PSN: keyed to the canonical list's achievement of the same
- *   apiName, else its own id; Xbox/RA: its own id), at its earliest valid unlock and with that
- *   unlock's value;
- * - a version's platinum is paid once, from its earliest valid completion (UserTrophyList);
+ * The `achievement` / `platinum` entries the rule wants for one game and platform. Every list pays
+ * (two regional PSN lists of one console pay twice), and the keys the rule used when a PSN version
+ * paid once stay where they were, so nothing already paid is voided or paid again:
+ * - every valid unlock pays its trophy, at its date and value, under its own id; except, on PSN, the
+ *   earliest copy of a trophy whose canonical-list row (the version's oldest list) the user does not
+ *   hold validly: that copy is paid under the canonical row's id;
+ * - every valid completion of a list (UserTrophyList) pays its platinum, valued over that list,
+ *   under `<platform>:<externalId>:<gameId>`; except, on PSN, the version key
+ *   `psn:<console>:<gameId>`, which pays the canonical list's completion, or the earliest one when
+ *   the canonical list is not complete;
  * - suspicious unlocks pay nothing, and a list with one pays no platinum;
  * - a list-less Achievement row (written before trophy lists) pays by its own id unless the user
  *   holds a valid unlock of the same apiName on a list row of the game (that row's key pays it);
@@ -240,66 +294,79 @@ export type SettleOptions = {
    * instead of staying voided. XP voided by an earlier unlink never comes back.
    */
   restore?: string[];
+  /** Stands in for a missing unlock date (Steam only; PSN/Xbox/RA are always dated). Default: the call's time. */
+  now?: Date;
 };
 
-const entryKey = (source: string, sourceKey: string) => `${source}\n${sourceKey}`;
+/** What settleListXp would change: entries to void, voided entries to restore, entries to create. */
+type PlannedEntry = { id: string; source: string; sourceKey: string; xp: number };
+/** An entry that is voided now, with its voidedAt (restore: the old one). */
+type VoidedEntry = PlannedEntry & { voidedAt: Date };
+export type ListXpPlan = {
+  toVoid: PlannedEntry[];
+  toRestore: VoidedEntry[];
+  toCreate: (Prisma.XpLedgerEntryCreateManyInput & { source: LedgerDraft["source"] })[];
+  /** Wanted entries left unpaid: their key exists voided (under / before the current link), or a predecessor blocks them. */
+  unpaid: { voidedUnderLink: VoidedEntry[]; voidedBeforeLink: VoidedEntry[]; blocked: number };
+};
 
 /**
- * Reconciles the user's ledger of these games on one platform with desiredListEntries. The game's
+ * The changes that reconcile the user's ledger of these games on one platform with
+ * desiredListEntries, read only (settleListXp applies them; a dry run reports them). The game's
  * entries are its `achievement` entries keyed by any of its Achievement ids on that platform plus
  * that platform's `platinum` entries keyed `…:<gameId>`. A valid entry the rule no longer wants is
- * voided (`now`); a wanted key with no row at all is created. A key that exists voided (unlink,
- * confirmed fraud, replaced legacy key) is never paid again, except through `restore`. XP of
- * existing entries is never rewritten. Runs inside the caller's transaction.
+ * voided; a wanted key with no row at all is created. A key that exists voided (unlink, confirmed
+ * fraud, replaced legacy key) is never paid again, except through `restore`. XP of existing
+ * entries is never rewritten.
  *
- * A wanted key with no row is not created either when what it replaces exists only voided, and
- * voided before the current link of the platform (so XP voided under the pre-version keys by an
- * unlink is not paid again under the new key after a relink; a predecessor voided under the
- * current link, e.g. by an earlier settle of another list of the game, does not block):
- * - a version platinum, when the game's legacy `${platform}:${gameId}` platinum is voided and the
- *   game has no other version platinum row (in any state);
- * - a trophy, when the own-id `achievement` entries of the unlocks behind it exist and are all voided.
- * A predecessor still valid (the migration case) does not block: the new key is paid and the old
- * one voided by this same call.
+ * An unlink forfeits only what an entry paid: a wanted key with no row is not created either when
+ * the entry that paid the same copy under another key exists voided before the current link of
+ * the platform (a predecessor voided under the current link, e.g. by an earlier settle, does not
+ * block):
+ * - the earliest list platinum of a game whose legacy `${platform}:${gameId}` platinum is voided;
+ * - a PSN copy paid under the canonical row's id (stand-in), when its own-id entry is voided.
+ * Never-paid sibling copies and lists are paid once after a relink. A predecessor still valid (the
+ * migration case) does not block.
  */
-export async function settleListXp(
-  tx: Prisma.TransactionClient,
+export async function planListXp(
+  db: Prisma.TransactionClient,
   userId: string,
   platform: CodePlatform,
   gameIds: string[],
-  now: Date,
   options: SettleOptions = {},
-): Promise<{ paid: number; voided: number }> {
+): Promise<ListXpPlan> {
+  const now = options.now ?? new Date();
   const ids = [...new Set(gameIds)];
-  if (ids.length === 0) return { paid: 0, voided: 0 };
+  const plan: ListXpPlan = { toVoid: [], toRestore: [], toCreate: [], unpaid: { voidedUnderLink: [], voidedBeforeLink: [], blocked: 0 } };
+  if (ids.length === 0) return plan;
 
-  const lists = await tx.trophyList.findMany({
+  const lists = await db.trophyList.findMany({
     where: { gameId: { in: ids }, platform },
     select: { id: true, gameId: true, externalId: true, console: true, createdAt: true },
   });
-  const achievements = await tx.achievement.findMany({
+  const achievements = await db.achievement.findMany({
     where: { gameId: { in: ids }, platform },
     select: { id: true, gameId: true, listId: true, apiName: true, globalPct: true, points: true, trophyTier: true },
   });
   // PSN/Xbox/RA syncs date every unlock (platform-user always stores seenAt), so this fallback is
-  // unreachable for them: only Steam keeps unknown dates. Were one
-  // null here, its entry would be dated at this settle, as Steam's undated ones are.
+  // unreachable for them: only Steam keeps unknown dates. Were one null here, its entry would be
+  // dated at this settle, as Steam's undated ones are.
   const unlocks = (
-    await tx.userAchievement.findMany({
+    await db.userAchievement.findMany({
       where: { userId, achievement: { gameId: { in: ids }, platform } },
       select: { achievementId: true, unlockedAt: true, suspicious: true, hardcore: true },
     })
   ).map((u) => ({ ...u, unlockedAt: u.unlockedAt ?? now }));
-  const progress = await tx.userTrophyList.findMany({
+  const progress = await db.userTrophyList.findMany({
     where: { userId, list: { gameId: { in: ids }, platform } },
     select: { listId: true, completedAt: true },
   });
-  const userGames = await tx.userGame.findMany({
+  const userGames = await db.userGame.findMany({
     where: { userId, platform, gameId: { in: ids } },
     select: { gameId: true, completedAt: true },
   });
-  const gameSkills = await tx.gameSkill.findMany({ where: { gameId: { in: ids } }, select: { gameId: true, skill: true } });
-  const existing = await tx.xpLedgerEntry.findMany({
+  const gameSkills = await db.gameSkill.findMany({ where: { gameId: { in: ids } }, select: { gameId: true, skill: true } });
+  const existing = await db.xpLedgerEntry.findMany({
     where: {
       userId,
       OR: [
@@ -307,24 +374,25 @@ export async function settleListXp(
         { source: "platinum", platform, OR: ids.map((g) => ({ sourceKey: { endsWith: `:${g}` } })) },
       ],
     },
-    select: { id: true, source: true, sourceKey: true, voidedAt: true },
+    select: { id: true, source: true, sourceKey: true, xp: true, voidedAt: true },
   });
 
   const gameOfAchievement = new Map(achievements.map((a) => [a.id, a.gameId]));
   const gameOfEntry = (e: { source: string; sourceKey: string }) =>
     e.source === "achievement" ? gameOfAchievement.get(e.sourceKey) : platinumGameId(e.sourceKey);
   const existingByKey = new Map(existing.map((e) => [entryKey(e.source, e.sourceKey), e]));
+  const paidOwnIds = new Set(existing.filter((e) => e.source === "achievement" && e.voidedAt === null).map((e) => e.sourceKey));
   const restore = new Set(options.restore ?? []);
   const linkedAt =
-    (await tx.linkedAccount.findUnique({ where: { userId_platform: { userId, platform } }, select: { linkedAt: true } }))
+    (await db.linkedAccount.findUnique({ where: { userId_platform: { userId, platform } }, select: { linkedAt: true } }))
       ?.linkedAt ?? null;
   /** Voided under the current link: a fraud release may bring it back. */
   const restorable = (row: { voidedAt: Date | null }) =>
     row.voidedAt !== null && linkedAt !== null && row.voidedAt.getTime() >= linkedAt.getTime();
   /**
    * Rows exist and every one was voided before the current link (an unlink; with no link, any
-   * void). A predecessor voided under the current link (a settle moving it to a version key)
-   * never blocks its replacement.
+   * void). A predecessor voided under the current link (a settle moving it to another key)
+   * never blocks.
    */
   const voidedBeforeLink = (rows: ({ voidedAt: Date | null } | undefined)[]) => {
     const found = rows.filter((r) => r !== undefined);
@@ -334,9 +402,6 @@ export async function settleListXp(
     );
   };
 
-  const toVoid: string[] = [];
-  const toRestore: string[] = [];
-  const toCreate: Prisma.XpLedgerEntryCreateManyInput[] = [];
   for (const gameId of ids) {
     const drafts = desiredWithOrigin({
       platform,
@@ -347,38 +412,69 @@ export async function settleListXp(
       unlocks: unlocks.filter((u) => gameOfAchievement.get(u.achievementId) === gameId),
       progress: progress.filter((p) => lists.some((l) => l.id === p.listId && l.gameId === gameId)),
       legacyCompletedAt: userGames.find((g) => g.gameId === gameId)?.completedAt ?? null,
+      paidOwnIds,
     });
     const wanted = new Set(drafts.map((d) => entryKey(d.source, d.sourceKey)));
     for (const e of existing) {
       if (gameOfEntry(e) === gameId && e.voidedAt === null && !wanted.has(entryKey(e.source, e.sourceKey))) {
-        toVoid.push(e.id);
+        plan.toVoid.push({ id: e.id, source: e.source, sourceKey: e.sourceKey, xp: e.xp });
       }
     }
     const legacyKey = legacyPlatinumSourceKey(platform, gameId);
-    const versionPlatinums = existing.filter(
-      (e) => e.source === "platinum" && e.sourceKey !== legacyKey && gameOfEntry(e) === gameId,
-    );
-    for (const { origin, ...d } of drafts) {
+    // The legacy platinum paid the game's one (earliest) completion: voided by an unlink, it blocks
+    // that platinum only (the earliest list platinum the rule wants).
+    const legacyBlocks = voidedBeforeLink([existingByKey.get(entryKey("platinum", legacyKey))])
+        ? drafts
+            .filter((d) => d.source === "platinum" && d.sourceKey !== legacyKey)
+            .sort((x, y) => byTimeThenId({ at: x.createdAt, id: x.sourceKey }, { at: y.createdAt, id: y.sourceKey }))[0]
+        : undefined;
+    for (const { origin, predecessors, ...d } of drafts) {
       const row = existingByKey.get(entryKey(d.source, d.sourceKey));
       if (row) {
-        if (row.voidedAt !== null && origin.some((id) => restore.has(id)) && restorable(row)) toRestore.push(row.id);
+        if (row.voidedAt === null) continue;
+        const entry = { id: row.id, source: row.source, sourceKey: row.sourceKey, xp: row.xp, voidedAt: row.voidedAt };
+        if (origin.some((id) => restore.has(id)) && restorable(row)) plan.toRestore.push(entry);
+        else (restorable(row) ? plan.unpaid.voidedUnderLink : plan.unpaid.voidedBeforeLink).push(entry);
         continue;
       }
-      const replacesVoided =
-        d.source === "platinum"
-          ? d.sourceKey !== legacyKey &&
-            versionPlatinums.length === 0 &&
-            voidedBeforeLink([existingByKey.get(entryKey("platinum", legacyKey))])
-          : voidedBeforeLink(origin.map((id) => existingByKey.get(entryKey("achievement", id))));
-      if (!replacesVoided) toCreate.push({ userId, ...d });
+      const replacesLegacy = legacyBlocks !== undefined && d.source === "platinum" && d.sourceKey === legacyBlocks.sourceKey;
+      if (replacesLegacy || voidedBeforeLink(predecessors.map((k) => existingByKey.get(k)))) {
+        plan.unpaid.blocked++;
+        continue;
+      }
+      plan.toCreate.push({ userId, ...d });
     }
   }
+  return plan;
+}
 
+/**
+ * Reconciles the user's ledger of these games on one platform (planListXp) inside the caller's
+ * transaction: voids (`now`), restores and creates. Returns how many entries were paid (created or
+ * restored) and voided.
+ */
+export async function settleListXp(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  platform: CodePlatform,
+  gameIds: string[],
+  now: Date,
+  options: SettleOptions = {},
+): Promise<{ paid: number; voided: number }> {
+  return applyListXpPlan(tx, await planListXp(tx, userId, platform, gameIds, { ...options, now }), now);
+}
+
+/** Writes a planListXp plan (in the transaction that read it). */
+export async function applyListXpPlan(
+  tx: Prisma.TransactionClient,
+  { toVoid, toRestore, toCreate }: ListXpPlan,
+  now: Date,
+): Promise<{ paid: number; voided: number }> {
   const voided = toVoid.length
-    ? await tx.xpLedgerEntry.updateMany({ where: { id: { in: toVoid }, voidedAt: null }, data: { voidedAt: now } })
+    ? await tx.xpLedgerEntry.updateMany({ where: { id: { in: toVoid.map((e) => e.id) }, voidedAt: null }, data: { voidedAt: now } })
     : { count: 0 };
   const restored = toRestore.length
-    ? await tx.xpLedgerEntry.updateMany({ where: { id: { in: toRestore } }, data: { voidedAt: null } })
+    ? await tx.xpLedgerEntry.updateMany({ where: { id: { in: toRestore.map((e) => e.id) } }, data: { voidedAt: null } })
     : { count: 0 };
   const created = toCreate.length ? await tx.xpLedgerEntry.createMany({ data: toCreate, skipDuplicates: true }) : { count: 0 };
   return { paid: created.count + restored.count, voided: voided.count };

@@ -70,13 +70,13 @@ async function addList(userId: string, gameId: string, d: ListDef) {
 }
 
 describe("platinumTally", () => {
-  it("PS4 + PS5 platinum = 2 platinums, a second PS5 region = 1 regional extra", async () => {
+  it("PS4 + two PS5 regions, each platinum = 3 platinums, all 3 on PSN (2 versions)", async () => {
     const user = await newUser();
     const game = await newGame("Jogo");
     for (const console of ["PS4", "PS5", "PS5"]) {
       await addList(user.id, game.id, { platform: "psn", console, platinumTrophy: true, earned: 3, completed: true });
     }
-    expect(await platinumTally(user.id)).toEqual({ platinums: 2, regionalExtras: 1 });
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 3, psnPlatinums: 3, perVersion: 2 });
   });
 
   it("PS4 + PS5 without a platinum trophy, both 100% = 2", async () => {
@@ -99,15 +99,17 @@ describe("platinumTally", () => {
     const user = await newUser();
     const game = await newGame("DLC");
     await addList(user.id, game.id, { platform: "psn", console: "PS4", platinumTrophy: true, earned: 2 });
-    expect(await platinumTally(user.id)).toEqual({ platinums: 1, regionalExtras: 0 });
+    expect(await platinumTally(user.id)).toMatchObject({ platinums: 1, psnPlatinums: 1, perVersion: 1 });
   });
 
-  it("the header equals the versions the ledger pays a platinum for, on a mixed library", async () => {
+  it("the header equals the platinums the ledger pays (one per list), on a mixed library", async () => {
     const user = await newUser();
     // PSN: a platinum on PS5 plus a PS4 100% without a platinum trophy (no "covered" across versions).
     const mixed = await newGame("Misto");
     await addList(user.id, mixed.id, { platform: "psn", console: "PS5", platinumTrophy: true, earned: 3, completed: true });
     await addList(user.id, mixed.id, { platform: "psn", console: "PS4", earned: 3, completed: true });
+    // A second region of the PS5 version, platinum too: a platinum of its own.
+    await addList(user.id, mixed.id, { platform: "psn", console: "PS5", platinumTrophy: true, earned: 3, completed: true });
     // PSN: the platinum trophy without the list at 100% (DLC missing): paid as that trophy.
     const dlc = await newGame("DLC");
     await addList(user.id, dlc.id, { platform: "psn", console: "PS4", platinumTrophy: true, earned: 2 });
@@ -144,30 +146,29 @@ describe("platinumTally", () => {
       where: { userId: user.id, source: { in: ["achievement", "platinum"] }, voidedAt: null },
       select: { source: true, sourceKey: true },
     });
-    // Versions whose catalog list has a platinum trophy (their bonus is not a platinum of its own).
+    // Lists whose catalog rows have a platinum trophy (their bonus is not a platinum of its own).
     const platinumRows = await prisma.achievement.findMany({
       where: { trophyTier: "platinum", game: { slug: { startsWith: PREFIX } } },
       select: { id: true, gameId: true, list: { select: { platform: true, console: true, externalId: true } } },
     });
-    const versionOfRow = (r: (typeof platinumRows)[number]) => `${r.gameId}:${versionKey(r.list!)}`;
-    const withTrophy = new Set(platinumRows.map(versionOfRow));
-    const paid = new Set<string>();
-    // A platinum trophy paid (achievement entry, once per version through the canonical key).
-    for (const e of entries.filter((x) => x.source === "achievement")) {
-      const row = platinumRows.find((r) => r.id === e.sourceKey);
-      if (row) paid.add(versionOfRow(row));
-    }
-    // A platinum bonus of a version without a platinum trophy ("<versionKey>:<gameId>", legacy "<platform>:<gameId>").
-    for (const e of entries.filter((x) => x.source === "platinum")) {
-      const cut = e.sourceKey.lastIndexOf(":");
-      const version = `${e.sourceKey.slice(cut + 1)}:${e.sourceKey.slice(0, cut)}`;
-      if (!withTrophy.has(version)) paid.add(version);
-    }
+    // A platinum trophy paid: one achievement entry per valid unlock (keyed by a platinum row).
+    const trophies = entries.filter((x) => x.source === "achievement" && platinumRows.some((r) => r.id === x.sourceKey)).length;
+    // A platinum bonus of a list without a platinum trophy: "psn:<console>:<gameId>" (the version's
+    // canonical list), "<platform>:<externalId>:<gameId>", legacy "<platform>:<gameId>".
+    const withTrophy = (sourceKey: string) => {
+      const [platform, middle, gameId] = sourceKey.split(":");
+      return platinumRows.some(
+        (r) => r.gameId === gameId && r.list && r.list.platform === platform && (r.list.externalId === middle || versionKey(r.list) === `${platform}:${middle}`),
+      );
+    };
+    const bonuses = entries.filter((x) => x.source === "platinum" && !withTrophy(x.sourceKey)).length;
     const steamCompletions = 1;
 
-    const { platinums } = await platinumTally(user.id);
-    expect(platinums).toBe(paid.size + steamCompletions);
-    // Misto 2, DLC 1, Suspeito 1, Halo 2, SNES 1, Legado 1, Steam 1.
-    expect(platinums).toBe(9);
+    const { platinums, psnPlatinums } = await platinumTally(user.id);
+    expect(platinums).toBe(trophies + bonuses + steamCompletions);
+    // Misto 3, DLC 1, Suspeito 1, Halo 2, SNES 1, Legado 1, Steam 1.
+    expect(platinums).toBe(10);
+    // The platinum trophies (Misto's two PS5 regions and DLC), as Sony counts them.
+    expect(psnPlatinums).toBe(3);
   });
 });

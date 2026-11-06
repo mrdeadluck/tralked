@@ -18,6 +18,7 @@
     "trophy-lists:snapshot": "tsx scripts/trophy-lists-snapshot.ts",
     "trophy-lists:audit-psn": "tsx scripts/trophy-lists-audit-psn.ts",
     "trophy-lists:repair-psn": "tsx scripts/trophy-lists-repair-psn.ts",
+    "trophy-lists:regional-xp": "tsx scripts/trophy-lists-regional-xp.ts",
     "psn:compare": "tsx scripts/psn-compare.ts",
     "catalog:bootstrap": "tsx scripts/catalog-bootstrap.ts",
     "steam:import": "tsx scripts/import-steam-profile.ts",
