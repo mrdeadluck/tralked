@@ -1,4 +1,5 @@
 import { cacheLife, cacheTag } from "next/cache";
+import { platformCredential } from "@/lib/integrations/availability";
 import { hasPsnCatalogTrophiesDue } from "@/lib/sync/psn-catalog-trophies";
 import { gameTag } from "./games-cached";
 
@@ -11,5 +12,6 @@ export async function getPsnTrophiesDue(gameId: string, slug: string): Promise<b
   "use cache";
   cacheLife("hours");
   cacheTag(gameTag(slug));
-  return hasPsnCatalogTrophiesDue(gameId);
+  // False without a PSN credential: offline fixtures have no lists, so dev logs stay clean.
+  return Boolean(platformCredential("psn")) && hasPsnCatalogTrophiesDue(gameId);
 }

@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { env } from "@/lib/env";
+import { PsnHttpError } from "@/lib/integrations/psn/client";
 import type { PsnTrophy } from "@/lib/integrations/psn/types";
 
 // Needs Postgres up and migrated (see db.test.ts); skipped when unreachable. No Sony call is made:
@@ -16,6 +17,8 @@ async function databaseReachable(): Promise<boolean> {
     await client.end().catch(() => {});
   }
 }
+
+import { PSN_OPEN_BUDGET_KEY, PSN_OPEN_COOLDOWN_KEY } from "./psn-catalog-trophies";
 
 const reachable = await databaseReachable();
 const LIST = "NPWR98001_00";
@@ -38,6 +41,7 @@ const trophy = (id: number, tier: PsnTrophy["tier"], over: Partial<PsnTrophy> = 
 });
 const DEFINITIONS = [trophy(0, "platinum"), trophy(1, "gold"), trophy(2, "bronze")];
 // What the catalog says of the list: 1 platinum, 1 gold, 1 bronze.
+const HOUR = 3_600_000;
 const COUNTS: [number, number, number, number] = [1, 0, 1, 1];
 
 function fakeApi(answer: () => Promise<PsnTrophy[] | null> = async () => DEFINITIONS) {
@@ -58,6 +62,7 @@ describe.skipIf(!reachable)("PSN trophies read when the page opens", () => {
     await prisma.user.deleteMany({ where: { handle: { startsWith: HANDLE } } });
     await prisma.game.deleteMany({ where: { slug: { startsWith: SLUG } } });
     await prisma.psnCatalogList.deleteMany({ where: { id: { in: [LIST, OTHER] } } });
+    await prisma.syncCursor.deleteMany({ where: { key: { in: [PSN_OPEN_BUDGET_KEY, PSN_OPEN_COOLDOWN_KEY] } } });
   }
 
   /** A game with the catalog lists (as matchPsnCatalog leaves them: TrophyList without trophies, plus the link). */
@@ -193,14 +198,14 @@ describe.skipIf(!reachable)("PSN trophies read when the page opens", () => {
         throw new Error("HTTP 429");
       });
       expect(await loadPsnCatalogTrophies(game.id, boom)).toBe("failed");
-      expect(await loadPsnCatalogTrophies(game.id, fakeApi(async () => null))).toBe("failed");
+      expect(await loadPsnCatalogTrophies(game.id, fakeApi(async () => null), new Date(Date.now() + 2 * HOUR))).toBe("failed");
     } finally {
       warn.mockRestore();
     }
     expect(await prisma.achievement.count({ where: { gameId: game.id } })).toBe(0);
     expect((await prisma.psnCatalogList.findUniqueOrThrow({ where: { id: LIST } })).trophiesSyncedAt).toBeNull();
-    // Try later: the next open reads it.
-    expect(await loadPsnCatalogTrophies(game.id, fakeApi())).toBe("loaded");
+    // Try later: after the backoff (2 failures: 6 h) the next open reads it.
+    expect(await loadPsnCatalogTrophies(game.id, fakeApi(), new Date(Date.now() + 8 * HOUR))).toBe("loaded");
   });
 
   it("refuses an answer that is not the list's", async () => {
@@ -212,8 +217,9 @@ describe.skipIf(!reachable)("PSN trophies read when the page opens", () => {
       // Wrong counts (two bronze) and another list's icons.
       const counts = fakeApi(async () => [trophy(0, "platinum"), trophy(1, "bronze"), trophy(2, "bronze")]);
       expect(await loadPsnCatalogTrophies(game.id, counts)).toBe("failed");
+      const later = new Date(Date.now() + 2 * HOUR);
       const foreign = DEFINITIONS.map((t) => ({ ...t, iconUrl: "https://image.api.playstation.com/trophy/np/NPWR14350_00BB.PNG" }));
-      expect(await loadPsnCatalogTrophies(game.id, fakeApi(async () => foreign))).toBe("failed");
+      expect(await loadPsnCatalogTrophies(game.id, fakeApi(async () => foreign), later)).toBe("failed");
     } finally {
       warn.mockRestore();
     }
@@ -229,5 +235,111 @@ describe.skipIf(!reachable)("PSN trophies read when the page opens", () => {
     const api = fakeApi();
     expect(await loadPsnCatalogTrophies(game.id, api)).toBe("none");
     expect(api.calls).toEqual([]);
+  });
+
+  it("a failing first list does not block the second, and a failing list backs off 1 h, 6 h, 24 h, then 7 d", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadPsnCatalogTrophies } = await import("./psn-catalog-trophies");
+    const game = await seed([LIST, OTHER]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t0 = Date.now();
+    const at = (hours: number, extraMs = 0) => new Date(t0 + hours * HOUR + extraMs);
+    // LIST gives a wrong answer (not Sony being down: no cooldown); OTHER is fine.
+    const api = {
+      calls: [] as string[],
+      async getListTrophies(id: string) {
+        this.calls.push(id);
+        if (id === LIST) throw new Error("boom");
+        return DEFINITIONS.map((t) => ({ ...t, iconUrl: t.iconUrl?.replace(LIST, id) ?? null }));
+      },
+    };
+    try {
+      expect(await loadPsnCatalogTrophies(game.id, api, at(0))).toBe("failed");
+      // The next open goes to OTHER, never tried, not to LIST again.
+      expect(await loadPsnCatalogTrophies(game.id, api, at(0, 1000))).toBe("loaded");
+      expect(api.calls).toEqual([LIST, OTHER]);
+      // LIST is due again only after 1 h, then 6 h, 24 h and 7 d after each new failure.
+      let when = 0;
+      for (const wait of [1, 6, 24, 24 * 7]) {
+        const calls = api.calls.length;
+        expect(await loadPsnCatalogTrophies(game.id, api, at(when + wait - 0.01))).toBe("none");
+        expect(api.calls).toHaveLength(calls);
+        when += wait;
+        expect(await loadPsnCatalogTrophies(game.id, api, at(when))).toBe("failed");
+        expect(api.calls).toHaveLength(calls + 1);
+      }
+      expect((await prisma.psnCatalogList.findUniqueOrThrow({ where: { id: LIST } })).trophiesAttempts).toBe(5);
+      // From the 4th failure on the wait stays 7 d.
+      expect(await loadPsnCatalogTrophies(game.id, api, at(when + 24 * 7 - 0.01))).toBe("none");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("a claim with no rows older than 10 minutes counts as due again", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadPsnCatalogTrophies } = await import("./psn-catalog-trophies");
+    const game = await seed();
+    const now = new Date();
+    await prisma.psnCatalogList.update({ where: { id: LIST }, data: { trophiesSyncedAt: new Date(now.getTime() - 5 * 60_000) } });
+    const api = fakeApi();
+    expect(await loadPsnCatalogTrophies(game.id, api, now)).toBe("none"); // someone is reading it
+    expect(api.calls).toEqual([]);
+    expect(await loadPsnCatalogTrophies(game.id, api, new Date(now.getTime() + 6 * 60_000))).toBe("loaded");
+    expect(api.calls).toEqual([LIST]);
+  });
+
+  it("a refusal of Sony stops every open for an hour", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadPsnCatalogTrophies } = await import("./psn-catalog-trophies");
+    const game = await seed([LIST, OTHER]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t0 = Date.now();
+    try {
+      const down = fakeApi(async () => {
+        throw new PsnHttpError("list trophies", 429, null);
+      });
+      expect(await loadPsnCatalogTrophies(game.id, down, new Date(t0))).toBe("failed");
+      // The other list is due, but nothing calls Sony while cooling down.
+      const api = fakeApi();
+      expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 30 * 60_000))).toBe("none");
+      expect(api.calls).toEqual([]);
+      expect(await loadPsnCatalogTrophies(game.id, api, new Date(t0 + 61 * 60_000))).toBe("loaded");
+      expect(api.calls).toEqual([OTHER]);
+    } finally {
+      warn.mockRestore();
+    }
+    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_COOLDOWN_KEY } })).value).toMatchObject({ until: expect.any(Number) });
+  });
+
+  it("the site-wide budget allows 6 reads a minute and 500 a day", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { takePsnOpenBudget } = await import("./psn-catalog-trophies");
+    const t0 = new Date("2026-11-06T10:00:00Z").getTime();
+    const taken: boolean[] = [];
+    for (let i = 0; i < 8; i++) taken.push(await takePsnOpenBudget(new Date(t0 + i * 1000)));
+    expect(taken).toEqual([true, true, true, true, true, true, false, false]);
+    // A minute later the window opens again (7 reads today).
+    expect(await takePsnOpenBudget(new Date(t0 + 61_000))).toBe(true);
+    let n = 7;
+    for (let minute = 3; n < 500; minute++) {
+      for (let i = 0; i < 6 && n < 500; i++, n++) expect(await takePsnOpenBudget(new Date(t0 + minute * 60_000 + i))).toBe(true);
+    }
+    expect(await takePsnOpenBudget(new Date(t0 + 600 * 60_000))).toBe(false);
+    expect((await prisma.syncCursor.findUniqueOrThrow({ where: { key: PSN_OPEN_BUDGET_KEY } })).value).toMatchObject({ dayCount: 500 });
+    // The next day starts a new count.
+    expect(await takePsnOpenBudget(new Date(t0 + 25 * HOUR))).toBe(true);
+  });
+
+  it("an open over the budget calls Sony no more and takes no claim", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { loadPsnCatalogTrophies, takePsnOpenBudget } = await import("./psn-catalog-trophies");
+    const game = await seed();
+    const now = new Date();
+    for (let i = 0; i < 6; i++) await takePsnOpenBudget(now);
+    const api = fakeApi();
+    expect(await loadPsnCatalogTrophies(game.id, api, now)).toBe("none");
+    expect(api.calls).toEqual([]);
+    expect((await prisma.psnCatalogList.findUniqueOrThrow({ where: { id: LIST } })).trophiesSyncedAt).toBeNull();
   });
 });

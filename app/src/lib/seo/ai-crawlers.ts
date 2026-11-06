@@ -28,3 +28,14 @@ const PATTERN = new RegExp(AI_TRAINING_CRAWLERS.map((name) => name.replace(/[-]/
 export function isAiTrainingCrawler(userAgent: string | null | undefined): boolean {
   return !!userAgent && PATTERN.test(userAgent);
 }
+
+const ANY_BOT = /bot|crawl|spider|slurp|headless|lighthouse|facebookexternalhit|preview|monitor|python-requests|curl\/|wget|node-fetch|axios|go-http-client/i;
+
+/**
+ * Any user agent that announces itself as a robot (search engines included) or a scripting tool:
+ * work that only serves a visitor, such as reading a trophy list from Sony when a page opens, is
+ * not done for it. An empty user agent counts as a robot too.
+ */
+export function isAutomatedClient(userAgent: string | null | undefined): boolean {
+  return !userAgent?.trim() || isAiTrainingCrawler(userAgent) || ANY_BOT.test(userAgent);
+}
