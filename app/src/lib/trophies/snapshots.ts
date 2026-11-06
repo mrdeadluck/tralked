@@ -9,6 +9,7 @@ const FIELDS = [
   "psnUnlocks",
   "xboxUnlocks",
   "retroUnlocks",
+  "tralked",
   "platinums",
   "psnPlatinums",
   "totalXp",

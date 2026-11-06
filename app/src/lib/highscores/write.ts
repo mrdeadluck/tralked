@@ -6,19 +6,19 @@ type ValidUnlock = { achievement: { gameId: string; platform: string; globalPct:
 
 /**
  * One user's highscores totals. `unlocks` are the valid unlocks (the recompute already loaded
- * them); the library and the platinums (the profile's, one per list) are read here. Every list
+ * them); the library and the Tralked count (the profile's, one per list/version at 100%) are read here. Every list
  * counts (a PSN trophy earned in two regional lists is two).
  */
 export async function loadRankStats(
   userId: string,
   unlocks: ValidUnlock[],
 ): Promise<Record<RankScope, RankStatsValues>> {
-  const [games, platinums] = await Promise.all([
+  const [games, counts] = await Promise.all([
     prisma.userGame.findMany({ where: { userId }, select: { gameId: true, platform: true, playtimeMin: true } }),
     // Read now: the per-request memo could hold a value from before this recompute's changes.
     platinumTallyOf(userId),
   ]);
-  return computeRankStats({ games, unlocks: unlocks.map((u) => u.achievement), platinums });
+  return computeRankStats({ games, unlocks: unlocks.map((u) => u.achievement), tralked: counts });
 }
 
 /**

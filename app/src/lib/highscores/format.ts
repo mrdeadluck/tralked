@@ -101,9 +101,9 @@ export function rowDisplay(board: Board, p: RankedPlayer, leaderValue: number): 
     case "platinas":
       return {
         value: p.value,
-        unit: plural(p.value, "platina", "platinas"),
+        unit: "Tralked",
         detail: `${fmt(p.secondary)} ${plural(p.secondary, "conquista", "conquistas")}`,
-        ...relative("Platinas"),
+        ...relative("Tralked"),
       };
     case "acervo":
       return {
@@ -119,7 +119,7 @@ type CountedMetric = Exclude<Metric, "nivel" | "semana" | "novatos" | "genero" |
 
 const GAP_UNIT: Record<CountedMetric, [string, string]> = {
   raras: ["conquista rara", "conquistas raras"],
-  platinas: ["platina", "platinas"],
+  platinas: ["Tralked", "Tralked"],
   acervo: ["ponto de Acervo", "pontos de Acervo"],
 };
 

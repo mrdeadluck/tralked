@@ -41,19 +41,16 @@ const STRIP_COLS: Record<number, string> = {
 };
 
 /**
- * The strip under every profile tab's header: "Platinas" (one per list: every platinum trophy and
- * every 100% without one; with PSN, the note "520 na PSN") and "Jogos", then the tab's own numbers.
+ * The strip under every profile tab's header: "Tralked" (the main counter: lists and games at 100%
+ * on any platform), "Platinas" (the PSN platinum trophies, shown only with PSN) and "Jogos", then
+ * the tab's own numbers.
  * Two columns on phones (a last odd one takes the row).
  */
 function ProfileStrip({ summary, stats = [] }: { summary: ProfileSummary; stats?: ProfileStat[] }) {
   const psn = summary.psnPlatinums > 0 || summary.platforms.some((p) => p.platform === "psn");
   const items: ProfileStat[] = [
-    {
-      label: "Platinas",
-      value: formatNumber(summary.platinums),
-      note: psn ? `${formatNumber(summary.psnPlatinums)} na PSN` : undefined,
-      hot: true,
-    },
+    { label: "Tralked", value: formatNumber(summary.tralked), note: "jogos 100% em qualquer plataforma", hot: true },
+    ...(psn ? [{ label: "Platinas", value: formatNumber(summary.platinums), note: "troféus de platina da PSN" }] : []),
     { label: "Jogos", value: formatNumber(summary.gamesCount), note: "cada jogo uma vez" },
     ...stats,
   ];

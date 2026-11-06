@@ -21,8 +21,8 @@ describe("computeRankStats", () => {
       // An unlock without a library row still makes the game owned and played.
       { gameId: "retro1", platform: "retro", globalPct: 1 },
     ],
-    // The profile's Platinas (one per list): two PSN regional platinums and a RA 100%.
-    platinums: { platinums: 3, byPlatform: { psn: 2, retro: 1 } },
+    // The profile's Tralked (one per list at 100%): two PSN regional lists and a RA set.
+    tralked: { tralked: 3, tralkedByPlatform: { psn: 2, retro: 1 } },
   });
 
   it("merges platforms for `all`", () => {
@@ -47,7 +47,7 @@ describe("computeRankStats", () => {
   });
 
   it("is all zeros for an empty account", () => {
-    const empty = computeRankStats({ games: [], unlocks: [], platinums: { platinums: 0, byPlatform: {} } });
+    const empty = computeRankStats({ games: [], unlocks: [], tralked: { tralked: 0, tralkedByPlatform: {} } });
     for (const scope of Object.values(empty)) {
       expect(Object.values(scope).every((v) => v === 0)).toBe(true);
     }

@@ -36,9 +36,11 @@ export type ProfileSummary = {
   playtimeMin: number;
   /** "Jogos": distinct games of the library, each once over its platforms (the Jogos tab count). */
   gamesCount: number;
-  /** "Platinas": one per list (two regional PSN lists are two), as the sheet counts them. */
+  /** "Tralked" (the main counter): lists/versions completed at 100% on any platform. */
+  tralked: number;
+  /** "Platinas": the valid PSN platinum trophies earned, on every list (520 for diguzz, as Sony counts). */
   platinums: number;
-  /** The PSN platinum trophies among them (the note "520 na PSN"). */
+  /** Equal to `platinums` (only PSN has platinum trophies). */
   psnPlatinums: number;
   /** Valid unlocks over every platform (the Conquistas tab count). */
   achievements: number;
@@ -108,6 +110,7 @@ export async function getProfileSummary(userId: string): Promise<ProfileSummary 
     totalXp: user.stats?.totalXp ?? 0,
     playtimeMin,
     gamesCount: owned.length,
+    tralked: tally.tralked,
     platinums: tally.platinums,
     psnPlatinums: tally.psnPlatinums,
     achievements,

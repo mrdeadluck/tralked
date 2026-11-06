@@ -104,14 +104,15 @@ describe("rank stats count a PSN trophy in every list", () => {
   });
 });
 
-describe('the "Platinas e 100%" board counts as the profile Platinas', () => {
-  it("one per list (two PS5 regions are two) plus a Steam 100%, by scope", async () => {
+describe('the "Tralked" board counts as the profile Tralked', () => {
+  it("one per list at 100% (two PS5 regions are two; a platinated list short of 100% is none) plus a Steam 100%, by scope", async () => {
     const user = await newUser();
     counter++;
     const game = await prisma.game.create({
       data: { slug: `${PREFIX}-${counter}`, name: `Jogo ${counter}`, achievementCount: 0, platforms: ["PS5"] },
     });
-    for (const k of [0, 1]) {
+    // The third region holds the platinum trophy but is short of 100% (DLC missing): a Platina, not Tralked.
+    for (const k of [0, 1, 2]) {
       counter++;
       const list = await prisma.trophyList.create({
         data: { gameId: game.id, platform: "psn", externalId: `${PREFIX}-L${counter}`, console: "PS5", name: "Lista", createdAt: at(k) },
@@ -120,7 +121,7 @@ describe('the "Platinas e 100%" board counts as the profile Platinas', () => {
         data: { gameId: game.id, platform: "psn", apiName: "0", name: "Platina", trophyTier: "platinum", globalPct: 5, listId: list.id },
       });
       await prisma.userAchievement.create({ data: { userId: user.id, achievementId: plat.id, unlockedAt: at(10 + k) } });
-      await prisma.userTrophyList.create({ data: { userId: user.id, listId: list.id, unlockedCount: 1, completedAt: at(10 + k) } });
+      await prisma.userTrophyList.create({ data: { userId: user.id, listId: list.id, unlockedCount: 1, completedAt: k < 2 ? at(10 + k) : null } });
     }
     await prisma.userGame.create({
       data: { userId: user.id, gameId: game.id, platform: "psn", playtimeMin: 60, unlockedCount: 2, completedAt: at(10) },
@@ -138,6 +139,9 @@ describe('the "Platinas e 100%" board counts as the profile Platinas', () => {
     expect(await board("psn")).toBe(2);
     expect(await board("steam")).toBe(1);
     expect(await board("xbox")).toBe(0);
-    expect((await getProfileSummary(user.id))?.platinums).toBe(3);
+    const summary = await getProfileSummary(user.id);
+    expect(summary?.tralked).toBe(3);
+    expect(summary?.platinums).toBe(3);
+    expect(summary?.psnPlatinums).toBe(3);
   });
 });
