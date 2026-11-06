@@ -213,6 +213,24 @@ export function gameNameKey(name: string): string {
     .join(" ");
 }
 
+const ROMAN_OF: Record<string, string> = { "2": "II", "3": "III", "4": "IV", "5": "V", "6": "VI", "7": "VII", "8": "VIII", "9": "IX", "10": "X" };
+const DIGIT_OF: Record<string, string> = Object.fromEntries(Object.entries(ROMAN_OF).map(([d, r]) => [r, d]));
+
+/**
+ * The spellings of a game name worth searching, original first: the colon with and without its space
+ * ("NieR: Automata" / "NieR:Automata"), both apostrophes ("Marvel's" / "Marvel’s"), and numbers as the
+ * other numeral ("The Elder Scrolls 6" / "VI").
+ */
+export function searchSpellings(name: string): string[] {
+  if (!name.trim()) return [];
+  const out = [name.trim()];
+  if (name.includes(":")) out.push(name.replace(/\s*:\s*/g, ":"), name.replace(/\s*:\s*/g, ": "));
+  if (/['’]/.test(name)) out.push(name.trim().replace(/'/g, "’"), name.trim().replace(/’/g, "'"));
+  const swapped = name.trim().split(/(\s+|:)/).map((w) => ROMAN_OF[w] ?? DIGIT_OF[w] ?? w).join("");
+  if (swapped !== name.trim()) out.push(swapped);
+  return [...new Set(out)];
+}
+
 /** The part before ":" of a game name, when it ends in a number ("The Elder Scrolls VI" of "…VI: Sentinel"); else "". */
 export function numberedBase(name: string): string {
   const colon = name.indexOf(":");
@@ -295,19 +313,22 @@ export function createTralked(options: { baseUrl: string; key: string; fetchFn?:
     async findGame(name) {
       const query = name.trim();
       if (query.length < MIN_QUERY_LENGTH) return null;
-      const result = await json<{ games: { slug: string; name: string; aliases?: string[] }[] }>(
-        await call("GET", `/api/v1/games?q=${encodeURIComponent(query)}`),
-      );
-      let hit = exactGame(query, result.games);
-      // The site searches `name contains q`: "…VI: Sentinel" can only find "…VI" by its own name.
+      // The site searches `name contains q`: a spelling the catalog does not use ("NieR: Automata" for
+      // "NieR:Automata", "6" for "VI") finds nothing, so a few spellings are tried, each hit checked by `exactGame`.
       const base = numberedBase(query);
-      if (!hit && base.length >= MIN_QUERY_LENGTH) {
-        const again = await json<{ games: { slug: string; name: string; aliases?: string[] }[] }>(
-          await call("GET", `/api/v1/games?q=${encodeURIComponent(base)}`),
+      const tries = [...searchSpellings(query).map((q) => [q, query] as const), ...searchSpellings(base).map((q) => [q, base] as const)];
+      const searched = new Set<string>();
+      for (const [q, wanted] of tries) {
+        const key = q.toLowerCase();
+        if (q.length < MIN_QUERY_LENGTH || searched.has(key)) continue;
+        searched.add(key);
+        const result = await json<{ games: { slug: string; name: string; aliases?: string[] }[] }>(
+          await call("GET", `/api/v1/games?q=${encodeURIComponent(q)}`),
         );
-        hit = exactGame(base, again.games);
+        const hit = exactGame(wanted, result.games);
+        if (hit) return { slug: hit.slug, name: hit.name };
       }
-      return hit ? { slug: hit.slug, name: hit.name } : null;
+      return null;
     },
 
     insights: (slug) => getOrNull<Insights>(`/api/v1/games/${encodeURIComponent(slug)}/insights`),
