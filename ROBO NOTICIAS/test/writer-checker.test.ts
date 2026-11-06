@@ -280,6 +280,22 @@ describe("checkDraft", () => {
     expect(calls[0]!.system).toMatch(/3720 minutos = 62 horas/);
   });
 
+  it("lets the writer's commentary through and still checks the facts (Lucas, 06/11/2026)", async () => {
+    const { ai, calls } = fakeAi([{ ok: true, problems: [] }]);
+    await checkDraft(ai, draft, "fontes", "live");
+    const system = calls[0]!.system;
+    // Opinion, the Tralked voice talking to the reader, well-known history of the games and plain
+    // consequences of the sources are not problems...
+    expect(system).toMatch(/opinião/);
+    expect(system).toMatch(/Quem jogou sabe bem o peso dessa imagem/);
+    expect(system).toMatch(/conhecimento comum/);
+    expect(system).toMatch(/consequência direta/);
+    // ...but a new fact about the news, or a reading of the Tralked numbers that they do not support, is.
+    expect(system).toMatch(/fato novo sobre a notícia/);
+    expect(system).toMatch(/leitura dos números/);
+    expect(system).not.toMatch(/- afirmações que não aparecem em nenhuma fonte\./);
+  });
+
   it("passes the Tralked data from writeAndCheck", async () => {
     const { ai, checks } = fakeAi([{ ok: true, problems: [] }]);
     await writeAndCheck(ai, story(), "live", { models, now: NOW });
