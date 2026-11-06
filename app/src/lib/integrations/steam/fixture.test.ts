@@ -43,7 +43,8 @@ describe("steam fixture", () => {
     if (ach === "private") return;
     expect(ach).toHaveLength(27);
     expect(ach.find((a) => a.apiName === "FALSEHOOD")?.unlockedAt).toBeInstanceOf(Date);
-    expect(ach.find((a) => a.apiName === "SOUL_AND_SHADE")?.unlockedAt).toBeNull();
+    expect(ach.find((a) => a.apiName === "SOUL_AND_SHADE")).toMatchObject({ achieved: false, unlockedAt: null });
+    expect(ach.find((a) => a.apiName === "FALSEHOOD")?.achieved).toBe(true);
   });
 
   it("the library has never-played games, names, last-2-weeks playtime and last played times", async () => {

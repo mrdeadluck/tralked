@@ -23,7 +23,7 @@ export const DISALLOWED_PATHS = [
  * topics are opened again one by one (buildRobots); threads (/forum/t/) and the forum index
  * (/forum, not under "/forum/") stay open. Longer rules win, so an Allow beats "/forum/".
  */
-export const EMPTY_LISTING_PATHS = ["/forum/", "/galeria?jogo=", "/galeria?*&jogo="];
+export const EMPTY_LISTING_PATHS = ["/forum/", "/galeria?jogo=", "/galeria?*&jogo=", "/jogos?*exclusivos=", "/jogos?*trofeus="];
 
 /** `openForumSections`: segments of the forum sections with content (categories, games with topics). */
 export function buildRobots(base: string, openForumSections: readonly string[] = []): MetadataRoute.Robots {

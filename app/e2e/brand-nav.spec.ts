@@ -40,7 +40,7 @@ test.describe("brand and navigation", () => {
       "Lançamentos",
       "Calendário",
       "Guias 100%",
-      "Steam / PC",
+      "PC · Steam",
       "PlayStation",
       "Xbox",
       "Nintendo",
@@ -81,7 +81,7 @@ test.describe("brand and navigation", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Abrir menu" }).click();
     const list = page.getByRole("navigation", { name: "Menu" }).getByRole("list", { name: "Jogos por plataforma" });
-    await expect(list.getByRole("link")).toHaveText(["Steam / PC", "PlayStation", "Xbox", "Nintendo", "Retro"]);
+    await expect(list.getByRole("link")).toHaveText(["PC · Steam", "PlayStation", "Xbox", "Nintendo", "Retro"]);
     await expectNoBlockingAxe(page);
   });
 });

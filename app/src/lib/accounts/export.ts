@@ -122,7 +122,7 @@ export async function exportUserData(userId: string, now: Date = new Date()) {
     }),
     prisma.xpLedgerEntry.findMany({
       where: mine,
-      select: { source: true, sourceKey: true, xp: true, skills: true, platform: true, voidedAt: true, createdAt: true },
+      select: { source: true, sourceKey: true, xp: true, skills: true, platform: true, voidedAt: true, dateUnknown: true, createdAt: true },
       orderBy: { createdAt: "asc" },
     }),
     prisma.mission.findMany({

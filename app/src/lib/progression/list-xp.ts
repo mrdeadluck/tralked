@@ -294,6 +294,8 @@ export type SettleOptions = {
    * instead of staying voided. XP voided by an earlier unlink never comes back.
    */
   restore?: string[];
+  /** Stands in for a missing unlock date (Steam only; PSN/Xbox/RA are always dated). Default: the call's time. */
+  now?: Date;
 };
 
 /** What settleListXp would change: entries to void, voided entries to restore, entries to create. */
@@ -333,6 +335,7 @@ export async function planListXp(
   gameIds: string[],
   options: SettleOptions = {},
 ): Promise<ListXpPlan> {
+  const now = options.now ?? new Date();
   const ids = [...new Set(gameIds)];
   const plan: ListXpPlan = { toVoid: [], toRestore: [], toCreate: [], unpaid: { voidedUnderLink: [], voidedBeforeLink: [], blocked: 0 } };
   if (ids.length === 0) return plan;
@@ -345,10 +348,15 @@ export async function planListXp(
     where: { gameId: { in: ids }, platform },
     select: { id: true, gameId: true, listId: true, apiName: true, globalPct: true, points: true, trophyTier: true },
   });
-  const unlocks = await db.userAchievement.findMany({
-    where: { userId, achievement: { gameId: { in: ids }, platform } },
-    select: { achievementId: true, unlockedAt: true, suspicious: true, hardcore: true },
-  });
+  // PSN/Xbox/RA syncs date every unlock (platform-user always stores seenAt), so this fallback is
+  // unreachable for them: only Steam keeps unknown dates. Were one null here, its entry would be
+  // dated at this settle, as Steam's undated ones are.
+  const unlocks = (
+    await db.userAchievement.findMany({
+      where: { userId, achievement: { gameId: { in: ids }, platform } },
+      select: { achievementId: true, unlockedAt: true, suspicious: true, hardcore: true },
+    })
+  ).map((u) => ({ ...u, unlockedAt: u.unlockedAt ?? now }));
   const progress = await db.userTrophyList.findMany({
     where: { userId, list: { gameId: { in: ids }, platform } },
     select: { listId: true, completedAt: true },
@@ -453,7 +461,7 @@ export async function settleListXp(
   now: Date,
   options: SettleOptions = {},
 ): Promise<{ paid: number; voided: number }> {
-  return applyListXpPlan(tx, await planListXp(tx, userId, platform, gameIds, options), now);
+  return applyListXpPlan(tx, await planListXp(tx, userId, platform, gameIds, { ...options, now }), now);
 }
 
 /** Writes a planListXp plan (in the transaction that read it). */

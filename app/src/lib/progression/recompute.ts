@@ -130,15 +130,20 @@ async function loadUnlockEvents(userId: string, from: Date, to?: Date) {
       },
     },
   });
-  return rows.map(
-    (r): UnlockEvent => ({
-      achievementId: r.achievementId,
-      gameId: r.achievement.gameId,
-      globalPct: r.achievement.globalPct,
-      skills: r.achievement.game.skills.map((s) => s.skill as SkillId),
-      unlockedAt: r.unlockedAt,
-      suspicious: r.suspicious,
-    }),
+  // The date window already leaves undated unlocks out (NULL is in no range).
+  return rows.flatMap((r): UnlockEvent[] =>
+    r.unlockedAt
+      ? [
+          {
+            achievementId: r.achievementId,
+            gameId: r.achievement.gameId,
+            globalPct: r.achievement.globalPct,
+            skills: r.achievement.game.skills.map((s) => s.skill as SkillId),
+            unlockedAt: r.unlockedAt,
+            suspicious: r.suspicious,
+          },
+        ]
+      : [],
   );
 }
 
@@ -228,6 +233,11 @@ async function applyMissions(userId: string, now: Date, topSkills: SkillId[]): P
   }
   return completedAny;
 }
+
+/** Distinct local days (America/Sao_Paulo) of these unlocks; undated ones have none. */
+export const unlockDays = (unlocks: { unlockedAt: Date | null }[]): string[] => [
+  ...new Set(unlocks.flatMap((u) => (u.unlockedAt ? [toLocalDay(u.unlockedAt)] : []))),
+];
 
 /** Valid (non-suspicious) unlocks of every platform, with what the attributes need. */
 function loadValidUnlocks(userId: string) {
@@ -363,9 +373,9 @@ export async function recomputeUser(userId: string, now: Date = new Date()): Pro
   }
 
   // Every list counts (a trophy earned in two regional lists is two) in attributes, rank stats,
-  // streak and active days.
+  // streak and active days. Unlocks on an unknown date (Steam) count everywhere but in the days.
   const unlocks = await loadValidUnlocks(userId);
-  const days = [...new Set(unlocks.map((u) => toLocalDay(u.unlockedAt)))];
+  const days = unlockDays(unlocks);
   const streak = computeStreak(days, toLocalDay(now));
   const attributes = computeAttributes(
     await attributeInput(
@@ -538,8 +548,7 @@ export async function voidFraudEntries(
     return count + listedVoided;
   }, TRANSACTION_OPTIONS);
 
-  const days = [...new Set(unlocks.map((u) => toLocalDay(u.unlockedAt)))];
-  const missionsVoided = await revalidateMissions(userId, days, now);
+  const missionsVoided = await revalidateMissions(userId, unlockDays(unlocks), now);
 
   await recomputeUser(userId, now);
   return voided + missionsVoided;

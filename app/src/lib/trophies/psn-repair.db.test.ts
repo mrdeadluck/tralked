@@ -304,6 +304,26 @@ describe("repairPsnLists", () => {
     expect(await platinum()).toEqual(paid);
   });
 
+  it("a completion whose unlocks have no date is dated now, not the epoch", async () => {
+    // Unreachable for PSN in practice (platform-user stores seenAt), but the fallback must be sane.
+    await prisma.userAchievement.updateMany({ where: { userId: s.a.id }, data: { unlockedAt: null } });
+    const two = sonyTrophies().slice(0, 2);
+    const title: PsnTitle = {
+      npTitleId: LIST,
+      serviceName: "trophy",
+      name: "Canhões",
+      platform: "PS4",
+      progress: 100,
+      trophyCounts: { bronze: 2, silver: 0, gold: 0, platinum: 0 },
+      earnedCounts: { bronze: 2, silver: 0, gold: 0, platinum: 0 },
+      lastPlayed: UNLOCKED,
+    };
+    const [report] = await repairPsnLists(fakePsn(() => two, [title]), [LIST], { now: NOW });
+    expect(report.status).toBe("repaired");
+    const progress = await prisma.userTrophyList.findUniqueOrThrow({ where: { userId_listId: { userId: s.a.id, listId: s.list.id } } });
+    expect(progress.completedAt).toEqual(NOW);
+  });
+
   it("reports a list it does not know", async () => {
     const [report] = await repairPsnLists(fakePsn(() => sonyTrophies()), ["NPWR00000_00"], { now: NOW });
     expect(report.status).toBe("not-found");

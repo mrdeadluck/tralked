@@ -39,24 +39,98 @@ export type GameFilter = {
   q?: string;
   /** PC | PLAYSTATION | XBOX | NINTENDO | RETRO */
   platform?: string;
+  /** Only games on that platform family and no other (PC / PlayStation / Xbox / Nintendo). */
+  exclusive?: boolean;
+  /** Only games with a trophy / achievement list. */
+  withTrophies?: boolean;
 };
 
 /** Platform filters of the catalog (the "Jogos" menu), Steam / PC first. */
 export const CATALOG_PLATFORMS = ["PC", "PLAYSTATION", "XBOX", "NINTENDO", "RETRO"] as const;
 
 /** Account platform whose game ids (GamePlatformLink) also put a game under a catalog platform. */
-const LINK_PLATFORM: Record<string, string | undefined> = { PC: "steam", PLAYSTATION: "psn", XBOX: "xbox", RETRO: "retro" };
+const LINK_PLATFORM: Record<string, string | undefined> = { PLAYSTATION: "psn", XBOX: "xbox", RETRO: "retro" };
+
+/** IGDB console slugs (Game.consoles) that have a trophy / achievement system. */
+const PLAYSTATION_TROPHY_CONSOLES = ["ps4", "ps5", "psvita"];
+const XBOX_ACHIEVEMENT_CONSOLES = ["xbox360", "xboxone", "series-x-s"];
+/** PS3 trophies started with firmware 2.40 in mid-2008: earlier PS3 games have none. */
+const PS3_TROPHIES_FROM = new Date("2008-01-01T00:00:00Z");
+
+/** The families the "exclusive" filter compares (Retro stays out of the count). */
+const EXCLUSIVITY_FAMILIES = ["PC", "PLAYSTATION", "XBOX", "NINTENDO"] as const;
 
 /**
- * A game is on a catalog platform when its catalog list says so, or when it has an id on that
- * platform's network (games created by a PSN/Xbox/RetroAchievements sync list their console, e.g.
- * "PS5" or "SNES"). Retro games only exist through RetroAchievements ids.
+ * The game is under a family: its catalog list says so, or it has an id on that network (games
+ * created by a PSN/Xbox/RetroAchievements sync list their console). PC is "exists on Steam"
+ * (`steamAppId`, label "PC · Steam"); Retro only exists through RetroAchievements ids.
  */
-export function platformWhere(platform: string): Prisma.GameWhereInput {
+function onFamily(platform: string): Prisma.GameWhereInput {
+  if (platform === "PC") return { steamAppId: { not: null } };
   const link = LINK_PLATFORM[platform];
   const byLink: Prisma.GameWhereInput | null = link ? { platformLinks: { some: { platform: link } } } : null;
   if (platform === "RETRO") return byLink!;
   return byLink ? { OR: [{ platforms: { has: platform } }, byLink] } : { platforms: { has: platform } };
+}
+
+/** Same as `onFamily`, for the exclusivity count: an IGDB PC release counts as being on PC too. */
+function countsAsFamily(platform: string): Prisma.GameWhereInput {
+  return platform === "PC" ? { OR: [{ platforms: { has: "PC" } }, { steamAppId: { not: null } }] } : onFamily(platform);
+}
+
+function exclusiveTo(platform: string): Prisma.GameWhereInput {
+  const others = EXCLUSIVITY_FAMILIES.filter((f) => f !== platform).map((f) => ({ NOT: countsAsFamily(f) }));
+  return { AND: [onFamily(platform), ...others] };
+}
+
+/** The game has a trophy / achievement list on that family (Nintendo has none). */
+function withTrophiesOn(platform: string): Prisma.GameWhereInput {
+  switch (platform) {
+    case "PLAYSTATION":
+      return {
+        OR: [
+          { consoles: { hasSome: PLAYSTATION_TROPHY_CONSOLES } },
+          { AND: [{ consoles: { has: "ps3" } }, { releaseDate: { gte: PS3_TROPHIES_FROM } }] },
+          { trophyLists: { some: { platform: "psn", trophyCount: { gt: 0 } } } },
+        ],
+      };
+    case "XBOX":
+      return { OR: [{ consoles: { hasSome: XBOX_ACHIEVEMENT_CONSOLES } }, { trophyLists: { some: { platform: "xbox", trophyCount: { gt: 0 } } } }] };
+    case "PC":
+      return { achievementCount: { gt: 0 } };
+    case "RETRO":
+      // Every RetroCatalogGame has achievements (the RA game list import drops empty sets), and
+      // it only reaches a catalog game through this link.
+      return { OR: [{ trophyLists: { some: { platform: "retro" } } }, { platformLinks: { some: { platform: "retro" } } }] };
+    default:
+      return { id: { in: [] } };
+  }
+}
+
+/**
+ * Where of the catalog filters. `platform` narrows to a family; `exclusive` keeps the games that
+ * are on no other family (PS4 + PS5 is still PlayStation only; a later Steam release ends it);
+ * `withTrophies` keeps the games with a trophy / achievement list. Without a platform, `exclusive`
+ * means exactly one of PC / PlayStation / Xbox / Nintendo and `withTrophies` looks across every family.
+ */
+export function catalogWhere(filter: Pick<GameFilter, "platform" | "exclusive" | "withTrophies">): Prisma.GameWhereInput {
+  const { platform, exclusive, withTrophies } = filter;
+  if (platform) {
+    return {
+      AND: [onFamily(platform), ...(exclusive ? [exclusiveTo(platform)] : []), ...(withTrophies ? [withTrophiesOn(platform)] : [])],
+    };
+  }
+  const and: Prisma.GameWhereInput[] = [];
+  // No platform: exclusive = counted in exactly one of PC / PlayStation / Xbox / Nintendo (Retro never counts).
+  if (exclusive) {
+    and.push({
+      OR: EXCLUSIVITY_FAMILIES.map((f) => ({
+        AND: [countsAsFamily(f), ...EXCLUSIVITY_FAMILIES.filter((o) => o !== f).map((o) => ({ NOT: countsAsFamily(o) }))],
+      })),
+    });
+  }
+  if (withTrophies) and.push({ OR: [...EXCLUSIVITY_FAMILIES, "RETRO"].map((f) => ({ AND: [onFamily(f), withTrophiesOn(f)] })) });
+  return and.length ? { AND: and } : {};
 }
 
 export type GameCard = {
@@ -133,7 +207,7 @@ export async function listGames(
   if (!withStubs) and.push({ stub: false });
   if (filter.skill) and.push({ skills: { some: { skill: filter.skill } } });
   if (filter.withGuide) and.push({ guide: { is: { status: "published" } } });
-  if (filter.platform) and.push(platformWhere(filter.platform));
+  if (filter.platform || filter.exclusive || filter.withTrophies) and.push(catalogWhere(filter));
   if (filter.almost && userId) {
     // Steam progress against the Steam total, from the player's own library (bounded).
     const owned = await prisma.userGame.findMany({

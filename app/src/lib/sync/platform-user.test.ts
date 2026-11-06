@@ -635,7 +635,7 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     await syncPlatformAccount(user.id, "psn", { now: t1 });
     const first = await prisma.userAchievement.findMany({ where: { userId: user.id } });
     expect(first).toHaveLength(14);
-    expect(first.every((u) => u.unlockedAt.getTime() === t1.getTime())).toBe(true);
+    expect(first.every((u) => u.unlockedAt?.getTime() === t1.getTime())).toBe(true);
     // 14 unlocks at one instant would be a burst, but undated unlocks are not burst evidence.
     expect(first.every((u) => !u.suspicious)).toBe(true);
     const constancia = () =>
@@ -646,7 +646,7 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
 
     await syncPlatformAccount(user.id, "psn", { now: t2, full: true });
     const second = await prisma.userAchievement.findMany({ where: { userId: user.id } });
-    expect(second.every((u) => u.unlockedAt.getTime() === t1.getTime())).toBe(true);
+    expect(second.every((u) => u.unlockedAt?.getTime() === t1.getTime())).toBe(true);
     expect((await constancia()).points).toBe(before.points);
   });
 

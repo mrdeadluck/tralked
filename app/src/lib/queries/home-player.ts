@@ -92,8 +92,9 @@ export async function getHomePlayer(userId: string, now = new Date()): Promise<H
       select: { title: true, progress: true, rewardXp: true, completedAt: true, condition: true },
     }),
     closestGame(userId),
+    // Undated unlocks were not earned on any day (and `desc` would put their NULL first).
     prisma.userAchievement.findFirst({
-      where: { userId, suspicious: false },
+      where: { userId, suspicious: false, unlockedAt: { not: null } },
       orderBy: { unlockedAt: "desc" },
       select: { unlockedAt: true },
     }),
@@ -144,7 +145,7 @@ export async function getHomePlayer(userId: string, now = new Date()): Promise<H
     streak: {
       current: user.stats?.streakCurrent ?? 0,
       shields: user.stats?.shields ?? 0,
-      activeToday: lastUnlock !== null && toLocalDay(lastUnlock.unlockedAt) === today,
+      activeToday: lastUnlock?.unlockedAt != null && toLocalDay(lastUnlock.unlockedAt) === today,
     },
     rank,
     profilePublic: user.profilePublic,

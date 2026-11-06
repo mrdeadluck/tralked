@@ -52,7 +52,8 @@ describe.skipIf(!reachable)("recomputeUser", () => {
   async function unlock(
     userId: string,
     index: number,
-    unlockedAt: Date,
+    /** null: earned on a date Steam does not know. */
+    unlockedAt: Date | null,
     suspicious = false,
   ) {
     const { prisma } = await import("@/lib/db");
@@ -184,6 +185,31 @@ describe.skipIf(!reachable)("recomputeUser", () => {
       where: { userId: user.id, kind: "daily", periodKey: "2026-10-31", title: "Desbloqueie 5 conquistas" },
     });
     expect(five.progress).toBe(1);
+  });
+
+  it("undated unlocks stay out of streak, active days and missions, but count for the rest", async () => {
+    const { prisma } = await import("@/lib/db");
+    const { recomputeUser } = await import("./recompute");
+    const user = await newUser();
+    // 5 rare unlocks Steam gives without a date, and one dated today.
+    for (let i = 0; i < 5; i++) await unlock(user.id, i, null);
+    await unlock(user.id, 5, new Date(NOW.getTime() - HOUR));
+
+    await recomputeUser(user.id, NOW);
+
+    const stats = await prisma.userStats.findUniqueOrThrow({ where: { userId: user.id } });
+    expect(stats).toMatchObject({ streakCurrent: 1, streakBest: 1 });
+    const constancia = await prisma.attributeProgress.findUniqueOrThrow({
+      where: { userId_attribute: { userId: user.id, attribute: "constancia" } },
+    });
+    expect(constancia.points).toBe(20); // 1 active day (15) + best streak 1 (5)
+    const daily = await prisma.mission.findMany({ where: { userId: user.id, kind: "daily", periodKey: "2026-10-31" } });
+    const five = daily.find((m) => m.title === "Desbloqueie 5 conquistas");
+    if (five) expect(five).toMatchObject({ progress: 1, completedAt: null });
+    expect(daily.every((m) => m.completedAt === null && m.progress <= 1)).toBe(true);
+    // Totals still see all six (rank stats count every valid unlock).
+    const rank = await prisma.userRankStats.findUniqueOrThrow({ where: { userId_scope: { userId: user.id, scope: "all" } } });
+    expect(rank.achievements).toBe(6);
   });
 
   it("creates daily (3) and weekly (2) missions once per period", async () => {

@@ -84,3 +84,9 @@ export interface IgdbCatalogApi {
   /** Platform ids by exact name (e.g. "Nintendo Switch 2"), for platforms newer than our table. */
   findPlatformIds(names: string[]): Promise<number[]>;
 }
+
+/** IGDB platforms of games by id, for the console backfill (scripts/igdb-consoles-backfill.ts). */
+export interface IgdbPlatformsApi {
+  /** IGDB platform ids of up to 500 games at once, by IGDB id. Unknown games are left out. */
+  getGamePlatforms(ids: number[]): Promise<Map<number, number[]>>;
+}

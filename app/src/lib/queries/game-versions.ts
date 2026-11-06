@@ -50,11 +50,12 @@ export type PlayerVersion = {
   /** The version's best list (its unlocked/total/pct); null when the version has no list row. */
   bestListId: string | null;
   /** apiName -> when it was first earned, in any list of the version. */
-  unlockedAt: Record<string, Date>;
+  /** apiName -> when it was first earned (null: earned on an unknown date); absent = not earned. */
+  unlockedAt: Record<string, Date | null>;
   /** Tiers of the trophies earned in the best list (the platinum also when only the 100% earns it). */
   tiersEarned: TierCounts;
   /** apiName -> the lists it was earned in, oldest unlock first (only on a version with several lists). */
-  earnedAt: Record<string, { label: string; at: Date }[]>;
+  earnedAt: Record<string, { label: string; at: Date | null }[]>;
   /** apiName -> XP the ledger paid for it (entries not voided). */
   xp: Record<string, number>;
 };
@@ -86,7 +87,7 @@ export type PlayerInput = {
   lists: ListRow[];
   achievements: SlimAchRow[];
   steamCount: number;
-  unlocks: { achievementId: string; unlockedAt: Date }[];
+  unlocks: { achievementId: string; unlockedAt: Date | null }[];
   userLists: { listId: string; unlockedCount: number; completedAt: Date | null }[];
   steamGame: { unlockedCount: number; completedAt: Date | null } | null;
   /** Achievement ledger entries of the game, not voided (sourceKey = an Achievement id). */
@@ -225,13 +226,15 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
     const best = entries.reduce((b, e) => (pctOf(e) > pctOf(b) || (pctOf(e) === pctOf(b) && e.unlocked > b.unlocked) ? e : b));
 
     const earnedIn: Record<string, string[]> = {};
-    const earnedAt: Record<string, { label: string; at: Date }[]> = {};
-    const unlockedAt: Record<string, Date> = {};
+    const earnedAt: Record<string, { label: string; at: Date | null }[]> = {};
+    const unlockedAt: Record<string, Date | null> = {};
     let platinumTrophy = false;
     for (const e of entries) {
       for (const a of earnedRows(e.rows)) {
-        const when = unlockById.get(a.id)!;
-        if (!unlockedAt[a.apiName] || when < unlockedAt[a.apiName]) unlockedAt[a.apiName] = when;
+        const when = unlockById.get(a.id) ?? null;
+        // A dated unlock wins over an undated one; the dates of the version's lists: the oldest.
+        const prev = unlockedAt[a.apiName];
+        if (!(a.apiName in unlockedAt) || (when && (!prev || when < prev))) unlockedAt[a.apiName] = when;
         if (e.label) {
           (earnedIn[a.apiName] ??= []).push(e.label);
           (earnedAt[a.apiName] ??= []).push({ label: e.label, at: when });
@@ -239,7 +242,10 @@ export function buildPlayerVersions(input: PlayerInput): PlayerVersion[] {
         if (tierOf(a) === "platinum") platinumTrophy = true;
       }
     }
-    for (const dates of Object.values(earnedAt)) dates.sort((x, y) => x.at.getTime() - y.at.getTime());
+    // Oldest first; the undated ones last.
+    for (const dates of Object.values(earnedAt)) {
+      dates.sort((x, y) => (x.at ? x.at.getTime() : Infinity) - (y.at ? y.at.getTime() : Infinity) || 0);
+    }
 
     const xp: Record<string, number> = {};
     for (const e of entries) {
