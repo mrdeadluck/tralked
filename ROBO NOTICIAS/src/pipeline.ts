@@ -13,6 +13,7 @@ import { collectLive, extractText, fetchPage, type FetchFn } from "./collect/ind
 import { isValidYoutubeId } from "./collect/youtube.js";
 import type { Config, Source } from "./config.js";
 import type { ArticleRow, Db, ItemRow, SpendBucket, StoryRow } from "./db.js";
+import { gameDestination } from "./game-destination.js";
 import { acquireLock, type Lock } from "./lock.js";
 import {
   PautaRejectedError,
@@ -305,14 +306,24 @@ export async function pool<T>(items: T[], concurrency: number, worker: (item: T)
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
 }
 
-/** Resolves triaged game names to site games, one lookup per name. Lookup failures count as "not found". */
+/**
+ * Resolves triaged game names to site games, one lookup per name. Lookup failures count as "not found".
+ * A game with a destination (`gameDestination`: Mass Effect 1-3 → Legendary Edition) resolves to it,
+ * whether the triage named it or the catalog search found it.
+ */
 function gameResolver(tralked: Tralked) {
   const cache = new Map<string, Promise<{ slug: string; name: string } | null>>();
   return (name: string) => {
     const key = name.trim().toLowerCase();
     let hit = cache.get(key);
     if (!hit) {
-      hit = tralked.findGame(name).catch(() => null);
+      const destination = gameDestination(name);
+      hit = destination
+        ? Promise.resolve(destination)
+        : tralked
+            .findGame(name)
+            .then((found) => (found ? (gameDestination(found.name) ?? gameDestination(found.slug) ?? found) : null))
+            .catch(() => null);
       cache.set(key, hit);
     }
     return hit;
