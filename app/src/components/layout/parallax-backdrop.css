@@ -1,0 +1,202 @@
+/*
+ * Parallax page backdrop (components/layout/ParallaxBackdrop.tsx), ported rule for rule from the
+ * approved preview (tralked-parallax-preview, versao-aprovada-20261106-153313, dist/style.css).
+ * Rules are kept in the preview's order because later revisions override earlier ones; every
+ * selector is scoped under .tk-scene. Content/preview-tool rules were left out.
+ */
+/* Under every page layer (the preview kept its content above z-index 0 instead). */
+.tk-scene{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:-10;background:#0b0d11;isolation:isolate}
+.tk-scene .distant{position:absolute;inset:-10%;background:radial-gradient(ellipse at 6% 42%,#768b1726,transparent 40%),radial-gradient(ellipse at 95% 48%,#773abb2b,transparent 40%),linear-gradient(125deg,transparent 30%,#26272c33 30.1%,transparent 30.2%);will-change:transform}
+.tk-scene .figure{position:absolute;top:8vh;width:clamp(420px,39vw,760px);height:96vh;will-change:transform,opacity;transform-origin:50% 65%;opacity:0;mask-image:linear-gradient(#000 65%,transparent 100%)}
+.tk-scene .figure svg{width:100%;height:100%;overflow:visible;filter:brightness(0.260) saturate(0.39) contrast(1.1)}
+.tk-scene .rim{height:100%;filter:drop-shadow(-2px 0 0 #c6f432aa) drop-shadow(3px 0 0 #a368fa77) drop-shadow(0 0 24px #a368fa22)}
+.tk-scene .duo{left:calc(50% - 930px);z-index:4;width:680px;opacity:1}
+.tk-scene .link{right:calc(50% - 1010px);z-index:1;width:800px}
+.tk-scene .faye{left:calc(50% - 970px);z-index:1;width:760px}
+.tk-scene .marcus{right:calc(50% - 960px);z-index:4;width:710px}
+.tk-scene .world-mark{position:absolute;z-index:2;left:50%;top:31%;width:min(1050px,90vw);height:auto;opacity:.10;transform:translateX(-50%);filter:drop-shadow(0 0 30px #a368fa55);will-change:transform,opacity}
+.tk-scene .mist{position:absolute;z-index:5;inset:-15%;background:radial-gradient(ellipse at 16% 72%,#a368fa16,transparent 28%),radial-gradient(ellipse at 85% 35%,#c6f4320e,transparent 34%);will-change:transform}
+.tk-scene .dust{position:absolute;z-index:6;inset:-10%;opacity:.27;background-image:radial-gradient(circle,#c6f432 0 1px,transparent 1.5px),radial-gradient(circle,#a368fa 0 1px,transparent 1.5px);background-size:173px 191px,227px 263px;background-position:10px 40px,94px 140px;mask-image:linear-gradient(90deg,#000,transparent 35%,transparent 65%,#000);will-change:transform}
+.tk-scene .reading-shade{position:absolute;inset:0;z-index:7;background:linear-gradient(90deg,transparent,#0e10145c 20%,#0e1014c9 38%,#0e1014c9 62%,#0e10145c 80%,transparent)}
+@media(min-width:1600px){
+  .tk-scene .duo{left:calc(50% - 1000px)}
+  .tk-scene .figure svg{filter:brightness(0.330) saturate(0.35)}
+}
+@media(max-width:1100px){
+  .tk-scene .duo{left:-260px}
+  .tk-scene .link{right:-330px}
+  .tk-scene .faye{left:-320px}
+  .tk-scene .marcus{right:-280px}
+}
+@media(max-width:800px){
+  .tk-scene .duo{left:-170px;width:470px}
+  .tk-scene .link{right:-245px;width:580px}
+  .tk-scene .faye{left:-220px;width:530px}
+  .tk-scene .marcus{right:-205px;width:490px}
+  .tk-scene .figure{top:16vh;height:75vh}
+  .tk-scene .figure svg{filter:brightness(0.212) saturate(0.30)}
+  .tk-scene .world-mark{width:135vw;top:38%}
+  .tk-scene .reading-shade{background:linear-gradient(90deg,#10131933,#101319ad 30%,#101319ad 70%,#10131933)}
+}
+@media(min-width:1200px){
+  .tk-scene{--side-center:max(70px,calc((100vw - 1280px)/4))}
+  .tk-scene .figure{height:90vh;top:8vh}
+  .tk-scene .duo{width:390px;left:calc(var(--side-center) - 195px)}
+  .tk-scene .link{width:470px;right:calc(var(--side-center) - 235px)}
+  .tk-scene .faye{width:440px;left:calc(var(--side-center) - 250px)}
+  .tk-scene .marcus{width:410px;right:calc(var(--side-center) - 225px)}
+}
+@media(min-width:801px) and (max-width:1199px){
+  .tk-scene .duo{width:370px;left:-155px}
+  .tk-scene .link{width:430px;right:-190px}
+  .tk-scene .faye{width:400px;left:-195px}
+  .tk-scene .marcus{width:370px;right:-165px}
+}
+@media(max-width:800px){
+  .tk-scene .duo{left:-220px}
+  .tk-scene .link{right:-295px}
+  .tk-scene .faye{left:-275px}
+  .tk-scene .marcus{right:-260px}
+}
+@media(min-width:1200px){
+  .tk-scene .figure{height:96vh}
+  .tk-scene .duo{width:680px;left:calc(var(--side-center) - 340px)}
+  .tk-scene .link{width:800px;right:calc(var(--side-center) - 400px)}
+  .tk-scene .faye{width:760px;left:calc(var(--side-center) - 432px)}
+  .tk-scene .marcus{width:710px;right:calc(var(--side-center) - 390px)}
+}
+@media(min-width:801px) and (max-width:1199px){
+  .tk-scene .duo{width:680px;left:-310px}
+  .tk-scene .link{width:800px;right:-375px}
+  .tk-scene .faye{width:760px;left:-400px}
+  .tk-scene .marcus{width:710px;right:-352px}
+}
+.tk-scene{--side-center:70px}
+.tk-scene .figure.kratos{width:600px;right:calc(var(--side-center) - 230px)}
+.tk-scene .figure.lara{width:650px;left:calc(var(--side-center) - 440px)}
+.tk-scene .figure.mario{width:620px;left:calc(var(--side-center) - 300px)}
+.tk-scene .figure.tarnished{width:760px;right:calc(var(--side-center) - 555px)}
+.tk-scene .figure.soul{width:800px;left:calc(var(--side-center) - 450px)}
+.tk-scene .figure.price{width:640px;right:calc(var(--side-center) - 400px)}
+@media(min-width:1200px){
+  .tk-scene{--side-center:max(70px,calc((100vw - 1280px)/4))}
+}
+@media(max-width:800px){
+  .tk-scene{--side-center:20px}
+  .tk-scene .figure.kratos{width:420px;right:-170px}
+  .tk-scene .figure.lara{width:455px;left:-285px}
+  .tk-scene .figure.mario{width:435px;left:-200px}
+  .tk-scene .figure.tarnished{width:530px;right:-355px}
+  .tk-scene .figure.soul{width:560px;left:-295px}
+  .tk-scene .figure.price{width:450px;right:-255px}
+}
+.tk-scene .figure:is(.lara,.tarnished) .rim{display:flex;align-items:center}
+.tk-scene .figure:is(.lara,.tarnished) svg{height:auto;mask-image:linear-gradient(transparent,#000 8%,#000 65%,transparent 100%)}
+.tk-scene .figure.soul{left:calc(var(--side-center) - 380px)}
+.tk-scene .figure.soul svg{filter:brightness(0.413) saturate(0.27) contrast(1.1)}
+@media(max-width:800px){
+  .tk-scene .figure.soul{left:-250px}
+}
+@media(min-width:801px){
+  .tk-scene .figure{top:2vh}
+}
+@media(max-width:800px){
+  .tk-scene .figure{top:12vh}
+}
+@media(min-width:801px){
+  .tk-scene .figure.link{top:-8vh}
+}
+@media(max-width:800px){
+  .tk-scene .figure.link{top:2vh}
+}
+@media(min-width:801px){
+  .tk-scene .figure.link{top:0vh}
+}
+@media(max-width:800px){
+  .tk-scene .figure.link{top:8vh}
+}
+.tk-scene .transition-word{position:absolute;z-index:2;left:50%;top:43%;width:min(1250px,108vw);height:auto;opacity:0;will-change:transform,opacity;filter:drop-shadow(0 0 26px #a368fa44)}
+.tk-scene .achievement-ribbon{position:absolute;z-index:2;left:-22vw;top:29vh;width:145vw;padding:17px 0;background:#c6f432;border-top:3px solid #e8ffad;border-bottom:3px solid #e8ffad;box-shadow:0 0 0 7px #c6f43225,0 18px 55px #0007;transform:rotate(-13deg);transform-origin:center;will-change:transform,opacity}
+.tk-scene .ribbon-track{display:flex;align-items:center;justify-content:center;gap:70px;white-space:nowrap}
+.tk-scene .ribbon-track>span{display:flex;align-items:center;gap:13px;flex:none}
+.tk-scene .ribbon-track img{width:clamp(350px,35vw,650px);height:auto;filter:brightness(0)}
+.tk-scene .ribbon-track b{font:900 clamp(70px,8vw,130px)/.8 var(--font-archivo),sans-serif;color:#11170b}
+.tk-scene .ribbon-track small{font:800 19px var(--font-jetbrains-mono),monospace;color:#11170b;writing-mode:vertical-rl;border-left:2px solid #11170b;padding-left:10px}
+@media(max-width:800px){
+  .tk-scene .achievement-ribbon{top:28vh;left:-55vw;width:210vw;padding:13px 0}
+  .tk-scene .ribbon-track{gap:30px}
+  .tk-scene .ribbon-track img{width:300px}
+  .tk-scene .ribbon-track b{font-size:70px}
+  .tk-scene .ribbon-track small{font-size:13px}
+  .tk-scene .transition-word{width:140vw;top:40%}
+}
+.tk-scene .figure.soul .rim{transform:scale(1.40);transform-origin:50% 15%}
+.tk-scene .figure.lara{left:calc(var(--side-center) - 285px)}
+.tk-scene .figure.tarnished{right:calc(var(--side-center) - 310px)}
+.tk-scene .figure.tarnished svg{mask-image:linear-gradient(#000 75%,transparent 100%)}
+.tk-scene .figure.lara svg{filter:brightness(0.590) saturate(0.27) contrast(1.1)}
+@media(max-width:800px){
+  .tk-scene .figure.lara{left:-165px}
+  .tk-scene .figure.tarnished{right:-190px}
+}
+.tk-scene .figure.lara svg{mask-image:linear-gradient(#000 65%,transparent 100%)}
+.tk-scene .figure.tarnished{top:10vh}
+@media(max-width:800px){
+  .tk-scene .figure.tarnished{top:16vh}
+}
+.tk-scene .figure.faye{left:calc(var(--side-center) - 175px)}
+@media(max-width:800px){
+  .tk-scene .figure.faye{left:-90px}
+}
+.tk-scene .figure.faye{top:10vh;left:calc(var(--side-center) - 135px)}
+@media(max-width:800px){
+  .tk-scene .figure.faye{top:16vh;left:-40px}
+}
+.tk-scene .figure.soul{left:calc(var(--side-center) - 405px)}
+@media(max-width:800px){
+  .tk-scene .figure.soul{left:-265px}
+}
+.tk-scene .figure.lara svg{height:100%;mask-image:linear-gradient(#000 78%,transparent 100%);filter:brightness(.413) saturate(.35) contrast(1.1)}
+.tk-scene .figure.lara{top:10vh;left:calc(var(--side-center) - 285px)}
+@media(max-width:800px){
+  .tk-scene .figure.lara{top:16vh;left:-135px}
+}
+.tk-scene .figure.lara{left:calc(var(--side-center) - 175px)}
+@media(max-width:800px){
+  .tk-scene .figure.lara{left:-65px}
+}
+.tk-scene .figure.lara{width:760px;left:calc(var(--side-center) - 300px);top:10vh}
+.tk-scene .figure.lara svg{height:100%;mask-image:linear-gradient(#000 68%,transparent 100%)}
+@media(max-width:800px){
+  .tk-scene .figure.lara{width:520px;left:-165px;top:16vh}
+}
+
+/* Site port, 11-06 (Lucas): Laufey and Lara placed by hand, mostly out from behind the content (desktop; the
+   phone layout keeps the preview's own positions below 801 px). */
+@media(min-width:801px){
+  .tk-scene .figure.faye{left:calc(var(--side-center) - 215px)}
+  .tk-scene .figure.lara{left:calc(var(--side-center) - 380px)}
+}
+
+/*
+ * Content panels (Lucas, 11-06; content-panels.ts): blocks that had no box of their own become the
+ * preview's panels: graphite at 90% (a hint of the scene through it), a margin around the content
+ * and the cards' 1 px edge, square. The margin is drawn outside the box with spread shadows, so nothing on the
+ * page moves or shrinks. content-panels.ts marks them ([data-tk-panel]) and merges blocks that sit
+ * too close into one panel; until it has run (html without data-tk-panels), the outermost blocks
+ * are painted one by one with the same selector (PANEL_CANDIDATES there: keep both in step). Base
+ * layer, so a background utility on the element still wins.
+ */
+@layer base {
+  /* One compound selector each: no whitespace between :is() and the :not()s. */
+  html[data-tk-panels] [data-tk-panel],
+  html:not([data-tk-panels]) #principal :is(section, aside, article, header, nav, form, ul, ol, table, h1, h2, h3, h4, p, [data-section-head]):not([class^="bg-"], [class*=" bg-"], [style*="background"]):not(#principal :is(section, aside, article, header, nav, form, ul, ol, table, h1, h2, h3, h4, p, [data-section-head], [class^="bg-"], [class*=" bg-"], [style*="background"]) *) {
+    --tk-panel: color-mix(in oklch, var(--bg) 90%, transparent);
+    background-color: var(--tk-panel);
+    /* Square corners on purpose: a spread shadow adds its spread to the corner radius. Edge and
+       margin follow the site's own cards (InviteStrip: border-line, 16-20 px of padding). */
+    box-shadow:
+      0 0 0 16px var(--tk-panel),
+      0 0 0 17px var(--border);
+  }
+}
