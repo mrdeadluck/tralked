@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
-import { findDuplicateCandidates, renderMarkdown, type DuplicateGroup } from "./duplicates";
+import { readFileSync as readText } from "node:fs";
+import { findDuplicateCandidates, GAME_REFS, movesCell, renderMarkdown, verdictOf, type DuplicateGroup, type GameRef } from "./duplicates";
 
 // Test database only (vitest.db-guard.ts). Fixtures use the `test-dup` prefix and are removed.
 const PREFIX = "test-dup";
@@ -21,6 +22,10 @@ async function mine(): Promise<DuplicateGroup[]> {
 
 const game = (slug: string, name: string, extra: Record<string, unknown> = {}) =>
   prisma.game.create({ data: { slug: `${PREFIX}-${slug}`, name, achievementCount: 0, platforms: ["PLAYSTATION"], ...extra } });
+
+const ref = (id: string, name: string): GameRef => ({
+  id, slug: id, name, platforms: [], steamAppId: null, igdbId: null, stub: false, hasGuide: false, players: 0,
+});
 
 const guideOf = (gameId: string) =>
   prisma.guide.create({
@@ -63,6 +68,22 @@ beforeAll(async () => {
   // Keep order: the Steam game wins over an older plain game.
   await game("plain-old", "Test Dup Ranked");
   await game("plain-steam", "Test Dup Ranked Definitive Edition", { steamAppId: 990003 });
+
+  // Own lists on the same console on both games (neither is held by a player: catalog lists).
+  for (const [slug, name, id] of [["console-a", "Test Dup Console", "NPWR3_00"], ["console-b", "Test Dup Console Complete Edition", "NPWR4_00"]] as const) {
+    const g = await game(slug, name);
+    await prisma.trophyList.create({ data: { gameId: g.id, platform: "psn", externalId: `${PREFIX}-${id}`, console: "PS4", name, trophyCount: 5 } });
+  }
+
+  // One plain game dropped under two Steam editions.
+  await game("multi-plain", "Test Dup Multi");
+  await game("multi-deluxe", "Test Dup Multi Deluxe Edition", { steamAppId: 990004 });
+  await game("multi-complete", "Test Dup Multi Complete Edition", { steamAppId: 990005 });
+
+  // A chain: chain-a is dropped under chain-b, which is dropped under chain-c... except c and b are both Steam.
+  await game("chain-c", "Test Dup Chain", { steamAppId: 990011 });
+  await game("chain-b", "Test Dup Chain Deluxe Edition", { steamAppId: 990010 });
+  await game("chain-a", "Test Dup Chain Deluxe Edition Enhanced");
 
   // A PSN list that sits on one game while its name maps to another (the phase-e match check).
   const holder = await game("holder", "Test Dup Holder Collection");
@@ -118,6 +139,55 @@ describe("duplicate candidates", () => {
     expect(groups[0].reasons.join(" ")).toMatch(/NPWR2_00/);
   });
 
+  it("a PSN/Xbox list on the same console on both games makes them other editions, held or not", async () => {
+    const [g] = (await mine()).filter((x) => x.keep.slug.includes("console-") || x.drop.slug.includes("console-"));
+    expect(g.verdict).toBe("outra-edicao");
+    expect(g.reasons.join(" ")).toMatch(/mesmo console \(psn:PS4\)/);
+    expect(verdictOf({ ...ref("a", "Same"), }, { ...ref("b", "Same") }, true)).toBe("outra-edicao");
+    expect(verdictOf(ref("a", "Same"), ref("b", "Same"), false)).toBe("junta");
+  });
+
+  it("remaster and remastered are the same edition word", () => {
+    expect(verdictOf(ref("a", "Test Remaster"), ref("b", "Test Remastered"), false)).toBe("junta");
+    expect(verdictOf(ref("a", "Test"), ref("b", "Test Remastered"), false)).toBe("outra-edicao");
+  });
+
+  it("flags a drop in several groups, a keep that is dropped elsewhere, and a kept edition", async () => {
+    const multi = (await mine()).filter((x) => x.drop.slug === `${PREFIX}-multi-plain`);
+    expect(multi).toHaveLength(2);
+    expect(multi.every((x) => x.dropGroups === 2 && x.keepIsDropIn === 0 && x.keepIsEdition)).toBe(true);
+
+    const mineGroups = await mine();
+    const chain = mineGroups.find((x) => x.drop.slug === `${PREFIX}-chain-a`)!;
+    expect(chain.keep.slug).toBe(`${PREFIX}-chain-b`);
+    expect(chain.keepIsDropIn).toBe(1);
+    const md = renderMarkdown(mineGroups, "2026-11-06");
+    expect(md).toContain("este jogo sai em 2 grupos: escolha um");
+    expect(md).toContain("o jogo que fica também sai em outro grupo");
+    expect(md).toContain("fica a edição; confira");
+  });
+
+  it("counts singular and plural", () => {
+    expect(movesCell({ userGames: 1, trophyLists: 1, achievements: 2, media: 0 })).toBe("1 jogador, 1 lista de troféus, 2 conquistas");
+    expect(movesCell({ userGames: 0 })).toBe("nada");
+  });
+
+  it("every column that references a game is counted", () => {
+    const schema = readText(new URL("../../../prisma/schema.prisma", import.meta.url), "utf8").split("\n");
+    const refs: string[] = [];
+    let model = "";
+    for (const line of schema) {
+      const m = /^model (\w+) \{/.exec(line);
+      if (m) model = m[1];
+      const r = /^\s*\w+\s+Game\??\s+(?:@relation\([^)]*fields:\s*\[(\w+)\])/.exec(line);
+      if (r) refs.push(`${model}.${r[1]}`);
+    }
+    expect(refs.length).toBeGreaterThan(15);
+    const counted = new Set(GAME_REFS.map((x) => `${x.model}.${x.column}`));
+    expect(refs.filter((x) => !counted.has(x))).toEqual([]);
+    expect(refs).toContain("GameEdition.otherId");
+  });
+
   it("the markdown has one table per verdict with a checkbox per row", async () => {
     const md = renderMarkdown(await mine(), "2026-11-06");
     expect(md).toContain("[ ] juntar");
@@ -141,10 +211,12 @@ describe("duplicate candidates", () => {
     try {
       await run(process.execPath, ["--import", "tsx", "scripts/games-duplicates.ts", "--out", out], { timeout: 120_000 });
       const files = readdirSync(out).sort();
-      expect(files).toHaveLength(2);
+      expect(files).toHaveLength(3); // .json (heavy slice), .md, -completo.json
       expect(files.some((f) => f.endsWith(".json"))).toBe(true);
-      const json = JSON.parse(readFileSync(join(out, files.find((f) => f.endsWith(".json"))!), "utf8")) as { groups: unknown[] };
-      expect(json.groups.length).toBeGreaterThan(0);
+      const full = JSON.parse(readFileSync(join(out, files.find((f) => f.endsWith("-completo.json"))!), "utf8")) as { groups: unknown[] };
+      const heavy = JSON.parse(readFileSync(join(out, files.find((f) => /\d\.json$/.test(f))!), "utf8")) as { groups: unknown[] };
+      expect(full.groups.length).toBeGreaterThan(0);
+      expect(heavy.groups.length).toBeLessThanOrEqual(full.groups.length);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }

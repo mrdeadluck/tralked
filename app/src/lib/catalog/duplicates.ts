@@ -30,6 +30,12 @@ export type DuplicateGroup = {
   reasons: string[];
   /** What a join would move from `drop` to `keep`, by kind (zeros included). */
   moves: Record<string, number>;
+  /** In how many groups of the report this `drop` is the dropped game (more than 1: Lucas picks one). */
+  dropGroups: number;
+  /** In how many groups the `keep` game is itself the dropped game (a chain). */
+  keepIsDropIn: number;
+  /** The game that stays is a store edition (Complete, GOTY...) and the dropped one is the plain game. */
+  keepIsEdition: boolean;
 };
 
 type Row = GameRef & { aliases: string[]; searchName: string | null; createdAt: number };
@@ -39,7 +45,7 @@ type ListRow = { gameId: string; platform: string; externalId: string; console: 
 const PLATFORM_TAG = /\s*\((?:playstation[®™\s]*\d?|ps\s?[345]|ps vita|xbox[^)]*|pc|windows|steam)\)\s*$/i;
 
 /** Words that make a game another edition, checked on `normalizeTitle` output. */
-const OTHER_EDITION_WORDS = ["remastered", "remaster", "remake", "director s cut", "part i", "definitive"] as const;
+const OTHER_EDITION_WORDS = ["remastered", "remake", "director s cut", "part i", "definitive"] as const;
 
 /** Trailing words dropped (on `normalizeTitle` output) to find the base game, besides store tiers. */
 const EXTRA_SUFFIX = /\s+(?:enhanced(?: edition)?|legacy(?: edition)?|remastered|remake|director s cut|definitive edition|part i|\d{4} edition)$/;
@@ -58,7 +64,7 @@ function baseKey(name: string): string | null {
 }
 
 function editionWords(name: string): string[] {
-  const n = ` ${normalizeTitle(name)} `;
+  const n = ` ${normalizeTitle(name).replace(/\bremaster\b/g, "remastered")} `;
   return OTHER_EDITION_WORDS.filter((w) => n.includes(` ${w} `));
 }
 
@@ -119,36 +125,64 @@ const ref = ({ id, slug, name, platforms, steamAppId, igdbId, stub, hasGuide, pl
   id, slug, name, platforms, steamAppId, igdbId, stub, hasGuide, players,
 });
 
-/** Every `moves` key and the SQL that counts it per game id (`$1` is the list of dropped game ids). */
-const MOVE_QUERIES: Record<string, string> = {
-  userGames: `SELECT "gameId" AS id, count(*) AS n FROM "UserGame" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
-  achievements: `SELECT "gameId" AS id, count(*) AS n FROM "Achievement" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
+/**
+ * Every column that points at a game, and the `moves` key it counts under. A join moves (or
+ * folds) all of them; db test "every column that references a game is counted" reads
+ * prisma/schema.prisma and fails when one is missing here.
+ */
+export const GAME_REFS: { key: string; model: string; column: string }[] = [
+  { key: "userGames", model: "UserGame", column: "gameId" },
+  { key: "achievements", model: "Achievement", column: "gameId" },
+  { key: "trophyLists", model: "TrophyList", column: "gameId" },
+  { key: "platformLinks", model: "GamePlatformLink", column: "gameId" },
+  { key: "media", model: "GameMedia", column: "gameId" },
+  { key: "skills", model: "GameSkill", column: "gameId" },
+  { key: "steamPlayers", model: "SteamPlayerCount", column: "gameId" },
+  { key: "guides", model: "Guide", column: "gameId" },
+  { key: "guideRequests", model: "GuideRequest", column: "gameId" },
+  { key: "forumThreads", model: "ForumThread", column: "gameId" },
+  { key: "photos", model: "Photo", column: "gameId" },
+  { key: "wishlist", model: "WishlistItem", column: "gameId" },
+  { key: "articles", model: "ArticleGame", column: "gameId" },
+  { key: "articlesLegacy", model: "Article", column: "gameId" },
+  { key: "news", model: "ExternalNews", column: "gameId" },
+  { key: "releases", model: "GameRelease", column: "gameId" },
+  { key: "opens", model: "GameOpen", column: "gameId" },
+  { key: "slugRedirects", model: "GameSlugRedirect", column: "gameId" },
+  { key: "editions", model: "GameEdition", column: "gameId" },
+  { key: "editions", model: "GameEdition", column: "otherId" },
+];
+
+/** Counts derived through another table, per game id (`$1` is the list of dropped game ids). */
+const DERIVED_QUERIES: Record<string, string> = {
   unlocks: `SELECT a."gameId" AS id, count(*) AS n FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId" WHERE a."gameId" = ANY($1::text[]) GROUP BY 1`,
   undatedUnlocks: `SELECT a."gameId" AS id, count(*) AS n FROM "UserAchievement" ua JOIN "Achievement" a ON a.id = ua."achievementId" WHERE a."gameId" = ANY($1::text[]) AND ua."unlockedAt" IS NULL GROUP BY 1`,
-  trophyLists: `SELECT "gameId" AS id, count(*) AS n FROM "TrophyList" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
   userTrophyLists: `SELECT l."gameId" AS id, count(*) AS n FROM "UserTrophyList" u JOIN "TrophyList" l ON l.id = u."listId" WHERE l."gameId" = ANY($1::text[]) GROUP BY 1`,
   catalogLists: `SELECT l."gameId" AS id, count(*) AS n FROM "TrophyList" l WHERE l."gameId" = ANY($1::text[]) AND NOT EXISTS (SELECT 1 FROM "UserTrophyList" u WHERE u."listId" = l.id) GROUP BY 1`,
-  platformLinks: `SELECT "gameId" AS id, count(*) AS n FROM "GamePlatformLink" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
-  media: `SELECT "gameId" AS id, count(*) AS n FROM "GameMedia" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
-  guides: `SELECT "gameId" AS id, count(*) AS n FROM "Guide" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
-  forumThreads: `SELECT "gameId" AS id, count(*) AS n FROM "ForumThread" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
-  photos: `SELECT "gameId" AS id, count(*) AS n FROM "Photo" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
-  wishlist: `SELECT "gameId" AS id, count(*) AS n FROM "WishlistItem" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
-  articles: `SELECT "gameId" AS id, count(*) AS n FROM "ArticleGame" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
-  news: `SELECT "gameId" AS id, count(*) AS n FROM "ExternalNews" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
-  releases: `SELECT "gameId" AS id, count(*) AS n FROM "GameRelease" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
-  opens: `SELECT "gameId" AS id, count(*) AS n FROM "GameOpen" WHERE "gameId" = ANY($1::text[]) GROUP BY 1`,
 };
+
+const MOVE_KEYS = [...new Set([...GAME_REFS.map((r) => r.key), ...Object.keys(DERIVED_QUERIES)])];
+const MOVE_CHUNK = 5000;
 
 async function loadMoves(ids: string[]): Promise<Map<string, Record<string, number>>> {
   const moves = new Map<string, Record<string, number>>(ids.map((id) => [id, {}]));
-  for (const [key, sql] of Object.entries(MOVE_QUERIES)) {
-    for (const row of await prisma.$queryRawUnsafe<{ id: string; n: bigint }[]>(sql, ids)) {
-      const m = moves.get(row.id);
-      if (m) m[key] = Number(row.n);
+  const queries: { key: string; sql: string }[] = [
+    ...GAME_REFS.map((r) => ({
+      key: r.key,
+      sql: `SELECT "${r.column}" AS id, count(*) AS n FROM "${r.model}" WHERE "${r.column}" = ANY($1::text[]) GROUP BY 1`,
+    })),
+    ...Object.entries(DERIVED_QUERIES).map(([key, sql]) => ({ key, sql })),
+  ];
+  for (let from = 0; from < ids.length; from += MOVE_CHUNK) {
+    const chunk = ids.slice(from, from + MOVE_CHUNK);
+    for (const { key, sql } of queries) {
+      for (const row of await prisma.$queryRawUnsafe<{ id: string; n: bigint }[]>(sql, chunk)) {
+        const m = moves.get(row.id);
+        if (m) m[key] = (m[key] ?? 0) + Number(row.n);
+      }
     }
   }
-  for (const m of moves.values()) for (const key of Object.keys(MOVE_QUERIES)) m[key] ??= 0;
+  for (const m of moves.values()) for (const key of MOVE_KEYS) m[key] ??= 0;
   return moves;
 }
 
@@ -157,19 +191,22 @@ export async function findDuplicateCandidates(): Promise<DuplicateGroup[]> {
   const [games, lists] = await Promise.all([loadGames(), loadLists()]);
   const byId = new Map(games.map((g) => [g.id, g]));
 
-  const bySearch = new Map<string, Row[]>();
-  const byName = new Map<string, Row[]>();
-  const add = (map: Map<string, Row[]>, key: string | null | undefined, g: Row) => {
+  const searchSets = new Map<string, Set<Row>>();
+  const nameSets = new Map<string, Set<Row>>();
+  const add = (map: Map<string, Set<Row>>, key: string | null | undefined, g: Row) => {
     if (!key) return;
     const bucket = map.get(key);
-    if (!bucket) map.set(key, [g]);
-    else if (!bucket.includes(g)) bucket.push(g);
+    if (bucket) bucket.add(g);
+    else map.set(key, new Set([g]));
   };
   for (const g of games) {
-    add(bySearch, g.searchName, g);
-    add(byName, nameKey(g.name), g);
+    add(searchSets, g.searchName, g);
+    add(nameSets, nameKey(g.name), g);
   }
-  for (const bucket of [...bySearch.values(), ...byName.values()]) bucket.sort(rank);
+  /** Buckets as arrays, the game that would stay first. */
+  const ranked = (sets: Map<string, Set<Row>>) => new Map([...sets].map(([k, set]) => [k, [...set].sort(rank)] as const));
+  const bySearch = ranked(searchSets);
+  const byName = ranked(nameSets);
 
   // One entry per pair; the same pair found by several rules gathers every reason.
   const pairs = new Map<string, { a: Row; b: Row; reasons: string[] }>();
@@ -207,15 +244,15 @@ export async function findDuplicateCandidates(): Promise<DuplicateGroup[]> {
     withBest(holder, byName.get(nameKey(list.name)), `lista ${list.platform.toUpperCase()} ${list.externalId} ("${list.name}") está em ${holder.slug}, mas o nome é o de outro jogo`);
   }
 
-  const consoles = new Map<string, Set<string>>(); // gameId -> "platform:console" of lists a player holds
+  const consoles = new Map<string, Set<string>>(); // gameId -> "platform:console" of its non-Steam lists
   for (const l of lists) {
-    if (!l.held || !l.console) continue;
+    if (!l.console) continue; // any non-Steam list counts, held or a catalog list nobody holds
     const set = consoles.get(l.gameId) ?? new Set<string>();
     set.add(`${l.platform}:${l.console}`);
     consoles.set(l.gameId, set);
   }
 
-  const groups: Omit<DuplicateGroup, "moves">[] = [];
+  const groups: Omit<DuplicateGroup, "moves" | "dropGroups" | "keepIsDropIn" | "keepIsEdition">[] = [];
   for (const { a, b, reasons } of pairs.values()) {
     const [keep, drop] = rank(a, b) <= 0 ? [a, b] : [b, a];
     const shared = [...(consoles.get(keep.id) ?? [])].filter((c) => consoles.get(drop.id)?.has(c));
@@ -226,8 +263,16 @@ export async function findDuplicateCandidates(): Promise<DuplicateGroup[]> {
 
   const moves = await loadMoves([...new Set(groups.map((g) => g.drop.id))]);
   const order: DuplicateVerdict[] = ["junta", "outra-edicao", "nao-junta-guia", "nao-junta-steam"];
+  const dropCount = new Map<string, number>();
+  for (const g of groups) dropCount.set(g.drop.id, (dropCount.get(g.drop.id) ?? 0) + 1);
   return groups
-    .map((g) => ({ ...g, moves: moves.get(g.drop.id) ?? {} }))
+    .map((g) => ({
+      ...g,
+      moves: moves.get(g.drop.id) ?? {},
+      dropGroups: dropCount.get(g.drop.id) ?? 1,
+      keepIsDropIn: dropCount.get(g.keep.id) ?? 0,
+      keepIsEdition: withoutEdition(g.keep.name) !== null && withoutEdition(g.drop.name) === null,
+    }))
     .sort(
       (x, y) =>
         order.indexOf(x.verdict) - order.indexOf(y.verdict) ||
@@ -256,27 +301,34 @@ const VERDICT_TITLE: Record<DuplicateVerdict, { title: string; about: string }> 
   },
 };
 
-const MOVE_LABEL: Record<string, string> = {
-  userGames: "jogadores",
-  achievements: "conquistas",
-  unlocks: "desbloqueios",
-  undatedUnlocks: "desbloqueios sem data",
-  trophyLists: "listas de troféus",
-  userTrophyLists: "listas com progresso",
-  catalogLists: "listas do catálogo sem dono",
-  platformLinks: "ligações de plataforma",
-  media: "mídias",
-  guides: "guias",
-  forumThreads: "tópicos do fórum",
-  photos: "fotos",
-  wishlist: "lista de desejos",
-  articles: "artigos",
-  news: "notícias",
-  releases: "lançamentos",
-  opens: "aberturas",
+/** [singular, plural] of what a join moves. */
+const MOVE_LABEL: Record<string, [string, string]> = {
+  userGames: ["jogador", "jogadores"],
+  achievements: ["conquista", "conquistas"],
+  unlocks: ["desbloqueio", "desbloqueios"],
+  undatedUnlocks: ["desbloqueio sem data", "desbloqueios sem data"],
+  trophyLists: ["lista de troféus", "listas de troféus"],
+  userTrophyLists: ["lista com progresso", "listas com progresso"],
+  catalogLists: ["lista do catálogo sem dono", "listas do catálogo sem dono"],
+  platformLinks: ["ligação de plataforma", "ligações de plataforma"],
+  media: ["mídia", "mídias"],
+  skills: ["habilidade", "habilidades"],
+  steamPlayers: ["contagem de jogadores da Steam", "contagens de jogadores da Steam"],
+  guides: ["guia", "guias"],
+  guideRequests: ["pedido de guia", "pedidos de guia"],
+  forumThreads: ["tópico do fórum", "tópicos do fórum"],
+  photos: ["foto", "fotos"],
+  wishlist: ["item da lista de desejos", "itens da lista de desejos"],
+  articles: ["artigo", "artigos"],
+  articlesLegacy: ["artigo (ligação antiga)", "artigos (ligação antiga)"],
+  news: ["notícia", "notícias"],
+  releases: ["lançamento", "lançamentos"],
+  opens: ["abertura", "aberturas"],
+  slugRedirects: ["redirecionamento de endereço", "redirecionamentos de endereço"],
+  editions: ["par de outras edições", "pares de outras edições"],
 };
 
-const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+const cell = (s: string) => s.replace(/\|/g, "\|").replace(/\r?\n/g, " ");
 
 function gameCell(g: GameRef): string {
   const steam = g.steamAppId !== null ? `Steam: sim (${g.steamAppId})` : "Steam: não";
@@ -284,18 +336,29 @@ function gameCell(g: GameRef): string {
   return cell(`**${g.name}**<br>\`${g.slug}\`<br>${g.platforms.join(", ") || "sem plataforma"} · ${steam}${g.stub ? " · só nome" : ""}<br>${players}`);
 }
 
-function movesCell(moves: Record<string, number>): string {
+export function movesCell(moves: Record<string, number>): string {
   const parts = Object.entries(moves)
     .filter(([, n]) => n > 0)
-    .map(([k, n]) => `${n} ${MOVE_LABEL[k] ?? k}`);
+    .map(([k, n]) => `${n} ${MOVE_LABEL[k]?.[n === 1 ? 0 : 1] ?? k}`);
   return parts.length > 0 ? parts.join(", ") : "nada";
 }
 
 /** Something a person would miss after a join: players, progress, a guide, posts. */
 const CONTENT_MOVES = ["userGames", "userTrophyLists", "unlocks", "guides", "forumThreads", "photos", "wishlist", "articles"];
-const hasContent = (g: DuplicateGroup) => g.drop.players > 0 || CONTENT_MOVES.some((k) => (g.moves[k] ?? 0) > 0);
+export const hasContent = (g: DuplicateGroup) => g.drop.players > 0 || CONTENT_MOVES.some((k) => (g.moves[k] ?? 0) > 0);
 
 const lightCell = (g: GameRef) => cell(`\`${g.slug}\` (${g.name}; ${g.steamAppId !== null ? "Steam" : "sem Steam"})`);
+
+/** What Lucas must look at before approving the row. */
+function notes(g: DuplicateGroup): string[] {
+  const out: string[] = [];
+  if (g.dropGroups > 1) out.push(`este jogo sai em ${g.dropGroups} grupos: escolha um`);
+  if (g.keepIsDropIn > 0) out.push("o jogo que fica também sai em outro grupo");
+  if (g.keepIsEdition) out.push("fica a edição; confira");
+  return out;
+}
+
+const reasonsCell = (g: DuplicateGroup) => cell([...g.reasons, ...notes(g).map((n) => `**${n}**`)].join("; "));
 
 /** The report for Lucas to review: pt-BR, one table per verdict, a checkbox per row to approve. */
 export function renderMarkdown(groups: DuplicateGroup[], date: string): string {
@@ -304,13 +367,16 @@ export function renderMarkdown(groups: DuplicateGroup[], date: string): string {
     `# Jogos duplicados: candidatos (${date})`,
     "",
     'Relatório só de leitura: nada foi alterado no banco. Em cada tabela, "Fica" é o jogo que continua e "Sai" é o que seria juntado a ele.',
-    "Marque `[x] juntar` nas linhas que você aprova.",
+    "Marque `[x] juntar` nas linhas que você aprova. Os grupos sem jogadores nem conteúdo para mover ficam recolhidos no fim de cada seção.",
     "",
     "## Resumo",
     "",
-    "| Veredito | Grupos |",
-    "| --- | ---: |",
-    ...verdicts.map((v) => `| ${VERDICT_TITLE[v].title} | ${groups.filter((g) => g.verdict === v).length} |`),
+    "| Veredito | Grupos | Com jogadores ou conteúdo |",
+    "| --- | ---: | ---: |",
+    ...verdicts.map((v) => {
+      const rows = groups.filter((g) => g.verdict === v);
+      return `| ${VERDICT_TITLE[v].title} | ${rows.length} | ${rows.filter(hasContent).length} |`;
+    }),
     "",
   ];
   for (const verdict of verdicts) {
@@ -328,17 +394,21 @@ export function renderMarkdown(groups: DuplicateGroup[], date: string): string {
       out.push(`### Com jogadores ou conteúdo para mover (${heavy.length})`, "");
       out.push("| Fica | Sai | Motivos | Vai mover | Aprovo |", "| --- | --- | --- | --- | --- |");
       for (const g of heavy) {
-        out.push(`| ${gameCell(g.keep)} | ${gameCell(g.drop)} | ${cell(g.reasons.join("; "))} | ${cell(movesCell(g.moves))} | ${box} |`);
+        out.push(`| ${gameCell(g.keep)} | ${gameCell(g.drop)} | ${reasonsCell(g)} | ${cell(movesCell(g.moves))} | ${box} |`);
       }
       out.push("");
     }
     if (light.length > 0) {
-      out.push(`### Sem jogadores nem conteúdo para mover (${light.length})`, "");
-      out.push("| Fica | Sai | Motivos | Vai mover | Aprovo |", "| --- | --- | --- | --- | --- |");
-      for (const g of light) {
-        out.push(`| ${lightCell(g.keep)} | ${lightCell(g.drop)} | ${cell(g.reasons.join("; "))} | ${cell(movesCell(g.moves))} | ${box} |`);
+      out.push(`<details><summary>Sem jogadores nem conteúdo para mover: ${light.length} grupos (abrir a lista)</summary>`, "");
+      if (approvable) {
+        out.push("| Fica | Sai | Motivos | Vai mover | Aprovo |", "| --- | --- | --- | --- | --- |");
+        for (const g of light) {
+          out.push(`| ${lightCell(g.keep)} | ${lightCell(g.drop)} | ${reasonsCell(g)} | ${cell(movesCell(g.moves))} | ${box} |`);
+        }
+      } else {
+        for (const g of light) out.push(`- ${lightCell(g.keep)} e ${lightCell(g.drop)}`);
       }
-      out.push("");
+      out.push("", "</details>", "");
     }
   }
   return out.join("\n");
