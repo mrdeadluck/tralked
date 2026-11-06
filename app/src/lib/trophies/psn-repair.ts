@@ -449,7 +449,7 @@ async function settleHolder(
 type Stale = { paid: number; wants: number };
 
 async function staleEntries(tx: Prisma.TransactionClient, userId: string, gameId: string): Promise<Map<string, Stale>> {
-  const [lists, achievements, unlocks, progress, game, skills] = await Promise.all([
+  const [lists, achievements, unlocks, progress, skills] = await Promise.all([
     tx.trophyList.findMany({ where: { gameId, platform: "psn" }, select: { id: true, externalId: true, console: true, createdAt: true } }),
     tx.achievement.findMany({
       where: { gameId, platform: "psn" },
@@ -464,7 +464,6 @@ async function staleEntries(tx: Prisma.TransactionClient, userId: string, gameId
       })
       .then((rows) => rows.map((u) => ({ ...u, unlockedAt: u.unlockedAt ?? new Date() }))),
     tx.userTrophyList.findMany({ where: { userId, list: { gameId, platform: "psn" } }, select: { listId: true, completedAt: true } }),
-    tx.userGame.findUnique({ where: { userId_gameId_platform: { userId, gameId, platform: "psn" } }, select: { completedAt: true } }),
     tx.gameSkill.findMany({ where: { gameId }, select: { skill: true } }),
   ]);
   const wanted = desiredListEntries({
@@ -475,7 +474,6 @@ async function staleEntries(tx: Prisma.TransactionClient, userId: string, gameId
     achievements,
     unlocks,
     progress,
-    legacyCompletedAt: game?.completedAt ?? null,
   });
   if (wanted.length === 0) return new Map();
   const paid = await tx.xpLedgerEntry.findMany({

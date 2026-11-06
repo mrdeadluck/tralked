@@ -57,7 +57,6 @@ function desired(input: {
   achievements: AchievementRow[];
   unlocks: UnlockRow[];
   progress?: ProgressRow[];
-  legacyCompletedAt?: Date | null;
 }) {
   return desiredListEntries({
     platform: input.platform ?? "psn",
@@ -261,28 +260,12 @@ describe("desiredListEntries", () => {
     ]);
   });
 
-  it("a game none of whose lists the user holds keeps its own-id achievement keys and the legacy platinum while completed", () => {
+  it("a game none of whose lists the user holds keeps its own-id achievement keys and pays no platinum", () => {
     const lists = [list("ps5", "PS5", 1)];
     const achievements = achievementsOf("ps5", ["0", "1"]);
     const unlocks = achievements.map((a, i) => unlock(a.id, at(10, i)));
-    const out = desired({ lists, achievements, unlocks, legacyCompletedAt: at(10, 1) });
-    expect(keys(out)).toEqual(["achievement:ps5-0", "achievement:ps5-1", `platinum:psn:${G}`]);
-    expect(out.find((d) => d.source === "platinum")).toMatchObject({
-      xp: platinumBonus(achievements.map(psnXp)),
-      createdAt: at(10, 1),
-    });
-    // Not completed (or the completion was cleared): no platinum.
+    // The legacy platinum key (before trophy lists) is never paid again: the platinum waits for the list.
     expect(keys(desired({ lists, achievements, unlocks }))).toEqual(["achievement:ps5-0", "achievement:ps5-1"]);
-  });
-
-  it("a game none of whose lists the user holds pays no legacy platinum while one of its unlocks is suspicious", () => {
-    const out = desired({
-      lists: [list("ps5", "PS5", 1)],
-      achievements: achievementsOf("ps5", ["0", "1"]),
-      unlocks: [unlock("ps5-0", at(10)), unlock("ps5-1", at(10, 1), { suspicious: true })],
-      legacyCompletedAt: at(10, 1),
-    });
-    expect(keys(out)).toEqual(["achievement:ps5-0"]);
   });
 
   it("once the user holds a list of the game, the legacy platinum is not desired", () => {
@@ -294,7 +277,6 @@ describe("desiredListEntries", () => {
       achievements,
       unlocks,
       progress: [{ listId: "ps5", completedAt: at(10, 3) }],
-      legacyCompletedAt: at(10, 1),
     });
     expect(keys(out)).toEqual(["achievement:ps5-0", "achievement:ps5-1", `platinum:psn:PS5:${G}`]);
   });

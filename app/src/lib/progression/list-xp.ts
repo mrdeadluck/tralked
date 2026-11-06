@@ -88,12 +88,6 @@ export type DesiredInput = {
   /** The user's UserTrophyList rows of those lists. */
   progress: ProgressRow[];
   /**
-   * UserGame.completedAt of the game on that platform: pays the legacy platinum key while the user
-   * has no UserTrophyList of the game on that platform (data not migrated, or lists not read for
-   * this user yet, keeps its XP).
-   */
-  legacyCompletedAt?: Date | null;
-  /**
    * Achievement ids with a valid `achievement` entry under their own id (settleListXp passes the
    * ledger): a copy already paid that way keeps its key, it never becomes the stand-in.
    */
@@ -231,21 +225,6 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
         });
       }
     }
-  } else if (input.legacyCompletedAt && !input.unlocks.some((u) => u.suspicious && achievementById.has(u.achievementId))) {
-    // A game none of whose lists the user holds (no list yet, or not read for this user yet) keeps
-    // its legacy platinum (no suspicious unlock in it, as for a list), valued like the fraud
-    // release values it.
-    const unlocked = input.achievements.filter((a) => validIds.has(a.id));
-    drafts.push({
-      source: "platinum",
-      sourceKey: legacyPlatinumSourceKey(platform, gameId),
-      xp: platinumBonus(unlocked.map((a) => xpOf(platform, a, false))),
-      platform,
-      createdAt: input.legacyCompletedAt,
-      skills,
-      origin: input.achievements.map((a) => a.id),
-      predecessors: [],
-    });
   }
   return drafts.sort((x, y) => (x.source + x.sourceKey < y.source + y.sourceKey ? -1 : 1));
 }
@@ -262,8 +241,8 @@ function desiredWithOrigin(input: DesiredInput): OriginDraft[] {
  *   `psn:<console>:<gameId>`, which pays the canonical list's completion, or the earliest one when
  *   the canonical list is not complete;
  * - suspicious unlocks pay nothing, and a list with one pays no platinum;
- * - the legacy platinum key is paid while the user has no UserTrophyList of the game on that
- *   platform, when `legacyCompletedAt` and no unlock of the game is suspicious.
+ * - the legacy platinum key (`<platform>:<gameId>`, before trophy lists) is never paid again: a
+ *   platinum waits for the user's UserTrophyList of the game.
  */
 export function desiredListEntries(input: DesiredInput): LedgerDraft[] {
   return desiredWithOrigin(input).map((d) => ({
@@ -350,10 +329,6 @@ export async function planListXp(
     where: { userId, list: { gameId: { in: ids }, platform } },
     select: { listId: true, completedAt: true },
   });
-  const userGames = await db.userGame.findMany({
-    where: { userId, platform, gameId: { in: ids } },
-    select: { gameId: true, completedAt: true },
-  });
   const gameSkills = await db.gameSkill.findMany({ where: { gameId: { in: ids } }, select: { gameId: true, skill: true } });
   const existing = await db.xpLedgerEntry.findMany({
     where: {
@@ -400,7 +375,6 @@ export async function planListXp(
       achievements: achievements.filter((a) => a.gameId === gameId),
       unlocks: unlocks.filter((u) => gameOfAchievement.get(u.achievementId) === gameId),
       progress: progress.filter((p) => lists.some((l) => l.id === p.listId && l.gameId === gameId)),
-      legacyCompletedAt: userGames.find((g) => g.gameId === gameId)?.completedAt ?? null,
       paidOwnIds,
     });
     const wanted = new Set(drafts.map((d) => entryKey(d.source, d.sourceKey)));
