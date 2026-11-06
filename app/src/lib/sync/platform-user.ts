@@ -256,12 +256,10 @@ async function recordTitle(
       const before = u.before ?? u.legacy;
       return {
         ...u,
-        // Sticky like the Steam sync: once suspicious (rule or admin), always suspicious. An unlock
-        // an admin released keeps its stored flag: the rules are not re-applied to it.
-        suspicious:
-          before?.fraudReview === "cleared"
-            ? before.suspicious
-            : before?.suspicious || bursts.has(u.achievementId) || speedRun,
+        // An unlock already stored keeps its stored verdict (suspicious stays suspicious, an
+        // admin-released one stays clean): only unlocks seen for the first time are judged by the
+        // burst and speed rules, so a resync never flags old bursts (save transfers, sibling lists).
+        suspicious: before ? before.suspicious : bursts.has(u.achievementId) || speedRun,
         // A softcore unlock later redone in hardcore is upgraded, never downgraded.
         hardcore: u.a.hardcore || (before?.hardcore ?? false),
       };

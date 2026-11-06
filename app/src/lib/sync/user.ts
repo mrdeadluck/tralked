@@ -173,9 +173,12 @@ async function assertSteamStillLinked(tx: Prisma.TransactionClient, userId: stri
 /** `cleared`: an admin released the unlock (fraudReview), so the rules no longer flag it. */
 type KnownUnlock = { unlockedAt: Date; suspicious: boolean; cleared: boolean };
 
-/** Sticky flag OR the rules, except for an unlock an admin released: it keeps its stored flag. */
+/**
+ * An unlock already stored keeps its stored verdict (suspicious stays suspicious, an admin-released
+ * one stays clean); only an unlock seen for the first time is judged by the rules.
+ */
 const suspiciousVerdict = (before: KnownUnlock | undefined, ruleMatches: boolean) =>
-  before?.cleared ? before.suspicious : Boolean(before?.suspicious) || ruleMatches;
+  before ? before.suspicious : ruleMatches;
 
 /**
  * Records one game in a single transaction: UserGame, UserAchievement (with the anti-fraud
@@ -204,10 +207,8 @@ async function recordGame(
 
   const rows = unlocks.map((u) => ({
     ...u,
-    // Sticky: the stored flag is OR-ed in, so no sync ever clears it. Bursts (over all of the
-    // user's unlocks) and the speed-platinum rule are re-evaluated on every sync, so clearing the
-    // flag by hand does not last while either rule still matches: the next sync sets it again,
-    // unless the admin released it in the fraud queue (fraudReview "cleared").
+    // Stored unlocks keep their verdict; only new unlocks are judged by the burst rule (over all
+    // of the user's unlocks) and the speed-platinum rule.
     suspicious: suspiciousVerdict(known.get(u.achievementId), bursts.has(u.achievementId) || speedRun),
   }));
   const pctById = new Map(game.achievements.map((a) => [a.id, a.globalPct]));

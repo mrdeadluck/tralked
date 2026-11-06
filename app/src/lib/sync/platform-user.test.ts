@@ -58,6 +58,7 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
     await prisma.game.deleteMany({
       where: { platformLinks: { some: { platform: "psn", externalId: { startsWith: FAKE_TITLE_PREFIX } } } },
     });
+    await prisma.game.deleteMany({ where: { slug: "test-burst-filler" } });
   }
 
   /** Replaces the PSN fixture's library with `count` one-trophy titles (one failing, optionally). */
@@ -1891,5 +1892,114 @@ describe.skipIf(!reachable)("syncPlatformAccount", () => {
         data: { externalId: original.externalId },
       });
     }
+  });
+  describe("a resync never re-judges unlocks already stored", () => {
+    const BURST_AT = new Date("2020-03-01T10:00:00Z");
+
+    /** Imports once, then makes every stored unlock of the user one old burst (same 5 s). */
+    async function importThenMakeBurst(platform: "psn" | "xbox", externalId: string, handle: string) {
+      const { prisma } = await import("@/lib/db");
+      const { syncPlatformAccount } = await import("./platform-user");
+      const user = await userWith(platform, externalId, handle);
+      await syncPlatformAccount(user.id, platform);
+      // The Xbox fixture has 9 unlocks: list-less filler unlocks of another game bring the old burst to 10+.
+      if (platform === "xbox") {
+        const filler = await prisma.game.upsert({
+          where: { slug: "test-burst-filler" },
+          create: { slug: "test-burst-filler", name: "Burst filler", achievementCount: 3 },
+          update: {},
+        });
+        for (let i = 0; i < 3; i++) {
+          const a = await prisma.achievement.create({
+            data: { gameId: filler.id, platform: "xbox", apiName: `filler-${i}-${user.id}`, name: `Filler ${i}` },
+          });
+          await prisma.userAchievement.create({ data: { userId: user.id, achievementId: a.id, unlockedAt: BURST_AT } });
+        }
+      }
+      const stored = await prisma.userAchievement.findMany({ where: { userId: user.id }, orderBy: { achievementId: "asc" } });
+      expect(stored.length).toBeGreaterThanOrEqual(10);
+      expect(stored.every((u) => !u.suspicious)).toBe(true);
+      for (const [i, u] of stored.entries()) {
+        await prisma.userAchievement.update({
+          where: { userId_achievementId: { userId: user.id, achievementId: u.achievementId } },
+          data: { unlockedAt: new Date(BURST_AT.getTime() + (i % 5) * 1000) },
+        });
+      }
+      return { prisma, user, stored, syncPlatformAccount };
+    }
+
+    async function snapshot(prisma: Awaited<typeof import("@/lib/db")>["prisma"], userId: string, platform: string) {
+      return {
+        flagged: await prisma.userAchievement.count({ where: { userId, suspicious: true } }),
+        lists: (await prisma.userTrophyList.findMany({ where: { userId, list: { platform } }, orderBy: { listId: "asc" } })).map((l) => l.completedAt?.toISOString() ?? null),
+        games: (await prisma.userGame.findMany({ where: { userId, platform }, orderBy: { gameId: "asc" } })).map((g) => g.completedAt?.toISOString() ?? null),
+        voided: await prisma.xpLedgerEntry.count({ where: { userId, voidedAt: { not: null } } }),
+        valid: await prisma.xpLedgerEntry.count({ where: { userId, voidedAt: null } }),
+      };
+    }
+
+    it("PSN: stored valid unlocks forming a burst stay valid, keep completedAt and void nothing", async () => {
+      const { prisma, user, syncPlatformAccount } = await importThenMakeBurst("psn", "9000000000000000002", "Tralked-Teste");
+      const before = await snapshot(prisma, user.id, "psn");
+      expect(before.lists.some((c) => c !== null)).toBe(true);
+      await syncPlatformAccount(user.id, "psn", { full: true });
+      expect(await snapshot(prisma, user.id, "psn")).toEqual(before);
+    });
+
+    it("Xbox: stored valid unlocks forming a burst stay valid, keep completedAt and void nothing", async () => {
+      const { prisma, user, syncPlatformAccount } = await importThenMakeBurst("xbox", "2535400000000002", "Tralked Teste");
+      const before = await snapshot(prisma, user.id, "xbox");
+      await syncPlatformAccount(user.id, "xbox", { full: true });
+      expect(await snapshot(prisma, user.id, "xbox")).toEqual(before);
+    });
+
+    it("unlocks arriving new as a burst are still flagged", async () => {
+      const { prisma } = await import("@/lib/db");
+      const { syncPlatformAccount } = await import("./platform-user");
+      const user = await userWith("psn", "9000000000000000002", "Tralked-Teste");
+      const now = new Date("2026-10-20T12:00:00Z");
+      const { getPsn } = await import("@/lib/integrations");
+      const psn = getPsn();
+      // Fixture dates are spread: force every earned trophy into one burst for the first import.
+      const original = psn.getTrophies.bind(psn);
+      const trophies = vi.spyOn(psn, "getTrophies").mockImplementation(async (...args) => {
+        const list = await original(...args);
+        if (list === "private") return list;
+        return list.map((t) => (t.earnedAt ? { ...t, earnedAt: new Date(BURST_AT.getTime() + 1000) } : t));
+      });
+      try {
+        await syncPlatformAccount(user.id, "psn", { now });
+      } finally {
+        trophies.mockRestore();
+      }
+      const all = await prisma.userAchievement.findMany({ where: { userId: user.id } });
+      expect(all.length).toBeGreaterThanOrEqual(10);
+      expect(all.every((u) => u.suspicious)).toBe(true);
+    });
+
+    it("a stored suspicious unlock stays suspicious", async () => {
+      const { prisma, user, stored, syncPlatformAccount } = await importThenMakeBurst("psn", "9000000000000000002", "Tralked-Teste");
+      await prisma.userAchievement.update({
+        where: { userId_achievementId: { userId: user.id, achievementId: stored[0].achievementId } },
+        data: { suspicious: true },
+      });
+      await syncPlatformAccount(user.id, "psn", { full: true });
+      const all = await prisma.userAchievement.findMany({ where: { userId: user.id } });
+      expect(all.filter((u) => u.suspicious).map((u) => u.achievementId)).toEqual([stored[0].achievementId]);
+    });
+
+    it("an unlock released by an admin is not re-flagged by a later full resync", async () => {
+      const { prisma, user, stored, syncPlatformAccount } = await importThenMakeBurst("psn", "9000000000000000002", "Tralked-Teste");
+      const ids = stored.slice(0, 3).map((u) => u.achievementId);
+      // What the admin Liberar writes (releaseListed in lib/admin/fraud.ts).
+      await prisma.userAchievement.updateMany({
+        where: { userId: user.id, achievementId: { in: ids } },
+        data: { suspicious: false, fraudReview: "cleared", fraudReviewedAt: new Date() },
+      });
+      await syncPlatformAccount(user.id, "psn", { full: true });
+      const all = await prisma.userAchievement.findMany({ where: { userId: user.id } });
+      expect(all.filter((u) => u.suspicious)).toHaveLength(0);
+      expect(all.filter((u) => ids.includes(u.achievementId)).every((u) => u.fraudReview === "cleared")).toBe(true);
+    });
   });
 });
