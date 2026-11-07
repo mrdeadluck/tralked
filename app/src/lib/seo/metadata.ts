@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { FEED_PATH } from "./news-feeds";
 
 /*
  * Shared pieces of page metadata. Next merges metadata shallowly: a page that sets `openGraph`
@@ -17,6 +18,30 @@ export const SITE_SHARE_IMAGE = "/opengraph-image";
 export function canonical(path: string): Pick<Metadata, "alternates"> {
   return { alternates: { canonical: path } };
 }
+
+/**
+ * Canonical plus the RSS feed's <link rel="alternate">, for the pages feed readers and aggregators
+ * look at (home, /noticias). Not in the root layout: a page's own `alternates` would drop it, and a
+ * <link> rendered in the layout body breaks the partial prerender's resume.
+ */
+export function canonicalWithFeed(path: string): Pick<Metadata, "alternates"> {
+  return {
+    alternates: {
+      canonical: path,
+      types: { "application/rss+xml": [{ url: FEED_PATH, title: "Tralked: notícias de games" }] },
+    },
+  };
+}
+
+/**
+ * Every page that sets no robots of its own: indexable, and Google may show a large picture
+ * (Discover only shows big cards with max-image-preview:large), full snippets and video previews.
+ */
+export const SITE_ROBOTS = {
+  index: true,
+  follow: true,
+  googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 },
+} as const;
 
 /** Kept out of the index, links still followed (thin or empty pages that lead to real ones). */
 export const NOINDEX_FOLLOW = { index: false, follow: true } as const;

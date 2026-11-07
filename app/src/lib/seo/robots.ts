@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { AI_TRAINING_CRAWLERS } from "./ai-crawlers";
+import { NEWS_SITEMAP_PATH } from "./news-feeds";
 
 /**
  * Private areas (admin, account, API, notifications, newsletter links) stay out of search engines,
@@ -37,6 +38,7 @@ export function buildRobots(base: string, openForumSections: readonly string[] =
         disallow: [...DISALLOWED_PATHS, ...EMPTY_LISTING_PATHS],
       },
     ],
-    sitemap: new URL("/sitemap.xml", base).toString(),
+    // The site map and the Google News one (articles of the last two days).
+    sitemap: [new URL("/sitemap.xml", base).toString(), new URL(NEWS_SITEMAP_PATH, base).toString()],
   };
 }

@@ -9,7 +9,7 @@ import { SessionHeader } from "@/components/layout/SessionHeader";
 import { CookieConsent } from "@/components/layout/CookieConsent";
 import { RewardHost } from "@/components/fx/RewardHost";
 import { env } from "@/lib/env";
-import { SITE_OPEN_GRAPH } from "@/lib/seo/metadata";
+import { SITE_OPEN_GRAPH, SITE_ROBOTS } from "@/lib/seo/metadata";
 import "./globals.css";
 import "@/components/layout/parallax-backdrop.css";
 
@@ -33,6 +33,7 @@ export const metadata: Metadata = {
   description:
     "Gaming Hub: notícias de games, guias de conquistas 100%, a sua biblioteca e a sua ficha de personagem.",
   openGraph: { ...SITE_OPEN_GRAPH },
+  robots: SITE_ROBOTS,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

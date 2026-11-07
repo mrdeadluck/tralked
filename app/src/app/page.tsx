@@ -36,10 +36,10 @@ import { getReleasesCard, RELEASES_TAG } from "@/lib/queries/releases";
 import { ReleasesCard } from "@/components/releases/ReleasesCard";
 import { timeAgo } from "@/lib/time-ago";
 import { JsonLd, organizationJsonLd, websiteJsonLd } from "@/lib/seo/json-ld";
-import { canonical } from "@/lib/seo/metadata";
+import { canonicalWithFeed } from "@/lib/seo/metadata";
 
-// Title and description come from the root layout; the home only adds its canonical URL.
-export const metadata: Metadata = canonical("/");
+// Title and description come from the root layout; the home adds its canonical URL and the RSS feed.
+export const metadata: Metadata = canonicalWithFeed("/");
 
 /** Stories of the "Últimas" tab the home panel shows: two cards and eight more (no second lead). */
 const LATEST_SHOWN = 10;

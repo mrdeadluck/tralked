@@ -4,6 +4,7 @@ import { slugify } from "@/lib/community/text";
 import { clip } from "@/lib/content/schema";
 import { prisma } from "@/lib/db";
 import { articleTag, NEWS_TAG } from "@/lib/queries/news";
+import { scheduleIndexNow } from "@/lib/seo/indexnow";
 import { articlePatchSchema, articlePayloadSchema } from "./article-schema";
 import { articleUrl, resolveGames } from "./games";
 import type { ApiKeyRecord } from "./keys";
@@ -57,6 +58,8 @@ function invalidateNews(slug: string) {
   // expire 0: a page cached as "not found" before publication must not be served stale.
   revalidateTag(NEWS_TAG, { expire: 0 });
   revalidateTag(articleTag(slug), { expire: 0 });
+  // Bing (and through it ChatGPT search and Copilot) recrawls the article in minutes.
+  scheduleIndexNow([`/noticias/${slug}`]);
 }
 
 /** The bot author (one per key name), created on first use. */

@@ -69,3 +69,15 @@ describe("llms.txt", () => {
     expect(text).not.toContain("## Notícias recentes");
   });
 });
+
+describe("RSS discovery", () => {
+  it("home and /noticias declare the feed next to their canonical", async () => {
+    const { canonicalWithFeed } = await import("./metadata");
+    expect(canonicalWithFeed("/noticias")).toEqual({
+      alternates: {
+        canonical: "/noticias",
+        types: { "application/rss+xml": [{ url: "/feed.xml", title: "Tralked: notícias de games" }] },
+      },
+    });
+  });
+});

@@ -142,7 +142,7 @@ describe("sitemap and robots", () => {
       { userAgent: "*", allow: ["/", "/forum/t/"], disallow: [...DISALLOWED_PATHS, ...EMPTY_LISTING_PATHS] },
     ]);
     expect(DISALLOWED_PATHS).toEqual(expect.arrayContaining(["/admin", "/conta", "/api", "/entrar"]));
-    expect(robots.sitemap).toBe("https://tralked.example/sitemap.xml");
+    expect(robots.sitemap).toEqual(["https://tralked.example/sitemap.xml", "https://tralked.example/sitemap-noticias.xml"]);
   });
 
   it("robots keeps crawlers off the empty per-game listings, open on forum sections with topics", () => {

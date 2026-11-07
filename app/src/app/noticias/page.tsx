@@ -25,11 +25,12 @@ import {
   type PressArea,
 } from "@/lib/queries/news";
 import { timeAgo } from "@/lib/time-ago";
+import { canonicalWithFeed } from "@/lib/seo/metadata";
 
 export const metadata: Metadata = {
   title: "Notícias | Tralked",
   description: "Notícias de games, guias de conquistas e a vida da comunidade, da redação do Tralked.",
-  alternates: { canonical: "/noticias" },
+  ...canonicalWithFeed("/noticias"),
 };
 
 const PAGE_SIZE = 20;
