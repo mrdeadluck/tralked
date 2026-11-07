@@ -401,9 +401,11 @@ export function BookletSpread({
             imageUrl={profile.art.hero ?? profile.shots.find((s) => s.url)?.url ?? null}
             figure
             priority
-            // The hero's width at most: the CDN copy that covers it instead of the PNG original.
+            // The hero's width at most: the CDN copy that covers it instead of the PNG original. With
+            // `sizes`, phones take the 850 px JPEG and wide or dense screens an optimized copy.
             width={1280}
             height={640}
+            sizes="(max-width: 1320px) 100vw, 1320px"
           />
         </div>
         <BackdropLoop video={profile.backdrop} gameName={profile.name} />

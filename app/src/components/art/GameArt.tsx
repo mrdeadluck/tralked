@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { noteFailedImage, sizedImage, type ArtShape } from "@/lib/images/sized";
+import { isOptimizedUrl, noteFailedImage, sizedImage, type ArtShape } from "@/lib/images/sized";
 
 export type Hues = [number, number];
 
@@ -154,7 +154,10 @@ export function GameArt({
   const [h1, h2] = hues;
   const sized = imageUrl ? sizedImage(imageUrl, width, shape) : null;
   const candidates = sized ? [sized.src, ...(sized.fallbacks ?? [])] : [];
-  const current = candidates.find((url) => !failed.includes(url)) ?? candidates[candidates.length - 1];
+  // One optimizer copy failing means the optimizer is out for this image: skip all of its copies.
+  const optimizerDown = failed.some(isOptimizedUrl);
+  const usable = (url: string) => !failed.includes(url) && !(optimizerDown && isOptimizedUrl(url));
+  const current = candidates.find(usable) ?? candidates[candidates.length - 1];
   const step = current ? candidates.indexOf(current) : 0;
   const canFallBack = step < candidates.length - 1;
   const fail = (url: string | undefined) => {
@@ -167,14 +170,17 @@ export function GameArt({
     if (!imageUrl && ref.current) paint(ref.current, [h1, h2], seed, { figure, light });
   }, [imageUrl, h1, h2, seed, figure, light]);
 
-  // A thumbnail that 404'd before React attached onError is "complete" with no pixels.
+  // A thumbnail (or optimizer copy) that failed before React attached onError is "complete" with no pixels.
   useEffect(() => {
     const el = img.current;
-    if (imageUrl && canFallBack && el?.complete && el.currentSrc && el.naturalWidth === 0) fail(current);
+    if (!imageUrl || !el?.complete || !el.currentSrc || el.naturalWidth !== 0) return;
+    if (isOptimizedUrl(el.currentSrc)) fail(el.currentSrc);
+    else if (canFallBack) fail(current);
   }, [imageUrl, canFallBack, current]);
 
   if (imageUrl && sized) {
-    const responsive = step === 0 && sizes !== undefined;
+    // An optimizer copy the browser picked from the srcset that failed: the CDN copies only.
+    const responsive = step === 0 && sizes !== undefined && !optimizerDown;
     return (
       // Hosts vary (IGDB, SteamGridDB, article credits): next/image would need remotePatterns for each,
       // and these CDNs already serve the size asked for (no image-optimizer quota spent).
@@ -192,7 +198,12 @@ export function GameArt({
         fetchPriority={priority ? "high" : undefined}
         decoding="async"
         draggable={false}
-        onError={canFallBack ? () => fail(current) : undefined}
+        onError={() => {
+          // The srcset candidate in use may be an optimizer copy, not `src`: blame the right one.
+          const used = img.current?.currentSrc;
+          if (responsive && isOptimizedUrl(used)) fail(used);
+          else if (canFallBack) fail(current);
+        }}
         className={`block size-full object-cover ${className}`}
         style={style}
       />

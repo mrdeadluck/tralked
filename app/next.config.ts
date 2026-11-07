@@ -46,6 +46,9 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "avatars.akamai.steamstatic.com", pathname: "/**" },
       { protocol: "https", hostname: "cdn.cloudflare.steamstatic.com", pathname: "/steam/apps/**" },
       { protocol: "https", hostname: "cdn.akamai.steamstatic.com", pathname: "/steam/apps/**" },
+      // SteamGridDB heroes (3840 px PNGs of up to 8 MB) are resized for wide boxes only
+      // (lib/images/sized.ts OPTIMIZED_HERO_WIDTHS); phones get the CDN's own 850 px JPEG.
+      { protocol: "https", hostname: "cdn2.steamgriddb.com", pathname: "/hero/**" },
     ],
   },
   turbopack: {

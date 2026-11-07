@@ -45,4 +45,21 @@ describe("GameArt (real image)", () => {
       "https://cdn2.steamgriddb.com/hero_thumb/393cb2b797b64d4b4ca1c3634deb3345.png",
     );
   });
+
+  it("drops the optimizer copies, keeping the CDN thumbnail, when the one in use fails", () => {
+    // Its own id: other tests teach the module that HERO's JPEG thumbnail fails.
+    const hero = "https://cdn2.steamgriddb.com/hero/0a1b2c3d4e5f60718293a4b5c6d7e8f9.png";
+    const { container } = render(<GameArt seed={1} imageUrl={hero} width={1280} height={640} sizes="100vw" priority />);
+    let img = container.querySelector("img")!;
+    expect(img.getAttribute("srcset")).toContain("/_next/image?url=");
+    expect(img.getAttribute("src")).toContain("/_next/image?url=");
+    // The browser picked the 1200 px optimizer copy from the srcset and it failed.
+    const picked = `http://localhost/_next/image?url=${encodeURIComponent(hero)}&w=1200&q=75`;
+    Object.defineProperty(img, "currentSrc", { value: picked, configurable: true });
+    fireEvent.error(img);
+    img = container.querySelector("img")!;
+    expect(img.hasAttribute("srcset")).toBe(false);
+    // Not the 3840 px PNG: the CDN's own JPEG thumbnail, which did not fail.
+    expect(img.getAttribute("src")).toBe(hero.replace("/hero/", "/hero_thumb/").replace(".png", ".jpg"));
+  });
 });

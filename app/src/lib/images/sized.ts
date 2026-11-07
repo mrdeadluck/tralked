@@ -9,7 +9,8 @@
  *
  * - IGDB: the size token in the path (`t_screenshot_med`, `t_cover_big`, `t_720p`, `t_1080p`…).
  * - Steam screenshots: `ss_<hash>.1920x1080.jpg` also exists as `.600x338.jpg` and `.116x65.jpg`.
- * - SteamGridDB: `/hero/<id>.png` has an 850 px JPEG at `/hero_thumb/<id>.jpg`, `/grid/<id>.png`
+ * - SteamGridDB: `/hero/<id>.png` has an 850 px JPEG at `/hero_thumb/<id>.jpg` (wider boxes get the
+ *   original through the image optimizer, OPTIMIZED_HERO_WIDTHS, never the PNG itself), `/grid/<id>.png`
  *   a 267×400 one at `/thumb/<id>.jpg`. A few transparent images keep their thumbnail in PNG only
  *   (most PNG originals do have the JPEG one, so the extension says nothing). The sync records it on
  *   the stored URL as the fragment `#png-thumb` (PNG_THUMB_HINT; the CDN never sees a fragment),
@@ -44,6 +45,25 @@ const IGDB = /^(https:\/\/images\.igdb\.com\/igdb\/image\/upload\/)t_[a-z0-9_]+(
 const STEAM_SCREENSHOT = /^(https:\/\/[a-z.]+\.steamstatic\.com\/.+\/ss_[0-9a-f]+)\.(?:\d+x\d+)(\.jpg(?:\?.*)?)$/;
 const SGDB = /^(https:\/\/cdn2\.steamgriddb\.com\/(hero|grid)\/([0-9a-f]+)\.(png|jpe?g|webp))(#png-thumb)?$/;
 const SGDB_JPEG_THUMB = /^https:\/\/cdn2\.steamgriddb\.com\/(?:hero_thumb|thumb)\/([0-9a-f]+)\.jpg$/;
+
+/**
+ * Widths the image optimizer makes of a SteamGridDB hero (WebP, Next's default device sizes and
+ * quality). The originals are 3840 px PNGs of up to 8 MB: a 7.6 MB one made the game page's
+ * largest paint take ~43 s on a throttled phone (Lighthouse, 07/11/2026). Lucas chose (07/11)
+ * the light thumbnail for phones and the same art optimized for wider screens.
+ */
+export const OPTIMIZED_HERO_WIDTHS = [1200, 1920] as const;
+const OPTIMIZER_QUALITY = 75;
+
+/** Next's image optimizer URL (`/_next/image`, Vercel's on deploy) for a remote image allowed in next.config. */
+export function optimizedUrl(url: string, width: number): string {
+  return `/_next/image?url=${encodeURIComponent(url)}&w=${width}&q=${OPTIMIZER_QUALITY}`;
+}
+
+/** Whether `url` is an image optimizer URL (a failed one means: use the CDN copies instead). */
+export function isOptimizedUrl(url: string | undefined): boolean {
+  return Boolean(url && /(?:^|\/\/[^/]+)\/_next\/image\?/.test(url));
+}
 
 /** Fragment the sync appends to a SteamGridDB URL whose thumbnail exists only in PNG. */
 export const PNG_THUMB_HINT = "#png-thumb";
@@ -104,11 +124,18 @@ function candidatesFor(url: string, shape: ArtShape): { list: Candidate[]; fallb
     const png = ext === "png" && (Boolean(hint) || pngOnly.has(id));
     const fallbacks = png ? [original] : ext === "png" ? [thumb("png"), original] : [original];
     const small = thumb(png ? "png" : "jpg");
-    // The hero thumbnail is 850 px wide; it stands in up to 900 px boxes (a 6% upscale nobody sees,
-    // against a 3840 px PNG of up to 5 MB). The grid one (267 px) likewise up to the 280 px case of
-    // the game page's intro, against a 600 px PNG of up to 1 MB.
+    // The hero thumbnail is 850 px wide; it stands in up to 900 px boxes (a 6% upscale nobody sees).
+    // Wider boxes get the original resized by the image optimizer, never the 3840 px PNG of up to
+    // 8 MB. The grid one (267 px) stands in up to the 280 px case of the game page's intro, against
+    // a 600 px PNG of up to 1 MB.
     return kind === "hero"
-      ? { list: [{ url: small, width: 900 }, { url: original, width: 1920 }], fallbacks }
+      ? {
+          list: [
+            { url: small, width: 900 },
+            ...OPTIMIZED_HERO_WIDTHS.map((w) => ({ url: optimizedUrl(original, w), width: w })),
+          ],
+          fallbacks,
+        }
       : { list: [{ url: small, width: 280 }, { url: original, width: 600 }], fallbacks };
   }
   return null;
@@ -123,10 +150,12 @@ export function sizedImage(url: string, width: number, shape: ArtShape = "wide")
   if (!found) return { src: url };
   const { list, fallbacks } = found;
   const src = (list.find((c) => c.width >= width) ?? list[list.length - 1]).url;
+  // An optimizer copy as `src` falls back to the CDN's own smallest copy first.
+  const fallbacksFor = isOptimizedUrl(src) && fallbacks ? [list[0].url, ...fallbacks] : fallbacks;
   return {
     src,
     srcSet: list.map((c) => `${c.url} ${c.width}w`).join(", "),
-    ...(fallbacks ? { fallbacks } : {}),
+    ...(fallbacksFor ? { fallbacks: fallbacksFor } : {}),
   };
 }
 

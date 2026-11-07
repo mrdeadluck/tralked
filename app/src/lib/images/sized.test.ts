@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { noteFailedImage, PNG_THUMB_HINT, sizedImage, sizedUrl } from "./sized";
+import { isOptimizedUrl, noteFailedImage, optimizedUrl, PNG_THUMB_HINT, sizedImage, sizedUrl } from "./sized";
 
 const IGDB = (token: string, id = "loakfrjghok9fxnh59lt") => `https://images.igdb.com/igdb/image/upload/${token}/${id}.jpg`;
 const SS = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4824610/223fa1c5/ss_223fa1c5.1920x1080.jpg?t=1780990195";
@@ -40,7 +40,11 @@ describe("sizedImage", () => {
     const hero = "https://cdn2.steamgriddb.com/hero/11cadbfc3900a66c45907221f0d791e2.png";
     expect(sizedImage(hero, 400)).toEqual({
       src: "https://cdn2.steamgriddb.com/hero_thumb/11cadbfc3900a66c45907221f0d791e2.jpg",
-      srcSet: `https://cdn2.steamgriddb.com/hero_thumb/11cadbfc3900a66c45907221f0d791e2.jpg 900w, ${hero} 1920w`,
+      srcSet: [
+        "https://cdn2.steamgriddb.com/hero_thumb/11cadbfc3900a66c45907221f0d791e2.jpg 900w",
+        `/_next/image?url=${encodeURIComponent(hero)}&w=1200&q=75 1200w`,
+        `/_next/image?url=${encodeURIComponent(hero)}&w=1920&q=75 1920w`,
+      ].join(", "),
       fallbacks: ["https://cdn2.steamgriddb.com/hero_thumb/11cadbfc3900a66c45907221f0d791e2.png", hero],
     });
     const grid = "https://cdn2.steamgriddb.com/grid/efb0f96fc2ee386ece83fdacdf9e9c81.png";
@@ -49,6 +53,24 @@ describe("sizedImage", () => {
     // A JPEG original has a JPEG thumbnail: only the original is left to try.
     const jpg = "https://cdn2.steamgriddb.com/grid/56f9c90b73b3703fd8abe316d2bd1e6c.jpg";
     expect(sizedImage(jpg, 172, "fit").fallbacks).toEqual([jpg]);
+  });
+
+  it("never offers the multi-megabyte hero PNG itself: wide boxes get optimizer copies", () => {
+    // 07/11/2026: a 7.6 MB SteamGridDB hero made the game page's largest paint take ~43 s on a phone.
+    const hero = "https://cdn2.steamgriddb.com/hero/d1fcdf15cb97c47d0ed1e1e10773ae36.png";
+    const sized = sizedImage(hero, 1280);
+    expect(sized.src).toBe(optimizedUrl(hero, 1920));
+    expect(sized.srcSet).not.toMatch(new RegExp(`${hero.replace(/[.?]/g, "\$&")} `));
+    expect(sizedImage(`${hero}${PNG_THUMB_HINT}`, 1000).src).toBe(optimizedUrl(hero, 1200));
+    // The hero thumbnail still covers phone-sized boxes.
+    expect(sizedUrl(hero, 390)).toBe("https://cdn2.steamgriddb.com/hero_thumb/d1fcdf15cb97c47d0ed1e1e10773ae36.jpg");
+  });
+
+  it("recognizes optimizer URLs, relative or absolute", () => {
+    expect(isOptimizedUrl("/_next/image?url=x&w=1200&q=75")).toBe(true);
+    expect(isOptimizedUrl("https://tralked.com/_next/image?url=x&w=1200&q=75")).toBe(true);
+    expect(isOptimizedUrl("https://cdn2.steamgriddb.com/hero_thumb/a.jpg")).toBe(false);
+    expect(isOptimizedUrl(undefined)).toBe(false);
   });
 
   it("asks for the PNG thumbnail directly when the URL carries the hint, or after a JPEG one failed", () => {
