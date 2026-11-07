@@ -9,7 +9,7 @@
  */
 
 /** Stage where the last character (Captain Price) peaks. */
-export const END_STAGE = 3.95;
+export const END_STAGE = 4.6;
 
 /** Phones and narrow tablets: the preview's mobile layout and trajectories. */
 export const MOBILE_MAX_WIDTH = 800;
