@@ -49,6 +49,8 @@ const nextConfig: NextConfig = {
       // SteamGridDB heroes (3840 px PNGs of up to 8 MB) are resized for wide boxes only
       // (lib/images/sized.ts OPTIMIZED_HERO_WIDTHS); phones get the CDN's own 850 px JPEG.
       { protocol: "https", hostname: "cdn2.steamgriddb.com", pathname: "/hero/**" },
+      // And the game page's logo (transparent PNGs of 100 KB or more; WebP keeps the transparency).
+      { protocol: "https", hostname: "cdn2.steamgriddb.com", pathname: "/logo/**" },
     ],
   },
   turbopack: {

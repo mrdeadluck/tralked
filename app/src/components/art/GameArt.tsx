@@ -28,6 +28,8 @@ type GameArtProps = {
   alt?: string;
   /** Above-the-fold art: load the real image eagerly with high fetch priority. */
   priority?: boolean;
+  /** The page's largest paint: image-optimizer copies at every width (lib/images/sized.ts). */
+  optimize?: boolean;
   className?: string;
   style?: CSSProperties;
 };
@@ -143,6 +145,7 @@ export function GameArt({
   shape = "wide",
   alt = "",
   priority = false,
+  optimize = false,
   className = "",
   style,
 }: GameArtProps) {
@@ -152,7 +155,7 @@ export function GameArt({
   // Failed URLs, not a step count: a remembered PNG-only thumbnail changes the list of fallbacks.
   const [failed, setFailed] = useState<string[]>([]);
   const [h1, h2] = hues;
-  const sized = imageUrl ? sizedImage(imageUrl, width, shape) : null;
+  const sized = imageUrl ? sizedImage(imageUrl, width, shape, optimize) : null;
   const candidates = sized ? [sized.src, ...(sized.fallbacks ?? [])] : [];
   // One optimizer copy failing means the optimizer is out for this image: skip all of its copies.
   const optimizerDown = failed.some(isOptimizedUrl);

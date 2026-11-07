@@ -53,6 +53,15 @@ const SGDB_JPEG_THUMB = /^https:\/\/cdn2\.steamgriddb\.com\/(?:hero_thumb|thumb)
  * the light thumbnail for phones and the same art optimized for wider screens.
  */
 export const OPTIMIZED_HERO_WIDTHS = [1200, 1920] as const;
+/**
+ * The game page's hero (its largest paint) takes optimizer copies at every width: WebP at 1200 px
+ * is 52 KB against 124 KB for the 850 px JPEG thumbnail, and on a slow phone every KB delays it.
+ * Cards and lists keep the CDN thumbnail (no optimizer work for each card of a list).
+ */
+const OPTIMIZED_LCP_WIDTHS = [640, 828, 1200, 1920] as const;
+const SGDB_LOGO = /^https:\/\/cdn2\.steamgriddb\.com\/logo\/[0-9a-f]+\.png$/;
+/** Logo widths: its box is at most 620 CSS px wide. */
+const OPTIMIZED_LOGO_WIDTHS = [640, 1200] as const;
 const OPTIMIZER_QUALITY = 75;
 
 /** Next's image optimizer URL (`/_next/image`, Vercel's on deploy) for a remote image allowed in next.config. */
@@ -101,7 +110,11 @@ const IGDB_SIZES: Record<ArtShape, [token: string, width: number][]> = {
   ],
 };
 
-function candidatesFor(url: string, shape: ArtShape): { list: Candidate[]; fallbacks?: string[] } | null {
+function candidatesFor(
+  url: string,
+  shape: ArtShape,
+  optimize: boolean,
+): { list: Candidate[]; fallbacks?: string[] } | null {
   const igdb = url.match(IGDB);
   if (igdb) {
     return { list: IGDB_SIZES[shape].map(([token, width]) => ({ url: `${igdb[1]}${token}${igdb[2]}`, width })) };
@@ -128,6 +141,13 @@ function candidatesFor(url: string, shape: ArtShape): { list: Candidate[]; fallb
     // Wider boxes get the original resized by the image optimizer, never the 3840 px PNG of up to
     // 8 MB. The grid one (267 px) stands in up to the 280 px case of the game page's intro, against
     // a 600 px PNG of up to 1 MB.
+    if (kind === "hero" && optimize) {
+      return {
+        list: OPTIMIZED_LCP_WIDTHS.map((w) => ({ url: optimizedUrl(original, w), width: w })),
+        // The optimizer out: the CDN's own copies, as for any hero.
+        fallbacks: [small, ...fallbacks],
+      };
+    }
     return kind === "hero"
       ? {
           list: [
@@ -145,13 +165,20 @@ function candidatesFor(url: string, shape: ArtShape): { list: Candidate[]; fallb
  * The URL (and srcset) of `url` for a box at most `width` CSS px wide. `src` covers `width` at
  * 1x; with `sizes` on the element, the browser picks from `srcSet` for the screen's density.
  */
-export function sizedImage(url: string, width: number, shape: ArtShape = "wide"): SizedImage {
-  const found = candidatesFor(url, shape);
+export function sizedImage(
+  url: string,
+  width: number,
+  shape: ArtShape = "wide",
+  /** The page's largest paint: optimizer copies at every width where the original allows it. */
+  optimize = false,
+): SizedImage {
+  const found = candidatesFor(url, shape, optimize);
   if (!found) return { src: url };
   const { list, fallbacks } = found;
   const src = (list.find((c) => c.width >= width) ?? list[list.length - 1]).url;
   // An optimizer copy as `src` falls back to the CDN's own smallest copy first.
-  const fallbacksFor = isOptimizedUrl(src) && fallbacks ? [list[0].url, ...fallbacks] : fallbacks;
+  const fallbacksFor =
+    isOptimizedUrl(src) && fallbacks && !isOptimizedUrl(list[0].url) ? [list[0].url, ...fallbacks] : fallbacks;
   return {
     src,
     srcSet: list.map((c) => `${c.url} ${c.width}w`).join(", "),
@@ -162,4 +189,18 @@ export function sizedImage(url: string, width: number, shape: ArtShape = "wide")
 /** The single URL of `url` for a box at most `width` CSS px wide (for places without srcset). */
 export function sizedUrl(url: string, width: number, shape: ArtShape = "wide"): string {
   return sizedImage(url, width, shape).src;
+}
+
+/**
+ * A game's logo (the game page's <h1>): SteamGridDB's transparent PNGs (often 100 KB or more) go
+ * through the image optimizer (WebP keeps the transparency) with the original as the fallback;
+ * other logos (Steam's) pass through.
+ */
+export function logoImage(url: string): SizedImage {
+  if (!SGDB_LOGO.test(url)) return { src: url };
+  return {
+    src: optimizedUrl(url, OPTIMIZED_LOGO_WIDTHS[0]),
+    srcSet: OPTIMIZED_LOGO_WIDTHS.map((w) => `${optimizedUrl(url, w)} ${w}w`).join(", "),
+    fallbacks: [url],
+  };
 }

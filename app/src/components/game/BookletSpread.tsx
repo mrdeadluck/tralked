@@ -406,6 +406,7 @@ export function BookletSpread({
             width={1280}
             height={640}
             sizes="(max-width: 1320px) 100vw, 1320px"
+            optimize
           />
         </div>
         <BackdropLoop video={profile.backdrop} gameName={profile.name} />

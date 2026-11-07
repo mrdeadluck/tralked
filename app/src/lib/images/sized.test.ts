@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isOptimizedUrl, noteFailedImage, optimizedUrl, PNG_THUMB_HINT, sizedImage, sizedUrl } from "./sized";
+import { isOptimizedUrl, logoImage, noteFailedImage, optimizedUrl, PNG_THUMB_HINT, sizedImage, sizedUrl } from "./sized";
 
 const IGDB = (token: string, id = "loakfrjghok9fxnh59lt") => `https://images.igdb.com/igdb/image/upload/${token}/${id}.jpg`;
 const SS = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4824610/223fa1c5/ss_223fa1c5.1920x1080.jpg?t=1780990195";
@@ -64,6 +64,35 @@ describe("sizedImage", () => {
     expect(sizedImage(`${hero}${PNG_THUMB_HINT}`, 1000).src).toBe(optimizedUrl(hero, 1200));
     // The hero thumbnail still covers phone-sized boxes.
     expect(sizedUrl(hero, 390)).toBe("https://cdn2.steamgriddb.com/hero_thumb/d1fcdf15cb97c47d0ed1e1e10773ae36.jpg");
+  });
+
+  it("gives the page's largest paint optimizer copies at every width, the CDN copies as fallbacks", () => {
+    const id = "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e";
+    const hero = `https://cdn2.steamgriddb.com/hero/${id}.png`;
+    const sized = sizedImage(hero, 1280, "wide", true);
+    expect(sized.srcSet).toBe([640, 828, 1200, 1920].map((w) => `${optimizedUrl(hero, w)} ${w}w`).join(", "));
+    expect(sized.src).toBe(optimizedUrl(hero, 1920));
+    expect(sized.fallbacks).toEqual([
+      `https://cdn2.steamgriddb.com/hero_thumb/${id}.jpg`,
+      `https://cdn2.steamgriddb.com/hero_thumb/${id}.png`,
+      hero,
+    ]);
+    // Not for cards: without `optimize` a small box keeps the CDN thumbnail.
+    expect(sizedUrl(hero, 390)).toBe(`https://cdn2.steamgriddb.com/hero_thumb/${id}.jpg`);
+    // Hosts the optimizer does not take pass through unchanged.
+    const igdb = "https://images.igdb.com/igdb/image/upload/t_1080p/abc.jpg";
+    expect(isOptimizedUrl(sizedImage(igdb, 1280, "wide", true).src)).toBe(false);
+  });
+
+  it("sends SteamGridDB logos through the optimizer with the original as fallback, others unchanged", () => {
+    const logo = "https://cdn2.steamgriddb.com/logo/69f5d5c1249e17f4ac1d5b716db47105.png";
+    expect(logoImage(logo)).toEqual({
+      src: optimizedUrl(logo, 640),
+      srcSet: `${optimizedUrl(logo, 640)} 640w, ${optimizedUrl(logo, 1200)} 1200w`,
+      fallbacks: [logo],
+    });
+    const steam = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/logo.png";
+    expect(logoImage(steam)).toEqual({ src: steam });
   });
 
   it("recognizes optimizer URLs, relative or absolute", () => {
