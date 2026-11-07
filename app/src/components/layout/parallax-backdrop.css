@@ -74,8 +74,6 @@
 .tk-scene{--side-center:70px}
 .tk-scene .figure.kratos{width:600px;right:calc(var(--side-center) - 230px)}
 .tk-scene .figure.lara{width:650px;left:calc(var(--side-center) - 440px)}
-.tk-scene .figure.mario{width:620px;left:calc(var(--side-center) - 300px)}
-.tk-scene .figure.tarnished{width:760px;right:calc(var(--side-center) - 555px)}
 .tk-scene .figure.soul{width:800px;left:calc(var(--side-center) - 450px)}
 .tk-scene .figure.price{width:640px;right:calc(var(--side-center) - 400px)}
 @media(min-width:1200px){
@@ -85,13 +83,11 @@
   .tk-scene{--side-center:20px}
   .tk-scene .figure.kratos{width:420px;right:-170px}
   .tk-scene .figure.lara{width:455px;left:-285px}
-  .tk-scene .figure.mario{width:435px;left:-200px}
-  .tk-scene .figure.tarnished{width:530px;right:-355px}
   .tk-scene .figure.soul{width:560px;left:-295px}
   .tk-scene .figure.price{width:450px;right:-255px}
 }
-.tk-scene .figure:is(.lara,.tarnished) .rim{display:flex;align-items:center}
-.tk-scene .figure:is(.lara,.tarnished) svg{height:auto;mask-image:linear-gradient(transparent,#000 8%,#000 65%,transparent 100%)}
+.tk-scene .figure.lara .rim{display:flex;align-items:center}
+.tk-scene .figure.lara svg{height:auto;mask-image:linear-gradient(transparent,#000 8%,#000 65%,transparent 100%)}
 .tk-scene .figure.soul{left:calc(var(--side-center) - 380px)}
 .tk-scene .figure.soul svg{filter:brightness(0.413) saturate(0.27) contrast(1.1)}
 @media(max-width:800px){
@@ -132,18 +128,11 @@
 }
 .tk-scene .figure.soul .rim{transform:scale(1.40);transform-origin:50% 15%}
 .tk-scene .figure.lara{left:calc(var(--side-center) - 285px)}
-.tk-scene .figure.tarnished{right:calc(var(--side-center) - 310px)}
-.tk-scene .figure.tarnished svg{mask-image:linear-gradient(#000 75%,transparent 100%)}
 .tk-scene .figure.lara svg{filter:brightness(0.590) saturate(0.27) contrast(1.1)}
 @media(max-width:800px){
   .tk-scene .figure.lara{left:-165px}
-  .tk-scene .figure.tarnished{right:-190px}
 }
 .tk-scene .figure.lara svg{mask-image:linear-gradient(#000 65%,transparent 100%)}
-.tk-scene .figure.tarnished{top:10vh}
-@media(max-width:800px){
-  .tk-scene .figure.tarnished{top:16vh}
-}
 .tk-scene .figure.faye{left:calc(var(--side-center) - 175px)}
 @media(max-width:800px){
   .tk-scene .figure.faye{left:-90px}

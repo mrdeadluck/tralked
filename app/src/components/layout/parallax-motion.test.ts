@@ -21,7 +21,7 @@ describe("stagePixels", () => {
     expect(stagePixels(800, true, "ribbons", 50_000)).toBeCloseTo(1280);
   });
   it("lets a short page with the cast still reach the last character, without flashing", () => {
-    expect(stagePixels(1000, false, "full", 3150)).toBe(600);
+    expect(stagePixels(1000, false, "full", 600 * END_STAGE)).toBeCloseTo(600);
     expect(stagePixels(1000, false, "full", 50_000)).toBe(900);
     expect(stagePixels(1000, false, "full", 200)).toBe(500);
   });
