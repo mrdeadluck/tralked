@@ -23,6 +23,7 @@ export async function generateMetadata({ params }: PageProps<"/forum/t/[id]">): 
   return {
     title: `${thread.title} | Fórum Tralked`,
     description: thread.posts[0] ? preview(thread.posts[0].body) : undefined,
+    alternates: { canonical: `/forum/t/${id}` },
   };
 }
 

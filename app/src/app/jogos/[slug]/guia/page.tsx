@@ -38,7 +38,7 @@ import {
   getGuideCached,
   hasGuidePreviewCached,
 } from "@/lib/queries/games-cached";
-import { howToJsonLd, JsonLd } from "@/lib/seo/json-ld";
+import { breadcrumbJsonLd, howToJsonLd, JsonLd } from "@/lib/seo/json-ld";
 import { gameMetadata } from "../metadata";
 
 export async function generateStaticParams() {
@@ -54,6 +54,16 @@ export async function generateMetadata({
 }: PageProps<"/jogos/[slug]/guia">): Promise<Metadata> {
   const { slug } = await params;
   return gameMetadata(slug, "/guia");
+}
+
+/** Tralked › Jogos › the game › Guia 100%. */
+function guideBreadcrumb(game: { slug: string; name: string }) {
+  return breadcrumbJsonLd([
+    { name: "Tralked", path: "/" },
+    { name: "Jogos", path: "/jogos" },
+    { name: game.name, path: `/jogos/${game.slug}` },
+    { name: "Guia 100%", path: `/jogos/${game.slug}/guia` },
+  ]);
 }
 
 export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/guia">) {
@@ -105,6 +115,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
     return (
       <>
         <JsonLd data={howToJsonLd(guide)} />
+        <JsonLd data={guideBreadcrumb(guide.game)} />
         <WalkthroughPage
           guide={guide}
           user={
@@ -128,6 +139,7 @@ export default async function GuidePage({ params }: PageProps<"/jogos/[slug]/gui
   return (
     <>
       <JsonLd data={howToJsonLd(guide)} />
+      <JsonLd data={guideBreadcrumb(guide.game)} />
       <Suspense fallback={<GameHead game={guide.game} />}>
         <GameHeadIsland game={guide.game} />
       </Suspense>

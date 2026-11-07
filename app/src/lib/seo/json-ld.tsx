@@ -35,12 +35,61 @@ export function JsonLd({ data }: { data: JsonLdObject }) {
   return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(data) }} />;
 }
 
+// Search engines want a square raster logo of at least 112 px: the 180 px app icon.
+const LOGO_PATH = "/apple-icon.png";
+
 const publisher = () => ({
   "@type": "Organization",
   name: SITE_NAME,
   url: absoluteUrl("/"),
-  logo: { "@type": "ImageObject", url: absoluteUrl("/opengraph-image") },
+  logo: { "@type": "ImageObject", url: absoluteUrl(LOGO_PATH) },
 });
+
+/** Organization for the home page: who publishes the site (news, guides) and its logo. */
+export function organizationJsonLd(): JsonLdObject {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "@id": absoluteUrl("/#organizacao"),
+    name: SITE_NAME,
+    url: absoluteUrl("/"),
+    logo: absoluteUrl(LOGO_PATH),
+    description:
+      "Gaming Hub em português: notícias de games, guias de conquistas 100%, a sua biblioteca e a sua ficha de personagem.",
+  };
+}
+
+/** WebSite for the home page, with the catalog search as its search box (/jogos?q=). */
+export function websiteJsonLd(): JsonLdObject {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "@id": absoluteUrl("/#site"),
+    name: SITE_NAME,
+    url: absoluteUrl("/"),
+    inLanguage: "pt-BR",
+    publisher: { "@id": absoluteUrl("/#organizacao") },
+    potentialAction: {
+      "@type": "SearchAction",
+      target: { "@type": "EntryPoint", urlTemplate: `${absoluteUrl("/jogos")}?q={search_term_string}` },
+      "query-input": "required name=search_term_string",
+    },
+  };
+}
+
+/** BreadcrumbList: the trail above a page (`path` relative to the site), the page itself last. */
+export function breadcrumbJsonLd(items: { name: string; path: string }[]): JsonLdObject {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((item, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: item.name,
+      item: absoluteUrl(item.path),
+    })),
+  };
+}
 
 /** Only absolute http(s) images belong in structured data. */
 const httpImage = (url: string | null | undefined) => (url && /^https?:\/\//i.test(url) ? url : undefined);

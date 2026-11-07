@@ -24,6 +24,7 @@ import { PHOTO_XP, PHOTO_XP_DAILY_CAP } from "@/lib/community/xp";
 export const metadata: Metadata = {
   title: "Galeria da comunidade | Tralked",
   description: "Capturas de jogos enviadas pela comunidade Tralked: curta, comente e mostre as suas.",
+  alternates: { canonical: "/galeria" },
 };
 
 type SearchParams = PageProps<"/galeria">["searchParams"];

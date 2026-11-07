@@ -419,14 +419,33 @@ export async function getGame(slug: string, userId?: string): Promise<GameDetail
 }
 
 /** Lightweight lookup used by generateMetadata. */
-export async function getGameTitle(
-  slug: string,
-): Promise<{ name: string; hasGuide: boolean } | null> {
+export type GameTitle = {
+  name: string;
+  hasGuide: boolean;
+  stub: boolean;
+  summary: string | null;
+  achievementCount: number;
+  coverUrl: string | null;
+  heroUrl: string | null;
+};
+
+/** What the game and guide pages' metadata needs: title, indexability and the share picture. */
+export async function getGameTitle(slug: string): Promise<GameTitle | null> {
   const game = await prisma.game.findUnique({
     where: { slug },
-    select: { name: true, guide: { select: { status: true } } },
+    select: {
+      name: true,
+      stub: true,
+      summary: true,
+      achievementCount: true,
+      coverUrl: true,
+      heroUrl: true,
+      guide: { select: { status: true } },
+    },
   });
-  return game ? { name: game.name, hasGuide: game.guide?.status === "published" } : null;
+  if (!game) return null;
+  const { guide, ...rest } = game;
+  return { ...rest, hasGuide: guide?.status === "published" };
 }
 
 // ---------- Guide page ----------

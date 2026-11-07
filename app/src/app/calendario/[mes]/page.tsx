@@ -20,6 +20,7 @@ export async function generateMetadata({ params }: PageProps<"/calendario/[mes]"
   return {
     title: `Calendário de ${label} | Tralked`,
     description: `Matérias publicadas e lançamentos de jogos de ${label}.`,
+    alternates: { canonical: `/calendario/${monthParam(month)}` },
   };
 }
 

@@ -19,6 +19,7 @@ export async function generateMetadata({ params }: PageProps<"/highscores/[categ
   return {
     title: `Ranking: ${title} | Tralked`,
     description: `Ranking dos jogadores do Tralked: ${title}.`,
+    alternates: { canonical: boardHref(board) },
   };
 }
 

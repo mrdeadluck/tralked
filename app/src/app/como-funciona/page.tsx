@@ -26,6 +26,7 @@ export const metadata: Metadata = {
   title: "Como funciona o XP | Tralked",
   description:
     "De onde vem o XP no Tralked, como sobem o nível e as habilidades, e como funcionam missões, sequência e rankings.",
+  alternates: { canonical: "/como-funciona" },
 };
 
 // Every number on this page comes from the engine's own constants, so it can never drift.

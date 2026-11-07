@@ -9,6 +9,7 @@ import { SessionHeader } from "@/components/layout/SessionHeader";
 import { CookieConsent } from "@/components/layout/CookieConsent";
 import { RewardHost } from "@/components/fx/RewardHost";
 import { env } from "@/lib/env";
+import { SITE_OPEN_GRAPH } from "@/lib/seo/metadata";
 import "./globals.css";
 import "@/components/layout/parallax-backdrop.css";
 
@@ -31,7 +32,7 @@ export const metadata: Metadata = {
   title: SLOGAN,
   description:
     "Gaming Hub: notícias de games, guias de conquistas 100%, a sua biblioteca e a sua ficha de personagem.",
-  openGraph: { siteName: "Tralked", locale: "pt_BR", type: "website" },
+  openGraph: { ...SITE_OPEN_GRAPH },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

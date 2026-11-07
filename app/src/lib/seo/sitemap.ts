@@ -9,6 +9,11 @@ export const STATIC_PATHS = [
   "/forum",
   "/galeria",
   "/highscores",
+  "/lancamentos",
+  "/calendario",
+  "/como-funciona",
+  "/personagem",
+  "/familia",
   "/desenvolvedores",
   "/privacidade",
   "/termos",
@@ -17,6 +22,8 @@ export const STATIC_PATHS = [
 
 /** Sitemaps hold at most 50,000 URLs; each kind is capped well below that. */
 const MAX_PER_KIND = 10_000;
+/** ~10.5k games matched on 06/11/2026; the cap leaves room to grow inside one sitemap file. */
+const MAX_GAMES = 20_000;
 
 export type SitemapData = {
   games: { slug: string; updatedAt: Date }[];
@@ -29,11 +36,17 @@ export type SitemapData = {
 export async function loadSitemapData(): Promise<SitemapData> {
   const [games, guides, articles, threads] = await Promise.all([
     prisma.game.findMany({
-      // Name-only stubs of the full Steam catalog are not indexed until they have details.
-      where: { stub: false },
+      // Only the popular games with content (Lucas, 06/11: crawl budget and Vercel CPU): known
+      // popularity or an achievement list, and something to read. Stubs and empty pages are
+      // noindex anyway (lib/seo/metadata gameIndexable); the other games stay reachable by links.
+      where: {
+        stub: false,
+        OR: [{ popularity: { gt: 0 } }, { achievementCount: { gt: 0 } }],
+        AND: [{ OR: [{ summary: { not: null } }, { achievementCount: { gt: 0 } }] }],
+      },
       select: { slug: true, updatedAt: true },
-      orderBy: { slug: "asc" },
-      take: MAX_PER_KIND,
+      orderBy: [{ popularity: "desc" }, { slug: "asc" }],
+      take: MAX_GAMES,
     }),
     prisma.guide.findMany({
       where: { status: "published" },

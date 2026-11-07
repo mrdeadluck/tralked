@@ -33,7 +33,7 @@ import { listGameSlugs } from "@/lib/queries/games";
 import { getPsnTrophiesDue } from "@/lib/queries/psn-catalog-trophies";
 import { getRetroAchievementsDue } from "@/lib/queries/retro-achievements";
 import { getSteamPlayers, type SteamPlayersView } from "@/lib/queries/steam-players";
-import { JsonLd, videoGameJsonLd } from "@/lib/seo/json-ld";
+import { breadcrumbJsonLd, JsonLd, videoGameJsonLd } from "@/lib/seo/json-ld";
 import { gameMetadata } from "./metadata";
 import { moreVersionTrophies } from "./trophy-actions";
 
@@ -252,6 +252,13 @@ export default async function GamePage({ params }: PageProps<"/jogos/[slug]">) {
           coverUrl: profile.art.cover,
           platforms: profile.platforms,
         })}
+      />
+      <JsonLd
+        data={breadcrumbJsonLd([
+          { name: "Tralked", path: "/" },
+          { name: "Jogos", path: "/jogos" },
+          { name: profile.name, path: `/jogos/${profile.slug}` },
+        ])}
       />
       <IntroVeil slug={profile.slug} />
       {retroDue ? <RetroAchievementsLoader gameId={profile.id} /> : null}

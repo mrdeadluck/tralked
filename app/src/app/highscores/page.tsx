@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   title: "Ranking | Tralked",
   description:
     "Ranking dos jogadores do Tralked: nível, XP da semana, horas jogadas, conquistas, raras e lendárias, Tralked, acervo, por plataforma e por gênero.",
+  alternates: { canonical: "/highscores" },
 };
 
 /**

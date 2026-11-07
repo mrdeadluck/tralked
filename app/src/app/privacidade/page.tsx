@@ -10,6 +10,7 @@ import { NOTIFICATION_RETENTION_DAYS } from "@/lib/notifications/retention";
 export const metadata: Metadata = {
   title: "Privacidade | Tralked",
   description: "Quais dados o Tralked guarda, por quanto tempo, quais cookies usa e como exportar ou excluir os seus dados.",
+  alternates: { canonical: "/privacidade" },
 };
 
 const COOKIES = [

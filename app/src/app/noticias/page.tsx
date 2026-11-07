@@ -29,6 +29,7 @@ import { timeAgo } from "@/lib/time-ago";
 export const metadata: Metadata = {
   title: "Notícias | Tralked",
   description: "Notícias de games, guias de conquistas e a vida da comunidade, da redação do Tralked.",
+  alternates: { canonical: "/noticias" },
 };
 
 const PAGE_SIZE = 20;

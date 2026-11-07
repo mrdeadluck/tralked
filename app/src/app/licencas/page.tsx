@@ -6,6 +6,7 @@ import { DATA_SOURCES, FONTS, SOFTWARE, type LicenseEntry } from "@/lib/legal/li
 export const metadata: Metadata = {
   title: "Licenças | Tralked",
   description: "Software livre, fontes e fontes de dados usados pelo Tralked, com as respectivas licenças.",
+  alternates: { canonical: "/licencas" },
 };
 
 function LicenseList({ entries }: { entries: LicenseEntry[] }) {

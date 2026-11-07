@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -34,6 +35,11 @@ import {
 import { getReleasesCard, RELEASES_TAG } from "@/lib/queries/releases";
 import { ReleasesCard } from "@/components/releases/ReleasesCard";
 import { timeAgo } from "@/lib/time-ago";
+import { JsonLd, organizationJsonLd, websiteJsonLd } from "@/lib/seo/json-ld";
+import { canonical } from "@/lib/seo/metadata";
+
+// Title and description come from the root layout; the home only adds its canonical URL.
+export const metadata: Metadata = canonical("/");
 
 /** Stories of the "Últimas" tab the home panel shows: two cards and eight more (no second lead). */
 const LATEST_SHOWN = 10;
@@ -192,6 +198,8 @@ const stripFallback = (
 export default function Home() {
   return (
     <div className="flex flex-col gap-10">
+      <JsonLd data={websiteJsonLd()} />
+      <JsonLd data={organizationJsonLd()} />
       <Suspense fallback={stripFallback}>
         <PlayerSection />
       </Suspense>

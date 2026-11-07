@@ -18,6 +18,7 @@ import { myReactions, reactionXpOpen, type MyReaction } from "@/lib/community/re
 import { REACTION_GIVEN_XP } from "@/lib/community/rewards";
 import { currentViewer } from "@/lib/community/viewer";
 import { prisma } from "@/lib/db";
+import { SITE_OPEN_GRAPH } from "@/lib/seo/metadata";
 
 export async function generateStaticParams() {
   const ids = await recentPhotoIds(12);
@@ -37,7 +38,10 @@ export async function generateMetadata({ params }: PageProps<"/galeria/[id]">): 
   return {
     title: `${titleOf(photo)} | Galeria Tralked`,
     description: photo.caption ?? `Captura de ${photo.game?.name ?? "jogo"} na galeria da comunidade Tralked.`,
-    openGraph: photo.url ? { images: [{ url: photo.url, width: photo.width, height: photo.height }] } : undefined,
+    alternates: { canonical: `/galeria/${id}` },
+    openGraph: photo.url
+      ? { ...SITE_OPEN_GRAPH, url: `/galeria/${id}`, images: [{ url: photo.url, width: photo.width, height: photo.height }] }
+      : undefined,
   };
 }
 

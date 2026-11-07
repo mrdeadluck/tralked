@@ -9,6 +9,7 @@ export const metadata: Metadata = {
   title: "API para robôs | Tralked",
   description:
     "Como robôs criam notícias e guias no Tralked: chaves, escopos, endpoints, payloads completos, erros, idempotência e limites.",
+  alternates: { canonical: "/desenvolvedores" },
 };
 
 const SECTIONS = [

@@ -20,6 +20,7 @@ export const metadata: Metadata = {
   title: "Seu personagem | Tralked",
   description:
     "Suas conquistas da Steam, PlayStation, Xbox e RetroAchievements viram XP, nível, platinas e skills por gênero numa ficha de personagem.",
+  alternates: { canonical: "/personagem" },
 };
 
 /*

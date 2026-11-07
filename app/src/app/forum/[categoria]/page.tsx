@@ -31,6 +31,7 @@ export async function generateMetadata({ params }: PageProps<"/forum/[categoria]
   return {
     title: section.kind === "game" ? `Fórum de ${section.name} | Tralked` : `${section.name} | Fórum Tralked`,
     description: section.description,
+    alternates: { canonical: `/forum/${section.slug}` },
     ...(empty && { robots: { index: false, follow: true } }),
   };
 }

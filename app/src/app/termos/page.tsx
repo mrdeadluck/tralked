@@ -8,6 +8,7 @@ import { LEGAL_UPDATED_AT } from "@/lib/legal/contact";
 export const metadata: Metadata = {
   title: "Termos de uso | Tralked",
   description: "Regras de uso do Tralked: conta, conteúdo publicado pela comunidade, direitos autorais e denúncias.",
+  alternates: { canonical: "/termos" },
 };
 
 export default function TermosPage() {

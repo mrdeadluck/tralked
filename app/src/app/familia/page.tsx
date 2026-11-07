@@ -27,6 +27,7 @@ export const metadata: Metadata = {
   title: "Família Tralked",
   description:
     "Junte as bibliotecas Steam de quem joga com você: veja quem tem cada jogo, o ranking da família e o que está perto do 100%.",
+  alternates: { canonical: "/familia" },
 };
 
 export default function FamiliaPage({ searchParams }: PageProps<"/familia">) {

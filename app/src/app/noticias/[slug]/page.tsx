@@ -18,7 +18,8 @@ import { PlatformChips } from "@/components/ui/PlatformChips";
 import { withHuntCallout } from "@/lib/news/hunt-callout";
 import { Blocks } from "@/lib/content/render";
 import { isSafeHttpUrl } from "@/lib/content/url";
-import { JsonLd, newsArticleJsonLd } from "@/lib/seo/json-ld";
+import { breadcrumbJsonLd, JsonLd, newsArticleJsonLd } from "@/lib/seo/json-ld";
+import { SITE_OPEN_GRAPH, SITE_SHARE_IMAGE } from "@/lib/seo/metadata";
 import { shareImageUrl } from "@/lib/seo/share-image";
 import {
   articleTag,
@@ -79,12 +80,15 @@ export async function generateMetadata({
   return {
     title: `${article.title} | Tralked`,
     description: article.excerpt ?? undefined,
+    alternates: { canonical: `/noticias/${article.slug}` },
     openGraph: {
+      ...SITE_OPEN_GRAPH,
       type: "article",
+      url: `/noticias/${article.slug}`,
       title: article.title,
       description: article.excerpt ?? undefined,
       publishedTime: article.publishedAt.toISOString(),
-      ...(image ? { images: [{ url: image, alt: article.title }] } : {}),
+      images: [{ url: image ?? SITE_SHARE_IMAGE, alt: article.title }],
     },
     ...(image
       ? {
@@ -487,6 +491,13 @@ export default async function NoticiaPage({ params }: PageProps<"/noticias/[slug
   return (
     <>
       <JsonLd data={newsArticleJsonLd(article)} />
+      <JsonLd
+        data={breadcrumbJsonLd([
+          { name: "Tralked", path: "/" },
+          { name: "Notícias", path: "/noticias" },
+          { name: article.title, path: `/noticias/${article.slug}` },
+        ])}
+      />
       <ArticleLayout article={article} />
       <ArticleViewBeacon articleId={article.id} />
       <div className="mt-16">

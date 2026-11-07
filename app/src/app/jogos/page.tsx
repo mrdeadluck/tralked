@@ -28,6 +28,7 @@ import { cleanQuery } from "@/lib/search/fold";
 export const metadata: Metadata = {
   title: "Jogos e guias | Tralked",
   description: "Catálogo de jogos com conquistas, guias 100% e o seu progresso em cada um.",
+  alternates: { canonical: "/jogos" },
 };
 
 const BASE = "/jogos";

@@ -12,6 +12,7 @@ import { showcaseShotsCached } from "@/lib/community/showcase";
 export const metadata: Metadata = {
   title: "Fórum | Tralked",
   description: "Dúvidas de conquistas, rotas de 100% e conversa sobre jogos com a comunidade Tralked.",
+  alternates: { canonical: "/forum" },
 };
 
 export default async function ForumPage() {
